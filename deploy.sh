@@ -55,5 +55,5 @@ docker compose ps
 echo ""
 echo "✅ ══════════════════════════════════════════"
 echo "   Deployment Successful!"
-echo "   🌐 Live at: https://mafia.grade.sbs"
+echo "   🌐 Live at: https://club-mafia.grade.sbs"
 echo "══════════════════════════════════════════════"
