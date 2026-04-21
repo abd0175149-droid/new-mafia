@@ -10,7 +10,7 @@ import { activities, notifications, staff } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
-import { linkSessionToActivity, unlinkSessionFromActivity } from '../services/session.service.js';
+import { linkSessionToActivity, unlinkSessionFromActivity, createSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 
 const router = Router();

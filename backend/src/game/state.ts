@@ -139,6 +139,7 @@ export interface GameState {
   matchId?: number; // ID السجل في PostgreSQL
   sessionId?: number; // ID الغرفة في PostgreSQL
   sessionCode?: string; // كود الغرفة الثابت
+  activityId?: number; // ID النشاط المرتبط
   createdAt: string;
 }
 
