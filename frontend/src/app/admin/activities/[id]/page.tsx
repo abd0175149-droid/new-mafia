@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }

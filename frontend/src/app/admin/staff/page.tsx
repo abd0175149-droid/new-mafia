@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
 function getCurrentUserId() { try { return JSON.parse(localStorage.getItem('user') || '{}')?.id; } catch { return null; } }

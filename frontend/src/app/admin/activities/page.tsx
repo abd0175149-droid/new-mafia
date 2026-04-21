@@ -7,7 +7,7 @@ import ActivityForm from '../components/ActivityForm';
 import BookingForm from '../components/BookingForm';
 import EditActivityForm from '../components/EditActivityForm';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
 function getUser() {

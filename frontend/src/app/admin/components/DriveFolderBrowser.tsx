@@ -7,7 +7,7 @@ interface DriveFolderBrowserProps {
   driveLink: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('token') : null;

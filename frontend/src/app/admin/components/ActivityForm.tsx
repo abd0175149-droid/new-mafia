@@ -65,7 +65,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
       let driveLink = '';
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/drive/folder`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/drive/folder`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ name: driveFolderName, parentId: '1MLgq3qx0by7pi_MStkAofEiUYb4n33ml' })
