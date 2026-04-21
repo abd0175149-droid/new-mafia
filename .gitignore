@@ -1,6 +1,9 @@
 node_modules
 dist
 .env
+.env.local
 *.log
 data/
 .next
+google-service-account.json
+testsprite_tests/tmp/

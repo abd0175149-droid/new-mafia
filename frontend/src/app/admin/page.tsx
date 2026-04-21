@@ -110,10 +110,28 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-white">لوحة التحكم</h1>
-        <p className="text-gray-400 mt-1">مرحباً بك في منصة نادي المافيا الموحدة</p>
+      {/* Header + Quick Actions */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-white">لوحة التحكم</h1>
+          <p className="text-gray-400 mt-1">مرحباً بك في منصة نادي المافيا الموحدة</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <a
+            href="/admin/activities"
+            className="px-4 py-2.5 border border-gray-600/50 text-gray-300 rounded-xl text-sm hover:bg-gray-800 transition"
+            id="btn-go-activities"
+          >
+            🎯 الأنشطة
+          </a>
+          <a
+            href="/admin/bookings"
+            className="px-4 py-2.5 border border-gray-600/50 text-gray-300 rounded-xl text-sm hover:bg-gray-800 transition"
+            id="btn-go-bookings"
+          >
+            📅 الحجوزات
+          </a>
+        </div>
       </div>
 
       {/* Stats Grid */}

@@ -1,8 +1,0 @@
-{
-  "status": "commited",
-  "type": "frontend",
-  "scope": "diff",
-  "localEndpoint": "http://localhost:3000",
-  "loginUser": "admin ",
-  "loginPassword": "Password"
-}
