@@ -1,0 +1,286 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=Tajawal:wght@300;400;500;700;800;900&family=Amiri:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@layer base {
+  :root {
+    --color-primary: #8A0303; /* Blood Red */
+    --color-secondary: #C5A059; /* Vintage Gold */
+    --color-dark-bg: #050505; /* Pitch Black */
+    --color-dark-surface: #111111; /* Charcoal */
+    --color-dark-card: #1A1A1A;
+    --color-gold: #C5A059;
+    --color-success: #2E5C31; /* Darker green */
+    --color-danger: #8A0303;
+  }
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-dark-950 text-white font-sans antialiased relative;
+    direction: rtl;
+    min-height: 100vh;
+    background-color: #050505;
+  }
+
+  /* ── Noise Overlay ── */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-dark-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark-600 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dark-500;
+  }
+}
+
+/* ═══ Blood Vignette — تدرج أحمر دموي على حواف الشاشة ═══ */
+.blood-vignette::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse at top left, rgba(138,3,3,0.3) 0%, transparent 50%),
+    radial-gradient(ellipse at top right, rgba(138,3,3,0.25) 0%, transparent 50%),
+    radial-gradient(ellipse at bottom left, rgba(138,3,3,0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at bottom right, rgba(138,3,3,0.25) 0%, transparent 50%),
+    radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.4) 100%);
+}
+
+@layer components {
+  /* ── Noir Card (Classic, Sharp, Serious) ─────────────────── */
+  .noir-card {
+    @apply bg-[#0c0c0c] border border-[#2a2a2a] rounded-none shadow-[0_15px_30px_rgba(0,0,0,0.8)] relative overflow-hidden;
+  }
+
+  .noir-card::before {
+    content: '';
+    @apply absolute inset-0 border-[1.5px] border-dark-800 m-1 pointer-events-none;
+  }
+
+  .noir-card-hover {
+    @apply noir-card transition-all duration-300 hover:-translate-y-1 hover:border-[#8A0303]/40 hover:shadow-[0_20px_40px_rgba(138,3,3,0.15)];
+  }
+
+  /* ── Player Card ─────────────────────────── */
+  .player-card {
+    @apply noir-card p-4 flex items-center gap-3 cursor-pointer transition-all duration-300;
+  }
+
+  .player-card.alive {
+    @apply border-dark-600 hover:border-[#C5A059]/60;
+  }
+
+  .player-card.dead {
+    @apply opacity-30 grayscale border-dark-900 cursor-not-allowed;
+  }
+
+  .player-card.silenced {
+    @apply border-dark-500 bg-[#111111];
+  }
+
+  .player-card.registered {
+    @apply border-emerald-500/50 bg-emerald-900/20;
+  }
+
+  .player-card.empty {
+    @apply border-dashed border-dark-600 bg-dark-900/40;
+  }
+
+  /* ── Deal Card ────────────────────────────── */
+  .deal-card {
+    @apply glass-card p-4 border-2 border-gold-500/40 bg-gradient-to-br from-amber-900/20 to-dark-800/60;
+  }
+
+  /* ── Role Chip ────────────────────────────── */
+  .role-chip {
+    @apply px-4 py-2 rounded-full font-bold text-sm cursor-grab active:cursor-grabbing transition-all duration-200 shadow-lg;
+  }
+
+  .role-chip.mafia {
+    @apply bg-gradient-to-r from-mafia-700 to-mafia-900 text-mafia-100 border border-mafia-500/30;
+  }
+
+  .role-chip.citizen {
+    @apply bg-gradient-to-r from-citizen-700 to-citizen-900 text-citizen-100 border border-citizen-500/30;
+  }
+
+  /* ── Buttons ──────────────────────────────── */
+  .btn-primary {
+    @apply px-6 py-3 rounded-none font-bold text-white bg-[#8A0303] border border-red-950
+           hover:bg-[#a00303] transition-all duration-200 shadow-[0_5px_15px_rgba(138,3,3,0.3)]
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 rounded-none font-bold text-dark-950 bg-[#C5A059] border border-amber-700
+           hover:bg-[#d4b069] transition-all duration-200 
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wider;
+  }
+
+  .btn-ghost {
+    @apply px-6 py-3 rounded-none font-bold text-dark-400 border border-[#2a2a2a] 
+           hover:bg-[#111111] hover:text-[#C5A059] hover:border-[#C5A059]/40
+           transition-all duration-200 active:scale-95;
+  }
+
+  /* ── Display Screen Background ─────────────── */
+  .display-bg {
+    @apply bg-[#050505] min-h-screen relative overflow-hidden;
+    background-image: radial-gradient(circle at 50% 0%, #111111 0%, #050505 70%);
+  }
+
+  /* ── Modern Premium Buttons (Noir Variant) ───────────────── */
+  .btn-premium {
+    @apply relative px-8 py-4 rounded-none font-black text-xl overflow-hidden transition-all duration-300 transform
+           hover:-translate-y-[2px] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed
+           bg-[#0c0c0c] border border-[#2a2a2a] text-[#C5A059] uppercase tracking-[0.2em];
+  }
+
+  .btn-premium::before {
+    content: '';
+    @apply absolute inset-0 border-2 border-[#8A0303] opacity-0 transition-opacity duration-300 pointer-events-none;
+  }
+
+  .btn-premium:hover::before {
+    @apply opacity-100;
+  }
+
+  .btn-premium::after {
+    content: '';
+    @apply absolute top-0 left-[-100%] w-[50%] h-full bg-gradient-to-r from-transparent via-white/5 to-transparent transition-all duration-700 pointer-events-none;
+  }
+
+  .btn-premium:hover::after {
+    left: 200%;
+  }
+
+  .btn-premium span {
+    @apply relative z-10;
+  }
+}
+
+@layer utilities {
+  .text-gradient-mafia {
+    @apply text-[#8A0303] drop-shadow-[0_2px_4px_rgba(0,0,0,1)];
+  }
+
+  .text-gradient-citizen {
+    @apply text-[#e2e2e2] drop-shadow-[0_2px_4px_rgba(0,0,0,1)];
+  }
+
+  .text-gradient-gold {
+    @apply text-[#C5A059] drop-shadow-[0_2px_4px_rgba(0,0,0,1)];
+  }
+
+  /* ═══ Spotlight Vignette — إظلام حواف الشاشة عند وجود متكلم ═══ */
+  .spotlight-vignette {
+    position: relative;
+  }
+  .spotlight-vignette::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at center, transparent 25%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.85) 100%);
+    z-index: 40;
+    animation: vignetteIn 1s ease-out forwards;
+  }
+
+  /* ═══ Revealed Vignette — حواف حمراء وهّاجة عند كشف الهوية ═══ */
+  .revealed-vignette {
+    position: relative;
+  }
+  .revealed-vignette::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at center, transparent 30%, rgba(138,3,3,0.3) 60%, rgba(138,3,3,0.7) 100%);
+    z-index: 40;
+    animation: vignetteIn 1.5s ease-out forwards;
+  }
+
+  @keyframes vignetteIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* ═══ Glitch Text — تأثير تشويش لنص الإسكات ═══ */
+  .glitch-text {
+    position: relative;
+    animation: glitchShake 0.3s ease-in-out infinite alternate;
+  }
+  .glitch-text::before,
+  .glitch-text::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.8;
+  }
+  .glitch-text::before {
+    color: #ff0000;
+    clip-path: inset(20% 0 50% 0);
+    animation: glitchClip1 0.5s linear infinite alternate;
+    transform: translate(-2px, -1px);
+  }
+  .glitch-text::after {
+    color: #00ffff;
+    clip-path: inset(50% 0 20% 0);
+    animation: glitchClip2 0.4s linear infinite alternate;
+    transform: translate(2px, 1px);
+  }
+
+  @keyframes glitchShake {
+    0% { transform: translate(0); }
+    20% { transform: translate(-2px, 1px); }
+    40% { transform: translate(2px, -1px); }
+    60% { transform: translate(-1px, 2px); }
+    80% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+  }
+  @keyframes glitchClip1 {
+    0% { clip-path: inset(20% 0 50% 0); }
+    25% { clip-path: inset(10% 0 60% 0); }
+    50% { clip-path: inset(30% 0 40% 0); }
+    75% { clip-path: inset(15% 0 55% 0); }
+    100% { clip-path: inset(25% 0 45% 0); }
+  }
+  @keyframes glitchClip2 {
+    0% { clip-path: inset(50% 0 20% 0); }
+    25% { clip-path: inset(60% 0 10% 0); }
+    50% { clip-path: inset(40% 0 30% 0); }
+    75% { clip-path: inset(55% 0 15% 0); }
+    100% { clip-path: inset(45% 0 25% 0); }
+  }
+}
