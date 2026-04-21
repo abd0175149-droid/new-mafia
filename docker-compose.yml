@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════
-# 🎭 Unified Mafia Platform — Docker Compose
+# 🎭 Unified Mafia Platform — Production Docker Compose
 # ══════════════════════════════════════════════════════
 
 services:
@@ -8,45 +8,45 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    ports:
-      - "4000:4000"
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - DATABASE_URL=postgresql://mafia_user:mafia_pass@postgres:5432/mafia_db
+      - DATABASE_URL=postgresql://mafia_user:${DB_PASSWORD:-mafia_pass}@postgres:5432/mafia_db
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-https://mafia.grade.sbs}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
     restart: unless-stopped
+    networks:
+      - mafia-net
 
   # ── Frontend (Next.js) ─────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000/api}
-        - NEXT_PUBLIC_SOCKET_URL=${NEXT_PUBLIC_SOCKET_URL:-http://localhost:4000}
     ports:
       - "3000:3000"
+    environment:
+      - BACKEND_URL=http://backend:4000
+      - HOSTNAME=0.0.0.0
     depends_on:
       - backend
     restart: unless-stopped
+    networks:
+      - mafia-net
 
   # ── PostgreSQL (Unified Database) ──────────────────
   postgres:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_USER=mafia_user
-      - POSTGRES_PASSWORD=mafia_pass
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-mafia_pass}
       - POSTGRES_DB=mafia_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -56,16 +56,22 @@ services:
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    networks:
+      - mafia-net
 
   # ── Redis (Live Game State) ────────────────────────
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    networks:
+      - mafia-net
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  mafia-net:
+    driver: bridge
