@@ -6,7 +6,7 @@ import Image from 'next/image';
 import MafiaCard from './MafiaCard';
 import { useGameState } from '@/hooks/useGameState';
 
-type Step = 'code' | 'phone' | 'register' | 'number' | 'done';
+type Step = 'code' | 'phone' | 'register' | 'number' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -63,6 +63,67 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   // ── توزيع الأدوار الرقمي ──
   const [assignedRole, setAssignedRole] = useState<string | null>(null);
   const [cardFlipped, setCardFlipped] = useState(false);
+  const [isPlayerDead, setIsPlayerDead] = useState(false);
+  const [rejoinLoading, setRejoinLoading] = useState(true);
+
+  // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
+  useEffect(() => {
+    if (!isConnected || !emit) {
+      setRejoinLoading(false);
+      return;
+    }
+
+    const saved = localStorage.getItem('mafia_session');
+    if (!saved) {
+      setRejoinLoading(false);
+      return;
+    }
+
+    try {
+      const session = JSON.parse(saved);
+      if (!session.roomId || !session.physicalId) {
+        setRejoinLoading(false);
+        return;
+      }
+
+      emit('room:rejoin-player', {
+        roomId: session.roomId,
+        physicalId: session.physicalId,
+        phone: session.phone || undefined,
+      }).then((res: any) => {
+        if (res.success) {
+          setRoomId(session.roomId);
+          setRoomCode(session.roomCode || '');
+          setGameName(res.gameName || '');
+          setPhysicalId(String(res.player.physicalId));
+          setDisplayName(res.player.name);
+          setGender(res.player.gender === 'FEMALE' ? 'female' : 'male');
+          setPlayerId(session.playerId || null);
+
+          if (res.player.role) {
+            setAssignedRole(res.player.role);
+          }
+
+          if (!res.player.isAlive) {
+            setIsPlayerDead(true);
+            setCardFlipped(true); // ميت = كارد مفتوح
+          }
+
+          setStep('rejoined');
+          console.log(`♻️ Rejoin success: #${res.player.physicalId} - ${res.player.name}`);
+        } else {
+          // الغرفة مش موجودة → مسح الجلسة
+          localStorage.removeItem('mafia_session');
+        }
+        setRejoinLoading(false);
+      }).catch(() => {
+        setRejoinLoading(false);
+      });
+    } catch {
+      localStorage.removeItem('mafia_session');
+      setRejoinLoading(false);
+    }
+  }, [isConnected, emit]);
 
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   useEffect(() => {
@@ -176,6 +237,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         : undefined;
       const genderUpper = gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined;
       await joinRoom(roomId, parseInt(physicalId), displayName, phone, playerId || undefined, genderUpper, dateOfBirth);
+
+      // حفظ الجلسة في localStorage
+      localStorage.setItem('mafia_session', JSON.stringify({
+        roomId,
+        physicalId: parseInt(physicalId),
+        phone,
+        displayName,
+        roomCode,
+        playerId: playerId || null,
+      }));
+
       setStep('done');
     } catch (err: any) {
       setApiError(err.message);
@@ -582,8 +654,123 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             </motion.div>
           )}
 
+          {/* ── خطوة Rejoin: اللاعب عاد ── */}
+          {step === 'rejoined' && (
+            <motion.div key="rejoined" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
+              {isPlayerDead ? (
+                /* ── حالة الميت: كارد مفتوح + grayscale ── */
+                <>
+                  <h2 className="text-2xl font-black mb-2 text-[#555]" style={{ fontFamily: 'Amiri, serif' }}>
+                    تم إقصاؤك
+                  </h2>
+                  <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em] mb-6">
+                    AGENT ELIMINATED — IDENTITY EXPOSED
+                  </p>
+                  <div className="flex justify-center mb-6 grayscale opacity-70">
+                    <MafiaCard
+                      playerNumber={parseInt(physicalId)}
+                      playerName={displayName}
+                      role={assignedRole}
+                      isFlipped={true}
+                      gender={gender === 'female' ? 'FEMALE' : 'MALE'}
+                      showVoting={false}
+                      flippable={false}
+                      size="md"
+                    />
+                  </div>
+                  <p className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em]">
+                    ☠️ STATUS: ELIMINATED
+                  </p>
+                </>
+              ) : assignedRole ? (
+                /* ── حالة حي مع دور: كارد قابل للقلب ── */
+                <>
+                  <h2 className="text-2xl font-black mb-2 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                    مرحباً بعودتك
+                  </h2>
+                  <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em] mb-6">
+                    TAP CARD TO REVEAL YOUR IDENTITY
+                  </p>
+                  <div className="flex justify-center mb-6">
+                    <MafiaCard
+                      playerNumber={parseInt(physicalId)}
+                      playerName={displayName}
+                      role={assignedRole}
+                      isFlipped={cardFlipped}
+                      onFlip={() => setCardFlipped(prev => !prev)}
+                      gender={gender === 'female' ? 'FEMALE' : 'MALE'}
+                      showVoting={false}
+                      flippable={true}
+                      size="md"
+                    />
+                  </div>
+                  <AnimatePresence mode="wait">
+                    {cardFlipped ? (
+                      <motion.p key="hide2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em] animate-pulse">
+                        ⚠️ أخفِ هاتفك الآن!
+                      </motion.p>
+                    ) : (
+                      <motion.p key="tap2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        className="text-[#555] text-[9px] font-mono uppercase tracking-widest">
+                        اضغط البطاقة لكشف دورك
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </>
+              ) : (
+                /* ── حالة حي بدون دور (في الانتظار) ── */
+                <>
+                  <motion.div className="text-[#C5A059] flex justify-center mb-6"
+                    animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
+                    <ShieldCheckIcon />
+                  </motion.div>
+                  <h2 className="text-3xl font-black mb-4 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                    مرحباً بعودتك
+                  </h2>
+                  <div className="flex justify-center mb-8">
+                    <MafiaCard
+                      playerNumber={parseInt(physicalId)}
+                      playerName={displayName}
+                      role={null}
+                      gender={gender === 'female' ? 'FEMALE' : 'MALE'}
+                      showVoting={false}
+                      flippable={false}
+                      size="md"
+                    />
+                  </div>
+                  <p className="text-[#C5A059] text-[11px] font-mono uppercase tracking-[0.2em]">
+                    SECURE YOUR DEVICE. AWAIT ROLE ASSIGNMENT.
+                  </p>
+                </>
+              )}
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </motion.div>
+
+      {/* ── شاشة التحميل أثناء محاولة الـ Rejoin ── */}
+      {rejoinLoading && (
+        <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center"
+          >
+            <motion.div
+              className="text-[#C5A059] flex justify-center mb-4"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+            >
+              <ShieldCheckIcon />
+            </motion.div>
+            <p className="text-[#808080] text-[10px] font-mono uppercase tracking-widest">
+              RESTORING SESSION...
+            </p>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

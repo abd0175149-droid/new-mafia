@@ -27,7 +27,7 @@ import driveRoutes from './routes/drive.routes.js';
 import playerRoutes from './routes/player.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
-import { registerLobbyEvents, seedDummyGame } from './sockets/lobby.socket.js';
+import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
 import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
@@ -166,6 +166,9 @@ async function main() {
 
   // ── بذر البيانات ──
   await seedDatabase();
+
+  // ── إعادة بناء الغرف النشطة من Redis ──
+  await rehydrateActiveRooms();
 
   // ── بذر لعبة تجريبية (تطوير فقط) ──
   if (env.NODE_ENV === 'development') {

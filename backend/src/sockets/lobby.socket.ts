@@ -16,6 +16,36 @@ export function getActiveRooms() {
   return Array.from(activeRooms.values());
 }
 
+// ── إعادة بناء activeRooms من Redis عند بدء السيرفر ──
+export async function rehydrateActiveRooms(): Promise<void> {
+  try {
+    const { getAllGameStates } = await import('../config/redis.js');
+    const allStates = await getAllGameStates();
+
+    for (const state of allStates) {
+      // تخطي الألعاب المنتهية أو البيانات التالفة
+      if (!state || !state.roomId || state.phase === 'GAME_OVER') continue;
+
+      activeRooms.set(state.roomId, {
+        roomId: state.roomId,
+        roomCode: state.roomCode || '',
+        gameName: state.config?.gameName || 'Unknown',
+        playerCount: state.players?.length || 0,
+        maxPlayers: state.config?.maxPlayers || 10,
+        displayPin: state.config?.displayPin || '',
+      });
+    }
+
+    if (activeRooms.size > 0) {
+      console.log(`♻️  Rehydrated ${activeRooms.size} active room(s) from Redis`);
+    } else {
+      console.log(`ℹ️  No active rooms found in Redis to rehydrate`);
+    }
+  } catch (err) {
+    console.error('❌ Failed to rehydrate active rooms:', err);
+  }
+}
+
 export async function seedDummyGame() {
   try {
     console.log('🌱 Seeding Dummy Game for quick testing from lobby.socket.ts...');
@@ -223,6 +253,54 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       callback({ success: true });
       console.log(`👤 Player joined: #${data.physicalId} - ${data.name} (${data.gender || 'MALE'})`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── إعادة اتصال لاعب (Rejoin) ──────────────────
+  socket.on('room:rejoin-player', async (data: {
+    roomId: string;
+    physicalId: number;
+    phone?: string;
+  }, callback) => {
+    try {
+      const state = await getRoom(data.roomId);
+      if (!state) {
+        return callback({ success: false, error: 'Room not found' });
+      }
+
+      // البحث عن اللاعب بالرقم الفيزيائي أو رقم الهاتف
+      const player = state.players.find((p: any) =>
+        p.physicalId === data.physicalId ||
+        (data.phone && p.phone === data.phone)
+      );
+
+      if (!player) {
+        return callback({ success: false, error: 'Player not found in this room' });
+      }
+
+      // ربط الـ socket بالغرفة
+      socket.join(data.roomId);
+      socket.data.role = 'player';
+      socket.data.roomId = data.roomId;
+      socket.data.physicalId = player.physicalId;
+
+      callback({
+        success: true,
+        player: {
+          physicalId: player.physicalId,
+          name: player.name,
+          role: player.role || null,
+          isAlive: player.isAlive,
+          gender: player.gender || 'MALE',
+        },
+        phase: state.phase,
+        gameName: state.config?.gameName || '',
+        roomCode: state.roomCode || '',
+      });
+
+      console.log(`♻️  Player rejoin: #${player.physicalId} - ${player.name} (alive: ${player.isAlive})`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

@@ -110,6 +110,43 @@ export async function scanGameKeys(pattern: string = 'game:*'): Promise<string[]
   }
 }
 
+// ── جلب كل حالات الألعاب النشطة (لإعادة بناء activeRooms) ──
+export async function getAllGameStates(): Promise<any[]> {
+  const states: any[] = [];
+
+  if (redisClient && !useInMemory) {
+    try {
+      const keys: string[] = [];
+      for await (const key of redisClient.scanIterator({ MATCH: 'game:*' })) {
+        keys.push(key);
+      }
+      for (const key of keys) {
+        // تخطي مفاتيح الربط (game:code:XXXX)
+        if (key.startsWith('game:code:')) continue;
+        const data = await redisClient.get(key);
+        if (data) {
+          try { states.push(JSON.parse(data)); } catch { /* skip bad JSON */ }
+        }
+      }
+    } catch {
+      // fallback to in-memory
+      for (const [key, val] of inMemoryStore.entries()) {
+        if (key.startsWith('game:') && !key.startsWith('game:code:')) {
+          try { states.push(JSON.parse(val)); } catch { /* skip */ }
+        }
+      }
+    }
+  } else {
+    for (const [key, val] of inMemoryStore.entries()) {
+      if (key.startsWith('game:') && !key.startsWith('game:code:')) {
+        try { states.push(JSON.parse(val)); } catch { /* skip */ }
+      }
+    }
+  }
+
+  return states;
+}
+
 // ── إغلاق الاتصال ──────────────────────────────────
 export async function disconnectRedis(): Promise<void> {
   if (redisClient) {

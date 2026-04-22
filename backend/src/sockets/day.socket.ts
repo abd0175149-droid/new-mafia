@@ -653,11 +653,21 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // ═══ حفظ الحالة ═══
       await setGameState(data.roomId, state);
 
-      // بث الإقصاء للجميع
+      // بث الإقصاء للجميع — مع المرحلة الحالية + عداد الفريقين
+      const alivePlayers = state.players.filter((p: any) => p.isAlive && p.role);
+      const teamCounts = {
+        mafiaAlive: alivePlayers.filter((p: any) => isMafiaRole(p.role)).length,
+        citizenAlive: alivePlayers.filter((p: any) => !isMafiaRole(p.role)).length,
+        mafiaTotal: state.players.filter((p: any) => p.role && isMafiaRole(p.role)).length,
+        citizenTotal: state.players.filter((p: any) => p.role && !isMafiaRole(p.role)).length,
+      };
+
       io.to(data.roomId).emit('admin:player-eliminated', {
         physicalId: data.physicalId,
         playerName: player.name,
         role: player.role,
+        currentPhase: state.phase,   // ← الفرونت يبقى في نفس المرحلة
+        teamCounts,                  // ← تحديث عداد الفريقين
       });
 
       // ═══ فحص شرط الفوز (فقط بعد اعتماد الأدوار) ═══
