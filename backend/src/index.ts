@@ -40,7 +40,6 @@ const server = createServer(app);
 
 // ── Socket.IO ───────────────────────────────────────
 const io = new Server(server, {
-  path: '/api/socketio',
   cors: {
     origin: env.FRONTEND_URL ? env.FRONTEND_URL.split(',') : '*',
     methods: ['GET', 'POST'],

@@ -12,7 +12,6 @@ let socket: Socket | null = null;
 export function getSocket(): Socket {
   if (!socket) {
     socket = io(SOCKET_URL, {
-      path: '/api/socketio',
       transports: ['polling', 'websocket'],
       autoConnect: true,
       reconnection: true,
