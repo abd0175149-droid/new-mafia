@@ -5,16 +5,18 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, Request, Response } from 'express';
-import { db } from '../config/db.js';
+import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
 import { eq, desc } from 'drizzle-orm';
 
 const router = Router();
 
 // ── POST /api/player/lookup — البحث عن لاعب برقم الهاتف ──
-// يبحث في سجل session_players عن آخر مرة لعب فيها هذا الرقم
 router.post('/lookup', async (req: Request, res: Response) => {
   try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ found: false, error: 'Database not ready' });
+
     const { phone } = req.body;
     if (!phone) {
       return res.json({ found: false, player: null });
@@ -54,6 +56,9 @@ router.post('/lookup', async (req: Request, res: Response) => {
 // الحفظ الفعلي يتم وقت الانضمام للغرفة عبر Socket (room:join)
 router.post('/register', async (req: Request, res: Response) => {
   try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'Database not ready' });
+
     const { phone, displayName, dateOfBirth, gender } = req.body;
 
     if (!phone || !displayName) {
