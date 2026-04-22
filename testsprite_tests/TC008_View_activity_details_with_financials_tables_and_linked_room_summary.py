@@ -39,10 +39,7 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Navigate to the admin login page at /admin/login and observe the login form fields before entering credentials.
-        await page.goto("http://localhost:3000/admin/login")
-        
-        # -> Enter admin credentials into the username and password fields and submit the login form (click the تسجيل الدخول button).
+        # -> Fill the username field with the admin username (element 145) as the next immediate action.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -58,47 +55,32 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Navigate to the admin activities list page and open an activity to view its details (financial & attendance summaries, linked room and location info), then toggle bookings and costs tables.
-        await page.goto("http://localhost:3000/admin/activities")
-        
-        # -> Click the '+ إضافة نشاط جديد' (Add new activity) button to open the activity creation form and observe its visible fields.
+        # -> Click the '🎯 الأنشطة' Activities link on the dashboard to open the Activities list, then open an activity detail.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/button[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
         await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the activity date/time (context-setting) field so the form can be completed. After entering the datetime, wait for any dependent fields to appear before continuing.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('2026-07-17T19:00')
-        
-        # -> Fill the ticket price and optional description, submit the 'إضافة النشاط' form to create the activity, then wait for the activities list to update so we can open the activity detail view.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('15')
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('اختبار النشاط - مراجعة تفاصيل مالية وحضور')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[1]/div/div[1]/div[1]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Wait for the activity creation to finish and refresh the activities list, then open the created activity's detail view.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the 'التفاصيل' (Details) button on an activity card to open the activity detail view and then inspect the financial & attendance summaries, linked room/location info, and reveal the bookings and costs tables.
+        # -> Open an activity detail by clicking its 'التفاصيل' button to view the activity detail page.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[3]/div[2]/button[2]').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Click the 'قائمة الحجوزات' (bookings) button to open the bookings table, then open the 'تكاليف النشاط' (costs) section.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[4]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Test passed — verified by AI agent

@@ -154,7 +154,7 @@ export default function BookingsPage() {
   async function handleCreateBooking(data: any) {
     await apiFetch('/api/bookings', { method: 'POST', body: JSON.stringify(data) });
     setShowBookingForm(false);
-    fetchAll();
+    await fetchAll();
   }
 
   async function handleDelete(id: number) {
@@ -227,8 +227,10 @@ export default function BookingsPage() {
         }),
       });
       setEditingBooking(null);
-      fetchAll();
-    } catch {} finally {
+      await fetchAll();
+    } catch (err: any) {
+      alert('فشل التعديل: ' + (err.message || 'خطأ في الاتصال بالسيرفر'));
+    } finally {
       setEditSubmitting(false);
     }
   }
@@ -260,8 +262,10 @@ export default function BookingsPage() {
         body: JSON.stringify({ isPaid: true, paidAmount: Number(payAmount), receivedBy: payReceivedBy }),
       });
       setPayingBooking(null);
-      fetchAll();
-    } catch {} finally {
+      await fetchAll();
+    } catch (err: any) {
+      alert('فشل تأكيد الدفع: ' + (err.message || 'خطأ في الاتصال بالسيرفر'));
+    } finally {
       setPaySubmitting(false);
     }
   }

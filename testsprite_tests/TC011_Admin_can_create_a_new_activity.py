@@ -33,16 +33,16 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'لوحة الإدارة (Admin)' button to open the admin login page (click element index 80).
+        # -> Open the Admin login page by clicking the 'لوحة الإدارة (Admin)' button.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Navigate directly to the admin login page at /admin/login and wait for the page to load
+        # -> Navigate to the admin login page at /admin/login and wait for the page to load so I can fill the admin credentials.
         await page.goto("http://localhost:3000/admin/login")
         
-        # -> Fill the username field with 'admin' (index 157), fill the password with 'admin123' (index 159), then submit the form (click index 163).
+        # -> Fill the admin username and password, then submit the login form to authenticate as admin.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -58,24 +58,25 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the activities section from the admin dashboard by clicking the 'الأنشطة' navigation link.
+        # -> Open the Activities section from the admin dashboard by clicking the 'الأنشطة' link.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '+ إضافة نشاط جديد' (Add new activity) button to open the new activity form (index 561).
+        # -> Open the 'Add new activity' form by clicking the '+ إضافة نشاط جديد' button so the activity creation form is displayed.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/button[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Set the activity date/time, base price, and description, then scroll to reveal the submit button.
+        # -> Select a location from the location dropdown, then fill the date/time, set a base price, enter 'Activity Alpha' as the description, submit the form, and verify the new activity appears in the activities list.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('2026-04-23T20:00')
+        await asyncio.sleep(3); await elem.fill('2026-08-01T18:00')
         
+        # -> Fill ticket price, fill description 'Activity Alpha', click 'إضافة النشاط' (submit) to create the scheduled activity, then verify it appears in the activities list.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div/input').nth(0)
@@ -86,7 +87,6 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div[2]/input').nth(0)
         await asyncio.sleep(3); await elem.fill('Activity Alpha')
         
-        # -> Click the 'إضافة النشاط' submit button (index 719) to create the activity, wait for the UI to update, then verify the newly created activity appears in the activities list (look for 'Activity Alpha' with location 'مزاج افندينا' and date 23 April 2026).
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button').nth(0)

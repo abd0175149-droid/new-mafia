@@ -33,10 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to the admin login page at /admin/login so I can sign in as the admin user.
-        await page.goto("http://localhost:3000/admin/login")
+        # -> Click the 'لوحة الإدارة (Admin)' button to go to the admin login page.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
-        # -> Fill username and password fields with admin credentials and submit the login form.
+        # -> Fill the username and password fields with admin credentials and submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -52,28 +55,43 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the Activities navigation link to open the Activities list.
+        # -> Click the 'الموظفون' (Staff) navigation item to open Staff Management.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
+        elem = frame.locator('xpath=/html/body/div/aside/nav/a[6]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the details for the 'Test activity for unlinking game room' activity by clicking its Details (ℹ️) button.
+        # -> Click the '+ إضافة موظف جديد' button to open the Add Staff form (index 620).
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[2]/div[3]/div[2]/button[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '🔓 فك الربط' (Unlink) button for the linked game room to start the unlink flow.
+        # -> Fill the full name, username, and password fields in the Add Staff modal, then click 'حفظ التغييرات' (Save) to create the staff member.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/div/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('Staff Create User')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/div[3]/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('staff.create.user@example.com')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/div[3]/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('P@ssw0rd123')
+        
+        # -> Click the 'حفظ التغييرات' (Save) button to submit the Add Staff form, then wait for the staff list to refresh so we can verify 'Staff Create User' appears.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # --> Test passed — verified by AI agent
+        # --> Assertions to verify final state
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        assert await frame.locator("xpath=//*[contains(., 'Staff Create User')]").nth(0).is_visible(), "The staff list should show Staff Create User after creating the new staff member"
         await asyncio.sleep(5)
 
     finally:

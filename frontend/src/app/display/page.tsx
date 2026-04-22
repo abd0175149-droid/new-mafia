@@ -381,10 +381,14 @@ export default function DisplayPage() {
     try {
       // جلب الألعاب عبر REST (موثوق عبر أي proxy)
       const res = await fetch('/api/game/active');
+      if (!res.ok) {
+        setPinError('خطأ في الاتصال بالسيرفر — الكود ' + res.status);
+        return;
+      }
       const data = await res.json();
 
       if (!data.success || !data.rooms || data.rooms.length === 0) {
-        setPinError('لا توجد ألعاب نشطة حالياً');
+        setPinError('رمز الدخول غير صحيح أو لا توجد ألعاب نشطة');
         return;
       }
 

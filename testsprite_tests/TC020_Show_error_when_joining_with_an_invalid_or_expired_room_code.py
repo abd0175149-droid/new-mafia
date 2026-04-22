@@ -33,30 +33,8 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the Admin button to open the admin login page, then fill username and password.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Navigate to http://localhost:3000/admin/login and load the admin login form so I can observe its fields before filling credentials.
-        await page.goto("http://localhost:3000/admin/login")
-        
-        # -> Fill the username field (index 219) with 'admin', fill the password field (index 221) with 'admin123', then submit by clicking the login button (index 224).
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin')
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin123')
-        
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # -> Navigate to /join/ABCDEF (use a syntactically valid but non-existent room code) and then verify the join form loads.
+        await page.goto("http://localhost:3000/join/ABCDEF")
         
         # --> Test passed — verified by AI agent
         frame = context.pages[-1]

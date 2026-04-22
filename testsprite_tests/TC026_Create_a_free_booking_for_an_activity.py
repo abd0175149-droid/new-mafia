@@ -33,16 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'Admin' button to open the admin login page, then observe the login form fields before filling them.
+        # -> Open the Admin login by clicking the 'لوحة الإدارة (Admin)' button
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Navigate to /admin/login and observe the admin login form fields.
-        await page.goto("http://localhost:3000/admin/login")
-        
-        # -> Fill the username and password fields with admin credentials and submit the login form.
+        # -> Enter admin credentials (admin/admin123) into the login form and submit it.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -58,55 +55,69 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the bookings management page (click the '📅 الحجوزات' / 'btn-go-bookings' link) so we can create a new booking.
+        # -> Open the bookings page to create a new booking.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/aside/nav/a[3]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '+ حجز جديد' (New Booking) button to open the booking creation form and then observe the form fields before filling them.
+        # -> Open the 'New Booking' form by clicking the '+ حجز جديد' button so the booking creation fields are visible.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the booking name, phone, people count, then set payment status to 'تم الدفع'. Stop after selecting payment status so the UI can reveal any dependent payment-amount field.
+        # -> Open the activity dropdown so its options are visible (prepare to choose an activity).
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div/select').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Select an activity from the activity dropdown (index 898) to begin creating the free booking.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Booking Test Paid')
+        await asyncio.sleep(3); await elem.fill('Booking Free User')
         
+        # -> Fill the phone number field and submit the booking by clicking 'إضافة الحجز' so the new booking can be created, then verify it appears in the bookings list with a free/unpaid status.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div[2]/input').nth(0)
         await asyncio.sleep(3); await elem.fill('0791234567')
         
         frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('4')
-        
-        # -> Click the 'حالة الدفع' (payment status) dropdown and select 'تم الدفع' so the payment-amount field appears (stop after selecting to allow dependent field to render).
-        frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div[3]/select').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the payment amount field, submit the booking, then verify the new booking appears in the bookings list by searching for 'Booking Test Paid'.
+        # -> Filter/search the bookings list for 'Booking Free User' to confirm the booking is present and shows free/unpaid status.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[4]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('20')
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('Booking Free User')
         
+        # -> Clear the search field (index 469) so the bookings list can show all free bookings, then check whether the created booking appears with the free/unpaid indicator.
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[6]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('')
         
-        # --> Test passed — verified by AI agent
+        # -> Search the bookings list by phone number '0791234567' using the search input (index 469) to try to locate the newly created booking and confirm it shows a free/unpaid indicator.
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('0791234567')
+        
+        # -> Clear the search field and reset the status filter to 'كل الحالات' so the bookings list shows all entries, then check for the created booking.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('')
+        
+        # --> Assertions to verify final state
+        frame = context.pages[-1]
+        assert await frame.locator("xpath=//*[contains(., 'Booking Free User')]").nth(0).is_visible(), "The bookings list should show the newly created booking after submission.",
+        assert await frame.locator("xpath=//*[contains(., 'غير مدفوع')]").nth(0).is_visible(), "The booking should show an unpaid status indicator after creating a free booking."]}
         await asyncio.sleep(5)
 
     finally:

@@ -109,15 +109,21 @@ export default function LocationsPage() {
         }
       }
       setIsDialogOpen(false);
-      fetchLocations();
-    } catch {} finally { setSaving(false); }
+      await fetchLocations();
+    } catch (err: any) {
+      alert('فشل الحفظ: ' + (err.message || 'خطأ في الاتصال بالسيرفر'));
+    } finally { setSaving(false); }
   }
 
   // ══ Delete ══
   async function handleDelete(id: number) {
     if (!confirm('هل تريد حذف هذا المكان؟')) return;
-    await apiFetch(`/api/locations/${id}`, { method: 'DELETE' });
-    fetchLocations();
+    try {
+      await apiFetch(`/api/locations/${id}`, { method: 'DELETE' });
+      await fetchLocations();
+    } catch (err: any) {
+      alert('فشل الحذف: ' + (err.message || 'خطأ في الاتصال بالسيرفر'));
+    }
   }
 
   // ══ Offer management ══

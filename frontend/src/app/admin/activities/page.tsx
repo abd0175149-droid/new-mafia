@@ -169,24 +169,24 @@ export default function ActivitiesPage() {
   async function handleCreateActivity(data: any) {
     await apiFetch('/api/activities', { method: 'POST', body: JSON.stringify(data) });
     setShowActivityForm(false);
-    fetchAll();
+    await fetchAll();
   }
 
   async function handleCreateBooking(data: any) {
     await apiFetch('/api/bookings', { method: 'POST', body: JSON.stringify(data) });
     setShowBookingForm(false);
-    fetchAll();
+    await fetchAll();
   }
 
   async function handleEditActivity(id: number, data: any) {
     await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
     setShowEditForm(null);
-    fetchAll();
+    await fetchAll();
   }
 
   async function handleStatusChange(id: number, newStatus: string) {
     await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) });
-    fetchAll();
+    await fetchAll();
   }
 
   async function handleDelete(id: number) {

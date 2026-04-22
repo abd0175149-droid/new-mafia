@@ -33,35 +33,24 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the Admin button to open the admin login page, then fill username and password.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # -> Navigate to /display, observe the connect form fields (room code/PIN and connect button), enter an invalid code/PIN, submit the connect action, and verify an error message is shown.
+        await page.goto("http://localhost:3000/display")
         
-        # -> Navigate to http://localhost:3000/admin/login and load the admin login form so I can observe its fields before filling credentials.
-        await page.goto("http://localhost:3000/admin/login")
-        
-        # -> Fill the username field (index 219) with 'admin', fill the password field (index 221) with 'admin123', then submit by clicking the login button (index 224).
+        # -> Enter an invalid display access code into the numeric input (index 100). After the input updates the page, the ACCESS button should become interactive and then I'll submit to verify an error is shown.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin')
+        elem = frame.locator('xpath=/html/body/div/div/div/form/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('999999')
         
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin123')
-        
+        # -> Click the ACCESS button (index 105) to submit the invalid code and verify that an error message is shown indicating the code/PIN is invalid.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # --> Test passed — verified by AI agent
+        # --> Assertions to verify final state
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        assert await frame.locator("xpath=//*[contains(., 'Invalid room code or PIN')]").nth(0).is_visible(), "The page should display an invalid room code or PIN error after submitting an invalid code."
         await asyncio.sleep(5)
 
     finally:

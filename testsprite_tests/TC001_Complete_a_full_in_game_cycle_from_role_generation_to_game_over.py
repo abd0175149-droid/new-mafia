@@ -33,32 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'Leader' entry button to open the leader login page.
+        # -> Click the 'دخول القائد (Leader)' button to navigate to the leader login page.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Log in (leader) using admin credentials by filling the username and password and submitting the form.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin')
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin123')
-        
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Navigate to /leader/login so I can perform the leader login with admin credentials.
-        await page.goto("http://localhost:3000/leader/login")
-        
-        # -> Fill the leader username and password (admin / admin123) and submit the form to log in as the leader.
+        # -> Fill the Admin ID (username) and Clearance Code (password) fields with the admin credentials and submit the AUTHORIZE button to log in as the leader.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
@@ -74,51 +55,128 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the leader rooms / operations page to create a new room and set max players to at least 6.
-        await page.goto("http://localhost:3000/leader/rooms")
-        
-        # -> Try to reach the leader dashboard or rooms management root — navigate to /leader to locate the room creation UI or other navigation to rooms.
-        await page.goto("http://localhost:3000/leader")
-        
-        # -> Click the seeded room's RESUME button to open the room view so we can start the game and advance phases.
+        # -> Open the leader login page again so we can verify login state or re-authenticate if needed (click the 'دخول القائد (Leader)' button).
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'Start new game' button for the seeded room to begin the game (🎮 بدء لعبة جديدة).
+        # -> Fill the Admin ID and Clearance Code fields with the admin credentials and click AUTHORIZE (use indices 309, 313, then click 318) to log in as the leader.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[4]/button[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click CONFIRM OP_DISTRIBUTION to confirm role/op distribution and advance the game to the next phase.
+        # -> Open the leader login page by clicking the 'دخول القائد (Leader)' button so we can reattempt authentication and proceed to room creation.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div/div[3]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Auto-assign all roles (use the 'توزيع عشوائي للأدوار' / Randomize Roles button) so no action roles remain unassigned, then confirm/lock identities to commence the day.
+        # -> Open the leader login page by clicking the 'دخول القائد (Leader)' button so I can observe the login form and reattempt a controlled login submission.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div/div[4]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the COMMENCE ROTATION button to begin the day discussion rotation and advance the game state to the next phase.
+        # -> Fill the Admin ID and Clearance Code fields with admin/admin123 and click the AUTHORIZE button to attempt a definitive leader login, then observe resulting UI.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> End the active game to produce a Game Over view (use the '✕ Terminate' control), then verify the Game Over screen is shown and finish the test.
+        # -> Open the leader login page by clicking the 'دخول القائد (Leader)' button so the login form is visible and we can perform a controlled login attempt.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div/div[2]/button[3]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Navigate directly to the leader login page (/leader/login) so I can reattempt a controlled authentication and then continue to room creation and game flow verification.
+        await page.goto("http://localhost:3000/leader/login")
+        
+        # -> Fill the Admin ID and Clearance Code with admin/admin123 and click AUTHORIZE to attempt a definitive leader login, then observe the resulting UI.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Click the 'دخول القائد (Leader)' button to open the leader login page (element index 793).
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Navigate directly to /leader/login so the login form can be observed in a fresh page load and then reattempt a controlled login submission.
+        await page.goto("http://localhost:3000/leader/login")
+        
+        # -> Fill the Admin ID and Clearance Code with admin/admin123 and submit the login form (AUTHORIZE) to attempt a definitive leader login. Observe the resulting UI to confirm leader session.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Navigate to the leader login page (/leader/login) in a fresh page load so we can perform a controlled login attempt with admin/admin123.
+        await page.goto("http://localhost:3000/leader/login")
+        
+        # -> Fill Admin ID and Clearance Code with admin/admin123 and click AUTHORIZE to attempt leader authentication. Observe resulting UI to confirm leader session and proceed if successful.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Game Over')]").nth(0).is_visible(), "The Game Over view should be visible after advancing through all phases to end the game"
+        assert await frame.locator("xpath=//*[contains(., 'Game Over')]").nth(0).is_visible(), "The game should show a Game Over view after the leader advances through all phases"
         await asyncio.sleep(5)
 
     finally:

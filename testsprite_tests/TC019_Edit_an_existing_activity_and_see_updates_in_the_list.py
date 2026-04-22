@@ -33,16 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'Admin' button to open the admin login page, then observe the login form fields before filling them.
+        # -> Open the Admin login by clicking the 'لوحة الإدارة (Admin)' button.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Navigate to /admin/login and observe the admin login form fields.
-        await page.goto("http://localhost:3000/admin/login")
-        
-        # -> Fill the username and password fields with admin credentials and submit the login form.
+        # -> Fill the admin credentials into the login form and submit it (username=admin, password=admin123).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -58,55 +55,66 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the bookings management page (click the '📅 الحجوزات' / 'btn-go-bookings' link) so we can create a new booking.
+        # -> Open the Activities management page so we can create or edit an activity.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '+ حجز جديد' (New Booking) button to open the booking creation form and then observe the form fields before filling them.
+        # -> Wait for the activities page to finish loading and then open the Activities list (or the 'Create Activity' control) so we can create or edit an activity.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the booking name, phone, people count, then set payment status to 'تم الدفع'. Stop after selecting payment status so the UI can reveal any dependent payment-amount field.
+        # -> Open the edit form for an existing activity by clicking its edit (✏️) button so we can change fields and save; then verify the updated details appear in the activities list.
         frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Booking Test Paid')
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[3]/div[2]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
+        # -> Set the base price to 30, save the activity, wait for the UI to update, then extract the activities list area to verify the updated price is shown for the edited activity.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('0791234567')
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('4')
-        
-        # -> Click the 'حالة الدفع' (payment status) dropdown and select 'تم الدفع' so the payment-amount field appears (stop after selecting to allow dependent field to render).
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div[3]/select').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the payment amount field, submit the booking, then verify the new booking appears in the bookings list by searching for 'Booking Test Paid'.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[4]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('20')
+        await asyncio.sleep(3); await elem.fill('30')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[6]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # --> Test passed — verified by AI agent
+        # -> Close the edit form (click 'إلغاء' or otherwise dismiss) so the activities list is visible, then check the list row for the edited activity to confirm the price shows 30 د.أ.
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button[2]').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Set the ticket/base price to 30 in the edit form, save changes, wait for the UI to update, then verify the activities list shows the updated price.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('30')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Click 'حفظ التعديلات' to save the activity, close the edit form, then extract the activity row for 'مزاج افندينا  1 أغسطس' and read the displayed price to verify it shows 30 د.أ.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[5]/button[2]').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # --> Assertions to verify final state
+        frame = context.pages[-1]
+        assert await frame.locator("xpath=//*[contains(., '30 د.أ.')]").nth(0).is_visible(), "The activities list should show the updated price 30 د.أ. after editing the activity."
         await asyncio.sleep(5)
 
     finally:

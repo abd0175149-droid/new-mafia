@@ -33,10 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to the admin login page at /admin/login so I can sign in as the admin user.
-        await page.goto("http://localhost:3000/admin/login")
+        # -> Click the 'Admin' button to go to the admin login/page.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
-        # -> Fill username and password fields with admin credentials and submit the login form.
+        # -> Enter admin credentials (admin / admin123) and submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -52,22 +55,27 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the Activities navigation link to open the Activities list.
+        # -> Open the bookings management page by clicking the bookings navigation item.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the details for the 'Test activity for unlinking game room' activity by clicking its Details (ℹ️) button.
+        # -> Open the edit form for a booking by clicking its edit (✏️) button so the booking can be modified.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[2]/div[3]/div[2]/button[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/table/tbody/tr/td[8]/div/button[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '🔓 فك الربط' (Unlink) button for the linked game room to start the unlink flow.
+        # -> Set the people count to a different valid value (5) and click 'حفظ التعديلات' to save. After saving, verify the bookings list reflects the updated people count for the booking.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/div/div[3]/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('5')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/div/div[6]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Test passed — verified by AI agent

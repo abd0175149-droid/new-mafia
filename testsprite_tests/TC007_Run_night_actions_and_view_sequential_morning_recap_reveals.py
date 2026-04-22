@@ -33,16 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'دخول القائد (Leader)' button to open the leader login page.
+        # -> Click the 'دخول القائد (Leader)' button to open the leader login/console.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Load the leader login page at /leader/login so I can fill credentials.
-        await page.goto("http://localhost:3000/leader/login")
-        
-        # -> Fill the Admin ID field with the leader username and the Clearance Code field with the password, then submit AUTHORIZE.
+        # -> Fill the Leader login form with username 'admin' and password 'admin123', then submit (click AUTHORIZE).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
@@ -58,13 +55,13 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the leader login page by clicking the 'دخول القائد (Leader)' button (index 336).
+        # -> Open the leader login page by clicking the 'دخول القائد (Leader)' button so I can (re)login and continue the game flow into night actions.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the username and password fields with admin/admin123 and submit the login form (click the تسجيل الدخول button).
+        # -> Fill the leader credentials and submit the login form (fill username and password, then click submit).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -80,89 +77,76 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the leader interface (واجهة القائد) so we can create a room and continue the game flow.
+        # -> Open the Leader interface by clicking 'واجهة القائد' so we can access the leader console and continue the game flow toward night actions and the morning recap.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/aside/nav/a[9]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the seeded room controls by clicking the RESUME button for the chosen seeded room (e2e-room-20260422-002) so I can advance phases and perform night actions.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div/button[3]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Add players to the room by clicking the '＋ إضافة لاعب' (Add Player) button so the game can be started.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[2]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Add 6 players to the room by filling the Name and Phone fields, selecting a gender, and clicking the '✓ إضافة اللاعب' button for each player. After adding players, wait for the roster to reflect the new players.
+        # -> Fill the leader credentials (admin / admin123) and click AUTHORIZE to log in and open the leader console so we can proceed to create/open the seeded room and run the game flow.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/div/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Agent 1')
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/div[2]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('0711000001')
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/div[2]/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '✓ إضافة اللاعب' (Add Player) submit button to add Agent 1 to the roster (index 1173).
+        # -> Open the Leader login page by clicking the 'دخول القائد (Leader)' button so we can log in and proceed with creating/opening the seeded room.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Add the next player (Agent 2) by filling the Name and Phone fields, selecting gender, and clicking the add button so the roster updates.
+        # -> Fill the Admin ID and Clearance Code with the provided credentials and click the authorize button to attempt login (admin / admin123).
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/div/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Agent 2')
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/div[2]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('0711000002')
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/div[2]/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '✓ إضافة اللاعب' submit button to add Agent 2 and then observe whether the agents roster updates to reflect the new player.
+        # -> Click the 'دخول القائد (Leader)' button to open the leader login page so we can log in and continue to the seeded room and game flow (index 941).
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '✓ إضافة اللاعب' submit button to add the currently-filled player (Agent 2) and then observe whether the Agents Roster updates to reflect the new player.
+        # -> Fill the admin credentials and submit the login form to enter the admin/leader console so we can open the seeded room and continue the game flow.
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[3]/form/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
-        # -> Close the Add Player form/modal to let the page update and then inspect the Agents Roster and any start-game controls. If the roster still shows 0 players, extract the visible page text to diagnose why roster updates are not appearing.
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[2]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
-        # -> Open the Add Player form so we can add players to the room (click the '＋ إضافة لاعب' button).
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[2]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Morning Recap')]").nth(0).is_visible(), "The morning recap reveals should update sequentially as the leader advances them."
+        current_url = await frame.evaluate("() => window.location.href")
+        assert '/day' in current_url, "The page should have navigated to the day phase after completing the morning recap reveals"
         await asyncio.sleep(5)
 
     finally:

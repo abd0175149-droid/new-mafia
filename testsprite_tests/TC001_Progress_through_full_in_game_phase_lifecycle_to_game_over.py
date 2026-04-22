@@ -33,16 +33,54 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'دخول القائد (Leader)' button to navigate to the leader login page.
+        # -> Click the 'دخول القائد (Leader)' button to open the leader login page (/leader/login).
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Navigate to /leader/login and load the leader login page
+        # -> Fill the Admin ID field with 'admin', fill the Clearance Code with 'admin123', then click AUTHORIZE to attempt leader login.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Open the leader login page by clicking 'دخول القائد (Leader)' so I can attempt the login flow again.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill username and password (admin / admin123) into the form and click the submit button to attempt login. Then observe the resulting page to confirm login success or failure.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Navigate to /leader/login and attempt the leader login using credentials admin / admin123 (followed by observing the resulting page).
         await page.goto("http://localhost:3000/leader/login")
         
-        # -> Fill the username field (index 145) with 'admin', then the password field (index 147) with 'admin123', then click the AUTHORIZE button (index 197).
+        # -> Fill Admin ID with 'admin' and Clearance Code with 'admin123', then click AUTHORIZE to attempt leader login and observe the resulting page.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
@@ -58,60 +96,13 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'دخول القائد (Leader)' button on the home page to open the leader login page, then proceed with the login form submission on the resulting page.
+        # -> Click the 'دخول القائد (Leader)' button to open the leader login page so I can attempt a clean login with admin/admin123.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the Admin ID and Clearance Code fields with the valid credentials and click AUTHORIZE to submit the login, then check whether the leader interface loads.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin')
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin123')
-        
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Open the leader login page by clicking the 'دخول القائد (Leader)' button so I can fill credentials and submit again.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Navigate to /leader/login so I can fill the credentials and submit the login form (admin / admin123).
-        await page.goto("http://localhost:3000/leader/login")
-        
-        # -> Fill the Admin ID (index 547) with 'admin', fill the Clearance Code (index 549) with 'admin123', then click AUTHORIZE (index 599) and observe whether the leader interface loads.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin')
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('admin123')
-        
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the 'دخول القائد (Leader)' button to open the leader login page so we can fill credentials and submit.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill username (index 785) with 'admin', fill password (index 789) with 'admin123', then click the submit button (index 790) and observe whether the leader interface loads.
+        # -> Fill the username and password fields with admin / admin123 and click the submit button to log in (attempt admin login).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -129,8 +120,8 @@ async def run_test():
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert '/leader/dashboard' in current_url, "The page should have navigated to /leader/dashboard after submitting the leader login form."
+        assert await frame.locator("xpath=//*[contains(., 'Game Over')]").nth(0).is_visible(), "The game over screen should be visible with the winner result after completing all game phases.",
+        assert await frame.locator("xpath=//*[contains(., 'Return to Lobby')]").nth(0).is_visible(), "The leader should be able to return to the session lobby after the game ends."]}
         await asyncio.sleep(5)
 
     finally:

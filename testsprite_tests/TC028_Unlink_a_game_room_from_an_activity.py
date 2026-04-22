@@ -33,10 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to the admin login page at /admin/login so I can sign in as the admin user.
-        await page.goto("http://localhost:3000/admin/login")
+        # -> Open the Admin login by clicking the 'Admin' button.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
-        # -> Fill username and password fields with admin credentials and submit the login form.
+        # -> Fill the admin username and password fields, then submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -52,28 +55,21 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the Activities navigation link to open the Activities list.
+        # -> Click the navigation item to view activities (open the Activities list).
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
+        elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the details for the 'Test activity for unlinking game room' activity by clicking its Details (ℹ️) button.
+        # -> Click the details (ℹ️) button for the 'Test activity for unlinking game room' activity to open its details page and inspect the linked game room controls.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[2]/div[3]/div[2]/button[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[3]/div[3]/div[2]/button[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '🔓 فك الربط' (Unlink) button for the linked game room to start the unlink flow.
+        # --> Assertions to verify final state
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/div/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # --> Test passed — verified by AI agent
-        frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        assert await frame.locator("xpath=//*[contains(., 'No linked game room')]").nth(0).is_visible(), "The activity details should no longer show a linked game room after unlinking"
         await asyncio.sleep(5)
 
     finally:

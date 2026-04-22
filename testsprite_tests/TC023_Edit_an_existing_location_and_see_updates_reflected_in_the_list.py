@@ -33,10 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to the admin login page at /admin/login so I can sign in as the admin user.
-        await page.goto("http://localhost:3000/admin/login")
+        # -> Click the 'Admin' button to open the admin login or admin area.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
-        # -> Fill username and password fields with admin credentials and submit the login form.
+        # -> Enter admin credentials and submit the login form to access the admin area.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -52,28 +55,39 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the Activities navigation link to open the Activities list.
+        # -> Click the 'المواقع' (Locations) navigation link to open the locations management page.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
+        elem = frame.locator('xpath=/html/body/div/aside/nav/a[5]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the details for the 'Test activity for unlinking game room' activity by clicking its Details (ℹ️) button.
+        # -> Click the '+ إضافة مكان جديد' (Add new location) button to open the create-location form (element index 503).
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[2]/div[3]/div[2]/button[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '🔓 فك الربط' (Unlink) button for the linked game room to start the unlink flow.
+        # -> Fill the location name field with 'Old Town Hall' in the modal (input index 553), then scroll down to reveal the Save button if needed.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('Old Town Hall')
+        
+        # -> Click the 'حفظ البيانات' (Save data) button to save the new location, then confirm the list contains 'Old Town Hall'.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[6]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # --> Test passed — verified by AI agent
+        # -> Click the 'حفظ البيانات' (Save data) button in the Add Location modal to attempt to persist 'Old Town Hall' again, then verify it appears in the list.
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[6]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # --> Assertions to verify final state
+        frame = context.pages[-1]
+        assert await frame.locator("xpath=//*[contains(., 'New Town Hall')]").nth(0).is_visible(), "The locations list should contain New Town Hall after editing the location."
         await asyncio.sleep(5)
 
     finally:

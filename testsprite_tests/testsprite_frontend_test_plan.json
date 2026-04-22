@@ -1,8 +1,8 @@
 [
   {
     "id": "TC001",
-    "title": "Complete a full in-game cycle from role generation to game over",
-    "description": "Verifies the leader can run all major game phases end-to-end and reach a game over outcome from an active room with enough players.",
+    "title": "Progress through full in-game phase lifecycle to game over",
+    "description": "Verifies a leader can run a complete game by progressing through all phases from role generation to game over and returning to the lobby at the end.",
     "category": "Leader — In-Game Flow",
     "steps": [
       {
@@ -23,28 +23,36 @@
       },
       {
         "type": "action",
-        "description": "Create a new room"
+        "description": "Create a new room with a valid room name, a valid max players value, and a valid display PIN"
       },
       {
         "type": "action",
-        "description": "Set the room max players to a value of at least 6"
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
       },
       {
         "type": "action",
         "description": "Start the game"
       },
       {
+        "type": "action",
+        "description": "Proceed through phases until the game reaches the game over state"
+      },
+      {
         "type": "assertion",
-        "description": "Verify the in-game phase view is displayed and the user can advance through phases until a game over view is shown"
+        "description": "Verify the game over state is displayed with a winner result"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the leader can return to the session lobby after the game ends"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC002",
-    "title": "Start a game only when at least six players are present",
-    "description": "This test verifies the leader can start the game only after adding at least six players and the room transitions into the first in-game phase.",
-    "category": "Leader — Room Creation & Lobby Management",
+    "title": "Player joins a leader room and appears in the leader lobby grid",
+    "description": "Verifies a player can join via room code with a name and is reflected in the leader lobby player grid with a join confirmation.",
+    "category": "Player Join (Mobile)",
     "steps": [
       {
         "type": "action",
@@ -64,68 +72,36 @@
       },
       {
         "type": "action",
-        "description": "Click to create a new room"
+        "description": "Create a new room with valid settings and note the room code shown by the leader UI"
       },
       {
         "type": "action",
-        "description": "Fill a unique game name into the game name field"
+        "description": "Navigate to /join/[roomCode] using the noted room code"
       },
       {
         "type": "action",
-        "description": "Select a valid max players value"
+        "description": "Fill a unique player name into the player name field"
       },
       {
         "type": "action",
-        "description": "Fill a valid display PIN value into the display PIN field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the create room form"
-      },
-      {
-        "type": "action",
-        "description": "Open the newly created room from the active games list"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player 1"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player 2"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player 3"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player 4"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player 5"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player 6"
-      },
-      {
-        "type": "action",
-        "description": "Start the game"
+        "description": "Submit the join request"
       },
       {
         "type": "assertion",
-        "description": "Verify the room is in the role generation phase"
+        "description": "Verify a join confirmation is displayed for the player"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the player appears in the leader lobby player grid"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC003",
-    "title": "Create a new game room and see it in the active games list",
-    "description": "This test verifies a leader can create a room with game name, max players, and display PIN and the room appears in the active games list.",
-    "category": "Leader — Room Creation & Lobby Management",
+    "title": "Connect display using room code or PIN and show live game state",
+    "description": "Verifies the display screen can join a room using a room code or PIN and shows the current player list and game state.",
+    "category": "Display Screen",
     "steps": [
       {
         "type": "action",
@@ -145,36 +121,32 @@
       },
       {
         "type": "action",
-        "description": "Click to create a new room"
+        "description": "Create a new room with valid settings and note the room code and display PIN shown by the leader UI"
       },
       {
         "type": "action",
-        "description": "Fill a unique game name into the game name field"
+        "description": "Navigate to /display"
       },
       {
         "type": "action",
-        "description": "Select a valid max players value"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid display PIN value into the display PIN field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the create room form"
+        "description": "Enter the room code or display PIN to connect to the room"
       },
       {
         "type": "assertion",
-        "description": "Verify the new room appears in the active games list"
+        "description": "Verify player cards are displayed on the display screen"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the current game state is displayed on the display screen"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC004",
-    "title": "Assign roles to players to proceed from role generation to role binding completion",
-    "description": "Verifies the leader can assign roles during role binding and successfully proceed to the next phase.",
-    "category": "Leader — In-Game Flow",
+    "title": "Display updates during day voting and morning recap sequencing",
+    "description": "Verifies the display reflects real-time updates for voting results and shows morning recap reveals in sequence as the leader progresses.",
+    "category": "Display Screen",
     "steps": [
       {
         "type": "action",
@@ -194,108 +166,47 @@
       },
       {
         "type": "action",
-        "description": "Create a new room"
+        "description": "Create a new room with valid settings and note the room code and display PIN shown by the leader UI"
       },
       {
         "type": "action",
-        "description": "Set the room max players to a value of at least 6"
+        "description": "Navigate to /display"
       },
       {
         "type": "action",
-        "description": "Start the game"
+        "description": "Enter the room code or display PIN to connect to the room"
       },
       {
         "type": "action",
-        "description": "Proceed to role generation"
+        "description": "Return to the leader UI and add enough players to meet the minimum player requirement"
       },
       {
         "type": "action",
-        "description": "Proceed to role binding"
+        "description": "Start the game and advance phases until day voting is active"
       },
       {
         "type": "action",
-        "description": "Assign roles to all players using the role binding UI"
+        "description": "Record votes and end voting"
       },
       {
         "type": "action",
-        "description": "Proceed to the next phase"
+        "description": "Advance phases until morning recap is active and step through recap reveals"
       },
       {
         "type": "assertion",
-        "description": "Verify the day discussion phase is displayed"
+        "description": "Verify the display shows voting results during the voting flow"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the display shows morning recap reveals progressing in sequence"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC005",
-    "title": "Manage lobby players: add, rename, and remove a player",
-    "description": "This test verifies a leader can add a player in the lobby, rename the player, and remove the player with the lobby updating accordingly.",
-    "category": "Leader — Room Creation & Lobby Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /leader/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click to create a new room"
-      },
-      {
-        "type": "action",
-        "description": "Fill a unique game name into the game name field"
-      },
-      {
-        "type": "action",
-        "description": "Select a valid max players value"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid display PIN value into the display PIN field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the create room form"
-      },
-      {
-        "type": "action",
-        "description": "Open the newly created room from the active games list"
-      },
-      {
-        "type": "action",
-        "description": "Add a player via the manual add player form using the name Player One"
-      },
-      {
-        "type": "action",
-        "description": "Rename the player to Player One Renamed"
-      },
-      {
-        "type": "action",
-        "description": "Remove the player from the lobby"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the player grid does not include the removed player"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC006",
-    "title": "Run night actions and view sequential morning recap reveals",
-    "description": "Verifies the leader can execute night actions and then step through morning recap reveals in sequence.",
+    "title": "Collect votes and advance into justification",
+    "description": "Verifies the leader can run day voting, collect votes from players, and proceed into the justification phase for an accused player.",
     "category": "Leader — In-Game Flow",
     "steps": [
       {
@@ -316,11 +227,60 @@
       },
       {
         "type": "action",
-        "description": "Create a new room"
+        "description": "Create a new room with valid settings"
       },
       {
         "type": "action",
-        "description": "Set the room max players to a value of at least 6"
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Start the game and advance through setup phases until day voting is active"
+      },
+      {
+        "type": "action",
+        "description": "Use the leader UI to record votes for multiple players"
+      },
+      {
+        "type": "action",
+        "description": "End voting and proceed to the next phase"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the justification phase is displayed for an accused player"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC006",
+    "title": "Assign roles and advance from role generation to role binding",
+    "description": "Verifies the leader can generate roles, assign/bind roles to players, and advance the game into the next phase.",
+    "category": "Leader — In-Game Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings"
+      },
+      {
+        "type": "action",
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
       },
       {
         "type": "action",
@@ -328,11 +288,56 @@
       },
       {
         "type": "action",
-        "description": "Advance phases until night is active"
+        "description": "Proceed to the role generation phase"
       },
       {
         "type": "action",
-        "description": "Complete the available night action steps"
+        "description": "Assign roles to players to complete role binding"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the game advances past role binding into the day gameplay flow"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC007",
+    "title": "Run night actions and view sequential morning recap reveals",
+    "description": "Verifies the leader can progress from night actions into morning recap and observe reveals presented in a sequence.",
+    "category": "Leader — In-Game Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings"
+      },
+      {
+        "type": "action",
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Start the game and advance phases until night is active"
+      },
+      {
+        "type": "action",
+        "description": "Execute required night actions using the leader UI"
       },
       {
         "type": "action",
@@ -340,17 +345,17 @@
       },
       {
         "type": "action",
-        "description": "Advance through the recap reveals one by one"
+        "description": "Advance through the morning recap reveal steps"
       },
       {
         "type": "assertion",
-        "description": "Verify the morning recap reveals update sequentially as the leader advances them"
+        "description": "Verify morning recap reveals can be stepped through and the recap completes into the next phase"
       }
     ],
     "priority": "High"
   },
   {
-    "id": "TC007",
+    "id": "TC008",
     "title": "Admin can log in successfully",
     "description": "Verifies an admin can log in with valid credentials and land on the admin dashboard.",
     "category": "Admin Login",
@@ -379,58 +384,9 @@
     "priority": "High"
   },
   {
-    "id": "TC008",
-    "title": "View activity details with financials, tables, and linked room summary",
-    "description": "Verifies an admin can open an activity detail view and see financial and attendance summaries plus the linked room and location info, with bookings and costs tables accessible.",
-    "category": "Activity Details",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to activities"
-      },
-      {
-        "type": "action",
-        "description": "Click an activity card to view its details"
-      },
-      {
-        "type": "action",
-        "description": "Toggle the bookings table section"
-      },
-      {
-        "type": "action",
-        "description": "Toggle the costs table section"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the financial summary donut chart and attendance distribution chart are displayed"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the linked game room summary and location information are displayed"
-      }
-    ],
-    "priority": "High"
-  },
-  {
     "id": "TC009",
-    "title": "Leader can log in and land on the leader interface",
-    "description": "This test verifies a leader can log in with valid credentials and is redirected into the leader interface.",
+    "title": "Log in as leader and land on the leader dashboard",
+    "description": "This test verifies a leader can log in with valid credentials and is taken to the leader dashboard.",
     "category": "Leader Login",
     "steps": [
       {
@@ -451,15 +407,15 @@
       },
       {
         "type": "assertion",
-        "description": "Verify the user lands on the leader interface"
+        "description": "Verify the user lands on the leader dashboard"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC010",
-    "title": "Operate day discussion speaker queue with a timer and proceed to voting",
-    "description": "Verifies the leader can run the day discussion speaker queue with timing controls and then proceed to the voting phase.",
+    "title": "Operate timed speaker queue during day discussion",
+    "description": "Verifies the leader can run day discussion by starting the speaker queue and advancing speakers with the timer operating.",
     "category": "Leader — In-Game Flow",
     "steps": [
       {
@@ -480,104 +436,35 @@
       },
       {
         "type": "action",
-        "description": "Create a new room"
+        "description": "Create a new room with valid settings"
       },
       {
         "type": "action",
-        "description": "Set the room max players to a value of at least 6"
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
       },
       {
         "type": "action",
-        "description": "Start the game"
+        "description": "Start the game and advance through setup phases until day discussion is active"
       },
       {
         "type": "action",
-        "description": "Advance phases until day discussion is active"
-      },
-      {
-        "type": "action",
-        "description": "Start the speaker timer"
+        "description": "Start the speaker queue timer"
       },
       {
         "type": "action",
         "description": "Advance to the next speaker in the queue"
       },
       {
-        "type": "action",
-        "description": "Stop or reset the speaker timer"
-      },
-      {
-        "type": "action",
-        "description": "Proceed to day voting"
-      },
-      {
         "type": "assertion",
-        "description": "Verify the day voting phase is displayed"
+        "description": "Verify the day discussion speaker queue shows a current speaker and progresses when advanced"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC011",
-    "title": "Admin can create a new activity",
-    "description": "Verifies an admin can create a new scheduled activity with required fields and see it appear in the activities list.",
-    "category": "Activity Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click to open the activities section from the admin dashboard navigation"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new activity"
-      },
-      {
-        "type": "action",
-        "description": "Select a valid date and time for the activity"
-      },
-      {
-        "type": "action",
-        "description": "Select a location from the location dropdown"
-      },
-      {
-        "type": "action",
-        "description": "Set a valid base price"
-      },
-      {
-        "type": "action",
-        "description": "Fill Activity Alpha into the description field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the activity form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the new activity appears in the activities list"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC012",
-    "title": "Create a paid booking for an activity",
-    "description": "Verifies an admin can create a booking for a selected activity with a payment amount and see it appear in the bookings list.",
+    "title": "Create a paid booking for an activity from the activities area",
+    "description": "Verifies an admin can create a paid booking for an activity and the new booking appears in the bookings list.",
     "category": "Booking Management",
     "steps": [
       {
@@ -598,11 +485,11 @@
       },
       {
         "type": "action",
-        "description": "Click the navigation link to activities"
+        "description": "Click the navigation item to view activities"
       },
       {
         "type": "action",
-        "description": "Click the new booking action"
+        "description": "Click the control to create a new booking"
       },
       {
         "type": "action",
@@ -610,19 +497,19 @@
       },
       {
         "type": "action",
-        "description": "Fill Booking Test Paid into the name field"
+        "description": "Fill Booking Paid User into the name field"
       },
       {
         "type": "action",
-        "description": "Fill a valid phone number into the phone field"
+        "description": "Fill a valid phone number into the phone number field"
       },
       {
         "type": "action",
-        "description": "Fill 4 into the people count field"
+        "description": "Set a valid people count"
       },
       {
         "type": "action",
-        "description": "Fill a valid payment amount into the payment amount field"
+        "description": "Set a valid payment amount"
       },
       {
         "type": "action",
@@ -640,185 +527,50 @@
     "priority": "High"
   },
   {
+    "id": "TC012",
+    "title": "Block game start when fewer than minimum players are present",
+    "description": "Verifies the leader cannot start the game until the minimum number of players are in the room and a validation state is shown.",
+    "category": "Leader — In-Game Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings"
+      },
+      {
+        "type": "action",
+        "description": "Add fewer than the minimum required players using the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to start the game"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a start-game validation error is visible indicating more players are required"
+      }
+    ],
+    "priority": "High"
+  },
+  {
     "id": "TC013",
-    "title": "Resolve voting without a tie and proceed to night actions",
-    "description": "Verifies the leader can run day voting through justification and then proceed to night when there is no tie condition.",
-    "category": "Leader — In-Game Flow",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /leader/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Create a new room"
-      },
-      {
-        "type": "action",
-        "description": "Set the room max players to a value of at least 6"
-      },
-      {
-        "type": "action",
-        "description": "Start the game"
-      },
-      {
-        "type": "action",
-        "description": "Advance phases until day voting is active"
-      },
-      {
-        "type": "action",
-        "description": "End voting and proceed to justification"
-      },
-      {
-        "type": "action",
-        "description": "Proceed from justification to the next phase"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the night phase is displayed"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC014",
-    "title": "Return to session lobby after game over",
-    "description": "Verifies the leader can finish a match, see a winner at game over, and return to the lobby to run another session.",
-    "category": "Leader — In-Game Flow",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /leader/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Create a new room"
-      },
-      {
-        "type": "action",
-        "description": "Set the room max players to a value of at least 6"
-      },
-      {
-        "type": "action",
-        "description": "Start the game"
-      },
-      {
-        "type": "action",
-        "description": "Advance phases until game over is reached"
-      },
-      {
-        "type": "action",
-        "description": "Return from the game over view to the session lobby"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the room lobby is displayed and is ready for a new game"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC015",
-    "title": "Unlink a game room from an activity",
-    "description": "Verifies an admin can unlink the linked game room from an activity and the activity no longer shows a linked room afterwards.",
-    "category": "Activity Details",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to activities"
-      },
-      {
-        "type": "action",
-        "description": "Click an activity card to view its details"
-      },
-      {
-        "type": "action",
-        "description": "Click the control to unlink the linked game room"
-      },
-      {
-        "type": "action",
-        "description": "Confirm the unlink action"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the activity no longer shows a linked game room card"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC016",
-    "title": "Display shows voting results and morning recap as they are revealed",
-    "description": "Verifies the display updates to show voting results and night recap reveals during a live match.",
-    "category": "Display Screen",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /display"
-      },
-      {
-        "type": "action",
-        "description": "Enter a room code or PIN"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "action",
-        "description": "Wait for the match to progress to a voting or recap moment"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify voting results are displayed when voting completes and recap reveals appear as they are advanced"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC017",
-    "title": "Admin can edit an existing activity",
-    "description": "Verifies an admin can edit an existing activity and see the updated values reflected in the activities list.",
+    "title": "Create an activity with location, offers, pricing, and description",
+    "description": "Verifies an admin can create a new activity with required details and see it appear in the activities list.",
     "category": "Activity Management",
     "steps": [
       {
@@ -839,11 +591,11 @@
       },
       {
         "type": "action",
-        "description": "Click to open the activities section from the admin dashboard navigation"
+        "description": "Click the navigation link to manage activities"
       },
       {
         "type": "action",
-        "description": "Click to add a new activity"
+        "description": "Start creating a new activity"
       },
       {
         "type": "action",
@@ -855,27 +607,15 @@
       },
       {
         "type": "action",
-        "description": "Set a valid base price"
+        "description": "Toggle at least one available location offer"
       },
       {
         "type": "action",
-        "description": "Fill Activity To Edit into the description field"
+        "description": "Fill a valid base price into the base price field"
       },
       {
         "type": "action",
-        "description": "Submit the activity form"
-      },
-      {
-        "type": "action",
-        "description": "Open the options for the newly created activity"
-      },
-      {
-        "type": "action",
-        "description": "Click to edit the activity"
-      },
-      {
-        "type": "action",
-        "description": "Change the base price to a different valid value"
+        "description": "Fill a description into the description field"
       },
       {
         "type": "action",
@@ -883,14 +623,1107 @@
       },
       {
         "type": "assertion",
-        "description": "Verify the activities list shows the updated activity information"
+        "description": "Verify the new activity is displayed in the activities list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC014",
+    "title": "Create a location with offers and see it in the locations list",
+    "description": "This test verifies an admin can create a new location with at least one offer/package and the new location appears in the locations list.",
+    "category": "Location Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation link to locations management"
+      },
+      {
+        "type": "action",
+        "description": "Click the action to add a new location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Harbor Venue\" into the location name field"
+      },
+      {
+        "type": "action",
+        "description": "Add a new offer/package to the location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Standard Package\" into the offer name field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the location form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the locations list contains \"Harbor Venue\""
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC015",
+    "title": "Add a staff member with roles and see them in the staff list",
+    "description": "Verifies an admin can create a staff member with assigned roles and the staff member appears in the staff list.",
+    "category": "Staff Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view staff management"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to add a new staff member"
+      },
+      {
+        "type": "action",
+        "description": "Fill Staff Create User into the staff name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill staff.create.user@example.com into the staff email field"
+      },
+      {
+        "type": "action",
+        "description": "Assign at least one role to the staff member"
+      },
+      {
+        "type": "action",
+        "description": "Submit the staff form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new staff member appears in the staff list"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC016",
+    "title": "Route tied votes into day tiebreaker phase",
+    "description": "Verifies that when voting results tie, the game proceeds into the day tiebreaker phase rather than moving directly to night.",
+    "category": "Leader — In-Game Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings"
+      },
+      {
+        "type": "action",
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Start the game and advance through setup phases until day voting is active"
+      },
+      {
+        "type": "action",
+        "description": "Record votes to create a tie between at least two candidates"
+      },
+      {
+        "type": "action",
+        "description": "End voting and proceed to the next phase"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the day tiebreaker phase is displayed"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC017",
+    "title": "Edit an existing booking and see it updated in the list",
+    "description": "Verifies an admin can edit a booking and the updated booking details are reflected in the bookings list.",
+    "category": "Booking Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view activities"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to create a new booking"
+      },
+      {
+        "type": "action",
+        "description": "Select an activity from the activity dropdown"
+      },
+      {
+        "type": "action",
+        "description": "Fill Booking Edit User into the name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid phone number into the phone number field"
+      },
+      {
+        "type": "action",
+        "description": "Set a valid people count"
+      },
+      {
+        "type": "action",
+        "description": "Mark the booking as free"
+      },
+      {
+        "type": "action",
+        "description": "Submit the booking form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view bookings management"
+      },
+      {
+        "type": "action",
+        "description": "Select the booking created in this test from the bookings list"
+      },
+      {
+        "type": "action",
+        "description": "Edit the people count to a different valid value"
+      },
+      {
+        "type": "action",
+        "description": "Submit the booking form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the booking entry in the list reflects the updated details"
       }
     ],
     "priority": "High"
   },
   {
     "id": "TC018",
-    "title": "Lock an activity from the details page",
+    "title": "Return to lobby and exclude players for the next game",
+    "description": "Verifies the leader can finish a game, return to the lobby, and exclude at least one player from participating in the next game.",
+    "category": "Leader — In-Game Flow",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings"
+      },
+      {
+        "type": "action",
+        "description": "Add enough players to meet the minimum player requirement using the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Start the game and progress until the game over state"
+      },
+      {
+        "type": "action",
+        "description": "Return to the session lobby"
+      },
+      {
+        "type": "action",
+        "description": "Exclude one player from the next game using the lobby controls"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the excluded player is marked as not participating for the next game"
+      }
+    ],
+    "priority": "High"
+  },
+  {
+    "id": "TC019",
+    "title": "Edit an existing activity and see updates in the list",
+    "description": "Verifies an admin can edit an activity and see the updated details reflected in the activities list.",
+    "category": "Activity Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation link to manage activities"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new activity"
+      },
+      {
+        "type": "action",
+        "description": "Select a valid date and time for the activity"
+      },
+      {
+        "type": "action",
+        "description": "Select a location from the location dropdown"
+      },
+      {
+        "type": "action",
+        "description": "Fill 25 into the base price field"
+      },
+      {
+        "type": "action",
+        "description": "Fill EditTest Activity into the description field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the activity form"
+      },
+      {
+        "type": "action",
+        "description": "Open the activity actions for the created activity"
+      },
+      {
+        "type": "action",
+        "description": "Choose to edit the activity"
+      },
+      {
+        "type": "action",
+        "description": "Fill 30 into the base price field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the activity form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the updated activity is displayed in the activities list"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC020",
+    "title": "Show error when joining with an invalid or expired room code",
+    "description": "Verifies the join page shows an error state when the room code does not correspond to an active room.",
+    "category": "Player Join (Mobile)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /join/[roomCode] using a syntactically valid but non-existent room code"
+      },
+      {
+        "type": "action",
+        "description": "Fill a player name into the player name field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the join request"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an invalid or expired room code error is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC021",
+    "title": "Navigate from home to leader area",
+    "description": "Verifies a visitor can navigate from the landing page to the leader area and is taken to the leader login or leader dashboard.",
+    "category": "Home Page Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Click the leader interface navigation option"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the leader login page or the leader dashboard is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC022",
+    "title": "View activity details with financials, tables, linked room, and location info",
+    "description": "Verifies an admin can open an activity and see financial charts, a linked game room section, bookings and costs tables, and location information displayed.",
+    "category": "Activity Details",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view activities"
+      },
+      {
+        "type": "action",
+        "description": "Click an activity card to open its details"
+      },
+      {
+        "type": "action",
+        "description": "Toggle the bookings table section"
+      },
+      {
+        "type": "action",
+        "description": "Toggle the costs table section"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the financial summary donut chart and attendance distribution chart are displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the linked game room section and location information are displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC023",
+    "title": "Edit an existing location and see updates reflected in the list",
+    "description": "This test verifies an admin can edit a location’s details and the updated values are reflected in the locations list.",
+    "category": "Location Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation link to locations management"
+      },
+      {
+        "type": "action",
+        "description": "Click the action to add a new location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Old Town Hall\" into the location name field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the location form"
+      },
+      {
+        "type": "action",
+        "description": "Select the location \"Old Town Hall\" from the list"
+      },
+      {
+        "type": "action",
+        "description": "Edit the location name field to \"New Town Hall\""
+      },
+      {
+        "type": "action",
+        "description": "Submit the location changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the locations list contains \"New Town Hall\""
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC024",
+    "title": "Use match replay without affecting the current live room state",
+    "description": "Verifies the display can open match replay controls to view a past match and then return to live view without changing the live state shown.",
+    "category": "Display Screen",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings and note the room code and display PIN shown by the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /display"
+      },
+      {
+        "type": "action",
+        "description": "Enter the room code or display PIN to connect to the room"
+      },
+      {
+        "type": "action",
+        "description": "Open the match replay viewer from the display UI"
+      },
+      {
+        "type": "action",
+        "description": "Select a past match from the replay list"
+      },
+      {
+        "type": "action",
+        "description": "Exit replay mode to return to the live room view"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify replay controls are usable for a past match"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the display returns to showing the live room state after exiting replay mode"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC025",
+    "title": "Navigate from home to admin login",
+    "description": "Verifies a visitor can navigate from the landing page to the admin panel and is taken to the admin login page.",
+    "category": "Home Page Navigation",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /"
+      },
+      {
+        "type": "action",
+        "description": "Click the admin panel navigation option"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the admin login page is displayed"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC026",
+    "title": "Create a free booking for an activity",
+    "description": "Verifies an admin can create a free booking and the booking appears with a free/unpaid status in the list.",
+    "category": "Booking Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view activities"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to create a new booking"
+      },
+      {
+        "type": "action",
+        "description": "Select an activity from the activity dropdown"
+      },
+      {
+        "type": "action",
+        "description": "Fill Booking Free User into the name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid phone number into the phone number field"
+      },
+      {
+        "type": "action",
+        "description": "Set a valid people count"
+      },
+      {
+        "type": "action",
+        "description": "Mark the booking as free"
+      },
+      {
+        "type": "action",
+        "description": "Submit the booking form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new booking appears in the bookings list"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the booking shows a free or unpaid status indicator"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC027",
+    "title": "Delete a location after confirming deletion",
+    "description": "This test verifies an admin can delete a location by confirming the deletion and the location is removed from the locations list.",
+    "category": "Location Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation link to locations management"
+      },
+      {
+        "type": "action",
+        "description": "Click the action to add a new location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Temp Location\" into the location name field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the location form"
+      },
+      {
+        "type": "action",
+        "description": "Select the location \"Temp Location\" from the list"
+      },
+      {
+        "type": "action",
+        "description": "Click the delete action for the selected location"
+      },
+      {
+        "type": "action",
+        "description": "Confirm the deletion"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the locations list does not contain \"Temp Location\""
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC028",
+    "title": "Unlink a game room from an activity",
+    "description": "Verifies an admin can unlink a linked game room from an activity and the linked room is no longer shown on the activity details page.",
+    "category": "Activity Details",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view activities"
+      },
+      {
+        "type": "action",
+        "description": "Click an activity card to open its details"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to unlink the linked game room"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the linked game room is no longer displayed for the activity"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC029",
+    "title": "Edit a staff member and see updates reflected in the list",
+    "description": "Verifies an admin can edit a staff member’s details and the updated information is shown in the staff list.",
+    "category": "Staff Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view staff management"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to add a new staff member"
+      },
+      {
+        "type": "action",
+        "description": "Fill Staff Edit User into the staff name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill staff.edit.user@example.com into the staff email field"
+      },
+      {
+        "type": "action",
+        "description": "Assign at least one role to the staff member"
+      },
+      {
+        "type": "action",
+        "description": "Submit the staff form"
+      },
+      {
+        "type": "action",
+        "description": "Select the staff member created in this test from the staff list"
+      },
+      {
+        "type": "action",
+        "description": "Edit the staff name to Staff Edited User"
+      },
+      {
+        "type": "action",
+        "description": "Submit the staff form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the staff list shows the updated staff member name"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC030",
+    "title": "Handle invalid display room code or PIN with user-visible error",
+    "description": "Verifies the display shows an error state when a user attempts to connect with an invalid room code or PIN.",
+    "category": "Display Screen",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /display"
+      },
+      {
+        "type": "action",
+        "description": "Enter an invalid room code or PIN"
+      },
+      {
+        "type": "action",
+        "description": "Submit the connect action"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an invalid room code or PIN error is visible"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC031",
+    "title": "Delete an activity after confirmation",
+    "description": "Verifies an admin can delete an activity via the confirmation flow and it is removed from the activities list.",
+    "category": "Activity Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation link to manage activities"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new activity"
+      },
+      {
+        "type": "action",
+        "description": "Select a valid date and time for the activity"
+      },
+      {
+        "type": "action",
+        "description": "Select a location from the location dropdown"
+      },
+      {
+        "type": "action",
+        "description": "Fill 20 into the base price field"
+      },
+      {
+        "type": "action",
+        "description": "Fill DeleteMe Activity into the description field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the activity form"
+      },
+      {
+        "type": "action",
+        "description": "Open the activity actions for the created activity"
+      },
+      {
+        "type": "action",
+        "description": "Choose to delete the activity"
+      },
+      {
+        "type": "action",
+        "description": "Confirm deletion"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the deleted activity is no longer displayed in the activities list"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC032",
+    "title": "Delete a booking from bookings management",
+    "description": "Verifies an admin can delete a booking after confirming and the booking is removed from the list.",
+    "category": "Booking Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view activities"
+      },
+      {
+        "type": "action",
+        "description": "Click the control to create a new booking"
+      },
+      {
+        "type": "action",
+        "description": "Select an activity from the activity dropdown"
+      },
+      {
+        "type": "action",
+        "description": "Fill Booking Delete User into the name field"
+      },
+      {
+        "type": "action",
+        "description": "Fill a valid phone number into the phone number field"
+      },
+      {
+        "type": "action",
+        "description": "Set a valid people count"
+      },
+      {
+        "type": "action",
+        "description": "Mark the booking as paid"
+      },
+      {
+        "type": "action",
+        "description": "Submit the booking form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation item to view bookings management"
+      },
+      {
+        "type": "action",
+        "description": "Select the booking created in this test from the bookings list"
+      },
+      {
+        "type": "action",
+        "description": "Click the delete booking control"
+      },
+      {
+        "type": "action",
+        "description": "Confirm deletion"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the deleted booking no longer appears in the bookings list"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC033",
+    "title": "Prevent join submission when player name is empty",
+    "description": "Verifies the join page enforces required player name entry and shows a validation error when submitted empty.",
+    "category": "Player Join (Mobile)",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Create a new room with valid settings and note the room code shown by the leader UI"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to /join/[roomCode] using the noted room code"
+      },
+      {
+        "type": "action",
+        "description": "Submit the join request without entering a player name"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify a required-field validation error is visible for the player name"
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC034",
+    "title": "Edit a location to add an additional offer and preserve existing offers",
+    "description": "This test verifies an admin can add an additional offer while editing a location and the offers remain associated after saving.",
+    "category": "Location Management",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /admin/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_USER}} into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "action",
+        "description": "Click the navigation link to locations management"
+      },
+      {
+        "type": "action",
+        "description": "Click the action to add a new location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Offer Test Venue\" into the location name field"
+      },
+      {
+        "type": "action",
+        "description": "Add a new offer/package to the location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Base Offer\" into the offer name field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the location form"
+      },
+      {
+        "type": "action",
+        "description": "Select the location \"Offer Test Venue\" from the list"
+      },
+      {
+        "type": "action",
+        "description": "Add another new offer/package to the location"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"Add-on Offer\" into the offer name field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the location changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the location details show offers including \"Base Offer\" and \"Add-on Offer\""
+      }
+    ],
+    "priority": "Medium"
+  },
+  {
+    "id": "TC035",
+    "title": "Lock an activity from its details page",
     "description": "Verifies an admin can lock an activity and the UI reflects that the activity is locked.",
     "category": "Activity Details",
     "steps": [
@@ -912,11 +1745,11 @@
       },
       {
         "type": "action",
-        "description": "Click the navigation link to activities"
+        "description": "Click the navigation item to view activities"
       },
       {
         "type": "action",
-        "description": "Click an activity card to view its details"
+        "description": "Click an activity card to open its details"
       },
       {
         "type": "action",
@@ -924,848 +1757,15 @@
       },
       {
         "type": "assertion",
-        "description": "Verify the activity is shown as locked"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify editing controls that should be restricted are disabled or hidden"
-      }
-    ],
-    "priority": "High"
-  },
-  {
-    "id": "TC019",
-    "title": "Resolve a tied vote using tie-breaker and proceed to night",
-    "description": "Verifies the leader can enter the tie-breaker flow when votes tie and then proceed to the night phase.",
-    "category": "Leader — In-Game Flow",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /leader/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Create a new room"
-      },
-      {
-        "type": "action",
-        "description": "Set the room max players to a value of at least 6"
-      },
-      {
-        "type": "action",
-        "description": "Start the game"
-      },
-      {
-        "type": "action",
-        "description": "Advance phases until day voting is active"
-      },
-      {
-        "type": "action",
-        "description": "Trigger the flow that proceeds to tie-breaker for a tied vote"
-      },
-      {
-        "type": "action",
-        "description": "Complete the tie-breaker and proceed to the next phase"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the night phase is displayed"
+        "description": "Verify the activity is marked as locked"
       }
     ],
     "priority": "Medium"
-  },
-  {
-    "id": "TC020",
-    "title": "Edit an existing booking",
-    "description": "Verifies an admin can update booking details and see the booking list reflect the updated information.",
-    "category": "Booking Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to activities"
-      },
-      {
-        "type": "action",
-        "description": "Click the new booking action"
-      },
-      {
-        "type": "action",
-        "description": "Select an activity from the activity dropdown"
-      },
-      {
-        "type": "action",
-        "description": "Fill Booking Test Edit into the name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid phone number into the phone field"
-      },
-      {
-        "type": "action",
-        "description": "Fill 3 into the people count field"
-      },
-      {
-        "type": "action",
-        "description": "Mark the booking as paid"
-      },
-      {
-        "type": "action",
-        "description": "Submit the booking form"
-      },
-      {
-        "type": "action",
-        "description": "Open the bookings list"
-      },
-      {
-        "type": "action",
-        "description": "Select the booking that was just created"
-      },
-      {
-        "type": "action",
-        "description": "Fill Booking Test Edit Updated into the name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill 5 into the people count field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the booking form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the booking list shows a booking with name \"Booking Test Edit Updated\""
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC021",
-    "title": "Join a room on the display and see player/game state render",
-    "description": "Verifies the display operator can join with a room code or PIN and see player cards and current game state displayed.",
-    "category": "Display Screen",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /display"
-      },
-      {
-        "type": "action",
-        "description": "Enter a room code or PIN"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify player cards are displayed and the current game state view is shown"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC022",
-    "title": "Create a new staff member with roles",
-    "description": "Verifies an admin can add a staff member, assign roles, and see the staff member in the staff list.",
-    "category": "Staff Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to staff management"
-      },
-      {
-        "type": "action",
-        "description": "Click the add new staff member action"
-      },
-      {
-        "type": "action",
-        "description": "Fill Staff Test User into the name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill staff.test.user@example.com into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Select at least one role for the staff member"
-      },
-      {
-        "type": "action",
-        "description": "Submit the staff form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the staff list includes \"Staff Test User\""
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC023",
-    "title": "Create a location with offers and see it listed",
-    "description": "This test verifies an admin can create a new location with at least one offer and the new location appears in the locations list afterward.",
-    "category": "Location Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to locations management"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new location"
-      },
-      {
-        "type": "action",
-        "description": "Fill a unique location name into the location name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill valid location details into the remaining required fields"
-      },
-      {
-        "type": "action",
-        "description": "Add an offer to the location and fill valid offer details"
-      },
-      {
-        "type": "action",
-        "description": "Submit the location form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the new location appears in the locations list"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC024",
-    "title": "Join as a player using a room code and see confirmation",
-    "description": "Verifies a player can enter a room code and name on the join page and receive a successful join confirmation.",
-    "category": "Player Join (Mobile)",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /"
-      },
-      {
-        "type": "action",
-        "description": "Click the link to join a room as a player"
-      },
-      {
-        "type": "action",
-        "description": "Enter a valid room code"
-      },
-      {
-        "type": "action",
-        "description": "Fill \"Test Player\" into the player name field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify a join confirmation is displayed"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC025",
-    "title": "Create a free booking for an activity",
-    "description": "Verifies an admin can create a free booking for an activity and see it appear as a booking in the list.",
-    "category": "Booking Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to activities"
-      },
-      {
-        "type": "action",
-        "description": "Click the new booking action"
-      },
-      {
-        "type": "action",
-        "description": "Select an activity from the activity dropdown"
-      },
-      {
-        "type": "action",
-        "description": "Fill Booking Test Free into the name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill a valid phone number into the phone field"
-      },
-      {
-        "type": "action",
-        "description": "Fill 2 into the people count field"
-      },
-      {
-        "type": "action",
-        "description": "Mark the booking as free"
-      },
-      {
-        "type": "action",
-        "description": "Submit the booking form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the new booking appears in the bookings list"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC026",
-    "title": "Admin can delete an activity with confirmation",
-    "description": "Verifies an admin can delete an activity after confirming and the activity is removed from the activities list.",
-    "category": "Activity Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click to open the activities section from the admin dashboard navigation"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new activity"
-      },
-      {
-        "type": "action",
-        "description": "Select a valid date and time for the activity"
-      },
-      {
-        "type": "action",
-        "description": "Select a location from the location dropdown"
-      },
-      {
-        "type": "action",
-        "description": "Set a valid base price"
-      },
-      {
-        "type": "action",
-        "description": "Fill Activity To Delete into the description field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the activity form"
-      },
-      {
-        "type": "action",
-        "description": "Open the options for the newly created activity"
-      },
-      {
-        "type": "action",
-        "description": "Click to delete the activity"
-      },
-      {
-        "type": "action",
-        "description": "Confirm the deletion"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the deleted activity no longer appears in the activities list"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC027",
-    "title": "Display rejoin after refresh restores a usable session view",
-    "description": "Verifies the display can recover from a page reload by re-entering room code or PIN and returning to a consistent game view.",
-    "category": "Display Screen",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /display"
-      },
-      {
-        "type": "action",
-        "description": "Enter a room code or PIN"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "action",
-        "description": "Refresh the page"
-      },
-      {
-        "type": "action",
-        "description": "Enter the room code or PIN again"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the display returns to showing the current room state"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC028",
-    "title": "Edit a location’s details and see the update reflected",
-    "description": "This test verifies an admin can update an existing location’s details and the locations list reflects the changes.",
-    "category": "Location Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to locations management"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new location"
-      },
-      {
-        "type": "action",
-        "description": "Fill a unique location name into the location name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill valid location details into the remaining required fields"
-      },
-      {
-        "type": "action",
-        "description": "Submit the location form"
-      },
-      {
-        "type": "action",
-        "description": "Select the newly created location from the list"
-      },
-      {
-        "type": "action",
-        "description": "Edit the location name to a new unique value"
-      },
-      {
-        "type": "action",
-        "description": "Submit the location update"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the updated location entry is shown in the locations list"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC029",
-    "title": "Navigate from landing page to leader entry point",
-    "description": "Verifies a visitor can navigate from the landing page to the leader area and reach the leader login or leader dashboard.",
-    "category": "Home Page Navigation",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /"
-      },
-      {
-        "type": "action",
-        "description": "Click the leader interface entry option"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the leader login page or leader dashboard is displayed"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC030",
-    "title": "Delete a location and confirm it is removed",
-    "description": "This test verifies an admin can delete a location and it no longer appears in the locations list after confirmation.",
-    "category": "Location Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to locations management"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new location"
-      },
-      {
-        "type": "action",
-        "description": "Fill a unique location name into the location name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill valid location details into the remaining required fields"
-      },
-      {
-        "type": "action",
-        "description": "Submit the location form"
-      },
-      {
-        "type": "action",
-        "description": "Select the newly created location from the list"
-      },
-      {
-        "type": "action",
-        "description": "Initiate deleting the selected location"
-      },
-      {
-        "type": "action",
-        "description": "Confirm the deletion"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the deleted location is not present in the locations list"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC031",
-    "title": "Use display match replay controls to view a past match",
-    "description": "Verifies the display operator can enter replay mode and use replay controls to navigate through a past match timeline.",
-    "category": "Display Screen",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /display"
-      },
-      {
-        "type": "action",
-        "description": "Enter a room code or PIN"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "action",
-        "description": "Open match replay mode"
-      },
-      {
-        "type": "action",
-        "description": "Use replay controls to move to a different point in the replay timeline"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the displayed game state updates to reflect the selected replay point"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC032",
-    "title": "Navigate from landing page to admin login",
-    "description": "Verifies a visitor can navigate from the landing page to the admin panel login page.",
-    "category": "Home Page Navigation",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /"
-      },
-      {
-        "type": "action",
-        "description": "Click the admin panel entry option"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the admin login page is displayed"
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC033",
-    "title": "Edit a staff member profile and roles",
-    "description": "Verifies an admin can update an existing staff member’s details or role assignments and see changes reflected in the list.",
-    "category": "Staff Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to staff management"
-      },
-      {
-        "type": "action",
-        "description": "Click the add new staff member action"
-      },
-      {
-        "type": "action",
-        "description": "Fill Staff Test Edit into the name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill staff.test.edit@example.com into the email field"
-      },
-      {
-        "type": "action",
-        "description": "Select at least one role for the staff member"
-      },
-      {
-        "type": "action",
-        "description": "Submit the staff form"
-      },
-      {
-        "type": "action",
-        "description": "Select the staff member \"Staff Test Edit\" from the list"
-      },
-      {
-        "type": "action",
-        "description": "Fill Staff Test Edit Updated into the name field"
-      },
-      {
-        "type": "action",
-        "description": "Adjust the assigned roles"
-      },
-      {
-        "type": "action",
-        "description": "Submit changes"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the staff list includes \"Staff Test Edit Updated\""
-      }
-    ],
-    "priority": "Medium"
-  },
-  {
-    "id": "TC034",
-    "title": "Add multiple offers to a location and verify they persist on edit",
-    "description": "This test verifies an admin can add multiple offers to a location and they remain present after saving and reopening the location for editing.",
-    "category": "Location Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click the navigation link to locations management"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new location"
-      },
-      {
-        "type": "action",
-        "description": "Fill a unique location name into the location name field"
-      },
-      {
-        "type": "action",
-        "description": "Fill valid location details into the remaining required fields"
-      },
-      {
-        "type": "action",
-        "description": "Add a first offer to the location and fill valid offer details"
-      },
-      {
-        "type": "action",
-        "description": "Add a second offer to the location and fill valid offer details"
-      },
-      {
-        "type": "action",
-        "description": "Submit the location form"
-      },
-      {
-        "type": "action",
-        "description": "Select the newly created location from the list"
-      },
-      {
-        "type": "action",
-        "description": "Open the location for editing"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify multiple offers are displayed for the location"
-      }
-    ],
-    "priority": "Low"
-  },
-  {
-    "id": "TC035",
-    "title": "Prevent joining when room code is missing or invalid",
-    "description": "Verifies the join flow blocks submission for a missing or invalid room code and shows an on-page error state.",
-    "category": "Player Join (Mobile)",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /"
-      },
-      {
-        "type": "action",
-        "description": "Click the link to join a room as a player"
-      },
-      {
-        "type": "action",
-        "description": "Enter an invalid room code"
-      },
-      {
-        "type": "action",
-        "description": "Fill \"Test Player\" into the player name field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify an invalid-code error is visible and the join is not confirmed"
-      }
-    ],
-    "priority": "Low"
   },
   {
     "id": "TC036",
-    "title": "Delete a staff member",
-    "description": "Verifies an admin can delete a staff member after confirming and the staff member is removed from the staff list.",
+    "title": "Delete a staff member after confirmation",
+    "description": "Verifies an admin can delete a staff member with confirmation and the staff member is removed from the staff list.",
     "category": "Staff Management",
     "steps": [
       {
@@ -1786,23 +1786,23 @@
       },
       {
         "type": "action",
-        "description": "Click the navigation link to staff management"
+        "description": "Click the navigation item to view staff management"
       },
       {
         "type": "action",
-        "description": "Click the add new staff member action"
+        "description": "Click the control to add a new staff member"
       },
       {
         "type": "action",
-        "description": "Fill Staff Test Delete into the name field"
+        "description": "Fill Staff Delete User into the staff name field"
       },
       {
         "type": "action",
-        "description": "Fill staff.test.delete@example.com into the email field"
+        "description": "Fill staff.delete.user@example.com into the staff email field"
       },
       {
         "type": "action",
-        "description": "Select at least one role for the staff member"
+        "description": "Assign at least one role to the staff member"
       },
       {
         "type": "action",
@@ -1810,11 +1810,11 @@
       },
       {
         "type": "action",
-        "description": "Select the staff member \"Staff Test Delete\" from the list"
+        "description": "Select the staff member created in this test from the staff list"
       },
       {
         "type": "action",
-        "description": "Click the delete staff action"
+        "description": "Click the delete staff member control"
       },
       {
         "type": "action",
@@ -1822,93 +1822,15 @@
       },
       {
         "type": "assertion",
-        "description": "Verify the staff list no longer includes \"Staff Test Delete\""
+        "description": "Verify the deleted staff member no longer appears in the staff list"
       }
     ],
-    "priority": "Low"
+    "priority": "Medium"
   },
   {
     "id": "TC037",
-    "title": "Prevent joining when player name is missing",
-    "description": "Verifies the join flow blocks submission without a player name and shows a validation error.",
-    "category": "Player Join (Mobile)",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /"
-      },
-      {
-        "type": "action",
-        "description": "Click the link to join a room as a player"
-      },
-      {
-        "type": "action",
-        "description": "Enter a valid room code"
-      },
-      {
-        "type": "action",
-        "description": "Leave the player name field empty"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify a required-field validation error is visible and the join is not confirmed"
-      }
-    ],
-    "priority": "Low"
-  },
-  {
-    "id": "TC038",
-    "title": "Activity creation validates required fields",
-    "description": "Verifies the activity form shows a validation error and does not create an activity when required fields are missing.",
-    "category": "Activity Management",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /admin/login"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_USER}} into the username field"
-      },
-      {
-        "type": "action",
-        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
-      },
-      {
-        "type": "action",
-        "description": "Submit the login form"
-      },
-      {
-        "type": "action",
-        "description": "Click to open the activities section from the admin dashboard navigation"
-      },
-      {
-        "type": "action",
-        "description": "Click to add a new activity"
-      },
-      {
-        "type": "action",
-        "description": "Leave at least one required field empty"
-      },
-      {
-        "type": "action",
-        "description": "Submit the activity form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify a required-field validation error is visible"
-      }
-    ],
-    "priority": "Low"
-  },
-  {
-    "id": "TC039",
-    "title": "Booking form validates required fields",
-    "description": "Verifies the booking form prevents submission when required fields are missing and shows validation feedback.",
+    "title": "Validate required fields when creating a booking",
+    "description": "Verifies the booking form prevents submission with missing required fields and shows validation errors.",
     "category": "Booking Management",
     "steps": [
       {
@@ -1929,32 +1851,28 @@
       },
       {
         "type": "action",
-        "description": "Click the navigation link to activities"
+        "description": "Click the navigation item to view activities"
       },
       {
         "type": "action",
-        "description": "Click the new booking action"
+        "description": "Click the control to create a new booking"
       },
       {
         "type": "action",
-        "description": "Submit the booking form"
+        "description": "Submit the booking form without filling required fields"
       },
       {
         "type": "assertion",
         "description": "Verify required-field validation errors are visible"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the booking is not created and the form remains open"
       }
     ],
     "priority": "Low"
   },
   {
-    "id": "TC040",
-    "title": "Admin sees error on invalid credentials",
-    "description": "Verifies an admin sees an invalid-credentials error when attempting to log in with a wrong password.",
-    "category": "Admin Login",
+    "id": "TC038",
+    "title": "Activity form required-field validation prevents submission",
+    "description": "Verifies an admin cannot submit an activity with missing required fields and sees validation feedback.",
+    "category": "Activity Management",
     "steps": [
       {
         "type": "action",
@@ -1962,27 +1880,43 @@
       },
       {
         "type": "action",
-        "description": "Fill invalid-admin@example.com into the username field"
+        "description": "Fill {{LOGIN_USER}} into the username field"
       },
       {
         "type": "action",
-        "description": "Fill wrong-password into the password field"
+        "description": "Fill {{LOGIN_PASSWORD}} into the password field"
       },
       {
         "type": "action",
         "description": "Submit the login form"
       },
       {
+        "type": "action",
+        "description": "Click the navigation link to manage activities"
+      },
+      {
+        "type": "action",
+        "description": "Start creating a new activity"
+      },
+      {
+        "type": "action",
+        "description": "Leave at least one required field empty"
+      },
+      {
+        "type": "action",
+        "description": "Submit the activity form"
+      },
+      {
         "type": "assertion",
-        "description": "Verify an invalid credentials error is visible"
+        "description": "Verify a required-field validation error is displayed"
       }
     ],
     "priority": "Low"
   },
   {
-    "id": "TC041",
-    "title": "Prevent saving a location when required fields are missing",
-    "description": "This test verifies the location form blocks submission when required fields are missing and shows a validation error.",
+    "id": "TC039",
+    "title": "Cancel location deletion to keep the location",
+    "description": "This test verifies an admin can cancel a delete confirmation and the location remains in the locations list.",
     "category": "Location Management",
     "steps": [
       {
@@ -2007,57 +1941,44 @@
       },
       {
         "type": "action",
-        "description": "Click to add a new location"
+        "description": "Click the action to add a new location"
       },
       {
         "type": "action",
-        "description": "Leave at least one required field empty"
+        "description": "Fill \"Do Not Delete\" into the location name field"
       },
       {
         "type": "action",
         "description": "Submit the location form"
       },
       {
+        "type": "action",
+        "description": "Select the location \"Do Not Delete\" from the list"
+      },
+      {
+        "type": "action",
+        "description": "Click the delete action for the selected location"
+      },
+      {
+        "type": "action",
+        "description": "Cancel the deletion confirmation"
+      },
+      {
         "type": "assertion",
-        "description": "Verify a required-field validation error is visible"
+        "description": "Verify the locations list contains \"Do Not Delete\""
       }
     ],
     "priority": "Low"
   },
   {
-    "id": "TC042",
-    "title": "Display join rejects an invalid room code or PIN",
-    "description": "Verifies entering an invalid room code or PIN prevents joining and shows an on-page error state.",
-    "category": "Display Screen",
+    "id": "TC040",
+    "title": "Admin sees error on invalid credentials",
+    "description": "Verifies an admin attempting to log in with invalid credentials sees an authentication error and is not logged in.",
+    "category": "Admin Login",
     "steps": [
       {
         "type": "action",
-        "description": "Navigate to /display"
-      },
-      {
-        "type": "action",
-        "description": "Enter an invalid room code or PIN"
-      },
-      {
-        "type": "action",
-        "description": "Submit the join request"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify an invalid-code error is visible and the display does not enter the room view"
-      }
-    ],
-    "priority": "Low"
-  },
-  {
-    "id": "TC043",
-    "title": "Leader sees an error on invalid login credentials",
-    "description": "This test verifies a leader entering invalid credentials is not logged in and sees an invalid-credentials error.",
-    "category": "Leader Login",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to /leader/login"
+        "description": "Navigate to /admin/login"
       },
       {
         "type": "action",
@@ -2073,7 +1994,40 @@
       },
       {
         "type": "assertion",
-        "description": "Verify an invalid-credentials error is visible"
+        "description": "Verify a login error is displayed"
+      }
+    ],
+    "priority": "Low"
+  },
+  {
+    "id": "TC041",
+    "title": "Show an error for invalid leader credentials",
+    "description": "This test verifies a leader sees an invalid-credentials error when submitting incorrect login details.",
+    "category": "Leader Login",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /leader/login"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"invalid_user\" into the username field"
+      },
+      {
+        "type": "action",
+        "description": "Fill \"invalid_password\" into the password field"
+      },
+      {
+        "type": "action",
+        "description": "Submit the login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an invalid credentials error is visible"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the user remains on the leader login page"
       }
     ],
     "priority": "Low"

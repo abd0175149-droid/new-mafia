@@ -33,10 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to the admin login page at /admin/login so I can sign in as the admin user.
-        await page.goto("http://localhost:3000/admin/login")
+        # -> Click the 'لوحة الإدارة (Admin)' button to open the admin login page.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
-        # -> Fill username and password fields with admin credentials and submit the login form.
+        # -> Fill the admin credentials (admin / admin123) into the login form and submit to reach the admin dashboard.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -52,22 +55,27 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the Activities navigation link to open the Activities list.
+        # -> Click the 'الأنشطة' navigation item to open the activities list so we can open an activity and verify its details.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a').nth(0)
+        elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the details for the 'Test activity for unlinking game room' activity by clicking its Details (ℹ️) button.
+        # -> Click the 'التفاصيل' (details) button for an activity to open its details view and then verify financial charts, linked game room section, bookings and costs tables, and location information.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[2]/div[3]/div[2]/button[2]').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '🔓 فك الربط' (Unlink) button for the linked game room to start the unlink flow.
+        # -> Click the 'قائمة الحجوزات' (Bookings) button (index 1080) to open the bookings table, then open the 'تكاليف النشاط' (Costs) section (index 1087) and confirm both are visible.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[4]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Test passed — verified by AI agent
