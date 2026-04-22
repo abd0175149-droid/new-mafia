@@ -60,6 +60,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [apiError, setApiError] = useState('');
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
 
+  // ── توزيع الأدوار الرقمي ──
+  const [assignedRole, setAssignedRole] = useState<string | null>(null);
+  const [cardFlipped, setCardFlipped] = useState(false);
+
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   useEffect(() => {
     if (initialRoomCode && isConnected && !roomId) {
@@ -67,13 +71,26 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   }, [initialRoomCode, isConnected]);
 
-  // ── مزامنة خفية — الاستماع لبدء اللعبة ──
+  // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
     if (step !== 'done' || !on) return;
+
+    // استقبال الدور من الليدر
+    const cleanupRole = on('player:role-assigned', (data: { role: string }) => {
+      setAssignedRole(data.role);
+      setCardFlipped(false); // يبدأ الكارد مقلوب (سري)
+      // اهتزاز للتنبيه
+      if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+    });
+
     const cleanup = on('game:started', () => {
       if (navigator.vibrate) navigator.vibrate(200);
     });
-    return cleanup;
+
+    return () => {
+      cleanupRole();
+      cleanup();
+    };
   }, [step, on]);
 
   // ── الخطوة 1: إدخال كود اللعبة ──
@@ -474,35 +491,94 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {/* ── خطوة 5: تم ── */}
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
-              <motion.div
-                className="text-[#C5A059] flex justify-center mb-6"
-                animate={{ opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 3, repeat: Infinity }}
-              >
-                <ShieldCheckIcon />
-              </motion.div>
-              <h2 className="text-3xl font-black mb-4 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>اكتمل التشفير</h2>
-              
-              <div className="flex justify-center mb-8">
-                <MafiaCard
-                  playerNumber={parseInt(physicalId)}
-                  playerName={displayName}
-                  role={null}
-                  gender={gender === 'female' ? 'FEMALE' : 'MALE'}
-                  showVoting={false}
-                  flippable={false}
-                  size="md"
-                />
-              </div>
 
-              <div className="w-16 h-[1px] bg-[#2a2a2a] mx-auto mb-6" />
+              {assignedRole === null ? (
+                /* ── حالة الانتظار (لم يُوزَّع الدور بعد) ── */
+                <>
+                  <motion.div
+                    className="text-[#C5A059] flex justify-center mb-6"
+                    animate={{ opacity: [0.5, 1, 0.5] }}
+                    transition={{ duration: 3, repeat: Infinity }}
+                  >
+                    <ShieldCheckIcon />
+                  </motion.div>
+                  <h2 className="text-3xl font-black mb-4 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>اكتمل التشفير</h2>
 
-              <p className="text-[#C5A059] text-[11px] font-mono uppercase tracking-[0.2em] leading-relaxed mb-4">
-                SECURE YOUR DEVICE. DIRECT ATTENTION TO PRIMARY MONITOR.
-              </p>
-              <p className="text-[#555] text-[9px] font-mono uppercase tracking-widest">
-                STATUS ACTIVE. INTERFACE LOCKED.
-              </p>
+                  <div className="flex justify-center mb-8">
+                    <MafiaCard
+                      playerNumber={parseInt(physicalId)}
+                      playerName={displayName}
+                      role={null}
+                      gender={gender === 'female' ? 'FEMALE' : 'MALE'}
+                      showVoting={false}
+                      flippable={false}
+                      size="md"
+                    />
+                  </div>
+
+                  <div className="w-16 h-[1px] bg-[#2a2a2a] mx-auto mb-6" />
+
+                  <p className="text-[#C5A059] text-[11px] font-mono uppercase tracking-[0.2em] leading-relaxed mb-4">
+                    SECURE YOUR DEVICE. DIRECT ATTENTION TO PRIMARY MONITOR.
+                  </p>
+                  <p className="text-[#555] text-[9px] font-mono uppercase tracking-widest">
+                    STATUS ACTIVE. INTERFACE LOCKED.
+                  </p>
+                </>
+              ) : (
+                /* ── حالة الدور المُعيَّن (كارد سري قابل للقلب) ── */
+                <motion.div
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <h2 className="text-2xl font-black mb-2 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                    تم تعيين مهمتك
+                  </h2>
+                  <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em] mb-6">
+                    TAP CARD TO REVEAL YOUR IDENTITY
+                  </p>
+
+                  <div className="flex justify-center mb-6">
+                    <MafiaCard
+                      playerNumber={parseInt(physicalId)}
+                      playerName={displayName}
+                      role={assignedRole}
+                      isFlipped={cardFlipped}
+                      onFlip={() => setCardFlipped(prev => !prev)}
+                      gender={gender === 'female' ? 'FEMALE' : 'MALE'}
+                      showVoting={false}
+                      flippable={true}
+                      size="md"
+                    />
+                  </div>
+
+                  <AnimatePresence mode="wait">
+                    {cardFlipped ? (
+                      <motion.p
+                        key="hide-msg"
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em] animate-pulse"
+                      >
+                        ⚠️ أخفِ هاتفك الآن!
+                      </motion.p>
+                    ) : (
+                      <motion.p
+                        key="tap-msg"
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="text-[#555] text-[9px] font-mono uppercase tracking-widest"
+                      >
+                        اضغط البطاقة لكشف دورك
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              )}
+
             </motion.div>
           )}
 

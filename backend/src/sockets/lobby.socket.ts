@@ -593,6 +593,74 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── توزيع عشوائي كامل للأدوار (Digital Distribution) ──
+  socket.on('setup:random-assign', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.ROLE_BINDING) {
+        return callback({ success: false, error: 'ليس في مرحلة توزيع الأدوار' });
+      }
+
+      const pool = [...(state.rolesPool || [])];
+      const alivePlayers = state.players.filter((p: any) => p.isAlive !== false);
+
+      if (pool.length !== alivePlayers.length) {
+        return callback({ success: false, error: `عدد الأدوار (${pool.length}) لا يطابق عدد اللاعبين (${alivePlayers.length})` });
+      }
+
+      // 1. إلغاء ربط جميع الأدوار الحالية
+      for (const p of alivePlayers) {
+        if (p.role) {
+          await unbindRole(data.roomId, p.physicalId);
+        }
+      }
+
+      // 2. خلط عشوائي (Fisher-Yates)
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+
+      // 3. ربط كل دور بلاعب
+      for (let i = 0; i < alivePlayers.length; i++) {
+        await bindRole(data.roomId, alivePlayers[i].physicalId, pool[i]);
+      }
+
+      // 4. قراءة الحالة المحدثة
+      const updatedState = await getRoom(data.roomId);
+
+      // 5. بث الدور لكل لاعب متصل على جهازه فقط
+      const allSockets = await io.in(data.roomId).fetchSockets();
+      for (const s of allSockets) {
+        if (s.data.role === 'player' && s.data.physicalId) {
+          const player = updatedState?.players.find(
+            (p: any) => p.physicalId === s.data.physicalId
+          );
+          if (player?.role) {
+            s.emit('player:role-assigned', {
+              physicalId: player.physicalId,
+              role: player.role,
+            });
+          }
+        }
+      }
+
+      // 6. إرسال الحالة المحدثة لليدر
+      callback({
+        success: true,
+        state: updatedState,
+      });
+      console.log(`🎲 Random role assignment complete in room ${data.roomId} — ${alivePlayers.length} players`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── إنهاء الربط وبدء اللعبة ──────────────────────
   socket.on('setup:binding-complete', async (data: { roomId: string }, callback) => {
     try {

@@ -24,6 +24,8 @@ interface RoleSlot {
 export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderRoleBindingProps) {
   const [roleSlots, setRoleSlots] = useState<RoleSlot[]>([]);
   const [loading, setLoading] = useState(false);
+  const [randomLoading, setRandomLoading] = useState(false);
+  const [randomDone, setRandomDone] = useState(false);
 
   // ── تهيئة الأدوار من rolesPool ──
   useEffect(() => {
@@ -102,6 +104,39 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         prev.map(s => (s.id === slotId ? { ...s, assignedPlayerId: oldPlayerId } : s))
       );
       setError(err.message);
+    }
+  };
+
+  // ── توزيع عشوائي كامل ──
+  const handleRandomAssign = async () => {
+    setRandomLoading(true);
+    setError('');
+    try {
+      const res = await emit('setup:random-assign', { roomId: gameState.roomId });
+      if (res.state) {
+        // تحديث roleSlots من الحالة المُرجعة
+        const pool: Role[] = [...(res.state.rolesPool || [])];
+        let idCounter = 0;
+        const newSlots: RoleSlot[] = [];
+        for (const p of res.state.players) {
+          if (p.role) {
+            const roleIdx = pool.indexOf(p.role);
+            if (roleIdx !== -1) {
+              newSlots.push({ id: `role-${idCounter++}`, role: p.role, assignedPlayerId: p.physicalId });
+              pool.splice(roleIdx, 1);
+            }
+          }
+        }
+        pool.forEach(role => {
+          newSlots.push({ id: `role-${idCounter++}`, role, assignedPlayerId: null });
+        });
+        setRoleSlots(newSlots);
+        setRandomDone(true);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRandomLoading(false);
     }
   };
 
@@ -208,12 +243,44 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         </div>
       )}
 
-      {/* ═══ Start Button ═══ */}
-      <div className="text-center mb-10">
+      {/* ═══ Random Assign + Start Button ═══ */}
+      <div className="text-center mb-10 space-y-4">
+        {/* زر التوزيع العشوائي */}
+        <button
+          onClick={handleRandomAssign}
+          disabled={randomLoading || loading}
+          className="w-full py-4 rounded-xl font-mono text-sm uppercase tracking-[0.2em] font-bold transition-all duration-300 border-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: randomDone
+              ? 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(16,185,129,0.1))'
+              : 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(99,102,241,0.1))',
+            borderColor: randomDone ? 'rgba(34,197,94,0.5)' : 'rgba(139,92,246,0.4)',
+            color: randomDone ? '#4ade80' : '#a78bfa',
+          }}
+        >
+          {randomLoading ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              جارِ التوزيع...
+            </span>
+          ) : randomDone ? (
+            <span>✅ تم التوزيع العشوائي — اضغط مجدداً لإعادة الخلط</span>
+          ) : (
+            <span>🎲 توزيع عشوائي للأدوار</span>
+          )}
+        </button>
+
+        {randomDone && (
+          <p className="text-emerald-500/70 text-[10px] font-mono uppercase tracking-[0.2em]">
+            ROLES DISTRIBUTED TO ALL PLAYER DEVICES
+          </p>
+        )}
+
+        {/* زر بدء اللعبة */}
         <button
           onClick={handleStartGame}
           disabled={unassignedSpecial.length > 0 || loading}
-          className="btn-premium px-12 py-4 disabled:opacity-50 disabled:grayscale transition-all"
+          className="btn-premium px-12 py-4 w-full disabled:opacity-50 disabled:grayscale transition-all"
         >
           <span className="text-white">
             {loading ? 'INITIALIZING...' : 'LOCK IDENTITIES & COMMENCE DAY'}
