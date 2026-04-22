@@ -24,6 +24,7 @@ import notificationsRoutes from './routes/notifications.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import leaderRoutes from './routes/leader.routes.js';
 import driveRoutes from './routes/drive.routes.js';
+import playerRoutes from './routes/player.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame } from './sockets/lobby.socket.js';
@@ -78,6 +79,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/leader', leaderRoutes);
 app.use('/api/drive', driveRoutes);
+app.use('/api/player', playerRoutes);
 
 // ══════════════════════════════════════════════════════
 // 🎮 Game REST API Routes (History & Stats + Frontend Endpoints)
