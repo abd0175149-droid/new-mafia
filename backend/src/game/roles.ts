@@ -125,3 +125,24 @@ export function validateRoleDistribution(roles: Role[], playerCount: number): { 
   }
   return { valid: true };
 }
+
+// ── عداد الفريقين (مافيا / مواطنين) ────────────────
+
+export interface TeamCounts {
+  mafiaAlive: number;
+  citizenAlive: number;
+  mafiaTotal: number;
+  citizenTotal: number;
+}
+
+export function getTeamCounts(players: { role: Role | string | null; isAlive: boolean }[]): TeamCounts {
+  const withRoles = players.filter(p => p.role);
+  const alive = withRoles.filter(p => p.isAlive);
+
+  return {
+    mafiaAlive: alive.filter(p => isMafiaRole(p.role as Role)).length,
+    citizenAlive: alive.filter(p => !isMafiaRole(p.role as Role)).length,
+    mafiaTotal: withRoles.filter(p => isMafiaRole(p.role as Role)).length,
+    citizenTotal: withRoles.filter(p => !isMafiaRole(p.role as Role)).length,
+  };
+}

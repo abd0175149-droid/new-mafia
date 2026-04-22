@@ -33,6 +33,7 @@ export interface Player {
   isAlive: boolean;
   isSilenced: boolean;
   justificationCount: number; // عدد مرات التبرير في الجولة الحالية
+  addedBy?: 'self' | 'leader'; // من أضاف اللاعب: اللاعب نفسه أو الليدر
 }
 
 export enum CandidateType {
@@ -244,6 +245,7 @@ export async function addPlayer(
   name: string,
   phone: string | null = null,
   playerId: number | null = null,
+  addedBy: 'self' | 'leader' = 'self',
 ): Promise<GameState> {
   console.log(`[State] addPlayer ➡️ Start for physicalId ${physicalId}, phone: ${phone}`);
   const state = await getGameState(roomId);
@@ -280,12 +282,13 @@ export async function addPlayer(
     isAlive: true,
     isSilenced: false,
     justificationCount: 0,
+    addedBy,
   };
 
   state.players.push(player);
   state.players.sort((a, b) => a.physicalId - b.physicalId);
   await setGameState(roomId, state);
-  console.log(`[State] addPlayer ✅ Player #${physicalId} added successfully to Redis`);
+  console.log(`[State] addPlayer ✅ Player #${physicalId} (${addedBy}) added successfully to Redis`);
   return state;
 }
 

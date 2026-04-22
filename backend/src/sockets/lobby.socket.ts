@@ -5,7 +5,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
-import { generateRoles, validateRoleDistribution, Role } from '../game/roles.js';
+import { generateRoles, validateRoleDistribution, Role, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers } from '../services/session.service.js';
@@ -797,6 +797,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         round: 1,
         phase: Phase.DAY_DISCUSSION,
         playerCount: state.players.length,
+        teamCounts: getTeamCounts(state.players),
       });
 
       callback({ success: true });

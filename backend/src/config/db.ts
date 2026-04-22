@@ -7,6 +7,7 @@ import pg from 'pg';
 import { env } from './env.js';
 import * as adminSchema from '../schemas/admin.schema.js';
 import * as gameSchema from '../schemas/game.schema.js';
+import * as playerSchema from '../schemas/player.schema.js';
 
 const { Pool } = pg;
 
@@ -32,7 +33,7 @@ export async function connectDB(): Promise<Database> {
   client.release();
 
   db = drizzle(pool, {
-    schema: { ...adminSchema, ...gameSchema },
+    schema: { ...adminSchema, ...gameSchema, ...playerSchema },
   });
 
   return db;

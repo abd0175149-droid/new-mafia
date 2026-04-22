@@ -187,6 +187,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (data.found && data.player) {
         setDisplayName(data.player.displayName);
         setPlayerId(data.player.id);
+        // حفظ playerId للبروفايل
+        if (data.player.playerId) localStorage.setItem('mafia_playerId', String(data.player.playerId));
         setStep('number');
       } else {
         setStep('register');
@@ -218,6 +220,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       const data = await res.json();
       if (data.success) {
         setPlayerId(data.player.id);
+        // حفظ playerId للبروفايل
+        if (data.player.playerId) localStorage.setItem('mafia_playerId', String(data.player.playerId));
         setStep('number');
       } else {
         setApiError(data.error);

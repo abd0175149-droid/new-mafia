@@ -137,7 +137,7 @@ router.post('/force-add-player', requireLeader, async (req: Request, res: Respon
       return res.status(400).json({ success: false, error: 'بيانات غير مكتملة' });
     }
 
-    const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000');
+    const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000', null, 'leader');
     await updatePlayer(roomId, Number(physicalId), { dob, gender });
 
     // حفظ اللاعب في الـ Session (PostgreSQL)
@@ -185,9 +185,36 @@ router.get('/session-matches/:sessionId', requireLeader, async (req: Request, re
       })
     );
 
-    res.json({ success: true, matches: detailed });
+  res.json({ success: true, matches: detailed });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── GET /api/leader/manual-players/:roomId — اللاعبون المضافون يدوياً ──
+router.get('/manual-players/:roomId', requireLeader, async (req: Request, res: Response) => {
+  try {
+    const { roomId } = req.params;
+    const state = await getRoom(roomId);
+
+    if (!state) {
+      return res.status(404).json({ success: false, error: 'Room not found' });
+    }
+
+    // فلترة اللاعبين اليدويين فقط (addedBy: 'leader')
+    const manualPlayers = state.players
+      .filter((p: any) => p.addedBy === 'leader')
+      .map((p: any) => ({
+        physicalId: p.physicalId,
+        name: p.name,
+        role: p.role || null,
+        isAlive: p.isAlive,
+        gender: p.gender || 'MALE',
+      }));
+
+    return res.json({ success: true, players: manualPlayers, gameName: state.config.gameName });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

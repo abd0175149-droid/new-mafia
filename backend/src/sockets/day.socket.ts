@@ -17,7 +17,7 @@ import {
   unNarrowVoting,
 } from '../game/vote-engine.js';
 import { checkWinCondition, WinResult } from '../game/win-checker.js';
-import { isMafiaRole } from '../game/roles.js';
+import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { finalizeMatch } from '../services/match.service.js';
 
@@ -36,10 +36,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('day:voting-started', {
         candidates: state.votingState.candidates,
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
-        teamCounts: {
-          citizenAlive: state.players.filter(p => p.isAlive && p.role && !['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'].includes(p.role)).length,
-          mafiaAlive: state.players.filter(p => p.isAlive && p.role && ['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'].includes(p.role)).length,
-        },
+        teamCounts: getTeamCounts(state.players),
       });
 
       callback({ success: true });
@@ -654,13 +651,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       // بث الإقصاء للجميع — مع المرحلة الحالية + عداد الفريقين
-      const alivePlayers = state.players.filter((p: any) => p.isAlive && p.role);
-      const teamCounts = {
-        mafiaAlive: alivePlayers.filter((p: any) => isMafiaRole(p.role)).length,
-        citizenAlive: alivePlayers.filter((p: any) => !isMafiaRole(p.role)).length,
-        mafiaTotal: state.players.filter((p: any) => p.role && isMafiaRole(p.role)).length,
-        citizenTotal: state.players.filter((p: any) => p.role && !isMafiaRole(p.role)).length,
-      };
+      const teamCounts = getTeamCounts(state.players);
 
       io.to(data.roomId).emit('admin:player-eliminated', {
         physicalId: data.physicalId,

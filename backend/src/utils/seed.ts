@@ -16,6 +16,38 @@ export async function seedDatabase(): Promise<void> {
   }
 
   try {
+    // ── 0. إنشاء جداول اللاعبين إذا لم تكن موجودة ──
+    await db.execute({sql: `
+      CREATE TABLE IF NOT EXISTS players (
+        id SERIAL PRIMARY KEY,
+        phone VARCHAR(20) UNIQUE NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        gender VARCHAR(10) DEFAULT 'MALE',
+        dob VARCHAR(20),
+        total_matches INTEGER DEFAULT 0,
+        total_wins INTEGER DEFAULT 0,
+        total_survived INTEGER DEFAULT 0,
+        last_active_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS booking_members (
+        id SERIAL PRIMARY KEY,
+        booking_id INTEGER NOT NULL,
+        player_id INTEGER NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        phone VARCHAR(20),
+        is_guest BOOLEAN DEFAULT FALSE,
+        checked_in BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      );
+    `, params: []});
+    console.log('✅ Player tables verified');
+  } catch (err: any) {
+    console.error('⚠️ Player tables migration:', err.message);
+  }
+
+  try {
     // ── 1. تحقق من وجود حساب admin ────────────────
     const existingAdmin = await db.select()
       .from(staff)
