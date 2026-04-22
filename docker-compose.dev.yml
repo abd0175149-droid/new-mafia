@@ -1,0 +1,13 @@
+# ══════════════════════════════════════════════════════
+# 🛠️ Development Override — يكشف PostgreSQL + Redis للـ localhost
+# استخدم: docker compose -f docker-compose.yml -f docker-compose.dev.yml up postgres redis -d
+# ══════════════════════════════════════════════════════
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"

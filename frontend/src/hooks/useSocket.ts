@@ -47,9 +47,9 @@ export function useSocket() {
       
       console.log(`[useSocket] Emitting '${event}' | Socket ID: ${socketRef.current.id} | Connected: ${socketRef.current.connected}`);
 
-      // نضيف Timeout لمدة 5 ثواني حتى لا يظل معلقاً للأبد
+      // نضيف Timeout لمدة 15 ثانية (العمليات المعقدة مثل التوزيع العشوائي تحتاج وقت)
       if (typeof socketRef.current.timeout === 'function') {
-        socketRef.current.timeout(5000).emit(event, data, (err: Error, response: any) => {
+        socketRef.current.timeout(15000).emit(event, data, (err: Error, response: any) => {
           if (err) {
             console.error(`[useSocket] ❌ Timeout emitting ${event}:`, err);
             return reject(new Error('الخادم في وضع قطع الاتصال أو لا يستجيب (Timeout)'));

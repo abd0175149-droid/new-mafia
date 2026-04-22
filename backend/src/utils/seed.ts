@@ -17,7 +17,8 @@ export async function seedDatabase(): Promise<void> {
 
   try {
     // ── 0. إنشاء جداول اللاعبين إذا لم تكن موجودة ──
-    await db.execute({sql: `
+    const { sql: rawSql } = await import('drizzle-orm');
+    await db.execute(rawSql`
       CREATE TABLE IF NOT EXISTS players (
         id SERIAL PRIMARY KEY,
         phone VARCHAR(20) UNIQUE NOT NULL,
@@ -29,8 +30,9 @@ export async function seedDatabase(): Promise<void> {
         total_survived INTEGER DEFAULT 0,
         last_active_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
-      );
-
+      )
+    `);
+    await db.execute(rawSql`
       CREATE TABLE IF NOT EXISTS booking_members (
         id SERIAL PRIMARY KEY,
         booking_id INTEGER NOT NULL,
@@ -40,8 +42,8 @@ export async function seedDatabase(): Promise<void> {
         is_guest BOOLEAN DEFAULT FALSE,
         checked_in BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
-      );
-    `, params: []});
+      )
+    `);
     console.log('✅ Player tables verified');
   } catch (err: any) {
     console.error('⚠️ Player tables migration:', err.message);

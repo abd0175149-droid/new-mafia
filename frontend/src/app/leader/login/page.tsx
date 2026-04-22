@@ -28,7 +28,7 @@ export default function LeaderLoginPage() {
       if (data.success) {
         localStorage.setItem('leader_token', data.token);
         localStorage.setItem('leader_name', data.displayName);
-        router.push('/');
+        router.push('/leader');
       } else {
         setError(data.error || 'فشل تسجيل الدخول');
       }
