@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 
@@ -28,7 +28,7 @@ interface ManualPlayer {
   gender: string;
 }
 
-export default function LeaderCardsPage() {
+function LeaderCardsContent() {
   const searchParams = useSearchParams();
   const roomId = searchParams.get('roomId') || '';
 
@@ -259,5 +259,21 @@ export default function LeaderCardsPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function LeaderCardsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#C5A059" strokeWidth="1.5">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+        </motion.div>
+      </div>
+    }>
+      <LeaderCardsContent />
+    </Suspense>
   );
 }
