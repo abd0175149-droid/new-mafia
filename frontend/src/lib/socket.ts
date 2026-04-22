@@ -12,10 +12,11 @@ let socket: Socket | null = null;
 export function getSocket(): Socket {
   if (!socket) {
     socket = io(SOCKET_URL, {
-      transports: ['polling', 'websocket'], // Use polling first for maximum compatibility with strict firewalls/Cloudflare
+      path: '/api/socketio',
+      transports: ['polling', 'websocket'],
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: Infinity, // Keep trying!
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
