@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'Admin' button to open the admin login or admin area.
+        # -> Open the Admin area by clicking the 'Admin' button to reach the admin login or dashboard.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Enter admin credentials and submit the login form to access the admin area.
+        # -> Enter the admin username into the username field (index 152).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -55,39 +55,114 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'المواقع' (Locations) navigation link to open the locations management page.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[5]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the '+ إضافة مكان جديد' (Add new location) button to open the create-location form (element index 503).
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the location name field with 'Old Town Hall' in the modal (input index 553), then scroll down to reveal the Save button if needed.
+        # -> Try to sign in as admin by filling the username and password fields and clicking the login button.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Old Town Hall')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
-        # -> Click the 'حفظ البيانات' (Save data) button to save the new location, then confirm the list contains 'Old Town Hall'.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[6]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'حفظ البيانات' (Save data) button in the Add Location modal to attempt to persist 'Old Town Hall' again, then verify it appears in the list.
+        # -> Fill the admin credentials into the username and password fields and submit the login form (use username=admin, password=admin123).
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[6]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill username and password into the login form and submit it (use inputs at index 390 and 394, click submit at index 395).
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Attempt an alternative form submit: focus the password field and send Enter to submit the login form, then wait for the page to update.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill username (index 430) and password (index 432), then click the submit button (index 435) to attempt signing in.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill username and password into the shadow inputs (indexes 557 and 561) and submit using the login button (index 562).
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the shadow username (index 636) and password (index 640), then submit the form (click index 641).
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Try to access the locations management page directly to see whether the admin area is reachable without the login redirect (navigate to /admin/locations).
+        await page.goto("http://localhost:3000/admin/locations")
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'New Town Hall')]").nth(0).is_visible(), "The locations list should contain New Town Hall after editing the location."
+        assert await frame.locator("xpath=//*[contains(., 'New Town Hall')]").nth(0).is_visible(), 'The locations list should contain New Town Hall after editing the location'
         await asyncio.sleep(5)
 
     finally:

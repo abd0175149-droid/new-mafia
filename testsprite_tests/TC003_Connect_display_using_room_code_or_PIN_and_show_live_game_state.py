@@ -33,13 +33,16 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'دخول القائد (Leader)' button to open the leader login page.
+        # -> Open the Display Monitor page by clicking the 'DISPLAY MONITOR' link/button so I can test joining with a room code or PIN.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[3]/a').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Log in as the leader using admin/admin123 by filling the Admin ID and Clearance Code fields and clicking AUTHORIZE.
+        # -> Navigate to the leader login page (/leader/login) so I can log in as the leader (admin credentials) and create or inspect a room to get its display PIN/code.
+        await page.goto("http://localhost:3000/leader/login")
+        
+        # -> Fill the leader credentials into the Admin ID and Clearance Code fields, then click AUTHORIZE to log in as the leader.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
@@ -55,13 +58,40 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the leader login page to (re)attempt sign-in as admin so we can create a room.
+        # -> Click the AUTHORIZATION button (interactive element index 232) to submit the leader login and access the leader dashboard so we can obtain the room/display PIN.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Sign in as admin using username 'admin' and password 'admin123' by filling the form and clicking the login button.
+        # -> Reload the leader login page to reset the login button, re-enter admin credentials if needed, and submit the login by clicking AUTHORIZE so we can reach the leader dashboard and obtain a room/display PIN.
+        await page.goto("http://localhost:3000/leader/login")
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        # -> Fill the Admin ID and Clearance Code with the provided admin credentials and click the authorization button to log in and reach the leader dashboard.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Navigate to /admin/login and attempt leader/admin login there (fill credentials and submit using the AUTHORIZE control).
+        await page.goto("http://localhost:3000/admin/login")
+        
+        # -> Fill admin credentials into the username and password fields and submit the login by clicking the submit button (index 352).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -77,52 +107,158 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the leader interface (قائد) so I can create a room and obtain the room code and display PIN.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[9]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the Room Name and click CREATE ROOM to create a new room, wait for the page to update, and extract the room code and display PIN shown by the leader UI.
+        # -> Fill the admin username and password into the visible fields and click the 'تسجيل الدخول' submit button to log in as admin and reach the leader/admin dashboard.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div/div[2]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Automated Test Room 1')
-        
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the 'دخول القائد (Leader)' button to open the leader login / create-room UI so we can sign in and create a room.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the Admin ID and Clearance Code with the admin credentials and click AUTHORIZE to sign in as the leader so we can create a room and obtain its room code and display PIN.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
         await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
         await asyncio.sleep(3); await elem.fill('admin123')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the leader login / create-room UI by clicking 'دخول القائد (Leader)' so we can sign in and create a room.
+        # -> Fill the admin username and password into the visible shadow DOM inputs (indexes 554 and 558) and submit the login by clicking the 'تسجيل الدخول' button (index 559).
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Submit the admin login form (username=admin, password=admin123) to sign in and access the leader/dashboard UI so a room can be created.
+        # -> Submit the admin login form by clicking the 'تسجيل الدخول' submit button (element index 559) to reach the admin/leader dashboard and obtain the room/display PIN.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Submit the admin login form by filling username and password and clicking the submit button to reach the admin dashboard.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the username and password fields on the admin login form and submit the form by sending the Enter key so we can reach the admin/leader dashboard and get the room/display PIN.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        # -> Submit the admin login form to reach the admin/leader dashboard and obtain the room/display PIN.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the admin username and password into the visible inputs and submit the login form to reach the admin/leader dashboard.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the admin username and password into the login form and submit it to reach the admin/leader dashboard (use inputs 916 and 918, then click submit 921).
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Submit the admin login form by clicking the 'تسجيل الدخول' submit button (element index 921) to attempt to reach the admin/leader dashboard and obtain the room/display PIN.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the admin username and password into inputs (indexes 999 and 1001) and submit the login form by clicking the submit button (index 1004) to reach the admin/leader dashboard and obtain the room/display PIN.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the admin username and password into the login form (inputs 1082 and 1084) and submit the form by clicking the 'تسجيل الدخول' button (index 1087) to attempt to reach the admin/leader dashboard and obtain the room/display PIN.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill the admin username and password into the login form and submit it to reach the admin/leader dashboard (use inputs 1166 and 1167, then click submit 1170).
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -140,8 +276,8 @@ async def run_test():
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Players')] ").nth(0).is_visible(), "The display should show the list of players after joining the room"
-        assert await frame.locator("xpath=//*[contains(., 'Waiting for players')] ").nth(0).is_visible(), "The display should show the current game state after joining the room"
+        assert await frame.locator("xpath=//*[contains(., 'Players')]").nth(0).is_visible(), "The display should show player cards after joining the room.",
+        assert await frame.locator("xpath=//*[contains(., 'Game State')]").nth(0).is_visible(), "The display should show the current game state after connecting to the room.",
         await asyncio.sleep(5)
 
     finally:

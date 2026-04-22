@@ -33,13 +33,18 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to /join/ABCDEF (use a syntactically valid but non-existent room code) and then verify the join form loads.
-        await page.goto("http://localhost:3000/join/ABCDEF")
+        # -> Navigate to /join/INVALID123 (a syntactically valid but non-existent room code) to open the join page and observe its fields.
+        await page.goto("http://localhost:3000/join/INVALID123")
         
-        # --> Test passed — verified by AI agent
+        # -> Reload the join page (navigate to the same URL) and wait for the app to finish rendering so I can look for the player name input or an explicit invalid-room error message.
+        await page.goto("http://localhost:3000/join/INVALID123")
+        
+        # -> Navigate to /join (no room code) and wait for the page to finish rendering so I can look for the player name input or an explicit invalid/expired room error message.
+        await page.goto("http://localhost:3000/join")
+        
+        # --> Assertions to verify final state
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        assert await frame.locator("xpath=//*[contains(., 'Invalid or expired room code')]").nth(0).is_visible(), "The join page should show an invalid or expired room code error after submitting a non-existent room code"
         await asyncio.sleep(5)
 
     finally:

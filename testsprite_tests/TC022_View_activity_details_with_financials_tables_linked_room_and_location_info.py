@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'لوحة الإدارة (Admin)' button to open the admin login page.
+        # -> Click the 'Admin' button to go to the admin login or admin area.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the admin credentials (admin / admin123) into the login form and submit to reach the admin dashboard.
+        # -> Submit the admin login form by entering username 'admin' and password 'admin123', then click the login button.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -55,33 +55,75 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'الأنشطة' navigation item to open the activities list so we can open an activity and verify its details.
+        # -> Fill the username and password fields on the admin login page and submit the form to reach the admin dashboard.
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
-        # -> Click the 'التفاصيل' (details) button for an activity to open its details view and then verify financial charts, linked game room section, bookings and costs tables, and location information.
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[2]/div[3]/div[2]/button[2]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the 'قائمة الحجوزات' (Bookings) button (index 1080) to open the bookings table, then open the 'تكاليف النشاط' (Costs) section (index 1087) and confirm both are visible.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[4]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div/div/span').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # --> Test passed — verified by AI agent
+        # -> Click the 'تسجيل الدخول' (submit) button to submit the admin login form and load the admin dashboard.
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Submit the admin login form by filling username and password and clicking the login button.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Fill username and password fields and submit the login form by pressing Enter (alternative to clicking the login button). Then observe whether the admin dashboard loads.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        # -> Fill the username and password fields with admin/admin123 and click the 'تسجيل الدخول' button to attempt to reach the admin dashboard. Then observe whether the dashboard loads.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # --> Assertions to verify final state
+        frame = context.pages[-1]
+        assert await frame.locator("xpath=//*[contains(., 'Financial Summary')]").nth(0).is_visible(), "The admin should see the Financial Summary donut chart and attendance distribution chart after opening an activity.",
+        assert await frame.locator("xpath=//*[contains(., 'Linked game room')]").nth(0).is_visible(), "The admin should see the linked game room section and the activity's location information when viewing an activity."]}
         await asyncio.sleep(5)
 
     finally:

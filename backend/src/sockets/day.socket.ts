@@ -390,6 +390,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         });
       } else {
         await setPhase(data.roomId, Phase.DAY_VOTING);
+        // بث تغيير المرحلة أيضاً ليتم تحديث جميع العملاء
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING });
         io.to(data.roomId).emit('day:voting-started', {
           candidates: state.votingState.candidates,
           hiddenPlayers: state.votingState.hiddenPlayersFromVoting,

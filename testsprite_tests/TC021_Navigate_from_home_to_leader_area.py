@@ -33,7 +33,7 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'دخول القائد (Leader)' button (element [77]) to navigate to the leader login or leader dashboard, then observe the resulting page.
+        # -> Click the 'دخول القائد (Leader)' button to navigate to the leader login or dashboard.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)

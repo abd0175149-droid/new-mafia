@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'لوحة الإدارة (Admin)' button to go to the admin login page.
+        # -> Click the 'لوحة الإدارة (Admin)' button to open the admin login / admin area.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the username and password fields with admin credentials and submit the login form.
+        # -> Fill the username and password fields with admin/admin123 and submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -55,43 +55,42 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'الموظفون' (Staff) navigation item to open Staff Management.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[6]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the '+ إضافة موظف جديد' button to open the Add Staff form (index 620).
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the full name, username, and password fields in the Add Staff modal, then click 'حفظ التغييرات' (Save) to create the staff member.
+        # -> Fill the username and password fields with admin/admin123 and submit the login form (press Enter) to log in as admin.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/div/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Staff Create User')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('staff.create.user@example.com')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        # -> Try a different approach: navigate directly to /admin/staff to see if the staff management page is reachable or shows an authorization/error message.
+        await page.goto("http://localhost:3000/admin/staff")
+        
+        # -> Wait briefly for the SPA to finish rendering and then, if still blank, navigate to the admin login page (/admin/login) to attempt a different entry point.
+        await page.goto("http://localhost:3000/admin/login")
+        
+        # -> Fill the username and password fields with admin/admin123 and submit the login form (click 'تسجيل الدخول').
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/div[3]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('P@ssw0rd123')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
-        # -> Click the 'حفظ التغييرات' (Save) button to submit the Add Staff form, then wait for the staff list to refresh so we can verify 'Staff Create User' appears.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[3]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Staff Create User')]").nth(0).is_visible(), "The staff list should show Staff Create User after creating the new staff member"
+        assert await frame.locator("xpath=//*[contains(., 'Staff Create User')]").nth(0).is_visible(), "The staff list should show 'Staff Create User' after creating a new staff member."
         await asyncio.sleep(5)
 
     finally:

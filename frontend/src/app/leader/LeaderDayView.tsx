@@ -1099,7 +1099,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
               return (
                 <VotingCard
-                  key={index}
+                  key={`${candidate.targetPhysicalId}-${gameState.votingState?.tieBreakerLevel || 0}`}
                   candidate={candidate}
                   index={index}
                   isDeal={isDeal}

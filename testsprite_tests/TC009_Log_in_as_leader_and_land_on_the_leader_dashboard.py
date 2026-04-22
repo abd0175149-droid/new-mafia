@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Open the leader login page by clicking 'دخول القائد (Leader)'.
+        # -> Click the 'دخول القائد (Leader)' button to open the leader login page.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the Admin ID field with 'admin' (index 106), fill the Clearance Code with 'admin123' (index 110), then click AUTHORIZE (index 115).
+        # -> Fill the username and password fields with admin credentials and click the login/authorize button (index 155) to submit the form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
@@ -55,32 +55,54 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'دخول القائد (Leader)' button to open the leader login page (element index 187).
+        # -> Focus the password field and submit the login (send Enter) to attempt leader login and verify navigation to the leader dashboard.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div[4]/div/a/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the username and password fields with the admin credentials and submit the form by clicking the login button (index 269). Then verify arrival at the leader/admin dashboard.
+        # -> Try submitting the login again by focusing the username field and sending Enter to trigger form submission.
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Re-enter the username and password to restore the AUTHORIZE state, then click the authorize button (index 155) to submit the login and verify navigation to the leader dashboard.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
         await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
         await asyncio.sleep(3); await elem.fill('admin123')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Clear and retype the username (index 146), clear and retype the password (index 150), then click the authorize button (index 155) to attempt login and verify navigation to the leader dashboard.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div/div[3]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
         current_url = await frame.evaluate("() => window.location.href")
-        assert '/leader/dashboard' in current_url, "The page should have navigated to the leader dashboard after login"
+        assert '/leader/dashboard' in current_url, "The page should have navigated to /leader/dashboard after a successful leader login"
         await asyncio.sleep(5)
 
     finally:

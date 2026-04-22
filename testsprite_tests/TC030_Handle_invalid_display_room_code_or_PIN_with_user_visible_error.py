@@ -33,24 +33,39 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Navigate to /display, observe the connect form fields (room code/PIN and connect button), enter an invalid code/PIN, submit the connect action, and verify an error message is shown.
-        await page.goto("http://localhost:3000/display")
+        # -> Open the Display page by clicking the 'DISPLAY MONITOR' link (click element index 51).
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[3]/a').nth(0)
+        await asyncio.sleep(3); await elem.click()
         
-        # -> Enter an invalid display access code into the numeric input (index 100). After the input updates the page, the ACCESS button should become interactive and then I'll submit to verify an error is shown.
+        # -> Enter an invalid 4-digit room code into the access input (index 160). After entering, stop and let the UI update so the ACCESS button can become enabled.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div/div/form/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('999999')
+        await asyncio.sleep(3); await elem.fill('0000')
         
-        # -> Click the ACCESS button (index 105) to submit the invalid code and verify that an error message is shown indicating the code/PIN is invalid.
+        # -> Try to submit the access code (trigger the connect action) by focusing the input and sending Enter so the UI attempts to validate the code and shows an error message.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/div/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div/div/form/input').nth(0)
         await asyncio.sleep(3); await elem.click()
+        
+        # -> Try entering a different invalid code with 5 digits (to satisfy any >4 digit requirement) in the access input (index 197) and submit (send Enter) to trigger validation and show an error message.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/div/form/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('00000')
+        
+        # -> Enter a 6-digit invalid room code into the access input (index 282) so the ACCESS button may enable; after the UI updates we will attempt to submit.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div/div/form/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('123456')
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Invalid room code or PIN')]").nth(0).is_visible(), "The page should display an invalid room code or PIN error after submitting an invalid code."
+        assert await frame.locator("xpath=//*[contains(., 'Invalid room code or PIN')]").nth(0).is_visible(), "An invalid room code or PIN error should be visible after attempting to connect with an invalid code."
         await asyncio.sleep(5)
 
     finally:

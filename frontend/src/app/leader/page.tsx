@@ -318,10 +318,13 @@ export default function LeaderPage() {
           votingState: {
             ...prev.votingState,
             candidates: data.candidates,
-            hiddenPlayersFromVoting: data.hiddenPlayers,
+            hiddenPlayersFromVoting: data.hiddenPlayers || [],
             totalVotesCast: 0,
             tieBreakerLevel: data.tieBreakerLevel || 0,
           } as VotingState,
+          // تنظيف بيانات التبرير عند إعادة التصويت (Revote)
+          justificationData: undefined,
+          pendingResolution: undefined,
         };
       });
     });

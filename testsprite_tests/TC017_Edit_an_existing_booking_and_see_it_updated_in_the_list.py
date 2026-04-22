@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'Admin' button to go to the admin login/page.
+        # -> Click the 'Admin' button to open the admin login page (/admin/login).
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Enter admin credentials (admin / admin123) and submit the login form.
+        # -> Fill the admin username and password fields and submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -55,33 +55,36 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Open the bookings management page by clicking the bookings navigation item.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a[2]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Open the edit form for a booking by clicking its edit (✏️) button so the booking can be modified.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/table/tbody/tr/td[8]/div/button[2]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Set the people count to a different valid value (5) and click 'حفظ التعديلات' to save. After saving, verify the bookings list reflects the updated people count for the booking.
+        # -> Fill the admin username and password fields and submit the login form (press Enter).
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/div/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('5')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        # -> Submit the admin login form by filling username and password and clicking the 'تسجيل الدخول' button.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[5]/div/div[6]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # --> Test passed — verified by AI agent
+        # --> Assertions to verify final state
         frame = context.pages[-1]
-        current_url = await frame.evaluate("() => window.location.href")
-        assert current_url is not None, "Test completed successfully"
+        assert await frame.locator("xpath=//*[contains(., 'Booking Edit User')]").nth(0).is_visible(), "The bookings list should display the edited booking Booking Edit User after saving the updated details"
         await asyncio.sleep(5)
 
     finally:

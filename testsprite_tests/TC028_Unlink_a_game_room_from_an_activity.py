@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Open the Admin login by clicking the 'Admin' button.
+        # -> Click the 'لوحة الإدارة (Admin)' button to open the admin login page.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the admin username and password fields, then submit the login form.
+        # -> Fill the username and password fields with admin credentials and submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -55,21 +55,42 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the navigation item to view activities (open the Activities list).
+        # -> Fill the username and password fields and click the 'تسجيل الدخول' button to log in as admin
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the details (ℹ️) button for the 'Test activity for unlinking game room' activity to open its details page and inspect the linked game room controls.
+        # -> Try an alternate approach: navigate directly to the admin activities page to see whether the admin area is accessible or the login is blocking access.
+        await page.goto("http://localhost:3000/admin/activities")
+        
+        # -> Wait for the SPA to finish loading, then try reloading the admin login page if the UI remains empty.
+        await page.goto("http://localhost:3000/admin/login")
+        
+        # -> Fill admin credentials on the login form and submit using the Enter key (alternate submission method).
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div[3]/div[3]/div[2]/button[2]').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'No linked game room')]").nth(0).is_visible(), "The activity details should no longer show a linked game room after unlinking"
+        assert await frame.locator("xpath=//*[contains(., 'No linked game room')]").nth(0).is_visible(), "The activity details should indicate that there is no linked game room after unlinking."
         await asyncio.sleep(5)
 
     finally:

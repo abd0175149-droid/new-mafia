@@ -33,13 +33,13 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'Admin' button to open the admin login/page.
+        # -> Click the Admin button to open the admin login/page.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the username and password fields with admin credentials and submit the login form.
+        # -> Fill the admin username and password fields and submit the login form.
         frame = context.pages[-1]
         # Input text
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
@@ -55,66 +55,68 @@ async def run_test():
         elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'Bookings' entry to open the bookings list/page so we can create a new booking.
+        # -> Fill the username and password fields explicitly and click the 'تسجيل الدخول' submit button to attempt login.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/div[2]/a[2]').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the '+ حجز جديد' button to open the booking creation form, then observe all visible form fields (activity selector, name, phone, people count, amount, payment status) before filling any.
+        # -> Fill username and password fields, submit the login form (send Enter), then observe the page for dashboard/navigation items to confirm successful login.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        # -> Fill the username and password fields (clearing any existing values) and click the 'تسجيل الدخول' submit button to attempt login and reach the admin dashboard.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
+        
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Fill the booking form (name, phone, people count), set payment status to 'تم الدفع', and submit the form to add the paid booking.
+        # -> Fill the username and password fields and click 'تسجيل الدخول' to attempt to reach the admin dashboard, then observe page state.
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Automated Paid Test')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[2]/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('0790000001')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('2')
-        
-        # -> Click the 'إضافة الحجز' (Add booking) submit button to create the paid booking. After submission, verify that a new row for 'Automated Paid Test' appears in the bookings list with status 'تم الدفع'.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[2]/form/div[6]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
-        
-        # -> Enter 'Automated Paid Test' into the bookings search field and wait for the list to update, then verify the new booking row appears.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Automated Paid Test')
-        
-        # -> Clear the bookings search input so the list shows all results and wait for the list to update, then check for the 'Automated Paid Test' booking.
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('')
-        
-        # -> Adjust list filters to ensure all bookings are visible, search for 'Automated Paid Test', and extract/check the bookings list to confirm whether the created paid booking appears.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        frame = context.pages[-1]
-        # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Automated Paid Test')
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Automated Paid Test')]").nth(0).is_visible(), "The bookings list should show the newly created booking Automated Paid Test after submitting the paid booking."
+        assert await frame.locator("xpath=//*[contains(., 'Booking Paid User')]").nth(0).is_visible(), "The bookings list should show the new booking Booking Paid User after creating a paid booking."
         await asyncio.sleep(5)
 
     finally:

@@ -33,71 +33,63 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Open the Admin login by clicking the 'لوحة الإدارة (Admin)' button.
+        # -> Click the 'Admin' dashboard entry to open the admin login or dashboard page (use element index 82).
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
-        # -> Click the 'المواقع' (Locations) link in the admin sidebar to open locations management.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/aside/nav/a[5]').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click the '+ إضافة مكان جديد' (Add new location) button to open the new-location form.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Fill the location name and the new offer fields, then click '+ إضافة' to add the offer to the location.
+        # -> Fill the admin credentials into the username (index 151) and password (index 155) fields, then submit the login form (click index 156).
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Harbor Venue')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[5]/form/div/div/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('Standard Package')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
+        
+        frame = context.pages[-1]
+        # Click element
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
+        await asyncio.sleep(3); await elem.click()
+        
+        # -> Submit the admin login form by entering credentials (admin / admin123) and clicking the login button, then verify the app navigates to the admin dashboard.
+        frame = context.pages[-1]
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
         # Input text
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[5]/form/div/div[2]/input').nth(0)
-        await asyncio.sleep(3); await elem.fill('10')
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
-        # -> Click the '+ إضافة' button to add the offer, then save the location, then verify the new location appears in the locations list.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[5]/form/div[2]/div[3]/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
+        # -> Fill the admin credentials and submit the login form, then verify navigation to the admin dashboard.
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[6]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
-        
-        # -> Click '+ إضافة' to ensure the offer is added (index 581), then click 'حفظ البيانات' to save the new location (index 591), then verify that 'Harbor Venue' appears in the locations list by extracting page content.
-        frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[5]/form/div[2]/div[3]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin')
         
         frame = context.pages[-1]
-        # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div[6]/button').nth(0)
-        await asyncio.sleep(3); await elem.click()
+        # Input text
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/div[2]/input').nth(0)
+        await asyncio.sleep(3); await elem.fill('admin123')
         
-        # -> Close the 'إضافة مكان جديد' modal to reveal the locations list, then check the page for the presence of 'Harbor Venue'.
         frame = context.pages[-1]
         # Click element
-        elem = frame.locator('xpath=/html/body/div/main/div/div/div[3]/div/div/button').nth(0)
+        elem = frame.locator('xpath=/html/body/div/div[2]/div[2]/form/button').nth(0)
         await asyncio.sleep(3); await elem.click()
         
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        assert await frame.locator("xpath=//*[contains(., 'Harbor Venue')]").nth(0).is_visible(), "The locations list should show Harbor Venue after creating the new location."
+        assert await frame.locator("xpath=//*[contains(., 'Harbor Venue')]").nth(0).is_visible(), "The locations list should contain 'Harbor Venue' after creating a new location."]}
         await asyncio.sleep(5)
 
     finally:

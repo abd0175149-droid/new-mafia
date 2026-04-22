@@ -33,7 +33,7 @@ async def run_test():
         # -> Navigate to http://localhost:3000
         await page.goto("http://localhost:3000")
         
-        # -> Click the 'لوحة الإدارة (Admin)' button on the landing page (element index 80) to navigate to the admin login page.
+        # -> Click the 'لوحة الإدارة (Admin)' button to navigate to the admin login page and then verify the admin login page is displayed.
         frame = context.pages[-1]
         # Click element
         elem = frame.locator('xpath=/html/body/div/div[4]/div/a[2]/button').nth(0)
