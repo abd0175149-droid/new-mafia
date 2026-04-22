@@ -3,8 +3,9 @@
 import { io, Socket } from 'socket.io-client';
 
 // NEXT_PUBLIC_SOCKET_URL يشير لـ API hostname مباشرة
-// مثلاً: https://mafia-api.grade.sbs
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:4000';
+// في الإنتاج: فارغ → يستخدم نفس الدومين عبر Next.js rewrites
+// محلياً: http://localhost:4000
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 
 let socket: Socket | null = null;
 
