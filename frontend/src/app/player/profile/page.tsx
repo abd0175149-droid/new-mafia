@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 
 // ── أسماء الأدوار بالعربي ──
@@ -17,7 +17,7 @@ interface PlayerProfile {
   player: {
     id: number; phone: string; name: string; gender: string;
     totalMatches: number; totalWins: number; totalSurvived: number;
-    createdAt: string;
+    createdAt: string; email?: string; avatarUrl?: string;
   };
   stats: {
     totalMatches: number; totalWins: number; survivalRate: number;
@@ -38,6 +38,19 @@ export default function PlayerProfilePage() {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+
+  // تعديل الاسم
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+
+  // تعديل الإيميل
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+
+  // رفع الصورة
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const playerId = localStorage.getItem('mafia_playerId');
@@ -52,6 +65,8 @@ export default function PlayerProfilePage() {
       .then(data => {
         if (data.success) {
           setProfile(data);
+          setNameInput(data.player.name);
+          setEmailInput(data.player.email || '');
         } else {
           setError(data.error || 'خطأ في جلب البروفايل');
         }
@@ -59,6 +74,87 @@ export default function PlayerProfilePage() {
       .catch(() => setError('خطأ في الاتصال'))
       .finally(() => setLoading(false));
   }, []);
+
+  // ── حفظ الاسم ──
+  const handleSaveName = async () => {
+    if (!profile || !nameInput.trim() || nameInput.trim() === profile.player.name) {
+      setEditingName(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/player/${profile.player.id}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameInput.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(prev => prev ? { ...prev, player: { ...prev.player, name: nameInput.trim() } } : prev);
+        setSaveMsg('✓ تم حفظ الاسم');
+        setTimeout(() => setSaveMsg(''), 2000);
+      }
+    } catch { setSaveMsg('خطأ في الحفظ'); }
+    setSaving(false);
+    setEditingName(false);
+  };
+
+  // ── حفظ الإيميل ──
+  const handleSaveEmail = async () => {
+    if (!profile) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/player/${profile.player.id}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailInput.trim() || null }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(prev => prev ? { ...prev, player: { ...prev.player, email: emailInput.trim() || undefined } } : prev);
+        setSaveMsg('✓ تم حفظ الإيميل');
+        setTimeout(() => setSaveMsg(''), 2000);
+      }
+    } catch { setSaveMsg('خطأ في الحفظ'); }
+    setSaving(false);
+    setEditingEmail(false);
+  };
+
+  // ── رفع الصورة ──
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setSaveMsg('الصورة كبيرة جداً (حد أقصى 5MB)');
+      setTimeout(() => setSaveMsg(''), 3000);
+      return;
+    }
+
+    setSaving(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = reader.result as string;
+        const res = await fetch(`/api/player/${profile.player.id}/avatar`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64 }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setProfile(prev => prev ? {
+            ...prev,
+            player: { ...prev.player, avatarUrl: data.avatarUrl + '?t=' + Date.now() },
+          } : prev);
+          setSaveMsg('✓ تم تحديث الصورة');
+          setTimeout(() => setSaveMsg(''), 2000);
+        }
+      } catch { setSaveMsg('خطأ في رفع الصورة'); }
+      setSaving(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   if (loading) {
     return (
@@ -88,27 +184,121 @@ export default function PlayerProfilePage() {
   }
 
   const { player, stats, matchHistory, activeGame } = profile;
+  const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
+  const avatarSrc = player.avatarUrl ? `${SOCKET_URL}${player.avatarUrl}` : null;
 
   return (
     <div className="min-h-screen bg-black text-white" dir="rtl" style={{ fontFamily: 'Amiri, serif' }}>
       {/* ── Header ── */}
       <div className="relative overflow-hidden" style={{ background: 'linear-gradient(180deg, #1a1500 0%, #000 100%)' }}>
         <div className="max-w-lg mx-auto px-6 py-8 text-center relative z-10">
-          {/* Avatar */}
-          <motion.div
-            initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 15 }}
-            className="w-20 h-20 mx-auto mb-4 rounded-full border-2 border-[#C5A059]/50 flex items-center justify-center text-3xl"
-            style={{ background: 'linear-gradient(145deg, #1a1a1a, #2a2a2a)' }}
-          >
-            {player.gender === 'FEMALE' ? '👩' : '👤'}
-          </motion.div>
-          <h1 className="text-3xl font-black text-[#C5A059] mb-1">{player.name}</h1>
+          {/* Avatar — مع أيقونة الكاميرا */}
+          <div className="relative inline-block mb-4">
+            <motion.div
+              initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', damping: 15 }}
+              className="w-24 h-24 mx-auto rounded-full border-2 border-[#C5A059]/50 flex items-center justify-center text-4xl overflow-hidden cursor-pointer"
+              style={{ background: 'linear-gradient(145deg, #1a1a1a, #2a2a2a)' }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {avatarSrc ? (
+                <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                player.gender === 'FEMALE' ? '👩' : '👤'
+              )}
+            </motion.div>
+            {/* أيقونة الكاميرا */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute bottom-0 left-0 w-8 h-8 bg-[#C5A059] rounded-full flex items-center justify-center text-black text-sm shadow-lg hover:bg-[#d4b06a] transition-colors border-2 border-black"
+            >
+              📷
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarUpload}
+              className="hidden"
+            />
+          </div>
+
+          {/* الاسم — قابل للتعديل */}
+          <div className="flex items-center justify-center gap-2 mb-1">
+            {editingName ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={nameInput}
+                  onChange={e => setNameInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveName()}
+                  autoFocus
+                  className="bg-[#111] border border-[#C5A059]/40 text-[#C5A059] text-2xl font-black text-center px-4 py-1 rounded-lg focus:outline-none focus:border-[#C5A059] w-56"
+                  maxLength={30}
+                />
+                <button onClick={handleSaveName} disabled={saving}
+                  className="text-green-400 text-xl hover:text-green-300 transition">✓</button>
+                <button onClick={() => { setEditingName(false); setNameInput(player.name); }}
+                  className="text-red-400 text-xl hover:text-red-300 transition">✕</button>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-3xl font-black text-[#C5A059]">{player.name}</h1>
+                <button onClick={() => setEditingName(true)}
+                  className="text-[#555] hover:text-[#C5A059] transition text-lg">✏️</button>
+              </>
+            )}
+          </div>
+
+          {/* رقم الهاتف */}
           <p className="text-[#808080] text-[10px] font-mono tracking-widest mb-1">
             {player.phone}
           </p>
+
+          {/* الإيميل */}
+          <div className="flex items-center justify-center gap-2 mb-1">
+            {editingEmail ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={e => setEmailInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSaveEmail()}
+                  placeholder="البريد الإلكتروني..."
+                  autoFocus
+                  className="bg-[#111] border border-[#C5A059]/40 text-[#C5A059] text-xs text-center px-3 py-1 rounded-lg focus:outline-none focus:border-[#C5A059] w-56 font-mono"
+                />
+                <button onClick={handleSaveEmail} disabled={saving}
+                  className="text-green-400 text-sm hover:text-green-300 transition">✓</button>
+                <button onClick={() => { setEditingEmail(false); setEmailInput(player.email || ''); }}
+                  className="text-red-400 text-sm hover:text-red-300 transition">✕</button>
+              </div>
+            ) : (
+              <button onClick={() => setEditingEmail(true)}
+                className="text-[#555] text-[10px] font-mono tracking-widest hover:text-[#C5A059] transition flex items-center gap-1">
+                {player.email ? (
+                  <><span>📧 {player.email}</span><span className="text-[8px]">✏️</span></>
+                ) : (
+                  <span>+ إضافة بريد إلكتروني</span>
+                )}
+              </button>
+            )}
+          </div>
+
           <p className="text-[#555] text-[9px] font-mono">
             عضو منذ {new Date(player.createdAt).toLocaleDateString('ar-JO')}
           </p>
+
+          {/* رسالة الحفظ */}
+          <AnimatePresence>
+            {saveMsg && (
+              <motion.p
+                initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className={`text-xs mt-2 font-mono ${saveMsg.includes('خطأ') ? 'text-red-400' : 'text-green-400'}`}
+              >
+                {saveMsg}
+              </motion.p>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 

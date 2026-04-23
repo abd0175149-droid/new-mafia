@@ -15,6 +15,11 @@ const nextConfig = {
         source: '/socket.io/:path*',
         destination: `${backendUrl}/socket.io/:path*`,
       },
+      // تحويل الملفات المرفوعة للباك إند
+      {
+        source: '/uploads/:path*',
+        destination: `${backendUrl}/uploads/:path*`,
+      },
     ];
   },
 };

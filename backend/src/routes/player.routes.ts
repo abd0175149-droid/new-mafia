@@ -203,4 +203,95 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
   }
 });
 
+// ── PUT /api/player/:id/profile — تعديل بيانات البروفايل ──
+router.put('/:id/profile', async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
+
+    const { name, email } = req.body;
+    const updates: any = {};
+    if (name && name.trim()) updates.name = name.trim();
+    if (email !== undefined) updates.email = email?.trim() || null;
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, error: 'لا توجد بيانات للتحديث' });
+    }
+
+    const { players } = await import('../schemas/player.schema.js');
+    const result = await db.update(players)
+      .set(updates)
+      .where(eq(players.id, playerId))
+      .returning();
+
+    if (result.length === 0) {
+      return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+    }
+
+    console.log(`✏️ Player #${playerId} profile updated:`, updates);
+    return res.json({ success: true, player: result[0] });
+  } catch (err: any) {
+    console.error('❌ Profile update error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في تعديل البروفايل' });
+  }
+});
+
+// ── POST /api/player/:id/avatar — رفع صورة البروفايل (Base64) ──
+router.post('/:id/avatar', async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
+    }
+
+    const { image } = req.body; // base64 string: "data:image/jpeg;base64,..."
+    if (!image || !image.startsWith('data:image/')) {
+      return res.status(400).json({ success: false, error: 'صورة غير صالحة' });
+    }
+
+    const path = await import('path');
+    const fs = await import('fs');
+
+    const uploadDir = path.resolve('uploads/avatars');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // استخراج نوع الصورة و البيانات
+    const matches = image.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ success: false, error: 'تنسيق صورة غير صالح' });
+    }
+
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const base64Data = matches[2];
+    const fileName = `${playerId}.${ext}`;
+    const filePath = path.join(uploadDir, fileName);
+
+    // حفظ الملف
+    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+    const avatarUrl = `/uploads/avatars/${fileName}`;
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
+
+    const { players } = await import('../schemas/player.schema.js');
+    await db.update(players)
+      .set({ avatarUrl })
+      .where(eq(players.id, playerId));
+
+    console.log(`📸 Player #${playerId} avatar updated: ${avatarUrl}`);
+    return res.json({ success: true, avatarUrl });
+  } catch (err: any) {
+    console.error('❌ Avatar upload error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في رفع الصورة' });
+  }
+});
+
 export default router;

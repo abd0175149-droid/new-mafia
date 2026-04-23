@@ -35,6 +35,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    volumes:
+      - uploads_data:/app/uploads
     restart: unless-stopped
     networks:
       - mafia-net
@@ -83,6 +85,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:
 
 networks:
   mafia-net:

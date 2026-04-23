@@ -36,11 +36,14 @@ docker compose up -d --force-recreate
 echo ""
 echo "4️⃣  Running database migrations..."
 sleep 5  # Wait for postgres to be ready
-docker compose exec backend node -e "
-  const { drizzle } = require('drizzle-orm/node-postgres');
-  const { migrate } = require('drizzle-orm/node-postgres/migrator');
-  console.log('Migration check complete');
-" 2>/dev/null || echo "   ℹ️  Migrations handled by app startup"
+
+# إضافة أعمدة جديدة (email, avatar_url) — يتجاهل الخطأ إذا موجودة
+docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
+  "ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(200);" 2>/dev/null || true
+docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
+  "ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;" 2>/dev/null || true
+
+echo "   ✅ Database columns verified"
 
 # ── 6. Cleanup ──
 echo ""

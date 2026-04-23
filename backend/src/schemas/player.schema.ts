@@ -16,6 +16,8 @@ export const players = pgTable('players', {
   name: varchar('name', { length: 100 }).notNull(),
   gender: varchar('gender', { length: 10 }).default('MALE'),
   dob: varchar('dob', { length: 20 }),
+  email: varchar('email', { length: 200 }),
+  avatarUrl: text('avatar_url'),
   totalMatches: integer('total_matches').default(0),
   totalWins: integer('total_wins').default(0),
   totalSurvived: integer('total_survived').default(0),
