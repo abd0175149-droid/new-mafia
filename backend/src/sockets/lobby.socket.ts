@@ -907,9 +907,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // ── إغلاق الغرفة (Soft Close — للوبي فقط) ────────────────
   socket.on('room:close', async (data: { roomId: string }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader can close the room' });
-      }
+      // Auto-join as leader
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
 
       await setPhase(data.roomId, Phase.GAME_OVER);
       activeRooms.delete(data.roomId);
@@ -926,9 +927,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // ── حذف الغرفة نهائياً ─────────────────────────
   socket.on('room:delete-room', async (data: { roomId: string }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader can delete the room' });
-      }
+      // Auto-join as leader for this operation
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
@@ -1019,9 +1021,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // ── إعادة الغرفة لحالة اللوبي (بعد GAME_OVER) ────────────
   socket.on('room:reset-to-lobby', async (data: { roomId: string }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader' });
-      }
+      // Auto-join as leader
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
@@ -1072,9 +1075,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     excludePlayerIds?: number[];
   }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader' });
-      }
+      // Auto-join as leader
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });

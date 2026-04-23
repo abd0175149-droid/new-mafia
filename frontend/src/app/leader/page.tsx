@@ -1938,43 +1938,71 @@ export default function LeaderPage() {
 
               {/* أزرار التحكم */}
               <div className="flex flex-col items-center gap-4">
-                {/* زر العودة للغرفة */}
+                {/* زر تفعيل/إلغاء الاستبعاد */}
+                {gameState.players.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowExcludeUI(!showExcludeUI);
+                      if (showExcludeUI) setExcludedPlayers([]);
+                    }}
+                    className="text-[#555] text-xs font-mono uppercase tracking-[0.15em] hover:text-[#C5A059] transition-colors border border-[#2a2a2a] px-4 py-2 hover:border-[#C5A059]"
+                  >
+                    {showExcludeUI ? '✕ إلغاء الاستبعاد' : '👥 استبعاد لاعبين'}
+                  </button>
+                )}
+
+                {showExcludeUI && excludedPlayers.length > 0 && (
+                  <p className="text-[#8A0303] text-xs font-mono">
+                    سيتم استبعاد {excludedPlayers.length} لاعب من اللعبة الجديدة
+                  </p>
+                )}
+
+                {/* زر بدء لعبة جديدة (مع استبعاد) */}
                 <button
                   onClick={async () => {
                     try {
-                      // إعادة الغرفة لحالة LOBBY في الباك إند
-                      const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId });
-                      if (res.success) {
-                        setGameState((prev: any) => prev ? {
-                          ...prev,
-                          phase: 'LOBBY',
-                          winner: undefined,
-                          rolesPool: [],
-                          votingState: undefined,
-                          discussionState: undefined,
-                          players: (res.players || prev.players).map((p: any) => ({
-                            ...p, isAlive: true, isSilenced: false, role: null,
-                          })),
-                        } : prev);
+                      // إذا عندنا مستبعدين → نعمل new-game لحذفهم
+                      if (excludedPlayers.length > 0) {
+                        const res = await emit('room:new-game', {
+                          roomId: gameState.roomId,
+                          excludePlayerIds: excludedPlayers,
+                        });
+                        if (res.success) {
+                          setGameState((prev: any) => prev ? {
+                            ...prev,
+                            players: (res.players || []).map((p: any) => ({
+                              ...p, isAlive: true, isSilenced: false, role: null,
+                            })),
+                            winner: undefined,
+                            phase: 'LOBBY',
+                          } : prev);
+                        }
+                      } else {
+                        // بدون استبعاد → العودة للوبي فقط
+                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId });
+                        if (res.success) {
+                          setGameState((prev: any) => prev ? {
+                            ...prev,
+                            phase: 'LOBBY',
+                            winner: undefined,
+                            rolesPool: [],
+                            votingState: undefined,
+                            discussionState: undefined,
+                            players: (res.players || prev.players).map((p: any) => ({
+                              ...p, isAlive: true, isSilenced: false, role: null,
+                            })),
+                          } : prev);
+                        }
                       }
+                      setExcludedPlayers([]);
+                      setShowExcludeUI(false);
                     } catch (err: any) {
-                      // fallback: reset محلي فقط
-                      setGameState((prev: any) => prev ? {
-                        ...prev,
-                        phase: 'LOBBY',
-                        winner: undefined,
-                        players: prev.players.map((p: any) => ({
-                          ...p, isAlive: true, isSilenced: false, role: null,
-                        })),
-                      } : prev);
+                      setError(err.message);
                     }
-                    setInSession(true);
-                    setExcludedPlayers([]);
-                    setShowExcludeUI(false);
                   }}
                   className="btn-premium !px-10 !py-4 !text-base tracking-widest uppercase"
                 >
-                  <span>🏠 العودة للغرفة</span>
+                  <span>🏠 العودة للغرفة {excludedPlayers.length > 0 ? `(بدون ${excludedPlayers.length} لاعب)` : ''}</span>
                 </button>
               </div>
             </div>
