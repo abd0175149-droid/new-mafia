@@ -2025,23 +2025,44 @@ export default function LeaderPage() {
             <h2 className="text-xs font-mono tracking-[0.3em] text-[#555] mb-4 uppercase">ACTIVE ROOMS ({activeGames.length})</h2>
             <div className="space-y-4">
               {activeGames.map(game => (
-                <motion.button
+                <motion.div
                   key={game.roomId}
                   whileHover={{ scale: 1.01 }}
-                  whileTap={{ scale: 0.99 }}
-                  onClick={() => handleRejoinGame(game)}
-                  className="noir-card p-6 w-full flex items-center justify-between text-right hover:border-[#C5A059]/40 transition-all border-[#2a2a2a]"
+                  className="noir-card p-6 w-full flex items-center justify-between text-right hover:border-[#C5A059]/40 transition-all border-[#2a2a2a] relative"
                 >
-                  <div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!confirm(`هل تريد حذف الغرفة "${game.gameName}"؟`)) return;
+                        emit('room:delete-room', { roomId: game.roomId }).then((res: any) => {
+                          if (res?.success) fetchActiveGames();
+                        }).catch(() => {});
+                      }}
+                      className="w-8 h-8 flex items-center justify-center text-[#555] hover:text-[#ff0000] hover:bg-[#ff0000]/10 border border-[#2a2a2a] hover:border-[#ff0000]/40 transition-all text-xs"
+                      title="حذف الغرفة"
+                    >
+                      🗑️
+                    </button>
+                    <button
+                      onClick={() => handleRejoinGame(game)}
+                      className="text-[#555] text-xs font-mono uppercase tracking-[0.2em] hover:text-[#C5A059] transition-colors"
+                    >
+                      RESUME [→]
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => handleRejoinGame(game)}
+                    className="flex-1 text-right cursor-pointer bg-transparent border-none"
+                  >
                     <h3 className="font-black text-white text-xl" style={{ fontFamily: 'Amiri, serif' }}>{game.gameName}</h3>
                     <p className="text-[#808080] text-xs mt-2 font-mono tracking-widest uppercase">
                       CODE: <span className="text-[#C5A059]">{game.roomCode}</span>
                       {' | '}PIN: <span className="text-[#8A0303]">{game.displayPin}</span>
                       {' | '}AGENTS: <span className="text-white">{game.playerCount}</span>/{game.maxPlayers}
                     </p>
-                  </div>
-                  <span className="text-[#555] text-xs font-mono uppercase tracking-[0.2em] group-hover:text-white transition-colors">RESUME [→]</span>
-                </motion.button>
+                  </button>
+                </motion.div>
               ))}
             </div>
           </motion.div>
