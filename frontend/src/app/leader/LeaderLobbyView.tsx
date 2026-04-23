@@ -49,35 +49,48 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
   // ── الخطوة 1: البحث بالهاتف (مطابق لواجهة اللاعب) ──
   const handlePhoneLookup = async () => {
     if (!addPhone || addPhone.length < 9) {
-      setLocalError('أدخل رقم هاتف صحيح');
+      setLocalError('أدخل رقم هاتف صحيح (9 أرقام على الأقل)');
       return;
     }
     setLocalError('');
     setAddLoading(true);
     const normalized = addPhone.startsWith('0') ? addPhone : '0' + addPhone;
+    console.log('[Leader] 🔍 Looking up phone:', normalized);
     try {
       const res = await fetch('/api/player/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: normalized }),
       });
+
+      if (!res.ok) {
+        console.error('[Leader] ❌ Lookup HTTP error:', res.status);
+        setLocalError(`خطأ HTTP: ${res.status}`);
+        setAddLoading(false);
+        return;
+      }
+
       const data = await res.json();
+      console.log('[Leader] 📦 Lookup response:', data);
 
       if (data.found && data.player) {
         // لاعب موجود → نسترجع بياناته
-        setAddName(data.player.displayName);
-        setAddPlayerId(data.player.playerId || data.player.id);
+        console.log('[Leader] ✅ Player found:', data.player.displayName);
+        setAddName(data.player.displayName || '');
+        setAddPlayerId(data.player.playerId || data.player.id || null);
         setAddGender(data.player.gender || 'MALE');
         if (data.player.dateOfBirth) setAddDob(data.player.dateOfBirth);
         setPlayerFound(true);
         setAddStep('seat'); // يتخطى التسجيل
       } else {
         // لاعب جديد → يحتاج تسجيل
+        console.log('[Leader] ℹ️ Player not found, going to register');
         setPlayerFound(false);
         setAddStep('register');
       }
-    } catch {
-      setLocalError('خطأ في الاتصال');
+    } catch (err: any) {
+      console.error('[Leader] ❌ Lookup error:', err);
+      setLocalError('خطأ في الاتصال: ' + (err.message || 'تحقق من الشبكة'));
     } finally {
       setAddLoading(false);
     }

@@ -26,7 +26,9 @@ router.post('/lookup', async (req: Request, res: Response) => {
     }
 
     // 1. البحث أولاً في جدول players الموحد
+    console.log(`[Lookup] 🔍 Searching for phone: "${phone}"`);
     const unified = await findPlayerByPhone(phone);
+    console.log(`[Lookup] 📦 Unified players result:`, unified ? `Found: ${unified.name} (id=${unified.id})` : 'NOT FOUND');
     if (unified) {
       await touchPlayerActivity(unified.id);
       return res.json({
