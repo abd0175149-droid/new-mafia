@@ -398,7 +398,7 @@ export default function MafiaCard({
           </div>
 
           {/* المحتوى */}
-          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12">
+          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12" dir="rtl" style={{ textAlign: 'center' }}>
             {/* رقم اللاعب صغير */}
             <div className={`absolute top-3 right-3 w-8 h-8 border ${theme.border} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${theme.text}`}>
               {playerNumber}

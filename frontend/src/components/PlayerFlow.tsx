@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import Link from 'next/link';
 import MafiaCard from './MafiaCard';
 import { useGameState } from '@/hooks/useGameState';
 
@@ -568,6 +569,20 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
+              {/* ── زر الملف الشخصي ── */}
+              <div className="flex justify-end mb-2">
+                <Link
+                  href="/player/profile"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#C5A059]/20 text-[#C5A059] hover:bg-[#C5A059]/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  PROFILE
+                </Link>
+              </div>
+
               {assignedRole === null ? (
                 /* ── حالة الانتظار (لم يُوزَّع الدور بعد) ── */
                 <>
@@ -661,6 +676,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {/* ── خطوة Rejoin: اللاعب عاد ── */}
           {step === 'rejoined' && (
             <motion.div key="rejoined" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
+
+              {/* ── زر الملف الشخصي ── */}
+              <div className="flex justify-end mb-2">
+                <Link
+                  href="/player/profile"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#C5A059]/20 text-[#C5A059] hover:bg-[#C5A059]/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                  </svg>
+                  PROFILE
+                </Link>
+              </div>
+
               {isPlayerDead ? (
                 /* ── حالة الميت: كارد مفتوح + grayscale ── */
                 <>
