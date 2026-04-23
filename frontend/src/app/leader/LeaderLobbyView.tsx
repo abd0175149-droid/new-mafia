@@ -85,6 +85,10 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
       } else {
         // لاعب جديد → يحتاج تسجيل
         console.log('[Leader] ℹ️ Player not found, going to register');
+        if (data.dbError) {
+          console.warn('[Leader] ⚠️ DB Error:', data.dbError);
+          setLocalError(`⚠️ ${data.dbError} — اللاعب سيُسجل كجديد`);
+        }
         setPlayerFound(false);
         setAddStep('register');
       }

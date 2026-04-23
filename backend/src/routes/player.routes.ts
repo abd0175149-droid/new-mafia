@@ -25,10 +25,30 @@ router.post('/lookup', async (req: Request, res: Response) => {
       return res.json({ found: false, player: null });
     }
 
-    // 1. البحث أولاً في جدول players الموحد
+    // التأكد من اتصال DB — محاولة إعادة الاتصال إن لم يكن متصلاً
+    let db = getDB();
+    if (!db) {
+      console.warn('[Lookup] ⚠️ DB is null, attempting reconnection...');
+      try {
+        const { connectDB } = await import('../config/db.js');
+        await connectDB();
+        db = getDB();
+        console.log('[Lookup]', db ? '✅ DB reconnected!' : '❌ DB still null after reconnection');
+      } catch (dbErr: any) {
+        console.error('[Lookup] ❌ DB reconnection failed:', dbErr.message);
+      }
+    }
+
+    if (!db) {
+      console.error('[Lookup] ❌ CRITICAL: No DB connection — cannot lookup player');
+      return res.json({ found: false, player: null, dbError: 'لا يوجد اتصال بقاعدة البيانات' });
+    }
+
+    // 1. البحث في جدول players الموحد
     console.log(`[Lookup] 🔍 Searching for phone: "${phone}"`);
     const unified = await findPlayerByPhone(phone);
-    console.log(`[Lookup] 📦 Unified players result:`, unified ? `Found: ${unified.name} (id=${unified.id})` : 'NOT FOUND');
+    console.log(`[Lookup] 📦 Unified result:`, unified ? `Found: ${unified.name} (id=${unified.id})` : 'NOT FOUND');
+
     if (unified) {
       await touchPlayerActivity(unified.id);
       return res.json({
@@ -45,47 +65,47 @@ router.post('/lookup', async (req: Request, res: Response) => {
     }
 
     // 2. Fallback: البحث في session_players (قديم)
-    const db = getDB();
-    if (db) {
-      const results = await db
-        .select()
-        .from(sessionPlayers)
-        .where(eq(sessionPlayers.phone, phone))
-        .orderBy(desc(sessionPlayers.id))
-        .limit(1);
+    const results = await db
+      .select()
+      .from(sessionPlayers)
+      .where(eq(sessionPlayers.phone, phone))
+      .orderBy(desc(sessionPlayers.id))
+      .limit(1);
 
-      if (results.length > 0) {
-        const p = results[0];
-        // ترحيل تلقائي: إنشاء حساب في جدول players الموحد
-        let unifiedPlayerId = null;
-        try {
-          const migratedPlayer = await createPlayer({
-            phone: p.phone || phone,
-            name: p.playerName,
-            gender: p.gender || 'MALE',
-            dob: p.dateOfBirth || undefined,
-          });
-          if (migratedPlayer) unifiedPlayerId = migratedPlayer.id;
-        } catch { /* ignore migration errors */ }
+    console.log(`[Lookup] 📦 Session fallback:`, results.length > 0 ? `Found: ${results[0].playerName}` : 'NOT FOUND');
 
-        return res.json({
-          found: true,
-          player: {
-            id: unifiedPlayerId || p.id,
-            displayName: p.playerName,
-            phone: p.phone,
-            gender: p.gender,
-            dateOfBirth: p.dateOfBirth,
-            playerId: unifiedPlayerId || null,
-          },
+    if (results.length > 0) {
+      const p = results[0];
+      // ترحيل تلقائي: إنشاء حساب في جدول players الموحد
+      let unifiedPlayerId = null;
+      try {
+        const migratedPlayer = await createPlayer({
+          phone: p.phone || phone,
+          name: p.playerName,
+          gender: p.gender || 'MALE',
+          dob: p.dateOfBirth || undefined,
         });
-      }
+        if (migratedPlayer) unifiedPlayerId = migratedPlayer.id;
+      } catch { /* ignore migration errors */ }
+
+      return res.json({
+        found: true,
+        player: {
+          id: unifiedPlayerId || p.id,
+          displayName: p.playerName,
+          phone: p.phone,
+          gender: p.gender,
+          dateOfBirth: p.dateOfBirth,
+          playerId: unifiedPlayerId || null,
+        },
+      });
     }
 
+    console.log(`[Lookup] ℹ️ Player with phone "${phone}" not found in any table`);
     return res.json({ found: false, player: null });
   } catch (err: any) {
     console.error('❌ Player lookup error:', err.message);
-    return res.status(500).json({ found: false, error: 'خطأ في البحث' });
+    return res.status(500).json({ found: false, error: 'خطأ في البحث: ' + err.message });
   }
 });
 

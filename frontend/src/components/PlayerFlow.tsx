@@ -213,6 +213,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const handlePhoneLookup = async () => {
     setApiError('');
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
+    console.log('[Player] 🔍 Looking up phone:', normalized);
     try {
       const res = await fetch('/api/player/lookup', {
         method: 'POST',
@@ -220,6 +221,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         body: JSON.stringify({ phone: normalized }),
       });
       const data = await res.json();
+      console.log('[Player] 📦 Lookup response:', data);
 
       if (data.found && data.player) {
         setDisplayName(data.player.displayName);
@@ -228,6 +230,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         if (data.player.playerId || data.player.id) localStorage.setItem('mafia_playerId', String(data.player.playerId || data.player.id));
         setStep('number');
       } else {
+        if (data.dbError) {
+          console.warn('[Player] ⚠️ DB Error:', data.dbError);
+          setApiError(`⚠️ ${data.dbError}`);
+        }
         setStep('register');
       }
     } catch (err) {
