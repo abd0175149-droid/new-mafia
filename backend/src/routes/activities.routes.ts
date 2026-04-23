@@ -21,13 +21,11 @@ router.get('/available', async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   try {
+    // عرض كل الأنشطة المخططة أو النشطة (بغض النظر عن وجود غرفة مربوطة)
     const rows = await db.select()
       .from(activities)
       .where(
-        and(
-          or(eq(activities.status, 'planned'), eq(activities.status, 'active')),
-          isNull(activities.sessionId),
-        )
+        or(eq(activities.status, 'planned'), eq(activities.status, 'active'))
       )
       .orderBy(desc(activities.date));
     res.json(rows);
