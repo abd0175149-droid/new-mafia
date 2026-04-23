@@ -54,6 +54,7 @@ interface GameState {
   discussionState?: any;
   // Session
   sessionId?: number;
+  activityId?: number;
 }
 
 export default function LeaderPage() {
