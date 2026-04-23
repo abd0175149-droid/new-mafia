@@ -553,9 +553,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
     physicalId: number;
   }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader' });
-      }
+      // Auto-join as leader
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
@@ -637,8 +638,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         });
       }
 
-      // ═══ تحديث التبرير (Justification) ═══
-      if (state.justificationData) {
+      // ═══ تحديث التبرير (Justification) — فقط إذا كنا فعلاً في مرحلة التبرير ═══
+      if (state.justificationData && state.phase === Phase.DAY_JUSTIFICATION) {
         state.justificationData.accused = state.justificationData.accused.filter(
           (a: any) => a.targetPhysicalId !== data.physicalId
         );
