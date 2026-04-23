@@ -393,14 +393,14 @@ export default function MafiaCard({
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent" />
 
           {/* شارة الفريق */}
-          <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${theme.teamColor}`}>
+          <div style={{ transform: 'scaleX(-1)' }} className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${theme.teamColor}`}>
             {theme.teamBadge}
           </div>
 
-          {/* المحتوى */}
-          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12" dir="rtl" style={{ textAlign: 'center' }}>
+          {/* المحتوى — scaleX(-1) لعكس انعكاس rotateY(180deg) */}
+          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12" style={{ transform: 'scaleX(-1)' }}>
             {/* رقم اللاعب صغير */}
-            <div className={`absolute top-3 right-3 w-8 h-8 border ${theme.border} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${theme.text}`}>
+            <div className={`absolute top-3 left-3 w-8 h-8 border ${theme.border} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${theme.text}`}>
               {playerNumber}
             </div>
 

@@ -207,7 +207,7 @@ router.get('/manual-players/:roomId', requireLeader, async (req: Request, res: R
       .map((p: any) => ({
         physicalId: p.physicalId,
         name: p.name,
-        role: p.role || null,
+        role: state.rolesConfirmed ? (p.role || null) : null,
         isAlive: p.isAlive,
         gender: p.gender || 'MALE',
       }));

@@ -54,14 +54,27 @@ router.post('/lookup', async (req: Request, res: Response) => {
 
       if (results.length > 0) {
         const p = results[0];
+        // ترحيل تلقائي: إنشاء حساب في جدول players الموحد
+        let unifiedPlayerId = null;
+        try {
+          const migratedPlayer = await createPlayer({
+            phone: p.phone || phone,
+            name: p.playerName,
+            gender: p.gender || 'MALE',
+            dob: p.dateOfBirth || undefined,
+          });
+          if (migratedPlayer) unifiedPlayerId = migratedPlayer.id;
+        } catch { /* ignore migration errors */ }
+
         return res.json({
           found: true,
           player: {
-            id: p.id,
+            id: unifiedPlayerId || p.id,
             displayName: p.playerName,
             phone: p.phone,
             gender: p.gender,
             dateOfBirth: p.dateOfBirth,
+            playerId: unifiedPlayerId || null,
           },
         });
       }

@@ -346,6 +346,18 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
             WARNING: {unassignedSpecial.length} ACTION ROLES UNASSIGNED
           </p>
         )}
+
+        {/* زر عرض كاردات اللاعبين اليدويين */}
+        {rolesConfirmed && (
+          <button
+            onClick={() => {
+              window.open(`/leader/cards?roomId=${gameState.roomId}`, '_blank');
+            }}
+            className="w-full py-3 mt-2 rounded-xl font-mono text-[11px] uppercase tracking-[0.15em] font-bold transition-all duration-300 border border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50"
+          >
+            🎴 عرض الأدوار للاعبين اليدويين (تبويب جديد)
+          </button>
+        )}
       </div>
     </div>
   );
