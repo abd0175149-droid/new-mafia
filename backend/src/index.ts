@@ -114,9 +114,67 @@ app.get('/api/leader/sessions/:id/matches', async (req, res) => {
 
 // GET /api/game/leader-rooms — الغرف النشطة
 import { activeRooms } from './sockets/lobby.socket.js';
+import { getRoom } from './game/state.js';
+
 app.get('/api/game/leader-rooms', (_req, res) => {
   const rooms = Array.from(activeRooms.values());
   res.json({ success: true, rooms });
+});
+
+// GET /api/game/active — الألعاب النشطة (لشاشة العرض)
+app.get('/api/game/active', (_req, res) => {
+  const rooms = Array.from(activeRooms.values()).map(r => ({
+    roomId: r.roomId,
+    roomCode: r.roomCode,
+    gameName: r.gameName,
+    playerCount: r.playerCount,
+    maxPlayers: r.maxPlayers,
+  }));
+  res.json({ success: true, rooms });
+});
+
+// POST /api/game/verify-pin — التحقق من PIN شاشة العرض
+app.post('/api/game/verify-pin', async (req, res) => {
+  try {
+    const { roomId, pin } = req.body;
+    if (!roomId || !pin) {
+      return res.json({ success: false, error: 'roomId and pin are required' });
+    }
+
+    const room = activeRooms.get(roomId);
+    if (!room) {
+      return res.json({ success: false, error: 'اللعبة غير موجودة' });
+    }
+
+    if (room.displayPin !== pin) {
+      return res.json({ success: false, error: 'الرقم السري غير صحيح' });
+    }
+
+    // جلب حالة الغرفة الكاملة
+    const state = await getRoom(roomId);
+
+    res.json({
+      success: true,
+      gameName: room.gameName,
+      roomCode: room.roomCode,
+      playerCount: room.playerCount,
+      maxPlayers: room.maxPlayers,
+      state: state ? {
+        phase: state.phase,
+        players: state.players.map(p => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          isAlive: p.isAlive,
+          gender: p.gender,
+          role: p.role,
+        })),
+        winner: (state as any).winner || null,
+        discussionState: (state as any).discussionState || null,
+      } : null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // GET /api/game/closed-sessions — الغرف المنتهية
