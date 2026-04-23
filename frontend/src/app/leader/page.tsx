@@ -1257,9 +1257,33 @@ export default function LeaderPage() {
               )}
 
               {showExcludeUI && excludedPlayers.length > 0 && (
-                <p className="text-[#8A0303] text-xs font-mono">
-                  سيتم استبعاد {excludedPlayers.length} لاعب من اللعبة الجديدة
-                </p>
+                <div className="flex flex-col items-center gap-3">
+                  <p className="text-[#8A0303] text-xs font-mono">
+                    سيتم استبعاد {excludedPlayers.length} لاعب
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        // حذف كل لاعب محدد واحد واحد
+                        for (const pid of excludedPlayers) {
+                          await emit('room:kick-player', { roomId: gameState.roomId, physicalId: pid });
+                        }
+                        // تحديث الحالة المحلية
+                        setGameState((prev: any) => prev ? {
+                          ...prev,
+                          players: prev.players.filter((p: any) => !excludedPlayers.includes(p.physicalId)),
+                        } : prev);
+                        setExcludedPlayers([]);
+                        setShowExcludeUI(false);
+                      } catch (err: any) {
+                        setError(err.message);
+                      }
+                    }}
+                    className="text-[#8A0303] text-xs font-mono uppercase tracking-[0.15em] hover:text-red-500 transition-colors border border-[#8A0303]/40 px-6 py-2 hover:border-[#8A0303] hover:bg-[#8A0303]/10"
+                  >
+                    ✓ تأكيد استبعاد {excludedPlayers.length} لاعب
+                  </button>
+                </div>
               )}
 
               {/* زر بدء اللعبة — يقفز مباشرة لـ ROLE_GENERATION */}

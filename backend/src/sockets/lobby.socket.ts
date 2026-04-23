@@ -489,9 +489,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     physicalId: number;
   }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader can kick' });
-      }
+      // Auto-join as leader
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
 
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
