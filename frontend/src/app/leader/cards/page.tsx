@@ -177,7 +177,7 @@ function LeaderCardsContent() {
 
             {/* ── وجه الكارد (المكشوف) ── */}
             <div
-              className="absolute inset-0 rounded-3xl overflow-hidden"
+              className="absolute inset-0 rounded-3xl flex flex-col items-center justify-center overflow-hidden"
               style={{
                 backfaceVisibility: 'hidden',
                 transform: 'rotateY(180deg)',
@@ -190,8 +190,6 @@ function LeaderCardsContent() {
                   : '0 0 80px rgba(0, 100, 200, 0.1), inset 0 0 60px rgba(0,0,0,0.5)',
               }}
             >
-              {/* scaleX(-1) لعكس انعكاس rotateY(180deg) */}
-              <div className="w-full h-full flex flex-col items-center justify-center" style={{ transform: 'scaleX(-1)' }}>
               {/* رقم المقعد */}
               <div className="text-5xl font-black mb-2"
                    style={{
@@ -208,7 +206,7 @@ function LeaderCardsContent() {
               </div>
               {/* اسم الدور */}
               <p className="text-3xl font-black mb-2"
-                 style={{ color: isMafia ? '#ff4444' : '#4499ff' }}>
+                 style={{ color: isMafia ? '#ff4444' : '#4499ff', fontFamily: 'Amiri, serif' }}>
                 {currentPlayer.role ? (ROLE_NAMES_AR[currentPlayer.role] || currentPlayer.role) : 'بدون دور'}
               </p>
               {/* تصنيف الفريق */}
@@ -224,7 +222,6 @@ function LeaderCardsContent() {
               >
                 ⚠️ أخفِ الشاشة الآن
               </motion.p>
-              </div>
             </div>
           </motion.div>
         </motion.div>
