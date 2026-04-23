@@ -12,55 +12,147 @@ interface LeaderLobbyViewProps {
 
 export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLobbyViewProps) {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ name: '', physicalId: '', phone: '', dob: '', gender: 'MALE' });
   const [kickingId, setKickingId] = useState<number | null>(null);
   const [localError, setLocalError] = useState('');
+
+  // ── حالات نموذج الإضافة (Multi-step) ──
+  // step: phone → register → seat → submitting
+  const [addStep, setAddStep] = useState<'phone' | 'register' | 'seat'>('phone');
+  const [addPhone, setAddPhone] = useState('');
+  const [addName, setAddName] = useState('');
+  const [addDob, setAddDob] = useState('');
+  const [addGender, setAddGender] = useState('MALE');
+  const [addSeat, setAddSeat] = useState('');
+  const [addPlayerId, setAddPlayerId] = useState<number | null>(null);
+  const [addLoading, setAddLoading] = useState(false);
+  const [playerFound, setPlayerFound] = useState(false);
 
   // ── حالة تعديل اسم اللاعب ──
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [editLoading, setEditLoading] = useState(false);
 
-  const handleForceAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('[Frontend] handleForceAdd: 🔘 Clicked submit button. Data:', addForm);
-    
-    if (!addForm.physicalId || !addForm.name) {
-      console.log('[Frontend] handleForceAdd: ❌ Validation failed. Empty physicalId or name.');
-      setLocalError("الرجاء إدخال المعرف واسم اللاعب بالكامل!");
+  // Reset form
+  const resetAddForm = () => {
+    setAddStep('phone');
+    setAddPhone('');
+    setAddName('');
+    setAddDob('');
+    setAddGender('MALE');
+    setAddSeat('');
+    setAddPlayerId(null);
+    setAddLoading(false);
+    setPlayerFound(false);
+    setLocalError('');
+  };
+
+  // ── الخطوة 1: البحث بالهاتف (مطابق لواجهة اللاعب) ──
+  const handlePhoneLookup = async () => {
+    if (!addPhone || addPhone.length < 9) {
+      setLocalError('أدخل رقم هاتف صحيح');
       return;
     }
-    
     setLocalError('');
+    setAddLoading(true);
+    const normalized = addPhone.startsWith('0') ? addPhone : '0' + addPhone;
+    try {
+      const res = await fetch('/api/player/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: normalized }),
+      });
+      const data = await res.json();
+
+      if (data.found && data.player) {
+        // لاعب موجود → نسترجع بياناته
+        setAddName(data.player.displayName);
+        setAddPlayerId(data.player.playerId || data.player.id);
+        setAddGender(data.player.gender || 'MALE');
+        if (data.player.dateOfBirth) setAddDob(data.player.dateOfBirth);
+        setPlayerFound(true);
+        setAddStep('seat'); // يتخطى التسجيل
+      } else {
+        // لاعب جديد → يحتاج تسجيل
+        setPlayerFound(false);
+        setAddStep('register');
+      }
+    } catch {
+      setLocalError('خطأ في الاتصال');
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  // ── الخطوة 2: تسجيل لاعب جديد (مطابق لواجهة اللاعب) ──
+  const handleRegister = async () => {
+    if (!addName.trim()) {
+      setLocalError('أدخل اسم اللاعب');
+      return;
+    }
+    setLocalError('');
+    setAddLoading(true);
+    const normalized = addPhone.startsWith('0') ? addPhone : '0' + addPhone;
+    try {
+      const res = await fetch('/api/player/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: normalized,
+          displayName: addName.trim(),
+          dateOfBirth: addDob || null,
+          gender: addGender || 'MALE',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAddPlayerId(data.player.playerId || data.player.id);
+        setAddStep('seat');
+      } else {
+        setLocalError(data.error || 'فشل التسجيل');
+      }
+    } catch {
+      setLocalError('خطأ في الاتصال');
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  // ── الخطوة 3: إضافة للغرفة بمقعد محدد ──
+  const handleSubmitSeat = async () => {
+    if (!addSeat) {
+      setLocalError('اختر رقم المقعد');
+      return;
+    }
+    setLocalError('');
+    setAddLoading(true);
+    const normalized = addPhone.startsWith('0') ? addPhone : '0' + addPhone;
     try {
       const result = await fetch('/api/leader/force-add-player', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('leader_token') || ''}`
         },
         body: JSON.stringify({
           roomId: gameState.roomId,
-          physicalId: Number(addForm.physicalId),
-          name: addForm.name,
-          phone: addForm.phone || '0700000000',
-          dob: addForm.dob,
-          gender: addForm.gender,
-        })
+          physicalId: Number(addSeat),
+          name: addName.trim(),
+          phone: normalized,
+          dob: addDob,
+          gender: addGender,
+          playerId: addPlayerId,
+        }),
       });
-
       const response = await result.json();
-
       if (!result.ok || !response.success) {
-        throw new Error(response.error || 'فشل تحديث أو إضافة اللاعب');
+        throw new Error(response.error || 'فشل إضافة اللاعب');
       }
-
-      console.log('[Frontend] handleForceAdd: ✅ Backend returned success', response);
       setShowAddForm(false);
-      setAddForm({ name: '', physicalId: '', phone: '', dob: '', gender: 'MALE' });
+      resetAddForm();
     } catch (err: any) {
-      console.error('[Frontend] handleForceAdd: ❌ Backend returned error:', err);
       setLocalError(err.message);
+    } finally {
+      setAddLoading(false);
     }
   };
 
@@ -93,14 +185,17 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
     }
   };
 
+  // المقاعد المتاحة
+  const occupiedSeats = gameState.players.map((p: any) => p.physicalId);
+  const availableSeats = Array.from({ length: gameState.config.maxPlayers }, (_, i) => i + 1)
+    .filter(num => !occupiedSeats.includes(num));
+
   return (
     <div className="mb-12">
-      {/* ── لوحة معلومات العنوان (Dashboard Header) ── */}
+      {/* ── لوحة معلومات العنوان ── */}
       <div className="bg-black/40 border border-[#2a2a2a] rounded-xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden backdrop-blur-md">
-        {/* شريط زينة علوي */}
         <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#C5A059]/40 to-transparent opacity-80" />
         
-        {/* معلومات الغرفة */}
         <div className="flex-1">
           <h2 className="text-3xl font-black text-white mb-2" style={{ fontFamily: 'Amiri, serif' }}>
             {gameState.config.gameName || 'غرفة اللوبي'}
@@ -117,7 +212,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
           </div>
         </div>
 
-        {/* مؤشر المقاعد مع أزرار +/- */}
+        {/* مؤشر المقاعد */}
         <div className="bg-[#050505] border border-[#2a2a2a] px-6 py-3 rounded-lg text-center min-w-[180px]">
           <p className="text-[#555] text-[10px] font-mono tracking-widest uppercase mb-1">AGENT ROSTER</p>
           <div className="flex items-center justify-center gap-3 font-mono text-2xl">
@@ -125,9 +220,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
               onClick={async () => {
                 const newMax = gameState.config.maxPlayers - 1;
                 if (newMax < 6) return;
-                try {
-                  await emit('room:update-max-players', { roomId: gameState.roomId, maxPlayers: newMax });
-                } catch (err: any) { setError(err.message); }
+                try { await emit('room:update-max-players', { roomId: gameState.roomId, maxPlayers: newMax }); } catch (err: any) { setError(err.message); }
               }}
               disabled={gameState.config.maxPlayers <= 6}
               className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed text-lg"
@@ -141,9 +234,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
               onClick={async () => {
                 const newMax = gameState.config.maxPlayers + 1;
                 if (newMax > 27) return;
-                try {
-                  await emit('room:update-max-players', { roomId: gameState.roomId, maxPlayers: newMax });
-                } catch (err: any) { setError(err.message); }
+                try { await emit('room:update-max-players', { roomId: gameState.roomId, maxPlayers: newMax }); } catch (err: any) { setError(err.message); }
               }}
               disabled={gameState.config.maxPlayers >= 27}
               className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed text-lg"
@@ -154,7 +245,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
         {/* زر الإضافة */}
         {gameState.players.length < gameState.config.maxPlayers && (
           <button
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => { setShowAddForm(!showAddForm); if (showAddForm) resetAddForm(); }}
             className="btn-premium !py-3 !px-6 !text-xs tracking-widest uppercase !rounded-lg"
           >
             <span>{showAddForm ? 'CANCEL' : '+ ADD OFFLINE AGENT'}</span>
@@ -162,50 +253,183 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
         )}
       </div>
 
-      {/* ── نموذج إضافة اللاعب ── */}
+      {/* ══════════════════════════════════════════ */}
+      {/* نموذج إضافة اللاعب — Multi-Step         */}
+      {/* ══════════════════════════════════════════ */}
       <AnimatePresence>
         {showAddForm && (
-          <motion.form
+          <motion.div
             initial={{ opacity: 0, height: 0, scale: 0.95 }}
             animate={{ opacity: 1, height: 'auto', scale: 1 }}
             exit={{ opacity: 0, height: 0, scale: 0.95 }}
-            onSubmit={handleForceAdd}
             className="bg-black/50 border border-[#C5A059]/20 rounded-xl p-6 mb-8 backdrop-blur-md overflow-hidden relative"
           >
             <div className="absolute left-0 top-0 w-[2px] h-full bg-[#C5A059]/40" />
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 mb-5">
-              <div>
-                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">Seat ID (*)</label>
-                <input type="number" value={addForm.physicalId} onChange={(e) => setAddForm({...addForm, physicalId: e.target.value})} className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">Codename (*)</label>
-                <input type="text" value={addForm.name} onChange={(e) => setAddForm({...addForm, name: e.target.value})} className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">Phone Number</label>
-                <input type="text" value={addForm.phone} onChange={(e) => setAddForm({...addForm, phone: e.target.value})} placeholder="07XXXXX" className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">Date of Birth</label>
-                <input type="date" value={addForm.dob} onChange={(e) => setAddForm({...addForm, dob: e.target.value})} className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none" style={{ colorScheme: 'dark' }} />
-              </div>
-              <div>
-                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">Classification</label>
-                <select value={addForm.gender} onChange={(e) => setAddForm({...addForm, gender: e.target.value})} className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none">
-                  <option value="MALE">MALE ♂</option>
-                  <option value="FEMALE">FEMALE ♀</option>
-                </select>
-              </div>
+
+            {/* Step indicator */}
+            <div className="flex items-center justify-center gap-2 mb-6">
+              {['phone', 'register', 'seat'].map((s, i) => {
+                const stepLabels = ['الهاتف', 'التسجيل', 'المقعد'];
+                const isActive = addStep === s;
+                const isPassed = (['phone', 'register', 'seat'].indexOf(addStep) > i) || (s === 'register' && playerFound && addStep === 'seat');
+                return (
+                  <div key={s} className="flex items-center gap-2">
+                    {i > 0 && <div className={`w-8 h-[1px] ${isPassed ? 'bg-[#C5A059]' : 'bg-zinc-800'}`} />}
+                    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-mono uppercase tracking-widest border transition-colors ${
+                      isActive ? 'border-[#C5A059]/60 text-[#C5A059] bg-[#C5A059]/10' 
+                      : isPassed ? 'border-emerald-600/40 text-emerald-500 bg-emerald-900/10' 
+                      : 'border-zinc-800 text-zinc-600'
+                    }`}>
+                      {isPassed && !isActive ? '✓' : (i + 1)}
+                      <span className="hidden sm:inline">{stepLabels[i]}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            
-            {localError && <p className="text-[#8A0303] text-[10px] font-mono tracking-widest text-center mb-4 uppercase bg-[#8A0303]/10 p-2 rounded">{localError}</p>}
-            
-            <button type="submit" className="w-full bg-[#111] border border-[#C5A059]/40 text-[#C5A059] py-3 rounded-lg hover:bg-[#C5A059]/10 transition-colors font-mono uppercase text-[10px] tracking-widest font-bold">
-              SUBMIT OFFLINE DOSSIER
-            </button>
-          </motion.form>
+
+            {/* ── Step 1: الهاتف ── */}
+            {addStep === 'phone' && (
+              <div className="max-w-md mx-auto space-y-4">
+                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">
+                  PHONE NUMBER *
+                </label>
+                <input
+                  type="tel"
+                  value={addPhone}
+                  onChange={(e) => setAddPhone(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handlePhoneLookup(); }}
+                  placeholder="07XXXXXXXX"
+                  autoFocus
+                  dir="ltr"
+                  className="w-full p-4 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono text-center text-lg tracking-widest focus:border-[#C5A059] focus:outline-none"
+                />
+                <button
+                  onClick={handlePhoneLookup}
+                  disabled={addLoading || addPhone.length < 9}
+                  className="w-full bg-[#111] border border-[#C5A059]/40 text-[#C5A059] py-3 rounded-lg hover:bg-[#C5A059]/10 transition-colors font-mono uppercase text-[10px] tracking-widest font-bold disabled:opacity-40"
+                >
+                  {addLoading ? '...' : '🔍 SEARCH'}
+                </button>
+              </div>
+            )}
+
+            {/* ── Step 2: التسجيل (لاعب جديد) ── */}
+            {addStep === 'register' && (
+              <div className="max-w-lg mx-auto space-y-4">
+                <div className="text-center mb-4">
+                  <p className="text-zinc-500 text-[10px] font-mono tracking-widest uppercase">
+                    لاعب جديد — أدخل البيانات
+                  </p>
+                  <p className="text-[#C5A059] text-xs font-mono mt-1" dir="ltr">{addPhone}</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">CODENAME *</label>
+                    <input
+                      type="text"
+                      value={addName}
+                      onChange={(e) => setAddName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleRegister(); }}
+                      autoFocus
+                      dir="rtl"
+                      className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">DATE OF BIRTH</label>
+                    <input
+                      type="date"
+                      value={addDob}
+                      onChange={(e) => setAddDob(e.target.value)}
+                      className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none"
+                      style={{ colorScheme: 'dark' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-1.5">CLASSIFICATION</label>
+                    <select
+                      value={addGender}
+                      onChange={(e) => setAddGender(e.target.value)}
+                      className="w-full p-3 bg-[#0c0c0c] border border-[#2a2a2a] rounded-lg text-white font-mono focus:border-[#C5A059] focus:outline-none"
+                    >
+                      <option value="MALE">MALE ♂</option>
+                      <option value="FEMALE">FEMALE ♀</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setAddStep('phone')}
+                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-400 py-3 rounded-lg hover:bg-zinc-800 transition-colors font-mono uppercase text-[10px] tracking-widest"
+                  >
+                    ← BACK
+                  </button>
+                  <button
+                    onClick={handleRegister}
+                    disabled={addLoading || !addName.trim()}
+                    className="flex-[2] bg-[#111] border border-[#C5A059]/40 text-[#C5A059] py-3 rounded-lg hover:bg-[#C5A059]/10 transition-colors font-mono uppercase text-[10px] tracking-widest font-bold disabled:opacity-40"
+                  >
+                    {addLoading ? '...' : '✓ REGISTER & CONTINUE'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 3: اختيار المقعد ── */}
+            {addStep === 'seat' && (
+              <div className="max-w-lg mx-auto space-y-4">
+                <div className="text-center mb-4">
+                  <p className="text-white text-lg font-bold" style={{ fontFamily: 'Amiri, serif' }}>{addName}</p>
+                  <p className="text-[#C5A059] text-xs font-mono mt-1" dir="ltr">{addPhone}</p>
+                  {playerFound && (
+                    <p className="text-emerald-500 text-[9px] font-mono mt-1 uppercase tracking-widest">✓ KNOWN AGENT</p>
+                  )}
+                </div>
+
+                <label className="block text-[9px] font-mono text-[#808080] tracking-[0.2em] uppercase mb-2">
+                  SELECT SEAT *
+                </label>
+                <div className="grid grid-cols-5 sm:grid-cols-7 gap-2">
+                  {availableSeats.map(num => (
+                    <button
+                      key={num}
+                      onClick={() => setAddSeat(String(num))}
+                      className={`h-12 rounded-lg font-mono font-bold text-lg transition-all border ${
+                        addSeat === String(num)
+                          ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059] shadow-[0_0_10px_rgba(197,160,89,0.2)]'
+                          : 'bg-[#0c0c0c] border-[#2a2a2a] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+
+                {availableSeats.length === 0 && (
+                  <p className="text-red-400 text-center text-xs font-mono">لا توجد مقاعد متاحة</p>
+                )}
+
+                <div className="flex gap-3 mt-4">
+                  <button
+                    onClick={() => setAddStep(playerFound ? 'phone' : 'register')}
+                    className="flex-1 bg-zinc-900 border border-zinc-700 text-zinc-400 py-3 rounded-lg hover:bg-zinc-800 transition-colors font-mono uppercase text-[10px] tracking-widest"
+                  >
+                    ← BACK
+                  </button>
+                  <button
+                    onClick={handleSubmitSeat}
+                    disabled={addLoading || !addSeat}
+                    className="flex-[2] bg-[#111] border border-[#C5A059]/40 text-[#C5A059] py-3 rounded-lg hover:bg-[#C5A059]/10 transition-colors font-mono uppercase text-[10px] tracking-widest font-bold disabled:opacity-40"
+                  >
+                    {addLoading ? '...' : `➕ ADD TO SEAT #${addSeat || '?'}`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {localError && <p className="text-[#8A0303] text-[10px] font-mono tracking-widest text-center mt-4 uppercase bg-[#8A0303]/10 p-2 rounded">{localError}</p>}
+          </motion.div>
         )}
       </AnimatePresence>
 

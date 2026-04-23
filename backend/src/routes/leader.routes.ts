@@ -131,13 +131,13 @@ router.get('/state/:roomId', requireLeader, async (req: Request, res: Response) 
 // ── POST /api/leader/force-add-player ──
 router.post('/force-add-player', requireLeader, async (req: Request, res: Response) => {
   try {
-    const { roomId, physicalId, name, phone, dob, gender } = req.body;
+    const { roomId, physicalId, name, phone, dob, gender, playerId } = req.body;
 
     if (!roomId || physicalId === undefined || !name) {
       return res.status(400).json({ success: false, error: 'بيانات غير مكتملة' });
     }
 
-    const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000', null, 'leader');
+    const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000', playerId || null, 'leader');
     await updatePlayer(roomId, Number(physicalId), { dob, gender });
 
     // حفظ اللاعب في الـ Session (PostgreSQL)
