@@ -566,12 +566,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-center mb-8 border-b border-[#2a2a2a]/40 pb-6">
                 <div className="mb-4 text-[#C5A059] flex justify-center"><SeatIcon /></div>
                 <h2 className="text-2xl font-black mb-2 text-white truncate" style={{ fontFamily: 'Amiri, serif' }}>مرحباً {displayName}</h2>
-                <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em]">SELECT ASSIGNED SEAT</p>
+                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>اختر المقعد المخصص لك</p>
               </div>
 
               {availableSeats.length === 0 ? (
                 <div className="text-center p-6 bg-[#8A0303]/10 border border-[#8A0303]/30 rounded-lg mb-6">
-                  <p className="text-[#ff4444] text-xs font-mono tracking-widest uppercase">ALL SEATS OCCUPIED</p>
+                  <p className="text-[#ff4444] text-sm" style={{ fontFamily: 'Amiri, serif' }}>جميع المقاعد مشغولة</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-3 mb-6">
@@ -596,8 +596,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
               {physicalId && (
                 <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="bg-black/40 border border-[#C5A059]/30 rounded-lg p-3 text-center mb-6">
-                  <p className="text-[#C5A059] font-mono text-[10px] tracking-widest uppercase">
-                    SEAT_{physicalId.padStart(2, '0')} CONFIRMED
+                  <p className="text-[#C5A059] text-sm" style={{ fontFamily: 'Amiri, serif' }}>
+                    ✓ تم اختيار المقعد رقم {physicalId}
                   </p>
                 </motion.div>
               )}
@@ -607,9 +607,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <button
                 onClick={handleJoinGame}
                 disabled={!physicalId || loading}
-                className="btn-premium w-full !text-sm tracking-widest disabled:opacity-50 !rounded-lg"
+                className="w-full py-4 text-lg font-black rounded-lg border-2 transition-all disabled:opacity-50"
+                style={{
+                  fontFamily: 'Amiri, serif',
+                  background: !physicalId || loading ? '#222' : 'linear-gradient(135deg, #166534, #15803d)',
+                  borderColor: !physicalId || loading ? '#333' : '#22c55e',
+                  color: !physicalId || loading ? '#666' : '#fff',
+                  boxShadow: !physicalId || loading ? 'none' : '0 0 25px rgba(34,197,94,0.4), 0 0 50px rgba(34,197,94,0.15)',
+                  textShadow: !physicalId || loading ? 'none' : '0 0 10px rgba(34,197,94,0.5)',
+                }}
               >
-                <span>{loading ? 'INITIALIZING...' : 'LOCK POSITION'}</span>
+                {loading ? 'جارٍ التحميل...' : 'اختر مقعدك'}
               </button>
             </motion.div>
           )}
