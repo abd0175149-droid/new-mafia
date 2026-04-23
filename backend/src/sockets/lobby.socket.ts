@@ -712,11 +712,49 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // 4. قراءة الحالة المحدثة
       const updatedState = await getRoom(data.roomId);
 
-      // 5. بث الدور لكل لاعب متصل على جهازه فقط
+      // 5. إعادة تعيين حالة التأكيد (لأن الأدوار تغيرت)
+      if (updatedState) {
+        updatedState.rolesConfirmed = false;
+        await setGameState(data.roomId, updatedState);
+      }
+
+      // ملاحظة: لا نرسل الأدوار للاعبين هنا — ننتظر حتى يضغط الليدر على "تأكيد الأدوار"
+
+      // 6. إرسال الحالة المحدثة لليدر
+      callback({
+        success: true,
+        state: updatedState,
+      });
+      console.log(`🎲 Random role assignment complete in room ${data.roomId} — ${alivePlayers.length} players (awaiting confirmation)`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── تأكيد الأدوار وبثها للاعبين ──────────────────
+  socket.on('setup:confirm-roles', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader can confirm roles' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.ROLE_BINDING) {
+        return callback({ success: false, error: 'ليس في مرحلة توزيع الأدوار' });
+      }
+
+      // التأكد أن كل الأدوار الخاصة موزعة
+      const unassignedSpecial = state.players.filter(
+        (p: any) => p.isAlive !== false && !p.role && 
+        (state.rolesPool || []).some((r: string) => r !== 'CITIZEN')
+      );
+
+      // بث الدور لكل لاعب متصل على جهازه فقط
       const allSockets = await io.in(data.roomId).fetchSockets();
       for (const s of allSockets) {
         if (s.data.role === 'player' && s.data.physicalId) {
-          const player = updatedState?.players.find(
+          const player = state.players.find(
             (p: any) => p.physicalId === s.data.physicalId
           );
           if (player?.role) {
@@ -728,14 +766,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
-      // 6. إرسال الحالة المحدثة لليدر
-      callback({
-        success: true,
-        state: updatedState,
-      });
-      console.log(`🎲 Random role assignment complete in room ${data.roomId} — ${alivePlayers.length} players`);
+      // تحديث حالة التأكيد
+      state.rolesConfirmed = true;
+      await setGameState(data.roomId, state);
+
+      callback({ success: true });
+      console.log(`✅ Roles confirmed and sent to players in room ${data.roomId}`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── جلب دور اللاعب (Polling fallback) ──────────────
+  socket.on('room:get-my-role', async (data: { roomId: string; physicalId: number }, callback) => {
+    try {
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ role: null, confirmed: false });
+
+      const player = state.players.find((p: any) => p.physicalId === data.physicalId);
+      callback({
+        role: player?.role || null,
+        confirmed: state.rolesConfirmed || false,
+      });
+    } catch {
+      callback({ role: null, confirmed: false });
     }
   });
 
@@ -748,6 +802,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // ── شرط: يجب تأكيد الأدوار أولاً ──
+      if (!state.rolesConfirmed) {
+        return callback({ success: false, error: 'يجب تأكيد الأدوار أولاً قبل بدء اللعبة' });
+      }
+
 
       const unboundPlayers = state.players.filter(p => !p.role && p.isAlive !== false);
       if (unboundPlayers.length > 0) {

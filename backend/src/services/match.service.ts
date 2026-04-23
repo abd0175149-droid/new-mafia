@@ -7,6 +7,7 @@ import { eq, desc, and } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { matches, matchPlayers } from '../schemas/game.schema.js';
 import { isMafiaRole } from '../game/roles.js';
+import { updatePlayerStats } from './player.service.js';
 import type { GameState } from '../game/state.js';
 
 // ── إنشاء سجل مباراة عند بداية اللعبة ──────────────
@@ -74,7 +75,20 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       await db.insert(matchPlayers).values(playerRows);
     }
 
-    console.log(`📦 Match #${state.matchId} finalized — Winner: ${state.winner}, Duration: ${durationSeconds}s`);
+    // ── تحديث إحصائيات اللاعبين في جدول players ──
+    for (const p of state.players) {
+      if (p.playerId) {
+        try {
+          const playerIsMafia = isMafiaRole(p.role as any);
+          const won = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+          await updatePlayerStats(p.playerId, won, p.isAlive);
+        } catch (statsErr: any) {
+          console.error(`⚠️ Failed to update stats for player ${p.playerId}:`, statsErr.message);
+        }
+      }
+    }
+
+    console.log(`📦 Match #${state.matchId} finalized — Winner: ${state.winner}, Duration: ${durationSeconds}s, Stats updated for ${state.players.filter(p => p.playerId).length} players`);
   } catch (err: any) {
     console.error('❌ Failed to finalize match:', err.message);
   }

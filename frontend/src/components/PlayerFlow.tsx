@@ -135,9 +135,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
-    if (step !== 'done' || !on) return;
+    if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
-    // استقبال الدور من الليدر
+    // استقبال الدور من الليدر (عند تأكيد الأدوار)
     const cleanupRole = on('player:role-assigned', (data: { role: string }) => {
       setAssignedRole(data.role);
       setCardFlipped(false); // يبدأ الكارد مقلوب (سري)
@@ -154,6 +154,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       cleanup();
     };
   }, [step, on]);
+
+  // ── Polling fallback — كل 5 ثواني إذا لم يصل الدور عبر WebSocket ──
+  useEffect(() => {
+    if ((step !== 'done' && step !== 'rejoined') || !emit) return;
+    if (assignedRole) return; // لا حاجة للـ polling إذا وصل الدور
+    if (!roomId || !physicalId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await emit('room:get-my-role', {
+          roomId,
+          physicalId: parseInt(physicalId),
+        });
+        if (res.role && res.confirmed) {
+          setAssignedRole(res.role);
+          setCardFlipped(false);
+          if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+        }
+      } catch { /* ignore polling errors */ }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [step, assignedRole, emit, roomId, physicalId]);
+
 
   // ── الخطوة 1: إدخال كود اللعبة ──
   const handleFindRoom = async (code?: string) => {

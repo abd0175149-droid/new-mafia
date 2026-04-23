@@ -26,6 +26,8 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
   const [loading, setLoading] = useState(false);
   const [randomLoading, setRandomLoading] = useState(false);
   const [randomDone, setRandomDone] = useState(false);
+  const [rolesConfirmed, setRolesConfirmed] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
 
   // ── تهيئة الأدوار من rolesPool ──
   useEffect(() => {
@@ -73,6 +75,9 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
 
   // ── تغيير اختيار اللاعب في DDL ──
   const handleAssign = async (slotId: string, newPlayerId: number | null, oldPlayerId: number | null) => {
+    // عند تغيير أي دور، يتم إلغاء التأكيد
+    setRolesConfirmed(false);
+
     // تحديث محلي فوري
     setRoleSlots(prev =>
       prev.map(s => (s.id === slotId ? { ...s, assignedPlayerId: newPlayerId } : s))
@@ -132,6 +137,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         });
         setRoleSlots(newSlots);
         setRandomDone(true);
+        setRolesConfirmed(false); // التوزيع العشوائي يلغي التأكيد السابق
       }
     } catch (err: any) {
       setError(err.message);
@@ -140,13 +146,31 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
     }
   };
 
-  // ── بدء اللعبة ──
-  const handleStartGame = async () => {
+  // ── تأكيد الأدوار وإرسالها للاعبين ──
+  const handleConfirmRoles = async () => {
     const essentialUnassigned = roleSlots.filter(
       s => s.role !== Role.CITIZEN && s.assignedPlayerId === null
     );
     if (essentialUnassigned.length > 0) {
-      setError('يجب توزيع جميع الأدوار الخاصة قبل البدء (تم استثناء دور المواطن)');
+      setError('يجب توزيع جميع الأدوار الخاصة قبل التأكيد');
+      return;
+    }
+    setConfirmLoading(true);
+    setError('');
+    try {
+      await emit('setup:confirm-roles', { roomId: gameState.roomId });
+      setRolesConfirmed(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
+  // ── بدء اللعبة (يشترط تأكيد الأدوار) ──
+  const handleStartGame = async () => {
+    if (!rolesConfirmed) {
+      setError('يجب تأكيد الأدوار أولاً قبل بدء اللعبة');
       return;
     }
     setLoading(true);
@@ -243,12 +267,12 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         </div>
       )}
 
-      {/* ═══ Random Assign + Start Button ═══ */}
+      {/* ═══ Random Assign + Confirm + Start Buttons ═══ */}
       <div className="text-center mb-10 space-y-4">
         {/* زر التوزيع العشوائي */}
         <button
           onClick={handleRandomAssign}
-          disabled={randomLoading || loading}
+          disabled={randomLoading || loading || confirmLoading}
           className="w-full py-4 rounded-xl font-mono text-sm uppercase tracking-[0.2em] font-bold transition-all duration-300 border-2 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
             background: randomDone
@@ -270,16 +294,47 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
           )}
         </button>
 
-        {randomDone && (
+        {/* زر تأكيد الأدوار */}
+        <button
+          onClick={handleConfirmRoles}
+          disabled={unassignedSpecial.length > 0 || confirmLoading || loading || rolesConfirmed}
+          className="w-full py-4 rounded-xl font-mono text-sm uppercase tracking-[0.2em] font-bold transition-all duration-300 border-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: rolesConfirmed
+              ? 'linear-gradient(135deg, rgba(34,197,94,0.2), rgba(16,185,129,0.15))'
+              : 'linear-gradient(135deg, rgba(251,191,36,0.15), rgba(245,158,11,0.1))',
+            borderColor: rolesConfirmed ? 'rgba(34,197,94,0.6)' : 'rgba(251,191,36,0.5)',
+            color: rolesConfirmed ? '#4ade80' : '#fbbf24',
+          }}
+        >
+          {confirmLoading ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              جارِ الإرسال...
+            </span>
+          ) : rolesConfirmed ? (
+            <span>✅ تم تأكيد الأدوار وإرسالها للاعبين</span>
+          ) : (
+            <span>📨 تأكيد الأدوار — إرسال للاعبين</span>
+          )}
+        </button>
+
+        {rolesConfirmed && (
           <p className="text-emerald-500/70 text-[10px] font-mono uppercase tracking-[0.2em]">
-            ROLES DISTRIBUTED TO ALL PLAYER DEVICES
+            ROLES CONFIRMED & SENT TO ALL PLAYER DEVICES
           </p>
         )}
 
-        {/* زر بدء اللعبة */}
+        {!rolesConfirmed && unassignedSpecial.length === 0 && (randomDone || roleSlots.some(s => s.assignedPlayerId !== null)) && (
+          <p className="text-amber-500/70 text-[10px] font-mono uppercase tracking-[0.2em] animate-pulse">
+            ⚠️ يجب تأكيد الأدوار قبل بدء اللعبة
+          </p>
+        )}
+
+        {/* زر بدء اللعبة — يشترط تأكيد الأدوار */}
         <button
           onClick={handleStartGame}
-          disabled={unassignedSpecial.length > 0 || loading}
+          disabled={!rolesConfirmed || loading}
           className="btn-premium px-12 py-4 w-full disabled:opacity-50 disabled:grayscale transition-all"
         >
           <span className="text-white">
