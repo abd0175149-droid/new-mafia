@@ -9,6 +9,7 @@ import { env } from '../config/env.js';
 import { getRoom, addPlayer, updatePlayer } from '../game/state.js';
 import { activeRooms } from '../sockets/lobby.socket.js';
 import { addPlayerToSession } from '../services/session.service.js';
+import { createPlayer, findPlayerByPhone } from '../services/player.service.js';
 
 const router = Router();
 
@@ -137,7 +138,35 @@ router.post('/force-add-player', requireLeader, async (req: Request, res: Respon
       return res.status(400).json({ success: false, error: 'بيانات غير مكتملة' });
     }
 
-    const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000', playerId || null, 'leader');
+    // ── تسجيل اللاعب في جدول players الموحد (PostgreSQL) ──
+    // هذا يضمن أن findPlayerByPhone سيجده عند دخوله من واجهة اللاعب
+    let resolvedPlayerId = playerId || null;
+    const realPhone = phone && phone !== '0700000000' ? phone : null;
+    if (realPhone) {
+      try {
+        // إذا لم يكن مسجلاً بعد → أنشئ حساب
+        const existing = await findPlayerByPhone(realPhone);
+        if (existing) {
+          resolvedPlayerId = existing.id;
+          console.log(`[Leader] 🔗 Player found in DB: ${existing.name} (id=${existing.id})`);
+        } else {
+          const newPlayer = await createPlayer({
+            phone: realPhone,
+            name,
+            gender: gender || 'MALE',
+            dob: dob || undefined,
+          });
+          if (newPlayer) {
+            resolvedPlayerId = newPlayer.id;
+            console.log(`[Leader] ✅ New player created in DB: ${name} (id=${newPlayer.id})`);
+          }
+        }
+      } catch (dbErr: any) {
+        console.warn(`[Leader] ⚠️ DB player create skipped:`, dbErr.message);
+      }
+    }
+
+    const state = await addPlayer(roomId, Number(physicalId), name, phone || '0700000000', resolvedPlayerId, 'leader');
     await updatePlayer(roomId, Number(physicalId), { dob, gender });
 
     // حفظ اللاعب في الـ Session (PostgreSQL)
