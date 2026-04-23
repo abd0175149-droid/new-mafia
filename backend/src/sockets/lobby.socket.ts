@@ -223,9 +223,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         data.playerId || null,
       );
 
+      // البحث عن اللاعب الفعلي (قد يكون تم ربطه بمقعد ليدر موجود)
+      const actualPlayer = data.phone
+        ? state.players.find(p => p.phone === data.phone) || state.players.find(p => p.physicalId === data.physicalId)
+        : state.players.find(p => p.physicalId === data.physicalId);
+
+      const actualPhysicalId = actualPlayer?.physicalId ?? data.physicalId;
+
       // تحديث الجنس وتاريخ الميلاد إذا تم إرسالها
       if (data.gender || data.dob) {
-        await updatePlayer(data.roomId, data.physicalId, {
+        await updatePlayer(data.roomId, actualPhysicalId, {
           gender: data.gender || 'MALE',
           dob: data.dob || '2000-01-01',
         });
@@ -234,7 +241,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.join(data.roomId);
       socket.data.role = 'player';
       socket.data.roomId = data.roomId;
-      socket.data.physicalId = data.physicalId;
+      socket.data.physicalId = actualPhysicalId;
 
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
@@ -244,15 +251,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // بث للجميع في الغرفة
       io.to(data.roomId).emit('room:player-joined', {
-        physicalId: data.physicalId,
-        name: data.name,
+        physicalId: actualPhysicalId,
+        name: actualPlayer?.name || data.name,
         totalPlayers: state.players.length,
         maxPlayers: state.config.maxPlayers,
         gender: data.gender || 'MALE',
       });
 
-      callback({ success: true });
-      console.log(`👤 Player joined: #${data.physicalId} - ${data.name} (${data.gender || 'MALE'})`);
+      callback({ success: true, linkedSeat: actualPhysicalId !== data.physicalId ? actualPhysicalId : undefined });
+      console.log(`👤 Player joined: #${actualPhysicalId} - ${actualPlayer?.name || data.name} (${data.gender || 'MALE'})${actualPhysicalId !== data.physicalId ? ' [LINKED to leader seat]' : ''}`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

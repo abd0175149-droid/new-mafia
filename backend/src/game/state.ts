@@ -258,18 +258,28 @@ export async function addPlayer(
     throw new Error(`الغرفة ممتلئة (${state.config.maxPlayers} لاعب كحد أقصى)`);
   }
 
+  // التحقق من تكرار رقم الهاتف (يُستثنى 0700000000)
+  if (phone && phone !== '0700000000') {
+    const existingByPhone = state.players.find(p => p.phone === phone);
+    if (existingByPhone) {
+      // إذا اللاعب أضافه الليدر يدوياً → ربط اللاعب بالمقعد الموجود
+      if (existingByPhone.addedBy === 'leader') {
+        console.log(`[State] addPlayer 🔗 Linking player to leader-added seat #${existingByPhone.physicalId}`);
+        existingByPhone.playerId = playerId;
+        existingByPhone.addedBy = 'self'; // أصبح مسجلاً ذاتياً
+        if (name) existingByPhone.name = name;
+        await setGameState(roomId, state);
+        return state;
+      }
+      console.error(`[State] addPlayer ❌ Phone ${phone} already exists!`);
+      throw new Error(`رقم الهاتف ${phone} مسجل مسبقاً في هذه الغرفة`);
+    }
+  }
+
   // التحقق من عدم تكرار الرقم الفيزيائي
   if (state.players.some(p => p.physicalId === physicalId)) {
     console.error(`[State] addPlayer ❌ Physical ID ${physicalId} already exists!`);
     throw new Error(`الرقم ${physicalId} مسجل مسبقاً`);
-  }
-
-  // التحقق من عدم تكرار رقم الهاتف (يُستثنى 0700000000)
-  if (phone && phone !== '0700000000') {
-    if (state.players.some(p => p.phone === phone)) {
-      console.error(`[State] addPlayer ❌ Phone ${phone} already exists!`);
-      throw new Error(`رقم الهاتف ${phone} مسجل مسبقاً في هذه الغرفة`);
-    }
   }
 
   const player: Player = {

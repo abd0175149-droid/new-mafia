@@ -277,12 +277,19 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         ? `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`
         : undefined;
       const genderUpper = gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined;
-      await joinRoom(roomId, parseInt(physicalId), displayName, phone, playerId || undefined, genderUpper, dateOfBirth);
+      const res = await joinRoom(roomId, parseInt(physicalId), displayName, phone, playerId || undefined, genderUpper, dateOfBirth);
+
+      // إذا تم ربط اللاعب بمقعد ليدر → تحديث الرقم الفيزيائي
+      const actualPhysicalId = res?.linkedSeat || parseInt(physicalId);
+      if (res?.linkedSeat) {
+        setPhysicalId(String(res.linkedSeat));
+        console.log(`🔗 Linked to leader seat #${res.linkedSeat}`);
+      }
 
       // حفظ الجلسة في localStorage
       localStorage.setItem('mafia_session', JSON.stringify({
         roomId,
-        physicalId: parseInt(physicalId),
+        physicalId: actualPhysicalId,
         phone,
         displayName,
         roomCode,

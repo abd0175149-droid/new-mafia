@@ -192,7 +192,8 @@ export function useGameState() {
     setLoading(true);
     setError(null);
     try {
-      await emit('room:join', { roomId, physicalId, name, phone, playerId, gender, dob });
+      const res = await emit('room:join', { roomId, physicalId, name, phone, playerId, gender, dob });
+      return res; // يحتوي على linkedSeat إذا تم الربط بمقعد ليدر
     } catch (err: any) {
       setError(err.message);
       throw err;
