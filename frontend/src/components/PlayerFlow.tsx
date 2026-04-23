@@ -107,7 +107,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setPhysicalId(String(res.player.physicalId));
           setDisplayName(res.player.name);
           setGender(res.player.gender === 'FEMALE' ? 'female' : 'male');
-          setPlayerId(session.playerId || null);
+          setPlayerId(session.playerId || res.player.playerId || null);
+
+          // حفظ playerId للبروفايل
+          const pid = res.player.playerId || session.playerId;
+          if (pid) localStorage.setItem('mafia_playerId', String(pid));
 
           if (res.player.role) {
             setAssignedRole(res.player.role);
@@ -221,7 +225,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setDisplayName(data.player.displayName);
         setPlayerId(data.player.id);
         // حفظ playerId للبروفايل
-        if (data.player.playerId) localStorage.setItem('mafia_playerId', String(data.player.playerId));
+        if (data.player.playerId || data.player.id) localStorage.setItem('mafia_playerId', String(data.player.playerId || data.player.id));
         setStep('number');
       } else {
         setStep('register');
@@ -254,7 +258,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (data.success) {
         setPlayerId(data.player.id);
         // حفظ playerId للبروفايل
-        if (data.player.playerId) localStorage.setItem('mafia_playerId', String(data.player.playerId));
+        if (data.player.playerId || data.player.id) localStorage.setItem('mafia_playerId', String(data.player.playerId || data.player.id));
         setStep('number');
       } else {
         setApiError(data.error);

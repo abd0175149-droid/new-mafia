@@ -286,14 +286,19 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.data.roomId = data.roomId;
       socket.data.physicalId = player.physicalId;
 
+      // إخفاء الدور إذا لم يتم تأكيد الأدوار بعد
+      const shouldShowRole = state.rolesConfirmed || 
+        (state.phase !== Phase.ROLE_BINDING && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.LOBBY);
+
       callback({
         success: true,
         player: {
           physicalId: player.physicalId,
           name: player.name,
-          role: player.role || null,
+          role: shouldShowRole ? (player.role || null) : null,
           isAlive: player.isAlive,
           gender: player.gender || 'MALE',
+          playerId: player.playerId || null,
         },
         phase: state.phase,
         gameName: state.config?.gameName || '',

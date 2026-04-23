@@ -120,7 +120,7 @@ export async function getPlayerProfile(playerId: number) {
         matchId: matchPlayers.matchId,
         role: matchPlayers.role,
         physicalId: matchPlayers.physicalId,
-        survived: matchPlayers.survived,
+        survived: matchPlayers.survivedToEnd,
         matchWinner: matches.winner,
         matchDate: matches.createdAt,
         matchDuration: matches.durationSeconds,
@@ -131,7 +131,9 @@ export async function getPlayerProfile(playerId: number) {
       .where(eq(matchPlayers.playerName, playerData.name))
       .orderBy(desc(matches.createdAt))
       .limit(50);
-  } catch { /* match tables might not exist */ }
+  } catch (err: any) {
+    console.error('⚠️ Failed to fetch match history for profile:', err.message);
+  }
 
   // 3. حساب الإحصائيات التفصيلية
   const roleStats: Record<string, number> = {};
