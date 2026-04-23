@@ -191,7 +191,7 @@ router.get('/session-matches/:sessionId', requireLeader, async (req: Request, re
   }
 });
 
-// ── GET /api/leader/manual-players/:roomId — اللاعبون المضافون يدوياً ──
+// ── GET /api/leader/manual-players/:roomId — جميع لاعبي الغرفة (مع حقل addedBy) ──
 router.get('/manual-players/:roomId', requireLeader, async (req: Request, res: Response) => {
   try {
     const { roomId } = req.params;
@@ -201,18 +201,17 @@ router.get('/manual-players/:roomId', requireLeader, async (req: Request, res: R
       return res.status(404).json({ success: false, error: 'Room not found' });
     }
 
-    // فلترة اللاعبين اليدويين فقط (addedBy: 'leader')
-    const manualPlayers = state.players
-      .filter((p: any) => p.addedBy === 'leader')
-      .map((p: any) => ({
-        physicalId: p.physicalId,
-        name: p.name,
-        role: state.rolesConfirmed ? (p.role || null) : null,
-        isAlive: p.isAlive,
-        gender: p.gender || 'MALE',
-      }));
+    // إرجاع كل اللاعبين مع حقل addedBy
+    const allPlayers = state.players.map((p: any) => ({
+      physicalId: p.physicalId,
+      name: p.name,
+      role: state.rolesConfirmed ? (p.role || null) : null,
+      isAlive: p.isAlive,
+      gender: p.gender || 'MALE',
+      addedBy: p.addedBy || 'self',
+    }));
 
-    return res.json({ success: true, players: manualPlayers, gameName: state.config.gameName });
+    return res.json({ success: true, players: allPlayers, gameName: state.config.gameName });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
