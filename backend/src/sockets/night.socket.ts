@@ -438,16 +438,25 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (!state) return callback({ success: false, error: 'Room not found' });
 
       // إعادة تعيين جميع اللاعبين
-      state.players.forEach((p: any) => {
-        p.isAlive = true;
-        p.isSilenced = false;
-        p.role = null;
-        p.justificationCount = 0;
-      });
+      state.players = state.players.map((p: any) => ({
+        ...p,
+        isAlive: true,
+        isSilenced: false,
+        role: null,
+        justificationCount: 0,
+      }));
 
       // تنظيف حالة اللعبة بالكامل
+      state.phase = Phase.LOBBY;
+      state.round = 0;
+      state.winner = null;
+      state.pendingWinner = null;
       state.rolesPool = [];
       state.morningEvents = [];
+      state.discussionState = null;
+      state.rolesConfirmed = false;
+      state.matchId = undefined;
+      state.startedAt = undefined;
       state.nightActions = {
         godfatherTarget: null,
         doctorTarget: null,
@@ -465,13 +474,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         hiddenPlayersFromVoting: [],
         tieBreakerLevel: 0,
       };
-      state.discussionState = null;
-      state.winner = null;
-      state.pendingWinner = null;
-      state.round = 1;
 
       await setGameState(data.roomId, state);
-      await setPhase(data.roomId, Phase.LOBBY);
 
       // بث للجميع: العودة للوبي
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.LOBBY });

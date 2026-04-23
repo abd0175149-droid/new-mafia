@@ -6,9 +6,9 @@
 import { Server, Socket } from 'socket.io';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts } from '../game/roles.js';
-import { getGameState, setGameState } from '../config/redis.js';
+import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch } from '../services/match.service.js';
-import { createSession, addPlayerToSession, getSessionPlayers } from '../services/session.service.js';
+import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string }> = new Map();
 
@@ -496,9 +496,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // Remove player
+      // Remove player from Redis
       state.players = state.players.filter(p => p.physicalId !== data.physicalId);
       await updateRoom(data.roomId, { players: state.players });
+
+      // Remove from PostgreSQL (session_players)
+      if (state.sessionId) {
+        await removePlayerFromSession(state.sessionId, data.physicalId);
+      }
 
       const room = activeRooms.get(data.roomId);
       if (room) {
@@ -899,7 +904,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
-  // ── إغلاق الغرفة (Soft Delete) ────────────────
+  // ── إغلاق الغرفة (Soft Close — للوبي فقط) ────────────────
   socket.on('room:close', async (data: { roomId: string }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -918,6 +923,99 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── حذف الغرفة نهائياً ─────────────────────────
+  socket.on('room:delete-room', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader can delete the room' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      const sessionId = state.sessionId;
+      const activityId = state.activityId;
+
+      // 1. حذف من Redis
+      await deleteGameState(data.roomId);
+      // حذف code mapping
+      if (state.roomCode) {
+        await deleteGameState(`code:${state.roomCode}`);
+      }
+
+      // 2. حذف من activeRooms
+      activeRooms.delete(data.roomId);
+
+      // 3. معالجة PostgreSQL
+      if (sessionId) {
+        if (activityId) {
+          // غرفة مرتبطة بنشاط → soft delete + فك ربط
+          await closeSession(sessionId);
+          await unlinkSessionFromActivity(sessionId);
+          console.log(`🔒 Room ${data.roomId} soft-deleted (linked to activity #${activityId})`);
+        } else {
+          // غرفة مستقلة → حذف حقيقي
+          await deleteSession(sessionId);
+          console.log(`🗑️ Room ${data.roomId} permanently deleted (session #${sessionId})`);
+        }
+      }
+
+      // 4. إعلام الجميع
+      io.to(data.roomId).emit('game:room-deleted');
+
+      callback({ success: true });
+      console.log(`🗑️ Room ${data.roomId} deleted by leader`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── دالة مشتركة: إعادة تعيين حالة الغرفة للوبي ──
+  function resetRoomState(state: any, excludeIds: number[] = []): any {
+    // فلترة المستبعدين وإعادة تعيين الباقين
+    const activePlayers = excludeIds.length > 0
+      ? state.players.filter((p: any) => !excludeIds.includes(p.physicalId))
+      : state.players;
+
+    state.players = activePlayers.map((p: any) => ({
+      ...p,
+      isAlive: true,
+      isSilenced: false,
+      role: null,
+      justificationCount: 0,
+    }));
+
+    state.phase = Phase.LOBBY;
+    state.round = 0;
+    state.winner = null;
+    state.pendingWinner = null;
+    state.rolesPool = [];
+    state.morningEvents = [];
+    state.discussionState = null;
+    state.rolesConfirmed = false;
+    state.matchId = undefined;
+    state.startedAt = undefined;
+    state.votingState = {
+      totalVotesCast: 0,
+      deals: [],
+      candidates: [],
+      hiddenPlayersFromVoting: [],
+      tieBreakerLevel: 0,
+    };
+    state.nightActions = {
+      godfatherTarget: null,
+      silencerTarget: null,
+      sheriffTarget: null,
+      sheriffResult: null,
+      doctorTarget: null,
+      sniperTarget: null,
+      nurseTarget: null,
+      lastProtectedTarget: null,
+    };
+
+    return state;
+  }
+
   // ── إعادة الغرفة لحالة اللوبي (بعد GAME_OVER) ────────────
   socket.on('room:reset-to-lobby', async (data: { roomId: string }, callback) => {
     try {
@@ -928,40 +1026,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // إعادة تعيين اللاعبين
-      state.players = state.players.map(p => ({
-        ...p,
-        isAlive: true,
-        isSilenced: false,
-        role: null,
-        justificationCount: 0,
-      }));
-
-      // إعادة تعيين حالة الغرفة
-      state.phase = Phase.LOBBY;
-      state.round = 0;
-      state.winner = null;
-      state.rolesPool = [];
-      state.morningEvents = [];
-      state.discussionState = null;
-      state.votingState = {
-        totalVotesCast: 0,
-        deals: [],
-        candidates: [],
-        hiddenPlayersFromVoting: [],
-        tieBreakerLevel: 0,
-      };
-      state.nightActions = {
-        godfatherTarget: null,
-        silencerTarget: null,
-        sheriffTarget: null,
-        sheriffResult: null,
-        doctorTarget: null,
-        sniperTarget: null,
-        nurseTarget: null,
-        lastProtectedTarget: null,
-      };
-
+      resetRoomState(state);
       await setGameState(data.roomId, state);
 
       io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY' });
@@ -1016,41 +1081,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const excludeIds = data.excludePlayerIds || [];
 
-      // حذف المستبعدين وإعادة تعيين الباقين
-      const activePlayers = state.players.filter(p => !excludeIds.includes(p.physicalId));
-      state.players = activePlayers.map(p => ({
-        ...p,
-        isAlive: true,
-        isSilenced: false,
-        role: null,
-        justificationCount: 0,
-      }));
+      // حذف المستبعدين من PostgreSQL
+      if (state.sessionId && excludeIds.length > 0) {
+        for (const pid of excludeIds) {
+          await removePlayerFromSession(state.sessionId, pid);
+        }
+      }
 
-      // إعادة تعيين حالة الغرفة — نفس roomId + roomCode + displayPin
-      state.phase = Phase.LOBBY;
-      state.round = 0;
-      state.winner = null;
-      state.rolesPool = [];
-      state.morningEvents = [];
-      state.discussionState = null;
-      state.votingState = {
-        totalVotesCast: 0,
-        deals: [],
-        candidates: [],
-        hiddenPlayersFromVoting: [],
-        tieBreakerLevel: 0,
-      };
-      state.nightActions = {
-        godfatherTarget: null,
-        silencerTarget: null,
-        sheriffTarget: null,
-        sheriffResult: null,
-        doctorTarget: null,
-        sniperTarget: null,
-        nurseTarget: null,
-        lastProtectedTarget: null,
-      };
-
+      // إعادة تعيين الحالة باستخدام الدالة المشتركة
+      resetRoomState(state, excludeIds);
       await setGameState(data.roomId, state);
 
       // تحديث عدد اللاعبين في activeRooms

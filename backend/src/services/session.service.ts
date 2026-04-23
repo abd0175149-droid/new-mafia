@@ -192,7 +192,7 @@ export async function removePlayerFromSession(sessionId: number, physicalId: num
   }
 }
 
-// ── إغلاق الغرفة ───────────────────────────────────
+// ── إغلاق الغرفة (Soft Delete) ─────────────────────
 export async function closeSession(sessionId: number): Promise<void> {
   const db = getDB();
   if (!db) return;
@@ -201,8 +201,45 @@ export async function closeSession(sessionId: number): Promise<void> {
     await db.update(sessions)
       .set({ isActive: false })
       .where(eq(sessions.id, sessionId));
+    console.log(`🔒 Session #${sessionId} closed (soft delete)`);
   } catch (err: any) {
     console.error('❌ Failed to close session:', err.message);
+  }
+}
+
+// ── حذف الغرفة نهائياً (Hard Delete) ────────────────
+export async function deleteSession(sessionId: number): Promise<boolean> {
+  const db = getDB();
+  if (!db) return false;
+
+  try {
+    // حذف بالترتيب الصحيح (الأبناء أولاً) بسبب FK constraints
+    // 1. حذف surveys المرتبطة (FK → matches.id)
+    await db.execute(sql`
+      DELETE FROM surveys 
+      WHERE match_id IN (SELECT id FROM matches WHERE session_id = ${sessionId})
+    `);
+
+    // 2. حذف match_players المرتبطة (FK → matches.id)
+    await db.execute(sql`
+      DELETE FROM match_players 
+      WHERE match_id IN (SELECT id FROM matches WHERE session_id = ${sessionId})
+    `);
+
+    // 3. حذف matches المرتبطة (FK → sessions.id)
+    await db.execute(sql`DELETE FROM matches WHERE session_id = ${sessionId}`);
+
+    // 4. حذف session_players (FK → sessions.id)
+    await db.execute(sql`DELETE FROM session_players WHERE session_id = ${sessionId}`);
+
+    // 5. حذف الغرفة نفسها
+    await db.delete(sessions).where(eq(sessions.id, sessionId));
+
+    console.log(`🗑️ Session #${sessionId} permanently deleted`);
+    return true;
+  } catch (err: any) {
+    console.error('❌ Failed to delete session:', err.message);
+    return false;
   }
 }
 

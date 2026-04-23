@@ -407,6 +407,11 @@ export default function LeaderPage() {
       setGameState(null);
     });
 
+    const offRoomDeleted = on('game:room-deleted', () => {
+      setGameState(null);
+      setInSession(false);
+    });
+
     // ── Night Listeners ──
     const offNightStep = on('night:queue-step', (data: any) => {
       setGameState(prev => {
@@ -528,6 +533,7 @@ export default function LeaderPage() {
       offEliminationRevealed();
       offDiscussionUpdate();
       offGameClosed();
+      offRoomDeleted();
       offNightStep();
       offNightComplete();
       offMorningRecap();
@@ -671,6 +677,26 @@ export default function LeaderPage() {
       setInSession(true);
       setExcludedPlayers([]);
       setShowExcludeUI(false);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  // ── حذف الغرفة نهائياً ──
+  const handleDeleteRoom = async () => {
+    if (!gameState) return;
+    const msg = gameState.activityId
+      ? 'هذه الغرفة مرتبطة بنشاط. سيتم إغلاقها وفك ربطها (بدون حذف نهائي). هل تريد المتابعة؟'
+      : '⚠️ هل أنت متأكد من حذف هذه الغرفة نهائياً؟ سيتم حذف جميع بيانات اللاعبين والألعاب المرتبطة!';
+    if (!confirm(msg)) return;
+    try {
+      const res = await emit('room:delete-room', { roomId: gameState.roomId });
+      if (res.success) {
+        setGameState(null);
+        setInSession(false);
+        fetchActiveGames();
+        fetchHistory();
+      }
     } catch (err: any) {
       setError(err.message);
     }
@@ -1549,6 +1575,12 @@ export default function LeaderPage() {
                 className="text-[#8A0303] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-red-500 transition-colors border border-[#8A0303]/30 px-3 py-1.5 hover:border-[#8A0303]"
               >
                 ✕ Terminate
+              </button>
+              <button
+                onClick={handleDeleteRoom}
+                className="text-[#ff0000] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-red-300 transition-colors border border-[#ff0000]/30 px-3 py-1.5 hover:border-[#ff0000] bg-[#ff0000]/5"
+              >
+                🗑️ Delete Room
               </button>
             </div>
           </div>
