@@ -793,6 +793,15 @@ export default function LeaderPage() {
                         setError('الرجاء إدخال الاسم والرقم');
                         return;
                       }
+                      if (!gameState.roomId) {
+                        setError('لم يتم إنشاء غرفة بعد');
+                        return;
+                      }
+                      // تطبيع رقم الهاتف
+                      const rawPhone = sessionAddForm.phone?.trim() || '';
+                      const normalizedPhone = rawPhone
+                        ? (rawPhone.startsWith('0') ? rawPhone : '0' + rawPhone)
+                        : '0700000000';
                       try {
                         const res = await fetch('/api/leader/force-add-player', {
                           method: 'POST',
@@ -804,7 +813,7 @@ export default function LeaderPage() {
                             roomId: gameState.roomId,
                             physicalId: Number(sessionAddForm.physicalId),
                             name: sessionAddForm.name,
-                            phone: sessionAddForm.phone || '',
+                            phone: normalizedPhone,
                             gender: sessionAddForm.gender,
                           }),
                         });
