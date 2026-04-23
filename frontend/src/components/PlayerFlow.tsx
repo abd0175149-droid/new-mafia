@@ -87,6 +87,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         return;
       }
 
+      // ── إذا فيه كود غرفة جديد (من QR) مختلف عن الجلسة القديمة → تجاهل الجلسة القديمة ──
+      if (initialRoomCode && session.roomCode && initialRoomCode !== session.roomCode) {
+        console.log(`🔄 New room code ${initialRoomCode} differs from saved session ${session.roomCode} — skipping rejoin`);
+        localStorage.removeItem('mafia_session');
+        setRejoinLoading(false);
+        return;
+      }
+
       emit('room:rejoin-player', {
         roomId: session.roomId,
         physicalId: session.physicalId,
