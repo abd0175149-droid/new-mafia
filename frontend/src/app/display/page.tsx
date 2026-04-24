@@ -214,8 +214,8 @@ export default function DisplayPage() {
         setPlayerCount(state.players.filter((p: any) => p.isAlive !== false).length);
       }
       // phaseOverride يتجاوز phase القديم في state
-      if (phaseOverride) setPhase(phaseOverride);
-      else if (state.phase) setPhase(state.phase);
+      if (phaseOverride) setPhase(phaseOverride as Phase);
+      else if (state.phase) setPhase(state.phase as Phase);
       if (state.teamCounts) setTeamCounts(state.teamCounts);
       if (state.winner) setWinner(state.winner);
     };
