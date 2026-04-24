@@ -4,6 +4,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { getRoom, Phase, setPhase } from '../game/state.js';
+import { getTeamCounts } from '../game/roles.js';
 
 export function registerGameEvents(io: Server, socket: Socket) {
 
@@ -48,6 +49,7 @@ export function registerGameEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('game:phase-changed', {
         phase: data.targetPhase,
         state: state || undefined,
+        teamCounts: state ? getTeamCounts(state.players) : undefined,
       });
 
       callback({ success: true });

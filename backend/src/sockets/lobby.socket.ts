@@ -961,7 +961,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_DISCUSSION });
+      io.to(data.roomId).emit('game:phase-changed', {
+        phase: Phase.DAY_DISCUSSION,
+        state,
+        teamCounts: getTeamCounts(state.players),
+      });
 
       io.to(data.roomId).emit('game:started', {
         round: 1,

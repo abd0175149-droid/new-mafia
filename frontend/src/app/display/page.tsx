@@ -279,7 +279,13 @@ export default function DisplayPage() {
       // تنظيف animations
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(null);
-      if (data.phase === Phase.LOBBY) setWinner(null);
+      if (data.phase === Phase.LOBBY) {
+        setWinner(null);
+        setTeamCounts({ citizenAlive: 0, mafiaAlive: 0 });
+      }
+
+      // ✅ تحديث أعداد الفرق (يأتي مع الحدث مباشرة)
+      if (data.teamCounts) setTeamCounts(data.teamCounts);
 
       // ✅ أولاً: استخدام الحالة المرفقة مع الحدث (أسرع + أوثق)
       if (data.state?.players) {
@@ -343,6 +349,7 @@ export default function DisplayPage() {
         p.physicalId === data.physicalId ? { ...p, isAlive: false } : p
       ));
       setPlayerCount(prev => Math.max(0, prev - 1));
+      if (data.teamCounts) setTeamCounts(data.teamCounts);
     };
 
     // ── تسجيل كل الأحداث ──
@@ -358,6 +365,7 @@ export default function DisplayPage() {
     socket.on('admin:player-eliminated', onAdminEliminated);
     socket.on('game:started', (data: any) => {
       setPhase(data.phase);
+      if (data.teamCounts) setTeamCounts(data.teamCounts);
     });
 
     // إعادة عرض نتيجة لعبة سابقة
@@ -511,17 +519,58 @@ export default function DisplayPage() {
       
       <div className="relative z-10 w-full h-full flex flex-col items-center justify-center">
 
-        {/* Global Mini-Header for Active Phases */}
-        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && phase !== Phase.NIGHT && phase !== 'MORNING_RECAP' && !phase.startsWith('DAY_') && (
-          <div className="absolute top-4 left-6 flex items-center justify-start gap-4 z-50 pointer-events-none opacity-80">
-            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}>
-               <Image src="/mafia_logo.png" alt="Mafia" width={50} height={50} className="w-[45px] h-[45px] drop-shadow-[0_0_15px_rgba(138,3,3,0.3)]" priority />
-             </motion.div>
-             <h1 className="flex flex-col items-start leading-none mt-1">
-               <span className="block text-2xl font-black tracking-tight text-[#C5A059]" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(138,3,3,0.4)' }}>MAFIA</span>
-               <span className="text-xs font-light text-[#8A0303] tracking-[0.2em] pl-0.5" style={{ fontFamily: 'Amiri, serif' }}>CLUB</span>
-             </h1>
-          </div>
+        {/* ══════════════════════════════════════════════════ */}
+        {/* 📊 ناف بار ثابت — أعداد الفرق (يظهر بعد بدء اللعبة) */}
+        {/* ══════════════════════════════════════════════════ */}
+        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0) && (
+          <motion.div
+            initial={{ y: -60, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ type: 'spring', damping: 20, stiffness: 200 }}
+            className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-between px-6 py-3 border-b border-[#2a2a2a]/60"
+            style={{ background: 'linear-gradient(180deg, rgba(5,5,5,0.95) 0%, rgba(5,5,5,0.85) 100%)', backdropFilter: 'blur(12px)' }}
+          >
+            {/* اللوجو — يسار */}
+            <div className="flex items-center gap-3">
+              <Image src="/mafia_logo.png" alt="Mafia" width={36} height={36} className="w-[32px] h-[32px] drop-shadow-[0_0_10px_rgba(138,3,3,0.3)]" priority />
+              <div className="leading-none">
+                <span className="block text-lg font-black tracking-tight text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>MAFIA</span>
+                <span className="flex justify-between w-full text-[7px] font-light text-[#8A0303] tracking-[0.15em]" dir="ltr" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</span>
+              </div>
+            </div>
+
+            {/* أعداد الفرق — وسط */}
+            <div className="flex items-center gap-8">
+              {/* المواطنون */}
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
+                <div className="text-center">
+                  <div className="text-2xl font-black text-blue-400 tabular-nums" style={{ fontFamily: 'Amiri, serif' }}>{teamCounts.citizenAlive}</div>
+                  <div className="text-[8px] font-mono text-[#555] tracking-[0.2em] uppercase">CITIZENS</div>
+                </div>
+              </div>
+
+              {/* الفاصل */}
+              <div className="text-[#2a2a2a] text-2xl font-thin">⚔️</div>
+
+              {/* المافيا */}
+              <div className="flex items-center gap-3">
+                <div className="text-center">
+                  <div className="text-2xl font-black text-red-400 tabular-nums" style={{ fontFamily: 'Amiri, serif' }}>{teamCounts.mafiaAlive}</div>
+                  <div className="text-[8px] font-mono text-[#555] tracking-[0.2em] uppercase">MAFIA</div>
+                </div>
+                <div className="w-3 h-3 rounded-full bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.6)] animate-pulse" />
+              </div>
+            </div>
+
+            {/* المرحلة — يمين */}
+            <div className="text-right">
+              <div className="text-[9px] font-mono text-[#C5A059] tracking-[0.15em] uppercase">
+                {phase === Phase.NIGHT ? '🌙 NIGHT' : phase === 'MORNING_RECAP' ? '☀️ MORNING' : phase.startsWith('DAY_') ? '☀️ DAY' : phase === Phase.GAME_OVER ? '🏁 GAME OVER' : ''}
+              </div>
+              <div className="text-[8px] font-mono text-[#333] tracking-widest">{gameName}</div>
+            </div>
+          </motion.div>
         )}
 
         <AnimatePresence mode="wait">
@@ -833,15 +882,7 @@ export default function DisplayPage() {
 
         {/* ═══ الليل ═══ */}
         {step === 'lobby' && phase === Phase.NIGHT && (
-          <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center relative z-10 w-full">
-            {/* Header Bar — MAFIA CLUB (fixed at top) */}
-            <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-4 px-8 py-4 bg-black/60 backdrop-blur-sm border-b border-[#C5A059]/20">
-              <Image src="/mafia_logo.png" alt="Mafia Club" width={52} height={52} className="shrink-0 drop-shadow-[0_0_12px_rgba(197,160,89,0.3)]" />
-              <div className="leading-none">
-                <div className="text-[#C5A059] font-black text-3xl tracking-[0.3em] uppercase" style={{ fontFamily: 'Amiri, serif' }}>MAFIA</div>
-                <div className="flex justify-between w-full text-[#C5A059] font-black text-xl uppercase px-0.5" dir="ltr" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</div>
-              </div>
-            </div>
+          <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center relative z-10 w-full pt-16">
             <motion.div className="text-9xl mb-8 grayscale opacity-50" animate={{ opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 4, repeat: Infinity }}>🌑</motion.div>
             <h2 className="text-6xl font-black text-white mb-4 tracking-widest uppercase" style={{ fontFamily: 'Amiri, serif' }}>الظلام دامس</h2>
             <p className="text-[#808080] text-xl font-mono tracking-[0.3em]">OPERATION NIGHTFALL</p>
