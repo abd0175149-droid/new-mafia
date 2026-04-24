@@ -200,6 +200,44 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   }, []);
 
+  // ── إعادة الانضمام للغرفة عند reconnect ──
+  // عند قطع الاتصال وإعادته → socket يحصل على ID جديد ويخرج من الغرفة
+  // لازم يعود ينضم عشان يستقبل game:state-sync
+  useEffect(() => {
+    if (!on || !emit) return;
+    if (step !== 'done' && step !== 'rejoined') return;
+    if (!roomId) return;
+
+    const cleanupReconnect = on('connect', () => {
+      console.log('🔄 Socket reconnected — re-joining room...');
+      const normalized = phone.startsWith('0') ? phone : '0' + phone;
+      emit('room:rejoin-player', {
+        roomId,
+        physicalId: parseInt(physicalId) || 0,
+        phone: normalized || undefined,
+      }).then((res: any) => {
+        if (res?.success && res.player) {
+          setPhysicalId(String(res.player.physicalId));
+          setDisplayName(res.player.name);
+          if (res.player.role) setAssignedRole(res.player.role);
+          if (!res.player.isAlive) {
+            setIsPlayerDead(true);
+            setCardFlipped(true);
+          }
+          // تحديث الكاش
+          const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
+          saved.physicalId = res.player.physicalId;
+          localStorage.setItem('mafia_session', JSON.stringify(saved));
+          console.log(`✅ Re-joined room: #${res.player.physicalId} - ${res.player.name}`);
+        }
+      }).catch(() => {
+        console.warn('⚠️ Re-join failed after reconnect');
+      });
+    });
+
+    return () => cleanupReconnect();
+  }, [on, emit, step, roomId, phone, physicalId]);
+
   // ── استقبال تغيير رقم المقعد من الليدر (حل المشكلة الأساسية) ──
   useEffect(() => {
     if (!on) return;
