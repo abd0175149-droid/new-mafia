@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
 import MafiaCard from './MafiaCard';
 import { useGameState } from '@/hooks/useGameState';
 
-type Step = 'code' | 'phone' | 'register' | 'number' | 'done' | 'rejoined';
+type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'number' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -66,6 +66,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [cardFlipped, setCardFlipped] = useState(false);
   const [isPlayerDead, setIsPlayerDead] = useState(false);
   const [rejoinLoading, setRejoinLoading] = useState(true);
+  const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [playerToken, setPlayerToken] = useState<string | null>(null);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
 
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
@@ -145,6 +150,74 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   }, [initialRoomCode, isConnected]);
 
+  // ── التحقق من التوكن المحفوظ عند فتح الصفحة ──
+  useEffect(() => {
+    const savedToken = localStorage.getItem('mafia_player_token');
+    if (savedToken) {
+      setPlayerToken(savedToken);
+      // تحقق من صلاحية التوكن
+      fetch('/api/player-auth/me', {
+        headers: { 'Authorization': `Bearer ${savedToken}` },
+      }).then(r => r.json()).then(data => {
+        if (data.success && data.player) {
+          setPlayerId(data.player.id);
+          setDisplayName(data.player.name);
+          setPhone(data.player.phone || '');
+          setGender(data.player.gender === 'FEMALE' ? 'female' : 'male');
+          setMustChangePassword(data.player.mustChangePassword || false);
+          localStorage.setItem('mafia_playerId', String(data.player.id));
+
+          // إذا في جيم نشط → ندخله مباشرة
+          if (data.activeGame) {
+            setRoomId(data.activeGame.roomId);
+            setRoomCode(data.activeGame.roomCode || '');
+            setPhysicalId(String(data.activeGame.physicalId));
+            if (data.activeGame.role) setAssignedRole(data.activeGame.role);
+            if (!data.activeGame.isAlive) {
+              setIsPlayerDead(true);
+              setCardFlipped(true);
+            }
+          }
+        } else {
+          // توكن منتهي → مسح
+          localStorage.removeItem('mafia_player_token');
+          setPlayerToken(null);
+        }
+      }).catch(() => {
+        localStorage.removeItem('mafia_player_token');
+        setPlayerToken(null);
+      });
+    }
+  }, []);
+
+  // ── استقبال تغيير رقم المقعد من الليدر (حل المشكلة الأساسية) ──
+  useEffect(() => {
+    if (!on) return;
+
+    const cleanupSeat = on('player:seat-changed', (data: { oldPhysicalId: number; newPhysicalId: number }) => {
+      setPhysicalId(String(data.newPhysicalId));
+      // تحديث localStorage
+      const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
+      saved.physicalId = data.newPhysicalId;
+      localStorage.setItem('mafia_session', JSON.stringify(saved));
+      // تنبيه بصري
+      setSeatChangeAlert(`تم تغيير رقمك: ${data.oldPhysicalId} ← ${data.newPhysicalId}`);
+      setTimeout(() => setSeatChangeAlert(null), 5000);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    });
+
+    const cleanupKick = on('player:kicked-self', () => {
+      localStorage.removeItem('mafia_session');
+      setAssignedRole(null);
+      setPhysicalId('');
+      setRoomId('');
+      setStep(initialRoomCode ? 'phone' : 'code');
+      setApiError('تم إزالتك من اللعبة من قبل الليدر');
+    });
+
+    return () => { cleanupSeat(); cleanupKick(); };
+  }, [on, initialRoomCode]);
+
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
@@ -209,11 +282,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   };
 
-  // ── الخطوة 2: البحث بالهاتف ──
+  // ── الخطوة 2: البحث بالهاتف → login أو register ──
   const handlePhoneLookup = async () => {
     setApiError('');
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
-    console.log('[Player] 🔍 Looking up phone:', normalized);
+
+    // إذا عنده توكن صالح → يتخطى تسجيل الدخول
+    if (playerToken && playerId) {
+      if (mustChangePassword) {
+        setStep('change_password');
+      } else {
+        setStep('number');
+      }
+      return;
+    }
+
     try {
       const res = await fetch('/api/player/lookup', {
         method: 'POST',
@@ -221,27 +304,54 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         body: JSON.stringify({ phone: normalized }),
       });
       const data = await res.json();
-      console.log('[Player] 📦 Lookup response:', data);
 
       if (data.found && data.player) {
         setDisplayName(data.player.displayName);
         setPlayerId(data.player.id);
-        // حفظ playerId للبروفايل
         if (data.player.playerId || data.player.id) localStorage.setItem('mafia_playerId', String(data.player.playerId || data.player.id));
-        setStep('number');
+        setStep('login'); // الحساب موجود → تسجيل دخول
       } else {
-        if (data.dbError) {
-          console.warn('[Player] ⚠️ DB Error:', data.dbError);
-          setApiError(`⚠️ ${data.dbError}`);
-        }
-        setStep('register');
+        setStep('register'); // حساب جديد → تسجيل
       }
     } catch (err) {
       setApiError('خطأ في الاتصال');
     }
   };
 
-  // ── الخطوة 3: تسجيل لاعب جديد ──
+  // ── الخطوة 3أ: تسجيل دخول بكلمة سر ──
+  const handleLogin = async () => {
+    setApiError('');
+    const normalized = phone.startsWith('0') ? phone : '0' + phone;
+    try {
+      const res = await fetch('/api/player-auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: normalized, password }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setPlayerToken(data.token);
+        localStorage.setItem('mafia_player_token', data.token);
+        setPlayerId(data.player.id);
+        setDisplayName(data.player.name);
+        localStorage.setItem('mafia_playerId', String(data.player.id));
+
+        if (data.player.mustChangePassword) {
+          setMustChangePassword(true);
+          setStep('change_password');
+        } else {
+          setStep('number');
+        }
+      } else {
+        setApiError(data.error || 'خطأ في تسجيل الدخول');
+      }
+    } catch (err) {
+      setApiError('خطأ في الاتصال');
+    }
+  };
+
+  // ── الخطوة 3ب: تسجيل حساب جديد ──
   const handleRegister = async () => {
     setApiError('');
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
@@ -249,22 +359,61 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       ? `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`
       : null;
 
+    if (!password || password.length < 4) {
+      setApiError('كلمة المرور يجب أن تكون 4 أحرف على الأقل');
+      return;
+    }
+
     try {
-      const res = await fetch('/api/player/register', {
+      const res = await fetch('/api/player-auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: normalized,
-          displayName,
-          dateOfBirth,
-          gender: gender || null,
+          password,
+          name: displayName,
+          gender: gender || 'MALE',
+          dob: dateOfBirth,
         }),
       });
       const data = await res.json();
       if (data.success) {
+        setPlayerToken(data.token);
+        localStorage.setItem('mafia_player_token', data.token);
         setPlayerId(data.player.id);
-        // حفظ playerId للبروفايل
-        if (data.player.playerId || data.player.id) localStorage.setItem('mafia_playerId', String(data.player.playerId || data.player.id));
+        localStorage.setItem('mafia_playerId', String(data.player.id));
+        setStep('number');
+      } else {
+        setApiError(data.error);
+      }
+    } catch (err) {
+      setApiError('خطأ في الاتصال');
+    }
+  };
+
+  // ── تغيير كلمة السر (للاعبين المهاجرين) ──
+  const handleChangePassword = async () => {
+    setApiError('');
+    if (!newPassword || newPassword.length < 4) {
+      setApiError('كلمة المرور الجديدة يجب أن تكون 4 أحرف على الأقل');
+      return;
+    }
+    try {
+      const res = await fetch('/api/player-auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${playerToken}`,
+        },
+        body: JSON.stringify({ oldPassword: password, newPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.token) {
+          setPlayerToken(data.token);
+          localStorage.setItem('mafia_player_token', data.token);
+        }
+        setMustChangePassword(false);
         setStep('number');
       } else {
         setApiError(data.error);
@@ -544,6 +693,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     </button>
                   </div>
                 </div>
+
+                <div>
+                  <label className="block text-[10px] font-mono text-[#555] mb-2 tracking-[0.2em] uppercase">Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="كلمة المرور (4 أحرف+)"
+                    className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center focus:border-[#C5A059] focus:outline-none transition-colors font-mono tracking-widest"
+                    minLength={4}
+                  />
+                </div>
               </div>
 
               {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mt-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
@@ -551,10 +712,85 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="mt-6">
                 <button
                   onClick={handleRegister}
-                  disabled={!displayName}
+                  disabled={!displayName || !password || password.length < 4}
                   className="btn-premium w-full !text-sm tracking-widest disabled:opacity-50 !rounded-lg"
                 >
                   <span>SUBMIT DOSSIER</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── خطوة 3أ: تسجيل الدخول (حساب موجود) ── */}
+          {step === 'login' && (
+            <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
+                <div className="mb-4 text-[#C5A059] flex justify-center"><OperationIcon /></div>
+                <h2 className="text-2xl font-black mb-1 text-white" style={{ fontFamily: 'Amiri, serif' }}>مرحباً {displayName}</h2>
+                <p className="text-[#808080] text-[10px] font-mono tracking-[0.2em] uppercase">ENTER ACCESS CODE</p>
+              </div>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-mono text-[#555] mb-2 tracking-[0.2em] uppercase">Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="كلمة المرور"
+                    className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center font-mono text-2xl tracking-[0.3em] focus:border-[#C5A059] focus:outline-none transition-colors"
+                    autoFocus
+                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                  />
+                </div>
+              </div>
+
+              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mt-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+
+              <div className="mt-6">
+                <button
+                  onClick={handleLogin}
+                  disabled={!password}
+                  className="btn-premium w-full !text-sm tracking-widest disabled:opacity-50 !rounded-lg"
+                >
+                  <span>ACCESS GRANTED</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ── خطوة تغيير كلمة السر (للمهاجرين) ── */}
+          {step === 'change_password' && (
+            <motion.div key="change_pw" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
+                <div className="mb-4 text-[#C5A059] flex justify-center"><OperationIcon /></div>
+                <h2 className="text-2xl font-black mb-1 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>تغيير كلمة المرور</h2>
+                <p className="text-[#808080] text-[10px] font-mono tracking-[0.2em] uppercase">UPDATE YOUR ACCESS CODE</p>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[#C5A059]/80 text-xs text-center" style={{ fontFamily: 'Amiri, serif' }}>كلمة المرور الحالية مؤقتة — اختر كلمة مرور جديدة</p>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="كلمة المرور الجديدة (4 أحرف+)"
+                  className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center font-mono text-xl tracking-[0.3em] focus:border-[#C5A059] focus:outline-none transition-colors"
+                  autoFocus
+                  minLength={4}
+                  onKeyDown={(e) => e.key === 'Enter' && handleChangePassword()}
+                />
+              </div>
+
+              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mt-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+
+              <div className="mt-6">
+                <button
+                  onClick={handleChangePassword}
+                  disabled={!newPassword || newPassword.length < 4}
+                  className="btn-premium w-full !text-sm tracking-widest disabled:opacity-50 !rounded-lg"
+                >
+                  <span>UPDATE CODE</span>
                 </button>
               </div>
             </motion.div>
@@ -861,6 +1097,19 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             </p>
           </motion.div>
         </div>
+      )}
+
+      {/* ── تنبيه تغيير رقم المقعد ── */}
+      {seatChangeAlert && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          className="fixed top-4 left-4 right-4 z-50 bg-[#C5A059] text-black p-4 rounded-lg text-center font-bold shadow-lg"
+          style={{ fontFamily: 'Amiri, serif' }}
+        >
+          {seatChangeAlert}
+        </motion.div>
       )}
     </div>
   );

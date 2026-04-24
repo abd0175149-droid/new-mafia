@@ -172,7 +172,7 @@ router.post('/force-add-player', requireLeader, async (req: Request, res: Respon
     // حفظ اللاعب في الـ Session (PostgreSQL)
     const fullState = await getRoom(roomId);
     if (fullState?.sessionId) {
-      await addPlayerToSession(fullState.sessionId, Number(physicalId), name, phone, gender, dob);
+      await addPlayerToSession(fullState.sessionId, Number(physicalId), name, phone, gender, dob, resolvedPlayerId);
     }
 
     const room = activeRooms.get(roomId);

@@ -25,6 +25,7 @@ import settingsRoutes from './routes/settings.routes.js';
 import leaderRoutes from './routes/leader.routes.js';
 import driveRoutes from './routes/drive.routes.js';
 import playerRoutes from './routes/player.routes.js';
+import playerAuthRoutes from './routes/player-auth.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -81,6 +82,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/leader', leaderRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/player', playerRoutes);
+app.use('/api/player-auth', playerAuthRoutes);
 
 // ══════════════════════════════════════════════════════
 // 🎮 Game REST API Routes (History & Stats + Frontend Endpoints)
@@ -228,6 +230,14 @@ async function main() {
 
   // ── إعادة بناء الغرف النشطة من Redis ──
   await rehydrateActiveRooms();
+
+  // ── هجرة اللاعبين القدامى (تعيين كلمة سر افتراضية) ──
+  try {
+    const { migratePlayersWithDefaultPassword } = await import('./services/player.service.js');
+    await migratePlayersWithDefaultPassword();
+  } catch (err: any) {
+    console.error('⚠️ Player migration skipped:', err.message);
+  }
 
   // ── بذر لعبة تجريبية (تطوير فقط) ──
   if (env.NODE_ENV === 'development') {

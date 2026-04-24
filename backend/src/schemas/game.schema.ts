@@ -34,6 +34,7 @@ export const sessions = pgTable('sessions', {
 export const sessionPlayers = pgTable('session_players', {
   id: serial('id').primaryKey(),
   sessionId: integer('session_id').references(() => sessions.id).notNull(),
+  playerId: integer('player_id'),  // 🔗 FK → players.id (حساب اللاعب الدائم)
   physicalId: integer('physical_id').notNull(),
   playerName: varchar('player_name', { length: 255 }).notNull(),
   phone: varchar('phone', { length: 20 }),
@@ -71,6 +72,7 @@ export const matchPlayers = pgTable('match_players', {
   id: serial('id').primaryKey(),
   matchId: integer('match_id').references(() => matches.id).notNull(),
   sessionPlayerId: integer('session_player_id').references(() => sessionPlayers.id),
+  playerId: integer('player_id'),  // 🔗 FK → players.id (حساب اللاعب الدائم)
   physicalId: integer('physical_id').notNull(),
   playerName: varchar('player_name', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull(),

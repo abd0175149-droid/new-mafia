@@ -8,11 +8,17 @@ import {
   varchar, boolean,
 } from 'drizzle-orm/pg-core';
 
+// ── إعدادات المصادقة ──────────────────────────────
+export const PLAYER_DEFAULT_PASSWORD = '1234'; // كلمة السر الافتراضية للاعبين المهاجرين
+export const PLAYER_TOKEN_EXPIRY = '30d';       // مدة صلاحية JWT للاعب
+
 // ── Players (اللاعبون المسجلون) ──────────────────────
 
 export const players = pgTable('players', {
   id: serial('id').primaryKey(),
   phone: varchar('phone', { length: 20 }).unique().notNull(),
+  passwordHash: varchar('password_hash', { length: 255 }),
+  mustChangePassword: boolean('must_change_password').default(false),
   name: varchar('name', { length: 100 }).notNull(),
   gender: varchar('gender', { length: 10 }).default('MALE'),
   dob: varchar('dob', { length: 20 }),

@@ -121,6 +121,7 @@ export async function addPlayerToSession(
   phone?: string,
   gender?: string,
   dateOfBirth?: string,
+  playerId?: number | null,
 ): Promise<void> {
   const db = getDB();
   if (!db) return;
@@ -140,6 +141,7 @@ export async function addPlayerToSession(
           phone: phone || existing.phone,
           gender: gender || existing.gender,
           dateOfBirth: dateOfBirth || existing.dateOfBirth,
+          playerId: playerId || existing.playerId || null,
         })
         .where(eq(sessionPlayers.id, existing.id));
     } else {
@@ -151,6 +153,7 @@ export async function addPlayerToSession(
         phone: phone || null,
         gender: gender || 'MALE',
         dateOfBirth: dateOfBirth || null,
+        playerId: playerId || null,
       });
     }
   } catch (err: any) {

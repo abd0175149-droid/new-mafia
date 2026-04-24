@@ -65,6 +65,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
 
     const playerRows = state.players.map(p => ({
       matchId: state.matchId!,
+      playerId: p.playerId || null,
       physicalId: p.physicalId,
       playerName: p.name,
       role: p.role || 'UNKNOWN',

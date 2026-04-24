@@ -373,6 +373,22 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       await setGameState(data.roomId, state);
 
+      // ── إرسال تحديث الرقم لكل لاعب متأثر عبر WebSocket ──
+      const allSockets = await io.in(data.roomId).fetchSockets();
+      for (const change of actualChanges) {
+        // البحث عن اللاعب بالرقم القديم
+        for (const s of allSockets) {
+          if (s.data.role === 'player' && s.data.physicalId === change.oldPhysicalId) {
+            s.data.physicalId = change.newPhysicalId;
+            s.emit('player:seat-changed', {
+              oldPhysicalId: change.oldPhysicalId,
+              newPhysicalId: change.newPhysicalId,
+            });
+            console.log(`📤 Seat change notification sent: #${change.oldPhysicalId} → #${change.newPhysicalId}`);
+          }
+        }
+      }
+
       // بث التحديث الكامل لكل الشاشات
       io.to(data.roomId).emit('game:state-sync', state);
 
@@ -431,6 +447,21 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         name: data.name,
         totalPlayers: state.players.length,
       });
+
+      // ── إرسال تحديث الرقم للاعب المتأثر عبر WebSocket ──
+      if (data.newPhysicalId && data.newPhysicalId !== data.physicalId) {
+        const allSockets = await io.in(data.roomId).fetchSockets();
+        for (const s of allSockets) {
+          if (s.data.role === 'player' && s.data.physicalId === data.physicalId) {
+            s.data.physicalId = data.newPhysicalId;
+            s.emit('player:seat-changed', {
+              oldPhysicalId: data.physicalId,
+              newPhysicalId: data.newPhysicalId,
+            });
+            console.log(`📤 Seat change notification sent: #${data.physicalId} → #${data.newPhysicalId}`);
+          }
+        }
+      }
 
       callback({ success: true });
     } catch (err: any) {
@@ -515,6 +546,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         physicalId: data.physicalId,
         totalPlayers: state.players.length,
       });
+
+      // ── إرسال إشعار للاعب المطرود بشكل مباشر ──
+      const allSockets = await io.in(data.roomId).fetchSockets();
+      for (const s of allSockets) {
+        if (s.data.role === 'player' && s.data.physicalId === data.physicalId) {
+          s.emit('player:kicked-self');
+          s.leave(data.roomId);
+        }
+      }
 
       callback({ success: true });
       console.log(`👑 Leader kicked player: #${data.physicalId}`);
