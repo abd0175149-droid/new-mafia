@@ -324,7 +324,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (mustChangePassword) {
         setStep('change_password');
       } else {
-        setStep('number');
+        // تحقق إذا اللاعب أصلاً جوا اللعبة
+        await tryRejoinCurrentRoom(playerId, playerToken);
       }
       return;
     }
@@ -385,7 +386,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setMustChangePassword(true);
           setStep('change_password');
         } else {
-          setStep('number');
+          // ── تحقق إذا اللاعب أصلاً جوا اللعبة الحالية ──
+          await tryRejoinCurrentRoom(data.player.id, data.token);
         }
       } else {
         setApiError(data.error || 'خطأ في تسجيل الدخول');
@@ -393,6 +395,72 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     } catch (err) {
       setApiError('خطأ في الاتصال');
     }
+  };
+
+  // ── محاولة الانضمام التلقائي للغرفة (بعد login/register) ──
+  const tryRejoinCurrentRoom = async (pid: number, token: string) => {
+    // 1. جرّب rejoin عبر WebSocket إذا عنا roomId
+    if (emit && roomId) {
+      try {
+        const normalized = phone.startsWith('0') ? phone : '0' + phone;
+        const res: any = await emit('room:rejoin-player', {
+          roomId,
+          physicalId: 0, // نبحث بالهاتف
+          phone: normalized,
+        });
+        if (res?.success && res.player) {
+          setPhysicalId(String(res.player.physicalId));
+          setDisplayName(res.player.name);
+          setGender(res.player.gender === 'FEMALE' ? 'female' : 'male');
+          setPlayerId(pid);
+          if (res.player.role) setAssignedRole(res.player.role);
+          if (!res.player.isAlive) {
+            setIsPlayerDead(true);
+            setCardFlipped(true);
+          }
+          // حفظ الجلسة
+          localStorage.setItem('mafia_session', JSON.stringify({
+            roomId, physicalId: res.player.physicalId, phone: normalized,
+            displayName: res.player.name, roomCode, playerId: pid,
+          }));
+          setStep('rejoined');
+          return;
+        }
+      } catch {}
+    }
+
+    // 2. جرّب /me endpoint للبحث عن لعبة نشطة
+    try {
+      const meRes = await fetch('/api/player-auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const meData = await meRes.json();
+      if (meData.success && meData.activeGame && meData.activeGame.roomId) {
+        const ag = meData.activeGame;
+        // إذا الغرفة النشطة هي نفس الغرفة الحالية → دخول مباشر
+        if (!roomId || ag.roomId === roomId) {
+          setRoomId(ag.roomId);
+          setRoomCode(ag.roomCode || roomCode);
+          setPhysicalId(String(ag.physicalId));
+          setGameName(ag.gameName || gameName);
+          if (ag.role) setAssignedRole(ag.role);
+          if (ag.isAlive === false) {
+            setIsPlayerDead(true);
+            setCardFlipped(true);
+          }
+          localStorage.setItem('mafia_session', JSON.stringify({
+            roomId: ag.roomId, physicalId: ag.physicalId,
+            phone: phone.startsWith('0') ? phone : '0' + phone,
+            displayName, roomCode: ag.roomCode || roomCode, playerId: pid,
+          }));
+          setStep('rejoined');
+          return;
+        }
+      }
+    } catch {}
+
+    // 3. لا لعبة نشطة → اختيار مقعد عادي
+    setStep('number');
   };
 
   // ── الخطوة 3ب: تسجيل حساب جديد ──
@@ -426,6 +494,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         localStorage.setItem('mafia_player_token', data.token);
         setPlayerId(data.player.id);
         localStorage.setItem('mafia_playerId', String(data.player.id));
+        // لاعب جديد — مستحيل يكون جوا لعبة، يروح على اختيار مقعد
         setStep('number');
       } else {
         setApiError(data.error);
@@ -458,7 +527,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           localStorage.setItem('mafia_player_token', data.token);
         }
         setMustChangePassword(false);
-        setStep('number');
+        await tryRejoinCurrentRoom(playerId!, data.token || playerToken!);
       } else {
         setApiError(data.error);
       }
