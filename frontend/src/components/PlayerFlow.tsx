@@ -92,6 +92,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         return;
       }
 
+      // ── تحقق من توافق الحساب: إذا فيه توكن محفوظ لحساب مختلف → مسح الجلسة القديمة ──
+      const savedToken = localStorage.getItem('mafia_player_token');
+      const savedPlayerId = localStorage.getItem('mafia_playerId');
+      if (session.playerId && savedPlayerId && String(session.playerId) !== savedPlayerId) {
+        console.log(`⚠️ Session belongs to player #${session.playerId} but logged in as #${savedPlayerId} — clearing stale session`);
+        localStorage.removeItem('mafia_session');
+        setRejoinLoading(false);
+        return;
+      }
+
       // ── إذا فيه كود غرفة جديد (من QR) مختلف عن الجلسة القديمة → تجاهل الجلسة القديمة ──
       if (initialRoomCode && session.roomCode && initialRoomCode !== session.roomCode) {
         console.log(`🔄 New room code ${initialRoomCode} differs from saved session ${session.roomCode} — skipping rejoin`);
@@ -218,6 +228,28 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     return () => { cleanupSeat(); cleanupKick(); };
   }, [on, initialRoomCode]);
 
+  // ── تسجيل خروج اللاعب (مسح كل البيانات المحفوظة) ──
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem('mafia_session');
+    localStorage.removeItem('mafia_player_token');
+    localStorage.removeItem('mafia_playerId');
+    setPlayerToken(null);
+    setPlayerId(null);
+    setDisplayName('');
+    setPhone('');
+    setPhysicalId('');
+    setRoomId('');
+    setRoomCode('');
+    setAssignedRole(null);
+    setIsPlayerDead(false);
+    setCardFlipped(false);
+    setPassword('');
+    setNewPassword('');
+    setMustChangePassword(false);
+    setApiError('');
+    setStep(initialRoomCode ? 'phone' : 'code');
+  }, [initialRoomCode]);
+
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
@@ -336,6 +368,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setPlayerId(data.player.id);
         setDisplayName(data.player.name);
         localStorage.setItem('mafia_playerId', String(data.player.id));
+
+        // ── مسح جلسة لاعب آخر إذا موجودة ──
+        const oldSession = localStorage.getItem('mafia_session');
+        if (oldSession) {
+          try {
+            const s = JSON.parse(oldSession);
+            if (s.playerId && s.playerId !== data.player.id) {
+              localStorage.removeItem('mafia_session');
+              console.log(`🧹 Cleared stale session from player #${s.playerId}`);
+            }
+          } catch {}
+        }
 
         if (data.player.mustChangePassword) {
           setMustChangePassword(true);
@@ -862,8 +906,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
-              {/* ── زر الملف الشخصي ── */}
-              <div className="flex justify-end mb-2">
+              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
+              <div className="flex justify-between mb-2">
                 <Link
                   href="/player/profile"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#C5A059]/20 text-[#C5A059] hover:bg-[#C5A059]/10 transition-all text-[10px] font-mono tracking-widest uppercase"
@@ -874,6 +918,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </svg>
                   PROFILE
                 </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                  </svg>
+                  EXIT
+                </button>
               </div>
 
               {assignedRole === null ? (
@@ -972,8 +1027,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {step === 'rejoined' && (
             <motion.div key="rejoined" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
-              {/* ── زر الملف الشخصي ── */}
-              <div className="flex justify-end mb-2">
+              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
+              <div className="flex justify-between mb-2">
                 <Link
                   href="/player/profile"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#C5A059]/20 text-[#C5A059] hover:bg-[#C5A059]/10 transition-all text-[10px] font-mono tracking-widest uppercase"
@@ -984,6 +1039,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </svg>
                   PROFILE
                 </Link>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                  </svg>
+                  EXIT
+                </button>
               </div>
 
               {isPlayerDead ? (
