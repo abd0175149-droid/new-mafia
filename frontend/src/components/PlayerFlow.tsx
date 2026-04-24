@@ -890,6 +890,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
                   <div className="flex justify-center mb-8">
                     <MafiaCard
+                      key={`card-${physicalId}`}
                       playerNumber={parseInt(physicalId)}
                       playerName={displayName}
                       role={null}
@@ -925,6 +926,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
                   <div className="flex justify-center mb-6">
                     <MafiaCard
+                      key={`card-role-${physicalId}`}
                       playerNumber={parseInt(physicalId)}
                       playerName={displayName}
                       role={assignedRole}
@@ -995,6 +997,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </p>
                   <div className="flex justify-center mb-6 grayscale opacity-70">
                     <MafiaCard
+                      key={`rj-dead-${physicalId}`}
                       playerNumber={parseInt(physicalId)}
                       playerName={displayName}
                       role={assignedRole}
@@ -1020,6 +1023,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </p>
                   <div className="flex justify-center mb-6">
                     <MafiaCard
+                      key={`rj-role-${physicalId}`}
                       playerNumber={parseInt(physicalId)}
                       playerName={displayName}
                       role={assignedRole}
@@ -1057,6 +1061,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </h2>
                   <div className="flex justify-center mb-8">
                     <MafiaCard
+                      key={`rj-wait-${physicalId}`}
                       playerNumber={parseInt(physicalId)}
                       playerName={displayName}
                       role={null}
