@@ -2108,17 +2108,32 @@ export default function LeaderPage() {
                   whileHover={{ scale: 1.01 }}
                   className="noir-card p-6 w-full flex items-center justify-between text-right hover:border-[#C5A059]/40 transition-all border-[#2a2a2a] relative"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    {/* زر إغلاق الغرفة (Soft Close — لا تُحذف) */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!confirm(`هل تريد حذف الغرفة "${game.gameName}"؟`)) return;
+                        if (!confirm(`هل تريد إغلاق الغرفة "${game.gameName}"؟\nلن يتم حذف البيانات، فقط إغلاقها.`)) return;
+                        emit('room:close', { roomId: game.roomId }).then((res: any) => {
+                          if (res?.success) { fetchActiveGames(); fetchHistory(); }
+                        }).catch(() => {});
+                      }}
+                      className="w-8 h-8 flex items-center justify-center text-[#555] hover:text-[#C5A059] hover:bg-[#C5A059]/10 border border-[#2a2a2a] hover:border-[#C5A059]/40 transition-all text-xs"
+                      title="إغلاق الغرفة (بدون حذف)"
+                    >
+                      🔒
+                    </button>
+                    {/* زر حذف الغرفة نهائياً */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!confirm(`⚠️ هل تريد حذف الغرفة "${game.gameName}" نهائياً؟`)) return;
                         emit('room:delete-room', { roomId: game.roomId }).then((res: any) => {
                           if (res?.success) fetchActiveGames();
                         }).catch(() => {});
                       }}
                       className="w-8 h-8 flex items-center justify-center text-[#555] hover:text-[#ff0000] hover:bg-[#ff0000]/10 border border-[#2a2a2a] hover:border-[#ff0000]/40 transition-all text-xs"
-                      title="حذف الغرفة"
+                      title="حذف الغرفة نهائياً"
                     >
                       🗑️
                     </button>

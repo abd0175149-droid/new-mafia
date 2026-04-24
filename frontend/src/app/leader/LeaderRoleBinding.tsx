@@ -364,7 +364,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
 }
 
 // ══════════════════════════════════════════════════════
-// صف الدور — أيقونة + اسم + DDL
+// صف الدور — أيقونة + اسم + DDL (يظهر فقط غير المرتبطين)
 // ══════════════════════════════════════════════════════
 function RoleRow({
   slot,
@@ -383,6 +383,11 @@ function RoleRow({
   const assignedPlayer = isAssigned
     ? players.find((p: any) => p.physicalId === slot.assignedPlayerId)
     : null;
+
+  // فلترة: فقط اللاعبين غير المرتبطين بأي دور
+  const availablePlayers = players.filter(
+    (p: any) => !assignedPlayerIds.has(p.physicalId)
+  );
 
   return (
     <motion.div
@@ -417,43 +422,52 @@ function RoleRow({
         </span>
       </div>
 
-      {/* DDL اختيار اللاعب */}
-      <div className="shrink-0 w-[180px]">
-        <select
-          value={slot.assignedPlayerId ?? ''}
-          onChange={(e) => {
-            const val = e.target.value;
-            onAssign(val === '' ? null : Number(val));
-          }}
-          className={`w-full px-3 py-2.5 rounded-lg border font-mono text-sm text-right appearance-none cursor-pointer transition-all focus:outline-none focus:border-[#C5A059] ${
-            isAssigned
-              ? isMafia
+      {/* DDL اختيار اللاعب + زر إلغاء الربط */}
+      <div className="shrink-0 flex items-center gap-2">
+        {isAssigned ? (
+          <>
+            {/* عرض اسم اللاعب المرتبط */}
+            <div className={`px-3 py-2.5 rounded-lg border font-mono text-sm text-right ${
+              isMafia
                 ? 'bg-[#1a0808] border-[#8A0303]/50 text-white'
                 : 'bg-[#0a0a0a] border-[#C5A059]/40 text-white'
-              : 'bg-[#050505] border-[#2a2a2a] text-[#555]'
-          }`}
-          dir="rtl"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23808080' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-            backgroundRepeat: 'no-repeat',
-            backgroundPosition: 'left 10px center',
-            paddingLeft: '30px',
-          }}
-        >
-          <option value="">— اختر لاعب —</option>
-          {players.map((p: any) => {
-            const isTaken = assignedPlayerIds.has(p.physicalId) && p.physicalId !== slot.assignedPlayerId;
-            return (
-              <option
-                key={p.physicalId}
-                value={p.physicalId}
-                disabled={isTaken}
-              >
-                #{p.physicalId} — {p.name} {isTaken ? '(مربوط)' : ''}
+            }`} style={{ minWidth: '140px' }}>
+              #{slot.assignedPlayerId} — {assignedPlayer?.name || '...'}
+            </div>
+            {/* زر إلغاء الربط */}
+            <button
+              onClick={() => onAssign(null)}
+              className="w-8 h-8 flex items-center justify-center text-[#555] hover:text-[#ff4444] hover:bg-[#ff0000]/10 border border-[#2a2a2a] hover:border-[#ff4444]/40 rounded-lg transition-all text-xs shrink-0"
+              title="إلغاء الربط"
+            >
+              ✕
+            </button>
+          </>
+        ) : (
+          /* DDL — يظهر فقط اللاعبين غير المرتبطين */
+          <select
+            value=""
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) onAssign(Number(val));
+            }}
+            className="w-[180px] px-3 py-2.5 rounded-lg border font-mono text-sm text-right appearance-none cursor-pointer transition-all focus:outline-none focus:border-[#C5A059] bg-[#050505] border-[#2a2a2a] text-[#555]"
+            dir="rtl"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23808080' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'left 10px center',
+              paddingLeft: '30px',
+            }}
+          >
+            <option value="">— اختر لاعب —</option>
+            {availablePlayers.map((p: any) => (
+              <option key={p.physicalId} value={p.physicalId}>
+                #{p.physicalId} — {p.name}
               </option>
-            );
-          })}
-        </select>
+            ))}
+          </select>
+        )}
       </div>
     </motion.div>
   );

@@ -573,6 +573,11 @@ export default function DisplayPage() {
           </motion.div>
         )}
 
+        {/* Spacer — يدفع المحتوى تحت الناف بار الثابت */}
+        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0) && (
+          <div className="w-full h-16 shrink-0" />
+        )}
+
         <AnimatePresence mode="wait">
 
           {/* ══════════════════════════════════════════ */}
@@ -882,7 +887,7 @@ export default function DisplayPage() {
 
         {/* ═══ الليل ═══ */}
         {step === 'lobby' && phase === Phase.NIGHT && (
-          <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center relative z-10 w-full pt-16">
+          <motion.div key="night" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center relative z-10 w-full">
             <motion.div className="text-9xl mb-8 grayscale opacity-50" animate={{ opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 4, repeat: Infinity }}>🌑</motion.div>
             <h2 className="text-6xl font-black text-white mb-4 tracking-widest uppercase" style={{ fontFamily: 'Amiri, serif' }}>الظلام دامس</h2>
             <p className="text-[#808080] text-xl font-mono tracking-[0.3em]">OPERATION NIGHTFALL</p>

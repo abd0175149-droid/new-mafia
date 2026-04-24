@@ -71,6 +71,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [playerToken, setPlayerToken] = useState<string | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
+  const [roleAlert, setRoleAlert] = useState(false);
 
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
@@ -296,7 +297,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupRole = on('player:role-assigned', (data: { role: string }) => {
       setAssignedRole(data.role);
       setCardFlipped(false);
-      if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+      setRoleAlert(true); // ← تنبيه جلونج
+      if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
     const cleanup = on('game:started', () => {
@@ -400,7 +402,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           if (res.player.role && !assignedRole) {
             setAssignedRole(res.player.role);
             setCardFlipped(false);
-            if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+            setRoleAlert(true); // ← تنبيه جلونج
+            if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
           }
           // تحديث حالة الحياة
           if (!res.player.isAlive && !isPlayerDead) {
@@ -1174,7 +1177,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       playerName={displayName}
                       role={assignedRole}
                       isFlipped={cardFlipped}
-                      onFlip={() => setCardFlipped(prev => !prev)}
+                      onFlip={() => { setCardFlipped(prev => !prev); setRoleAlert(false); }}
                       gender={gender === 'female' ? 'FEMALE' : 'MALE'}
                       showVoting={false}
                       flippable={true}
@@ -1282,7 +1285,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       playerName={displayName}
                       role={assignedRole}
                       isFlipped={cardFlipped}
-                      onFlip={() => setCardFlipped(prev => !prev)}
+                      onFlip={() => { setCardFlipped(prev => !prev); setRoleAlert(false); }}
                       gender={gender === 'female' ? 'FEMALE' : 'MALE'}
                       showVoting={false}
                       flippable={true}
@@ -1370,6 +1373,64 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {seatChangeAlert}
         </motion.div>
       )}
+
+      {/* ── تنبيه جلونج — اقلب الكارد لمعرفة دورك ── */}
+      <AnimatePresence>
+        {roleAlert && !cardFlipped && assignedRole && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 30 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 30 }}
+            transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+            className="fixed bottom-6 left-4 right-4 z-[200] flex flex-col items-center"
+          >
+            <motion.div
+              animate={{
+                boxShadow: [
+                  '0 0 15px rgba(197,160,89,0.4), 0 0 30px rgba(197,160,89,0.2)',
+                  '0 0 25px rgba(197,160,89,0.7), 0 0 50px rgba(197,160,89,0.35)',
+                  '0 0 15px rgba(197,160,89,0.4), 0 0 30px rgba(197,160,89,0.2)',
+                ],
+              }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+              onClick={() => setRoleAlert(false)}
+              className="w-full max-w-md rounded-2xl border-2 border-[#C5A059] bg-gradient-to-b from-[#1a1508] to-[#0d0a02] p-5 cursor-pointer"
+              style={{ backdropFilter: 'blur(20px)' }}
+            >
+              {/* الأيقونة المتحركة */}
+              <motion.div
+                className="text-4xl text-center mb-2"
+                animate={{ rotateY: [0, 180, 360] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                🎴
+              </motion.div>
+
+              {/* النص الرئيسي */}
+              <h3
+                className="text-[#C5A059] text-xl font-black text-center mb-1"
+                style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(197,160,89,0.5)' }}
+              >
+                تم تعيين دورك!
+              </h3>
+              <p className="text-[#C5A059]/80 text-sm text-center font-bold" style={{ fontFamily: 'Amiri, serif' }}>
+                اقلب البطاقة لمعرفة هويتك السرية
+              </p>
+
+              {/* شريط متحرك */}
+              <motion.div
+                className="mt-3 h-[2px] bg-gradient-to-r from-transparent via-[#C5A059] to-transparent rounded-full"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              />
+
+              <p className="text-[#555] text-[8px] font-mono uppercase tracking-[0.2em] text-center mt-2">
+                TAP CARD TO REVEAL · TAP HERE TO DISMISS
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
