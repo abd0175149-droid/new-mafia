@@ -200,19 +200,22 @@ export default function DisplayPage() {
     socket.emit('display:join-room', { roomId: currentRoomId });
 
     // ── دالة مساعدة: مزامنة الحالة من الكائن ──
-    const syncStateFromData = (state: any) => {
+    const syncStateFromData = (state: any, phaseOverride?: string) => {
       if (!state) return;
       if (state.players) {
+        const effectivePhase = phaseOverride || state.phase;
         setPlayers(state.players.map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
           isAlive: p.isAlive,
           gender: p.gender,
-          role: state.phase === 'LOBBY' ? null : (p.role || null),
+          role: effectivePhase === 'LOBBY' ? null : (p.role || null),
         })));
         setPlayerCount(state.players.filter((p: any) => p.isAlive !== false).length);
       }
-      if (state.phase) setPhase(state.phase);
+      // phaseOverride يتجاوز phase القديم في state
+      if (phaseOverride) setPhase(phaseOverride);
+      else if (state.phase) setPhase(state.phase);
       if (state.teamCounts) setTeamCounts(state.teamCounts);
       if (state.winner) setWinner(state.winner);
     };
@@ -289,7 +292,7 @@ export default function DisplayPage() {
 
       // ✅ أولاً: استخدام الحالة المرفقة مع الحدث (أسرع + أوثق)
       if (data.state?.players) {
-        syncStateFromData(data.state);
+        syncStateFromData(data.state, data.phase);
         return;
       }
 

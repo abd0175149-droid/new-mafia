@@ -958,9 +958,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       state.round = 1;
       const matchId = await createMatch(state);
       if (matchId) state.matchId = matchId;
-      await setGameState(data.roomId, state);
 
+      // ── تغيير المرحلة قبل الحفظ والبث ──
+      state.phase = Phase.DAY_DISCUSSION;
+      await setGameState(data.roomId, state);
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
+
       io.to(data.roomId).emit('game:phase-changed', {
         phase: Phase.DAY_DISCUSSION,
         state,

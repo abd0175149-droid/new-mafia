@@ -275,7 +275,8 @@ export default function LeaderPage() {
 
       // ✅ أولاً: استخدام الحالة المرفقة مع الحدث (أسرع)
       if (data.state) {
-        setGameState(prev => prev ? { ...prev, ...data.state } : data.state);
+        // الأولوية لـ data.phase على data.state.phase (حماية من phase قديم)
+        setGameState(prev => prev ? { ...prev, ...data.state, phase: data.phase } : { ...data.state, phase: data.phase });
         return;
       }
 
