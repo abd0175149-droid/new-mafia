@@ -196,15 +196,61 @@ export default function DisplayPage() {
     const socket = socketRef.current;
     if (!socket) return;
 
-    // الانضمام لغرفة السوكت
+    // ── الانضمام لغرفة السوكت ──
     socket.emit('display:join-room', { roomId: currentRoomId });
 
+    // ── دالة مساعدة: مزامنة الحالة من الكائن ──
+    const syncStateFromData = (state: any) => {
+      if (!state) return;
+      if (state.players) {
+        setPlayers(state.players.map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          isAlive: p.isAlive,
+          gender: p.gender,
+          role: state.phase === 'LOBBY' ? null : (p.role || null),
+        })));
+        setPlayerCount(state.players.filter((p: any) => p.isAlive !== false).length);
+      }
+      if (state.phase) setPhase(state.phase);
+      if (state.teamCounts) setTeamCounts(state.teamCounts);
+      if (state.winner) setWinner(state.winner);
+    };
+
+    // ══════════════════════════════════════════════════
+    // 🔄 RECONNECT HANDLER — إعادة الانضمام عند قطع الاتصال
+    // هذا الإصلاح الأهم: عند reconnect الـ socket يخرج من الغرفة
+    // بدون هذا → شاشة العرض تتجمد نهائياً بعد أي قطع مؤقت
+    // ══════════════════════════════════════════════════
+    const onReconnect = () => {
+      console.log('🔄 Display: Socket reconnected — re-joining room...');
+      socket.emit('display:join-room', { roomId: currentRoomId }, (res: any) => {
+        if (res?.state) {
+          console.log('✅ Display: Re-synced state after reconnect');
+          syncStateFromData(res.state);
+        }
+      });
+    };
+    socket.on('connect', onReconnect);
+
+    // ══════════════════════════════════════════════════
+    // 📡 STATE-SYNC — يستقبل الحالة الكاملة عند أي تغيير (renumber, etc.)
+    // ══════════════════════════════════════════════════
+    const onStateSync = (state: any) => {
+      if (!state || !state.players) return;
+      console.log('📡 Display: game:state-sync received');
+      syncStateFromData(state);
+    };
+    socket.on('game:state-sync', onStateSync);
+
+    // ══════════════════════════════════════════════════
+    // الأحداث الأساسية
+    // ══════════════════════════════════════════════════
     const onPlayerJoined = (data: any) => {
       setPlayerCount(data.totalPlayers);
       setPlayers(prev => {
         const existingIdx = prev.findIndex(p => p.physicalId === data.physicalId);
         if (existingIdx >= 0) {
-          // تحديث بيانات اللاعب الموجود (الاسم، الجنس)
           const updated = [...prev];
           updated[existingIdx] = {
             ...updated[existingIdx],
@@ -227,36 +273,30 @@ export default function DisplayPage() {
       setPlayers(prev => prev.filter(p => p.physicalId !== data.physicalId));
     };
 
+    // ── تغيير المرحلة: يستخدم الحالة من الحدث أولاً + fallback لـ REST ──
     const onPhaseChanged = async (data: any) => {
       setPhase(data.phase);
-      // تنظيف أي أنيميشن متبقية من المرحلة السابقة
+      // تنظيف animations
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(null);
-      // عند العودة للوبي (إعادة تشغيل) → مسح الفائز
-      if (data.phase === Phase.LOBBY) {
-        setWinner(null);
+      if (data.phase === Phase.LOBBY) setWinner(null);
+
+      // ✅ أولاً: استخدام الحالة المرفقة مع الحدث (أسرع + أوثق)
+      if (data.state?.players) {
+        syncStateFromData(data.state);
+        return;
       }
-      // تحديث بيانات اللاعبين عند تغير المرحلة
+
+      // ❌ Fallback: جلب من REST (فقط لو ما جاء state مع الحدث)
       try {
         const res = await fetch(`/api/game/state/${currentRoomId}`);
         const d = await res.json();
-        if (d.success && d.state?.players) {
-          setPlayers(prev => {
-            return d.state.players.map((p: any) => ({
-              physicalId: p.physicalId,
-              name: p.name,
-              isAlive: p.isAlive,
-              gender: p.gender,
-              // عند العودة لـ LOBBY: مسح الأدوار القديمة (reset)
-              role: d.state.phase === 'LOBBY' ? null : (prev.find((pp: any) => pp.physicalId === p.physicalId)?.role || p.role),
-            }));
-          });
+        if (d.success && d.state) {
+          syncStateFromData(d.state);
         }
-        // تحديث أعداد الفرق (من الباك إند مباشرة)
-        if (d.state?.teamCounts) {
-          setTeamCounts(d.state.teamCounts);
-        }
-      } catch (_) {}
+      } catch (err) {
+        console.warn('⚠️ Display: Failed to fetch state after phase change:', err);
+      }
     };
 
     const onNightAnimation = (data: any) => {
@@ -268,17 +308,12 @@ export default function DisplayPage() {
     const onGameOver = (data: any) => {
       setWinner(data.winner);
       setPhase(Phase.GAME_OVER);
-      // تحديث بيانات اللاعبين (تحتوي على الأدوار المكشوفة)
-      if (data.players) {
-        setPlayers(data.players);
-      }
-      // تشغيل المؤثر الصوتي
+      if (data.players) setPlayers(data.players);
       playWinSound(data.winner === 'MAFIA');
     };
 
     const onPlayerUpdated = (data: any) => {
       setPlayerCount(data.totalPlayers);
-      // تحديث اسم/رقم اللاعب في حالة التعديل من الليدر
       if (data.physicalId && data.name) {
         const lookupId = data.oldPhysicalId || data.physicalId;
         setPlayers(prev => prev.map(p =>
@@ -292,12 +327,11 @@ export default function DisplayPage() {
     const onMorningEvent = (data: any) => {
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(data);
-      // أحداث الصباح تبقى 10 ثوانٍ على الشاشة
       animTimerRef.current = setTimeout(() => setAnimation(null), 10000);
     };
 
     const onNightStarted = () => {
-      setAnimation(null); // تنظيف أي أنيميشن سابقة
+      setAnimation(null);
     };
 
     const onConfigUpdated = (data: any) => {
@@ -311,6 +345,7 @@ export default function DisplayPage() {
       setPlayerCount(prev => Math.max(0, prev - 1));
     };
 
+    // ── تسجيل كل الأحداث ──
     socket.on('room:player-joined', onPlayerJoined);
     socket.on('room:player-kicked', onPlayerKicked);
     socket.on('room:player-updated', onPlayerUpdated);
@@ -326,21 +361,15 @@ export default function DisplayPage() {
     });
 
     // إعادة عرض نتيجة لعبة سابقة
-    const onReplayResult = (data: any) => {
-      setReplayData(data);
-    };
-    const onReplayHidden = () => {
-      setReplayData(null);
-    };
+    const onReplayResult = (data: any) => { setReplayData(data); };
+    const onReplayHidden = () => { setReplayData(null); };
     socket.on('display:replay-result', onReplayResult);
     socket.on('display:replay-hidden', onReplayHidden);
 
     // ── كشف دور اللاعب المُقصى إدارياً ──
     const onShowReveal = (data: any) => {
-      // إلغاء أي timer سابق
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
       setAdminReveal(data);
-      // إخفاء تلقائي بعد 30 ثانية
       adminRevealTimerRef.current = setTimeout(() => setAdminReveal(null), 30000);
     };
     const onHideReveal = () => {
@@ -350,7 +379,10 @@ export default function DisplayPage() {
     socket.on('admin:show-reveal', onShowReveal);
     socket.on('admin:hide-reveal', onHideReveal);
 
+    // ── تنظيف ──
     return () => {
+      socket.off('connect', onReconnect);
+      socket.off('game:state-sync', onStateSync);
       socket.off('room:player-joined', onPlayerJoined);
       socket.off('room:player-kicked', onPlayerKicked);
       socket.off('room:player-updated', onPlayerUpdated);

@@ -233,10 +233,30 @@ export default function LeaderPage() {
     if (!gameState?.roomId) return;
 
     // إعادة المصادقة كـ ليدر في حال انقطع الاتصال وعاد (Cloudflare / Network Drops)
-    const offConnect = on('connect', () => {
+    const offConnect = on('connect', async () => {
       console.log('🔄 Socket Reconnected! Automatically re-joining as leader for room:', gameState.roomId);
-      const socketPayload = { roomId: gameState.roomId };
-      emit('room:rejoin-leader', socketPayload);
+      emit('room:rejoin-leader', { roomId: gameState.roomId });
+      // جلب الحالة الكاملة بعد إعادة الاتصال
+      try {
+        const res = await fetch(`/api/leader/state/${gameState.roomId}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` }
+        });
+        const resData = await res.json();
+        if (resData.success) {
+          setGameState(prev => prev ? { ...prev, ...resData.state } : resData.state);
+        }
+      } catch {}
+    });
+
+    // ── STATE-SYNC: تحديث فوري للحالة (renumber, etc.) ──
+    const offStateSync = on('game:state-sync', (state: any) => {
+      if (!state?.players) return;
+      console.log('📡 Leader: game:state-sync received');
+      setGameState(prev => prev ? {
+        ...prev,
+        players: state.players,
+        phase: state.phase || prev.phase,
+      } : prev);
     });
 
     // Phase changed
@@ -246,7 +266,6 @@ export default function LeaderPage() {
         setGameState(prev => prev ? {
           ...prev,
           phase: data.phase,
-          // تنظيف بيانات النهار القديمة عند دخول الليل
           justificationData: undefined,
           pendingResolution: undefined,
           revealedData: undefined,
@@ -254,7 +273,13 @@ export default function LeaderPage() {
         return;
       }
 
-      // باقي المراحل: جلب State كامل من API
+      // ✅ أولاً: استخدام الحالة المرفقة مع الحدث (أسرع)
+      if (data.state) {
+        setGameState(prev => prev ? { ...prev, ...data.state } : data.state);
+        return;
+      }
+
+      // Fallback: جلب من REST
       try {
         const res = await fetch(`/api/leader/state/${gameState.roomId}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` }
@@ -521,6 +546,7 @@ export default function LeaderPage() {
 
     return () => {
       offConnect();
+      offStateSync();
       offPlayerJoined();
       offPhaseChanged();
       offPlayerKicked();

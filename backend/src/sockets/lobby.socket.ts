@@ -978,12 +978,22 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── شاشة العرض تنضم للغرفة (بعد التحقق من PIN عبر REST) ──
-  socket.on('display:join-room', (data: { roomId: string }) => {
+  socket.on('display:join-room', async (data: { roomId: string }, callback?: any) => {
     if (data.roomId) {
       socket.join(data.roomId);
       socket.data.role = 'display';
       socket.data.roomId = data.roomId;
       console.log(`📺 Display joined room: ${data.roomId}`);
+
+      // إرجاع الحالة الحالية للعرض الفوري
+      if (typeof callback === 'function') {
+        try {
+          const state = await getRoom(data.roomId);
+          callback({ success: true, state });
+        } catch {
+          callback({ success: true });
+        }
+      }
     }
   });
 

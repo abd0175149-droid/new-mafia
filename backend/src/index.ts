@@ -46,8 +46,8 @@ const io = new Server(server, {
     origin: env.FRONTEND_URL ? env.FRONTEND_URL.split(',') : '*',
     methods: ['GET', 'POST'],
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  pingTimeout: 15000,   // 15 ثانية (كان 60) — اكتشاف أسرع للانقطاع
+  pingInterval: 10000,  // 10 ثوانٍ (كان 25) — فحص حياة الاتصال أكثر تواتراً
 });
 
 // ── Middleware ───────────────────────────────────────

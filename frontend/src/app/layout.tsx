@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   keywords: ['mafia', 'game', 'phygital', 'مافيا', 'لعبة'],
 };
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

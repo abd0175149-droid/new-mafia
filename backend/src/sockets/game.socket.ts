@@ -42,8 +42,12 @@ export function registerGameEvents(io: Server, socket: Socket) {
 
       await setPhase(data.roomId, data.targetPhase);
 
+      // جلب الحالة الكاملة لبثها مع الحدث
+      const state = await getRoom(data.roomId);
+
       io.to(data.roomId).emit('game:phase-changed', {
         phase: data.targetPhase,
+        state: state || undefined,
       });
 
       callback({ success: true });
