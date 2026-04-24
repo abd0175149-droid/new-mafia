@@ -233,6 +233,27 @@ router.put('/:id/profile', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
     }
 
+    // ── تحديث الاسم في الغرف النشطة (Redis) ──
+    if (updates.name) {
+      try {
+        const { getAllGameStates, setGameState } = await import('../config/redis.js');
+        const allStates = await getAllGameStates();
+        for (const state of allStates) {
+          if (!state || state.phase === 'GAME_OVER') continue;
+          const player = state.players?.find((p: any) =>
+            p.playerId === playerId || p.phone === result[0].phone
+          );
+          if (player) {
+            player.name = updates.name;
+            await setGameState(state.roomId, state);
+            console.log(`🔄 Updated player name in Redis room ${state.roomId}: ${updates.name}`);
+          }
+        }
+      } catch (err: any) {
+        console.warn('⚠️ Failed to sync name to Redis:', err.message);
+      }
+    }
+
     console.log(`✏️ Player #${playerId} profile updated:`, updates);
     return res.json({ success: true, player: result[0] });
   } catch (err: any) {

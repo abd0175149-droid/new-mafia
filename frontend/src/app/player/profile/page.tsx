@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 
@@ -34,6 +34,34 @@ interface PlayerProfile {
   } | null;
 }
 
+// ── تقليص الصورة قبل الرفع (400x400 كحد أقصى) ──
+function resizeImage(file: File, maxSize = 400): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width;
+        let h = img.height;
+        if (w > maxSize || h > maxSize) {
+          if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+          else { w = Math.round(w * maxSize / h); h = maxSize; }
+        }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('فشل في قراءة الصورة'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('فشل في قراءة الملف'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function PlayerProfilePage() {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +72,7 @@ export default function PlayerProfilePage() {
   // تعديل الاسم
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // تعديل الإيميل
   const [editingEmail, setEditingEmail] = useState(false);
@@ -51,6 +80,12 @@ export default function PlayerProfilePage() {
 
   // رفع الصورة
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // جلب التوكن للتحقق
+  const getAuthHeaders = useCallback(() => {
+    const token = localStorage.getItem('mafia_player_token');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  }, []);
 
   useEffect(() => {
     const playerId = localStorage.getItem('mafia_playerId');
@@ -60,7 +95,9 @@ export default function PlayerProfilePage() {
       return;
     }
 
-    fetch(`/api/player/${playerId}/profile`)
+    fetch(`/api/player/${playerId}/profile`, {
+      headers: getAuthHeaders(),
+    })
       .then(r => r.json())
       .then(data => {
         if (data.success) {
@@ -73,87 +110,123 @@ export default function PlayerProfilePage() {
       })
       .catch(() => setError('خطأ في الاتصال'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [getAuthHeaders]);
 
-  // ── حفظ الاسم ──
-  const handleSaveName = async () => {
-    if (!profile || !nameInput.trim() || nameInput.trim() === profile.player.name) {
+  // ── حفظ الاسم (يُنفذ عند onBlur أو Enter) ──
+  const handleSaveName = useCallback(async () => {
+    if (!profile) return;
+    const trimmed = nameInput.trim();
+
+    // إذا ما تغيّر → أغلق بدون حفظ
+    if (!trimmed || trimmed === profile.player.name) {
       setEditingName(false);
+      setNameInput(profile.player.name);
       return;
     }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/player/${profile.player.id}/profile`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameInput.trim() }),
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ name: trimmed }),
       });
       const data = await res.json();
       if (data.success) {
-        setProfile(prev => prev ? { ...prev, player: { ...prev.player, name: nameInput.trim() } } : prev);
+        setProfile(prev => prev ? { ...prev, player: { ...prev.player, name: trimmed } } : prev);
         setSaveMsg('✓ تم حفظ الاسم');
         setTimeout(() => setSaveMsg(''), 2000);
+      } else {
+        setSaveMsg(data.error || 'خطأ في الحفظ');
+        setNameInput(profile.player.name);
+        setTimeout(() => setSaveMsg(''), 3000);
       }
-    } catch { setSaveMsg('خطأ في الحفظ'); }
+    } catch {
+      setSaveMsg('خطأ في الاتصال');
+      setNameInput(profile.player.name);
+      setTimeout(() => setSaveMsg(''), 3000);
+    }
     setSaving(false);
     setEditingName(false);
-  };
+  }, [profile, nameInput, getAuthHeaders]);
 
-  // ── حفظ الإيميل ──
-  const handleSaveEmail = async () => {
+  // ── حفظ الإيميل (يُنفذ عند onBlur أو Enter) ──
+  const handleSaveEmail = useCallback(async () => {
     if (!profile) return;
+    const trimmed = emailInput.trim();
+
+    // إذا ما تغيّر → أغلق بدون حفظ
+    if (trimmed === (profile.player.email || '')) {
+      setEditingEmail(false);
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/player/${profile.player.id}/profile`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailInput.trim() || null }),
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ email: trimmed || null }),
       });
       const data = await res.json();
       if (data.success) {
-        setProfile(prev => prev ? { ...prev, player: { ...prev.player, email: emailInput.trim() || undefined } } : prev);
+        setProfile(prev => prev ? { ...prev, player: { ...prev.player, email: trimmed || undefined } } : prev);
         setSaveMsg('✓ تم حفظ الإيميل');
         setTimeout(() => setSaveMsg(''), 2000);
+      } else {
+        setSaveMsg(data.error || 'خطأ في الحفظ');
+        setEmailInput(profile.player.email || '');
+        setTimeout(() => setSaveMsg(''), 3000);
       }
-    } catch { setSaveMsg('خطأ في الحفظ'); }
+    } catch {
+      setSaveMsg('خطأ في الاتصال');
+      setEmailInput(profile.player.email || '');
+      setTimeout(() => setSaveMsg(''), 3000);
+    }
     setSaving(false);
     setEditingEmail(false);
-  };
+  }, [profile, emailInput, getAuthHeaders]);
 
-  // ── رفع الصورة ──
+  // ── رفع الصورة (مع تقليص تلقائي) ──
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !profile) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      setSaveMsg('الصورة كبيرة جداً (حد أقصى 5MB)');
+    if (file.size > 10 * 1024 * 1024) {
+      setSaveMsg('الصورة كبيرة جداً (حد أقصى 10MB)');
       setTimeout(() => setSaveMsg(''), 3000);
       return;
     }
 
     setSaving(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64 = reader.result as string;
-        const res = await fetch(`/api/player/${profile.player.id}/avatar`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64 }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          setProfile(prev => prev ? {
-            ...prev,
-            player: { ...prev.player, avatarUrl: data.avatarUrl + '?t=' + Date.now() },
-          } : prev);
-          setSaveMsg('✓ تم تحديث الصورة');
-          setTimeout(() => setSaveMsg(''), 2000);
-        }
-      } catch { setSaveMsg('خطأ في رفع الصورة'); }
-      setSaving(false);
-    };
-    reader.readAsDataURL(file);
+    try {
+      // تقليص الصورة إلى 400x400 كحد أقصى
+      const resizedBase64 = await resizeImage(file, 400);
+
+      const res = await fetch(`/api/player/${profile.player.id}/avatar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ image: resizedBase64 }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setProfile(prev => prev ? {
+          ...prev,
+          player: { ...prev.player, avatarUrl: data.avatarUrl + '?t=' + Date.now() },
+        } : prev);
+        setSaveMsg('✓ تم تحديث الصورة');
+        setTimeout(() => setSaveMsg(''), 2000);
+      } else {
+        setSaveMsg(data.error || 'خطأ في رفع الصورة');
+        setTimeout(() => setSaveMsg(''), 3000);
+      }
+    } catch {
+      setSaveMsg('خطأ في رفع الصورة');
+      setTimeout(() => setSaveMsg(''), 3000);
+    }
+    setSaving(false);
+    // مسح قيمة الـ input عشان يقدر يختار نفس الصورة مرة ثانية
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   if (loading) {
@@ -205,6 +278,13 @@ export default function PlayerProfilePage() {
               ) : (
                 player.gender === 'FEMALE' ? '👩' : '👤'
               )}
+              {saving && (
+                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
+                    ⏳
+                  </motion.div>
+                </div>
+              )}
             </motion.div>
             {/* أيقونة الكاميرا */}
             <button
@@ -216,34 +296,34 @@ export default function PlayerProfilePage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               onChange={handleAvatarUpload}
               className="hidden"
             />
           </div>
 
-          {/* الاسم — قابل للتعديل */}
-          <div className="flex items-center justify-center gap-2 mb-1">
+          {/* الاسم — حفظ تلقائي عند blur */}
+          <div className="flex items-center justify-center gap-2 mb-1 min-h-[44px]">
             {editingName ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={nameInput}
-                  onChange={e => setNameInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSaveName()}
-                  autoFocus
-                  className="bg-[#111] border border-[#C5A059]/40 text-[#C5A059] text-2xl font-black text-center px-4 py-1 rounded-lg focus:outline-none focus:border-[#C5A059] w-56"
-                  maxLength={30}
-                />
-                <button onClick={handleSaveName} disabled={saving}
-                  className="text-green-400 text-xl hover:text-green-300 transition">✓</button>
-                <button onClick={() => { setEditingName(false); setNameInput(player.name); }}
-                  className="text-red-400 text-xl hover:text-red-300 transition">✕</button>
-              </div>
+              <input
+                ref={nameInputRef}
+                type="text"
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); handleSaveName(); }
+                  if (e.key === 'Escape') { setEditingName(false); setNameInput(player.name); }
+                }}
+                onBlur={handleSaveName}
+                autoFocus
+                disabled={saving}
+                className="bg-[#111] border border-[#C5A059]/40 text-[#C5A059] text-2xl font-black text-center px-4 py-1 rounded-lg focus:outline-none focus:border-[#C5A059] w-56 disabled:opacity-50"
+                maxLength={30}
+              />
             ) : (
               <>
                 <h1 className="text-3xl font-black text-[#C5A059]">{player.name}</h1>
-                <button onClick={() => setEditingName(true)}
+                <button onClick={() => { setEditingName(true); setNameInput(player.name); }}
                   className="text-[#555] hover:text-[#C5A059] transition text-lg">✏️</button>
               </>
             )}
@@ -254,26 +334,25 @@ export default function PlayerProfilePage() {
             {player.phone}
           </p>
 
-          {/* الإيميل */}
-          <div className="flex items-center justify-center gap-2 mb-1">
+          {/* الإيميل — حفظ تلقائي عند blur */}
+          <div className="flex items-center justify-center gap-2 mb-1 min-h-[28px]">
             {editingEmail ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="email"
-                  value={emailInput}
-                  onChange={e => setEmailInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSaveEmail()}
-                  placeholder="البريد الإلكتروني..."
-                  autoFocus
-                  className="bg-[#111] border border-[#C5A059]/40 text-[#C5A059] text-xs text-center px-3 py-1 rounded-lg focus:outline-none focus:border-[#C5A059] w-56 font-mono"
-                />
-                <button onClick={handleSaveEmail} disabled={saving}
-                  className="text-green-400 text-sm hover:text-green-300 transition">✓</button>
-                <button onClick={() => { setEditingEmail(false); setEmailInput(player.email || ''); }}
-                  className="text-red-400 text-sm hover:text-red-300 transition">✕</button>
-              </div>
+              <input
+                type="email"
+                value={emailInput}
+                onChange={e => setEmailInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); handleSaveEmail(); }
+                  if (e.key === 'Escape') { setEditingEmail(false); setEmailInput(player.email || ''); }
+                }}
+                onBlur={handleSaveEmail}
+                placeholder="البريد الإلكتروني..."
+                autoFocus
+                disabled={saving}
+                className="bg-[#111] border border-[#C5A059]/40 text-[#C5A059] text-xs text-center px-3 py-1 rounded-lg focus:outline-none focus:border-[#C5A059] w-56 font-mono disabled:opacity-50"
+              />
             ) : (
-              <button onClick={() => setEditingEmail(true)}
+              <button onClick={() => { setEditingEmail(true); setEmailInput(player.email || ''); }}
                 className="text-[#555] text-[10px] font-mono tracking-widest hover:text-[#C5A059] transition flex items-center gap-1">
                 {player.email ? (
                   <><span>📧 {player.email}</span><span className="text-[8px]">✏️</span></>
@@ -293,7 +372,7 @@ export default function PlayerProfilePage() {
             {saveMsg && (
               <motion.p
                 initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className={`text-xs mt-2 font-mono ${saveMsg.includes('خطأ') ? 'text-red-400' : 'text-green-400'}`}
+                className={`text-xs mt-2 font-mono ${saveMsg.includes('خطأ') || saveMsg.includes('كبيرة') ? 'text-red-400' : 'text-green-400'}`}
               >
                 {saveMsg}
               </motion.p>
