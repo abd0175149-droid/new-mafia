@@ -82,9 +82,10 @@ export default function PlayerProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // جلب التوكن للتحقق
-  const getAuthHeaders = useCallback(() => {
+  const getAuthHeaders = useCallback((): Record<string, string> => {
     const token = localStorage.getItem('mafia_player_token');
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
+    if (token) return { 'Authorization': `Bearer ${token}` };
+    return {};
   }, []);
 
   useEffect(() => {
