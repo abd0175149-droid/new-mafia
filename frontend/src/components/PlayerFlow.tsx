@@ -257,8 +257,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     // استقبال الدور من الليدر (عند تأكيد الأدوار)
     const cleanupRole = on('player:role-assigned', (data: { role: string }) => {
       setAssignedRole(data.role);
-      setCardFlipped(false); // يبدأ الكارد مقلوب (سري)
-      // اهتزاز للتنبيه
+      setCardFlipped(false);
       if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
     });
 
@@ -266,11 +265,62 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (navigator.vibrate) navigator.vibrate(200);
     });
 
+    // ── الحل الجذري: مزامنة بناءً على playerId ──
+    // كل ما يتغير الـ state بالسيرفر (renumber, kick, etc.)
+    // نبحث عن اللاعب بالـ playerId أو الهاتف ونحدّث physicalId + role + alive
+    const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
+    const cleanupSync = on('game:state-sync', (state: any) => {
+      if (!state || !state.players) return;
+
+      // البحث بـ playerId أولاً (الطريقة الموثوقة)
+      let me = playerId
+        ? state.players.find((p: any) => p.playerId === playerId)
+        : null;
+
+      // fallback: البحث بالهاتف
+      if (!me && normalizedPhone) {
+        me = state.players.find((p: any) => p.phone === normalizedPhone);
+      }
+
+      if (me) {
+        // تحديث الرقم إذا تغيّر
+        if (String(me.physicalId) !== physicalId) {
+          const oldId = physicalId;
+          setPhysicalId(String(me.physicalId));
+          // تحديث الكاش
+          const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
+          saved.physicalId = me.physicalId;
+          localStorage.setItem('mafia_session', JSON.stringify(saved));
+          // تنبيه بصري
+          if (oldId && oldId !== '0') {
+            setSeatChangeAlert(`تم تغيير رقمك: ${oldId} ← ${me.physicalId}`);
+            setTimeout(() => setSeatChangeAlert(null), 5000);
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          }
+        }
+
+        // تحديث الاسم إذا تغيّر
+        if (me.name && me.name !== displayName) {
+          setDisplayName(me.name);
+        }
+
+        // تحديث حالة الحياة
+        if (!me.isAlive && !isPlayerDead) {
+          setIsPlayerDead(true);
+          setCardFlipped(true);
+        }
+      } else {
+        // اللاعب مش موجود بالـ state → ممكن اتطرد
+        // بس ما نمسح الجلسة هون عشان ممكن يكون state-sync لغرفة ثانية
+      }
+    });
+
     return () => {
       cleanupRole();
       cleanup();
+      cleanupSync();
     };
-  }, [step, on]);
+  }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead]);
 
   // ── Polling fallback — كل 5 ثواني إذا لم يصل الدور عبر WebSocket ──
   useEffect(() => {

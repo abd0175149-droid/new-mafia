@@ -374,22 +374,29 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       // ── إرسال تحديث الرقم لكل لاعب متأثر عبر WebSocket ──
+      // نبني خريطة socket → change أولاً لتجنب مشاكل الـ swap
       const allSockets = await io.in(data.roomId).fetchSockets();
+      const socketChanges: Array<{ socket: any; oldId: number; newId: number }> = [];
+      
       for (const change of actualChanges) {
-        // البحث عن اللاعب بالرقم القديم
         for (const s of allSockets) {
           if (s.data.role === 'player' && s.data.physicalId === change.oldPhysicalId) {
-            s.data.physicalId = change.newPhysicalId;
-            s.emit('player:seat-changed', {
-              oldPhysicalId: change.oldPhysicalId,
-              newPhysicalId: change.newPhysicalId,
-            });
-            console.log(`📤 Seat change notification sent: #${change.oldPhysicalId} → #${change.newPhysicalId}`);
+            socketChanges.push({ socket: s, oldId: change.oldPhysicalId, newId: change.newPhysicalId });
           }
         }
       }
 
-      // بث التحديث الكامل لكل الشاشات
+      // تطبيق التغييرات دفعة واحدة (بعد الانتهاء من البحث)
+      for (const sc of socketChanges) {
+        sc.socket.data.physicalId = sc.newId;
+        sc.socket.emit('player:seat-changed', {
+          oldPhysicalId: sc.oldId,
+          newPhysicalId: sc.newId,
+        });
+        console.log(`📤 Seat change notification sent: #${sc.oldId} → #${sc.newId}`);
+      }
+
+      // بث التحديث الكامل لكل الشاشات (الآلية الرئيسية للمزامنة)
       io.to(data.roomId).emit('game:state-sync', state);
 
       callback({ success: true });
