@@ -858,6 +858,51 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── جلب حالة اللاعب الكاملة بناءً على playerId أو phone (مش physicalId!) ──
+  // هذا هو الـ endpoint الموثوق — يبحث بمعرف ثابت ويرجع الرقم الحالي
+  socket.on('room:get-my-state', async (data: {
+    roomId: string;
+    playerId?: number;
+    phone?: string;
+  }, callback) => {
+    try {
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // البحث بـ playerId أولاً (الأوثق) ثم بالهاتف
+      let player = data.playerId
+        ? state.players.find((p: any) => p.playerId === data.playerId)
+        : null;
+      
+      if (!player && data.phone) {
+        player = state.players.find((p: any) => p.phone === data.phone);
+      }
+
+      if (!player) {
+        return callback({ success: false, error: 'Player not found' });
+      }
+
+      const shouldShowRole = state.rolesConfirmed ||
+        (state.phase !== 'LOBBY' && state.phase !== 'ROLE_BINDING' && state.phase !== 'ROLE_GENERATION');
+
+      callback({
+        success: true,
+        player: {
+          physicalId: player.physicalId,
+          name: player.name,
+          role: shouldShowRole ? (player.role || null) : null,
+          isAlive: player.isAlive,
+          gender: player.gender || 'MALE',
+          playerId: player.playerId || null,
+        },
+        phase: state.phase,
+        rolesConfirmed: state.rolesConfirmed || false,
+      });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── إنهاء الربط وبدء اللعبة ──────────────────────
   socket.on('setup:binding-complete', async (data: { roomId: string }, callback) => {
     try {

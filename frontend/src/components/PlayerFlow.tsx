@@ -360,28 +360,59 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     };
   }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead]);
 
-  // ── Polling fallback — كل 5 ثواني إذا لم يصل الدور عبر WebSocket ──
+  // ── Polling: مزامنة حالة اللاعب كل 3 ثواني (بالـ phone/playerId مش physicalId) ──
+  // هذا هو الحل النهائي: حتى لو الـ WebSocket events ما وصلت،
+  // الـ polling بيجلب الرقم الصحيح من السيرفر كل 3 ثواني
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !emit) return;
-    if (assignedRole) return; // لا حاجة للـ polling إذا وصل الدور
-    if (!roomId || !physicalId) return;
+    if (!roomId) return;
+
+    const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
 
     const interval = setInterval(async () => {
       try {
-        const res = await emit('room:get-my-role', {
+        const res = await emit('room:get-my-state', {
           roomId,
-          physicalId: parseInt(physicalId),
+          playerId: playerId || undefined,
+          phone: normalizedPhone || undefined,
         });
-        if (res.role && res.confirmed) {
-          setAssignedRole(res.role);
-          setCardFlipped(false);
-          if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+        if (res.success && res.player) {
+          // تحديث الرقم إذا تغيّر
+          if (String(res.player.physicalId) !== physicalId) {
+            console.log(`🔄 Polling: seat changed ${physicalId} → ${res.player.physicalId}`);
+            setPhysicalId(String(res.player.physicalId));
+            // تحديث الكاش
+            const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
+            saved.physicalId = res.player.physicalId;
+            localStorage.setItem('mafia_session', JSON.stringify(saved));
+            // تنبيه
+            if (physicalId && physicalId !== '0') {
+              setSeatChangeAlert(`تم تغيير رقمك: ${physicalId} ← ${res.player.physicalId}`);
+              setTimeout(() => setSeatChangeAlert(null), 5000);
+              if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            }
+          }
+          // تحديث الاسم إذا تغيّر
+          if (res.player.name && res.player.name !== displayName) {
+            setDisplayName(res.player.name);
+          }
+          // تحديث الدور
+          if (res.player.role && !assignedRole) {
+            setAssignedRole(res.player.role);
+            setCardFlipped(false);
+            if (navigator.vibrate) navigator.vibrate([100, 50, 200]);
+          }
+          // تحديث حالة الحياة
+          if (!res.player.isAlive && !isPlayerDead) {
+            setIsPlayerDead(true);
+            setCardFlipped(true);
+          }
         }
       } catch { /* ignore polling errors */ }
-    }, 5000);
+    }, 3000);
 
     return () => clearInterval(interval);
-  }, [step, assignedRole, emit, roomId, physicalId]);
+  }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead]);
 
 
   // ── الخطوة 1: إدخال كود اللعبة ──
