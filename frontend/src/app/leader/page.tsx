@@ -2050,6 +2050,7 @@ export default function LeaderPage() {
                       }
                       setExcludedPlayers([]);
                       setShowExcludeUI(false);
+                      setInSession(true); // ← العودة لـ Session View (اللوبي الأصلي)
                     } catch (err: any) {
                       setError(err.message);
                     }
