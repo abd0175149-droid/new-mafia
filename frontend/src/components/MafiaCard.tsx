@@ -305,16 +305,16 @@ export default function MafiaCard({
 
             {/* رقم اللاعب — طافي فوق الصورة */}
             {avatarUrl ? (
-              /* عند وجود صورة: رقم صغير يمين المنتصف مع خلفية رمادية شفافة */
-              <div className="absolute top-1/2 -translate-y-1/2 right-3 z-10">
+              /* عند وجود صورة: رقم كبير يمين النصف العلوي مع خلفية رمادية شفافة */
+              <div className="absolute top-[15%] right-3 z-10">
                 <div
-                  className={`flex items-center justify-center font-mono font-black rounded-lg ${
+                  className={`flex items-center justify-center font-mono font-black rounded-xl ${
                     isFemale ? 'text-purple-200' : 'text-[#C5A059]'
                   }`}
                   style={{
-                    width: size === 'sm' ? 36 : size === 'md' ? 44 : size === 'lg' ? 52 : 44,
-                    height: size === 'sm' ? 36 : size === 'md' ? 44 : size === 'lg' ? 52 : 44,
-                    fontSize: size === 'sm' ? '1.25rem' : size === 'md' ? '1.5rem' : size === 'lg' ? '2rem' : '1.5rem',
+                    width: size === 'sm' ? 72 : size === 'md' ? 88 : size === 'lg' ? 104 : 88,
+                    height: size === 'sm' ? 72 : size === 'md' ? 88 : size === 'lg' ? 104 : 88,
+                    fontSize: size === 'sm' ? '2.5rem' : size === 'md' ? '3rem' : size === 'lg' ? '4rem' : '3rem',
                     backgroundColor: 'rgba(0, 0, 0, 0.45)',
                     backdropFilter: 'blur(4px)',
                     border: isFemale ? '1px solid rgba(168,85,247,0.3)' : '1px solid rgba(197,160,89,0.3)',
