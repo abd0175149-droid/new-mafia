@@ -240,6 +240,12 @@ export default function MafiaCard({
   const voteCountSize = { sm: 'text-4xl', md: 'text-5xl', lg: 'text-6xl', fluid: 'text-5xl' }[size];
   const voteLabelSize = { sm: 'text-[10px]', md: 'text-xs', lg: 'text-sm', fluid: 'text-xs' }[size];
 
+  // حد أقصى لطول الاسم في وضع التصويت — لضمان القص من النهاية دائماً
+  const voteNameMaxLen = { sm: 10, md: 14, lg: 18, fluid: 14 }[size];
+  const truncatedName = playerName.length > voteNameMaxLen
+    ? playerName.slice(0, voteNameMaxLen) + '…'
+    : playerName;
+
   const handleCardClick = () => {
     if (!flippable) return;
     if (onFlip) {
@@ -372,17 +378,12 @@ export default function MafiaCard({
                 {/* الاسم + عدد الأصوات */}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full">
                   <h2
-                    className={`${nameSize} font-black text-white leading-tight max-w-[65%]`}
+                    className={`${nameSize} font-black text-white leading-tight max-w-[70%] truncate`}
                     style={{
                       fontFamily: 'Amiri, serif',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      direction: 'rtl',
-                      textAlign: 'center',
                     }}
                   >
-                    {playerName}
+                    {truncatedName}
                   </h2>
                   <span
                     className={`font-mono font-black transition-all duration-300 ${

@@ -478,6 +478,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                   playerName={player.name}
                   role={null}
                   gender={player.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                  avatarUrl={player.avatarUrl || null}
                   showVoting={false}
                   flippable={false}
                   size="sm"

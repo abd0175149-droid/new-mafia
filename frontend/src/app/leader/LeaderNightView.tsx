@@ -222,6 +222,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                 isFlipped={false}
                 flippable={false}
                 gender={targetPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                avatarUrl={targetPlayer?.avatarUrl || null}
                 size="md"
                 isAlive={true}
               />
@@ -476,6 +477,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                       isFlipped={isPeeked}
                       flippable={false}
                       gender={p.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                      avatarUrl={p.avatarUrl || null}
                       size="sm"
                       isAlive={true}
                     />
@@ -618,6 +620,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                   isFlipped={isPeeked}
                   flippable={false}
                   gender={targetPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                  avatarUrl={targetPlayer?.avatarUrl || null}
                   size={nightStep.availableTargets.length <= 12 ? 'md' : 'sm'}
                   isAlive={true}
                   className={`transition-all duration-300 ${

@@ -148,6 +148,7 @@ function VotingCard({ candidate, index, isDeal, targetDetails, initiatorDetails,
           playerName={targetDetails?.name || 'Unknown'}
           role={targetDetails?.role || null}
           gender={targetDetails?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+          avatarUrl={targetDetails?.avatarUrl || null}
           isFlipped={isFlipped}
           flippable={false}
           size="sm"
@@ -565,6 +566,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 playerNumber={physicalId}
                 playerName={player?.name || 'Unknown'}
                 role={role}
+                avatarUrl={player?.avatarUrl || null}
                 isFlipped={true}
                 flippable={false}
                 size="sm"
@@ -680,6 +682,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 playerNumber={physicalId}
                 playerName={player?.name || 'Unknown'}
                 role={role}
+                avatarUrl={player?.avatarUrl || null}
                 isFlipped={true}
                 flippable={false}
                 isAlive={false}
