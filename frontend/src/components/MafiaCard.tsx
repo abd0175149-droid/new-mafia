@@ -304,22 +304,44 @@ export default function MafiaCard({
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
 
             {/* رقم اللاعب — طافي فوق الصورة */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span
-                className={`font-mono font-black ${
-                  isFemale ? 'text-purple-300' : 'text-[#C5A059]'
-                }`}
-                style={{
-                  fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
-                  opacity: 0.35,
-                  textShadow: '0 4px 20px rgba(0,0,0,0.8)',
-                  lineHeight: 1,
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                {playerNumber}
-              </span>
-            </div>
+            {avatarUrl ? (
+              /* عند وجود صورة: رقم صغير يمين المنتصف مع خلفية رمادية شفافة */
+              <div className="absolute top-1/2 -translate-y-1/2 right-3 z-10">
+                <div
+                  className={`flex items-center justify-center font-mono font-black rounded-lg ${
+                    isFemale ? 'text-purple-200' : 'text-[#C5A059]'
+                  }`}
+                  style={{
+                    width: size === 'sm' ? 36 : size === 'md' ? 44 : size === 'lg' ? 52 : 44,
+                    height: size === 'sm' ? 36 : size === 'md' ? 44 : size === 'lg' ? 52 : 44,
+                    fontSize: size === 'sm' ? '1.25rem' : size === 'md' ? '1.5rem' : size === 'lg' ? '2rem' : '1.5rem',
+                    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+                    backdropFilter: 'blur(4px)',
+                    border: isFemale ? '1px solid rgba(168,85,247,0.3)' : '1px solid rgba(197,160,89,0.3)',
+                  }}
+                >
+                  {playerNumber}
+                </div>
+              </div>
+            ) : (
+              /* بدون صورة: رقم كبير شفاف في المنتصف */
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span
+                  className={`font-mono font-black ${
+                    isFemale ? 'text-purple-300' : 'text-[#C5A059]'
+                  }`}
+                  style={{
+                    fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
+                    opacity: 0.35,
+                    textShadow: '0 4px 20px rgba(0,0,0,0.8)',
+                    lineHeight: 1,
+                    letterSpacing: '-0.02em',
+                  }}
+                >
+                  {playerNumber}
+                </span>
+              </div>
+            )}
 
             {/* أيقونة الإسكات */}
             {isSilenced && (
@@ -350,8 +372,15 @@ export default function MafiaCard({
                 {/* الاسم + عدد الأصوات */}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full">
                   <h2
-                    className={`${nameSize} font-black text-white leading-tight truncate max-w-[65%]`}
-                    style={{ fontFamily: 'Amiri, serif' }}
+                    className={`${nameSize} font-black text-white leading-tight max-w-[65%]`}
+                    style={{
+                      fontFamily: 'Amiri, serif',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      direction: 'rtl',
+                      textAlign: 'center',
+                    }}
                   >
                     {playerName}
                   </h2>
