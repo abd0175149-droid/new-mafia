@@ -1,10 +1,10 @@
 // ══════════════════════════════════════════════════════
 // 📱 مسارات تطبيق اللاعب — Player App Routes
-// Leaderboard, Follow, Co-players, Bookings, Following-bookers
+// ⚠️ ترتيب مهم: static routes أولاً ثم parameterized
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, and, sql, inArray } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray, or } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches } from '../schemas/game.schema.js';
@@ -13,10 +13,11 @@ import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 
 const router = Router();
 
-// ══════════════════════════════════════════════════════
-// 🏆 GET /api/player-app/leaderboard — أعلى 50 لاعب
-// ══════════════════════════════════════════════════════
+// ════════════════════════════════════════════
+// 🔒 STATIC ROUTES FIRST (قبل /:id)
+// ════════════════════════════════════════════
 
+// ── 🏆 GET /leaderboard ──
 router.get('/leaderboard', async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -39,23 +40,165 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
 
     res.json({ success: true, leaderboard: rows });
   } catch (err: any) {
+    console.error('❌ leaderboard error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ══════════════════════════════════════════════════════
-// 👥 GET /api/player-app/:id/co-players — لاعبون لعبت معهم
-// ══════════════════════════════════════════════════════
+// ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) ──
+router.post('/book', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
+  const { activityId } = req.body;
+  const player = (req as any).playerAccount;
+
+  if (!activityId) return res.status(400).json({ error: 'activityId مطلوب' });
+  if (!player) return res.status(401).json({ error: 'غير مصادق' });
+
+  try {
+    // التحقق من النشاط
+    const actRows = await db.select().from(activities)
+      .where(eq(activities.id, activityId)).limit(1);
+
+    if (actRows.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
+
+    // التحقق من عدم الحجز المسبق (بالهاتف أو playerId)
+    const existingBooking = await db.select({ id: bookings.id })
+      .from(bookings)
+      .where(and(
+        eq(bookings.activityId, activityId),
+        or(
+          eq(bookings.phone, player.phone),
+          player.playerId ? eq(bookings.playerId, player.playerId) : sql`false`
+        )
+      ))
+      .limit(1);
+
+    if (existingBooking.length > 0) {
+      return res.status(409).json({ error: 'محجوز مسبقاً لهذا النشاط' });
+    }
+
+    // إنشاء الحجز (count=1 دائماً — لنفسه فقط)
+    const result = await db.insert(bookings).values({
+      activityId,
+      name: player.name,
+      phone: player.phone,
+      count: 1,
+      isPaid: false,
+      paidAmount: '0',
+      isFree: false,
+      playerId: player.playerId,
+      createdBy: 'player-app',
+    }).returning();
+
+    res.status(201).json({ success: true, booking: result[0] });
+  } catch (err: any) {
+    console.error('❌ book error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 📅 GET /activities/upcoming — الأنشطة القادمة ──
+router.get('/activities/upcoming', async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  try {
+    const rows = await db.select()
+      .from(activities)
+      .where(or(eq(activities.status, 'planned'), eq(activities.status, 'active')))
+      .orderBy(desc(activities.date));
+
+    // لكل نشاط: عدد الحاجزين
+    const enriched = await Promise.all(rows.map(async (act) => {
+      const [countResult] = await db.select({
+        total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
+      }).from(bookings).where(eq(bookings.activityId, act.id));
+
+      return {
+        ...act,
+        bookedCount: countResult?.total || 0,
+      };
+    }));
+
+    res.json({ success: true, activities: enriched });
+  } catch (err: any) {
+    console.error('❌ activities/upcoming error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 👥 GET /activities/:actId/following-bookers — المتابَعون الحاجزون لنشاط ──
+router.get('/activities/:actId/following-bookers', async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const activityId = parseInt(req.params.actId);
+  const playerId = parseInt(req.query.playerId as string);
+
+  if (!activityId || !playerId) {
+    return res.status(400).json({ error: 'activityId و playerId مطلوبان' });
+  }
+
+  try {
+    // 1. قائمة المتابَعين
+    const followRows = await db.select({ followingId: playerFollows.followingId })
+      .from(playerFollows)
+      .where(eq(playerFollows.followerId, playerId));
+
+    const followingIds = followRows.map(f => f.followingId);
+    if (followingIds.length === 0) {
+      return res.json({ success: true, count: 0, bookers: [] });
+    }
+
+    // 2. من بين المتابَعين، من حجز هذا النشاط؟
+    const bookerRows = await db.select({
+      bookingId: bookings.id,
+      playerId: bookings.playerId,
+      name: bookings.name,
+    })
+      .from(bookings)
+      .where(and(
+        eq(bookings.activityId, activityId),
+        inArray(bookings.playerId, followingIds)
+      ));
+
+    // 3. إضافة بيانات اللاعبين
+    const bookerPlayerIds = bookerRows.map(b => b.playerId).filter(Boolean) as number[];
+    let enrichedBookers: any[] = [];
+
+    if (bookerPlayerIds.length > 0) {
+      enrichedBookers = await db.select({
+        id: players.id,
+        name: players.name,
+        avatarUrl: players.avatarUrl,
+        level: players.level,
+      })
+        .from(players)
+        .where(inArray(players.id, bookerPlayerIds));
+    }
+
+    res.json({ success: true, count: enrichedBookers.length, bookers: enrichedBookers });
+  } catch (err: any) {
+    console.error('❌ following-bookers error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════
+// 🔓 PARAMETERIZED ROUTES (بعد static)
+// ════════════════════════════════════════════
+
+// ── 👥 GET /:id/co-players — لاعبون لعبت معهم ──
 router.get('/:id/co-players', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
   const playerId = parseInt(req.params.id);
-  if (!playerId) return res.status(400).json({ error: 'معرّف غير صالح' });
+  if (!playerId || isNaN(playerId)) return res.status(400).json({ error: 'معرّف غير صالح' });
 
   try {
-    // 1. جلب كل matchIds اللي لعبها هذا اللاعب
     const myMatches = await db.select({ matchId: matchPlayers.matchId })
       .from(matchPlayers)
       .where(eq(matchPlayers.playerId, playerId));
@@ -63,7 +206,6 @@ router.get('/:id/co-players', async (req: Request, res: Response) => {
     const matchIds = myMatches.map(m => m.matchId).filter(Boolean) as number[];
     if (matchIds.length === 0) return res.json({ success: true, coPlayers: [] });
 
-    // 2. جلب كل اللاعبين في هذه المباريات (غيري)
     const coPlayerRows = await db.select({
       playerId: matchPlayers.playerId,
       playerName: matchPlayers.playerName,
@@ -75,23 +217,14 @@ router.get('/:id/co-players', async (req: Request, res: Response) => {
         sql`${matchPlayers.playerId} IS NOT NULL AND ${matchPlayers.playerId} != ${playerId}`
       ));
 
-    // 3. تجميع: لكل لاعب كم مباراة مشتركة
     const coMap = new Map<number, { playerId: number; playerName: string; matchCount: number }>();
     for (const row of coPlayerRows) {
       if (!row.playerId) continue;
       const existing = coMap.get(row.playerId);
-      if (existing) {
-        existing.matchCount++;
-      } else {
-        coMap.set(row.playerId, {
-          playerId: row.playerId,
-          playerName: row.playerName,
-          matchCount: 1,
-        });
-      }
+      if (existing) existing.matchCount++;
+      else coMap.set(row.playerId, { playerId: row.playerId, playerName: row.playerName, matchCount: 1 });
     }
 
-    // 4. إضافة بيانات إضافية (avatar, level, rank)
     const coPlayerIds = Array.from(coMap.keys());
     let enriched: any[] = [];
 
@@ -106,7 +239,7 @@ router.get('/:id/co-players', async (req: Request, res: Response) => {
         .from(players)
         .where(inArray(players.id, coPlayerIds));
 
-      // 5. هل متابعهم؟
+      // هل متابعهم؟
       const myFollowing = await db.select({ followingId: playerFollows.followingId })
         .from(playerFollows)
         .where(eq(playerFollows.followerId, playerId));
@@ -121,15 +254,12 @@ router.get('/:id/co-players', async (req: Request, res: Response) => {
 
     res.json({ success: true, coPlayers: enriched });
   } catch (err: any) {
+    console.error('❌ co-players error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ══════════════════════════════════════════════════════
-// ⭐ POST /api/player-app/:id/follow/:targetId — متابعة لاعب
-// شرط: يجب أن يكونوا لعبوا في نفس المباراة
-// ══════════════════════════════════════════════════════
-
+// ── ⭐ POST /:id/follow/:targetId — متابعة لاعب ──
 router.post('/:id/follow/:targetId', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -180,14 +310,12 @@ router.post('/:id/follow/:targetId', async (req: Request, res: Response) => {
     await db.insert(playerFollows).values({ followerId, followingId });
     res.json({ success: true, message: 'تمت المتابعة' });
   } catch (err: any) {
+    console.error('❌ follow error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ══════════════════════════════════════════════════════
-// ❌ DELETE /api/player-app/:id/follow/:targetId — إلغاء متابعة
-// ══════════════════════════════════════════════════════
-
+// ── ❌ DELETE /:id/follow/:targetId — إلغاء متابعة ──
 router.delete('/:id/follow/:targetId', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -206,10 +334,7 @@ router.delete('/:id/follow/:targetId', async (req: Request, res: Response) => {
   }
 });
 
-// ══════════════════════════════════════════════════════
-// 📋 GET /api/player-app/:id/following — قائمة المتابَعين
-// ══════════════════════════════════════════════════════
-
+// ── 📋 GET /:id/following — قائمة المتابَعين ──
 router.get('/:id/following', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -243,10 +368,7 @@ router.get('/:id/following', async (req: Request, res: Response) => {
   }
 });
 
-// ══════════════════════════════════════════════════════
-// 📰 GET /api/player-app/:id/following-feed — فيد أخبار المتابَعين
-// ══════════════════════════════════════════════════════
-
+// ── 📰 GET /:id/following-feed — فيد أخبار المتابَعين ──
 router.get('/:id/following-feed', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -281,19 +403,17 @@ router.get('/:id/following-feed', async (req: Request, res: Response) => {
 
     // 3. إضافة أسماء وصور
     const playerInfoMap = new Map<number, any>();
-    if (followingIds.length > 0) {
-      const pInfo = await db.select({
-        id: players.id,
-        name: players.name,
-        avatarUrl: players.avatarUrl,
-        level: players.level,
-        rankTier: players.rankTier,
-      })
-        .from(players)
-        .where(inArray(players.id, followingIds));
+    const pInfo = await db.select({
+      id: players.id,
+      name: players.name,
+      avatarUrl: players.avatarUrl,
+      level: players.level,
+      rankTier: players.rankTier,
+    })
+      .from(players)
+      .where(inArray(players.id, followingIds));
 
-      for (const p of pInfo) playerInfoMap.set(p.id, p);
-    }
+    for (const p of pInfo) playerInfoMap.set(p.id, p);
 
     const feed = recentMatches.map(m => ({
       ...m,
@@ -302,66 +422,12 @@ router.get('/:id/following-feed', async (req: Request, res: Response) => {
 
     res.json({ success: true, feed });
   } catch (err: any) {
+    console.error('❌ following-feed error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ══════════════════════════════════════════════════════
-// 🎟️ POST /api/player-app/book — حجز نشاط (لنفسه فقط)
-// ══════════════════════════════════════════════════════
-
-router.post('/book', authenticatePlayer, async (req: Request, res: Response) => {
-  const db = getDB();
-  if (!db) return res.status(503).json({ error: 'DB unavailable' });
-
-  const { activityId } = req.body;
-  const player = (req as any).player;
-
-  if (!activityId) return res.status(400).json({ error: 'activityId مطلوب' });
-
-  try {
-    // التحقق من النشاط
-    const [activity] = await db.select().from(activities)
-      .where(eq(activities.id, activityId)).limit(1);
-
-    if (!activity) return res.status(404).json({ error: 'النشاط غير موجود' });
-
-    // التحقق من عدم الحجز المسبق
-    const existingBooking = await db.select({ id: bookings.id })
-      .from(bookings)
-      .where(and(
-        eq(bookings.activityId, activityId),
-        eq(bookings.playerId, player.playerId)
-      ))
-      .limit(1);
-
-    if (existingBooking.length > 0) {
-      return res.status(409).json({ error: 'محجوز مسبقاً لهذا النشاط' });
-    }
-
-    // إنشاء الحجز (count=1 دائماً — لنفسه فقط)
-    const result = await db.insert(bookings).values({
-      activityId,
-      name: player.name,
-      phone: player.phone,
-      count: 1,
-      isPaid: false,
-      paidAmount: '0',
-      isFree: false,
-      playerId: player.playerId,
-      createdBy: 'player-app',
-    }).returning();
-
-    res.status(201).json({ success: true, booking: result[0] });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ══════════════════════════════════════════════════════
-// 📋 GET /api/player-app/:id/bookings — حجوزات اللاعب
-// ══════════════════════════════════════════════════════
-
+// ── 📋 GET /:id/bookings — حجوزات اللاعب ──
 router.get('/:id/bookings', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -369,7 +435,6 @@ router.get('/:id/bookings', async (req: Request, res: Response) => {
   const playerId = parseInt(req.params.id);
 
   try {
-    // جلب حجوزات اللاعب مع بيانات النشاط
     const playerBookings = await db.select({
       bookingId: bookings.id,
       activityId: bookings.activityId,
@@ -386,106 +451,6 @@ router.get('/:id/bookings', async (req: Request, res: Response) => {
       .orderBy(desc(activities.date));
 
     res.json({ success: true, bookings: playerBookings });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ══════════════════════════════════════════════════════
-// 👥 GET /api/player-app/activities/:actId/following-bookers?playerId=
-// المتابَعون الذين حجزوا نشاط معين
-// ══════════════════════════════════════════════════════
-
-router.get('/activities/:actId/following-bookers', async (req: Request, res: Response) => {
-  const db = getDB();
-  if (!db) return res.status(503).json({ error: 'DB unavailable' });
-
-  const activityId = parseInt(req.params.actId);
-  const playerId = parseInt(req.query.playerId as string);
-
-  if (!activityId || !playerId) {
-    return res.status(400).json({ error: 'activityId و playerId مطلوبان' });
-  }
-
-  try {
-    // 1. قائمة المتابَعين
-    const followRows = await db.select({ followingId: playerFollows.followingId })
-      .from(playerFollows)
-      .where(eq(playerFollows.followerId, playerId));
-
-    const followingIds = followRows.map(f => f.followingId);
-    if (followingIds.length === 0) {
-      return res.json({ success: true, count: 0, bookers: [] });
-    }
-
-    // 2. من بين المتابَعين، من حجز هذا النشاط؟
-    const bookerRows = await db.select({
-      bookingId: bookings.id,
-      playerId: bookings.playerId,
-      name: bookings.name,
-    })
-      .from(bookings)
-      .where(and(
-        eq(bookings.activityId, activityId),
-        inArray(bookings.playerId, followingIds)
-      ));
-
-    // 3. إضافة بيانات اللاعبين
-    const bookerPlayerIds = bookerRows.map(b => b.playerId).filter(Boolean) as number[];
-    let enrichedBookers: any[] = [];
-
-    if (bookerPlayerIds.length > 0) {
-      const pInfo = await db.select({
-        id: players.id,
-        name: players.name,
-        avatarUrl: players.avatarUrl,
-        level: players.level,
-      })
-        .from(players)
-        .where(inArray(players.id, bookerPlayerIds));
-
-      enrichedBookers = pInfo;
-    }
-
-    res.json({
-      success: true,
-      count: enrichedBookers.length,
-      bookers: enrichedBookers,
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ══════════════════════════════════════════════════════
-// 📅 GET /api/player-app/activities/upcoming — الأنشطة القادمة (للاعبين)
-// ══════════════════════════════════════════════════════
-
-router.get('/activities/upcoming', async (_req: Request, res: Response) => {
-  const db = getDB();
-  if (!db) return res.status(503).json({ error: 'DB unavailable' });
-
-  try {
-    const { or } = await import('drizzle-orm');
-
-    const rows = await db.select()
-      .from(activities)
-      .where(or(eq(activities.status, 'planned'), eq(activities.status, 'active')))
-      .orderBy(desc(activities.date));
-
-    // لكل نشاط: عدد الحاجزين
-    const enriched = await Promise.all(rows.map(async (act) => {
-      const [countResult] = await db.select({
-        total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-      }).from(bookings).where(eq(bookings.activityId, act.id));
-
-      return {
-        ...act,
-        bookedCount: countResult?.total || 0,
-      };
-    }));
-
-    res.json({ success: true, activities: enriched });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
