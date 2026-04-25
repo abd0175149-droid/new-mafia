@@ -61,7 +61,13 @@ export default function PlayerProfilePage(){
   const SOCKET_URL=process.env.NEXT_PUBLIC_SOCKET_URL||'';
 
   useEffect(()=>{
-    const playerId=localStorage.getItem('mafia_playerId');
+    // محاولة جلب playerId من الـ context الجديد أو القديم
+    let playerId: string | null = null;
+    const newAuth = localStorage.getItem('mafia_player_auth');
+    if (newAuth) {
+      try { playerId = String(JSON.parse(newAuth).playerId); } catch {}
+    }
+    if (!playerId) playerId = localStorage.getItem('mafia_playerId');
     if(!playerId){setError('لم يتم العثور على حساب');setLoading(false);return;}
     fetch(`/api/player/${playerId}/profile`,{headers:getAuthHeaders()})
       .then(r=>r.json())
@@ -342,9 +348,19 @@ export default function PlayerProfilePage(){
           </AnimatePresence>
         </motion.div>
 
-        {/* Back */}
-        <div className="text-center pt-2">
-          <Link href="/player" className="text-xs text-gray-600 hover:text-gray-400 transition">← العودة للعبة</Link>
+        {/* Logout */}
+        <div className="text-center pt-4 pb-2 space-y-2">
+          <button
+            onClick={() => {
+              localStorage.removeItem('mafia_player_auth');
+              localStorage.removeItem('mafia_playerId');
+              localStorage.removeItem('mafia_player_token');
+              window.location.href = '/player/login';
+            }}
+            className="text-xs text-red-500/60 hover:text-red-400 transition px-4 py-2 rounded-xl border border-red-500/10 hover:border-red-500/30"
+          >
+            🚪 تسجيل الخروج
+          </button>
         </div>
       </div>
 

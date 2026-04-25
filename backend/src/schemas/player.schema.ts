@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════
 // 👤 مخطط جدول اللاعبين — Player Schema (PostgreSQL + Drizzle)
-// يشمل: players, booking_members
+// يشمل: players, booking_members, player_follows
 // ══════════════════════════════════════════════════════
 
 import {
@@ -49,5 +49,15 @@ export const bookingMembers = pgTable('booking_members', {
   phone: varchar('phone', { length: 20 }),
   isGuest: boolean('is_guest').default(false),   // ضيف = ليس الحاجز الأصلي
   checkedIn: boolean('checked_in').default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── Player Follows (متابعة اللاعبين) ────────────────
+// اللاعب يتابع لاعبين آخرين (شرط: لعبوا في نفس المباراة)
+
+export const playerFollows = pgTable('player_follows', {
+  id: serial('id').primaryKey(),
+  followerId: integer('follower_id').notNull(),   // FK → players.id (اللي بيتابع)
+  followingId: integer('following_id').notNull(),  // FK → players.id (اللي متابَع)
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

@@ -53,7 +53,15 @@ docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
    ALTER TABLE match_players ADD COLUMN IF NOT EXISTS ability_used BOOLEAN DEFAULT false;
    ALTER TABLE match_players ADD COLUMN IF NOT EXISTS ability_correct BOOLEAN;
    ALTER TABLE match_players ADD COLUMN IF NOT EXISTS xp_earned INTEGER DEFAULT 0;
-   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS rr_change INTEGER DEFAULT 0;" 2>/dev/null || true
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS rr_change INTEGER DEFAULT 0;
+   ALTER TABLE bookings ADD COLUMN IF NOT EXISTS player_id INTEGER;
+   CREATE TABLE IF NOT EXISTS player_follows (
+     id SERIAL PRIMARY KEY,
+     follower_id INTEGER NOT NULL,
+     following_id INTEGER NOT NULL,
+     created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+     UNIQUE(follower_id, following_id)
+   );" 2>/dev/null || true
 
 echo "   ✅ Database columns verified"
 
