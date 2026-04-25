@@ -37,11 +37,23 @@ echo ""
 echo "4️⃣  Running database migrations..."
 sleep 5  # Wait for postgres to be ready
 
-# إضافة أعمدة جديدة (email, avatar_url) — يتجاهل الخطأ إذا موجودة
+# إضافة أعمدة جديدة — يتجاهل الخطأ إذا موجودة
 docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
-  "ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(200);" 2>/dev/null || true
-docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
-  "ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;" 2>/dev/null || true
+  "ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(200);
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0;
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS level INTEGER DEFAULT 1;
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS rank_tier VARCHAR(20) DEFAULT 'INFORMANT';
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS rank_rr INTEGER DEFAULT 0;
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS total_deals INTEGER DEFAULT 0;
+   ALTER TABLE players ADD COLUMN IF NOT EXISTS successful_deals INTEGER DEFAULT 0;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS rounds_survived INTEGER DEFAULT 0;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS deal_initiated BOOLEAN DEFAULT false;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS deal_success BOOLEAN;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS ability_used BOOLEAN DEFAULT false;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS ability_correct BOOLEAN;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS xp_earned INTEGER DEFAULT 0;
+   ALTER TABLE match_players ADD COLUMN IF NOT EXISTS rr_change INTEGER DEFAULT 0;" 2>/dev/null || true
 
 echo "   ✅ Database columns verified"
 
