@@ -7,7 +7,10 @@
 import { Router, Request, Response } from 'express';
 import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
+import { players as playersTable, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
 import { eq, desc } from 'drizzle-orm';
+import { authenticate, adminOnly } from '../middleware/auth.js';
+import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
 import {
   findPlayerByPhone,
   createPlayer,
@@ -16,6 +19,68 @@ import {
 } from '../services/player.service.js';
 
 const router = Router();
+
+// ── GET /api/player/all — جلب جميع اللاعبين (Admin only) ──
+router.get('/all', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
+
+    const rows = await db.select({
+      id: playersTable.id,
+      phone: playersTable.phone,
+      name: playersTable.name,
+      gender: playersTable.gender,
+      avatarUrl: playersTable.avatarUrl,
+      totalMatches: playersTable.totalMatches,
+      totalWins: playersTable.totalWins,
+      totalSurvived: playersTable.totalSurvived,
+      lastActiveAt: playersTable.lastActiveAt,
+      createdAt: playersTable.createdAt,
+      mustChangePassword: playersTable.mustChangePassword,
+      email: playersTable.email,
+    }).from(playersTable).orderBy(desc(playersTable.createdAt));
+
+    return res.json({ success: true, players: rows });
+  } catch (err: any) {
+    console.error('❌ Fetch all players error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في جلب اللاعبين' });
+  }
+});
+
+// ── POST /api/player/:id/reset-password — إعادة تعيين كلمة المرور (Admin only) ──
+router.post('/:id/reset-password', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
+
+    // التحقق من وجود اللاعب
+    const existing = await db.select({ id: playersTable.id, name: playersTable.name })
+      .from(playersTable)
+      .where(eq(playersTable.id, playerId))
+      .limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+    }
+
+    // إعادة تعيين كلمة المرور للافتراضية
+    const defaultHash = await hashPlayerPassword(PLAYER_DEFAULT_PASSWORD);
+    await db.update(playersTable)
+      .set({ passwordHash: defaultHash, mustChangePassword: true })
+      .where(eq(playersTable.id, playerId));
+
+    console.log(`🔄 Admin reset password for player #${playerId} (${existing[0].name}) to default`);
+    return res.json({ success: true, message: 'تم إعادة تعيين كلمة المرور للافتراضية' });
+  } catch (err: any) {
+    console.error('❌ Reset password error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في إعادة تعيين كلمة المرور' });
+  }
+});
 
 // ── POST /api/player/lookup — البحث عن لاعب برقم الهاتف ──
 router.post('/lookup', async (req: Request, res: Response) => {

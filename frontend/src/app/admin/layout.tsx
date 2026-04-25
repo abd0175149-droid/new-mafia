@@ -21,7 +21,8 @@ const NAV_ITEMS = [
   { href: '/admin/finance', icon: '💰', label: 'المالية' },
   { href: '/admin/locations', icon: '📍', label: 'المواقع' },
   { href: '/admin/staff', icon: '👥', label: 'الموظفون' },
-  { href: '/admin/game-history', icon: '🎮', label: 'سجل الألعاب' },
+  { href: '/admin/players', icon: '🎮', label: 'اللاعبون' },
+  { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
   { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
   // ── فاصل ──
   { href: '/__separator__', icon: '', label: '' },
