@@ -35,6 +35,7 @@ export interface Player {
   justificationCount: number; // عدد مرات التبرير في الجولة الحالية
   addedBy?: 'self' | 'leader'; // من أضاف اللاعب: اللاعب نفسه أو الليدر
   frozen?: boolean; // مجمد — انتقل لغرفة أخرى مؤقتاً (بياناته محفوظة)
+  avatarUrl?: string | null; // رابط صورة اللاعب الشخصية
 }
 
 export enum CandidateType {
@@ -309,7 +310,7 @@ export async function addPlayer(
 export async function updatePlayer(
   roomId: string,
   physicalId: number,
-  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender'>>
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl'>>
 ): Promise<GameState> {
   console.log(`[State] updatePlayer ➡️ Start for physicalId ${physicalId} with updates:`, updates);
   const state = await getGameState(roomId);

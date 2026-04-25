@@ -238,6 +238,23 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         });
       }
 
+      // ── جلب صورة اللاعب من قاعدة البيانات وحفظها في Redis ──
+      if (data.playerId) {
+        try {
+          const { getDB } = await import('../config/db.js');
+          const { players } = await import('../schemas/player.schema.js');
+          const { eq } = await import('drizzle-orm');
+          const db = getDB();
+          if (db) {
+            const [dbPlayer] = await db.select({ avatarUrl: players.avatarUrl })
+              .from(players).where(eq(players.id, data.playerId)).limit(1);
+            if (dbPlayer?.avatarUrl) {
+              await updatePlayer(data.roomId, actualPhysicalId, { avatarUrl: dbPlayer.avatarUrl });
+            }
+          }
+        } catch (e) { /* DB might be unavailable */ }
+      }
+
       socket.join(data.roomId);
       socket.data.role = 'player';
       socket.data.roomId = data.roomId;
@@ -249,13 +266,18 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         room.playerCount = state.players.length;
       }
 
+      // جلب الحالة المحدثة بعد كل التعديلات
+      const updatedState = await getRoom(data.roomId);
+      const finalPlayer = updatedState?.players.find((p: any) => p.physicalId === actualPhysicalId);
+
       // بث للجميع في الغرفة
       io.to(data.roomId).emit('room:player-joined', {
         physicalId: actualPhysicalId,
-        name: actualPlayer?.name || data.name,
+        name: finalPlayer?.name || actualPlayer?.name || data.name,
         totalPlayers: state.players.length,
         maxPlayers: state.config.maxPlayers,
         gender: data.gender || 'MALE',
+        avatarUrl: finalPlayer?.avatarUrl || null,
       });
 
       callback({ success: true, linkedSeat: actualPhysicalId !== data.physicalId ? actualPhysicalId : undefined });

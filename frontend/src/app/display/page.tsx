@@ -83,6 +83,7 @@ interface PlayerInfo {
   isAlive: boolean;
   role?: string;
   gender?: string;
+  avatarUrl?: string | null;
 }
 
 // ── مؤثرات صوتية للفوز ──
@@ -211,6 +212,7 @@ export default function DisplayPage() {
           isAlive: p.isAlive,
           gender: p.gender,
           role: effectivePhase === 'LOBBY' ? null : (p.role || null),
+          avatarUrl: p.avatarUrl || null,
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
       }
@@ -260,6 +262,7 @@ export default function DisplayPage() {
             ...updated[existingIdx],
             name: data.name || updated[existingIdx].name,
             gender: data.gender || updated[existingIdx].gender,
+            avatarUrl: data.avatarUrl || updated[existingIdx].avatarUrl,
           };
           return updated;
         }
@@ -268,6 +271,7 @@ export default function DisplayPage() {
           name: data.name,
           isAlive: true,
           gender: data.gender || 'MALE',
+          avatarUrl: data.avatarUrl || null,
         }];
       });
     };
@@ -506,6 +510,7 @@ export default function DisplayPage() {
             isAlive: p.isAlive,
             gender: p.gender,
             role: p.role,
+            avatarUrl: p.avatarUrl || null,
           })));
         }
       }
@@ -823,6 +828,7 @@ export default function DisplayPage() {
                             showVoting={false}
                             isAlive={p.isAlive !== false}
                             size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
+                            avatarUrl={p.avatarUrl}
                           />
                         </motion.div>
                       ))}
@@ -884,6 +890,7 @@ export default function DisplayPage() {
                           showVoting={false}
                           isAlive={p.isAlive !== false}
                           size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
+                          avatarUrl={p.avatarUrl}
                         />
                       </motion.div>
                    ))}
@@ -1049,6 +1056,7 @@ export default function DisplayPage() {
                         isAlive={p.isAlive}
                         size="fluid"
                         className="w-40 h-[14rem] md:w-52 md:h-[18rem] lg:w-60 lg:h-[20rem]"
+                        avatarUrl={p.avatarUrl}
                       />
                     </motion.div>
                   ))}
@@ -1228,6 +1236,7 @@ function GameOverCard({ player, role, isMafia, flipDelay, isAlive }: {
         isAlive={isAlive}
         size="fluid"
         className="w-40 h-[14rem] md:w-52 md:h-[18rem] lg:w-60 lg:h-[20rem]"
+        avatarUrl={player.avatarUrl}
       />
     </motion.div>
   );
