@@ -620,8 +620,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (state.votingState && state.votingState.candidates.length > 0) {
         // إزالة اللاعب من المرشحين
         state.votingState.candidates = state.votingState.candidates.filter((c: any) => {
-          if (c.type === 'player') return c.targetPhysicalId !== data.physicalId;
-          if (c.type === 'deal') return c.initiatorPhysicalId !== data.physicalId && c.targetPhysicalId !== data.physicalId;
+          if (c.type === 'PLAYER') return c.targetPhysicalId !== data.physicalId;
+          if (c.type === 'DEAL') return c.initiatorPhysicalId !== data.physicalId && c.targetPhysicalId !== data.physicalId;
           return true;
         });
 
