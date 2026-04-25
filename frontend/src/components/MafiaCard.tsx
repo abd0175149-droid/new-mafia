@@ -318,9 +318,9 @@ export default function MafiaCard({
                     isFemale ? 'text-purple-200' : 'text-[#C5A059]'
                   }`}
                   style={{
-                    width: size === 'sm' ? 72 : size === 'md' ? 88 : size === 'lg' ? 104 : 88,
-                    height: size === 'sm' ? 72 : size === 'md' ? 88 : size === 'lg' ? 104 : 88,
-                    fontSize: size === 'sm' ? '2.5rem' : size === 'md' ? '3rem' : size === 'lg' ? '4rem' : '3rem',
+                    width: size === 'sm' ? 54 : size === 'md' ? 66 : size === 'lg' ? 78 : 66,
+                    height: size === 'sm' ? 54 : size === 'md' ? 66 : size === 'lg' ? 78 : 66,
+                    fontSize: size === 'sm' ? '1.9rem' : size === 'md' ? '2.25rem' : size === 'lg' ? '3rem' : '2.25rem',
                     backgroundColor: 'rgba(0, 0, 0, 0.45)',
                     backdropFilter: 'blur(4px)',
                     border: isFemale ? '1px solid rgba(168,85,247,0.3)' : '1px solid rgba(197,160,89,0.3)',
