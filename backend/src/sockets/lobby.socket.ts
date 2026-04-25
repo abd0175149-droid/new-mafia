@@ -1208,7 +1208,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       resetRoomState(state);
       await setGameState(data.roomId, state);
 
-      io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY' });
+      io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY', state });
 
       callback({ success: true, players: state.players });
       console.log(`🔄 Room ${data.roomId} reset to LOBBY with ${state.players.length} players`);
@@ -1279,7 +1279,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // إعلام الجميع بالتحول للوبي
-      io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY' });
+      io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY', state });
 
       callback({
         success: true,
