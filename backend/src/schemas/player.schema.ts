@@ -27,6 +27,13 @@ export const players = pgTable('players', {
   totalMatches: integer('total_matches').default(0),
   totalWins: integer('total_wins').default(0),
   totalSurvived: integer('total_survived').default(0),
+  // ── نظام التقدم (Progression) ──
+  xp: integer('xp').default(0),
+  level: integer('level').default(1),
+  rankTier: varchar('rank_tier', { length: 20 }).default('INFORMANT'), // INFORMANT→SOLDIER→CAPO→UNDERBOSS→GODFATHER
+  rankRR: integer('rank_rr').default(0),
+  totalDeals: integer('total_deals').default(0),
+  successfulDeals: integer('successful_deals').default(0),
   lastActiveAt: timestamp('last_active_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

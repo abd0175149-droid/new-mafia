@@ -235,6 +235,13 @@ export async function getPlayerProfile(playerId: number) {
   const mafiaWinRate = mafiaGames > 0 ? Math.round((mafiaWins / mafiaGames) * 100) : 0;
   const citizenWinRate = citizenGames > 0 ? Math.round((citizenWins / citizenGames) * 100) : 0;
 
+  // ── بيانات التقدم ──
+  const { xpForNextLevel } = await import('./progression.service.js');
+  const currentXP = (playerData as any).xp || 0;
+  const currentLevel = (playerData as any).level || 1;
+  const nextLevelXP = xpForNextLevel(currentLevel);
+  const xpProgress = nextLevelXP > 0 ? Math.round((currentXP / nextLevelXP) * 100) : 0;
+
   return {
     player: playerData,
     stats: {
@@ -251,6 +258,19 @@ export async function getPlayerProfile(playerId: number) {
       citizenWinRate,
       longestWinStreak: maxStreak,
       roleDistribution: roleStats,
+    },
+    progression: {
+      xp: currentXP,
+      level: currentLevel,
+      nextLevelXP,
+      xpProgress,
+      rankTier: (playerData as any).rankTier || 'INFORMANT',
+      rankRR: (playerData as any).rankRR || 0,
+      totalDeals: (playerData as any).totalDeals || 0,
+      successfulDeals: (playerData as any).successfulDeals || 0,
+      dealSuccessRate: (playerData as any).totalDeals > 0
+        ? Math.round(((playerData as any).successfulDeals / (playerData as any).totalDeals) * 100)
+        : 0,
     },
     matchHistory,
   };

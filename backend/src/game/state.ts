@@ -144,6 +144,12 @@ export interface GameState {
   sessionId?: number; // ID الغرفة في PostgreSQL
   sessionCode?: string; // كود الغرفة الثابت
   activityId?: number; // ID النشاط المرتبط
+  // ── تتبع الأداء للتقدم ──
+  performanceTracking: {
+    dealOutcomes: Array<{ initiatorPhysicalId: number; targetPhysicalId: number; targetRole: string; success: boolean }>;
+    abilityResults: Array<{ physicalId: number; role: string; correct: boolean }>;
+    eliminationLog: Array<{ physicalId: number; eliminatedBy: string; round: number; team: 'MAFIA' | 'CITIZEN' }>;
+  };
   createdAt: string;
 }
 
@@ -204,6 +210,7 @@ export async function createRoom(
     },
     morningEvents: [],
     winner: null,
+    performanceTracking: { dealOutcomes: [], abilityResults: [], eliminationLog: [] },
     createdAt: new Date().toISOString(),
   };
 

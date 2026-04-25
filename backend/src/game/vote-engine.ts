@@ -229,6 +229,15 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       player.isAlive = false;
       eliminated.push(player.physicalId);
       revealedRoles.push({ physicalId: player.physicalId, role: player.role || 'UNKNOWN' });
+
+      // ── تتبع الإقصاء ──
+      if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+      state.performanceTracking.eliminationLog.push({
+        physicalId: player.physicalId,
+        eliminatedBy: 'DAY_VOTE',
+        round: state.round || 1,
+        team: (player.role && isMafiaRole(player.role)) ? 'MAFIA' : 'CITIZEN',
+      });
     }
   } else if (winner.type === CandidateType.DEAL) {
     // فوز اتفاقية
@@ -242,10 +251,32 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
       // إذا الدور غير معروف (null) → يُعامل كمواطن (الأسوأ للمُبادر)
       const targetIsMafia = target.role ? isMafiaRole(target.role) : false;
+
+      // ── تتبع نتيجة الاتفاقية ──
+      if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+      state.performanceTracking.dealOutcomes.push({
+        initiatorPhysicalId: winner.initiatorPhysicalId!,
+        targetPhysicalId: winner.targetPhysicalId,
+        targetRole: target.role || 'UNKNOWN',
+        success: targetIsMafia,
+      });
+      state.performanceTracking.eliminationLog.push({
+        physicalId: target.physicalId,
+        eliminatedBy: 'DEAL',
+        round: state.round || 1,
+        team: targetIsMafia ? 'MAFIA' : 'CITIZEN',
+      });
+
       if (!targetIsMafia && initiator) {
         initiator.isAlive = false;
         eliminated.push(initiator.physicalId);
         revealedRoles.push({ physicalId: initiator.physicalId, role: initiator.role || 'UNKNOWN' });
+        state.performanceTracking.eliminationLog.push({
+          physicalId: initiator.physicalId,
+          eliminatedBy: 'DEAL',
+          round: state.round || 1,
+          team: (initiator.role && isMafiaRole(initiator.role)) ? 'MAFIA' : 'CITIZEN',
+        });
       }
     }
   }

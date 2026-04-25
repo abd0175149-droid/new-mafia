@@ -79,6 +79,14 @@ export const matchPlayers = pgTable('match_players', {
   survivedToEnd: boolean('survived_to_end').default(false),
   eliminatedAtRound: integer('eliminated_at_round'),
   eliminatedDuring: varchar('eliminated_during', { length: 20 }),
+  // ── تتبع الأداء (Progression Tracking) ──
+  roundsSurvived: integer('rounds_survived').default(0),
+  dealInitiated: boolean('deal_initiated').default(false),
+  dealSuccess: boolean('deal_success'),
+  abilityUsed: boolean('ability_used').default(false),
+  abilityCorrect: boolean('ability_correct'),
+  xpEarned: integer('xp_earned').default(0),
+  rrChange: integer('rr_change').default(0),
 });
 
 // ── Surveys (التقييمات بعد المباراة) ─────────────────

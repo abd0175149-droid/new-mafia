@@ -8,6 +8,7 @@ import { getDB } from '../config/db.js';
 import { matches, matchPlayers } from '../schemas/game.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
+import { processMatchRewards, calculateMatchXP, calculateMatchRR } from './progression.service.js';
 import type { GameState } from '../game/state.js';
 
 // ── إنشاء سجل مباراة عند بداية اللعبة ──────────────
@@ -63,20 +64,62 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       })
       .where(eq(matches.id, state.matchId));
 
-    const playerRows = state.players.map(p => ({
-      matchId: state.matchId!,
-      playerId: p.playerId || null,
-      physicalId: p.physicalId,
-      playerName: p.name,
-      role: p.role || 'UNKNOWN',
-      survivedToEnd: p.isAlive,
-    }));
+    const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+    const totalRounds = state.round || 1;
+
+    const playerRows = state.players.map(p => {
+      const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
+      const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
+      const dealOutcome = tracking.dealOutcomes.find(d => d.initiatorPhysicalId === p.physicalId);
+      const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
+
+      const playerIsMafia = isMafiaRole(p.role as any);
+      const teamWon = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+
+      // حساب مكافأة إقصاء الخصم
+      let teamElimBonus = 0;
+      for (const elim of tracking.eliminationLog) {
+        if (elim.physicalId === p.physicalId) continue;
+        if (elim.team === 'MAFIA' && !playerIsMafia) teamElimBonus += 15;
+        if (elim.team === 'CITIZEN' && playerIsMafia) teamElimBonus += 15;
+      }
+
+      const xpEarned = p.playerId ? calculateMatchXP({
+        participated: true, teamWon, roundsSurvived,
+        abilityCorrectCount: abilityResults.filter(a => a.correct).length,
+        dealSuccess: dealOutcome ? dealOutcome.success : null,
+        teamEliminationBonus: teamElimBonus,
+      }) : 0;
+
+      const rrChange = p.playerId ? calculateMatchRR({
+        teamWon,
+        dealSuccess: dealOutcome ? dealOutcome.success : null,
+      }) : 0;
+
+      return {
+        matchId: state.matchId!,
+        playerId: p.playerId || null,
+        physicalId: p.physicalId,
+        playerName: p.name,
+        role: p.role || 'UNKNOWN',
+        survivedToEnd: p.isAlive,
+        eliminatedAtRound: elimEntry ? elimEntry.round : null,
+        eliminatedDuring: elimEntry ? (elimEntry.eliminatedBy === 'NIGHT_KILL' || elimEntry.eliminatedBy === 'SNIPER' ? 'NIGHT' : 'DAY') : null,
+        roundsSurvived,
+        dealInitiated: !!dealOutcome,
+        dealSuccess: dealOutcome ? dealOutcome.success : null,
+        abilityUsed: abilityResults.length > 0,
+        abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
+        xpEarned,
+        rrChange,
+      };
+    });
 
     if (playerRows.length > 0) {
       await db.insert(matchPlayers).values(playerRows);
     }
 
-    // ── تحديث إحصائيات اللاعبين في جدول players ──
+    // ── تحديث إحصائيات اللاعبين (القديمة) + نظام التقدم الجديد ──
     for (const p of state.players) {
       if (p.playerId) {
         try {
@@ -89,7 +132,14 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       }
     }
 
-    console.log(`📦 Match #${state.matchId} finalized — Winner: ${state.winner}, Duration: ${durationSeconds}s, Stats updated for ${state.players.filter(p => p.playerId).length} players`);
+    // ── تطبيق نظام التقدم (XP + Level + RR + Rank) ──
+    try {
+      await processMatchRewards(state);
+    } catch (progressionErr: any) {
+      console.error('⚠️ Failed to process progression rewards:', progressionErr.message);
+    }
+
+    console.log(`📦 Match #${state.matchId} finalized — Winner: ${state.winner}, Duration: ${durationSeconds}s, Stats + Progression updated`);
   } catch (err: any) {
     console.error('❌ Failed to finalize match:', err.message);
   }
