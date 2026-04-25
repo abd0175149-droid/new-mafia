@@ -424,9 +424,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
+      // إرسال الـ state كاملة لضمان تحديث isAlive على شاشة العرض
+      const updatedState = await getGameState(data.roomId);
       io.to(data.roomId).emit('game:phase-changed', {
         phase: Phase.DAY_DISCUSSION,
-        teamCounts: getTeamCounts(state.players),
+        teamCounts: getTeamCounts(updatedState!.players),
+        state: updatedState,
       });
 
       callback({ success: true });

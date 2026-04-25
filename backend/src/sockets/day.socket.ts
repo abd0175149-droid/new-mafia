@@ -344,7 +344,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (data.action === TieBreakerAction.CANCEL) {
         // إلغاء التصويت → العودة لمرحلة النقاش
         await setPhase(data.roomId, Phase.DAY_DISCUSSION);
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_DISCUSSION, teamCounts: getTeamCounts(state.players) });
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_DISCUSSION, teamCounts: getTeamCounts(state.players), state });
         io.to(data.roomId).emit('day:cancelled');
       } else if (data.action === TieBreakerAction.ELIMINATE_ALL) {
         // handleTieBreaker أقصى اللاعبين بالفعل (isAlive = false)
