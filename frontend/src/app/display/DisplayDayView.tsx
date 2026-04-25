@@ -687,24 +687,6 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                   </div>
                 </div>
 
-                {/* وسط: عدادات الفرق */}
-                <div className="flex items-center gap-6">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[#44ff44] text-lg">🏛</span>
-                    <div className="flex flex-col items-center">
-                      <span className="text-[8px] font-mono text-[#808080] uppercase tracking-widest">CITIZENS</span>
-                      <span className="text-2xl font-mono font-black text-[#44ff44]">{effectiveTeamCounts?.citizenAlive ?? '?'}</span>
-                    </div>
-                  </div>
-                  <div className="w-[1px] h-10 bg-[#2a2a2a]" />
-                  <div className="flex items-center gap-2">
-                    <span className="text-[#ff4444] text-lg">🎭</span>
-                    <div className="flex flex-col items-center">
-                      <span className="text-[8px] font-mono text-[#808080] uppercase tracking-widest">MAFIA</span>
-                      <span className="text-2xl font-mono font-black text-[#ff4444]">{effectiveTeamCounts?.mafiaAlive ?? '?'}</span>
-                    </div>
-                  </div>
-                </div>
 
                 {/* يمين: عداد الأصوات */}
                 <div className="flex flex-col items-center">

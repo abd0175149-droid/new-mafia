@@ -549,6 +549,18 @@ export default function LeaderPage() {
       }
     });
 
+    // ── إقصاء إداري: تحديث isAlive في قائمة اللاعبين ──
+    const offAdminEliminated = on('admin:player-eliminated', (data: any) => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map((p: any) =>
+            p.physicalId === data.physicalId ? { ...p, isAlive: false } : p
+          ),
+        };
+      });
+    });
     return () => {
       offConnect();
       offStateSync();
@@ -574,6 +586,7 @@ export default function LeaderPage() {
       offGameRestarted();
       offConfigUpdated();
       offPlayerUpdated();
+      offAdminEliminated();
     };
   }, [on, emit, gameState?.roomId]);
 
