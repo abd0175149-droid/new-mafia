@@ -274,14 +274,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.DAY_TIEBREAKER);
         io.to(data.roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
       } else {
-        // جلب state محدث للعداد
-        const updatedState = await getGameState(data.roomId);
+        // ⚠️ لا نرسل teamCounts هنا — لأنها ستكشف هوية المقصى قبل عرض الدور
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated: result.eliminated,
           revealedRoles: result.revealedRoles,
           winResult: result.winResult,
           type: result.type,
-          teamCounts: updatedState ? getTeamCounts(updatedState.players) : undefined,
         });
       }
 

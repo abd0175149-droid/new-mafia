@@ -358,6 +358,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setEliminatedIds(data.eliminated);
       setRevealedRoles(data.revealedRoles);
       setRevealType(data.type);
+      // تحديث عداد الفرق فقط بعد كشف الهوية — وليس قبلها
+      if (data.teamCounts) {
+        setLocalTeamCounts(data.teamCounts);
+      }
       setPhase('REVEALED');
     };
 

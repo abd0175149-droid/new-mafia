@@ -379,8 +379,14 @@ export default function DisplayPage() {
     // ── أحداث الإقصاء بالتصويت — تحديث عداد الفرق ──
     const onDayTeamUpdate = (data: any) => {
       if (data.teamCounts) setTeamCounts(data.teamCounts);
+      // بعد كشف الهوية: تحديث isAlive للاعبين المقصيين
+      if (data.eliminated && Array.isArray(data.eliminated)) {
+        setPlayers(prev => prev.map((p: any) =>
+          data.eliminated.includes(p.physicalId) ? { ...p, isAlive: false } : p
+        ));
+      }
     };
-    socket.on('day:elimination-pending', onDayTeamUpdate);
+    // ⚠️ لا نسمع على elimination-pending لأن teamCounts تكشف الهوية قبل العرض
     socket.on('day:elimination-revealed', onDayTeamUpdate);
     socket.on('day:voting-started', onDayTeamUpdate);
 
