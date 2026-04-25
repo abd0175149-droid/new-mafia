@@ -143,11 +143,13 @@ export default function RankPage() {
         {/* ── Leaderboard ── */}
         {tab === 'leaderboard' && (
           <motion.div key="lb" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-2">
-            {leaderboard.map((p: any, i: number) => (
+            {leaderboard.map((p: any, i: number) => {
+              const canView = p.id !== player?.playerId && isCoPlayer(p.id);
+              return (
               <div
                 key={p.id}
-                onClick={() => viewProfile(p.id)}
-                className="rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:bg-white/5 transition-colors"
+                onClick={() => canView && viewProfile(p.id)}
+                className={`rounded-xl p-3 flex items-center gap-3 transition-colors ${canView ? 'cursor-pointer hover:bg-white/5' : ''}`}
                 style={{
                   background: player?.playerId === p.id ? 'rgba(251,191,36,0.08)' : 'rgba(255,255,255,0.03)',
                   border: player?.playerId === p.id ? '1px solid rgba(251,191,36,0.2)' : '1px solid rgba(255,255,255,0.06)',
@@ -185,7 +187,8 @@ export default function RankPage() {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </motion.div>
         )}
 
@@ -237,7 +240,7 @@ export default function RankPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center"
+            className="fixed inset-0 z-[100] bg-black/80 flex items-end justify-center"
             onClick={() => { setSelectedProfile(null); setSelectedPlayer(null); }}
           >
             <motion.div
