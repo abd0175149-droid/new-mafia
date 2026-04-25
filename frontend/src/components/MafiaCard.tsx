@@ -269,7 +269,7 @@ export default function MafiaCard({
         }}
       >
         {/* ══════════════════════════════════ */}
-        {/* 🂠 الوجه الأمامي — السرية        */}
+        {/* 🂠 الوجه الأمامي — التصميم الجديد */}
         {/* ══════════════════════════════════ */}
         <div
           className={`absolute inset-0 rounded-2xl overflow-hidden bg-black border-2 ${
@@ -281,45 +281,44 @@ export default function MafiaCard({
             transform: 'translateZ(0)',
           }}
         >
-          {/* خلفية متدرجة */}
-          <div className={`absolute inset-0 bg-gradient-to-b ${
-            isFemale
-              ? 'from-purple-950/80 via-[#0c0c0c] to-black'
-              : 'from-zinc-800/50 via-[#0c0c0c] to-black'
-          }`} />
+          {/* ── القسم العلوي (2/3): صورة اللاعب + رقم طافي ── */}
+          <div className="relative" style={{ height: '66.66%' }}>
+            {/* صورة اللاعب — تغطي كامل المساحة */}
+            {avatarUrl ? (
+              <img
+                src={`${avatarUrl}`}
+                alt={playerName}
+                className="absolute inset-0 w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+              />
+            ) : (
+              /* خلفية افتراضية عند عدم وجود صورة */
+              <div className={`absolute inset-0 bg-gradient-to-b ${
+                isFemale
+                  ? 'from-purple-900/60 via-purple-950/80 to-black'
+                  : 'from-zinc-700/50 via-zinc-900/80 to-black'
+              }`} />
+            )}
 
-          {/* نمط الضوضاء */}
-          <div className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-            }}
-          />
+            {/* تدرج سفلي لدمج الصورة مع القسم السفلي */}
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
 
-          {/* المحتوى */}
-          <div className="relative z-10 flex flex-col h-full p-4">
-
-            {/* ── الصف العلوي: الرقم + الشعار ── */}
-            <div className="flex items-center justify-between mb-4">
-              {/* رقم اللاعب */}
-              <div className={`${numberBadgeSize} border-2 ${
-                isFemale ? 'border-purple-400/70 text-purple-300' : 'border-[#C5A059]/70 text-[#C5A059]'
-              } flex items-center justify-center font-mono ${numberTextSize} font-black rounded-lg bg-black/60`}>
+            {/* رقم اللاعب — طافي فوق الصورة */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span
+                className={`font-mono font-black ${
+                  isFemale ? 'text-purple-300' : 'text-[#C5A059]'
+                }`}
+                style={{
+                  fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
+                  opacity: 0.35,
+                  textShadow: '0 4px 20px rgba(0,0,0,0.8)',
+                  lineHeight: 1,
+                  letterSpacing: '-0.02em',
+                }}
+              >
                 {playerNumber}
-              </div>
-
-              {/* شعار النادي */}
-              <div className="flex flex-col items-end">
-                <span className={`text-[9px] tracking-[0.3em] uppercase font-mono ${
-                  isFemale ? 'text-purple-400/60' : 'text-[#C5A059]/60'
-                }`}>
-                  MAFIA
-                </span>
-                <span className={`text-[8px] tracking-[0.2em] uppercase font-mono ${
-                  isFemale ? 'text-purple-500/40' : 'text-[#C5A059]/40'
-                }`}>
-                  CLUB
-                </span>
-              </div>
+              </span>
             </div>
 
             {/* أيقونة الإسكات */}
@@ -328,80 +327,74 @@ export default function MafiaCard({
                 <span className="text-[10px] text-rose-300 font-mono tracking-widest">🔇 MUTED</span>
               </div>
             )}
+          </div>
 
-            {/* ── المنتصف: صورة اللاعب + اسمه ── */}
-            <div className="flex-1 flex flex-col items-center justify-center">
-              {/* دائرة الصورة الشخصية */}
-              {avatarUrl ? (
-                <div
-                  className={`rounded-full border-2 ${
-                    isFemale ? 'border-purple-400/70' : 'border-[#C5A059]/70'
-                  } mb-3 overflow-hidden bg-black/40`}
-                  style={{
-                    width: size === 'sm' ? 56 : size === 'md' ? 72 : size === 'lg' ? 88 : 72,
-                    height: size === 'sm' ? 56 : size === 'md' ? 72 : size === 'lg' ? 88 : 72,
-                    boxShadow: isFemale
-                      ? '0 0 20px rgba(168, 85, 247, 0.25), inset 0 0 10px rgba(0,0,0,0.3)'
-                      : '0 0 20px rgba(197, 160, 89, 0.25), inset 0 0 10px rgba(0,0,0,0.3)',
-                  }}
-                >
-                  <img
-                    src={`${avatarUrl}`}
-                    alt={playerName}
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                </div>
-              ) : null}
-              <h2 className={`${nameSize} font-black text-white text-center leading-tight mb-3`}
-                style={{ fontFamily: 'Amiri, serif' }}>
-                {playerName}
-              </h2>
-              <div className={`w-16 h-[2px] ${
-                isFemale ? 'bg-purple-400/40' : 'bg-[#C5A059]/40'
-              }`} />
-              <p className={`mt-2 text-[10px] font-mono tracking-[0.3em] uppercase ${
-                isFemale ? 'text-purple-400/50' : 'text-[#C5A059]/50'
-              }`}>
-                {isFemale ? '♀ OPERATIVE' : '♂ OPERATIVE'}
-              </p>
-            </div>
+          {/* ── القسم السفلي (1/3): الاسم + الشعار + الأصوات ── */}
+          <div className="relative flex flex-col items-center justify-center bg-black px-3" style={{ height: '33.33%' }}>
+            {/* خط فاصل ذهبي/بنفسجي رفيع */}
+            <div className={`absolute top-0 left-[15%] right-[15%] h-[1px] ${
+              isFemale ? 'bg-purple-400/30' : 'bg-[#C5A059]/30'
+            }`} />
 
-            {/* ── القسم السفلي: التصويت ── */}
-            {showVoting && (
+            {showVoting ? (
+              /* ── وضع التصويت: الاسم + الأصوات ── */
               <div
                 onClick={handleVoteClick}
-                className={`relative mt-auto border-t ${
-                  isFemale ? 'border-purple-800/40' : 'border-[#2a2a2a]'
-                } pt-3 pb-1 cursor-pointer group transition-all duration-300`}
+                className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1"
               >
-                {/* تأثير الخطر عند وجود أصوات */}
+                {/* تأثير خلفي عند وجود أصوات */}
                 {votes > 0 && (
-                  <div className="absolute inset-0 bg-red-900/20 animate-pulse rounded-b-xl" />
+                  <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />
                 )}
 
-                <div className="relative z-10 flex items-center justify-between">
-                  <span className={`${voteLabelSize} text-zinc-500 font-mono tracking-widest uppercase group-hover:text-zinc-300 transition-colors`}>
-                    التصويت نهاراً
-                  </span>
-                  <span className={`font-mono font-black ${voteCountSize} transition-all duration-300 ${
-                    votes > 0
-                      ? 'text-red-500 scale-110 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]'
-                      : 'text-zinc-600 group-hover:text-zinc-400'
-                  }`}>
+                {/* الاسم + عدد الأصوات */}
+                <div className="relative z-10 flex items-center justify-center gap-2 w-full">
+                  <h2
+                    className={`${nameSize} font-black text-white leading-tight truncate max-w-[65%]`}
+                    style={{ fontFamily: 'Amiri, serif' }}
+                  >
+                    {playerName}
+                  </h2>
+                  <span
+                    className={`font-mono font-black transition-all duration-300 ${
+                      { sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]
+                    } ${
+                      votes > 0
+                        ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]'
+                        : 'text-zinc-600 group-hover:text-zinc-400'
+                    }`}
+                  >
                     {votes}
                   </span>
                 </div>
-              </div>
-            )}
 
-            {/* قاع الكارد إذا لا تصويت */}
-            {!showVoting && flippable && (
-              <div className="mt-auto text-center">
-                <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase">
-                  اضغط للكشف
-                </span>
+                {/* Mafia Club */}
+                <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
+                  isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'
+                }`}>
+                  MAFIA CLUB
+                </p>
               </div>
+            ) : (
+              /* ── الوضع العادي: الاسم + شعار ── */
+              <>
+                <h2
+                  className={`${nameSize} font-black text-white text-center leading-tight`}
+                  style={{ fontFamily: 'Amiri, serif' }}
+                >
+                  {playerName}
+                </h2>
+                <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
+                  isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'
+                }`}>
+                  MAFIA CLUB
+                </p>
+                {flippable && (
+                  <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1">
+                    اضغط للكشف
+                  </span>
+                )}
+              </>
             )}
           </div>
         </div>
