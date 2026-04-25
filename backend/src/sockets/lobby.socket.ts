@@ -287,6 +287,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Player not found in this room' });
       }
 
+      // ── فك التجميد عند العودة ──
+      if (player.frozen) {
+        player.frozen = false;
+        await setGameState(data.roomId, state);
+        console.log(`🔓 Player #${player.physicalId} unfrozen in room ${data.roomId}`);
+      }
+
       // ربط الـ socket بالغرفة
       socket.join(data.roomId);
       socket.data.role = 'player';
@@ -313,6 +320,43 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       });
 
       console.log(`♻️  Player rejoin: #${player.physicalId} - ${player.name} (alive: ${player.isAlive})`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── تجميد لاعب في غرفة (للتنقل بين الغرف) ──────
+  socket.on('room:freeze-player', async (data: {
+    roomId: string;
+    phone?: string;
+    playerId?: number;
+  }, callback) => {
+    try {
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // البحث عن اللاعب
+      const player = state.players.find((p: any) =>
+        (data.playerId && p.playerId === data.playerId) ||
+        (data.phone && p.phone === data.phone)
+      );
+
+      if (!player) return callback({ success: false, error: 'Player not found' });
+
+      // ── شرط: اللاعب لازم يكون ميت (مُقصى) عشان ينتقل ──
+      if (player.isAlive) {
+        return callback({ success: false, error: 'لا يمكنك الانتقال إلا بعد إقصائك من اللعبة الحالية' });
+      }
+
+      // تجميد اللاعب
+      player.frozen = true;
+      await setGameState(data.roomId, state);
+
+      // خروج الـ socket من الغرفة القديمة
+      socket.leave(data.roomId);
+
+      console.log(`🧊 Player #${player.physicalId} (${player.name}) frozen in room ${data.roomId}`);
+      callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

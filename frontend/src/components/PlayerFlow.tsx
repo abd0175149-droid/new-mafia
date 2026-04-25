@@ -60,6 +60,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [playerId, setPlayerId] = useState<number | null>(null);
   const [apiError, setApiError] = useState('');
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   // ── توزيع الأدوار الرقمي ──
   const [assignedRole, setAssignedRole] = useState<string | null>(null);
@@ -72,6 +73,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [roleAlert, setRoleAlert] = useState(false);
+  const [switchConfirm, setSwitchConfirm] = useState<{
+    currentRoomId: string;
+    currentGameName: string;
+    targetRoomId: string;
+    targetGameName: string;
+  } | null>(null);
+  const [switchLoading, setSwitchLoading] = useState(false);
 
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
@@ -176,6 +184,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setPhone(data.player.phone || '');
           setGender(data.player.gender === 'FEMALE' ? 'female' : 'male');
           setMustChangePassword(data.player.mustChangePassword || false);
+          if (data.player.avatarUrl) setAvatarUrl(data.player.avatarUrl);
           localStorage.setItem('mafia_playerId', String(data.player.id));
 
           // إذا في جيم نشط → ندخله مباشرة
@@ -491,6 +500,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setPlayerId(data.player.id);
         setDisplayName(data.player.name);
         localStorage.setItem('mafia_playerId', String(data.player.id));
+        if (data.player.avatarUrl) setAvatarUrl(data.player.avatarUrl);
 
         // ── مسح جلسة لاعب آخر إذا موجودة ──
         const oldSession = localStorage.getItem('mafia_session');
@@ -578,11 +588,71 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setStep('rejoined');
           return;
         }
+
+        // ── الغرفة النشطة مختلفة عن الهدف ──
+        if (roomId && ag.roomId !== roomId) {
+          // اللاعب حي → يرجع لغرفته الحالية تلقائياً (لا خيار تبديل)
+          if (ag.isAlive !== false) {
+            setRoomId(ag.roomId);
+            setRoomCode(ag.roomCode || roomCode);
+            setPhysicalId(String(ag.physicalId));
+            setGameName(ag.gameName || gameName);
+            if (ag.role) setAssignedRole(ag.role);
+            localStorage.setItem('mafia_session', JSON.stringify({
+              roomId: ag.roomId, physicalId: ag.physicalId,
+              phone: phone.startsWith('0') ? phone : '0' + phone,
+              displayName, roomCode: ag.roomCode || roomCode, playerId: pid,
+            }));
+            setStep('rejoined');
+            setApiError('أنت لا تزال على قيد الحياة في لعبة أخرى — لا يمكنك الانتقال');
+            return;
+          }
+
+          // اللاعب ميت → عرض نافذة تأكيد التبديل
+          setSwitchConfirm({
+            currentRoomId: ag.roomId,
+            currentGameName: ag.gameName || 'غرفة نشطة',
+            targetRoomId: roomId,
+            targetGameName: gameName || 'غرفة جديدة',
+          });
+          return;
+        }
       }
     } catch {}
 
     // 3. لا لعبة نشطة → اختيار مقعد عادي
     setStep('number');
+  };
+
+  // ── تنفيذ التبديل بين الغرف ──
+  const handleSwitchRoom = async () => {
+    if (!switchConfirm || !emit) return;
+    setSwitchLoading(true);
+    try {
+      const normalized = phone.startsWith('0') ? phone : '0' + phone;
+      // 1. تجميد اللاعب في الغرفة الحالية
+      await emit('room:freeze-player', {
+        roomId: switchConfirm.currentRoomId,
+        phone: normalized,
+        playerId: playerId || undefined,
+      });
+
+      // 2. مسح الجلسة القديمة
+      localStorage.removeItem('mafia_session');
+
+      // 3. الانتقال لاختيار مقعد في الغرفة الجديدة
+      setRoomId(switchConfirm.targetRoomId);
+      setAssignedRole(null);
+      setCardFlipped(false);
+      setIsPlayerDead(false);
+      setPhysicalId('');
+      setSwitchConfirm(null);
+      setStep('number');
+    } catch (err: any) {
+      setApiError(err.message || 'فشل في التبديل');
+    } finally {
+      setSwitchLoading(false);
+    }
   };
 
   // ── الخطوة 3ب: تسجيل حساب جديد ──
@@ -1144,6 +1214,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       showVoting={false}
                       flippable={false}
                       size="md"
+                      avatarUrl={avatarUrl}
                     />
                   </div>
 
@@ -1182,6 +1253,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       showVoting={false}
                       flippable={true}
                       size="md"
+                      avatarUrl={avatarUrl}
                     />
                   </div>
 
@@ -1263,6 +1335,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       showVoting={false}
                       flippable={false}
                       size="md"
+                      avatarUrl={avatarUrl}
                     />
                   </div>
                   <p className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em]">
@@ -1290,6 +1363,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       showVoting={false}
                       flippable={true}
                       size="md"
+                      avatarUrl={avatarUrl}
                     />
                   </div>
                   <AnimatePresence mode="wait">
@@ -1326,6 +1400,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       showVoting={false}
                       flippable={false}
                       size="md"
+                      avatarUrl={avatarUrl}
                     />
                   </div>
                   <p className="text-[#C5A059] text-[11px] font-mono uppercase tracking-[0.2em]">
@@ -1427,6 +1502,81 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <p className="text-[#555] text-[8px] font-mono uppercase tracking-[0.2em] text-center mt-2">
                 TAP CARD TO REVEAL · TAP HERE TO DISMISS
               </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── نافذة تأكيد التبديل بين الغرف ── */}
+      <AnimatePresence>
+        {switchConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4"
+            style={{ backdropFilter: 'blur(8px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.85, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 20, stiffness: 300 }}
+              className="w-full max-w-sm rounded-2xl border-2 border-[#C5A059]/50 bg-gradient-to-b from-[#1a1508] to-[#0a0804] p-6"
+              style={{ boxShadow: '0 0 40px rgba(197,160,89,0.2)' }}
+            >
+              {/* أيقونة */}
+              <div className="text-5xl text-center mb-4">🔄</div>
+
+              {/* العنوان */}
+              <h3
+                className="text-[#C5A059] text-xl font-black text-center mb-4"
+                style={{ fontFamily: 'Amiri, serif' }}
+              >
+                تبديل الغرفة
+              </h3>
+
+              {/* التفاصيل */}
+              <div className="space-y-3 mb-6">
+                <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
+                  <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-widest mb-1">الغرفة الحالية</p>
+                  <p className="text-red-300 font-bold text-sm" style={{ fontFamily: 'Amiri, serif' }}>
+                    {switchConfirm.currentGameName}
+                  </p>
+                </div>
+                <div className="text-center text-[#C5A059] text-lg">↓</div>
+                <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
+                  <p className="text-[9px] font-mono text-green-400/70 uppercase tracking-widest mb-1">الغرفة الجديدة</p>
+                  <p className="text-green-300 font-bold text-sm" style={{ fontFamily: 'Amiri, serif' }}>
+                    {switchConfirm.targetGameName}
+                  </p>
+                </div>
+              </div>
+
+              {/* رسالة توضيحية */}
+              <p className="text-[#808080] text-xs text-center mb-5 leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
+                سيتم تجميد مشاركتك في الغرفة الحالية ويمكنك العودة إليها لاحقاً
+              </p>
+
+              {/* الأزرار */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setSwitchConfirm(null)}
+                  disabled={switchLoading}
+                  className="flex-1 py-3 rounded-xl border border-[#333] bg-black/60 text-[#888] font-bold text-sm transition-all hover:border-[#555] hover:text-white disabled:opacity-50"
+                  style={{ fontFamily: 'Amiri, serif' }}
+                >
+                  ابقَ هنا
+                </button>
+                <button
+                  onClick={handleSwitchRoom}
+                  disabled={switchLoading}
+                  className="flex-1 py-3 rounded-xl border-2 border-[#C5A059] text-[#C5A059] font-black text-sm transition-all hover:bg-[#C5A059]/10 disabled:opacity-50"
+                  style={{ fontFamily: 'Amiri, serif', boxShadow: '0 0 15px rgba(197,160,89,0.2)' }}
+                >
+                  {switchLoading ? '⏳ جارٍ...' : 'انتقل للغرفة'}
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

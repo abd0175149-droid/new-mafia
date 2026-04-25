@@ -185,6 +185,8 @@ export interface MafiaCardProps {
   flippable?: boolean;
   /** className إضافي للحاوية الخارجية */
   className?: string;
+  /** رابط صورة اللاعب الشخصية */
+  avatarUrl?: string | null;
 }
 
 // ── Component ────────────────────────────────
@@ -204,6 +206,7 @@ export default function MafiaCard({
   size = 'md',
   flippable = true,
   className = '',
+  avatarUrl = null,
 }: MafiaCardProps) {
   const [internalFlip, setInternalFlip] = useState(false);
   const isFlipped = controlledFlip !== undefined ? controlledFlip : internalFlip;
@@ -326,8 +329,30 @@ export default function MafiaCard({
               </div>
             )}
 
-            {/* ── المنتصف: اسم اللاعب ── */}
+            {/* ── المنتصف: صورة اللاعب + اسمه ── */}
             <div className="flex-1 flex flex-col items-center justify-center">
+              {/* دائرة الصورة الشخصية */}
+              {avatarUrl ? (
+                <div
+                  className={`rounded-full border-2 ${
+                    isFemale ? 'border-purple-400/70' : 'border-[#C5A059]/70'
+                  } mb-3 overflow-hidden bg-black/40`}
+                  style={{
+                    width: size === 'sm' ? 56 : size === 'md' ? 72 : size === 'lg' ? 88 : 72,
+                    height: size === 'sm' ? 56 : size === 'md' ? 72 : size === 'lg' ? 88 : 72,
+                    boxShadow: isFemale
+                      ? '0 0 20px rgba(168, 85, 247, 0.25), inset 0 0 10px rgba(0,0,0,0.3)'
+                      : '0 0 20px rgba(197, 160, 89, 0.25), inset 0 0 10px rgba(0,0,0,0.3)',
+                  }}
+                >
+                  <img
+                    src={`${avatarUrl}`}
+                    alt={playerName}
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+              ) : null}
               <h2 className={`${nameSize} font-black text-white text-center leading-tight mb-3`}
                 style={{ fontFamily: 'Amiri, serif' }}>
                 {playerName}

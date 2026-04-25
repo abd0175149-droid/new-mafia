@@ -204,14 +204,15 @@ export default function DisplayPage() {
       if (!state) return;
       if (state.players) {
         const effectivePhase = phaseOverride || state.phase;
-        setPlayers(state.players.map((p: any) => ({
+        const activePlayers = state.players.filter((p: any) => !p.frozen);
+        setPlayers(activePlayers.map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
           isAlive: p.isAlive,
           gender: p.gender,
           role: effectivePhase === 'LOBBY' ? null : (p.role || null),
         })));
-        setPlayerCount(state.players.filter((p: any) => p.isAlive !== false).length);
+        setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
       }
       // phaseOverride يتجاوز phase القديم في state
       if (phaseOverride) setPhase(phaseOverride as Phase);
@@ -371,6 +372,14 @@ export default function DisplayPage() {
       if (data.teamCounts) setTeamCounts(data.teamCounts);
     });
 
+    // ── أحداث الإقصاء بالتصويت — تحديث عداد الفرق ──
+    const onDayTeamUpdate = (data: any) => {
+      if (data.teamCounts) setTeamCounts(data.teamCounts);
+    };
+    socket.on('day:elimination-pending', onDayTeamUpdate);
+    socket.on('day:elimination-revealed', onDayTeamUpdate);
+    socket.on('day:voting-started', onDayTeamUpdate);
+
     // إعادة عرض نتيجة لعبة سابقة
     const onReplayResult = (data: any) => { setReplayData(data); };
     const onReplayHidden = () => { setReplayData(null); };
@@ -490,7 +499,8 @@ export default function DisplayPage() {
           setWinner(data.state.winner);
         }
         if (data.state.players) {
-          setPlayers(data.state.players.map((p: any) => ({
+          const activePlayers = data.state.players.filter((p: any) => !p.frozen);
+          setPlayers(activePlayers.map((p: any) => ({
             physicalId: p.physicalId,
             name: p.name,
             isAlive: p.isAlive,

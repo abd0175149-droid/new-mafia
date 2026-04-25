@@ -274,11 +274,14 @@ export function registerDayEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.DAY_TIEBREAKER);
         io.to(data.roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
       } else {
+        // جلب state محدث للعداد
+        const updatedState = await getGameState(data.roomId);
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated: result.eliminated,
           revealedRoles: result.revealedRoles,
           winResult: result.winResult,
           type: result.type,
+          teamCounts: updatedState ? getTeamCounts(updatedState.players) : undefined,
         });
       }
 
@@ -312,11 +315,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
       }
 
+      const currentState = await getGameState(data.roomId);
       io.to(data.roomId).emit('day:elimination-revealed', {
         eliminated: result.eliminated,
         revealedRoles: result.revealedRoles,
         type: result.type,
         pendingWinner,
+        teamCounts: currentState ? getTeamCounts(currentState.players) : undefined,
       });
 
       callback({ success: true });

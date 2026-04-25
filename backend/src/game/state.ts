@@ -34,6 +34,7 @@ export interface Player {
   isSilenced: boolean;
   justificationCount: number; // عدد مرات التبرير في الجولة الحالية
   addedBy?: 'self' | 'leader'; // من أضاف اللاعب: اللاعب نفسه أو الليدر
+  frozen?: boolean; // مجمد — انتقل لغرفة أخرى مؤقتاً (بياناته محفوظة)
 }
 
 export enum CandidateType {

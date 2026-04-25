@@ -181,8 +181,9 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
     }
 
-    // البحث عن لعبة نشطة
+    // البحث عن لعبة نشطة + ألعاب مجمدة
     let activeGame = null;
+    const frozenGames: any[] = [];
     try {
       const { getAllGameStates } = await import('../config/redis.js');
       const allStates = await getAllGameStates();
@@ -193,7 +194,7 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
           pl.playerId === player.id || pl.phone === player.phone
         );
         if (p) {
-          activeGame = {
+          const gameInfo = {
             roomId: state.roomId,
             roomCode: state.roomCode,
             gameName: state.config?.gameName,
@@ -202,7 +203,12 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
             isAlive: p.isAlive,
             phase: state.phase,
           };
-          break;
+
+          if (p.frozen) {
+            frozenGames.push(gameInfo);
+          } else if (!activeGame) {
+            activeGame = gameInfo;
+          }
         }
       }
     } catch { /* Redis might be unavailable */ }
@@ -224,6 +230,7 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
         mustChangePassword: player.mustChangePassword || false,
       },
       activeGame,
+      frozenGames,
     });
   } catch (err: any) {
     console.error('❌ Player /me error:', err.message);

@@ -166,7 +166,7 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
     }
 
-    // التحقق من لعبة نشطة (real-time من Redis)
+    // التحقق من لعبة نشطة (real-time من Redis) — تجاهل المجمدين
     let activeGame = null;
     try {
       const { getAllGameStates } = await import('../config/redis.js');
@@ -175,7 +175,7 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
       for (const state of allStates) {
         if (!state || state.phase === 'GAME_OVER') continue;
         const p = state.players?.find((pl: any) =>
-          pl.playerId === playerId || pl.phone === profile.player.phone
+          (pl.playerId === playerId || pl.phone === profile.player.phone) && !pl.frozen
         );
         if (p) {
           activeGame = {

@@ -7,7 +7,7 @@ import { Server, Socket } from 'socket.io';
 import { setPhase, Phase } from '../game/state.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { resolveNight, resetNightActions, getAvailableTargets } from '../game/night-resolver.js';
-import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole } from '../game/roles.js';
+import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { WinResult } from '../game/win-checker.js';
 import { finalizeMatch } from '../services/match.service.js';
 
@@ -67,7 +67,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       // لا يوجد سؤال ممرضة — ننتقل للّيل مباشرة
       await setPhase(data.roomId, Phase.NIGHT);
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT });
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
       // تحديد أول دور نشط حي
@@ -103,7 +103,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       // الآن ننتقل رسمياً لمرحلة الليل
       await setPhase(data.roomId, Phase.NIGHT);
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT });
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
       await setGameState(data.roomId, state);
@@ -296,8 +296,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const resolution = await resolveNight(data.roomId);
       await setPhase(data.roomId, Phase.MORNING_RECAP);
 
-      // إبلاغ الجميع بالمرحلة الجديدة
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.MORNING_RECAP });
+      // إبلاغ الجميع بالمرحلة الجديدة + أعداد الفرق بعد القتل
+      const stateAfterResolve = await getGameState(data.roomId);
+      io.to(data.roomId).emit('game:phase-changed', {
+        phase: Phase.MORNING_RECAP,
+        teamCounts: stateAfterResolve ? getTeamCounts(stateAfterResolve.players) : undefined,
+      });
 
       // حفظ حالة الفوز المعلقة (إن وجدت) بدون بث فوري
       let pendingWinner: string | null = null;
@@ -419,7 +423,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_DISCUSSION });
+      io.to(data.roomId).emit('game:phase-changed', {
+        phase: Phase.DAY_DISCUSSION,
+        teamCounts: getTeamCounts(state.players),
+      });
 
       callback({ success: true });
     } catch (err: any) {
