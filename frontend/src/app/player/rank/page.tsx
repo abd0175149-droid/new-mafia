@@ -237,14 +237,16 @@ export default function RankPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/80 flex items-end justify-center"
+            className="fixed top-0 left-0 right-0 z-[100] bg-black/80 flex items-end justify-center"
+            style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))' }}
             onClick={() => { setSelectedProfile(null); setSelectedPlayer(null); }}
           >
             <motion.div
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="w-full max-w-lg rounded-t-3xl p-5 max-h-[75vh] overflow-y-auto"
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-lg rounded-t-3xl p-5 max-h-[70vh] overflow-y-auto"
               style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)' }}
               onClick={e => e.stopPropagation()}
             >
