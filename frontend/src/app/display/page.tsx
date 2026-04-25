@@ -1176,6 +1176,7 @@ export default function DisplayPage() {
                 isAlive={false}
                 size="fluid"
                 className="w-52 h-[18rem] md:w-72 md:h-[24rem] lg:w-80 lg:h-[28rem]"
+                avatarUrl={players.find(p => p.physicalId === adminReveal.physicalId)?.avatarUrl}
               />
             </motion.div>
 

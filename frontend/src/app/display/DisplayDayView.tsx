@@ -606,6 +606,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             flippable={false}
                             size={discussionCardSize}
                             isAlive={p.isAlive}
+                            avatarUrl={p.avatarUrl}
                             className={isSpeaker ? 'shadow-[0_0_50px_rgba(197,160,89,0.4)] border-2 border-[#C5A059]' : ''}
                           />
                           
@@ -759,6 +760,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         gender={targetGender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                         size={votingCardSize}
                         isAlive={true}
+                        avatarUrl={targetPlayer?.avatarUrl}
                       />
                     </div>
 
@@ -832,6 +834,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         gender={p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                         size="lg"
                         isAlive={true}
+                        avatarUrl={p?.avatarUrl}
                       />
                       {acc.type === 'DEAL' && (
                         <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-4 py-0.5 tracking-widest rounded-full z-30">DEAL</div>
@@ -1183,6 +1186,7 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
                     gender={p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                     size="fluid"
                     className="w-56 h-[19rem] md:w-64 md:h-[22rem]"
+                    avatarUrl={p?.avatarUrl}
                   />
                 </div>
               </div>

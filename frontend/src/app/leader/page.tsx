@@ -1015,6 +1015,7 @@ export default function LeaderPage() {
                         flippable={false}
                         isAlive={true}
                         size="sm"
+                        avatarUrl={p.avatarUrl}
                       />
                       {/* زر حذف لاعب — يظهر عند hover */}
                       {!showExcludeUI && !isSessionEditing && (
@@ -1752,6 +1753,7 @@ export default function LeaderPage() {
                     flippable={false}
                     isAlive={false}
                     size="lg"
+                    avatarUrl={adminRevealData.avatarUrl}
                   />
                 </motion.div>
 
@@ -1960,6 +1962,7 @@ export default function LeaderPage() {
                       flippable={false}
                       isAlive={p.isAlive}
                       size="sm"
+                      avatarUrl={p.avatarUrl}
                     />
                     {/* زر الاستبعاد */}
                     {showExcludeUI && (
