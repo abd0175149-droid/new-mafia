@@ -1753,7 +1753,7 @@ export default function LeaderPage() {
                     flippable={false}
                     isAlive={false}
                     size="lg"
-                    avatarUrl={adminRevealData.avatarUrl}
+                    avatarUrl={gameState.players.find((p: any) => p.physicalId === adminRevealData.physicalId)?.avatarUrl}
                   />
                 </motion.div>
 
