@@ -378,7 +378,7 @@ export default function MafiaCard({
                 {/* الاسم + عدد الأصوات */}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full">
                   <h2
-                    className={`${nameSize} font-black text-white leading-tight max-w-[70%] truncate`}
+                    className={`${nameSize} font-black text-white leading-tight`}
                     style={{
                       fontFamily: 'Amiri, serif',
                     }}
