@@ -471,6 +471,10 @@ export default function LeaderPage() {
           phase: 'MORNING_RECAP',
           morningEvents: data.events,
           pendingWinner: data.pendingWinner || null,
+          // تحديث اللاعبين بحالة isAlive الجديدة بعد الإقصاء الليلي
+          players: data.players && data.players.length > 0
+            ? data.players
+            : prev.players,
         } as any;
       });
     });

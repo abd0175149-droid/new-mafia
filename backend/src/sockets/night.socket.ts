@@ -315,10 +315,11 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
       }
 
-      // إرسال كروت الملخص لليدر + حالة الفوز المعلقة
+      // إرسال كروت الملخص لليدر + حالة الفوز المعلقة + اللاعبين المحدّثين
       socket.emit('night:morning-recap', {
         events: resolution.events,
         pendingWinner: pendingWinner,
+        players: stateAfterResolve?.players || [],
       });
 
       callback({ success: true, events: resolution.events });
