@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -35,23 +36,22 @@ function fmtDateTime(d: any) {
 }
 
 // ── Role label helpers ──
-const ROLE_LABELS: Record<string, string> = {
-  GODFATHER: 'الأب الروحي', SILENCER: 'المُسكِت', CHAMELEON: 'الحرباء', MAFIA_REGULAR: 'مافيا عادي',
-  CITIZEN: 'مواطن', SHERIFF: 'المحقق', DOCTOR: 'الطبيب', BODYGUARD: 'الحارس', SNIPER: 'القناص',
-  SURVIVOR: 'الناجي', JOURNALIST: 'الصحفي',
+const RANK_MAP: Record<string, { label: string; icon: string; color: string }> = {
+  INFORMANT:  { label: 'المُخبر',       icon: '⭐',  color: 'text-gray-400' },
+  ASSOCIATE:  { label: 'المُشارك',      icon: '⭐⭐', color: 'text-blue-400' },
+  SOLDIER:    { label: 'الجندي',        icon: '⭐⭐⭐', color: 'text-emerald-400' },
+  CAPO:       { label: 'الكابو',        icon: '🌟',  color: 'text-amber-400' },
+  UNDERBOSS:  { label: 'نائب الزعيم',   icon: '🌟🌟', color: 'text-orange-400' },
+  GODFATHER:  { label: 'الأب الروحي',   icon: '👑',  color: 'text-rose-400' },
 };
 
 export default function PlayersManagementPage() {
+  const router = useRouter();
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-
-  // Profile modal
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [profileData, setProfileData] = useState<any>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
 
   // ── Load Players ──
   async function loadPlayers() {
@@ -89,19 +89,8 @@ export default function PlayersManagementPage() {
   }
 
   // ── View Profile ──
-  async function handleViewProfile(playerId: number) {
-    setProfileOpen(true);
-    setProfileLoading(true);
-    setProfileData(null);
-    try {
-      const data = await apiFetch(`/api/player/${playerId}/profile`);
-      setProfileData(data);
-    } catch (err: any) {
-      showToast(err.message || 'خطأ في جلب البروفايل', 'error');
-      setProfileOpen(false);
-    } finally {
-      setProfileLoading(false);
-    }
+  function handleViewProfile(playerId: number) {
+    router.push(`/admin/players/${playerId}`);
   }
 
   // ── Filtered Players ──
@@ -180,6 +169,7 @@ export default function PlayersManagementPage() {
                   <th className="text-center px-4 py-3 font-medium">مباريات</th>
                   <th className="text-center px-4 py-3 font-medium">فوز</th>
                   <th className="text-center px-4 py-3 font-medium">نجا</th>
+                  <th className="text-center px-4 py-3 font-medium">المستوى / الرانك</th>
                   <th className="text-center px-4 py-3 font-medium">آخر نشاط</th>
                   <th className="text-center px-4 py-3 font-medium">الحالة</th>
                   <th className="text-center px-4 py-3 font-medium">الإجراءات</th>
@@ -221,6 +211,18 @@ export default function PlayersManagementPage() {
                       </td>
                       {/* Survived */}
                       <td className="px-4 py-3 text-center text-blue-400 font-bold">{p.totalSurvived || 0}</td>
+                      {/* Level + Rank */}
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          const rank = RANK_MAP[p.rankTier] || RANK_MAP.INFORMANT;
+                          return (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className={`text-xs font-bold ${rank.color}`}>{rank.icon} {rank.label}</span>
+                              <span className="text-[10px] text-gray-600">Lv.{p.level || 1}</span>
+                            </div>
+                          );
+                        })()}
+                      </td>
                       {/* Last Active */}
                       <td className="px-4 py-3 text-center text-gray-500 text-xs font-mono" dir="ltr">
                         {fmtDateTime(p.lastActiveAt)}
@@ -264,122 +266,7 @@ export default function PlayersManagementPage() {
         )}
       </div>
 
-      {/* ═══ PROFILE MODAL ═══ */}
-      <AnimatePresence>
-        {profileOpen && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-            onClick={() => setProfileOpen(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={e => e.stopPropagation()}
-              className="bg-gray-800 border border-gray-700/50 rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto space-y-5"
-            >
-              {profileLoading ? (
-                <div className="flex items-center justify-center py-16">
-                  <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" />
-                </div>
-              ) : profileData ? (
-                <>
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-2xl font-bold overflow-hidden shrink-0">
-                        {profileData.player?.avatarUrl ? (
-                          <Image src={`${API_URL}${profileData.player.avatarUrl}`} alt="" width={64} height={64} className="w-full h-full object-cover" />
-                        ) : (
-                          profileData.player?.name?.[0] || '👤'
-                        )}
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-white">{profileData.player?.name}</h3>
-                        <p className="text-sm text-gray-400 font-mono" dir="ltr">{profileData.player?.phone}</p>
-                        {profileData.player?.email && <p className="text-xs text-gray-500">{profileData.player.email}</p>}
-                      </div>
-                    </div>
-                    <button onClick={() => setProfileOpen(false)} className="text-gray-500 hover:text-white transition text-xl">✕</button>
-                  </div>
 
-                  {/* Stats Grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { label: 'مباريات', value: profileData.stats?.totalMatches || 0, color: 'text-white' },
-                      { label: 'فوز', value: profileData.stats?.totalWins || 0, color: 'text-emerald-400' },
-                      { label: 'نسبة الفوز', value: `${profileData.stats?.winRate || 0}%`, color: 'text-amber-400' },
-                      { label: 'نسبة النجاة', value: `${profileData.stats?.survivalRate || 0}%`, color: 'text-blue-400' },
-                    ].map((s, i) => (
-                      <div key={i} className="bg-gray-900/50 rounded-xl p-3 text-center border border-gray-700/30">
-                        <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
-                        <p className="text-[10px] text-gray-500">{s.label}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Detailed Stats */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-gray-900/50 rounded-xl p-3 border border-gray-700/30">
-                      <p className="text-xs text-gray-500 mb-2">🔴 كـ مافيا</p>
-                      <p className="text-lg font-bold text-red-400">{profileData.stats?.mafiaGames || 0} <span className="text-xs text-gray-500">مباراة</span></p>
-                      <p className="text-xs text-gray-400">فوز: {profileData.stats?.mafiaWins || 0} ({profileData.stats?.mafiaWinRate || 0}%)</p>
-                    </div>
-                    <div className="bg-gray-900/50 rounded-xl p-3 border border-gray-700/30">
-                      <p className="text-xs text-gray-500 mb-2">🔵 كـ مواطن</p>
-                      <p className="text-lg font-bold text-blue-400">{profileData.stats?.citizenGames || 0} <span className="text-xs text-gray-500">مباراة</span></p>
-                      <p className="text-xs text-gray-400">فوز: {profileData.stats?.citizenWins || 0} ({profileData.stats?.citizenWinRate || 0}%)</p>
-                    </div>
-                  </div>
-
-                  {/* Favorite Role & Streak */}
-                  <div className="flex gap-3 flex-wrap">
-                    {profileData.stats?.favoriteRole && (
-                      <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl px-4 py-2">
-                        <span className="text-[10px] text-gray-500">الدور المفضل</span>
-                        <p className="text-sm font-bold text-purple-400">{ROLE_LABELS[profileData.stats.favoriteRole] || profileData.stats.favoriteRole}</p>
-                      </div>
-                    )}
-                    {profileData.stats?.longestWinStreak > 0 && (
-                      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2">
-                        <span className="text-[10px] text-gray-500">أطول سلسلة فوز</span>
-                        <p className="text-sm font-bold text-amber-400">🔥 {profileData.stats.longestWinStreak}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Match History */}
-                  {profileData.matchHistory?.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-bold text-white mb-2">📜 آخر المباريات</h4>
-                      <div className="space-y-1 max-h-48 overflow-y-auto">
-                        {profileData.matchHistory.slice(0, 15).map((m: any, i: number) => {
-                          const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(m.role);
-                          const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
-                          return (
-                            <div key={i} className="flex items-center justify-between bg-gray-900/30 rounded-lg px-3 py-2 text-xs">
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${won ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-                                <span className="text-gray-300">{ROLE_LABELS[m.role] || m.role || '—'}</span>
-                                <span className={`text-[10px] px-1.5 rounded ${isMafia ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                  {isMafia ? 'مافيا' : 'مواطن'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-3 text-gray-500">
-                                <span>{m.survived ? '✅ نجا' : '💀'}</span>
-                                <span className="font-mono">{fmtDate(m.matchDate)}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : null}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* ═══ TOAST ═══ */}
       <AnimatePresence>
