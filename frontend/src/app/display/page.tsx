@@ -172,6 +172,68 @@ export default function DisplayPage() {
   const [replayData, setReplayData] = useState<any>(null);
   const [adminReveal, setAdminReveal] = useState<{physicalId: number; playerName: string; role: string} | null>(null);
   const adminRevealTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasAutoRejoined = useRef(false);
+
+  // ══════════════════════════════════════════════════
+  // 🔄 استعادة الجلسة عند تحديث الصفحة
+  // ══════════════════════════════════════════════════
+  useEffect(() => {
+    if (hasAutoRejoined.current) return;
+    hasAutoRejoined.current = true;
+    try {
+      const saved = sessionStorage.getItem('display_session');
+      if (saved) {
+        const { pin: savedPin, roomId: savedRoomId } = JSON.parse(saved);
+        if (savedPin && savedRoomId) {
+          console.log('🔄 Display: Restoring session from storage...');
+          setPin(savedPin);
+          setLoading(true);
+          // إعادة الدخول تلقائياً
+          fetch('/api/game/verify-pin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomId: savedRoomId, pin: savedPin }),
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (data.success) {
+                setCurrentRoomId(savedRoomId);
+                setGameName(data.gameName);
+                setRoomCode(data.roomCode);
+                setPlayerCount(data.playerCount || 0);
+                setMaxPlayers(data.maxPlayers || 10);
+                if (data.state) {
+                  setPhase(data.state.phase || 'LOBBY');
+                  setDiscussionState(data.state.discussionState || null);
+                  if (data.state.winner) setWinner(data.state.winner);
+                  if (data.state.players) {
+                    const activePlayers = data.state.players.filter((p: any) => !p.frozen);
+                    setPlayers(activePlayers.map((p: any) => ({
+                      physicalId: p.physicalId,
+                      name: p.name,
+                      isAlive: p.isAlive,
+                      gender: p.gender,
+                      role: p.role,
+                      avatarUrl: p.avatarUrl || null,
+                    })));
+                  }
+                }
+                setStep('lobby');
+                console.log('✅ Display: Session restored successfully');
+              } else {
+                // الجلسة انتهت — حذفها
+                sessionStorage.removeItem('display_session');
+                console.log('⚠️ Display: Saved session expired, showing PIN screen');
+              }
+            })
+            .catch(() => {
+              sessionStorage.removeItem('display_session');
+            })
+            .finally(() => setLoading(false));
+        }
+      }
+    } catch (_) {}
+  }, []);
 
   // ── Socket Init ──
   useEffect(() => {
@@ -520,6 +582,9 @@ export default function DisplayPage() {
           })));
         }
       }
+
+      // حفظ الجلسة في sessionStorage للاستعادة عند التحديث
+      try { sessionStorage.setItem('display_session', JSON.stringify({ pin, roomId })); } catch (_) {}
 
       setStep('lobby');
     } catch (err: any) {
