@@ -16,6 +16,7 @@ export default function GamesPage() {
   const [bookingLoading, setBookingLoading] = useState<number | null>(null);
   const [followingBookers, setFollowingBookers] = useState<Record<number, any[]>>({});
   const [showBookersFor, setShowBookersFor] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toDateString());
 
   useEffect(() => {
     if (!player) return;
@@ -70,14 +71,6 @@ export default function GamesPage() {
     setBookingLoading(null);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="w-10 h-10 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   // ── شريط التقويم ──
   const today = new Date();
   const weekDays = Array.from({ length: 14 }, (_, i) => {
@@ -85,10 +78,17 @@ export default function GamesPage() {
     d.setDate(today.getDate() + i);
     return d;
   });
-  const [selectedDate, setSelectedDate] = useState<string>(today.toDateString());
 
   const dayNames = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
   const monthNames = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-10 h-10 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6">
