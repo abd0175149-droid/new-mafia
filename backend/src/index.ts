@@ -36,7 +36,7 @@ import { registerGameEvents } from './sockets/game.socket.js';
 
 // ── Game API Routes ─────────────────────────────────
 import { getFinishedMatches, getMatchDetails, getMatchesBySession } from './services/match.service.js';
-import { getClosedSessions } from './services/session.service.js';
+import { getClosedSessions, getAllSessions } from './services/session.service.js';
 
 const app = express();
 const server = createServer(app);
@@ -103,9 +103,9 @@ app.get('/api/leader/match/:id', async (req, res) => {
   res.json(match);
 });
 
-// GET /api/leader/sessions — الغرف المنتهية
+// GET /api/leader/sessions — كل الغرف (نشطة + مغلقة) مع إحصائياتها
 app.get('/api/leader/sessions', async (_req, res) => {
-  const sessions = await getClosedSessions();
+  const sessions = await getAllSessions();
   res.json(sessions);
 });
 

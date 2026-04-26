@@ -18,6 +18,25 @@ async function apiFetch(path: string) {
   return res.json();
 }
 
+// ── أنواع البيانات ──
+
+interface Session {
+  id: number;
+  sessionCode: string;
+  displayPin: string;
+  sessionName: string;
+  maxPlayers: number;
+  isActive: boolean;
+  activityId: number | null;
+  createdAt: string;
+  matchCount: number;
+  finishedMatchCount: number;
+  playerCount: number;
+  lastMatchAt: string | null;
+  lastWinner: string | null;
+  totalDuration: number;
+}
+
 interface Match {
   id: number;
   gameName: string;
@@ -41,37 +60,29 @@ interface MatchDetail extends Match {
   }[];
 }
 
-interface Session {
-  id: number;
-  sessionCode: string;
-  sessionName: string;
-  maxPlayers: number;
-  createdAt: string;
-  matchCount: number;
-  lastMatchAt: string | null;
-  lastWinner: string | null;
-  totalDuration: number;
-}
+type StatusFilter = 'all' | 'active' | 'closed';
 
 export default function GameHistoryPage() {
-  const [tab, setTab] = useState<'matches' | 'sessions'>('matches');
-  const [matches, setMatches] = useState<Match[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [selectedMatch, setSelectedMatch] = useState<MatchDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+
+  // حالة التوسيع (accordion)
+  const [expandedSession, setExpandedSession] = useState<number | null>(null);
+  const [sessionMatches, setSessionMatches] = useState<Record<number, Match[]>>({});
+  const [matchesLoading, setMatchesLoading] = useState<number | null>(null);
+
+  // حالة Modal تفاصيل المباراة
+  const [selectedMatch, setSelectedMatch] = useState<MatchDetail | null>(null);
 
   useEffect(() => {
-    loadData();
+    loadSessions();
   }, []);
 
-  async function loadData() {
+  async function loadSessions() {
     try {
-      const [m, s] = await Promise.all([
-        apiFetch('/api/leader/history'),
-        apiFetch('/api/leader/sessions'),
-      ]);
-      setMatches(m);
-      setSessions(s);
+      const data = await apiFetch('/api/leader/sessions');
+      setSessions(data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -79,21 +90,63 @@ export default function GameHistoryPage() {
     }
   }
 
-  async function viewMatch(id: number) {
+  async function toggleSession(sessionId: number) {
+    if (expandedSession === sessionId) {
+      setExpandedSession(null);
+      return;
+    }
+
+    setExpandedSession(sessionId);
+
+    // جلب مباريات الغرفة إذا لم تُجلب بعد
+    if (!sessionMatches[sessionId]) {
+      setMatchesLoading(sessionId);
+      try {
+        const matches = await apiFetch(`/api/leader/sessions/${sessionId}/matches`);
+        setSessionMatches(prev => ({ ...prev, [sessionId]: matches }));
+      } catch { /* ignore */ }
+      setMatchesLoading(null);
+    }
+  }
+
+  async function viewMatch(matchId: number) {
     try {
-      const detail = await apiFetch(`/api/leader/match/${id}`);
+      const detail = await apiFetch(`/api/leader/match/${matchId}`);
       setSelectedMatch(detail);
     } catch (err) {
       console.error(err);
     }
   }
 
-  function formatDuration(seconds: number | null): string {
+  function formatDuration(seconds: number | null | undefined): string {
     if (!seconds) return '—';
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
+
+  function formatDate(dateStr: string | null): string {
+    if (!dateStr) return '';
+    return new Date(dateStr).toLocaleDateString('ar-JO', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  // ── الفلترة ──
+  const filteredSessions = sessions.filter(s => {
+    if (statusFilter === 'active') return s.isActive;
+    if (statusFilter === 'closed') return !s.isActive;
+    return true;
+  });
+
+  const counts = {
+    all: sessions.length,
+    active: sessions.filter(s => s.isActive).length,
+    closed: sessions.filter(s => !s.isActive).length,
+  };
 
   if (loading) {
     return (
@@ -105,103 +158,179 @@ export default function GameHistoryPage() {
 
   return (
     <div className="space-y-6">
+      {/* ── الهيدر ── */}
       <div>
         <h1 className="text-3xl font-bold text-white">🎮 سجل الألعاب</h1>
-        <p className="text-gray-400 mt-1">تاريخ جميع المباريات والغرف السابقة</p>
+        <p className="text-gray-400 mt-1">كل الغرف والمباريات في مكان واحد</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2">
-        {(['matches', 'sessions'] as const).map((t) => (
+      {/* ── فلتر الحالة ── */}
+      <div className="flex gap-2 flex-wrap">
+        {([
+          { key: 'all', label: 'الكل', icon: '📋' },
+          { key: 'active', label: 'نشطة', icon: '🟢' },
+          { key: 'closed', label: 'مغلقة', icon: '🔴' },
+        ] as { key: StatusFilter; label: string; icon: string }[]).map(f => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={f.key}
+            onClick={() => setStatusFilter(f.key)}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-              tab === t
+              statusFilter === f.key
                 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
                 : 'text-gray-400 hover:text-white bg-gray-800/40 border border-gray-700/30'
             }`}
           >
-            {t === 'matches' ? `🎲 المباريات (${matches.length})` : `🏠 الغرف (${sessions.length})`}
+            {f.icon} {f.label} ({counts[f.key]})
           </button>
         ))}
       </div>
 
-      {/* Matches Tab */}
-      {tab === 'matches' && (
-        <div className="grid gap-3">
-          {matches.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">لا توجد مباريات مسجلة بعد</div>
-          ) : (
-            matches.map((m, i) => (
-              <motion.div
-                key={m.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-                onClick={() => viewMatch(m.id)}
-                className="bg-gray-800/50 border border-gray-700/40 rounded-xl p-4 flex items-center gap-4 hover:border-amber-500/30 cursor-pointer transition-all group"
+      {/* ── قائمة الغرف ── */}
+      <div className="space-y-3">
+        {filteredSessions.length === 0 ? (
+          <div className="text-center py-16 text-gray-500">لا توجد غرف تطابق الفلتر</div>
+        ) : (
+          filteredSessions.map((session, i) => (
+            <motion.div
+              key={session.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.03 }}
+            >
+              {/* ── كارت الغرفة ── */}
+              <div
+                onClick={() => toggleSession(session.id)}
+                className={`rounded-xl p-4 cursor-pointer transition-all border ${
+                  expandedSession === session.id
+                    ? 'bg-gray-800/70 border-amber-500/30'
+                    : 'bg-gray-800/50 border-gray-700/40 hover:border-gray-600/50'
+                }`}
               >
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-lg ${
-                  m.winner === 'MAFIA' ? 'bg-rose-500/20 text-rose-400' :
-                  m.winner === 'CITIZEN' ? 'bg-emerald-500/20 text-emerald-400' :
-                  'bg-gray-700/50 text-gray-400'
-                }`}>
-                  {m.winner === 'MAFIA' ? '🔴' : m.winner === 'CITIZEN' ? '🟢' : '⏸'}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-white text-sm group-hover:text-amber-400 transition">{m.gameName}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    كود: {m.roomCode} • {m.playerCount} لاعب • {m.totalRounds} جولة • {formatDuration(m.durationSeconds)}
-                  </p>
-                </div>
-
-                <div className="text-left">
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    m.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
-                    m.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' :
-                    'bg-gray-700/30 text-gray-500'
+                <div className="flex items-center gap-4">
+                  {/* أيقونة الحالة */}
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-lg ${
+                    session.isActive
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : 'bg-gray-700/50 text-gray-400'
                   }`}>
-                    {m.winner === 'MAFIA' ? 'فوز المافيا' : m.winner === 'CITIZEN' ? 'فوز المواطنين' : 'بدون نتيجة'}
-                  </span>
-                </div>
-              </motion.div>
-            ))
-          )}
-        </div>
-      )}
+                    {session.isActive ? '🟢' : '🏠'}
+                  </div>
 
-      {/* Sessions Tab */}
-      {tab === 'sessions' && (
-        <div className="grid gap-3">
-          {sessions.length === 0 ? (
-            <div className="text-center py-16 text-gray-500">لا توجد غرف منتهية بعد</div>
-          ) : (
-            sessions.map((s, i) => (
-              <motion.div
-                key={s.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03 }}
-                className="bg-gray-800/50 border border-gray-700/40 rounded-xl p-4 flex items-center gap-4"
-              >
-                <div className="w-12 h-12 rounded-xl bg-indigo-500/20 flex items-center justify-center text-lg">
-                  🏠
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-white text-sm">{s.sessionName}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    كود: {s.sessionCode} • {s.matchCount} مباراة • {formatDuration(s.totalDuration)}
-                  </p>
-                </div>
-              </motion.div>
-            ))
-          )}
-        </div>
-      )}
+                  {/* معلومات الغرفة */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-white text-sm">{session.sessionName}</p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                        session.isActive
+                          ? 'bg-emerald-500/10 text-emerald-400'
+                          : 'bg-gray-700/30 text-gray-500'
+                      }`}>
+                        {session.isActive ? 'نشطة' : 'مغلقة'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      كود: {session.sessionCode}
+                      {' • '}{session.playerCount}/{session.maxPlayers} لاعب
+                      {' • '}{session.matchCount} مباراة
+                      {session.totalDuration > 0 && ` • ${formatDuration(session.totalDuration)}`}
+                    </p>
+                    <p className="text-[10px] text-gray-600 mt-0.5">
+                      {formatDate(session.createdAt)}
+                    </p>
+                  </div>
 
-      {/* Match Detail Modal */}
+                  {/* آخر نتيجة */}
+                  {session.lastWinner && (
+                    <span className={`text-xs px-2 py-1 rounded-full hidden sm:inline-block ${
+                      session.lastWinner === 'MAFIA'
+                        ? 'bg-rose-500/10 text-rose-400'
+                        : 'bg-emerald-500/10 text-emerald-400'
+                    }`}>
+                      {session.lastWinner === 'MAFIA' ? '🔴' : '🟢'} آخر فوز
+                    </span>
+                  )}
+
+                  {/* سهم التوسيع */}
+                  <motion.span
+                    animate={{ rotate: expandedSession === session.id ? 180 : 0 }}
+                    className="text-gray-500 text-sm"
+                  >
+                    ▼
+                  </motion.span>
+                </div>
+              </div>
+
+              {/* ── المباريات (Dropdown) ── */}
+              <AnimatePresence>
+                {expandedSession === session.id && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mr-6 mt-1 border-r-2 border-gray-700/50 pr-4 space-y-2 py-2">
+                      {matchesLoading === session.id ? (
+                        <div className="flex items-center gap-2 py-4 justify-center">
+                          <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
+                          <span className="text-xs text-gray-500">جاري التحميل...</span>
+                        </div>
+                      ) : (sessionMatches[session.id] || []).length === 0 ? (
+                        <p className="text-xs text-gray-600 py-3 text-center">لا توجد مباريات في هذه الغرفة</p>
+                      ) : (
+                        (sessionMatches[session.id] || []).map((match, mi) => (
+                          <motion.div
+                            key={match.id}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: mi * 0.05 }}
+                            onClick={() => viewMatch(match.id)}
+                            className="bg-gray-800/30 border border-gray-700/30 rounded-lg p-3 flex items-center gap-3 hover:border-amber-500/20 cursor-pointer transition-all group"
+                          >
+                            {/* أيقونة النتيجة */}
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm ${
+                              match.winner === 'MAFIA' ? 'bg-rose-500/15 text-rose-400' :
+                              match.winner === 'CITIZEN' ? 'bg-emerald-500/15 text-emerald-400' :
+                              'bg-amber-500/15 text-amber-400'
+                            }`}>
+                              {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : '⏳'}
+                            </div>
+
+                            {/* تفاصيل المباراة */}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white group-hover:text-amber-400 transition">
+                                {match.gameName}
+                              </p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                {match.playerCount} لاعب
+                                {' • '}{match.totalRounds} جولة
+                                {' • '}{formatDuration(match.durationSeconds)}
+                                {match.endedAt && ` • ${formatDate(match.endedAt)}`}
+                              </p>
+                            </div>
+
+                            {/* شارة الفائز */}
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                              match.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
+                              match.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' :
+                              'bg-amber-500/10 text-amber-400'
+                            }`}>
+                              {match.winner === 'MAFIA' ? 'مافيا' : match.winner === 'CITIZEN' ? 'مواطنين' : 'جارية'}
+                            </span>
+                          </motion.div>
+                        ))
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          ))
+        )}
+      </div>
+
+      {/* ── Modal تفاصيل المباراة ── */}
       <AnimatePresence>
         {selectedMatch && (
           <motion.div
@@ -218,42 +347,55 @@ export default function GameHistoryPage() {
               onClick={(e) => e.stopPropagation()}
               className="bg-gray-900 border border-gray-700/50 rounded-2xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto"
             >
+              {/* هيدر */}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-white">{selectedMatch.gameName}</h3>
-                <button onClick={() => setSelectedMatch(null)} className="text-gray-500 hover:text-white">✕</button>
+                <button onClick={() => setSelectedMatch(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
               </div>
 
+              {/* إحصائيات */}
               <div className="grid grid-cols-3 gap-3 mb-4">
-                <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-                  <p className="text-lg font-bold text-white">{selectedMatch.playerCount}</p>
-                  <p className="text-xs text-gray-500">لاعب</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-                  <p className="text-lg font-bold text-white">{selectedMatch.totalRounds}</p>
-                  <p className="text-xs text-gray-500">جولة</p>
-                </div>
-                <div className="bg-gray-800/50 rounded-xl p-3 text-center">
-                  <p className="text-lg font-bold text-white">{selectedMatch.durationFormatted}</p>
-                  <p className="text-xs text-gray-500">المدة</p>
-                </div>
+                {[
+                  { value: selectedMatch.playerCount, label: 'لاعب' },
+                  { value: selectedMatch.totalRounds, label: 'جولة' },
+                  { value: selectedMatch.durationFormatted, label: 'المدة' },
+                ].map((s, i) => (
+                  <div key={i} className="bg-gray-800/50 rounded-xl p-3 text-center">
+                    <p className="text-lg font-bold text-white">{s.value}</p>
+                    <p className="text-xs text-gray-500">{s.label}</p>
+                  </div>
+                ))}
               </div>
 
+              {/* الفائز */}
               <div className={`rounded-xl p-3 mb-4 text-center font-bold ${
-                selectedMatch.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'
+                selectedMatch.winner === 'MAFIA'
+                  ? 'bg-rose-500/10 text-rose-400'
+                  : selectedMatch.winner === 'CITIZEN'
+                    ? 'bg-emerald-500/10 text-emerald-400'
+                    : 'bg-gray-700/30 text-gray-400'
               }`}>
-                {selectedMatch.winner === 'MAFIA' ? '🔴 فازت المافيا' : '🟢 فاز المواطنون'}
+                {selectedMatch.winner === 'MAFIA' ? '🔴 فازت المافيا'
+                  : selectedMatch.winner === 'CITIZEN' ? '🟢 فاز المواطنون'
+                  : '⏳ بدون نتيجة'}
               </div>
 
-              {/* Players */}
+              {/* تاريخ */}
+              <div className="flex justify-between text-[10px] text-gray-600 mb-3 px-1">
+                <span>بدأت: {formatDate(selectedMatch.createdAt)}</span>
+                {selectedMatch.endedAt && <span>انتهت: {formatDate(selectedMatch.endedAt)}</span>}
+              </div>
+
+              {/* اللاعبون */}
               <h4 className="text-sm font-bold text-gray-300 mb-2">اللاعبون</h4>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {selectedMatch.players.map((p) => (
-                  <div key={p.physicalId} className="flex items-center gap-3 p-2 bg-gray-800/30 rounded-lg">
+                  <div key={p.physicalId} className="flex items-center gap-3 p-2.5 bg-gray-800/30 rounded-lg">
                     <span className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs font-bold text-white">
                       {p.physicalId}
                     </span>
                     <span className="flex-1 text-sm text-white">{p.playerName}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
                       p.team === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : 'bg-blue-500/10 text-blue-400'
                     }`}>
                       {p.role}
