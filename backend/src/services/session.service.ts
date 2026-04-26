@@ -195,20 +195,6 @@ export async function removePlayerFromSession(sessionId: number, physicalId: num
   }
 }
 
-// ── إغلاق الغرفة ─────────────────────────────────
-export async function closeSession(sessionId: number): Promise<void> {
-  const db = getDB();
-  if (!db) return;
-
-  try {
-    await db.update(sessions)
-      .set({ isActive: false, status: 'closed' })
-      .where(eq(sessions.id, sessionId));
-    console.log(`🔒 Session #${sessionId} closed`);
-  } catch (err: any) {
-    console.error('❌ Failed to close session:', err.message);
-  }
-}
 
 // ── إغلاق الغرفة (تبقى في السجل كـ مغلقة) ─────
 export async function closeSession(sessionId: number): Promise<boolean> {
