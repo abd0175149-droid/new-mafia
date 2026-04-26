@@ -169,35 +169,53 @@ export default function LeaderPage() {
         .catch(() => {});
 
       // ── دخول تلقائي من واجهة الإدارة ──
+      // الغرفة المنشأة من الأدمن هي سجل DB فقط — نحتاج إنشاء WebSocket room
       try {
         const entry = sessionStorage.getItem('leader_room_entry');
         if (entry) {
           sessionStorage.removeItem('leader_room_entry');
           const roomData = JSON.parse(entry);
-          if (roomData.sessionCode) {
-            console.log('🎮 Auto-entering room from admin:', roomData.sessionName);
-            // البحث عن الغرفة في القائمة النشطة بعد لحظة
-            setTimeout(async () => {
+          if (roomData.sessionName && isConnected) {
+            console.log('🎮 Auto-creating WebSocket room from admin:', roomData.sessionName);
+            // ننتظر الاتصال بالسوكت
+            const waitAndCreate = async () => {
               try {
-                const res = await fetch('/api/game/leader-rooms');
-                const data = await res.json();
-                if (data.success) {
-                  const targetRoom = (data.rooms || []).find(
-                    (r: any) => r.roomCode === roomData.sessionCode
-                  );
-                  if (targetRoom) {
-                    handleRejoinGame(targetRoom);
-                  } else {
-                    setError(`الغرفة ${roomData.sessionCode} غير نشطة — قد تحتاج لإنشائها أولاً من واجهة القائد`);
-                  }
-                }
-              } catch { }
-            }, 500);
+                // إنشاء غرفة WebSocket مرتبطة بالنشاط
+                const response = await emit('room:create', {
+                  gameName: roomData.sessionName,
+                  maxPlayers: 10,
+                  maxJustifications: 2,
+                  displayPin: roomData.displayPin || undefined,
+                  activityId: roomData.activityId || undefined,
+                });
+
+                setGameState({
+                  roomId: response.roomId,
+                  roomCode: response.roomCode,
+                  phase: 'LOBBY',
+                  config: {
+                    gameName: response.gameName || roomData.sessionName,
+                    maxPlayers: 10,
+                    displayPin: response.displayPin || '',
+                  },
+                  players: [],
+                  rolesPool: [],
+                  sessionId: response.sessionId,
+                  activityId: roomData.activityId || undefined,
+                });
+                setInSession(true);
+                fetchActiveGames();
+                console.log('✅ Room created from admin entry:', response.roomCode);
+              } catch (err: any) {
+                setError('فشل إنشاء الغرفة: ' + (err.message || 'خطأ غير متوقع'));
+              }
+            };
+            setTimeout(waitAndCreate, 300);
           }
         }
       } catch { }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isConnected]);
 
   // ── Fetch closed sessions (rooms) via REST ──
   const fetchHistory = async () => {
