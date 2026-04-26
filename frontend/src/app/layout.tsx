@@ -21,7 +21,7 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -49,6 +49,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               window.addEventListener('load', function() {
                 navigator.serviceWorker.register('/sw.js').then(function(reg) {
                   console.log('✅ PWA: Service Worker registered', reg.scope);
+                  // ── فرض التحديث: عند اكتشاف SW جديد ──
+                  reg.addEventListener('updatefound', function() {
+                    var newWorker = reg.installing;
+                    if (newWorker) {
+                      newWorker.addEventListener('statechange', function() {
+                        if (newWorker.state === 'activated') {
+                          console.log('🔄 PWA: New version activated — reloading...');
+                          location.reload();
+                        }
+                      });
+                    }
+                  });
+                  // ── تحقق فوري من وجود تحديث ──
+                  reg.update();
                 }).catch(function(err) {
                   console.warn('⚠️ PWA: SW registration failed', err);
                 });

@@ -43,11 +43,50 @@ const ShieldCheckIcon = () => (
   </svg>
 );
 
+// ── قراءة بيانات اللاعب من جميع مصادر localStorage ──
+function getSavedToken(): string | null {
+  // المصدر 1: PlayerFlow's own key
+  const t1 = localStorage.getItem('mafia_player_token');
+  if (t1) return t1;
+  // المصدر 2: PlayerContext's key (mafia_player_auth)
+  try {
+    const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
+    if (auth.token) return auth.token;
+  } catch {}
+  return null;
+}
+
+function getSavedPlayerId(): number {
+  const id1 = localStorage.getItem('mafia_playerId');
+  if (id1 && parseInt(id1)) return parseInt(id1);
+  try {
+    const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
+    if (auth.playerId) return auth.playerId;
+  } catch {}
+  try {
+    const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
+    if (info.playerId) return info.playerId;
+  } catch {}
+  return 0;
+}
+
+function getSavedPhone(): string {
+  try {
+    const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
+    if (info.phone) return info.phone;
+  } catch {}
+  try {
+    const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
+    if (auth.phone) return auth.phone;
+  } catch {}
+  return '';
+}
+
 export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const { joinRoom, isConnected, error, loading, emit, on } = useGameState();
   const [step, setStep] = useState<Step>(() => {
     // إذا فيه كود QR + توكن محفوظ → نبدأ بـ code مؤقتاً (الـ auto-find يتكفل)
-    if (initialRoomCode && typeof window !== 'undefined' && localStorage.getItem('mafia_player_token')) {
+    if (initialRoomCode && typeof window !== 'undefined' && getSavedToken()) {
       return 'code';
     }
     return initialRoomCode ? 'phone' : 'code';
@@ -109,8 +148,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }
 
       // ── تحقق من توافق الحساب: إذا فيه توكن محفوظ لحساب مختلف → مسح الجلسة القديمة ──
-      const savedToken = localStorage.getItem('mafia_player_token');
-      const savedPlayerId = localStorage.getItem('mafia_playerId');
+      const savedToken = getSavedToken();
+      const savedPlayerId = String(getSavedPlayerId());
       if (session.playerId && savedPlayerId && String(session.playerId) !== savedPlayerId) {
         console.log(`⚠️ Session belongs to player #${session.playerId} but logged in as #${savedPlayerId} — clearing stale session`);
         localStorage.removeItem('mafia_session');
@@ -179,9 +218,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
   // ── التحقق من التوكن المحفوظ عند فتح الصفحة ──
   useEffect(() => {
-    const savedToken = localStorage.getItem('mafia_player_token');
+    const savedToken = getSavedToken();
     if (savedToken) {
       setPlayerToken(savedToken);
+      // مزامنة: حفظ التوكن في المفتاح الرئيسي إذا مش موجود
+      if (!localStorage.getItem('mafia_player_token')) {
+        localStorage.setItem('mafia_player_token', savedToken);
+      }
       // تحقق من صلاحية التوكن
       fetch('/api/player-auth/me', {
         headers: { 'Authorization': `Bearer ${savedToken}` },
@@ -194,6 +237,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setMustChangePassword(data.player.mustChangePassword || false);
           if (data.player.avatarUrl) setAvatarUrl(data.player.avatarUrl);
           localStorage.setItem('mafia_playerId', String(data.player.id));
+          // مزامنة التوكن لكل المصادر
+          localStorage.setItem('mafia_player_token', savedToken);
 
           // إذا في جيم نشط → ندخله مباشرة
           if (data.activeGame) {
@@ -454,20 +499,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
       // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
       // نقرأ من localStorage كـ fallback لأن الـ state ممكن ما اتحدث بعد
-      const savedToken = playerToken || localStorage.getItem('mafia_player_token');
-      const savedPlayerId = playerId || parseInt(localStorage.getItem('mafia_playerId') || '0');
+      const savedToken = playerToken || getSavedToken();
+      const savedPlayerId = playerId || getSavedPlayerId();
 
       if (savedToken && savedPlayerId) {
         console.log('⚡ Player already authenticated — skipping phone/login steps');
-        let playerPhone = phone;
-        // جلب بيانات اللاعب من /me أو من localStorage
-        if (!playerPhone) {
-          // محاولة 1: من mafia_player_info
-          try {
-            const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
-            if (info.phone) playerPhone = info.phone;
-          } catch {}
-        }
+        let playerPhone = phone || getSavedPhone();
+        // جلب بيانات اللاعب من /me إذا مش متوفر
         if (!playerPhone) {
           // محاولة 2: من /me endpoint
           try {
@@ -502,8 +540,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
 
     // إذا عنده توكن صالح → يتخطى تسجيل الدخول
-    const savedToken = playerToken || localStorage.getItem('mafia_player_token');
-    const savedPid = playerId || parseInt(localStorage.getItem('mafia_playerId') || '0');
+    const savedToken = playerToken || getSavedToken();
+    const savedPid = playerId || getSavedPlayerId();
     if (savedToken && savedPid) {
       setPlayerToken(savedToken);
       setPlayerId(savedPid);
