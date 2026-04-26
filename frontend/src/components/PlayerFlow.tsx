@@ -45,7 +45,13 @@ const ShieldCheckIcon = () => (
 
 export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const { joinRoom, isConnected, error, loading, emit, on } = useGameState();
-  const [step, setStep] = useState<Step>(initialRoomCode ? 'phone' : 'code');
+  const [step, setStep] = useState<Step>(() => {
+    // إذا فيه كود QR + توكن محفوظ → نبدأ بـ code مؤقتاً (الـ auto-find يتكفل)
+    if (initialRoomCode && typeof window !== 'undefined' && localStorage.getItem('mafia_player_token')) {
+      return 'code';
+    }
+    return initialRoomCode ? 'phone' : 'code';
+  });
   const [roomCode, setRoomCode] = useState(initialRoomCode);
   const [roomId, setRoomId] = useState('');
   const [gameName, setGameName] = useState('');
@@ -80,6 +86,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     targetGameName: string;
   } | null>(null);
   const [switchLoading, setSwitchLoading] = useState(false);
+  const [tokenChecked, setTokenChecked] = useState(false);
 
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
@@ -163,11 +170,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   }, [isConnected, emit]);
 
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
+  // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
   useEffect(() => {
-    if (initialRoomCode && isConnected && !roomId) {
+    if (initialRoomCode && isConnected && !roomId && tokenChecked) {
       handleFindRoom(initialRoomCode);
     }
-  }, [initialRoomCode, isConnected]);
+  }, [initialRoomCode, isConnected, tokenChecked]);
 
   // ── التحقق من التوكن المحفوظ عند فتح الصفحة ──
   useEffect(() => {
@@ -206,7 +214,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }).catch(() => {
         localStorage.removeItem('mafia_player_token');
         setPlayerToken(null);
+      }).finally(() => {
+        setTokenChecked(true);
       });
+    } else {
+      setTokenChecked(true);
     }
   }, []);
 
@@ -439,6 +451,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (res.occupiedSeats && Array.isArray(res.occupiedSeats)) {
         setOccupiedSeats(res.occupiedSeats);
       }
+
+      // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
+      if (playerToken && playerId && phone) {
+        console.log('⚡ Player already authenticated — skipping phone/login steps');
+        await tryRejoinCurrentRoom(playerId, playerToken);
+        return;
+      }
+
       if (!code) setStep('phone');
     } catch (err: any) {
       setApiError(err.message || 'لم يتم العثور على اللعبة');
