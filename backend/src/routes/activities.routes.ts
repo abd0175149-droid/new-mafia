@@ -317,8 +317,23 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
       }
     } catch (e: any) {
       console.error('Failed to delete associated Drive folder:', e.message);
-      // Proceed with local deletion even if drive deletion fails conditionally
     }
+  }
+
+  // 🗑️ حذف جميع الغرف المرتبطة بالنشاط (soft delete)
+  try {
+    const linkedRooms = await db.select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.activityId, id));
+
+    if (linkedRooms.length > 0) {
+      await db.update(sessions)
+        .set({ isActive: false, status: 'deleted', activityId: null })
+        .where(eq(sessions.activityId, id));
+      console.log(`🗑️ Soft-deleted ${linkedRooms.length} room(s) linked to Activity #${id}`);
+    }
+  } catch (e: any) {
+    console.error('Failed to delete linked sessions:', e.message);
   }
 
   await db.delete(activities).where(eq(activities.id, id));

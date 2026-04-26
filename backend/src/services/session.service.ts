@@ -283,6 +283,7 @@ export async function getAllSessions() {
         s.session_name,
         s.max_players,
         s.is_active,
+        s.status,
         s.activity_id,
         s.created_at,
         COUNT(m.id)::int AS match_count,
