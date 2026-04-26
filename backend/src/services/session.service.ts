@@ -283,7 +283,6 @@ export async function getAllSessions() {
         s.session_name,
         s.max_players,
         s.is_active,
-        COALESCE(s.status, CASE WHEN s.is_active THEN 'active' ELSE 'closed' END) AS status,
         s.activity_id,
         s.created_at,
         COUNT(m.id)::int AS match_count,
@@ -300,9 +299,7 @@ export async function getAllSessions() {
       FROM sessions s
       LEFT JOIN matches m ON m.session_id = s.id
       GROUP BY s.id
-      ORDER BY 
-        CASE s.status WHEN 'active' THEN 0 WHEN 'closed' THEN 1 WHEN 'deleted' THEN 2 ELSE 3 END,
-        s.created_at DESC
+      ORDER BY s.is_active DESC, s.created_at DESC
     `);
 
     return (rows.rows || rows).map((r: any) => ({
