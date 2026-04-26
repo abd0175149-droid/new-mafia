@@ -118,6 +118,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [roleAlert, setRoleAlert] = useState(false);
+  const [mafiaTeam, setMafiaTeam] = useState<{physicalId: number; name: string}[]>([]);
   const [switchConfirm, setSwitchConfirm] = useState<{
     currentRoomId: string;
     currentGameName: string;
@@ -360,10 +361,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
     // استقبال الدور من الليدر (عند تأكيد الأدوار)
-    const cleanupRole = on('player:role-assigned', (data: { role: string }) => {
+    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string}[] }) => {
       setAssignedRole(data.role);
       setCardFlipped(false);
       setRoleAlert(true); // ← تنبيه جلونج
+      if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
       if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
@@ -1374,6 +1376,31 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       </motion.p>
                     )}
                   </AnimatePresence>
+
+                  {/* ── عرض زملاء المافيا عند قلب الكارد ── */}
+                  {cardFlipped && mafiaTeam.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5, duration: 0.4 }}
+                      className="mt-4 p-3 rounded-xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0505] to-[#0d0202]"
+                    >
+                      <p className="text-[#8A0303] text-[9px] font-mono uppercase tracking-[0.15em] text-center mb-2">
+                        🕴️ زملاؤك في الفريق
+                      </p>
+                      <div className="flex justify-center gap-3 flex-wrap">
+                        {mafiaTeam.map(m => (
+                          <div key={m.physicalId} className="flex flex-col items-center">
+                            <span className="text-[#C5A059] text-lg font-black">#{m.physicalId}</span>
+                            <span className="text-[#666] text-[8px] font-mono">{m.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[#4a2020] text-[8px] font-mono uppercase tracking-widest text-center mt-2">
+                        ⭕ لا تكشف هويتك
+                      </p>
+                    </motion.div>
+                  )}
                 </motion.div>
               )}
 
@@ -1473,6 +1500,31 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       </motion.p>
                     )}
                   </AnimatePresence>
+
+                  {/* ── عرض زملاء المافيا عند قلب الكارد (rejoined) ── */}
+                  {cardFlipped && mafiaTeam.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5, duration: 0.4 }}
+                      className="mt-4 p-3 rounded-xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0505] to-[#0d0202]"
+                    >
+                      <p className="text-[#8A0303] text-[9px] font-mono uppercase tracking-[0.15em] text-center mb-2">
+                        🕴️ زملاؤك في الفريق
+                      </p>
+                      <div className="flex justify-center gap-3 flex-wrap">
+                        {mafiaTeam.map(m => (
+                          <div key={m.physicalId} className="flex flex-col items-center">
+                            <span className="text-[#C5A059] text-lg font-black">#{m.physicalId}</span>
+                            <span className="text-[#666] text-[8px] font-mono">{m.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[#4a2020] text-[8px] font-mono uppercase tracking-widest text-center mt-2">
+                        ⭕ لا تكشف هويتك
+                      </p>
+                    </motion.div>
+                  )}
                 </>
               ) : (
                 /* ── حالة حي بدون دور (في الانتظار) ── */

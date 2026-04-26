@@ -5,7 +5,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
-import { generateRoles, validateRoleDistribution, Role, getTeamCounts } from '../game/roles.js';
+import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES } from '../game/roles.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
@@ -895,6 +895,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         (p: any) => p.isAlive !== false && !p.role && 
         (state.rolesPool || []).some((r: string) => r !== 'CITIZEN')
       );
+      // جمع قائمة لاعبي المافيا (أرقام المقاعد) لإرسالها لأعضاء الفريق
+      const mafiaPlayers = state.players
+        .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false)
+        .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
 
       // بث الدور لكل لاعب متصل على جهازه فقط
       const allSockets = await io.in(data.roomId).fetchSockets();
@@ -904,10 +908,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             (p: any) => p.physicalId === s.data.physicalId
           );
           if (player?.role) {
-            s.emit('player:role-assigned', {
+            const roleData: any = {
               physicalId: player.physicalId,
               role: player.role,
-            });
+            };
+            // إذا اللاعب من فريق المافيا → أرسل أرقام زملائه
+            if (isMafiaRole(player.role as Role)) {
+              roleData.mafiaTeam = mafiaPlayers
+                .filter((m: any) => m.physicalId !== player.physicalId)
+                .map((m: any) => ({ physicalId: m.physicalId, name: m.name }));
+            }
+            s.emit('player:role-assigned', roleData);
           }
         }
       }
@@ -930,10 +941,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (!state) return callback({ role: null, confirmed: false });
 
       const player = state.players.find((p: any) => p.physicalId === data.physicalId);
-      callback({
+      const response: any = {
         role: player?.role || null,
         confirmed: state.rolesConfirmed || false,
-      });
+      };
+      // إذا اللاعب مافيا → أرسل أرقام زملائه
+      if (player?.role && isMafiaRole(player.role as Role)) {
+        response.mafiaTeam = state.players
+          .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
+          .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
+      }
+      callback(response);
     } catch {
       callback({ role: null, confirmed: false });
     }
