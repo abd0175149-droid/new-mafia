@@ -56,6 +56,169 @@ function DonutChart({ data, size = 140 }: { data: { name: string; value: number;
   );
 }
 
+// ══════════════════════════════════════════════════════
+// 🎮 قسم الغرف المرتبطة بالنشاط
+// ══════════════════════════════════════════════════════
+function RoomsSection({ activityId, activityName }: { activityId: number; activityName: string }) {
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  const fetchRooms = async () => {
+    try {
+      const data = await apiFetch(`/api/activities/${activityId}/rooms`);
+      setRooms(data);
+    } catch (err) {
+      console.error('Failed to fetch rooms:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchRooms(); }, [activityId]);
+
+  const handleAddRoom = async () => {
+    setAdding(true);
+    try {
+      const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, {
+        method: 'POST',
+        body: JSON.stringify({ maxPlayers: 10 }),
+      });
+      setRooms(prev => [newRoom, ...prev]);
+    } catch (err: any) {
+      alert('فشل إنشاء الغرفة: ' + err.message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDeleteRoom = async (sessionId: number) => {
+    if (!confirm('هل تريد فك ربط هذه الغرفة من النشاط؟')) return;
+    try {
+      await apiFetch(`/api/activities/${activityId}/unlink-session`, {
+        method: 'POST',
+        body: JSON.stringify({ sessionId }),
+      });
+      setRooms(prev => prev.filter(r => r.id !== sessionId));
+    } catch (err: any) {
+      alert('فشل الحذف: ' + err.message);
+    }
+  };
+
+  const copyCode = (code: string, id: number) => {
+    navigator.clipboard.writeText(code);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const enterRoom = (room: any) => {
+    // حفظ بيانات الغرفة في sessionStorage للليدر
+    sessionStorage.setItem('leader_room_entry', JSON.stringify({
+      sessionCode: room.sessionCode,
+      displayPin: room.displayPin,
+      sessionName: room.sessionName,
+      sessionId: room.id,
+      activityId,
+    }));
+    window.open('/leader', '_blank');
+  };
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+          🎮 غرف اللعبة
+          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{rooms.length}</span>
+        </h3>
+        <button
+          onClick={handleAddRoom}
+          disabled={adding}
+          className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition disabled:opacity-50"
+        >
+          {adding ? '⏳ جارٍ...' : '➕ إضافة غرفة'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-6">
+          <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+        </div>
+      ) : rooms.length > 0 ? (
+        <div className="space-y-3">
+          {rooms.map((room, i) => (
+            <motion.div
+              key={room.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="flex items-center justify-between p-3.5 bg-gray-900/50 border border-gray-700/30 rounded-xl hover:border-gray-600/40 transition"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-xl">
+                  🕹️
+                </div>
+                <div>
+                  <p className="text-white font-bold text-sm">{room.sessionName}</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-xs text-gray-500 font-mono flex items-center gap-1">
+                      🔑 كود: <span className="text-amber-400 font-bold">{room.sessionCode}</span>
+                    </span>
+                    <span className="text-xs text-gray-500 font-mono flex items-center gap-1">
+                      🔒 PIN: <span className="text-blue-400">{room.displayPin || '—'}</span>
+                    </span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                      room.isActive
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
+                        : 'bg-gray-500/15 text-gray-500 border-gray-600/20'
+                    }`}>
+                      {room.isActive ? '🟢 نشطة' : '⚪ مغلقة'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* نسخ الكود */}
+                <button
+                  onClick={() => copyCode(room.sessionCode, room.id)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-600/40 text-gray-400 hover:text-white hover:border-gray-500 transition"
+                  title="نسخ كود الغرفة"
+                >
+                  {copiedId === room.id ? '✅' : '📋'}
+                </button>
+
+                {/* دخول الغرفة (توجيه للليدر) */}
+                <button
+                  onClick={() => enterRoom(room)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition flex items-center gap-1"
+                  title="الدخول كقائد"
+                >
+                  🎮 دخول
+                </button>
+
+                {/* فك الربط */}
+                <button
+                  onClick={() => handleDeleteRoom(room.id)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
+                  title="فك ربط الغرفة"
+                >
+                  🗑️
+                </button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-6 text-gray-600 text-sm">
+          <span className="text-3xl block mb-2 opacity-30">🎮</span>
+          لا توجد غرف مرتبطة بهذا النشاط
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ActivityDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -167,40 +330,8 @@ export default function ActivityDetailPage() {
         </div>
       </div>
 
-      {/* ══ الغرفة المرتبطة ══ */}
-      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-        <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">🎮 غرفة اللعبة المرتبطة</h3>
-        {activity.sessionId ? (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-2xl">🕹️</div>
-              <div>
-                <p className="text-white font-bold">غرفة #{activity.sessionId}</p>
-                <p className="text-gray-500 text-xs mt-0.5">مرتبطة بهذا النشاط</p>
-              </div>
-            </div>
-            <button
-              onClick={async () => {
-                if (!confirm('هل تريد فك ربط الغرفة من هذا النشاط؟')) return;
-                try {
-                  await apiFetch(`/api/activities/${activity.id}/unlink-session`, { method: 'POST' });
-                  setActivity({ ...activity, sessionId: null });
-                } catch (err: any) {
-                  alert('فشل فك الربط: ' + err.message);
-                }
-              }}
-              className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
-            >
-              🔓 فك الربط
-            </button>
-          </div>
-        ) : (
-          <div className="text-center py-4 text-gray-600 text-sm">
-            <span className="text-2xl block mb-2 opacity-30">🔗</span>
-            لا توجد غرفة مرتبطة — يمكن ربطها من واجهة القائد عند إنشاء غرفة جديدة
-          </div>
-        )}
-      </div>
+      {/* ══ الغرف المرتبطة (متعددة) ══ */}
+      <RoomsSection activityId={activity.id} activityName={activity.name} />
 
       {/* ══ Donut Charts ══ */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

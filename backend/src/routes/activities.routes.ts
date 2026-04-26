@@ -64,18 +64,95 @@ router.post('/:id/unlink-session', authenticate, async (req: Request, res: Respo
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   try {
-    // جلب sessionId المرتبط
-    const activity = await db.select({ sessionId: activities.sessionId })
+    const { sessionId: targetSessionId } = req.body;
+
+    if (targetSessionId) {
+      // فك ربط غرفة محددة
+      const success = await unlinkSessionFromActivity(targetSessionId);
+      if (!success) return res.status(500).json({ error: 'فشل فك الربط' });
+    } else {
+      // فك ربط الغرفة الأساسية (التوافق مع الكود القديم)
+      const activity = await db.select({ sessionId: activities.sessionId })
+        .from(activities)
+        .where(eq(activities.id, parseInt(req.params.id)))
+        .limit(1);
+
+      const sId = activity[0]?.sessionId;
+      if (!sId) return res.status(400).json({ error: 'النشاط غير مرتبط بغرفة' });
+
+      const success = await unlinkSessionFromActivity(sId);
+      if (!success) return res.status(500).json({ error: 'فشل فك الربط' });
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/activities/:id/rooms — جلب كل الغرف المرتبطة بنشاط
+router.get('/:id/rooms', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const activityId = parseInt(req.params.id);
+
+    // جلب كل الغرف المرتبطة بهذا النشاط
+    const rooms = await db.select()
+      .from(sessions)
+      .where(eq(sessions.activityId, activityId))
+      .orderBy(desc(sessions.createdAt));
+
+    res.json(rooms);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/activities/:id/add-room — إنشاء غرفة جديدة مرتبطة بالنشاط
+router.post('/:id/add-room', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const activityId = parseInt(req.params.id);
+
+    // تحقق من وجود النشاط
+    const [act] = await db.select({ id: activities.id, name: activities.name })
       .from(activities)
-      .where(eq(activities.id, parseInt(req.params.id)))
+      .where(eq(activities.id, activityId))
       .limit(1);
 
-    const sessionId = activity[0]?.sessionId;
-    if (!sessionId) return res.status(400).json({ error: 'النشاط غير مرتبط بغرفة' });
+    if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
 
-    const success = await unlinkSessionFromActivity(sessionId);
-    if (!success) return res.status(500).json({ error: 'فشل فك الربط' });
-    res.json({ success: true });
+    // عدد الغرف الحالية لتسمية الغرفة الجديدة
+    const existingRooms = await db.select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.activityId, activityId));
+
+    const roomNumber = existingRooms.length + 1;
+    const roomName = req.body.roomName || `${act.name} — غرفة ${roomNumber}`;
+    const maxPlayers = req.body.maxPlayers || 10;
+
+    const sessionId = await createSession(
+      roomName,
+      Math.floor(100000 + Math.random() * 900000).toString(),
+      Math.floor(1000 + Math.random() * 9000).toString(),
+      maxPlayers,
+      activityId,
+    );
+
+    if (!sessionId) return res.status(500).json({ error: 'فشل إنشاء الغرفة' });
+
+    // جلب بيانات الغرفة المنشأة
+    const [newRoom] = await db.select()
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
+      .limit(1);
+
+    console.log(`🎮 Admin: Created Room #${sessionId} (${roomName}) for Activity #${activityId}`);
+    res.status(201).json(newRoom);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

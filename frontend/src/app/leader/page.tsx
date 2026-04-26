@@ -167,6 +167,35 @@ export default function LeaderPage() {
         .then(res => res.json())
         .then(data => { if (Array.isArray(data)) setAvailableActivities(data); })
         .catch(() => {});
+
+      // ── دخول تلقائي من واجهة الإدارة ──
+      try {
+        const entry = sessionStorage.getItem('leader_room_entry');
+        if (entry) {
+          sessionStorage.removeItem('leader_room_entry');
+          const roomData = JSON.parse(entry);
+          if (roomData.sessionCode) {
+            console.log('🎮 Auto-entering room from admin:', roomData.sessionName);
+            // البحث عن الغرفة في القائمة النشطة بعد لحظة
+            setTimeout(async () => {
+              try {
+                const res = await fetch('/api/game/leader-rooms');
+                const data = await res.json();
+                if (data.success) {
+                  const targetRoom = (data.rooms || []).find(
+                    (r: any) => r.roomCode === roomData.sessionCode
+                  );
+                  if (targetRoom) {
+                    handleRejoinGame(targetRoom);
+                  } else {
+                    setError(`الغرفة ${roomData.sessionCode} غير نشطة — قد تحتاج لإنشائها أولاً من واجهة القائد`);
+                  }
+                }
+              } catch { }
+            }, 500);
+          }
+        }
+      } catch { }
     }
   }, [isAuthenticated]);
 
