@@ -459,15 +459,24 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
       if (savedToken && savedPlayerId) {
         console.log('⚡ Player already authenticated — skipping phone/login steps');
-        // تأكد من الهاتف — إذا مش موجود بالـ state نجلبه من /me
-        if (!phone) {
+        let playerPhone = phone;
+        // جلب بيانات اللاعب من /me أو من localStorage
+        if (!playerPhone) {
+          // محاولة 1: من mafia_player_info
+          try {
+            const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
+            if (info.phone) playerPhone = info.phone;
+          } catch {}
+        }
+        if (!playerPhone) {
+          // محاولة 2: من /me endpoint
           try {
             const meRes = await fetch('/api/player-auth/me', {
               headers: { 'Authorization': `Bearer ${savedToken}` },
             });
             const meData = await meRes.json();
             if (meData.success && meData.player) {
-              setPhone(meData.player.phone || '');
+              playerPhone = meData.player.phone || '';
               setDisplayName(meData.player.name || '');
               setPlayerId(meData.player.id);
               if (meData.player.gender) setGender(meData.player.gender === 'FEMALE' ? 'female' : 'male');
@@ -475,8 +484,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             }
           } catch {}
         }
+        if (playerPhone) setPhone(playerPhone);
         setPlayerToken(savedToken);
-        await tryRejoinCurrentRoom(savedPlayerId, savedToken);
+        await tryRejoinCurrentRoom(savedPlayerId, savedToken, playerPhone);
         return;
       }
 
@@ -575,11 +585,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   // ── محاولة الانضمام التلقائي للغرفة (بعد login/register) ──
-  const tryRejoinCurrentRoom = async (pid: number, token: string) => {
+  const tryRejoinCurrentRoom = async (pid: number, token: string, phoneOverride?: string) => {
+    const playerPhone = phoneOverride || phone;
     // 1. جرّب rejoin عبر WebSocket إذا عنا roomId
-    if (emit && roomId) {
+    if (emit && roomId && playerPhone) {
       try {
-        const normalized = phone.startsWith('0') ? phone : '0' + phone;
+        const normalized = playerPhone.startsWith('0') ? playerPhone : '0' + playerPhone;
         const res: any = await emit('room:rejoin-player', {
           roomId,
           physicalId: 0, // نبحث بالهاتف
@@ -627,7 +638,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           }
           localStorage.setItem('mafia_session', JSON.stringify({
             roomId: ag.roomId, physicalId: ag.physicalId,
-            phone: phone.startsWith('0') ? phone : '0' + phone,
+            phone: playerPhone.startsWith('0') ? playerPhone : '0' + playerPhone,
             displayName, roomCode: ag.roomCode || roomCode, playerId: pid,
           }));
           setStep('rejoined');
@@ -645,7 +656,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             if (ag.role) setAssignedRole(ag.role);
             localStorage.setItem('mafia_session', JSON.stringify({
               roomId: ag.roomId, physicalId: ag.physicalId,
-              phone: phone.startsWith('0') ? phone : '0' + phone,
+              phone: playerPhone.startsWith('0') ? playerPhone : '0' + playerPhone,
               displayName, roomCode: ag.roomCode || roomCode, playerId: pid,
             }));
             setStep('rejoined');
