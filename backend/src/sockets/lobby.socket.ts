@@ -341,6 +341,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const shouldShowRole = state.rolesConfirmed || 
         (state.phase !== Phase.ROLE_BINDING && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.LOBBY);
 
+      // جمع زملاء المافيا إذا اللاعب مافيا
+      let mafiaTeamData: any[] | undefined;
+      if (shouldShowRole && player.role && isMafiaRole(player.role as Role)) {
+        mafiaTeamData = state.players
+          .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
+          .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
+      }
+
       callback({
         success: true,
         player: {
@@ -351,6 +359,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
         },
+        mafiaTeam: mafiaTeamData || [],
         phase: state.phase,
         gameName: state.config?.gameName || '',
         roomCode: state.roomCode || '',

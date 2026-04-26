@@ -187,6 +187,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           if (res.player.role) {
             setAssignedRole(res.player.role);
           }
+          if (res.mafiaTeam && res.mafiaTeam.length > 0) {
+            setMafiaTeam(res.mafiaTeam);
+          }
 
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
@@ -642,6 +645,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setGender(res.player.gender === 'FEMALE' ? 'female' : 'male');
           setPlayerId(pid);
           if (res.player.role) setAssignedRole(res.player.role);
+          if (res.mafiaTeam && res.mafiaTeam.length > 0) setMafiaTeam(res.mafiaTeam);
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
             setCardFlipped(true);
