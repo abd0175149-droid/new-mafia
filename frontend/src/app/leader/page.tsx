@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
@@ -117,6 +117,7 @@ export default function LeaderPage() {
   const [renumberMap, setRenumberMap] = useState<Record<number, number>>({});
   const [renumberLoading, setRenumberLoading] = useState(false);
   const [renumberError, setRenumberError] = useState('');
+  const adminEntryProcessed = useRef(false);
 
   // ── Auth Check ──
   useEffect(() => {
@@ -170,17 +171,19 @@ export default function LeaderPage() {
 
       // ── دخول تلقائي من واجهة الإدارة ──
       // الغرفة المنشأة من الأدمن هي سجل DB فقط — نحتاج إنشاء WebSocket room
+      // مهم: لا نحذف البيانات من sessionStorage حتى ننجح في إنشاء الغرفة
       try {
         const entry = sessionStorage.getItem('leader_room_entry');
         if (entry) {
-          sessionStorage.removeItem('leader_room_entry');
           const roomData = JSON.parse(entry);
-          if (roomData.sessionName && isConnected) {
+          if (roomData.sessionName && isConnected && !adminEntryProcessed.current) {
+            // Socket جاهز + لم نعالج بعد → ننشئ الغرفة
+            adminEntryProcessed.current = true;
             console.log('🎮 Auto-creating WebSocket room from admin:', roomData.sessionName);
-            // ننتظر الاتصال بالسوكت
-            const waitAndCreate = async () => {
+            sessionStorage.removeItem('leader_room_entry'); // نحذف فقط لأن السوكت متصل
+            
+            const doCreate = async () => {
               try {
-                // إنشاء غرفة WebSocket مرتبطة بالنشاط
                 const response = await emit('room:create', {
                   gameName: roomData.sessionName,
                   maxPlayers: 10,
@@ -210,8 +213,9 @@ export default function LeaderPage() {
                 setError('فشل إنشاء الغرفة: ' + (err.message || 'خطأ غير متوقع'));
               }
             };
-            setTimeout(waitAndCreate, 300);
+            doCreate();
           }
+          // إذا isConnected = false → ما نحذف البيانات ← الـ effect يعيد التشغيل لما isConnected يتغير
         }
       } catch { }
     }
