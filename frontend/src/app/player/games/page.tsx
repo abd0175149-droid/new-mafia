@@ -161,9 +161,18 @@ export default function GamesPage() {
                         {new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'long', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </p>
                       <p className="text-gray-600 text-[10px] mt-0.5">
-                        👥 {act.bookedCount} حاجز
+                        👥 {act.bookedCount}/{act.maxPlayers || 12} لاعب
                         {act.basePrice && act.basePrice !== '0' && ` • 💰 ${act.basePrice} ₪`}
                       </p>
+                      {/* Capacity Bar */}
+                      <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-1.5 max-w-[140px]">
+                        <div className="h-full rounded-full transition-all" style={{
+                          width: `${Math.min(((act.bookedCount || 0) / (act.maxPlayers || 12)) * 100, 100)}%`,
+                          background: (act.bookedCount || 0) >= (act.maxPlayers || 12)
+                            ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+                            : 'linear-gradient(90deg, #fbbf24, #f59e0b)',
+                        }} />
+                      </div>
                     </div>
 
                     {booked ? (

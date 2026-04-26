@@ -82,7 +82,7 @@ export default function RankPage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6">
-      <h1 className="text-white text-lg font-bold mb-4">🏆 التصنيف والرانك</h1>
+      <h1 className="text-white text-lg font-bold mb-4">🏆 التصنيف والرتب</h1>
 
       {/* ── رتبتي ── */}
       {prog && (
@@ -177,6 +177,13 @@ export default function RankPage() {
             )}
 
             {/* ── Remaining List ── */}
+            {/* Header Row */}
+            <div className="flex items-center gap-3 px-3 mb-1">
+              <span className="w-6" /><span className="w-8" />
+              <span className="flex-1 text-[9px] text-gray-600">اللاعب</span>
+              <span className="text-[9px] text-gray-600 w-14 text-center">المستوى</span>
+              <span className="text-[9px] text-gray-600 w-10 text-center">RR</span>
+            </div>
             <div className="space-y-1.5">
               {leaderboard.slice(3).map((p: any, i: number) => (
                 <div
@@ -194,12 +201,10 @@ export default function RankPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-white text-xs font-medium">{p.name}</p>
-                    <p className="text-gray-500 text-[10px]">{RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]} • Lv.{p.level}</p>
+                    <p className="text-gray-500 text-[10px]">{RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]}</p>
                   </div>
-                  <div className="text-left">
-                    <p className="text-amber-400 text-xs font-bold">{p.rankRR} RR</p>
-                    <p className="text-gray-600 text-[10px]">{p.totalMatches} مباراة</p>
-                  </div>
+                  <span className="text-gray-400 text-xs w-14 text-center tabular-nums">Lv.{p.level}</span>
+                  <span className="text-amber-400 text-xs font-bold w-10 text-center tabular-nums">{p.rankRR}</span>
                   {p.id !== player?.playerId && isCoPlayer(p.id) && (
                     <button
                       onClick={(e) => { e.stopPropagation(); isFollowing(p.id) ? handleUnfollow(p.id) : handleFollow(p.id); }}
