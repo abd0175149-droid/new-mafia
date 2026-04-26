@@ -258,13 +258,13 @@ export default function ActivityDetailPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [acts, bks, csts, locs] = await Promise.all([
-          apiFetch('/api/activities'),
-          apiFetch('/api/bookings'),
-          apiFetch('/api/costs'),
+        const [act, bks, csts, locs] = await Promise.all([
+          apiFetch(`/api/activities/${activityId}`),
+          apiFetch(`/api/bookings?activityId=${activityId}`),
+          apiFetch(`/api/costs?activityId=${activityId}`),
           apiFetch('/api/locations'),
         ]);
-        setActivity(acts.find((a: any) => a.id === activityId) || null);
+        setActivity(act);
         setBookings(bks);
         setCosts(csts);
         setLocations(locs);
@@ -279,8 +279,8 @@ export default function ActivityDetailPage() {
   if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
   if (!activity) return <div className="text-center py-20 text-gray-500">النشاط غير موجود</div>;
 
-  const actBookings = bookings.filter(b => b.activityId === activity.id);
-  const actCosts = costs.filter(c => c.activityId === activity.id);
+  const actBookings = bookings;
+  const actCosts = costs;
   const location = locations.find(l => l.id === activity.locationId) || null;
 
   const revenue = actBookings.reduce((s: number, b: any) => s + (b.isPaid ? Number(b.paidAmount || 0) : 0), 0);

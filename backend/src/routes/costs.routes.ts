@@ -10,14 +10,20 @@ import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// GET /api/costs
+// GET /api/costs?activityId=
 router.get('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   if (req.user?.role === 'location_owner') return res.json([]);
 
-  const rows = await db.select().from(costs).orderBy(desc(costs.date));
+  let query = db.select().from(costs).orderBy(desc(costs.date)).$dynamic();
+
+  if (req.query.activityId && req.query.activityId !== 'all') {
+    query = query.where(eq(costs.activityId, parseInt(req.query.activityId as string)));
+  }
+
+  const rows = await query;
   res.json(rows);
 });
 

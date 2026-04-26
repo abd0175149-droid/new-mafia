@@ -16,6 +16,9 @@ export default function JoinPage() {
         displayName: player.name,
         phone: player.phone,
       }));
+      // ✅ مزامنة التوكن مع PlayerFlow — حتى ما يطلب من اللاعب إعادة تسجيل الدخول
+      localStorage.setItem('mafia_player_token', player.token);
+      localStorage.setItem('mafia_playerId', String(player.playerId));
     }
     setMounted(true);
   }, [player]);

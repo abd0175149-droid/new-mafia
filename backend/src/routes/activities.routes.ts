@@ -200,6 +200,17 @@ router.patch('/:id/rooms/:sessionId/close', authenticate, async (req: Request, r
   }
 });
 
+// GET /api/activities/:id — جلب نشاط واحد
+router.get('/:id', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const id = parseInt(req.params.id);
+  const [act] = await db.select().from(activities).where(eq(activities.id, id)).limit(1);
+  if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
+  res.json(act);
+});
+
 // GET /api/activities
 router.get('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
