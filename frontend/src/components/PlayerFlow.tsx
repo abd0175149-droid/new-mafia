@@ -453,9 +453,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }
 
       // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
-      if (playerToken && playerId && phone) {
+      // نقرأ من localStorage كـ fallback لأن الـ state ممكن ما اتحدث بعد
+      const savedToken = playerToken || localStorage.getItem('mafia_player_token');
+      const savedPlayerId = playerId || parseInt(localStorage.getItem('mafia_playerId') || '0');
+
+      if (savedToken && savedPlayerId) {
         console.log('⚡ Player already authenticated — skipping phone/login steps');
-        await tryRejoinCurrentRoom(playerId, playerToken);
+        // تأكد من الهاتف — إذا مش موجود بالـ state نجلبه من /me
+        if (!phone) {
+          try {
+            const meRes = await fetch('/api/player-auth/me', {
+              headers: { 'Authorization': `Bearer ${savedToken}` },
+            });
+            const meData = await meRes.json();
+            if (meData.success && meData.player) {
+              setPhone(meData.player.phone || '');
+              setDisplayName(meData.player.name || '');
+              setPlayerId(meData.player.id);
+              if (meData.player.gender) setGender(meData.player.gender === 'FEMALE' ? 'female' : 'male');
+              if (meData.player.avatarUrl) setAvatarUrl(meData.player.avatarUrl);
+            }
+          } catch {}
+        }
+        setPlayerToken(savedToken);
+        await tryRejoinCurrentRoom(savedPlayerId, savedToken);
         return;
       }
 
@@ -471,12 +492,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
 
     // إذا عنده توكن صالح → يتخطى تسجيل الدخول
-    if (playerToken && playerId) {
+    const savedToken = playerToken || localStorage.getItem('mafia_player_token');
+    const savedPid = playerId || parseInt(localStorage.getItem('mafia_playerId') || '0');
+    if (savedToken && savedPid) {
+      setPlayerToken(savedToken);
+      setPlayerId(savedPid);
       if (mustChangePassword) {
         setStep('change_password');
       } else {
         // تحقق إذا اللاعب أصلاً جوا اللعبة
-        await tryRejoinCurrentRoom(playerId, playerToken);
+        await tryRejoinCurrentRoom(savedPid, savedToken);
       }
       return;
     }
