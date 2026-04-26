@@ -10,6 +10,8 @@ const ROLE_NAMES_AR: Record<string,string> = {
 };
 const MAFIA_ROLES = ['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'];
 
+const RANK_TIERS_ORDER = ['INFORMANT','SOLDIER','CAPO','UNDERBOSS','GODFATHER'];
+
 const RANK_CONFIG: Record<string,{name:string;icon:string;color:string;bg:string;glow?:string}> = {
   INFORMANT:{name:'مُخبر',icon:'🕵️',color:'#CD7F32',bg:'from-amber-900/30 to-amber-800/10',},
   SOLDIER:{name:'جندي',icon:'⚔️',color:'#C0C0C0',bg:'from-gray-500/20 to-gray-600/10',},
@@ -50,6 +52,7 @@ export default function PlayerProfilePage(){
   const [editingEmail,setEditingEmail]=useState(false);
   const [emailInput,setEmailInput]=useState('');
   const [settingsOpen,setSettingsOpen]=useState(false);
+  const [leaderboard,setLeaderboard]=useState<any[]>([]);
   const fileInputRef=useRef<HTMLInputElement>(null);
   const nameInputRef=useRef<HTMLInputElement>(null);
 
@@ -77,6 +80,7 @@ export default function PlayerProfilePage(){
       })
       .catch(()=>setError('خطأ في الاتصال'))
       .finally(()=>setLoading(false));
+    fetch('/api/player-app/leaderboard',{headers:getAuthHeaders()}).then(r=>r.json()).then(d=>{if(Array.isArray(d))setLeaderboard(d.slice(0,5));}).catch(()=>{});
   },[getAuthHeaders]);
 
   const showToast=(msg:string)=>{setSaveMsg(msg);setTimeout(()=>setSaveMsg(''),3000);};
@@ -199,25 +203,86 @@ export default function PlayerProfilePage(){
             </div>
           </div>
 
-          {/* RR */}
-          <div className="text-xs text-gray-500 mb-1">{progression?.rankRR||0}/100 RR</div>
           <p className="text-gray-600 text-xs">انضم {joinYear}</p>
         </div>
       </div>
 
-      <div className="max-w-lg mx-auto px-4 pb-20 space-y-5 -mt-2">
-        {/* ═══ QUICK STATS ═══ */}
-        <div className="grid grid-cols-4 gap-2">
+      {/* ═══ RANK PROGRESSION ═══ */}
+      <div className="max-w-lg mx-auto px-4 -mt-1 mb-2">
+        <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.3}}
+          className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+          <div className="flex justify-between items-start mb-3">
+            <div>
+              <h3 className="text-sm font-bold text-gray-300">الرتبة الحالية</h3>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-2xl">{rank.icon}</span>
+                <div>
+                  <p className="font-bold text-sm" style={{color:rank.color}}>{rank.name}</p>
+                  <p className="text-[10px] text-gray-500">تقدم الرتبة</p>
+                </div>
+              </div>
+            </div>
+            <div className="text-left">
+              <h3 className="text-sm font-bold text-gray-300">عن الرتب</h3>
+              <div className="flex gap-1.5 mt-1.5">
+                {RANK_TIERS_ORDER.map((t,i)=>{const rc=RANK_CONFIG[t];const isActive=t===(progression?.rankTier||'INFORMANT');const idx=RANK_TIERS_ORDER.indexOf(progression?.rankTier||'INFORMANT');const isPast=i<idx;
+                  return <div key={t} className="flex flex-col items-center gap-0.5">
+                    <span className={`text-lg ${isActive?'':'opacity-30'} ${isPast?'opacity-60':''}`} style={isActive?{filter:`drop-shadow(0 0 4px ${rc.color})`}:{}}>{rc.icon}</span>
+                    <span className={`text-[8px] ${isActive?'font-bold':'text-gray-600'}`} style={isActive?{color:rc.color}:{}}>{rc.name}</span>
+                  </div>;
+                })}
+              </div>
+            </div>
+          </div>
+          {/* RR Progress */}
+          <div className="mb-1.5"><div className="flex justify-between text-[10px] text-gray-500 mb-1"><span>{progression?.rankRR||0} / 100 RR</span></div>
+            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden"><motion.div initial={{width:0}} animate={{width:`${progression?.rankRR||0}%`}} transition={{duration:1}} className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/></div>
+          </div>
+          <p className="text-[10px] text-gray-600 text-center">تحتاج {100-(progression?.rankRR||0)} RR للترقية • عند 100 RR سوف تترقى</p>
+        </motion.div>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 pb-20 space-y-5">
+        {/* ═══ PERFORMANCE OVERVIEW ═══ */}
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.4}}
+          className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-gray-300 mb-3">الأداء العام</h3>
+          <div className="flex items-center justify-around">
+            {[
+              {v:stats.totalMatches,l:'المباريات',icon:'🎮',c:'text-white'},
+              {v:stats.totalWins||0,l:'فوز',icon:'🏆',c:'text-emerald-400'},
+              {v:(stats.totalMatches||0)-(stats.totalWins||0),l:'خسارة',icon:'💀',c:'text-rose-400'},
+            ].map((s,i)=>(
+              <div key={i} className="flex flex-col items-center gap-1">
+                <span className="text-lg">{s.icon}</span>
+                <p className={`text-xl font-black ${s.c} tabular-nums`}>{s.v}</p>
+                <p className="text-[9px] text-gray-500">{s.l}</p>
+              </div>
+            ))}
+            {/* Win Rate Circle */}
+            <div className="relative w-16 h-16 shrink-0">
+              <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#1f2937" strokeWidth="3"/>
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={`${(stats.winRate/100)*97.4} 97.4`}/>
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-emerald-400">{stats.winRate}%</span>
+              <p className="text-[8px] text-gray-500 text-center mt-0.5">معدل الفوز</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ═══ EXTRA STATS ═══ */}
+        <div className="grid grid-cols-3 gap-2">
           {[
-            {v:stats.totalMatches,l:'مباريات',c:'text-white'},
-            {v:`${stats.winRate}%`,l:'نسبة فوز',c:'text-emerald-400'},
-            {v:stats.longestWinStreak||0,l:'🔥 سلسلة',c:'text-amber-400'},
-            {v:stats.totalSurvived||player.totalSurvived||0,l:'نجا',c:'text-cyan-400'},
+            {v:stats.longestWinStreak||0,l:'🔥 أطول سلسلة فوز',c:'text-amber-400'},
+            {v:`${stats.survivalRate}%`,l:'🛡️ معدل النجاة',c:'text-cyan-400'},
+            {v:`${progression?.successfulDeals||0}/${progression?.totalDeals||0}`,l:'🤝 الاتفاقيات',c:'text-purple-400'},
           ].map((s,i)=>(
-            <motion.div key={i} initial={{opacity:0,y:20}} animate={{opacity:1,y:0}} transition={{delay:0.1*i}}
-              className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-3 text-center hover:bg-white/[0.06] transition cursor-default">
-              <p className={`text-xl font-black ${s.c} tabular-nums`}>{s.v}</p>
-              <p className="text-[9px] text-gray-500 mt-0.5">{s.l}</p>
+            <motion.div key={i} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.1*i+0.5}}
+              className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-2.5 text-center">
+              <p className={`text-lg font-black ${s.c} tabular-nums`}>{s.v}</p>
+              <p className="text-[8px] text-gray-500 mt-0.5">{s.l}</p>
             </motion.div>
           ))}
         </div>
@@ -271,6 +336,33 @@ export default function PlayerProfilePage(){
             </div>
           </div>
         </motion.div>
+
+        {/* ═══ MINI LEADERBOARD ═══ */}
+        {leaderboard.length>0&&(
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.55}}
+            className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+            <h3 className="text-sm font-bold text-gray-300 mb-3">🏆 لوحة المتصدرين</h3>
+            <div className="flex justify-between text-[9px] text-gray-600 px-2 mb-1.5">
+              <span>اللاعب</span><div className="flex gap-6"><span>المستوى</span><span>RR</span></div>
+            </div>
+            <div className="space-y-1">
+              {leaderboard.map((p:any,i:number)=>{
+                const isMe=p.id===player?.id;
+                const medals=['🥇','🥈','🥉'];
+                const rc=RANK_CONFIG[p.rankTier||'INFORMANT']||RANK_CONFIG.INFORMANT;
+                return(
+                  <div key={p.id} className={`flex items-center gap-2 px-2 py-2 rounded-lg transition ${isMe?'bg-amber-500/10 border border-amber-500/20':'hover:bg-white/[0.02]'}`}>
+                    <span className="text-sm w-6 text-center">{i<3?medals[i]:(i+1)}</span>
+                    <span className="text-sm">{rc.icon}</span>
+                    <span className={`flex-1 text-xs ${isMe?'text-amber-400 font-bold':'text-gray-300'}`}>{p.name}</span>
+                    <span className="text-xs text-gray-500 w-10 text-center tabular-nums">{p.level||1}</span>
+                    <span className="text-xs text-gray-400 w-10 text-center tabular-nums font-bold">{p.rankRR||0}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
 
         {/* ═══ MATCH HISTORY ═══ */}
         {matchHistory?.length>0&&(
