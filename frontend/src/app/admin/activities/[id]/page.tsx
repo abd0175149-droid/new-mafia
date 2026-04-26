@@ -605,7 +605,11 @@ export default function ActivityDetailPage() {
       </div>
 
       {/* ══ Drive Integration ══ */}
-      <DriveFolderBrowser driveLink={activity.driveLink || ''} />
+      <DriveFolderBrowser 
+        driveLink={activity.driveLink || ''} 
+        activityId={activity.id}
+        onDriveLinkCreated={(newLink) => setActivity((prev: any) => ({ ...prev, driveLink: newLink }))}
+      />
 
     </motion.div>
   );

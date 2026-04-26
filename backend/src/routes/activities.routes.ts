@@ -15,6 +15,9 @@ import { getActivityAttendanceStats } from '../services/booking.service.js';
 
 const router = Router();
 
+// 📂 المجلد الرئيسي في Google Drive الذي يتم إنشاء مجلدات الأنشطة بداخله
+const ACTIVITIES_PARENT_FOLDER_ID = '1MLgq3qx0by7pi_MStkAofEiUYb4n33ml';
+
 // GET /api/activities/available — الأنشطة القابلة للربط بلعبة (بدون auth — يستخدمها القائد)
 router.get('/available', async (req: Request, res: Response) => {
   const db = getDB();
@@ -239,15 +242,14 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   // 🎮 إنشاء غرفة ألعاب تلقائياً مرتبطة بالنشاط
   try {
     const sessionId = await createSession(
-      name,                                    // اسم الغرفة = اسم النشاط
-      Math.floor(100000 + Math.random() * 900000).toString(), // كود عشوائي
-      Math.floor(1000 + Math.random() * 9000).toString(),     // PIN عشوائي
-      10,                                      // maxPlayers افتراضي — يُحدّث لاحقاً حسب عدد الأشخاص الحاجزين
-      activity.id,                             // ربط بالنشاط
+      name,
+      Math.floor(100000 + Math.random() * 900000).toString(),
+      Math.floor(1000 + Math.random() * 9000).toString(),
+      10,
+      activity.id,
     );
 
     if (sessionId) {
-      // تحديث النشاط بـ sessionId
       await db.update(activities)
         .set({ sessionId })
         .where(eq(activities.id, activity.id));
@@ -256,7 +258,32 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     }
   } catch (err: any) {
     console.error('⚠️ Failed to auto-create session for activity:', err.message);
-    // لا نفشل إنشاء النشاط بسبب فشل إنشاء الغرفة
+  }
+
+  // 📂 إنشاء مجلد Drive تلقائياً للنشاط
+  if (!activity.driveLink) {
+    try {
+      const drive = getDriveService();
+      const folderRes = await drive.files.create({
+        requestBody: {
+          name: `${name} — #${activity.id}`,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [ACTIVITIES_PARENT_FOLDER_ID],
+        },
+        fields: 'id, webViewLink',
+      });
+
+      if (folderRes.data.id) {
+        const driveLink = `https://drive.google.com/drive/folders/${folderRes.data.id}`;
+        await db.update(activities)
+          .set({ driveLink })
+          .where(eq(activities.id, activity.id));
+        activity.driveLink = driveLink;
+        console.log(`📂 Auto-created Drive folder for Activity #${activity.id}: ${folderRes.data.id}`);
+      }
+    } catch (err: any) {
+      console.error('⚠️ Failed to auto-create Drive folder:', err.message);
+    }
   }
 
   // Notify admins
@@ -274,6 +301,45 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   }
 
   res.status(201).json(activity);
+});
+
+// POST /api/activities/:id/create-drive-folder — إنشاء مجلد Drive لنشاط قديم بدون مجلد
+router.post('/:id/create-drive-folder', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const activityId = parseInt(req.params.id);
+    const [act] = await db.select().from(activities).where(eq(activities.id, activityId)).limit(1);
+    if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
+
+    if (act.driveLink) {
+      return res.json({ success: true, driveLink: act.driveLink, message: 'المجلد موجود مسبقاً' });
+    }
+
+    const drive = getDriveService();
+    const folderRes = await drive.files.create({
+      requestBody: {
+        name: `${act.name} — #${act.id}`,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [ACTIVITIES_PARENT_FOLDER_ID],
+      },
+      fields: 'id, webViewLink',
+    });
+
+    if (!folderRes.data.id) {
+      return res.status(500).json({ error: 'فشل إنشاء المجلد' });
+    }
+
+    const driveLink = `https://drive.google.com/drive/folders/${folderRes.data.id}`;
+    await db.update(activities).set({ driveLink }).where(eq(activities.id, activityId));
+
+    console.log(`📂 Created Drive folder for old Activity #${activityId}: ${folderRes.data.id}`);
+    res.json({ success: true, driveLink });
+  } catch (err: any) {
+    console.error('❌ Failed to create Drive folder:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // PUT /api/activities/:id

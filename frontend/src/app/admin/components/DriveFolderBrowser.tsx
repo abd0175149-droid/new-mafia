@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface DriveFolderBrowserProps {
   driveLink: string;
+  activityId?: number;
+  onDriveLinkCreated?: (newLink: string) => void;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -32,12 +34,13 @@ async function fetchDriveAPI(path: string, options: any = {}) {
   return res.json();
 }
 
-export default function DriveFolderBrowser({ driveLink }: DriveFolderBrowserProps) {
+export default function DriveFolderBrowser({ driveLink, activityId, onDriveLinkCreated }: DriveFolderBrowserProps) {
   const [folderId, setFolderId] = useState<string | null>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const updateFileInputRef = useRef<HTMLInputElement>(null);
@@ -245,8 +248,30 @@ export default function DriveFolderBrowser({ driveLink }: DriveFolderBrowserProp
 
   if (!driveLink) {
     return (
-      <div className="p-4 bg-gray-800/60 rounded-xl border border-gray-700/50 text-center">
-        <p className="text-gray-400">لا يوجد مجلد Google Drive مرتبط بهذا النشاط.</p>
+      <div className="p-6 bg-gray-800/60 rounded-xl border border-gray-700/50 text-center space-y-3">
+        <div className="text-4xl opacity-40">📂</div>
+        <p className="text-gray-400 text-sm">لا يوجد مجلد Google Drive مرتبط بهذا النشاط.</p>
+        {activityId && (
+          <button
+            onClick={async () => {
+              setCreatingFolder(true);
+              try {
+                const result = await fetchDriveAPI(`/api/activities/${activityId}/create-drive-folder`, { method: 'POST' });
+                if (result.driveLink && onDriveLinkCreated) {
+                  onDriveLinkCreated(result.driveLink);
+                }
+              } catch (err: any) {
+                alert('فشل إنشاء المجلد: ' + (err.message || ''));
+              } finally {
+                setCreatingFolder(false);
+              }
+            }}
+            disabled={creatingFolder}
+            className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-500 transition disabled:opacity-50"
+          >
+            {creatingFolder ? '⛏ جاري الإنشاء...' : '📂 إنشاء مجلد Drive'}
+          </button>
+        )}
       </div>
     );
   }
