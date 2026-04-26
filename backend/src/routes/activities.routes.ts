@@ -10,7 +10,7 @@ import { activities, notifications, staff } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
-import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession } from '../services/session.service.js';
+import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession, closeSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 
 const router = Router();
@@ -184,6 +184,18 @@ router.delete('/:id/rooms/:sessionId', authenticate, async (req: Request, res: R
   }
 });
 
+// PATCH /api/activities/:id/rooms/:sessionId/close — إغلاق غرفة
+router.patch('/:id/rooms/:sessionId/close', authenticate, async (req: Request, res: Response) => {
+  try {
+    const sessionId = parseInt(req.params.sessionId);
+    const closed = await closeSession(sessionId);
+    if (!closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
+    console.log(`🔒 Activity: Closed Room #${sessionId}`);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET /api/activities
 router.get('/', authenticate, async (req: Request, res: Response) => {

@@ -129,6 +129,20 @@ app.delete('/api/leader/sessions/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/leader/sessions/:id/close — إغلاق غرفة
+app.patch('/api/leader/sessions/:id/close', async (req, res) => {
+  try {
+    const sessionId = parseInt(req.params.id);
+    const { closeSession } = await import('./services/session.service.js');
+    const closed = await closeSession(sessionId);
+    if (!closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
+    console.log(`🔒 Game History: Closed Session #${sessionId}`);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Game frontend endpoints (used by leader page) ──
 
 // GET /api/game/leader-rooms — الغرف النشطة

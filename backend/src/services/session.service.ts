@@ -210,6 +210,24 @@ export async function closeSession(sessionId: number): Promise<void> {
   }
 }
 
+// ── إغلاق الغرفة (تبقى في السجل كـ مغلقة) ─────
+export async function closeSession(sessionId: number): Promise<boolean> {
+  const db = getDB();
+  if (!db) return false;
+
+  try {
+    await db.update(sessions)
+      .set({ isActive: false, status: 'closed' })
+      .where(eq(sessions.id, sessionId));
+
+    console.log(`🔒 Session #${sessionId} closed (status=closed)`);
+    return true;
+  } catch (err: any) {
+    console.error('❌ Failed to close session:', err.message);
+    return false;
+  }
+}
+
 // ── حذف الغرفة (Soft Delete — تبقى في DB للسجل) ─────
 export async function deleteSession(sessionId: number): Promise<boolean> {
   const db = getDB();

@@ -122,7 +122,7 @@ export default function GameHistoryPage() {
   }
 
   async function handleDeleteSession(sessionId: number, e: React.MouseEvent) {
-    e.stopPropagation(); // منع فتح الكارد
+    e.stopPropagation();
     if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟ سيتم حذف جميع بياناتها.')) return;
     try {
       await apiFetch(`/api/leader/sessions/${sessionId}`, { method: 'DELETE' });
@@ -130,6 +130,17 @@ export default function GameHistoryPage() {
       if (expandedSession === sessionId) setExpandedSession(null);
     } catch (err: any) {
       alert('فشل الحذف: ' + (err.message || 'خطأ غير متوقع'));
+    }
+  }
+
+  async function handleCloseSession(sessionId: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm('🔒 هل تريد إغلاق هذه الغرفة؟')) return;
+    try {
+      await apiFetch(`/api/leader/sessions/${sessionId}/close`, { method: 'PATCH' });
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed', isActive: false } : s));
+    } catch (err: any) {
+      alert('فشل الإغلاق: ' + (err.message || 'خطأ غير متوقع'));
     }
   }
 
@@ -320,8 +331,17 @@ export default function GameHistoryPage() {
                       </span>
                     )}
 
-                    {/* سهم التوسيع + زر الحذف */}
+                    {/* أزرار التحكم */}
                     <div className="flex items-center gap-2">
+                      {session.status === 'active' && (
+                        <button
+                          onClick={(e) => handleCloseSession(session.id, e)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition opacity-0 group-hover:opacity-100"
+                          title="إغلاق الغرفة"
+                        >
+                          🔒 إغلاق
+                        </button>
+                      )}
                       <button
                         onClick={(e) => handleDeleteSession(session.id, e)}
                         className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100"

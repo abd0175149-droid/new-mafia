@@ -105,6 +105,18 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
     }
   };
 
+  const handleCloseRoom = async (sessionId: number) => {
+    if (!confirm('🔒 هل تريد إغلاق هذه الغرفة؟')) return;
+    try {
+      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}/close`, {
+        method: 'PATCH',
+      });
+      setRooms(prev => prev.map(r => r.id === sessionId ? { ...r, isActive: false, status: 'closed' } : r));
+    } catch (err: any) {
+      alert('فشل الإغلاق: ' + err.message);
+    }
+  };
+
   const copyCode = (code: string, id: number) => {
     navigator.clipboard.writeText(code);
     setCopiedId(id);
@@ -195,6 +207,17 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                 >
                   🎮 دخول
                 </button>
+
+                {/* إغلاق الغرفة */}
+                {room.isActive && (
+                  <button
+                    onClick={() => handleCloseRoom(room.id)}
+                    className="text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition"
+                    title="إغلاق الغرفة"
+                  >
+                    🔒 إغلاق
+                  </button>
+                )}
 
                 {/* حذف الغرفة نهائياً */}
                 <button
