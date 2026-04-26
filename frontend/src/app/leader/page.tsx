@@ -143,6 +143,67 @@ export default function LeaderPage() {
       .finally(() => setCheckingAuth(false));
   }, [router]);
 
+  // ── حفظ الغرفة النشطة في sessionStorage ──
+  useEffect(() => {
+    if (gameState?.roomId) {
+      sessionStorage.setItem('leader_active_room', gameState.roomId);
+    }
+  }, [gameState?.roomId]);
+
+  // ── إعادة الاتصال التلقائي بالغرفة بعد تحديث الصفحة ──
+  useEffect(() => {
+    if (!isAuthenticated || !isConnected) return;
+    // إذا عندنا gameState أصلاً → ما نحتاج نعيد
+    if (gameState) return;
+
+    const savedRoomId = sessionStorage.getItem('leader_active_room');
+    if (!savedRoomId) return;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/leader/state/${savedRoomId}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` }
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          const phase = data.state.phase;
+          setGameState({
+            roomId: savedRoomId,
+            roomCode: data.state.roomCode || '',
+            phase,
+            config: data.state.config || { gameName: '', maxPlayers: 10, displayPin: '' },
+            players: data.state.players || [],
+            rolesPool: data.state.rolesPool || [],
+            votingState: data.state.votingState,
+            discussionState: data.state.discussionState,
+            justificationData: data.state.justificationData,
+            pendingResolution: data.state.pendingResolution,
+            round: data.state.round,
+            winner: data.state.winner,
+            sessionId: data.state.sessionId,
+          });
+
+          if (phase === 'LOBBY' || phase === 'GAME_OVER') {
+            setInSession(true);
+          } else {
+            setInSession(false);
+          }
+
+          // إعادة الانضمام للغرفة عبر Socket
+          const socket = (await import('@/lib/socket')).getSocket();
+          socket.emit('room:rejoin-leader', { roomId: savedRoomId });
+          console.log(`♻️ Leader auto-rejoined room: ${savedRoomId}`);
+        } else {
+          // الغرفة مش موجودة → مسح
+          sessionStorage.removeItem('leader_active_room');
+        }
+      } catch {
+        sessionStorage.removeItem('leader_active_room');
+      }
+    })();
+  }, [isAuthenticated, isConnected]);
+
   // ── Fetch active games via REST ──
   const fetchActiveGames = async () => {
     setLoadingGames(true);
@@ -261,12 +322,13 @@ export default function LeaderPage() {
         if (!prev) return prev;
         const existingIdx = prev.players.findIndex((p: any) => p.physicalId === data.physicalId);
         if (existingIdx >= 0) {
-          // تحديث بيانات اللاعب الموجود (الاسم، الجنس، إلخ)
+          // تحديث بيانات اللاعب الموجود (الاسم، الجنس، الصورة، إلخ)
           const updatedPlayers = [...prev.players];
           updatedPlayers[existingIdx] = {
             ...updatedPlayers[existingIdx],
             name: data.name || updatedPlayers[existingIdx].name,
             gender: data.gender || updatedPlayers[existingIdx].gender,
+            avatarUrl: data.avatarUrl || updatedPlayers[existingIdx].avatarUrl,
           };
           return { ...prev, players: updatedPlayers };
         }
@@ -277,6 +339,7 @@ export default function LeaderPage() {
             name: data.name,
             gender: data.gender || 'MALE',
             isAlive: true,
+            avatarUrl: data.avatarUrl || null,
           }].sort((a: any, b: any) => a.physicalId - b.physicalId),
         };
       });
@@ -2189,7 +2252,7 @@ export default function LeaderPage() {
                         e.stopPropagation();
                         if (!confirm(`هل تريد إغلاق الغرفة "${game.gameName}"؟\nلن يتم حذف البيانات، فقط إغلاقها.`)) return;
                         emit('room:close', { roomId: game.roomId }).then((res: any) => {
-                          if (res?.success) { fetchActiveGames(); fetchHistory(); }
+                          if (res?.success) { sessionStorage.removeItem('leader_active_room'); fetchActiveGames(); fetchHistory(); }
                         }).catch(() => {});
                       }}
                       className="w-8 h-8 flex items-center justify-center text-[#555] hover:text-[#C5A059] hover:bg-[#C5A059]/10 border border-[#2a2a2a] hover:border-[#C5A059]/40 transition-all text-xs"
@@ -2203,7 +2266,7 @@ export default function LeaderPage() {
                         e.stopPropagation();
                         if (!confirm(`⚠️ هل تريد حذف الغرفة "${game.gameName}" نهائياً؟`)) return;
                         emit('room:delete-room', { roomId: game.roomId }).then((res: any) => {
-                          if (res?.success) fetchActiveGames();
+                          if (res?.success) { sessionStorage.removeItem('leader_active_room'); fetchActiveGames(); }
                         }).catch(() => {});
                       }}
                       className="w-8 h-8 flex items-center justify-center text-[#555] hover:text-[#ff0000] hover:bg-[#ff0000]/10 border border-[#2a2a2a] hover:border-[#ff0000]/40 transition-all text-xs"
