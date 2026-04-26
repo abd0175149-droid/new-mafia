@@ -86,6 +86,37 @@ router.post('/:id/reset-password', authenticate, adminOnly, async (req: Request,
   }
 });
 
+// ── DELETE /api/player/:id — حذف لاعب نهائياً (Admin only) ──
+router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف اللاعب غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
+
+    // التحقق من وجود اللاعب
+    const existing = await db.select({ id: playersTable.id, name: playersTable.name })
+      .from(playersTable)
+      .where(eq(playersTable.id, playerId))
+      .limit(1);
+    if (existing.length === 0) {
+      return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+    }
+
+    // حذف اللاعب
+    await db.delete(playersTable).where(eq(playersTable.id, playerId));
+
+    console.log(`🗑️ Admin deleted player #${playerId} (${existing[0].name})`);
+    return res.json({ success: true, message: 'تم حذف اللاعب بنجاح' });
+  } catch (err: any) {
+    console.error('❌ Delete player error:', err.message);
+    return res.status(500).json({ success: false, error: 'خطأ في حذف اللاعب' });
+  }
+});
+
 // ── POST /api/player/lookup — البحث عن لاعب برقم الهاتف ──
 router.post('/lookup', async (req: Request, res: Response) => {
   try {
@@ -283,10 +314,11 @@ router.put('/:id/profile', async (req: Request, res: Response) => {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
-    const { name, email } = req.body;
+    const { name, email, gender } = req.body;
     const updates: any = {};
     if (name && name.trim()) updates.name = name.trim();
     if (email !== undefined) updates.email = email?.trim() || null;
+    if (gender && ['MALE', 'FEMALE'].includes(gender)) updates.gender = gender;
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'لا توجد بيانات للتحديث' });

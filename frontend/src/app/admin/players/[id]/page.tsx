@@ -2,19 +2,23 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
 
-async function apiFetch(path: string) {
+async function apiFetch(path: string, opts?: RequestInit) {
   const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    ...opts,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
   });
-  if (!res.ok) throw new Error('API error');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `API error ${res.status}`);
+  }
   return res.json();
 }
 
@@ -46,6 +50,19 @@ export default function PlayerProfilePage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  // Edit state
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editGender, setEditGender] = useState('MALE');
+  const [editEmail, setEditEmail] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  function showToast(msg: string, type: 'success' | 'error') {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }
 
   useEffect(() => {
     if (!playerId) return;
@@ -60,6 +77,49 @@ export default function PlayerProfilePage() {
       }
     })();
   }, [playerId]);
+
+  // ── Start editing ──
+  function startEdit() {
+    if (!data?.player) return;
+    setEditName(data.player.name || '');
+    setEditGender(data.player.gender || 'MALE');
+    setEditEmail(data.player.email || '');
+    setEditing(true);
+  }
+
+  // ── Save profile ──
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const result = await apiFetch(`/api/player/${playerId}/profile`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: editName, gender: editGender, email: editEmail }),
+      });
+      // Update local data
+      setData((prev: any) => ({
+        ...prev,
+        player: { ...prev.player, name: editName, gender: editGender, email: editEmail },
+      }));
+      setEditing(false);
+      showToast('تم حفظ التعديلات', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل الحفظ', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Delete player ──
+  async function handleDelete() {
+    if (!confirm(`⚠️ هل تريد حذف اللاعب "${data?.player?.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`)) return;
+    try {
+      await apiFetch(`/api/player/${playerId}`, { method: 'DELETE' });
+      showToast('تم حذف اللاعب', 'success');
+      setTimeout(() => router.push('/admin/players'), 500);
+    } catch (err: any) {
+      showToast(err.message || 'فشل الحذف', 'error');
+    }
+  }
 
   if (loading) {
     return (
@@ -129,7 +189,6 @@ export default function PlayerProfilePage() {
             <div className={`text-2xl font-black ${rank.color}`}>{rank.icon}</div>
             <p className={`text-sm font-bold ${rank.color}`}>{rank.label}</p>
             <p className="text-[10px] text-gray-500 mt-0.5">المستوى {prog.level || 1}</p>
-            {/* XP Bar */}
             <div className="w-24 h-1.5 bg-gray-700 rounded-full mt-1.5 overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all"
@@ -139,7 +198,113 @@ export default function PlayerProfilePage() {
             <p className="text-[9px] text-gray-600 mt-0.5">{prog.xp || 0} / {prog.nextLevelXP || 500} XP</p>
           </div>
         </div>
+
+        {/* ── Admin Actions ── */}
+        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-700/30">
+          <button
+            onClick={startEdit}
+            className="text-xs px-4 py-2 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition flex items-center gap-1.5"
+          >
+            ✏️ تعديل البيانات
+          </button>
+          <button
+            onClick={handleDelete}
+            className="text-xs px-4 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition flex items-center gap-1.5"
+          >
+            🗑️ حذف اللاعب
+          </button>
+        </div>
       </motion.div>
+
+      {/* ═══ EDIT MODAL ═══ */}
+      <AnimatePresence>
+        {editing && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setEditing(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-gray-800 border border-gray-700/50 rounded-2xl p-6 w-full max-w-md space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">✏️ تعديل بيانات اللاعب</h3>
+                <button onClick={() => setEditing(false)} className="text-gray-500 hover:text-white text-lg">✕</button>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">الاسم</label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
+                />
+              </div>
+
+              {/* Gender */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">الجنس</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditGender('MALE')}
+                    className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition border ${
+                      editGender === 'MALE'
+                        ? 'border-blue-500/50 bg-blue-500/10 text-blue-400'
+                        : 'border-gray-600/30 text-gray-500 hover:border-gray-500'
+                    }`}
+                  >
+                    ♂ ذكر
+                  </button>
+                  <button
+                    onClick={() => setEditGender('FEMALE')}
+                    className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition border ${
+                      editGender === 'FEMALE'
+                        ? 'border-pink-500/50 bg-pink-500/10 text-pink-400'
+                        : 'border-gray-600/30 text-gray-500 hover:border-gray-500'
+                    }`}
+                  >
+                    ♀ أنثى
+                  </button>
+                </div>
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">البريد الإلكتروني (اختياري)</label>
+                <input
+                  type="email"
+                  value={editEmail}
+                  onChange={e => setEditEmail(e.target.value)}
+                  placeholder="email@example.com"
+                  className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
+                  dir="ltr"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saving || !editName.trim()}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500 text-black font-bold text-sm hover:bg-amber-400 transition disabled:opacity-40"
+                >
+                  {saving ? '⏳ جاري الحفظ...' : '💾 حفظ'}
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="px-6 py-2.5 rounded-xl border border-gray-600/40 text-gray-400 text-sm hover:text-white transition"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ═══ STATS GRID ═══ */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -251,6 +416,20 @@ export default function PlayerProfilePage() {
           </p>
         </div>
       )}
+
+      {/* ═══ TOAST ═══ */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }}
+            className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-6 py-3 rounded-xl text-sm font-bold shadow-xl ${
+              toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+            }`}
+          >
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

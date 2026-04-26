@@ -93,6 +93,18 @@ export default function PlayersManagementPage() {
     router.push(`/admin/players/${playerId}`);
   }
 
+  // ── Delete Player ──
+  async function handleDeletePlayer(player: any) {
+    if (!confirm(`⚠️ هل تريد حذف اللاعب "${player.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`)) return;
+    try {
+      await apiFetch(`/api/player/${player.id}`, { method: 'DELETE' });
+      setPlayers(prev => prev.filter(p => p.id !== player.id));
+      showToast(`تم حذف ${player.name}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل حذف اللاعب', 'error');
+    }
+  }
+
   // ── Filtered Players ──
   const filtered = players.filter(p => {
     if (!search.trim()) return true;
@@ -254,6 +266,13 @@ export default function PlayersManagementPage() {
                             title="عرض البروفايل"
                           >
                             👁
+                          </button>
+                          <button
+                            onClick={() => handleDeletePlayer(p)}
+                            className="p-1.5 rounded-lg text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                            title="حذف اللاعب"
+                          >
+                            🗑️
                           </button>
                         </div>
                       </td>
