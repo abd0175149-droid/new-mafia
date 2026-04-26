@@ -155,7 +155,7 @@ export default function PlayerProfilePage(){
     <div className="min-h-screen bg-black text-white" dir="rtl">
       {/* ═══ HERO ═══ */}
       <div className="relative overflow-hidden" style={{background:'linear-gradient(180deg,#0a0500 0%,#000 100%)'}}>
-        <div className="absolute inset-0 opacity-10" style={{background:`radial-gradient(circle at 50% 0%,${rank.color}33,transparent 60%)`}}/>
+        <div className="absolute inset-0 opacity-20" style={{background:`radial-gradient(circle at 50% 30%,${rank.color}44,transparent 50%)`}}/>
         <div className="max-w-lg mx-auto px-6 pt-6 pb-8 text-center relative z-10">
           {/* Settings Icon */}
           <button onClick={()=>setSettingsOpen(!settingsOpen)}
@@ -165,10 +165,10 @@ export default function PlayerProfilePage(){
 
           {/* Avatar */}
           <div className="relative inline-block mb-4">
-            <div className="absolute inset-0 w-32 h-32 mx-auto rounded-full" style={{background:`radial-gradient(circle, ${rank.color}20, transparent 70%)`,filter:'blur(20px)',transform:'scale(1.3)'}} />
+            <div className="absolute inset-0 w-36 h-36 mx-auto rounded-full" style={{background:`radial-gradient(circle, ${rank.color}30, transparent 60%)`,filter:'blur(25px)',transform:'scale(1.5)'}} />
             <motion.div initial={{scale:0}} animate={{scale:1}} transition={{type:'spring',damping:15}}
-              className="w-32 h-32 mx-auto rounded-full flex items-center justify-center text-5xl overflow-hidden cursor-pointer relative shadow-lg"
-              style={{border:`4px solid ${rank.color}60`,background:'linear-gradient(145deg,#1a1a1a,#2a2a2a)',boxShadow:`0 0 30px ${rank.color}15`}}
+              className="w-36 h-36 mx-auto rounded-full flex items-center justify-center text-5xl overflow-hidden cursor-pointer relative"
+              style={{border:`5px solid ${rank.color}`,background:'linear-gradient(145deg,#1a1a1a,#0d0d0d)',boxShadow:`0 0 40px ${rank.color}30, 0 0 80px ${rank.color}10, inset 0 0 20px ${rank.color}08`}}
               onClick={()=>fileInputRef.current?.click()}>
               {avatarSrc?<img src={avatarSrc} alt="" className="w-full h-full object-cover"/>:
                 player.gender==='FEMALE'?'👩':'👤'}
@@ -191,18 +191,18 @@ export default function PlayerProfilePage(){
 
           {/* Rank Badge */}
           <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.2}}
-            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r ${rank.bg} border mb-4 ${rank.glow||''}`}
-            style={{borderColor:`${rank.color}30`}}>
-            <span className="text-lg">{rank.icon}</span>
-            <span className="font-bold text-sm" style={{color:rank.color}}>{rank.name}</span>
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-full mb-4"
+            style={{background:`linear-gradient(135deg, ${rank.color}15, ${rank.color}05)`,border:`2px solid ${rank.color}40`,boxShadow:`0 0 15px ${rank.color}10`}}>
+            <span className="text-xl">{rank.icon}</span>
+            <span className="font-bold text-sm" style={{color:rank.color}}>{rank.name} {(progression?.rankTier||'INFORMANT')}</span>
           </motion.div>
 
           {/* Level + XP Bar */}
           <div className="flex items-center gap-3 max-w-xs mx-auto mb-2">
-            {/* Level Badge */}
-            <div className="shrink-0 w-14 h-14 rounded-xl flex flex-col items-center justify-center" style={{background:`linear-gradient(135deg, ${rank.color}20, ${rank.color}05)`,border:`2px solid ${rank.color}30`}}>
-              <span className="text-lg font-black" style={{color:rank.color}}>{progression?.level||1}</span>
-              <span className="text-[7px] text-gray-500 uppercase tracking-wider font-bold">LEVEL</span>
+            {/* Level Badge - Shield Style */}
+            <div className="shrink-0 w-16 h-16 rounded-2xl flex flex-col items-center justify-center relative" style={{background:`linear-gradient(180deg, ${rank.color}25, #0a0a0a)`,border:`2px solid ${rank.color}50`,boxShadow:`0 4px 15px ${rank.color}15`}}>
+              <span className="text-[7px] text-gray-400 uppercase tracking-widest font-bold">LEVEL</span>
+              <span className="text-2xl font-black" style={{color:rank.color}}>{progression?.level||1}</span>
             </div>
             {/* XP Progress */}
             <div className="flex-1">
@@ -225,7 +225,7 @@ export default function PlayerProfilePage(){
       {/* ═══ RANK PROGRESSION ═══ */}
       <div className="max-w-lg mx-auto px-4 -mt-1 mb-2">
         <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.3}}
-          className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+          className="rounded-2xl p-4" style={{background:'linear-gradient(180deg,#111111,#0a0a0a)',border:`1px solid ${rank.color}20`}}>
           <div className="flex justify-between items-start mb-3">
             <div>
               <h3 className="text-sm font-bold text-gray-300">الرتبة الحالية</h3>
@@ -239,11 +239,11 @@ export default function PlayerProfilePage(){
             </div>
             <div className="text-left">
               <h3 className="text-sm font-bold text-gray-300">عن الرتب</h3>
-              <div className="flex gap-1.5 mt-1.5">
+              <div className="flex gap-2 mt-1.5">
                 {RANK_TIERS_ORDER.map((t,i)=>{const rc=RANK_CONFIG[t];const isActive=t===(progression?.rankTier||'INFORMANT');const idx=RANK_TIERS_ORDER.indexOf(progression?.rankTier||'INFORMANT');const isPast=i<idx;
                   return <div key={t} className="flex flex-col items-center gap-0.5">
-                    <span className={`text-lg ${isActive?'':'opacity-30'} ${isPast?'opacity-60':''}`} style={isActive?{filter:`drop-shadow(0 0 4px ${rc.color})`}:{}}>{rc.icon}</span>
-                    <span className={`text-[8px] ${isActive?'font-bold':'text-gray-600'}`} style={isActive?{color:rc.color}:{}}>{rc.name}</span>
+                    <span className={`text-2xl ${isActive?'':'opacity-25'} ${isPast?'opacity-50':''}`} style={isActive?{filter:`drop-shadow(0 0 6px ${rc.color})`}:{}}>{rc.icon}</span>
+                    <span className={`text-[7px] ${isActive?'font-bold':'text-gray-600'}`} style={isActive?{color:rc.color}:{}}>{rc.name}</span>
                   </div>;
                 })}
               </div>
@@ -260,7 +260,7 @@ export default function PlayerProfilePage(){
       <div className="max-w-lg mx-auto px-4 pb-20 space-y-5">
         {/* ═══ PERFORMANCE OVERVIEW ═══ */}
         <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.4}}
-          className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+          className="rounded-2xl p-5" style={{background:'linear-gradient(180deg,#111111,#0a0a0a)',border:'1px solid rgba(251,191,36,0.15)'}}>
           <h3 className="text-sm font-bold text-gray-300 mb-3">الأداء العام</h3>
           <div className="flex items-center justify-around">
             {[
@@ -269,20 +269,20 @@ export default function PlayerProfilePage(){
               {v:(stats.totalMatches||0)-(stats.totalWins||0),l:'خسارة',icon:'💀',c:'text-rose-400'},
             ].map((s,i)=>(
               <div key={i} className="flex flex-col items-center gap-1">
-                <span className="text-lg">{s.icon}</span>
-                <p className={`text-xl font-black ${s.c} tabular-nums`}>{s.v}</p>
-                <p className="text-[9px] text-gray-500">{s.l}</p>
+                <span className="text-2xl">{s.icon}</span>
+                <p className={`text-2xl font-black ${s.c} tabular-nums`}>{s.v}</p>
+                <p className="text-[10px] text-gray-500">{s.l}</p>
               </div>
             ))}
             {/* Win Rate Circle */}
-            <div className="relative w-16 h-16 shrink-0">
+            <div className="relative w-[72px] h-[72px] shrink-0">
               <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#1f2937" strokeWidth="3"/>
-                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round"
-                  strokeDasharray={`${(stats.winRate/100)*97.4} 97.4`}/>
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#1a1a2e" strokeWidth="3.5"/>
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#fbbf24" strokeWidth="3.5" strokeLinecap="round"
+                  strokeDasharray={`${(stats.winRate/100)*97.4} 97.4`} style={{filter:'drop-shadow(0 0 4px #fbbf2440)'}}/>
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-emerald-400">{stats.winRate}%</span>
-              <p className="text-[8px] text-gray-500 text-center mt-0.5">معدل الفوز</p>
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-black text-amber-400">{stats.winRate}%</span>
+              <p className="text-[9px] text-gray-500 text-center mt-0.5">معدل الفوز</p>
             </div>
           </div>
         </motion.div>
@@ -295,9 +295,9 @@ export default function PlayerProfilePage(){
             {v:`${progression?.successfulDeals||0}/${progression?.totalDeals||0}`,l:'🤝 الاتفاقيات',c:'text-purple-400'},
           ].map((s,i)=>(
             <motion.div key={i} initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.1*i+0.5}}
-              className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-2.5 text-center">
-              <p className={`text-lg font-black ${s.c} tabular-nums`}>{s.v}</p>
-              <p className="text-[8px] text-gray-500 mt-0.5">{s.l}</p>
+              className="rounded-xl p-3 text-center" style={{background:'linear-gradient(180deg,#111111,#0a0a0a)',border:'1px solid rgba(251,191,36,0.12)'}}>
+              <p className={`text-xl font-black ${s.c} tabular-nums`}>{s.v}</p>
+              <p className="text-[9px] text-gray-500 mt-1">{s.l}</p>
             </motion.div>
           ))}
         </div>
@@ -355,23 +355,27 @@ export default function PlayerProfilePage(){
         {/* ═══ MINI LEADERBOARD ═══ */}
         {leaderboard.length>0&&(
           <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.55}}
-            className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+            className="rounded-2xl p-4" style={{background:'linear-gradient(180deg,#111111,#0a0a0a)',border:'1px solid rgba(251,191,36,0.15)'}}>
             <h3 className="text-sm font-bold text-gray-300 mb-3">🏆 لوحة المتصدرين</h3>
-            <div className="flex justify-between text-[9px] text-gray-600 px-2 mb-1.5">
-              <span>اللاعب</span><div className="flex gap-6"><span>المستوى</span><span>RR</span></div>
+            <div className="flex items-center gap-2 px-2 mb-2 pb-2" style={{borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+              <span className="w-6" /><span className="w-6" />
+              <span className="flex-1 text-[9px] text-gray-600">اللاعب</span>
+              <span className="text-[9px] text-gray-600 w-12 text-center">المستوى</span>
+              <span className="text-[9px] text-gray-600 w-10 text-center">RR</span>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {leaderboard.map((p:any,i:number)=>{
                 const isMe=p.id===player?.id;
                 const medals=['🥇','🥈','🥉'];
                 const rc=RANK_CONFIG[p.rankTier||'INFORMANT']||RANK_CONFIG.INFORMANT;
                 return(
-                  <div key={p.id} className={`flex items-center gap-2 px-2 py-2 rounded-lg transition ${isMe?'bg-amber-500/10 border border-amber-500/20':'hover:bg-white/[0.02]'}`}>
-                    <span className="text-sm w-6 text-center">{i<3?medals[i]:(i+1)}</span>
-                    <span className="text-sm">{rc.icon}</span>
+                  <div key={p.id} className={`flex items-center gap-2 px-2 py-2.5 rounded-lg transition`}
+                    style={isMe?{background:'linear-gradient(90deg, rgba(251,191,36,0.12), rgba(251,191,36,0.04))',border:'1px solid rgba(251,191,36,0.25)'}:{borderBottom:'1px solid rgba(255,255,255,0.03)'}}>
+                    <span className="text-sm w-6 text-center font-bold" style={{color:i<3?'#fbbf24':'#6b7280'}}>{i<3?medals[i]:(i+1)}</span>
+                    <span className="text-lg">{rc.icon}</span>
                     <span className={`flex-1 text-xs ${isMe?'text-amber-400 font-bold':'text-gray-300'}`}>{p.name}</span>
-                    <span className="text-xs text-gray-500 w-10 text-center tabular-nums">{p.level||1}</span>
-                    <span className="text-xs text-gray-400 w-10 text-center tabular-nums font-bold">{p.rankRR||0}</span>
+                    <span className="text-xs text-gray-500 w-12 text-center tabular-nums">{p.level||1}</span>
+                    <span className="text-xs text-amber-400 w-10 text-center tabular-nums font-bold">{p.rankRR||0}</span>
                   </div>
                 );
               })}
