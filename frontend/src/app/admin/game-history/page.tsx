@@ -9,10 +9,11 @@ function getToken() {
   return typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 }
 
-async function apiFetch(path: string) {
+async function apiFetch(path: string, opts?: RequestInit) {
   const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    ...opts,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
   });
   if (!res.ok) throw new Error('API error');
   return res.json();
@@ -117,6 +118,18 @@ export default function GameHistoryPage() {
       setSelectedMatch(detail);
     } catch (err) {
       console.error(err);
+    }
+  }
+
+  async function handleDeleteSession(sessionId: number, e: React.MouseEvent) {
+    e.stopPropagation(); // منع فتح الكارد
+    if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟ سيتم حذف جميع بياناتها.')) return;
+    try {
+      await apiFetch(`/api/leader/sessions/${sessionId}`, { method: 'DELETE' });
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (expandedSession === sessionId) setExpandedSession(null);
+    } catch (err: any) {
+      alert('فشل الحذف: ' + (err.message || 'خطأ غير متوقع'));
     }
   }
 
@@ -260,7 +273,7 @@ export default function GameHistoryPage() {
                 {/* ── كارت الغرفة ── */}
                 <div
                   onClick={() => toggleSession(session.id)}
-                  className={`rounded-xl p-4 cursor-pointer transition-all border ${
+                  className={`rounded-xl p-4 cursor-pointer transition-all border group ${
                     expandedSession === session.id
                       ? 'bg-gray-800/70 border-amber-500/30'
                       : 'bg-gray-800/50 border-gray-700/40 hover:border-gray-600/50'
@@ -307,13 +320,22 @@ export default function GameHistoryPage() {
                       </span>
                     )}
 
-                    {/* سهم التوسيع */}
-                    <motion.span
-                      animate={{ rotate: expandedSession === session.id ? 180 : 0 }}
-                      className="text-gray-500 text-sm"
-                    >
-                      ▼
-                    </motion.span>
+                    {/* سهم التوسيع + زر الحذف */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => handleDeleteSession(session.id, e)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100"
+                        title="حذف الغرفة نهائياً"
+                      >
+                        🗑️ حذف
+                      </button>
+                      <motion.span
+                        animate={{ rotate: expandedSession === session.id ? 180 : 0 }}
+                        className="text-gray-500 text-sm"
+                      >
+                        ▼
+                      </motion.span>
+                    </div>
                   </div>
                 </div>
 

@@ -115,6 +115,20 @@ app.get('/api/leader/sessions/:id/matches', async (req, res) => {
   res.json(matches);
 });
 
+// DELETE /api/leader/sessions/:id — حذف غرفة نهائياً
+app.delete('/api/leader/sessions/:id', async (req, res) => {
+  try {
+    const sessionId = parseInt(req.params.id);
+    const { deleteSession } = await import('./services/session.service.js');
+    const deleted = await deleteSession(sessionId);
+    if (!deleted) return res.status(500).json({ error: 'فشل حذف الغرفة' });
+    console.log(`🗑️ Game History: Deleted Session #${sessionId}`);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Game frontend endpoints (used by leader page) ──
 
 // GET /api/game/leader-rooms — الغرف النشطة
