@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 import {
   User,
   HeartPulse,
@@ -209,7 +211,13 @@ export default function MafiaCard({
   avatarUrl = null,
 }: MafiaCardProps) {
   const [internalFlip, setInternalFlip] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
   const isFlipped = controlledFlip !== undefined ? controlledFlip : internalFlip;
+
+  // بناء URL كامل للأفاتار — المسار النسبي يحتاج SOCKET_URL
+  const resolvedAvatarUrl = (!avatarUrl || avatarError) ? null
+    : avatarUrl.startsWith('http') ? avatarUrl
+    : `${SOCKET_URL}${avatarUrl}`;
 
   const theme = getRoleTheme(role);
   const RoleIcon = theme.Icon;
@@ -290,12 +298,12 @@ export default function MafiaCard({
           {/* ── القسم العلوي (2/3): صورة اللاعب + رقم طافي ── */}
           <div className="relative" style={{ height: '66.66%' }}>
             {/* صورة اللاعب — تغطي كامل المساحة */}
-            {avatarUrl ? (
+            {resolvedAvatarUrl ? (
               <img
-                src={`${avatarUrl}`}
+                src={resolvedAvatarUrl}
                 alt={playerName}
                 className="absolute inset-0 w-full h-full object-cover"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                onError={() => setAvatarError(true)}
               />
             ) : (
               /* خلفية افتراضية عند عدم وجود صورة */
@@ -310,7 +318,7 @@ export default function MafiaCard({
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
 
             {/* رقم اللاعب — طافي فوق الصورة */}
-            {avatarUrl ? (
+            {resolvedAvatarUrl ? (
               /* عند وجود صورة: رقم كبير يمين النصف العلوي مع خلفية رمادية شفافة */
               <div className="absolute top-[15%] right-3 z-10">
                 <div
