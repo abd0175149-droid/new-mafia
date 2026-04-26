@@ -156,7 +156,13 @@ export default function PlayerProfilePage(){
       {/* ═══ HERO ═══ */}
       <div className="relative overflow-hidden" style={{background:'linear-gradient(180deg,#0a0500 0%,#000 100%)'}}>
         <div className="absolute inset-0 opacity-10" style={{background:`radial-gradient(circle at 50% 0%,${rank.color}33,transparent 60%)`}}/>
-        <div className="max-w-lg mx-auto px-6 pt-10 pb-8 text-center relative z-10">
+        <div className="max-w-lg mx-auto px-6 pt-6 pb-8 text-center relative z-10">
+          {/* Settings Icon */}
+          <button onClick={()=>setSettingsOpen(!settingsOpen)}
+            className="absolute top-6 left-6 w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition z-20">
+            ⚙️
+          </button>
+
           {/* Avatar */}
           <div className="relative inline-block mb-4">
             <div className="absolute inset-0 w-32 h-32 mx-auto rounded-full" style={{background:`radial-gradient(circle, ${rank.color}20, transparent 70%)`,filter:'blur(20px)',transform:'scale(1.3)'}} />
@@ -185,22 +191,30 @@ export default function PlayerProfilePage(){
 
           {/* Rank Badge */}
           <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{delay:0.2}}
-            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r ${rank.bg} border mb-3 ${rank.glow||''}`}
+            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r ${rank.bg} border mb-4 ${rank.glow||''}`}
             style={{borderColor:`${rank.color}30`}}>
             <span className="text-lg">{rank.icon}</span>
             <span className="font-bold text-sm" style={{color:rank.color}}>{rank.name}</span>
-            <span className="text-gray-400 text-xs">المستوى {progression?.level||1}</span>
           </motion.div>
 
-          {/* XP Progress */}
-          <div className="max-w-xs mx-auto mb-2">
-            <div className="flex justify-between text-[10px] text-gray-500 mb-1">
-              <span>{progression?.xp||0} XP</span>
-              <span>{progression?.nextLevelXP||500} XP</span>
+          {/* Level + XP Bar */}
+          <div className="flex items-center gap-3 max-w-xs mx-auto mb-2">
+            {/* Level Badge */}
+            <div className="shrink-0 w-14 h-14 rounded-xl flex flex-col items-center justify-center" style={{background:`linear-gradient(135deg, ${rank.color}20, ${rank.color}05)`,border:`2px solid ${rank.color}30`}}>
+              <span className="text-lg font-black" style={{color:rank.color}}>{progression?.level||1}</span>
+              <span className="text-[7px] text-gray-500 uppercase tracking-wider font-bold">LEVEL</span>
             </div>
-            <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-              <motion.div initial={{width:0}} animate={{width:`${progression?.xpProgress||0}%`}} transition={{duration:1,ease:'easeOut'}}
-                className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/>
+            {/* XP Progress */}
+            <div className="flex-1">
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-gray-500">التقدم XP</span>
+                <span style={{color:rank.color}}>{progression?.xp||0} / {progression?.nextLevelXP||500} XP</span>
+              </div>
+              <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">
+                <motion.div initial={{width:0}} animate={{width:`${progression?.xpProgress||0}%`}} transition={{duration:1,ease:'easeOut'}}
+                  className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/>
+              </div>
+              <p className="text-[9px] text-gray-600 mt-0.5">المستوى التالي: {(progression?.nextLevelXP||500) - (progression?.xp||0)} XP</p>
             </div>
           </div>
 
