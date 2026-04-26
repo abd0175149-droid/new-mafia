@@ -159,9 +159,10 @@ export default function PlayerProfilePage(){
         <div className="max-w-lg mx-auto px-6 pt-10 pb-8 text-center relative z-10">
           {/* Avatar */}
           <div className="relative inline-block mb-4">
+            <div className="absolute inset-0 w-32 h-32 mx-auto rounded-full" style={{background:`radial-gradient(circle, ${rank.color}20, transparent 70%)`,filter:'blur(20px)',transform:'scale(1.3)'}} />
             <motion.div initial={{scale:0}} animate={{scale:1}} transition={{type:'spring',damping:15}}
-              className="w-28 h-28 mx-auto rounded-full flex items-center justify-center text-4xl overflow-hidden cursor-pointer"
-              style={{border:`3px solid ${rank.color}40`,background:'linear-gradient(145deg,#1a1a1a,#2a2a2a)'}}
+              className="w-32 h-32 mx-auto rounded-full flex items-center justify-center text-5xl overflow-hidden cursor-pointer relative shadow-lg"
+              style={{border:`4px solid ${rank.color}60`,background:'linear-gradient(145deg,#1a1a1a,#2a2a2a)',boxShadow:`0 0 30px ${rank.color}15`}}
               onClick={()=>fileInputRef.current?.click()}>
               {avatarSrc?<img src={avatarSrc} alt="" className="w-full h-full object-cover"/>:
                 player.gender==='FEMALE'?'👩':'👤'}

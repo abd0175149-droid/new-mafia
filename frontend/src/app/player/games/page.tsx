@@ -78,9 +78,48 @@ export default function GamesPage() {
     );
   }
 
+  // ── شريط التقويم ──
+  const today = new Date();
+  const weekDays = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    return d;
+  });
+  const [selectedDate, setSelectedDate] = useState<string>(today.toDateString());
+
+  const dayNames = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت'];
+  const monthNames = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
   return (
     <div className="max-w-lg mx-auto px-4 pt-6">
-      <h1 className="text-white text-lg font-bold mb-4">🎮 الألعاب والحجوزات</h1>
+      <div className="flex items-center justify-between mb-3">
+        <h1 className="text-white text-lg font-bold">🎮 الألعاب والحجوزات</h1>
+        <span className="text-xs text-gray-500">{monthNames[today.getMonth()]} {today.getFullYear()}</span>
+      </div>
+
+      {/* ── شريط التقويم الأسبوعي ── */}
+      <div className="flex gap-1.5 overflow-x-auto pb-3 mb-3 scrollbar-hide">
+        {weekDays.map(d => {
+          const isToday = d.toDateString() === today.toDateString();
+          const isSelected = d.toDateString() === selectedDate;
+          const hasActivity = activities.some(a => new Date(a.date).toDateString() === d.toDateString());
+          return (
+            <button
+              key={d.toDateString()}
+              onClick={() => setSelectedDate(d.toDateString())}
+              className={`shrink-0 w-12 py-2 rounded-xl text-center transition-all ${
+                isSelected ? 'bg-amber-500/20 border border-amber-500/40' :
+                isToday ? 'bg-white/5 border border-amber-500/10' :
+                'bg-white/[0.02] border border-white/5'
+              }`}
+            >
+              <p className={`text-[9px] ${isSelected ? 'text-amber-400' : 'text-gray-600'}`}>{dayNames[d.getDay()]}</p>
+              <p className={`text-sm font-bold ${isSelected ? 'text-amber-400' : isToday ? 'text-white' : 'text-gray-500'}`}>{d.getDate()}</p>
+              {hasActivity && <div className={`w-1 h-1 rounded-full mx-auto mt-0.5 ${isSelected ? 'bg-amber-400' : 'bg-amber-500/40'}`} />}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-2 mb-4">

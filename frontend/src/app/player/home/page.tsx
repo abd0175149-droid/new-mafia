@@ -51,15 +51,15 @@ export default function HomePage() {
         }}
       >
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-white/5 border-2 border-amber-500/30 flex items-center justify-center overflow-hidden">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden shadow-lg shadow-amber-500/10" style={{border:'3px solid rgba(251,191,36,0.4)',background:'linear-gradient(145deg,#1a1a1a,#2a2a2a)'}}>
             {p?.avatarUrl ? (
               <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" />
             ) : (
-              <span className="text-2xl">🎭</span>
+              <span className="text-3xl">🎭</span>
             )}
           </div>
           <div className="flex-1">
-            <h1 className="text-lg font-bold text-white">{p?.name || 'لاعب'}</h1>
+            <h1 className="text-lg font-bold text-white">أهلاً {p?.name || 'لاعب'} 👋</h1>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-xs px-2 py-0.5 rounded-full" style={{
                 background: 'rgba(251,191,36,0.15)',
