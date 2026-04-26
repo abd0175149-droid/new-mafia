@@ -195,50 +195,32 @@ export async function removePlayerFromSession(sessionId: number, physicalId: num
   }
 }
 
-// ── إغلاق الغرفة (Soft Delete) ─────────────────────
+// ── إغلاق الغرفة ─────────────────────────────────
 export async function closeSession(sessionId: number): Promise<void> {
   const db = getDB();
   if (!db) return;
 
   try {
     await db.update(sessions)
-      .set({ isActive: false })
+      .set({ isActive: false, status: 'closed' })
       .where(eq(sessions.id, sessionId));
-    console.log(`🔒 Session #${sessionId} closed (soft delete)`);
+    console.log(`🔒 Session #${sessionId} closed`);
   } catch (err: any) {
     console.error('❌ Failed to close session:', err.message);
   }
 }
 
-// ── حذف الغرفة نهائياً (Hard Delete) ────────────────
+// ── حذف الغرفة (Soft Delete — تبقى في DB للسجل) ─────
 export async function deleteSession(sessionId: number): Promise<boolean> {
   const db = getDB();
   if (!db) return false;
 
   try {
-    // حذف بالترتيب الصحيح (الأبناء أولاً) بسبب FK constraints
-    // 1. حذف surveys المرتبطة (FK → matches.id)
-    await db.execute(sql`
-      DELETE FROM surveys 
-      WHERE match_id IN (SELECT id FROM matches WHERE session_id = ${sessionId})
-    `);
+    await db.update(sessions)
+      .set({ isActive: false, status: 'deleted' })
+      .where(eq(sessions.id, sessionId));
 
-    // 2. حذف match_players المرتبطة (FK → matches.id)
-    await db.execute(sql`
-      DELETE FROM match_players 
-      WHERE match_id IN (SELECT id FROM matches WHERE session_id = ${sessionId})
-    `);
-
-    // 3. حذف matches المرتبطة (FK → sessions.id)
-    await db.execute(sql`DELETE FROM matches WHERE session_id = ${sessionId}`);
-
-    // 4. حذف session_players (FK → sessions.id)
-    await db.execute(sql`DELETE FROM session_players WHERE session_id = ${sessionId}`);
-
-    // 5. حذف الغرفة نفسها
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
-
-    console.log(`🗑️ Session #${sessionId} permanently deleted`);
+    console.log(`🗑️ Session #${sessionId} soft-deleted (status=deleted)`);
     return true;
   } catch (err: any) {
     console.error('❌ Failed to delete session:', err.message);
@@ -301,6 +283,7 @@ export async function getAllSessions() {
         s.session_name,
         s.max_players,
         s.is_active,
+        COALESCE(s.status, CASE WHEN s.is_active THEN 'active' ELSE 'closed' END) AS status,
         s.activity_id,
         s.created_at,
         COUNT(m.id)::int AS match_count,
@@ -317,7 +300,9 @@ export async function getAllSessions() {
       FROM sessions s
       LEFT JOIN matches m ON m.session_id = s.id
       GROUP BY s.id
-      ORDER BY s.is_active DESC, s.created_at DESC
+      ORDER BY 
+        CASE s.status WHEN 'active' THEN 0 WHEN 'closed' THEN 1 WHEN 'deleted' THEN 2 ELSE 3 END,
+        s.created_at DESC
     `);
 
     return (rows.rows || rows).map((r: any) => ({
@@ -327,6 +312,7 @@ export async function getAllSessions() {
       sessionName: r.session_name,
       maxPlayers: r.max_players,
       isActive: r.is_active,
+      status: r.status || (r.is_active ? 'active' : 'closed'),
       activityId: r.activity_id,
       createdAt: r.created_at,
       matchCount: r.match_count || 0,

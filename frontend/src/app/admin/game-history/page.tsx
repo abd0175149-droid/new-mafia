@@ -27,6 +27,7 @@ interface Session {
   sessionName: string;
   maxPlayers: number;
   isActive: boolean;
+  status: 'active' | 'closed' | 'deleted';
   activityId: number | null;
   createdAt: string;
   matchCount: number;
@@ -60,19 +61,23 @@ interface MatchDetail extends Match {
   }[];
 }
 
-type StatusFilter = 'all' | 'active' | 'closed';
+type StatusFilter = 'all' | 'active' | 'closed' | 'deleted';
+type ActivityFilter = 'all' | 'linked' | 'standalone';
 
 export default function GameHistoryPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
-  // حالة التوسيع (accordion)
+  // فلاتر
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
+
+  // حالة التوسيع
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
   const [sessionMatches, setSessionMatches] = useState<Record<number, Match[]>>({});
   const [matchesLoading, setMatchesLoading] = useState<number | null>(null);
 
-  // حالة Modal تفاصيل المباراة
+  // حالة Modal
   const [selectedMatch, setSelectedMatch] = useState<MatchDetail | null>(null);
 
   useEffect(() => {
@@ -95,10 +100,7 @@ export default function GameHistoryPage() {
       setExpandedSession(null);
       return;
     }
-
     setExpandedSession(sessionId);
-
-    // جلب مباريات الغرفة إذا لم تُجلب بعد
     if (!sessionMatches[sessionId]) {
       setMatchesLoading(sessionId);
       try {
@@ -128,25 +130,56 @@ export default function GameHistoryPage() {
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return '';
     return new Date(dateStr).toLocaleDateString('ar-JO', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   }
 
   // ── الفلترة ──
   const filteredSessions = sessions.filter(s => {
-    if (statusFilter === 'active') return s.isActive;
-    if (statusFilter === 'closed') return !s.isActive;
+    // فلتر الحالة
+    if (statusFilter !== 'all' && s.status !== statusFilter) return false;
+    // فلتر الربط بنشاط
+    if (activityFilter === 'linked' && !s.activityId) return false;
+    if (activityFilter === 'standalone' && s.activityId) return false;
     return true;
   });
 
-  const counts = {
+  const statusCounts = {
     all: sessions.length,
-    active: sessions.filter(s => s.isActive).length,
-    closed: sessions.filter(s => !s.isActive).length,
+    active: sessions.filter(s => s.status === 'active').length,
+    closed: sessions.filter(s => s.status === 'closed').length,
+    deleted: sessions.filter(s => s.status === 'deleted').length,
   };
+
+  const activityCounts = {
+    all: sessions.length,
+    linked: sessions.filter(s => s.activityId).length,
+    standalone: sessions.filter(s => !s.activityId).length,
+  };
+
+  // ── بيانات الفلاتر ──
+  const statusOptions: { key: StatusFilter; label: string; icon: string; color: string }[] = [
+    { key: 'all', label: 'الكل', icon: '📋', color: '' },
+    { key: 'active', label: 'نشطة', icon: '🟢', color: 'text-emerald-400' },
+    { key: 'closed', label: 'مغلقة', icon: '🔴', color: 'text-red-400' },
+    { key: 'deleted', label: 'محذوفة', icon: '🗑️', color: 'text-gray-500' },
+  ];
+
+  const activityOptions: { key: ActivityFilter; label: string; icon: string }[] = [
+    { key: 'all', label: 'الكل', icon: '📋' },
+    { key: 'linked', label: 'مرتبطة بنشاط', icon: '🔗' },
+    { key: 'standalone', label: 'مستقلة', icon: '📌' },
+  ];
+
+  // ── ألوان الحالة ──
+  function getStatusStyle(status: string) {
+    switch (status) {
+      case 'active': return { bg: 'bg-emerald-500/20', text: 'text-emerald-400', icon: '🟢', label: 'نشطة' };
+      case 'closed': return { bg: 'bg-red-500/20', text: 'text-red-400', icon: '🔴', label: 'مغلقة' };
+      case 'deleted': return { bg: 'bg-gray-700/50', text: 'text-gray-500', icon: '🗑️', label: 'محذوفة' };
+      default: return { bg: 'bg-gray-700/50', text: 'text-gray-400', icon: '❓', label: status };
+    }
+  }
 
   if (loading) {
     return (
@@ -164,169 +197,191 @@ export default function GameHistoryPage() {
         <p className="text-gray-400 mt-1">كل الغرف والمباريات في مكان واحد</p>
       </div>
 
-      {/* ── فلتر الحالة ── */}
-      <div className="flex gap-2 flex-wrap">
-        {([
-          { key: 'all', label: 'الكل', icon: '📋' },
-          { key: 'active', label: 'نشطة', icon: '🟢' },
-          { key: 'closed', label: 'مغلقة', icon: '🔴' },
-        ] as { key: StatusFilter; label: string; icon: string }[]).map(f => (
-          <button
-            key={f.key}
-            onClick={() => setStatusFilter(f.key)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-              statusFilter === f.key
-                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
-                : 'text-gray-400 hover:text-white bg-gray-800/40 border border-gray-700/30'
-            }`}
-          >
-            {f.icon} {f.label} ({counts[f.key]})
-          </button>
-        ))}
+      {/* ── الفلاتر ── */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* فلتر الحالة */}
+        <div className="flex-1">
+          <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5 block">حالة الغرفة</label>
+          <div className="relative">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              className="w-full appearance-none bg-gray-800/60 border border-gray-700/40 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
+            >
+              {statusOptions.map(opt => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.icon} {opt.label} ({statusCounts[opt.key]})
+                </option>
+              ))}
+            </select>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs pointer-events-none">▼</span>
+          </div>
+        </div>
+
+        {/* فلتر الربط بنشاط */}
+        <div className="flex-1">
+          <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5 block">الربط بنشاط</label>
+          <div className="relative">
+            <select
+              value={activityFilter}
+              onChange={(e) => setActivityFilter(e.target.value as ActivityFilter)}
+              className="w-full appearance-none bg-gray-800/60 border border-gray-700/40 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
+            >
+              {activityOptions.map(opt => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.icon} {opt.label} ({activityCounts[opt.key]})
+                </option>
+              ))}
+            </select>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs pointer-events-none">▼</span>
+          </div>
+        </div>
       </div>
+
+      {/* ── عدد النتائج ── */}
+      <p className="text-xs text-gray-600">
+        عرض {filteredSessions.length} من {sessions.length} غرفة
+      </p>
 
       {/* ── قائمة الغرف ── */}
       <div className="space-y-3">
         {filteredSessions.length === 0 ? (
           <div className="text-center py-16 text-gray-500">لا توجد غرف تطابق الفلتر</div>
         ) : (
-          filteredSessions.map((session, i) => (
-            <motion.div
-              key={session.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.03 }}
-            >
-              {/* ── كارت الغرفة ── */}
-              <div
-                onClick={() => toggleSession(session.id)}
-                className={`rounded-xl p-4 cursor-pointer transition-all border ${
-                  expandedSession === session.id
-                    ? 'bg-gray-800/70 border-amber-500/30'
-                    : 'bg-gray-800/50 border-gray-700/40 hover:border-gray-600/50'
-                }`}
+          filteredSessions.map((session, i) => {
+            const st = getStatusStyle(session.status);
+            return (
+              <motion.div
+                key={session.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.03 }}
               >
-                <div className="flex items-center gap-4">
-                  {/* أيقونة الحالة */}
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-lg ${
-                    session.isActive
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-gray-700/50 text-gray-400'
-                  }`}>
-                    {session.isActive ? '🟢' : '🏠'}
-                  </div>
+                {/* ── كارت الغرفة ── */}
+                <div
+                  onClick={() => toggleSession(session.id)}
+                  className={`rounded-xl p-4 cursor-pointer transition-all border ${
+                    expandedSession === session.id
+                      ? 'bg-gray-800/70 border-amber-500/30'
+                      : 'bg-gray-800/50 border-gray-700/40 hover:border-gray-600/50'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    {/* أيقونة الحالة */}
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-lg ${st.bg}`}>
+                      {st.icon}
+                    </div>
 
-                  {/* معلومات الغرفة */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-white text-sm">{session.sessionName}</p>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                        session.isActive
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : 'bg-gray-700/30 text-gray-500'
+                    {/* معلومات الغرفة */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-white text-sm">{session.sessionName}</p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${st.bg} ${st.text}`}>
+                          {st.label}
+                        </span>
+                        {session.activityId && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400">
+                            🔗 نشاط
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        كود: {session.sessionCode}
+                        {' • '}{session.playerCount}/{session.maxPlayers} لاعب
+                        {' • '}{session.matchCount} مباراة
+                        {session.totalDuration > 0 && ` • ${formatDuration(session.totalDuration)}`}
+                      </p>
+                      <p className="text-[10px] text-gray-600 mt-0.5">
+                        {formatDate(session.createdAt)}
+                      </p>
+                    </div>
+
+                    {/* آخر نتيجة */}
+                    {session.lastWinner && (
+                      <span className={`text-xs px-2 py-1 rounded-full hidden sm:inline-block ${
+                        session.lastWinner === 'MAFIA'
+                          ? 'bg-rose-500/10 text-rose-400'
+                          : 'bg-emerald-500/10 text-emerald-400'
                       }`}>
-                        {session.isActive ? 'نشطة' : 'مغلقة'}
+                        {session.lastWinner === 'MAFIA' ? '🔴' : '🟢'} آخر فوز
                       </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      كود: {session.sessionCode}
-                      {' • '}{session.playerCount}/{session.maxPlayers} لاعب
-                      {' • '}{session.matchCount} مباراة
-                      {session.totalDuration > 0 && ` • ${formatDuration(session.totalDuration)}`}
-                    </p>
-                    <p className="text-[10px] text-gray-600 mt-0.5">
-                      {formatDate(session.createdAt)}
-                    </p>
+                    )}
+
+                    {/* سهم التوسيع */}
+                    <motion.span
+                      animate={{ rotate: expandedSession === session.id ? 180 : 0 }}
+                      className="text-gray-500 text-sm"
+                    >
+                      ▼
+                    </motion.span>
                   </div>
-
-                  {/* آخر نتيجة */}
-                  {session.lastWinner && (
-                    <span className={`text-xs px-2 py-1 rounded-full hidden sm:inline-block ${
-                      session.lastWinner === 'MAFIA'
-                        ? 'bg-rose-500/10 text-rose-400'
-                        : 'bg-emerald-500/10 text-emerald-400'
-                    }`}>
-                      {session.lastWinner === 'MAFIA' ? '🔴' : '🟢'} آخر فوز
-                    </span>
-                  )}
-
-                  {/* سهم التوسيع */}
-                  <motion.span
-                    animate={{ rotate: expandedSession === session.id ? 180 : 0 }}
-                    className="text-gray-500 text-sm"
-                  >
-                    ▼
-                  </motion.span>
                 </div>
-              </div>
 
-              {/* ── المباريات (Dropdown) ── */}
-              <AnimatePresence>
-                {expandedSession === session.id && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="mr-6 mt-1 border-r-2 border-gray-700/50 pr-4 space-y-2 py-2">
-                      {matchesLoading === session.id ? (
-                        <div className="flex items-center gap-2 py-4 justify-center">
-                          <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
-                          <span className="text-xs text-gray-500">جاري التحميل...</span>
-                        </div>
-                      ) : (sessionMatches[session.id] || []).length === 0 ? (
-                        <p className="text-xs text-gray-600 py-3 text-center">لا توجد مباريات في هذه الغرفة</p>
-                      ) : (
-                        (sessionMatches[session.id] || []).map((match, mi) => (
-                          <motion.div
-                            key={match.id}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: mi * 0.05 }}
-                            onClick={() => viewMatch(match.id)}
-                            className="bg-gray-800/30 border border-gray-700/30 rounded-lg p-3 flex items-center gap-3 hover:border-amber-500/20 cursor-pointer transition-all group"
-                          >
-                            {/* أيقونة النتيجة */}
-                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm ${
-                              match.winner === 'MAFIA' ? 'bg-rose-500/15 text-rose-400' :
-                              match.winner === 'CITIZEN' ? 'bg-emerald-500/15 text-emerald-400' :
-                              'bg-amber-500/15 text-amber-400'
-                            }`}>
-                              {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : '⏳'}
-                            </div>
+                {/* ── المباريات (Dropdown) ── */}
+                <AnimatePresence>
+                  {expandedSession === session.id && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mr-6 mt-1 border-r-2 border-gray-700/50 pr-4 space-y-2 py-2">
+                        {matchesLoading === session.id ? (
+                          <div className="flex items-center gap-2 py-4 justify-center">
+                            <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
+                            <span className="text-xs text-gray-500">جاري التحميل...</span>
+                          </div>
+                        ) : (sessionMatches[session.id] || []).length === 0 ? (
+                          <p className="text-xs text-gray-600 py-3 text-center">لا توجد مباريات في هذه الغرفة</p>
+                        ) : (
+                          (sessionMatches[session.id] || []).map((match, mi) => (
+                            <motion.div
+                              key={match.id}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: mi * 0.05 }}
+                              onClick={() => viewMatch(match.id)}
+                              className="bg-gray-800/30 border border-gray-700/30 rounded-lg p-3 flex items-center gap-3 hover:border-amber-500/20 cursor-pointer transition-all group"
+                            >
+                              <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm ${
+                                match.winner === 'MAFIA' ? 'bg-rose-500/15 text-rose-400' :
+                                match.winner === 'CITIZEN' ? 'bg-emerald-500/15 text-emerald-400' :
+                                'bg-amber-500/15 text-amber-400'
+                              }`}>
+                                {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : '⏳'}
+                              </div>
 
-                            {/* تفاصيل المباراة */}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-white group-hover:text-amber-400 transition">
-                                {match.gameName}
-                              </p>
-                              <p className="text-[10px] text-gray-500 mt-0.5">
-                                {match.playerCount} لاعب
-                                {' • '}{match.totalRounds} جولة
-                                {' • '}{formatDuration(match.durationSeconds)}
-                                {match.endedAt && ` • ${formatDate(match.endedAt)}`}
-                              </p>
-                            </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-white group-hover:text-amber-400 transition">
+                                  {match.gameName}
+                                </p>
+                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                  {match.playerCount} لاعب
+                                  {' • '}{match.totalRounds} جولة
+                                  {' • '}{formatDuration(match.durationSeconds)}
+                                  {match.endedAt && ` • ${formatDate(match.endedAt)}`}
+                                </p>
+                              </div>
 
-                            {/* شارة الفائز */}
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                              match.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
-                              match.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' :
-                              'bg-amber-500/10 text-amber-400'
-                            }`}>
-                              {match.winner === 'MAFIA' ? 'مافيا' : match.winner === 'CITIZEN' ? 'مواطنين' : 'جارية'}
-                            </span>
-                          </motion.div>
-                        ))
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.div>
-          ))
+                              <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                                match.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
+                                match.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' :
+                                'bg-amber-500/10 text-amber-400'
+                              }`}>
+                                {match.winner === 'MAFIA' ? 'مافيا' : match.winner === 'CITIZEN' ? 'مواطنين' : 'جارية'}
+                              </span>
+                            </motion.div>
+                          ))
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })
         )}
       </div>
 
@@ -347,13 +402,11 @@ export default function GameHistoryPage() {
               onClick={(e) => e.stopPropagation()}
               className="bg-gray-900 border border-gray-700/50 rounded-2xl p-6 max-w-lg w-full max-h-[80vh] overflow-y-auto"
             >
-              {/* هيدر */}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-white">{selectedMatch.gameName}</h3>
                 <button onClick={() => setSelectedMatch(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
               </div>
 
-              {/* إحصائيات */}
               <div className="grid grid-cols-3 gap-3 mb-4">
                 {[
                   { value: selectedMatch.playerCount, label: 'لاعب' },
@@ -367,26 +420,21 @@ export default function GameHistoryPage() {
                 ))}
               </div>
 
-              {/* الفائز */}
               <div className={`rounded-xl p-3 mb-4 text-center font-bold ${
-                selectedMatch.winner === 'MAFIA'
-                  ? 'bg-rose-500/10 text-rose-400'
-                  : selectedMatch.winner === 'CITIZEN'
-                    ? 'bg-emerald-500/10 text-emerald-400'
-                    : 'bg-gray-700/30 text-gray-400'
+                selectedMatch.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400'
+                  : selectedMatch.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400'
+                  : 'bg-gray-700/30 text-gray-400'
               }`}>
                 {selectedMatch.winner === 'MAFIA' ? '🔴 فازت المافيا'
                   : selectedMatch.winner === 'CITIZEN' ? '🟢 فاز المواطنون'
                   : '⏳ بدون نتيجة'}
               </div>
 
-              {/* تاريخ */}
               <div className="flex justify-between text-[10px] text-gray-600 mb-3 px-1">
                 <span>بدأت: {formatDate(selectedMatch.createdAt)}</span>
                 {selectedMatch.endedAt && <span>انتهت: {formatDate(selectedMatch.endedAt)}</span>}
               </div>
 
-              {/* اللاعبون */}
               <h4 className="text-sm font-bold text-gray-300 mb-2">اللاعبون</h4>
               <div className="space-y-1.5">
                 {selectedMatch.players.map((p) => (

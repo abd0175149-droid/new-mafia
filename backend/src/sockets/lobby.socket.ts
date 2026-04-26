@@ -1088,13 +1088,20 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
+      const state = await getGameState(data.roomId);
+
       await setPhase(data.roomId, Phase.GAME_OVER);
       activeRooms.delete(data.roomId);
+
+      // حفظ حالة الإغلاق في PostgreSQL
+      if (state?.sessionId) {
+        await closeSession(state.sessionId);
+      }
       
       io.to(data.roomId).emit('game:closed');
 
       callback({ success: true });
-      console.log(`🔒 Room closed manually: ${data.roomId}`);
+      console.log(`🔒 Room closed manually: ${data.roomId} (session #${state?.sessionId || 'none'})`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

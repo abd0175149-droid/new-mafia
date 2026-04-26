@@ -22,6 +22,8 @@ export const sessions = pgTable('sessions', {
   sessionName: varchar('session_name', { length: 100 }).notNull(),
   maxPlayers: integer('max_players').default(10),
   isActive: boolean('is_active').default(true),
+  // حالة الغرفة: active | closed | deleted
+  status: varchar('status', { length: 20 }).default('active'),
   // 🔗 من أنشأ الغرفة (staff.id)
   createdBy: integer('created_by'),
   // 🔗 ربط بالنشاط (activities.id) — يُملأ لاحقاً من admin.schema
