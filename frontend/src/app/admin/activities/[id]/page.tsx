@@ -94,11 +94,10 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   };
 
   const handleDeleteRoom = async (sessionId: number) => {
-    if (!confirm('هل تريد فك ربط هذه الغرفة من النشاط؟')) return;
+    if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟ لن يمكن استرجاعها.')) return;
     try {
-      await apiFetch(`/api/activities/${activityId}/unlink-session`, {
-        method: 'POST',
-        body: JSON.stringify({ sessionId }),
+      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}`, {
+        method: 'DELETE',
       });
       setRooms(prev => prev.filter(r => r.id !== sessionId));
     } catch (err: any) {
@@ -197,13 +196,13 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                   🎮 دخول
                 </button>
 
-                {/* فك الربط */}
+                {/* حذف الغرفة نهائياً */}
                 <button
                   onClick={() => handleDeleteRoom(room.id)}
                   className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
-                  title="فك ربط الغرفة"
+                  title="حذف الغرفة نهائياً"
                 >
-                  🗑️
+                  🗑️ حذف
                 </button>
               </div>
             </motion.div>

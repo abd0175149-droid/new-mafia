@@ -10,7 +10,7 @@ import { activities, notifications, staff } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
-import { linkSessionToActivity, unlinkSessionFromActivity, createSession } from '../services/session.service.js';
+import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 
 const router = Router();
@@ -157,6 +157,30 @@ router.post('/:id/add-room', authenticate, async (req: Request, res: Response) =
     res.status(500).json({ error: err.message });
   }
 });
+
+// DELETE /api/activities/:id/rooms/:sessionId — حذف غرفة نهائياً
+router.delete('/:id/rooms/:sessionId', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const activityId = parseInt(req.params.id);
+    const sessionId = parseInt(req.params.sessionId);
+
+    // فك الربط أولاً
+    await unlinkSessionFromActivity(sessionId);
+
+    // حذف الغرفة (soft delete)
+    const deleted = await deleteSession(sessionId);
+    if (!deleted) return res.status(500).json({ error: 'فشل حذف الغرفة' });
+
+    console.log(`🗑️ Admin: Deleted Room #${sessionId} from Activity #${activityId}`);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // GET /api/activities
 router.get('/', authenticate, async (req: Request, res: Response) => {
