@@ -86,6 +86,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     maxJustifications?: number;
     displayPin?: string;
     activityId?: number;
+    existingSessionId?: number; // إذا موجود = الغرفة منشأة في DB بالفعل
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
@@ -98,15 +99,29 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         data.displayPin,
       );
 
-      // إنشاء Session في PostgreSQL (مع ربط النشاط إن وُجد)
-      const sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, data.activityId || undefined);
-      if (sessionId) {
+      let sessionId: number | null = null;
+
+      if (data.existingSessionId) {
+        // ── الغرفة موجودة في DB (من واجهة الإدارة) — لا ننشئ session جديد ──
+        sessionId = data.existingSessionId;
         state.sessionId = sessionId;
         state.sessionCode = state.roomCode;
         if (data.activityId) {
           state.activityId = data.activityId;
         }
         await setGameState(state.roomId, state);
+        console.log(`🔗 Room created using existing Session #${sessionId}`);
+      } else {
+        // ── إنشاء Session جديد في PostgreSQL ──
+        sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, data.activityId || undefined);
+        if (sessionId) {
+          state.sessionId = sessionId;
+          state.sessionCode = state.roomCode;
+          if (data.activityId) {
+            state.activityId = data.activityId;
+          }
+          await setGameState(state.roomId, state);
+        }
       }
 
       // لا يتم إنشاء لاعبين افتراضيين — الليدر يضيفهم يدوياً

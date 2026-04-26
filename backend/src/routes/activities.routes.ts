@@ -98,10 +98,13 @@ router.get('/:id/rooms', authenticate, async (req: Request, res: Response) => {
   try {
     const activityId = parseInt(req.params.id);
 
-    // جلب كل الغرف المرتبطة بهذا النشاط
+    // جلب الغرف المرتبطة بهذا النشاط (بدون المحذوفة)
     const rooms = await db.select()
       .from(sessions)
-      .where(eq(sessions.activityId, activityId))
+      .where(and(
+        eq(sessions.activityId, activityId),
+        sql`${sessions.status} != 'deleted'`
+      ))
       .orderBy(desc(sessions.createdAt));
 
     res.json(rooms);

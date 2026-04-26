@@ -190,6 +190,7 @@ export default function LeaderPage() {
                   maxJustifications: 2,
                   displayPin: roomData.displayPin || undefined,
                   activityId: roomData.activityId || undefined,
+                  existingSessionId: roomData.sessionId || undefined, // منع إنشاء session مكرر في DB
                 });
 
                 setGameState({
