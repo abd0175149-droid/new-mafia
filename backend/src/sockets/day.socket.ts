@@ -42,6 +42,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
           avatarUrl: p.avatarUrl || null,
         }));
 
+      // بث تغيير المرحلة أولاً (لكل العملاء بما فيهم الـ PlayerFlow)
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING });
+
       io.to(data.roomId).emit('day:voting-started', {
         candidates: state.votingState.candidates,
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,

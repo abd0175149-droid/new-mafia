@@ -141,9 +141,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
     if (!isConnected || !emit) {
-      setRejoinLoading(false);
+      // لا نمسح rejoinLoading هنا — ننتظر الاتصال
       return;
     }
+
+    // ننتظر فحص التوكن لأنه ممكن يُنشئ mafia_session من activeGame
+    if (!tokenChecked) return;
 
     const saved = localStorage.getItem('mafia_session');
     if (!saved) {
@@ -239,7 +242,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       localStorage.removeItem('mafia_session');
       setRejoinLoading(false);
     }
-  }, [isConnected, emit]);
+  }, [isConnected, emit, tokenChecked]);
 
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
@@ -273,16 +276,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           // مزامنة التوكن لكل المصادر
           localStorage.setItem('mafia_player_token', savedToken);
 
-          // إذا في جيم نشط → ندخله مباشرة
-          if (data.activeGame) {
-            setRoomId(data.activeGame.roomId);
-            setRoomCode(data.activeGame.roomCode || '');
-            setPhysicalId(String(data.activeGame.physicalId));
-            if (data.activeGame.role) setAssignedRole(data.activeGame.role);
-            if (!data.activeGame.isAlive) {
-              setIsPlayerDead(true);
-              setCardFlipped(true);
-            }
+          // إذا في جيم نشط وما فيه جلسة محفوظة → ننشئ جلسة ليلتقطها rejoin
+          if (data.activeGame && !localStorage.getItem('mafia_session')) {
+            localStorage.setItem('mafia_session', JSON.stringify({
+              roomId: data.activeGame.roomId,
+              roomCode: data.activeGame.roomCode || '',
+              physicalId: data.activeGame.physicalId,
+              phone: data.player.phone || '',
+              playerId: data.player.id,
+            }));
+            // لا نضبط state مباشرة — نترك rejoin useEffect يتكفل بكل شيء
+            // هذا يمنع race condition مع rejoin callback
           }
         } else {
           // توكن منتهي → مسح
@@ -1468,11 +1472,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
-                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v2.5
+                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
               </div>
 
-              {/* ── شاشة التصويت ── */}
-              {gamePhase === 'DAY_VOTING' && assignedRole && votingCandidates.length > 0 ? (
+              {/* ── مرحلة التصويت: تحميل أو عرض ── */}
+              {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center py-10"
+                >
+                  <div className="text-3xl mb-3">🗳️</div>
+                  <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-[#C5A059] text-sm font-mono">جاري تحميل التصويت...</p>
+                </motion.div>
+              ) : gamePhase === 'DAY_VOTING' && assignedRole && votingCandidates.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
