@@ -33,12 +33,90 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const state = await initVoting(data.roomId);
       await setPhase(data.roomId, Phase.DAY_VOTING);
 
+      // بناء بيانات اللاعبين مع الأسماء والصور للـ PlayerFlow
+      const playersInfo = state.players
+        .filter((p: any) => p.isAlive)
+        .map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          avatarUrl: p.avatarUrl || null,
+        }));
+
       io.to(data.roomId).emit('day:voting-started', {
         candidates: state.votingState.candidates,
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
         teamCounts: getTeamCounts(state.players),
+        playersInfo,
+        playerVotes: state.votingState.playerVotes,
       });
 
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── تصويت اللاعب من جهازه ──────────────────────
+  socket.on('player:cast-vote', async (data: {
+    roomId: string;
+    physicalId: number;
+    candidateIndex: number;
+  }, callback) => {
+    try {
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // التحقق من المرحلة
+      if (state.phase !== Phase.DAY_VOTING) {
+        return callback({ success: false, error: 'ليست مرحلة تصويت' });
+      }
+
+      // التحقق من أن اللاعب حي
+      const player = state.players.find((p: any) => p.physicalId === data.physicalId);
+      if (!player || !player.isAlive) {
+        return callback({ success: false, error: 'اللاعب غير موجود أو ميت' });
+      }
+
+      // التحقق من عدم التصويت المسبق
+      if (state.votingState.playerVotes[data.physicalId] !== undefined) {
+        return callback({ success: false, error: 'لقد صوّتت بالفعل' });
+      }
+
+      // التحقق من صلاحية المرشح
+      const candidate = state.votingState.candidates[data.candidateIndex];
+      if (!candidate) {
+        return callback({ success: false, error: 'مرشح غير صالح' });
+      }
+
+      // منع التصويت لنفسه
+      if (candidate.targetPhysicalId === data.physicalId) {
+        return callback({ success: false, error: 'لا يمكنك التصويت لنفسك' });
+      }
+
+      // تسجيل الصوت
+      candidate.votes += 1;
+      state.votingState.totalVotesCast += 1;
+      state.votingState.playerVotes[data.physicalId] = data.candidateIndex;
+
+      await setGameState(data.roomId, state);
+
+      // بث تحديث الأصوات لحظياً لكل الشاشات
+      io.to(data.roomId).emit('day:vote-update', {
+        candidates: state.votingState.candidates,
+        totalVotesCast: state.votingState.totalVotesCast,
+        tieBreakerLevel: state.votingState.tieBreakerLevel,
+        playerVotes: state.votingState.playerVotes,
+      });
+
+      // فحص اكتمال التصويت
+      if (isVotingComplete(state)) {
+        io.to(data.roomId).emit('day:voting-complete', {
+          candidates: state.votingState.candidates,
+          totalVotesCast: state.votingState.totalVotesCast,
+        });
+      }
+
+      console.log(`🗳️ Player #${data.physicalId} voted for candidate[${data.candidateIndex}]`);
       callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
@@ -108,6 +186,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         candidates: state.votingState.candidates,
         totalVotesCast: state.votingState.totalVotesCast,
         tieBreakerLevel: state.votingState.tieBreakerLevel,
+        playerVotes: state.votingState.playerVotes,
       });
 
       // إشعار باكتمال التصويت — الليدر يقرر الانتقال يدوياً بضغط Resolve

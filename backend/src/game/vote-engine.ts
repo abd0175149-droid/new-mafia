@@ -50,6 +50,7 @@ export async function initVoting(roomId: string): Promise<GameState> {
     candidates: allCandidates,
     hiddenPlayersFromVoting: dealTargets,
     tieBreakerLevel: 0,
+    playerVotes: {},
   };
 
   await setGameState(roomId, state);
@@ -131,6 +132,7 @@ export async function unNarrowVoting(roomId: string): Promise<GameState> {
   state.votingState.candidates = [...dealCandidates, ...playerCandidates];
   state.votingState.totalVotesCast = 0;
   state.votingState.tieBreakerLevel = 0;
+  state.votingState.playerVotes = {};
 
   await setGameState(roomId, state);
   return state;
@@ -315,6 +317,7 @@ export async function handleTieBreaker(
       state.votingState.totalVotesCast = 0;
       state.votingState.candidates.forEach(c => { c.votes = 0; });
       state.votingState.tieBreakerLevel = 1;
+      state.votingState.playerVotes = {};
       break;
 
     case TieBreakerAction.NARROW:
@@ -323,6 +326,7 @@ export async function handleTieBreaker(
         state.votingState.candidates = tiedCandidates.map(c => ({ ...c, votes: 0 }));
         state.votingState.totalVotesCast = 0;
         state.votingState.tieBreakerLevel = 2;
+        state.votingState.playerVotes = {};
       }
       break;
 
@@ -331,6 +335,7 @@ export async function handleTieBreaker(
       state.votingState.totalVotesCast = 0;
       state.votingState.candidates = [];
       state.votingState.tieBreakerLevel = 0;
+      state.votingState.playerVotes = {};
       break;
 
     case TieBreakerAction.ELIMINATE_ALL:

@@ -993,6 +993,19 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const shouldShowRole = state.rolesConfirmed ||
         (state.phase !== 'LOBBY' && state.phase !== 'ROLE_BINDING' && state.phase !== 'ROLE_GENERATION');
 
+      // بيانات التصويت إذا كنا في مرحلة التصويت
+      const votingData = state.phase === 'DAY_VOTING' && state.votingState?.candidates?.length > 0 ? {
+        candidates: state.votingState.candidates,
+        totalVotesCast: state.votingState.totalVotesCast,
+        playerVotes: state.votingState.playerVotes || {},
+        hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
+        playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          avatarUrl: p.avatarUrl || null,
+        })),
+      } : null;
+
       callback({
         success: true,
         player: {
@@ -1005,6 +1018,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         },
         phase: state.phase,
         rolesConfirmed: state.rolesConfirmed || false,
+        votingState: votingData,
       });
     } catch (err: any) {
       callback({ success: false, error: err.message });
@@ -1228,6 +1242,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       candidates: [],
       hiddenPlayersFromVoting: [],
       tieBreakerLevel: 0,
+      playerVotes: {},
     };
     state.nightActions = {
       godfatherTarget: null,

@@ -27,6 +27,7 @@ interface VotingState {
   candidates: any[];
   hiddenPlayersFromVoting: number[];
   tieBreakerLevel: number;
+  playerVotes?: Record<number, number>;
 }
 
 interface GameState {
@@ -463,6 +464,7 @@ export default function LeaderPage() {
             hiddenPlayersFromVoting: data.hiddenPlayers || [],
             totalVotesCast: 0,
             tieBreakerLevel: data.tieBreakerLevel || 0,
+            playerVotes: data.playerVotes || {},
           } as VotingState,
           // تنظيف بيانات التبرير عند إعادة التصويت (Revote)
           justificationData: undefined,
@@ -481,6 +483,7 @@ export default function LeaderPage() {
             ...prev.votingState,
             candidates: data.candidates,
             totalVotesCast: data.totalVotesCast,
+            playerVotes: data.playerVotes || prev.votingState.playerVotes,
           } as VotingState,
         };
       });

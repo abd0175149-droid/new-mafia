@@ -413,6 +413,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
           candidates: [],
           hiddenPlayersFromVoting: [],
           tieBreakerLevel: 0,
+          playerVotes: {},
         };
         // تصفير عدادات التبرير لبداية نهار جديد (الإسكات يبقى — يُصفَّر في بداية الليل التالي)
         state.players.forEach(p => { 
@@ -484,6 +485,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         candidates: [],
         hiddenPlayersFromVoting: [],
         tieBreakerLevel: 0,
+        playerVotes: {},
       };
 
       await setGameState(data.roomId, state);

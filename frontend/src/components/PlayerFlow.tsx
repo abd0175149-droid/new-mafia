@@ -128,6 +128,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
 
+  // ── حالة التصويت ──
+  const [gamePhase, setGamePhase] = useState<string | null>(null);
+  const [votingCandidates, setVotingCandidates] = useState<any[]>([]);
+  const [votingPlayersInfo, setVotingPlayersInfo] = useState<any[]>([]);
+  const [myVote, setMyVote] = useState<number | null>(null);
+  const [totalVotesCast, setTotalVotesCast] = useState(0);
+  const [playerVotes, setPlayerVotes] = useState<Record<number, number>>({});
+  const [votingComplete, setVotingComplete] = useState(false);
+  const [voteSubmitting, setVoteSubmitting] = useState(false);
+
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
     if (!isConnected || !emit) {
@@ -433,6 +443,78 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     };
   }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead]);
 
+  // ── استقبال أحداث التصويت ──
+  useEffect(() => {
+    if ((step !== 'done' && step !== 'rejoined') || !on) return;
+
+    // بدء التصويت
+    const cleanupVotingStarted = on('day:voting-started', (data: any) => {
+      setGamePhase('DAY_VOTING');
+      setVotingCandidates(data.candidates || []);
+      if (data.playersInfo) setVotingPlayersInfo(data.playersInfo);
+      setPlayerVotes(data.playerVotes || {});
+      // استعادة صوتي إذا صوّتت مسبقاً (reconnect)
+      const myPhysId = parseInt(physicalId);
+      if (data.playerVotes && data.playerVotes[myPhysId] !== undefined) {
+        setMyVote(data.playerVotes[myPhysId]);
+      } else {
+        setMyVote(null);
+      }
+      setTotalVotesCast(0);
+      setVotingComplete(false);
+      if (navigator.vibrate) navigator.vibrate([100, 200]);
+    });
+
+    // تحديث الأصوات اللحظي
+    const cleanupVoteUpdate = on('day:vote-update', (data: any) => {
+      setVotingCandidates(data.candidates || []);
+      setTotalVotesCast(data.totalVotesCast || 0);
+      if (data.playerVotes) setPlayerVotes(data.playerVotes);
+    });
+
+    // اكتمال التصويت
+    const cleanupVotingComplete = on('day:voting-complete', () => {
+      setVotingComplete(true);
+    });
+
+    // تغيير المرحلة
+    const cleanupPhaseChanged = on('game:phase-changed', (data: any) => {
+      setGamePhase(data.phase);
+      if (data.phase !== 'DAY_VOTING') {
+        // مسح بيانات التصويت عند الخروج من مرحلة التصويت
+        setVotingCandidates([]);
+        setMyVote(null);
+        setVotingComplete(false);
+        setPlayerVotes({});
+      }
+    });
+
+    // التبرير
+    const cleanupJustification = on('day:justification-started', () => {
+      setGamePhase('DAY_JUSTIFICATION');
+    });
+
+    // الإقصاء
+    const cleanupElimination = on('day:elimination-pending', () => {
+      setGamePhase('ELIMINATION_PENDING');
+    });
+
+    // انتهاء اللعبة
+    const cleanupGameOver = on('game:over', () => {
+      setGamePhase('GAME_OVER');
+    });
+
+    return () => {
+      cleanupVotingStarted();
+      cleanupVoteUpdate();
+      cleanupVotingComplete();
+      cleanupPhaseChanged();
+      cleanupJustification();
+      cleanupElimination();
+      cleanupGameOver();
+    };
+  }, [step, on, physicalId]);
+
   // ── Polling: مزامنة حالة اللاعب كل 3 ثواني (بالـ phone/playerId مش physicalId) ──
   // هذا هو الحل النهائي: حتى لو الـ WebSocket events ما وصلت،
   // الـ polling بيجلب الرقم الصحيح من السيرفر كل 3 ثواني
@@ -480,6 +562,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           if (!res.player.isAlive && !isPlayerDead) {
             setIsPlayerDead(true);
             setCardFlipped(true);
+          }
+
+          // تحديث مرحلة اللعبة
+          if (res.phase) setGamePhase(res.phase);
+
+          // استعادة بيانات التصويت بعد reconnect
+          if (res.votingState && res.phase === 'DAY_VOTING') {
+            setVotingCandidates(res.votingState.candidates || []);
+            setTotalVotesCast(res.votingState.totalVotesCast || 0);
+            setPlayerVotes(res.votingState.playerVotes || {});
+            if (res.votingState.playersInfo) setVotingPlayersInfo(res.votingState.playersInfo);
+            const myPhysId = parseInt(physicalId);
+            if (res.votingState.playerVotes?.[myPhysId] !== undefined && myVote === null) {
+              setMyVote(res.votingState.playerVotes[myPhysId]);
+            }
           }
         }
       } catch { /* ignore polling errors */ }
@@ -1292,7 +1389,133 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 </button>
               </div>
 
-              {assignedRole === null ? (
+              {/* ── شاشة التصويت ── */}
+              {gamePhase === 'DAY_VOTING' && assignedRole && votingCandidates.length > 0 ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5 }}
+                >
+                  {/* عنوان */}
+                  <div className="text-center mb-5">
+                    <div className="text-3xl mb-2">🗳️</div>
+                    <h2 className="text-xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                      مرحلة التصويت
+                    </h2>
+                    <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.15em] mt-1">
+                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم تسجيل صوتك' : 'صوّت ضد اللاعب المشتبه'}
+                    </p>
+                  </div>
+
+                  {/* شريط التقدم */}
+                  <div className="mb-5 px-2">
+                    <div className="flex justify-between text-[10px] text-[#808080] font-mono mb-1">
+                      <span>{totalVotesCast} صوت</span>
+                      <span>{votingCandidates.reduce((max: number, c: any) => Math.max(max, c.votes || 0), 0)} أعلى</span>
+                    </div>
+                    <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full rounded-full"
+                        style={{ background: 'linear-gradient(90deg, #C5A059, #E8C97A)' }}
+                        animate={{ width: `${Math.min(100, (totalVotesCast / Math.max(1, votingCandidates.length)) * 100)}%` }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </div>
+                    {votingComplete && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-[#C5A059] text-[10px] font-mono text-center mt-2 tracking-wider"
+                      >
+                        ✓ اكتمل التصويت — بانتظار الليدر
+                      </motion.p>
+                    )}
+                  </div>
+
+                  {/* كروت المرشحين */}
+                  <div className="grid grid-cols-3 gap-2.5 px-1 max-h-[55vh] overflow-y-auto pb-4">
+                    {votingCandidates.map((candidate: any, index: number) => {
+                      const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
+                      const isMyChoice = myVote === index;
+                      const playerInfo = votingPlayersInfo.find((p: any) => p.physicalId === candidate.targetPhysicalId);
+                      const candidateName = playerInfo?.name || `#${candidate.targetPhysicalId}`;
+                      const candidateAvatar = playerInfo?.avatarUrl;
+                      const isDeal = candidate.type === 'DEAL';
+                      const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
+
+                      return (
+                        <motion.button
+                          key={candidate.id || `c-${index}`}
+                          whileTap={!isSelf && !isPlayerDead && myVote === null ? { scale: 0.92 } : {}}
+                          onClick={() => {
+                            if (isSelf || isPlayerDead || myVote !== null || voteSubmitting) return;
+                            setVoteSubmitting(true);
+                            emit('player:cast-vote', {
+                              roomId,
+                              physicalId: parseInt(physicalId),
+                              candidateIndex: index,
+                            }).then((res: any) => {
+                              if (res?.success) {
+                                setMyVote(index);
+                                if (navigator.vibrate) navigator.vibrate(100);
+                              }
+                            }).catch(() => {}).finally(() => setVoteSubmitting(false));
+                          }}
+                          disabled={isSelf || isPlayerDead || myVote !== null}
+                          className={`relative flex flex-col items-center p-2.5 rounded-xl border transition-all ${
+                            isMyChoice
+                              ? 'border-[#C5A059] bg-[#C5A059]/10 shadow-[0_0_12px_rgba(197,160,89,0.15)]'
+                              : isSelf
+                                ? 'border-[#1a1a1a] bg-[#0a0a0a]/50 opacity-40'
+                                : myVote !== null
+                                  ? 'border-[#1a1a1a] bg-[#0d0d0d]'
+                                  : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
+                          }`}
+                        >
+                          {/* صورة أو رقم */}
+                          <div className="relative w-11 h-11 rounded-full overflow-hidden mb-1.5 border border-[#333] bg-[#1a1a1a] flex items-center justify-center">
+                            {candidateAvatar ? (
+                              <Image src={candidateAvatar} alt="" width={44} height={44} className="object-cover w-full h-full" />
+                            ) : (
+                              <span className="text-sm font-bold text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
+                            )}
+                            {isMyChoice && (
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                className="absolute inset-0 bg-[#C5A059]/20 flex items-center justify-center"
+                              >
+                                <span className="text-lg">✅</span>
+                              </motion.div>
+                            )}
+                          </div>
+
+                          {/* الاسم */}
+                          <p className="text-[10px] font-bold text-white truncate w-full text-center leading-tight">
+                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄` : ''} {candidateName}
+                          </p>
+
+                          {/* رقم المقعد */}
+                          {candidateAvatar && (
+                            <p className="text-[8px] text-[#808080] font-mono">#{candidate.targetPhysicalId}</p>
+                          )}
+
+                          {/* عداد الأصوات */}
+                          <div className="mt-1 flex items-center gap-0.5">
+                            <span className="text-[11px] font-bold text-[#C5A059]">{candidate.votes || 0}</span>
+                            <span className="text-[9px] text-[#808080]">♥</span>
+                          </div>
+
+                          {/* شارة "أنت" */}
+                          {isSelf && (
+                            <span className="absolute top-1 right-1 text-[7px] bg-[#222] text-[#808080] px-1 py-0.5 rounded font-mono">أنت</span>
+                          )}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              ) : assignedRole === null ? (
                 /* ── حالة الانتظار (لم يُوزَّع الدور بعد) ── */
                 <>
                   <motion.div

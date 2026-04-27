@@ -88,6 +88,7 @@ export interface VotingState {
   candidates: Candidate[];
   hiddenPlayersFromVoting: number[];
   tieBreakerLevel: number;
+  playerVotes: Record<number, number>; // physicalId → candidateIndex (تتبع أصوات اللاعبين)
 }
 
 export interface NightActions {
@@ -197,6 +198,7 @@ export async function createRoom(
       candidates: [],
       hiddenPlayersFromVoting: [],
       tieBreakerLevel: 0,
+      playerVotes: {},
     },
     nightActions: {
       godfatherTarget: null,

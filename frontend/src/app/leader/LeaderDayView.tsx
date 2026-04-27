@@ -1092,6 +1092,26 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </p>
         </div>
 
+        {/* ═══ Pending Voters ═══ */}
+        {(() => {
+          const playerVotesMap = gameState.votingState?.playerVotes || {};
+          const pendingVoters = alivePlayers.filter((p: any) => playerVotesMap[p.physicalId] === undefined);
+          if (pendingVoters.length === 0) return null;
+          return (
+            <div className="px-3 py-2 border-b border-[#1a1a1a] bg-[#0a0a0a]/60">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[9px] font-mono text-[#808080] tracking-widest uppercase shrink-0">⏳ لم يصوتوا:</span>
+                {pendingVoters.map((p: any) => (
+                  <span key={p.physicalId} className="text-[10px] font-mono text-[#C5A059] bg-[#C5A059]/10 border border-[#C5A059]/20 px-1.5 py-0.5 rounded">
+                    #{p.physicalId}
+                  </span>
+                ))}
+                <span className="text-[9px] font-mono text-[#555] ml-auto">{pendingVoters.length}/{alivePlayers.length}</span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ═══ Candidate Cards Grid ═══ */}
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <div className="flex flex-wrap justify-center gap-4">
