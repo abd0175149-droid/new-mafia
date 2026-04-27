@@ -362,6 +362,79 @@ export function registerDayEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── بدء فترة سحب الأصوات (بعد التبرير) ──────────────
+  socket.on('day:start-withdrawal', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // عدد المصوتين على المتهمين
+      const justData = state.justificationData;
+      if (!justData?.accused?.length) return callback({ success: false, error: 'No accused' });
+
+      const accusedIds = justData.accused.map((a: any) => a.targetPhysicalId);
+      const playerVotes = state.votingState?.playerVotes || {};
+
+      // حساب: من صوّت على أحد المتهمين؟
+      let votersForAccused = 0;
+      for (const [, targetIdx] of Object.entries(playerVotes)) {
+        const candidate = state.votingState?.candidates?.[targetIdx as number];
+        if (candidate && accusedIds.includes(candidate.targetPhysicalId)) {
+          votersForAccused++;
+        }
+      }
+
+      const needed = Math.ceil(votersForAccused / 2);
+      state.withdrawalState = { count: 0, needed, withdrawn: [], accusedIds, total: votersForAccused };
+      await setGameState(data.roomId, state);
+
+      io.to(data.roomId).emit('day:withdrawal-period', { needed, total: votersForAccused });
+      callback({ success: true, needed });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── سحب صوت اللاعب ──────────────────────────────
+  socket.on('player:withdraw-vote', async (data: { physicalId: number }, callback) => {
+    try {
+      const state = await getGameState(socket.data.roomId);
+      if (!state?.withdrawalState) return callback({ success: false, error: 'No withdrawal period' });
+
+      const ws = state.withdrawalState;
+      if (ws.withdrawn.includes(data.physicalId)) return callback({ success: false, error: 'Already withdrawn' });
+
+      // تحقق أن هذا اللاعب صوّت على أحد المتهمين
+      const playerVotes = state.votingState?.playerVotes || {};
+      const myVoteIdx = playerVotes[data.physicalId];
+      if (myVoteIdx === undefined) return callback({ success: false, error: 'Did not vote' });
+      const candidate = state.votingState?.candidates?.[myVoteIdx];
+      if (!candidate || !ws.accusedIds.includes(candidate.targetPhysicalId)) {
+        return callback({ success: false, error: 'Did not vote for accused' });
+      }
+
+      ws.withdrawn.push(data.physicalId);
+      ws.count = ws.withdrawn.length;
+      await setGameState(socket.data.roomId, state);
+
+      io.to(socket.data.roomId).emit('day:withdrawal-update', { count: ws.count, needed: ws.needed });
+
+      // هل وصلنا للنصاب؟
+      if (ws.count >= ws.needed) {
+        // إعادة التصويت
+        state.withdrawalState = null;
+        await setGameState(socket.data.roomId, state);
+        io.to(socket.data.roomId).emit('day:withdrawal-result', { revote: true });
+      }
+
+      callback({ success: true, count: ws.count });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── تنفيذ الإقصاء (بعد التبرير) ──────────────────
   socket.on('day:execute-elimination', async (data: { roomId: string }, callback) => {
     try {

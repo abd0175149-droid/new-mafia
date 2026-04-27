@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
 import MafiaCard from './MafiaCard';
+import PlayerPhaseView from './PlayerPhaseView';
 import { useGameState } from '@/hooks/useGameState';
 
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'number' | 'done' | 'rejoined';
@@ -127,7 +128,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   } | null>(null);
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
-  const phaseOverrideRef = useRef<{ phase: string; until: number } | null>(null);
+  const phaseOverrideRef = useRef<{ phase: string } | null>(null);
 
   // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
   const [gamePhase, setGamePhaseRaw] = useState<string | null>(() => {
@@ -638,7 +639,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       console.log(`🔄 Phase changed event: ${data.phase}`);
       setGamePhase(data.phase);
       // حماية من الـ polling: لا نسمح للـ polling بإعادة كتابة المرحلة لـ 10 ثواني
-      phaseOverrideRef.current = { phase: data.phase, until: Date.now() + 10000 };
+      phaseOverrideRef.current = { phase: data.phase };
       // مسح بيانات التصويت فقط عند الخروج من مرحلة التصويت
       if (data.phase !== 'DAY_VOTING' && data.phase !== 'DAY_JUSTIFICATION') {
         setVotingCandidates([]);
@@ -652,14 +653,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupJustification = on('day:justification-started', () => {
       console.log('⚖️ Justification started');
       setGamePhase('DAY_JUSTIFICATION');
-      phaseOverrideRef.current = { phase: 'DAY_JUSTIFICATION', until: Date.now() + 10000 };
+      phaseOverrideRef.current = { phase: 'DAY_JUSTIFICATION' };
     });
 
     // الإقصاء
     const cleanupElimination = on('day:elimination-pending', () => {
       console.log('💀 Elimination pending');
       setGamePhase('ELIMINATION_PENDING');
-      phaseOverrideRef.current = { phase: 'ELIMINATION_PENDING', until: Date.now() + 10000 };
+      phaseOverrideRef.current = { phase: 'ELIMINATION_PENDING' };
       // مسح التصويت
       setVotingCandidates([]);
       setMyVote(null);
@@ -672,7 +673,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupGameOver = on('game:over', () => {
       console.log('🏁 Game over — clearing voting only');
       setGamePhase('GAME_OVER');
-      phaseOverrideRef.current = { phase: 'GAME_OVER', until: Date.now() + 15000 };
+      phaseOverrideRef.current = { phase: 'GAME_OVER' };
       // مسح التصويت فقط
       setVotingCandidates([]);
       setMyVote(null);
@@ -1617,6 +1618,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
               </div>
 
+              {/* ── عرض مرحلة اللعبة الحالية ── */}
+              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
+                <PlayerPhaseView
+                  gamePhase={gamePhase}
+                  physicalId={physicalId}
+                  assignedRole={assignedRole}
+                  isPlayerDead={isPlayerDead}
+                  on={on}
+                  emit={emit}
+                  myVote={myVote}
+                  votingCandidates={votingCandidates}
+                  votingPlayersInfo={votingPlayersInfo}
+                />
+              )}
+
               {/* ── مرحلة التصويت: تحميل أو عرض ── */}
               {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
                 <motion.div
@@ -1903,6 +1919,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
               </div>
+
+              {/* ── عرض مرحلة اللعبة الحالية ── */}
+              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
+                <PlayerPhaseView
+                  gamePhase={gamePhase}
+                  physicalId={physicalId}
+                  assignedRole={assignedRole}
+                  isPlayerDead={isPlayerDead}
+                  on={on}
+                  emit={emit}
+                  myVote={myVote}
+                  votingCandidates={votingCandidates}
+                  votingPlayersInfo={votingPlayersInfo}
+                />
+              )}
 
               {/* ── التصويت أولاً (إن كان فعّال) ── */}
               {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
