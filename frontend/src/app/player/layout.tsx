@@ -99,11 +99,12 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // صفحة اللعبة — بدون بار (PlayerFlow يدير كل شيء)
+  // صفحة اللعبة — مع بار ثابت
   if (isGamePage) {
     return (
-      <div className="min-h-screen bg-[#050505]" style={{ overscrollBehavior: 'none' }}>
+      <div className="min-h-screen bg-[#050505] pb-20" style={{ overscrollBehavior: 'none' }}>
         {children}
+        <BottomNav />
       </div>
     );
   }
