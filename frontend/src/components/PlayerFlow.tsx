@@ -650,23 +650,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // التبرير
     const cleanupJustification = on('day:justification-started', () => {
+      console.log('⚖️ Justification started');
       setGamePhase('DAY_JUSTIFICATION');
+      phaseOverrideRef.current = { phase: 'DAY_JUSTIFICATION', until: Date.now() + 10000 };
     });
 
     // الإقصاء
     const cleanupElimination = on('day:elimination-pending', () => {
+      console.log('💀 Elimination pending');
       setGamePhase('ELIMINATION_PENDING');
+      phaseOverrideRef.current = { phase: 'ELIMINATION_PENDING', until: Date.now() + 10000 };
+      // مسح التصويت
+      setVotingCandidates([]);
+      setMyVote(null);
+      setVotingComplete(false);
+      setPlayerVotes({});
     });
 
-    // انتهاء اللعبة
+    // انتهاء اللعبة — لا نمسح الدور أو حالة الموت (اللاعب لازم يشوفهم)
+    // الـ full reset يحصل فقط عند game:started
     const cleanupGameOver = on('game:over', () => {
-      console.log('🏁 Game over — full reset');
+      console.log('🏁 Game over — clearing voting only');
       setGamePhase('GAME_OVER');
-      setAssignedRole(null);
-      setIsPlayerDead(false);
-      setMafiaTeam([]);
-      setCardFlipped(false);
-      setRoleAlert(false);
+      phaseOverrideRef.current = { phase: 'GAME_OVER', until: Date.now() + 15000 };
+      // مسح التصويت فقط
       setVotingCandidates([]);
       setMyVote(null);
       setVotingComplete(false);
