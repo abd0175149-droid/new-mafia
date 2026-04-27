@@ -23,7 +23,7 @@ interface VotingCardProps {
   targetDetails: any;
   initiatorDetails: any;
   isComplete: boolean;
-  handleVote: (candidateIndex: number, delta: 1 | -1) => void;
+  handleVote: (candidateIndex: number, delta: 1 | -1, proxyVoterId?: number) => void;
   revealedRoles: Set<number>;
   setRevealedRoles: React.Dispatch<React.SetStateAction<Set<number>>>;
 }
@@ -242,7 +242,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     gameState.votingState?.leaderProxyVotes || {}
   );
 
-  const handleVote = async (candidateIndex: number, delta: 1 | -1) => {
+  const handleVote = async (candidateIndex: number, delta: 1 | -1, proxyVoterId?: number) => {
     const candidate = candidates[candidateIndex];
     if (candidate.votes + delta < 0) return;
 
@@ -254,12 +254,15 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     // تحديث العداد فوراً قبل الإرسال (synchronous)
     localVoteTotalRef.current += delta;
 
+    // تحديد voterPhysicalId: من المعامل المباشر أو من selectedVoter
+    const voterId = proxyVoterId || selectedVoter || undefined;
+
     try {
       const res = await emit('day:cast-vote', {
         roomId: gameState.roomId,
         candidateIndex,
         delta,
-        voterPhysicalId: selectedVoter || undefined, // تصويت بالوكالة
+        voterPhysicalId: voterId,
       });
       if (res?.leaderProxyVotes) {
         setLeaderProxyVotes(res.leaderProxyVotes);
@@ -1262,11 +1265,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                       <button
                         key={p.physicalId}
                         onClick={() => {
-                          // إلغاء التصويت بالوكالة
-                          handleVote(leaderProxyVotes[p.physicalId], -1);
-                          const copy = { ...leaderProxyVotes };
-                          delete copy[p.physicalId];
-                          setLeaderProxyVotes(copy);
+                          // إلغاء التصويت بالوكالة — نمرر p.physicalId ليمسح الباك playerVotes + leaderProxyVotes
+                          handleVote(leaderProxyVotes[p.physicalId], -1, p.physicalId);
                         }}
                         className="text-[10px] font-mono text-orange-400 bg-orange-500/10 border border-orange-500/30 px-1.5 py-1 rounded hover:bg-orange-500/20 transition-colors"
                         title={`صوّت بالوكالة → #${votedForCandidate?.targetPhysicalId}`}

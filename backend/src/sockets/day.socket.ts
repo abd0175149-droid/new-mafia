@@ -469,7 +469,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       ws.count = ws.withdrawn.length;
       await setGameState(roomId, state);
 
-      io.to(roomId).emit('day:withdrawal-update', { count: ws.count, needed: ws.needed, total: ws.total });
+      io.to(roomId).emit('day:withdrawal-update', { count: ws.count, needed: ws.needed, total: ws.total, withdrawn: ws.withdrawn });
 
       callback({ success: true, count: ws.count, needed: ws.needed });
     } catch (err: any) {

@@ -198,6 +198,9 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [justTimer, setJustTimer] = useState<{physicalId: number; timeLimitSeconds: number; startTime: number} | null>(null);
   const [justTimeRemaining, setJustTimeRemaining] = useState(0);
 
+  // Withdrawal UI State
+  const [withdrawalState, setWithdrawalState] = useState<{count: number; needed: number; total: number; withdrawn: number[]} | null>(null);
+
   // Discussion UI States
   const [discussionState, setDiscussionState] = useState<any>(initialDiscussionState || null);
   const [silencedPlayerId, setSilencedPlayerId] = useState<number | null>(null);
@@ -418,6 +421,20 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:justification-timer-started', onJustificationTimerStarted);
     socket.on('day:justification-timer-stopped', onJustificationTimerStopped);
 
+    // Withdrawal events
+    const onWithdrawalUpdate = (data: any) => {
+      setWithdrawalState(prev => ({
+        count: data.count,
+        needed: data.needed,
+        total: data.total,
+        withdrawn: data.withdrawn || prev?.withdrawn || [],
+      }));
+    };
+    const onWithdrawalResult = () => {
+      setWithdrawalState(null);
+    };
+    socket.on('day:withdrawal-update', onWithdrawalUpdate);
+    socket.on('day:withdrawal-result', onWithdrawalResult);
 
     return () => {
       socket.off('day:voting-started', onVotingStarted);
@@ -431,7 +448,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       socket.off('day:justification-started', onJustificationStarted);
       socket.off('day:justification-timer-started', onJustificationTimerStarted);
       socket.off('day:justification-timer-stopped', onJustificationTimerStopped);
-
+      socket.off('day:withdrawal-update', onWithdrawalUpdate);
+      socket.off('day:withdrawal-result', onWithdrawalResult);
     };
   }, [roomId]);
 
@@ -881,6 +899,74 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                   AWAITING DIRECTOR TO START DEFENSE TIMER...
                 </span>
               </div>
+            )}
+
+            {/* ═══ قائمة المصوّتين على المتهم — Chips ═══ */}
+            {justificationData.votersForAccused && justificationData.votersForAccused.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="w-full max-w-[900px] mx-auto mt-8 px-6"
+              >
+                {/* عداد الأصوات والسحب */}
+                <div className="flex items-center justify-center gap-8 mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#8A0303]" />
+                    <span className="text-[#808080] text-xs font-mono">
+                      أصوات: <span className="text-white font-bold">{justificationData.votersForAccused.length - (withdrawalState?.count || 0)}</span>
+                    </span>
+                  </div>
+                  <div className="w-[1px] h-4 bg-[#2a2a2a]" />
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#555]" />
+                    <span className="text-[#808080] text-xs font-mono">
+                      سحب: <span className="text-white font-bold">{withdrawalState?.count || 0}</span>
+                      <span className="text-[#555]">/{withdrawalState?.needed || Math.ceil(justificationData.votersForAccused.length / 2)}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Chips */}
+                <div className="flex flex-wrap justify-center gap-2">
+                  {justificationData.votersForAccused.map((voterId: number) => {
+                    const voterPlayer = players.find((p: any) => p.physicalId === voterId);
+                    const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
+
+                    return (
+                      <motion.div
+                        key={voterId}
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        layout
+                        className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-500 ${
+                          hasWithdrawn
+                            ? 'bg-[#1a1a1a] border-[#333] opacity-50'
+                            : 'bg-[#8A0303]/15 border-[#8A0303]/40'
+                        }`}
+                      >
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-mono font-black ${
+                          hasWithdrawn
+                            ? 'bg-[#333] text-[#666]'
+                            : 'bg-[#8A0303] text-white'
+                        }`}>
+                          {voterId}
+                        </div>
+                        <span className={`text-sm font-mono ${
+                          hasWithdrawn
+                            ? 'text-[#555] line-through'
+                            : 'text-white'
+                        }`}>
+                          {voterPlayer?.name || `#${voterId}`}
+                        </span>
+                        {hasWithdrawn && (
+                          <span className="text-[10px] text-[#555] font-mono">سُحب</span>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </motion.div>
             )}
 
             {/* ── الهيدر — أسفل الشاشة ── */}
