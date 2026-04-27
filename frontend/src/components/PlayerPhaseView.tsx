@@ -58,6 +58,11 @@ export default function PlayerPhaseView({
       setWithdrawalActive(true);
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
+      // تحقق هل أنا سبق سحبت صوتي
+      const myId = parseInt(physicalId);
+      if (pollData.withdrawalState.withdrawn?.includes(myId)) {
+        setHasWithdrawn(true);
+      }
     }
     if (pollData.discussionState && !discussionState) {
       setDiscussionState(pollData.discussionState);
@@ -200,7 +205,11 @@ export default function PlayerPhaseView({
     if (!emit || hasWithdrawn) return;
     try {
       const res = await emit('player:withdraw-vote', { physicalId: parseInt(physicalId) });
-      if (res?.success) setHasWithdrawn(true);
+      if (res?.success) {
+        setHasWithdrawn(true);
+        if (res.count !== undefined) setWithdrawalCount(res.count);
+        if (res.needed !== undefined) setWithdrawalNeeded(res.needed);
+      }
     } catch {}
   };
 
@@ -303,9 +312,8 @@ export default function PlayerPhaseView({
   if (gamePhase === 'DAY_JUSTIFICATION') {
     const accused = justificationData?.accused || [];
     const topVotes = justificationData?.topVotes || 0;
-    // هل أنا صوّتت على أحد المتهمين؟
-    const myVotedCandidate = myVote !== null ? votingCandidates[myVote] : null;
-    const iVotedForAccused = myVotedCandidate && accused.some((a: any) => a.targetPhysicalId === myVotedCandidate?.targetPhysicalId);
+    // هل أنا صوّتت على أحد المتهمين؟ (نستخدم votersForAccused من الباك مباشرة)
+    const iVotedForAccused = justificationData?.votersForAccused?.includes(myId) || false;
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-4">
@@ -344,17 +352,22 @@ export default function PlayerPhaseView({
           </div>
         )}
 
-        {/* سحب الصوت */}
-        {withdrawalActive && iVotedForAccused && !isPlayerDead && (
+        {/* سحب الصوت — يظهر مباشرة أثناء التبرير لمن صوّت على المتهم */}
+        {iVotedForAccused && !isPlayerDead && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
-            <p className="text-blue-300 text-sm mb-3 font-bold">هل تريد سحب صوتك وإعادة التصويت؟</p>
-            <p className="text-[#666] text-xs mb-3 font-mono">{withdrawalCount}/{withdrawalNeeded} سحبوا أصواتهم</p>
+            <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
+            <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت</p>
+            {withdrawalCount > 0 && (
+              <p className="text-[#666] text-xs mb-3 font-mono">{withdrawalCount}/{withdrawalNeeded} سحبوا أصواتهم</p>
+            )}
             {!hasWithdrawn ? (
-              <button onClick={handleWithdraw} className="bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold py-2.5 px-6 rounded-xl hover:bg-blue-500/30 transition-all text-sm">
+              <button onClick={handleWithdraw} className="bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold py-3 px-8 rounded-xl hover:bg-blue-500/30 transition-all text-base">
                 🗳️ سحب صوتي
               </button>
             ) : (
-              <p className="text-green-400 text-sm font-mono">✓ تم سحب صوتك</p>
+              <div className="bg-green-500/10 border border-green-500/30 rounded-xl py-2 px-4">
+                <p className="text-green-400 text-sm font-mono">✓ تم سحب صوتك</p>
+              </div>
             )}
           </motion.div>
         )}

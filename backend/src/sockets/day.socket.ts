@@ -286,6 +286,17 @@ export function registerDayEvents(io: Server, socket: Socket) {
       await setPhase(data.roomId, Phase.DAY_JUSTIFICATION);
       state.phase = Phase.DAY_JUSTIFICATION; // ← مهم! تحديث المتغير المحلي
 
+      // حساب من صوّت على المتهمين (لعرض خيار سحب الصوت في واجهة اللاعب)
+      const accusedIds = accusedPlayers.map((a: any) => a.targetPhysicalId);
+      const playerVotes = state.votingState?.playerVotes || {};
+      const votersForAccused: number[] = [];
+      for (const [voterId, targetIdx] of Object.entries(playerVotes)) {
+        const candidate = state.votingState?.candidates?.[targetIdx as unknown as number];
+        if (candidate && accusedIds.includes(candidate.targetPhysicalId)) {
+          votersForAccused.push(parseInt(voterId));
+        }
+      }
+
       const justificationData = {
         resultType: sortResult.type,
         accused: accusedPlayers,
@@ -294,6 +305,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         topVotes: sortResult.topVotes,
         maxJustifications: maxJust,
         candidates: state.votingState?.candidates || [],
+        votersForAccused, // قائمة physicalIds للمصوتين على المتهمين
       };
 
       // حفظ بيانات التبرير في الـ state لاستعادتها عند إعادة الاتصال
@@ -397,39 +409,39 @@ export function registerDayEvents(io: Server, socket: Socket) {
     }
   });
 
-  // ── سحب صوت اللاعب ──────────────────────────────
+  // ── سحب صوت اللاعب (يعمل أثناء مرحلة التبرير مباشرة) ──
   socket.on('player:withdraw-vote', async (data: { physicalId: number }, callback) => {
     try {
-      const state = await getGameState(socket.data.roomId);
-      if (!state?.withdrawalState) return callback({ success: false, error: 'No withdrawal period' });
+      const roomId = socket.data.roomId;
+      const state = await getGameState(roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (state.phase !== 'DAY_JUSTIFICATION') return callback({ success: false, error: 'Not in justification phase' });
+
+      const justData = state.justificationData;
+      if (!justData?.votersForAccused) return callback({ success: false, error: 'No voters data' });
+
+      // تحقق أن هذا اللاعب صوّت على المتهم
+      if (!justData.votersForAccused.includes(data.physicalId)) {
+        return callback({ success: false, error: 'Did not vote for accused' });
+      }
+
+      // إنشاء withdrawalState تلقائياً إن لم يكن موجوداً
+      if (!state.withdrawalState) {
+        const total = justData.votersForAccused.length;
+        const needed = Math.ceil(total / 2) + 1; // أكثر من النصف
+        state.withdrawalState = { count: 0, needed, withdrawn: [], accusedIds: justData.accused.map((a: any) => a.targetPhysicalId), total };
+      }
 
       const ws = state.withdrawalState;
       if (ws.withdrawn.includes(data.physicalId)) return callback({ success: false, error: 'Already withdrawn' });
 
-      // تحقق أن هذا اللاعب صوّت على أحد المتهمين
-      const playerVotes = state.votingState?.playerVotes || {};
-      const myVoteIdx = playerVotes[data.physicalId];
-      if (myVoteIdx === undefined) return callback({ success: false, error: 'Did not vote' });
-      const candidate = state.votingState?.candidates?.[myVoteIdx];
-      if (!candidate || !ws.accusedIds.includes(candidate.targetPhysicalId)) {
-        return callback({ success: false, error: 'Did not vote for accused' });
-      }
-
       ws.withdrawn.push(data.physicalId);
       ws.count = ws.withdrawn.length;
-      await setGameState(socket.data.roomId, state);
+      await setGameState(roomId, state);
 
-      io.to(socket.data.roomId).emit('day:withdrawal-update', { count: ws.count, needed: ws.needed });
+      io.to(roomId).emit('day:withdrawal-update', { count: ws.count, needed: ws.needed, total: ws.total });
 
-      // هل وصلنا للنصاب؟
-      if (ws.count >= ws.needed) {
-        // إعادة التصويت
-        state.withdrawalState = null;
-        await setGameState(socket.data.roomId, state);
-        io.to(socket.data.roomId).emit('day:withdrawal-result', { revote: true });
-      }
-
-      callback({ success: true, count: ws.count });
+      callback({ success: true, count: ws.count, needed: ws.needed });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
