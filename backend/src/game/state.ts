@@ -159,7 +159,22 @@ export interface GameState {
 // ── إنشاء كود غرفة 6 أرقام ──────────────────────
 
 function generateRoomCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // 4 أرقام مع تكرار دائماً — أسهل للحفظ
+  const d = () => Math.floor(Math.random() * 10); // 0-9
+  const patterns = [
+    // AABC — أول رقمين متشابهين
+    () => { const a = d(), b = d(), c = d(); return `${a}${a}${b}${c}`; },
+    // ABAC — أول وثالث متشابهين
+    () => { const a = d(), b = d(), c = d(); return `${a}${b}${a}${c}`; },
+    // ABBA — أول=آخر، ثاني=ثالث
+    () => { const a = d(), b = d(); return `${a}${b}${b}${a}`; },
+    // AABB — زوجين
+    () => { const a = d(), b = d(); return `${a}${a}${b}${b}`; },
+    // ABCA — أول=آخر
+    () => { const a = d(), b = d(), c = d(); return `${a}${b}${c}${a}`; },
+  ];
+  const pick = patterns[Math.floor(Math.random() * patterns.length)];
+  return pick();
 }
 
 // ── إنشاء PIN لشاشة العرض ────────────────────────
