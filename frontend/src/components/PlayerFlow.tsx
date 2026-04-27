@@ -426,6 +426,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
   // ── تسجيل خروج اللاعب (مسح كل البيانات المحفوظة) ──
   const handleLogout = useCallback(() => {
+    // إرسال حدث الخروج للسيرفر أولاً (لإزالة اللاعب من واجهة الليدر)
+    if (emit && roomId) {
+      const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
+      emit('room:player-exit', {
+        roomId,
+        phone: normalizedPhone,
+        playerId: playerId || undefined,
+      }).catch(() => {}); // لا نمنع الخروج حتى لو فشل
+    }
+
     localStorage.removeItem('mafia_session');
     localStorage.removeItem('mafia_player_token');
     localStorage.removeItem('mafia_playerId');
@@ -450,7 +460,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     setMustChangePassword(false);
     setApiError('');
     setStep(initialRoomCode ? 'phone' : 'code');
-  }, [initialRoomCode]);
+  }, [initialRoomCode, emit, roomId, phone, playerId]);
 
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
@@ -650,9 +660,29 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // انتهاء اللعبة
     const cleanupGameOver = on('game:over', () => {
-      console.log('🏁 Game over — clearing game state');
+      console.log('🏁 Game over — full reset');
       setGamePhase('GAME_OVER');
-      // مسح بيانات التصويت
+      setAssignedRole(null);
+      setIsPlayerDead(false);
+      setMafiaTeam([]);
+      setCardFlipped(false);
+      setRoleAlert(false);
+      setVotingCandidates([]);
+      setMyVote(null);
+      setVotingComplete(false);
+      setPlayerVotes({});
+      setTotalVotesCast(0);
+    });
+
+    // إغلاق الغرفة من الليدر
+    const cleanupClosed = on('game:closed', () => {
+      console.log('🔒 Game closed — full reset');
+      setGamePhase(null);
+      setAssignedRole(null);
+      setIsPlayerDead(false);
+      setMafiaTeam([]);
+      setCardFlipped(false);
+      setRoleAlert(false);
       setVotingCandidates([]);
       setMyVote(null);
       setVotingComplete(false);
@@ -668,6 +698,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       cleanupJustification();
       cleanupElimination();
       cleanupGameOver();
+      cleanupClosed();
     };
   }, [step, on, physicalId]);
 
@@ -1647,7 +1678,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           key={candidate.id || `c-${index}`}
                           whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.92 } : {}}
                           onClick={() => {
-                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting) return;
+                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -1922,7 +1953,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           key={candidate.id || `c-${index}`}
                           whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.92 } : {}}
                           onClick={() => {
-                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting) return;
+                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,

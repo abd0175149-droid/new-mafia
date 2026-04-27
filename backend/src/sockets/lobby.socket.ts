@@ -1149,6 +1149,43 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       console.log(`👑 Leader rejoined room: ${data.roomId}`);
     }
   });
+  // ── خروج اللاعب من الغرفة (EXIT button) ─────────────
+  socket.on('room:player-exit', async (data: {
+    roomId: string;
+    phone?: string;
+    playerId?: number;
+  }, callback) => {
+    try {
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // البحث عن اللاعب
+      const normalizedPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+      const playerIndex = state.players.findIndex((p: any) =>
+        (data.playerId && p.playerId === data.playerId) ||
+        (normalizedPhone && p.phone === normalizedPhone)
+      );
+
+      if (playerIndex === -1) return callback({ success: false, error: 'Player not found' });
+
+      const player = state.players[playerIndex];
+      const playerName = player.name;
+      const playerPhysId = player.physicalId;
+
+      // حذف اللاعب من المصفوفة
+      state.players.splice(playerIndex, 1);
+      await setGameState(data.roomId, state);
+
+      // إبلاغ الليدر والشاشات
+      io.to(data.roomId).emit('game:state-sync', state);
+      socket.leave(data.roomId);
+
+      console.log(`🚪 Player #${playerPhysId} (${playerName}) exited room ${data.roomId}`);
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
 
   // ── إغلاق الغرفة (Soft Close — للوبي فقط) ────────────────
   socket.on('room:close', async (data: { roomId: string }, callback) => {

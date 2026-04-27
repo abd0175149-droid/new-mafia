@@ -91,6 +91,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'لا يمكنك التصويت لنفسك' });
       }
 
+      // ── منع التصويت الجديد بعد اكتمال الأصوات ──
+      if (isVotingComplete(state) && state.votingState.playerVotes[data.physicalId] === undefined) {
+        return callback({ success: false, error: 'اكتمل التصويت — لا يمكن إضافة صوت جديد' });
+      }
+
       // ── سحب الصوت القديم إذا كان موجوداً (تغيير الصوت) ──
       const previousVote = state.votingState.playerVotes[data.physicalId];
       if (previousVote !== undefined) {
