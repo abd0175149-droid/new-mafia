@@ -63,19 +63,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               window.addEventListener('load', function() {
                 navigator.serviceWorker.register('/sw.js').then(function(reg) {
                   console.log('✅ PWA: Service Worker registered', reg.scope);
-                  reg.addEventListener('updatefound', function() {
-                    var newWorker = reg.installing;
-                    if (newWorker) {
-                      newWorker.addEventListener('statechange', function() {
-                        if (newWorker.state === 'activated') {
-                          console.log('🔄 PWA: New version activated — reloading...');
-                          location.reload();
-                        }
-                      });
-                    }
-                  });
-                  // فحص تحديث فوري
-                  reg.update();
                 }).catch(function(err) {
                   console.warn('⚠️ PWA: SW registration failed', err);
                 });
