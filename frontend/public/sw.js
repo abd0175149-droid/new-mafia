@@ -1,4 +1,9 @@
-const CACHE_NAME = 'mafia-club-v2.5.0';
+// ══════════════════════════════════════════════════════
+// 📦 Service Worker — Mafia Club PWA
+// BUILD_HASH يُستبدل تلقائياً عند كل deploy (Dockerfile)
+// ══════════════════════════════════════════════════════
+const BUILD_HASH = '__BUILD_HASH__';
+const CACHE_NAME = `mafia-club-${BUILD_HASH}`;
 
 const PRECACHE_URLS = [
   '/player',
@@ -10,10 +15,11 @@ const PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('📦 PWA: Caching app shell');
+      console.log(`📦 PWA: Caching app shell [${BUILD_HASH}]`);
       return cache.addAll(PRECACHE_URLS);
     })
   );
+  // فرض التفعيل الفوري بدون انتظار الصفحات القديمة
   self.skipWaiting();
 });
 
@@ -22,10 +28,14 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+        keys.filter((k) => k !== CACHE_NAME).map((k) => {
+          console.log(`🗑️ PWA: Deleting old cache [${k}]`);
+          return caches.delete(k);
+        })
       )
     )
   );
+  // السيطرة الفورية على كل الصفحات المفتوحة
   self.clients.claim();
 });
 

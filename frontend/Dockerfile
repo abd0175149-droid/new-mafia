@@ -12,6 +12,10 @@ ENV BACKEND_URL=http://backend:4000
 ENV NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_SOCKET_URL=
 
+# حقن BUILD_HASH تلقائياً في sw.js — كل deploy يحصل على hash جديد
+RUN BUILD_HASH=$(date +%s) && \
+    sed -i "s/__BUILD_HASH__/$BUILD_HASH/g" public/sw.js
+
 RUN npm run build
 
 # ── Production Stage ──
