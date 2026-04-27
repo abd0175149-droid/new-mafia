@@ -357,10 +357,25 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }
   };
 
+  const [withdrawalStarted, setWithdrawalStarted] = useState(false);
+
   const handleExecuteElimination = async () => {
     setLoading(true);
     try {
-      await emit('day:execute-elimination', { roomId: gameState.roomId });
+      const res = await emit('day:execute-elimination', { roomId: gameState.roomId });
+      if (res?.withdrawalStarted) {
+        // فترة سحب الأصوات بدأت — نبقى في الشاشة بانتظار اللاعبين
+        setWithdrawalStarted(true);
+      } else if (res?.revote) {
+        // إعادة تصويت — نعيد ضبط حالة التبرير
+        setJustCurrentIdx(0);
+        setJustTimerStarted(false);
+        setJustAllDone(false);
+        setWithdrawalStarted(false);
+        localVoteTotalRef.current = 0;
+      } else {
+        setWithdrawalStarted(false);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -517,20 +532,29 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </div>
         ) : (
           <div className="space-y-4">
+            {withdrawalStarted && (
+              <div className="noir-card p-4 border-blue-500/30 text-center mb-2">
+                <p className="text-blue-300 font-bold mb-1">🗳️ فترة سحب الأصوات جارية</p>
+                <p className="text-[#808080] font-mono text-xs">اللاعبون المصوتون على المتهم يراجعون أصواتهم</p>
+                <p className="text-[#555] font-mono text-[10px] mt-2">VOTE WITHDRAWAL IN PROGRESS</p>
+              </div>
+            )}
             <button
               onClick={handleExecuteElimination}
               disabled={loading}
               className="w-full bg-[#8A0303]/20 border-2 border-[#8A0303] text-white p-5 font-mono uppercase tracking-widest hover:bg-[#8A0303]/40 transition-colors text-xl font-black"
             >
-              💀 تنفيذ الإقصاء (Execute Elimination)
+              {withdrawalStarted ? '⚖️ إنهاء السحب وتنفيذ الإقصاء' : '💀 تنفيذ الإقصاء (Execute Elimination)'}
             </button>
-            <button
-              onClick={() => handleTieBreaker('REVOTE')}
-              disabled={loading}
-              className="w-full bg-[#C5A059]/10 border-2 border-[#C5A059]/50 text-[#C5A059] p-5 font-mono uppercase tracking-widest hover:bg-[#C5A059]/20 transition-colors text-lg"
-            >
-              🔁 سحب الأصوات وإعادة التصويت (Revote)
-            </button>
+            {!withdrawalStarted && (
+              <button
+                onClick={() => handleTieBreaker('REVOTE')}
+                disabled={loading}
+                className="w-full bg-[#C5A059]/10 border-2 border-[#C5A059]/50 text-[#C5A059] p-5 font-mono uppercase tracking-widest hover:bg-[#C5A059]/20 transition-colors text-lg"
+              >
+                🔁 سحب الأصوات وإعادة التصويت (Revote)
+              </button>
+            )}
           </div>
         )}
       </div>

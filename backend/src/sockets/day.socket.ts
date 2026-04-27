@@ -436,17 +436,89 @@ export function registerDayEvents(io: Server, socket: Socket) {
   });
 
   // ── تنفيذ الإقصاء (بعد التبرير) ──────────────────
-  socket.on('day:execute-elimination', async (data: { roomId: string }, callback) => {
+  // أول نقرة: تبدأ فترة سحب الأصوات
+  // ثاني نقرة: تتحقق من النتيجة وتنفذ أو تعيد التصويت
+  socket.on('day:execute-elimination', async (data: { roomId: string; skipWithdrawal?: boolean }, callback) => {
     try {
       if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
 
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // ── الخطوة 1: بدء فترة سحب الأصوات (إن لم تبدأ بعد) ──
+      if (!state.withdrawalState && !data.skipWithdrawal) {
+        const justData = state.justificationData;
+        if (justData?.accused?.length) {
+          const accusedIds = justData.accused.map((a: any) => a.targetPhysicalId);
+          const playerVotes = state.votingState?.playerVotes || {};
+
+          // حساب: من صوّت على أحد المتهمين
+          let votersForAccused = 0;
+          const votersList: number[] = [];
+          for (const [voterId, targetIdx] of Object.entries(playerVotes)) {
+            const candidate = state.votingState?.candidates?.[targetIdx as unknown as number];
+            if (candidate && accusedIds.includes(candidate.targetPhysicalId)) {
+              votersForAccused++;
+              votersList.push(parseInt(voterId));
+            }
+          }
+
+          if (votersForAccused > 0) {
+            const needed = Math.ceil(votersForAccused / 2) + 1; // أكثر من النصف
+            state.withdrawalState = { count: 0, needed, withdrawn: [], accusedIds, total: votersForAccused };
+            await setGameState(data.roomId, state);
+
+            io.to(data.roomId).emit('day:withdrawal-period', {
+              needed,
+              total: votersForAccused,
+              accusedIds,
+            });
+
+            return callback({ success: true, withdrawalStarted: true, needed, total: votersForAccused });
+          }
+        }
+      }
+
+      // ── الخطوة 2: تحقق من نتيجة السحب ──
+      if (state.withdrawalState) {
+        const ws = state.withdrawalState;
+        if (ws.count >= ws.needed) {
+          // أكثر من النصف سحبوا → إعادة تصويت
+          state.withdrawalState = null;
+          state.justificationData = null;
+          await setGameState(data.roomId, state);
+
+          io.to(data.roomId).emit('day:withdrawal-result', { revote: true });
+
+          // إعادة التصويت تلقائياً
+          const newState = await initVoting(data.roomId);
+          await setPhase(data.roomId, Phase.DAY_VOTING);
+          newState.phase = Phase.DAY_VOTING;
+
+          io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING });
+          io.to(data.roomId).emit('day:voting-started', {
+            candidates: newState.votingState.candidates,
+            hiddenPlayers: newState.votingState.hiddenPlayersFromVoting,
+            teamCounts: getTeamCounts(newState.players),
+            playerVotes: {},
+          });
+
+          return callback({ success: true, revote: true });
+        }
+
+        // لم يسحب النصف → مسح السحب ومتابعة الإقصاء
+        state.withdrawalState = null;
+        await setGameState(data.roomId, state);
+        io.to(data.roomId).emit('day:withdrawal-result', { revote: false });
+      }
+
+      // ── الخطوة 3: تنفيذ الإقصاء فعلياً ──
       const result = await resolveVoting(data.roomId);
 
       if (result.type === 'TIE') {
         await setPhase(data.roomId, Phase.DAY_TIEBREAKER);
         io.to(data.roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
       } else {
-        // ⚠️ لا نرسل teamCounts هنا — لأنها ستكشف هوية المقصى قبل عرض الدور
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated: result.eliminated,
           revealedRoles: result.revealedRoles,
