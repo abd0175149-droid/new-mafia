@@ -7,7 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
 
-const WHATSAPP_NUMBER = '962789154719';
+const WHATSAPP_NUMBER = '962793390966';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
 
 const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
