@@ -40,16 +40,29 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             var saved = localStorage.getItem('mafia_app_version');
             if (saved && saved !== v) {
               localStorage.setItem('mafia_app_version', v);
-              location.reload();
-            } else {
-              localStorage.setItem('mafia_app_version', v);
+              // مسح كل الكاشات وإعادة التحميل
+              if ('caches' in window) {
+                caches.keys().then(function(names) {
+                  names.forEach(function(name) { caches.delete(name); });
+                });
+              }
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(regs) {
+                  regs.forEach(function(reg) { reg.unregister(); });
+                  setTimeout(function() { location.reload(true); }, 300);
+                });
+              } else {
+                location.reload(true);
+              }
+              return;
             }
+            localStorage.setItem('mafia_app_version', v);
+
             // ── تسجيل Service Worker ──
             if ('serviceWorker' in navigator) {
               window.addEventListener('load', function() {
                 navigator.serviceWorker.register('/sw.js').then(function(reg) {
                   console.log('✅ PWA: Service Worker registered', reg.scope);
-                  // ── فرض التحديث: عند اكتشاف SW جديد ──
                   reg.addEventListener('updatefound', function() {
                     var newWorker = reg.installing;
                     if (newWorker) {
@@ -61,7 +74,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       });
                     }
                   });
-                  // ── تحقق فوري من وجود تحديث ──
+                  // فحص تحديث فوري
                   reg.update();
                 }).catch(function(err) {
                   console.warn('⚠️ PWA: SW registration failed', err);
