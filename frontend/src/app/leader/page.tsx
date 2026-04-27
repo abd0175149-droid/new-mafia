@@ -28,6 +28,7 @@ interface VotingState {
   hiddenPlayersFromVoting: number[];
   tieBreakerLevel: number;
   playerVotes?: Record<number, number>;
+  leaderProxyVotes?: Record<number, number>;
 }
 
 interface GameState {
