@@ -284,6 +284,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const canJustifyList = accusedPlayers.filter(a => a.canJustify);
 
       await setPhase(data.roomId, Phase.DAY_JUSTIFICATION);
+      state.phase = Phase.DAY_JUSTIFICATION; // ← مهم! تحديث المتغير المحلي
 
       const justificationData = {
         resultType: sortResult.type,

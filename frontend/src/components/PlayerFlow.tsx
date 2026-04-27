@@ -767,17 +767,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           // تحديث مرحلة اللعبة (مع حماية من الـ phase-changed event)
           if (res.phase) {
             const override = phaseOverrideRef.current;
-            if (override && Date.now() < override.until && res.phase !== override.phase) {
+            if (override && res.phase !== override.phase) {
               console.log(`🛡️ Poll blocked: server=${res.phase}, override=${override.phase}`);
               // لا نسمح للـ polling بإرجاع المرحلة القديمة
             } else {
-              if (override && Date.now() >= override.until) phaseOverrideRef.current = null;
+              // السيرفر تطابق مع الـ override أو لا يوجد override
+              if (override && res.phase === override.phase) phaseOverrideRef.current = null;
               setGamePhase(res.phase);
             }
           }
 
           // استعادة بيانات التصويت بعد reconnect (مع حماية override)
-          const overrideActive = phaseOverrideRef.current && Date.now() < phaseOverrideRef.current.until;
+          const overrideActive = phaseOverrideRef.current !== null;
           if (!overrideActive && res.votingState && res.phase === 'DAY_VOTING') {
             setVotingCandidates(res.votingState.candidates || []);
             setTotalVotesCast(res.votingState.totalVotesCast || 0);

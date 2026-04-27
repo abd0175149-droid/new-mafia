@@ -67,6 +67,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       // لا يوجد سؤال ممرضة — ننتقل للّيل مباشرة
       await setPhase(data.roomId, Phase.NIGHT);
+      state.phase = Phase.NIGHT; // ← تحديث محلي لمنع الكتابة الفوقية
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
@@ -103,6 +104,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       // الآن ننتقل رسمياً لمرحلة الليل
       await setPhase(data.roomId, Phase.NIGHT);
+      state.phase = Phase.NIGHT; // ← تحديث محلي لمنع الكتابة الفوقية
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
@@ -382,6 +384,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         players: state.players,
       });
       await setPhase(data.roomId, Phase.GAME_OVER);
+      state.phase = Phase.GAME_OVER; // ← تحديث محلي لمنع الكتابة الفوقية
 
       // مسح pendingWinner
       state.pendingWinner = null;
