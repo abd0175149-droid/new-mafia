@@ -208,7 +208,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
           // ── استعادة حالة التصويت فورياً عند rejoin ──
           if (res.phase) setGamePhase(res.phase);
+          console.log(`🔍 Rejoin phase: ${res.phase}, hasVotingState: ${!!res.votingState}, candidates: ${res.votingState?.candidates?.length || 0}`);
           if (res.votingState && res.phase === 'DAY_VOTING') {
+            console.log(`🗳️ Restoring voting: ${res.votingState.candidates.length} candidates, myVotes: ${JSON.stringify(res.votingState.playerVotes)}`);
             setVotingCandidates(res.votingState.candidates || []);
             setTotalVotesCast(res.votingState.totalVotesCast || 0);
             setPlayerVotes(res.votingState.playerVotes || {});
@@ -224,7 +226,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           }
 
           setStep('rejoined');
-          console.log(`♻️ Rejoin success: #${res.player.physicalId} - ${res.player.name}`);
+          console.log(`♻️ Rejoin success: #${res.player.physicalId} - ${res.player.name} | role: ${res.player.role} | phase: ${res.phase}`);
         } else {
           // الغرفة مش موجودة → مسح الجلسة
           localStorage.removeItem('mafia_session');
@@ -460,6 +462,29 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     };
   }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead]);
 
+  // ── Safety net: إذا gamePhase = DAY_VOTING لكن بدون مرشحين → اجلب البيانات ──
+  useEffect(() => {
+    if ((step !== 'done' && step !== 'rejoined') || !emit || !roomId) return;
+    if (gamePhase !== 'DAY_VOTING' || votingCandidates.length > 0) return;
+
+    console.log('🛡️ Safety net triggered: DAY_VOTING but no candidates — fetching...');
+    const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
+    emit('room:get-my-state', { roomId, playerId: playerId || undefined, phone: normalizedPhone || undefined })
+      .then((res: any) => {
+        if (res.success && res.votingState && res.phase === 'DAY_VOTING') {
+          console.log(`🛡️ Safety net: restoring ${res.votingState.candidates.length} candidates`);
+          setVotingCandidates(res.votingState.candidates || []);
+          setTotalVotesCast(res.votingState.totalVotesCast || 0);
+          setPlayerVotes(res.votingState.playerVotes || {});
+          if (res.votingState.playersInfo) setVotingPlayersInfo(res.votingState.playersInfo);
+          const myPhysId = parseInt(physicalId);
+          if (res.votingState.playerVotes?.[myPhysId] !== undefined) {
+            setMyVote(res.votingState.playerVotes[myPhysId]);
+          }
+        }
+      }).catch(() => {});
+  }, [gamePhase, votingCandidates.length, step, emit, roomId]);
+
   // ── استقبال أحداث التصويت ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
@@ -556,6 +581,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           playerId: playerId || undefined,
           phone: normalizedPhone || undefined,
         });
+        console.log(`📊 Poll: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
         if (res.success && res.player) {
           // تحديث الرقم إذا تغيّر
           if (String(res.player.physicalId) !== physicalId) {
@@ -1424,6 +1450,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </svg>
                   EXIT
                 </button>
+              </div>
+
+              {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
+              <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
+                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v2.5
               </div>
 
               {/* ── شاشة التصويت ── */}
