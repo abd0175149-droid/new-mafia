@@ -38,30 +38,14 @@ function VotingCard({ candidate, index, isDeal, targetDetails, initiatorDetails,
 
   const physicalId = candidate.targetPhysicalId;
 
-  // ── Tap / Double-Tap Logic ──
+  // ── Tap Logic (فقط +1 بالوكالة — بدون double-tap) ──
   const handleTapAction = useCallback(() => {
-    tapCountRef.current += 1;
-
-    if (tapCountRef.current === 1) {
-      // First tap — wait 300ms to see if double-tap follows
-      tapTimerRef.current = setTimeout(() => {
-        if (tapCountRef.current === 1 && !isSwiping.current) {
-          // Single tap confirmed → +1 vote
-          if (!isComplete) {
-            handleVote(index, 1);
-          }
-        }
-        tapCountRef.current = 0;
-      }, 300);
-    } else if (tapCountRef.current === 2) {
-      // Double tap confirmed → -1 vote
-      if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
-      tapCountRef.current = 0;
-      if (candidate.votes > 0) {
-        handleVote(index, -1);
-      }
+    if (isSwiping.current) return;
+    // Single tap → +1 vote (handleVote في الأب يتحقق من وجود لاعب محدد)
+    if (!isComplete) {
+      handleVote(index, 1);
     }
-  }, [index, isComplete, candidate.votes, handleVote]);
+  }, [index, isComplete, handleVote]);
 
   // ── Swipe → Reveal for 2 seconds ──
   const triggerReveal = useCallback(() => {
@@ -242,20 +226,30 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     gameState.votingState?.leaderProxyVotes || {}
   );
 
+  // مزامنة leaderProxyVotes المحلية مع gameState (مثلاً عند Revote)
+  useEffect(() => {
+    setLeaderProxyVotes(gameState.votingState?.leaderProxyVotes || {});
+    setSelectedVoter(null);
+  }, [gameState.votingState?.tieBreakerLevel, gameState.phase]);
+
   const handleVote = async (candidateIndex: number, delta: 1 | -1, proxyVoterId?: number) => {
+    // تحديد voterPhysicalId: من المعامل المباشر أو من selectedVoter
+    const voterId = proxyVoterId || selectedVoter || undefined;
+
+    // ❌ ممنوع التصويت بدون تحديد لاعب — فقط تصويت بالوكالة
+    if (!voterId) return;
+
+    // ❌ إلغاء (-1) فقط عبر الزر البرتقالي (proxyVoterId مباشر)
+    if (delta === -1 && !proxyVoterId) return;
+
     const candidate = candidates[candidateIndex];
     if (candidate.votes + delta < 0) return;
 
-    const maxVotes = alivePlayers.length; // المسكت يصوت
-
-    // فحص العداد المحلي المتزامن — يتحدث فوراً بدون انتظار السيرفر
+    const maxVotes = alivePlayers.length;
     if (delta === 1 && localVoteTotalRef.current >= maxVotes) return;
 
-    // تحديث العداد فوراً قبل الإرسال (synchronous)
+    // تحديث العداد فوراً قبل الإرسال
     localVoteTotalRef.current += delta;
-
-    // تحديد voterPhysicalId: من المعامل المباشر أو من selectedVoter
-    const voterId = proxyVoterId || selectedVoter || undefined;
 
     try {
       const res = await emit('day:cast-vote', {
@@ -272,7 +266,6 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
         setSelectedVoter(null);
       }
     } catch (err: any) {
-      // إرجاع العداد عند الفشل
       localVoteTotalRef.current -= delta;
       setError(err.message);
     }
@@ -307,6 +300,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       setJustTimerStarted(false);
       setJustAllDone(false);
       localVoteTotalRef.current = 0;
+      setLeaderProxyVotes({});
+      setSelectedVoter(null);
 
       await emit('day:tie-action', { roomId: gameState.roomId, action, tiedCandidates: tiedCands });
     } catch (err: any) {
@@ -382,11 +377,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     try {
       const res = await emit('day:execute-elimination', { roomId: gameState.roomId, skipWithdrawal: true });
       if (res?.revote) {
-        // إعادة تصويت
+        // إعادة تصويت — تصفير كل شيء
         setJustCurrentIdx(0);
         setJustTimerStarted(false);
         setJustAllDone(false);
         localVoteTotalRef.current = 0;
+        setLeaderProxyVotes({});
+        setSelectedVoter(null);
       }
     } catch (err: any) {
       setError(err.message);

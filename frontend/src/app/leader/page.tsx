@@ -466,6 +466,7 @@ export default function LeaderPage() {
             totalVotesCast: 0,
             tieBreakerLevel: data.tieBreakerLevel || 0,
             playerVotes: data.playerVotes || {},
+            leaderProxyVotes: {}, // تصفير أصوات الوكالة عند إعادة التصويت
           } as VotingState,
           // تنظيف بيانات التبرير عند إعادة التصويت (Revote)
           justificationData: undefined,
