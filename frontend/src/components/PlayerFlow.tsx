@@ -462,28 +462,42 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     };
   }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead]);
 
-  // ── Safety net: إذا gamePhase = DAY_VOTING لكن بدون مرشحين → اجلب البيانات ──
+  // ── استعادة حالة التصويت فور اكتمال الـ rejoin (safety net شامل) ──
+  // هذا يشتغل مرة واحدة بعد step = 'rejoined' ويجلب بيانات التصويت مباشرة
   useEffect(() => {
-    if ((step !== 'done' && step !== 'rejoined') || !emit || !roomId) return;
-    if (gamePhase !== 'DAY_VOTING' || votingCandidates.length > 0) return;
+    if (step !== 'rejoined' || !emit || !roomId) return;
 
-    console.log('🛡️ Safety net triggered: DAY_VOTING but no candidates — fetching...');
-    const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
-    emit('room:get-my-state', { roomId, playerId: playerId || undefined, phone: normalizedPhone || undefined })
-      .then((res: any) => {
-        if (res.success && res.votingState && res.phase === 'DAY_VOTING') {
-          console.log(`🛡️ Safety net: restoring ${res.votingState.candidates.length} candidates`);
-          setVotingCandidates(res.votingState.candidates || []);
-          setTotalVotesCast(res.votingState.totalVotesCast || 0);
-          setPlayerVotes(res.votingState.playerVotes || {});
-          if (res.votingState.playersInfo) setVotingPlayersInfo(res.votingState.playersInfo);
-          const myPhysId = parseInt(physicalId);
-          if (res.votingState.playerVotes?.[myPhysId] !== undefined) {
-            setMyVote(res.votingState.playerVotes[myPhysId]);
+    // تأخير بسيط لانتظار React batching يطبّق كل الـ states من rejoin callback
+    const timer = setTimeout(async () => {
+      try {
+        const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
+        const res = await emit('room:get-my-state', {
+          roomId,
+          playerId: playerId || undefined,
+          phone: normalizedPhone || undefined,
+        });
+        console.log(`🛡️ Post-rejoin fetch: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
+        
+        if (res.success && res.phase) {
+          setGamePhase(res.phase);
+          
+          if (res.votingState && res.phase === 'DAY_VOTING') {
+            console.log(`🛡️ Restoring voting state: ${res.votingState.candidates?.length} candidates`);
+            setVotingCandidates(res.votingState.candidates || []);
+            setTotalVotesCast(res.votingState.totalVotesCast || 0);
+            setPlayerVotes(res.votingState.playerVotes || {});
+            if (res.votingState.playersInfo) setVotingPlayersInfo(res.votingState.playersInfo);
+            const myPhysId = parseInt(physicalId);
+            if (res.votingState.playerVotes?.[myPhysId] !== undefined) {
+              setMyVote(res.votingState.playerVotes[myPhysId]);
+            }
           }
         }
-      }).catch(() => {});
-  }, [gamePhase, votingCandidates.length, step, emit, roomId]);
+      } catch { /* ignore */ }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [step, emit, roomId]); // deps بسيطة — يشتغل فقط عند rejoin
 
   // ── استقبال أحداث التصويت ──
   useEffect(() => {
