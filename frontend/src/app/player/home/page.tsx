@@ -378,10 +378,10 @@ function groupFeedBySession(feed: any[]): any[] {
   }
 
   // تحديث الوصف بعد التجميع
-  for (const [, entry] of sessionMap) {
+  sessionMap.forEach((entry) => {
     entry.description += ` — ${entry.matchCount} ${entry.matchCount === 1 ? 'لعبة' : 'ألعاب'}`;
     groups.push(entry);
-  }
+  });
 
   return groups;
 }
