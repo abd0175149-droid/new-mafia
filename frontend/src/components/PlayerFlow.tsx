@@ -128,15 +128,68 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
 
-  // ── حالة التصويت ──
-  const [gamePhase, setGamePhase] = useState<string | null>(null);
-  const [votingCandidates, setVotingCandidates] = useState<any[]>([]);
-  const [votingPlayersInfo, setVotingPlayersInfo] = useState<any[]>([]);
-  const [myVote, setMyVote] = useState<number | null>(null);
+  // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
+  const [gamePhase, setGamePhaseRaw] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('mafia_gamePhase') || null;
+  });
+  const [votingCandidates, setVotingCandidatesRaw] = useState<any[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('mafia_votingCandidates');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [votingPlayersInfo, setVotingPlayersInfoRaw] = useState<any[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('mafia_votingPlayersInfo');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  const [myVote, setMyVoteRaw] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const saved = localStorage.getItem('mafia_myVote');
+    if (saved !== null && !isNaN(parseInt(saved))) return parseInt(saved);
+    return null;
+  });
   const [totalVotesCast, setTotalVotesCast] = useState(0);
-  const [playerVotes, setPlayerVotes] = useState<Record<number, number>>({});
+  const [playerVotes, setPlayerVotesRaw] = useState<Record<number, number>>(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const saved = localStorage.getItem('mafia_playerVotes');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
   const [votingComplete, setVotingComplete] = useState(false);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
+
+  // ── Wrappers: تحفظ في localStorage عند كل تغيير ──
+  const setGamePhase = (phase: string | null) => {
+    setGamePhaseRaw(phase);
+    if (phase) localStorage.setItem('mafia_gamePhase', phase);
+    else localStorage.removeItem('mafia_gamePhase');
+  };
+  const setVotingCandidates = (candidates: any[]) => {
+    setVotingCandidatesRaw(candidates);
+    if (candidates.length > 0) localStorage.setItem('mafia_votingCandidates', JSON.stringify(candidates));
+    else localStorage.removeItem('mafia_votingCandidates');
+  };
+  const setVotingPlayersInfo = (info: any[]) => {
+    setVotingPlayersInfoRaw(info);
+    if (info.length > 0) localStorage.setItem('mafia_votingPlayersInfo', JSON.stringify(info));
+    else localStorage.removeItem('mafia_votingPlayersInfo');
+  };
+  const setMyVote = (vote: number | null) => {
+    setMyVoteRaw(vote);
+    if (vote !== null) localStorage.setItem('mafia_myVote', String(vote));
+    else localStorage.removeItem('mafia_myVote');
+  };
+  const setPlayerVotes = (votes: Record<number, number>) => {
+    setPlayerVotesRaw(votes);
+    if (Object.keys(votes).length > 0) localStorage.setItem('mafia_playerVotes', JSON.stringify(votes));
+    else localStorage.removeItem('mafia_playerVotes');
+  };
 
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
@@ -375,6 +428,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     localStorage.removeItem('mafia_session');
     localStorage.removeItem('mafia_player_token');
     localStorage.removeItem('mafia_playerId');
+    // تنظيف بيانات التصويت المحفوظة
+    localStorage.removeItem('mafia_gamePhase');
+    localStorage.removeItem('mafia_votingCandidates');
+    localStorage.removeItem('mafia_votingPlayersInfo');
+    localStorage.removeItem('mafia_myVote');
+    localStorage.removeItem('mafia_playerVotes');
     setPlayerToken(null);
     setPlayerId(null);
     setDisplayName('');
@@ -1486,7 +1545,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-3" />
                   <p className="text-[#C5A059] text-sm font-mono">جاري تحميل التصويت...</p>
                 </motion.div>
-              ) : gamePhase === 'DAY_VOTING' && assignedRole && votingCandidates.length > 0 ? (
+              ) : gamePhase === 'DAY_VOTING' && votingCandidates.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
