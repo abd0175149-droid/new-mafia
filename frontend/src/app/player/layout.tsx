@@ -6,7 +6,7 @@ import { PlayerProvider, usePlayer } from '@/context/PlayerContext';
 import BottomNav from '@/components/BottomNav';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
-const PUBLIC_PATHS = ['/player/login'];
+const PUBLIC_PATHS = ['/player/login', '/player/join'];
 
 // ── iOS Pull-to-Refresh Hook ──
 function usePullToRefresh() {
