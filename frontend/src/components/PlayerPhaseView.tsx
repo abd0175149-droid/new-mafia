@@ -54,14 +54,16 @@ export default function PlayerPhaseView({
     if (pollData.justificationData && !justificationData) {
       setJustificationData(pollData.justificationData);
     }
-    if (pollData.withdrawalState) {
+    // استعادة حالة السحب — فقط عند الـ reconnect الأول (إذا ما عندنا بيانات تبرير حية بعد)
+    if (pollData.withdrawalState && !justificationData) {
       setWithdrawalActive(true);
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
-      // تحقق هل أنا سبق سحبت صوتي
       const myId = parseInt(physicalId);
       if (pollData.withdrawalState.withdrawn?.includes(myId)) {
         setHasWithdrawn(true);
+      } else {
+        setHasWithdrawn(false);
       }
     }
     if (pollData.discussionState && !discussionState) {

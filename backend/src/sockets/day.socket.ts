@@ -314,6 +314,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       await setPhase(data.roomId, Phase.DAY_JUSTIFICATION);
       state.phase = Phase.DAY_JUSTIFICATION; // ← مهم! تحديث المتغير المحلي
+      state.withdrawalState = null; // ← مسح أي بيانات سحب قديمة من جولة سابقة
 
       // حساب من صوّت على المتهمين (لعرض خيار سحب الصوت في واجهة اللاعب)
       const accusedIds = accusedPlayers.map((a: any) => a.targetPhysicalId);

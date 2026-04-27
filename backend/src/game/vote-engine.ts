@@ -53,6 +53,10 @@ export async function initVoting(roomId: string): Promise<GameState> {
     playerVotes: {},
   };
 
+  // تصفير بيانات الجولة السابقة
+  state.withdrawalState = null;
+  state.justificationData = null;
+
   await setGameState(roomId, state);
   return state;
 }
