@@ -549,7 +549,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
 
-    const interval = setInterval(async () => {
+    const pollState = async () => {
       try {
         const res = await emit('room:get-my-state', {
           roomId,
@@ -602,10 +602,22 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             if (res.votingState.playerVotes?.[myPhysId] !== undefined && myVote === null) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
+          } else if (res.phase && res.phase !== 'DAY_VOTING') {
+            // خارج التصويت → مسح بيانات التصويت إذا موجودة
+            if (votingCandidates.length > 0) {
+              setVotingCandidates([]);
+              setMyVote(null);
+              setVotingComplete(false);
+              setPlayerVotes({});
+            }
           }
         }
       } catch { /* ignore polling errors */ }
-    }, 3000);
+    };
+
+    // تنفيذ فوري أول مرة + ثم كل 3 ثواني
+    pollState();
+    const interval = setInterval(pollState, 3000);
 
     return () => clearInterval(interval);
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead]);
