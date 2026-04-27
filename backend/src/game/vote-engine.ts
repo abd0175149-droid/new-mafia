@@ -139,6 +139,9 @@ export async function unNarrowVoting(roomId: string): Promise<GameState> {
   state.votingState.tieBreakerLevel = 0;
   state.votingState.playerVotes = {};
   state.votingState.leaderProxyVotes = {};
+  // مسح بيانات الجولة السابقة
+  state.withdrawalState = null;
+  state.justificationData = null;
 
   await setGameState(roomId, state);
   return state;
@@ -325,6 +328,9 @@ export async function handleTieBreaker(
       state.votingState.tieBreakerLevel = 1;
       state.votingState.playerVotes = {};
       state.votingState.leaderProxyVotes = {};
+      // مسح بيانات الجولة السابقة
+      state.withdrawalState = null;
+      state.justificationData = null;
       break;
 
     case TieBreakerAction.NARROW:
@@ -335,6 +341,9 @@ export async function handleTieBreaker(
         state.votingState.tieBreakerLevel = 2;
         state.votingState.playerVotes = {};
         state.votingState.leaderProxyVotes = {};
+        // مسح بيانات الجولة السابقة
+        state.withdrawalState = null;
+        state.justificationData = null;
       }
       break;
 
@@ -345,6 +354,9 @@ export async function handleTieBreaker(
       state.votingState.tieBreakerLevel = 0;
       state.votingState.playerVotes = {};
       state.votingState.leaderProxyVotes = {};
+      // مسح بيانات الجولة السابقة
+      state.withdrawalState = null;
+      state.justificationData = null;
       break;
 
     case TieBreakerAction.ELIMINATE_ALL:

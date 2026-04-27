@@ -1036,7 +1036,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // بيانات التبرير (لاستعادة الـ UI عند reconnect)
         justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
         // حالة سحب الأصوات
-        withdrawalState: state.withdrawalState || null,
+        withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? state.discussionState || null : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
