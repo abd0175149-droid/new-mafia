@@ -779,6 +779,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               const mappedPhase = res.phase === 'DAY_ELIMINATION' ? 'ELIMINATION_PENDING' : res.phase;
               setGamePhase(mappedPhase);
             }
+          }
 
           // استعادة بيانات التصويت بعد reconnect (مع حماية override)
           const overrideActive = phaseOverrideRef.current !== null;
@@ -816,7 +817,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             setVotingPlayersInfo(res.playersInfo);
           }
         }
-      } catch { /* ignore polling errors */ }
+      } catch (e) { /* ignore polling errors */ }
     };
 
     // تنفيذ فوري أول مرة + ثم كل 3 ثواني
