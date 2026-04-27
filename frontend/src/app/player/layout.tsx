@@ -6,7 +6,7 @@ import { PlayerProvider, usePlayer } from '@/context/PlayerContext';
 import BottomNav from '@/components/BottomNav';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
-const PUBLIC_PATHS = ['/player/login', '/player/join'];
+const PUBLIC_PATHS = ['/player/login'];
 
 // ── iOS Pull-to-Refresh Hook ──
 function usePullToRefresh() {
@@ -70,6 +70,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (isLoading) return;
+    // صفحة اللعبة تدير الجلسة بنفسها — لا نوجّهها أبداً
+    if (isGamePage) return;
 
     if (!player && !isPublic) {
       router.replace('/player/login');
@@ -78,10 +80,10 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
     if (player && isPublic) {
       router.replace('/player/home');
     }
-  }, [player, isLoading, isPublic, router]);
+  }, [player, isLoading, isPublic, isGamePage, router]);
 
-  // شاشة التحميل
-  if (isLoading) {
+  // شاشة التحميل (بس مش لصفحة اللعبة — هي تدير حالها)
+  if (isLoading && !isGamePage) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#050505]">
         <div className="flex flex-col items-center gap-4">
@@ -97,7 +99,16 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // صفحات اللعبة — مع بار لكن ممكن يختفي
+  // صفحة اللعبة — بدون بار (PlayerFlow يدير كل شيء)
+  if (isGamePage) {
+    return (
+      <div className="min-h-screen bg-[#050505]" style={{ overscrollBehavior: 'none' }}>
+        {children}
+      </div>
+    );
+  }
+
+  // صفحات عادية — مع بار
   return (
     <div className="min-h-screen bg-[#050505] pb-20" style={{ overscrollBehavior: 'none' }}>
       {/* مؤشر السحب للتحديث */}
