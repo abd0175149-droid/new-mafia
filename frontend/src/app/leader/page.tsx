@@ -53,6 +53,7 @@ interface GameState {
   justificationData?: any;
   pendingResolution?: any;
   discussionState?: any;
+  withdrawalState?: { count: number; needed: number; total: number; withdrawn?: number[] } | null;
   // Session
   sessionId?: number;
   activityId?: number;
@@ -679,6 +680,33 @@ export default function LeaderPage() {
         };
       });
     });
+
+    // ── تحديث سحب الأصوات (من اللاعبين) ──
+    const offWithdrawalUpdate = on('day:withdrawal-update', (data: any) => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          withdrawalState: {
+            ...(prev as any).withdrawalState,
+            count: data.count,
+            needed: data.needed,
+            total: data.total,
+          },
+        } as any;
+      });
+    });
+
+    const offWithdrawalResult = on('day:withdrawal-result', (data: any) => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          withdrawalState: null,
+        } as any;
+      });
+    });
+
     return () => {
       offConnect();
       offStateSync();
@@ -705,6 +733,8 @@ export default function LeaderPage() {
       offConfigUpdated();
       offPlayerUpdated();
       offAdminEliminated();
+      offWithdrawalUpdate();
+      offWithdrawalResult();
     };
   }, [on, emit, gameState?.roomId]);
 

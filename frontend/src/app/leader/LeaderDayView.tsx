@@ -357,24 +357,16 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }
   };
 
-  const [withdrawalStarted, setWithdrawalStarted] = useState(false);
-
   const handleExecuteElimination = async () => {
     setLoading(true);
     try {
-      const res = await emit('day:execute-elimination', { roomId: gameState.roomId });
-      if (res?.withdrawalStarted) {
-        // فترة سحب الأصوات بدأت — نبقى في الشاشة بانتظار اللاعبين
-        setWithdrawalStarted(true);
-      } else if (res?.revote) {
-        // إعادة تصويت — نعيد ضبط حالة التبرير
+      const res = await emit('day:execute-elimination', { roomId: gameState.roomId, skipWithdrawal: true });
+      if (res?.revote) {
+        // إعادة تصويت
         setJustCurrentIdx(0);
         setJustTimerStarted(false);
         setJustAllDone(false);
-        setWithdrawalStarted(false);
         localVoteTotalRef.current = 0;
-      } else {
-        setWithdrawalStarted(false);
       }
     } catch (err: any) {
       setError(err.message);
@@ -490,6 +482,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }
 
     // مرحلة القرار (بعد انتهاء كل التبريرات)
+    const ws = gameState.withdrawalState;
+    const votersTotal = gameState.justificationData?.votersForAccused?.length || 0;
+    const wsCount = ws?.count || 0;
+    const wsNeeded = ws?.needed || Math.ceil(votersTotal / 2) + 1;
+    const canRevote = wsCount >= wsNeeded;
+
     return (
       <div className="p-6">
         <div className="text-center mb-8 border-b border-[#2a2a2a] pb-4">
@@ -498,7 +496,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
         </div>
 
         {/* Show accused summary */}
-        <div className="space-y-3 mb-8">
+        <div className="space-y-3 mb-6">
           {accused.map((acc: any) => (
             <div key={acc.targetPhysicalId} className="noir-card p-4 border-[#2a2a2a] flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -517,11 +515,44 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           ))}
         </div>
 
+        {/* عداد سحب الأصوات — يظهر دائماً */}
+        <div className="noir-card p-4 border-blue-500/20 mb-6">
+          <div className="text-center">
+            <p className="text-blue-300 font-bold text-sm mb-2">🗳️ حالة سحب الأصوات</p>
+            <div className="flex items-center justify-center gap-4 mb-2">
+              <div className="text-center">
+                <p className="text-3xl font-black text-white font-mono">{wsCount}</p>
+                <p className="text-[#666] text-[10px] font-mono">WITHDREW</p>
+              </div>
+              <div className="text-[#555] text-2xl">/</div>
+              <div className="text-center">
+                <p className="text-3xl font-black text-[#C5A059] font-mono">{wsNeeded}</p>
+                <p className="text-[#666] text-[10px] font-mono">NEEDED</p>
+              </div>
+              <div className="text-[#555] text-2xl">من</div>
+              <div className="text-center">
+                <p className="text-3xl font-black text-[#808080] font-mono">{votersTotal}</p>
+                <p className="text-[#666] text-[10px] font-mono">TOTAL VOTERS</p>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div className="w-full h-2 bg-[#1a1a1a] rounded-full overflow-hidden mt-2">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${canRevote ? 'bg-green-500' : 'bg-blue-500/50'}`}
+                style={{ width: `${wsNeeded > 0 ? Math.min(100, (wsCount / wsNeeded) * 100) : 0}%` }}
+              />
+            </div>
+            <p className="text-[#555] text-[10px] font-mono mt-2">
+              {canRevote ? '✅ تم بلوغ النصاب — يمكن إعادة التصويت' : `⏳ يحتاج ${wsNeeded - wsCount} سحب إضافي لإعادة التصويت`}
+            </p>
+          </div>
+        </div>
+
         {/* Decision Buttons */}
         {isTie ? (
           <div className="space-y-3">
-            <button onClick={() => handleTieBreaker('REVOTE')} className="w-full noir-card p-4 text-white hover:border-[#C5A059] transition-colors text-center font-mono uppercase tracking-widest">
-              🔁 إعادة التصويت (Revote)
+            <button onClick={() => handleTieBreaker('REVOTE')} disabled={!canRevote} className={`w-full noir-card p-4 text-center font-mono uppercase tracking-widest transition-colors ${canRevote ? 'text-white hover:border-[#C5A059]' : 'text-[#555] cursor-not-allowed opacity-50'}`}>
+              🔁 إعادة التصويت {!canRevote && `(يحتاج ${wsNeeded - wsCount} سحب)`}
             </button>
             <button onClick={() => handleTieBreaker('NARROW')} className="w-full noir-card p-4 text-white hover:border-[#C5A059] transition-colors text-center font-mono uppercase tracking-widest">
               🎯 حصر التصويت بين المتعادلين (Narrow)
@@ -532,29 +563,27 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </div>
         ) : (
           <div className="space-y-4">
-            {withdrawalStarted && (
-              <div className="noir-card p-4 border-blue-500/30 text-center mb-2">
-                <p className="text-blue-300 font-bold mb-1">🗳️ فترة سحب الأصوات جارية</p>
-                <p className="text-[#808080] font-mono text-xs">اللاعبون المصوتون على المتهم يراجعون أصواتهم</p>
-                <p className="text-[#555] font-mono text-[10px] mt-2">VOTE WITHDRAWAL IN PROGRESS</p>
-              </div>
-            )}
             <button
               onClick={handleExecuteElimination}
               disabled={loading}
               className="w-full bg-[#8A0303]/20 border-2 border-[#8A0303] text-white p-5 font-mono uppercase tracking-widest hover:bg-[#8A0303]/40 transition-colors text-xl font-black"
             >
-              {withdrawalStarted ? '⚖️ إنهاء السحب وتنفيذ الإقصاء' : '💀 تنفيذ الإقصاء (Execute Elimination)'}
+              💀 تنفيذ الإقصاء (Execute Elimination)
             </button>
-            {!withdrawalStarted && (
-              <button
-                onClick={() => handleTieBreaker('REVOTE')}
-                disabled={loading}
-                className="w-full bg-[#C5A059]/10 border-2 border-[#C5A059]/50 text-[#C5A059] p-5 font-mono uppercase tracking-widest hover:bg-[#C5A059]/20 transition-colors text-lg"
-              >
-                🔁 سحب الأصوات وإعادة التصويت (Revote)
-              </button>
-            )}
+            <button
+              onClick={() => handleTieBreaker('REVOTE')}
+              disabled={loading || !canRevote}
+              className={`w-full border-2 p-5 font-mono uppercase tracking-widest transition-colors text-lg ${
+                canRevote
+                  ? 'bg-green-500/10 border-green-500/50 text-green-400 hover:bg-green-500/20'
+                  : 'bg-[#111] border-[#333] text-[#555] cursor-not-allowed'
+              }`}
+            >
+              {canRevote
+                ? '🔁 إعادة التصويت (النصاب مكتمل ✅)'
+                : `🔁 إعادة التصويت (يحتاج ${wsNeeded - wsCount} سحب إضافي)`
+              }
+            </button>
           </div>
         )}
       </div>
