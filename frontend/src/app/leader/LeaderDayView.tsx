@@ -502,7 +502,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const ws = gameState.withdrawalState;
     const votersTotal = gameState.justificationData?.votersForAccused?.length || 0;
     const wsCount = ws?.count || 0;
-    const wsNeeded = ws?.needed || Math.ceil(votersTotal / 2) + 1;
+    const wsNeeded = ws?.needed || Math.ceil(votersTotal / 2);
     const canRevote = wsCount >= wsNeeded;
 
     return (

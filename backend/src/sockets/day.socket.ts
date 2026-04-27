@@ -458,7 +458,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // إنشاء withdrawalState تلقائياً إن لم يكن موجوداً
       if (!state.withdrawalState) {
         const total = justData.votersForAccused.length;
-        const needed = Math.ceil(total / 2) + 1; // أكثر من النصف
+        const needed = Math.ceil(total / 2); // نصف أو أكثر
         state.withdrawalState = { count: 0, needed, withdrawn: [], accusedIds: justData.accused.map((a: any) => a.targetPhysicalId), total };
       }
 
@@ -506,7 +506,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           }
 
           if (votersForAccused > 0) {
-            const needed = Math.ceil(votersForAccused / 2) + 1; // أكثر من النصف
+            const needed = Math.ceil(votersForAccused / 2); // نصف أو أكثر
             state.withdrawalState = { count: 0, needed, withdrawn: [], accusedIds, total: votersForAccused };
             await setGameState(data.roomId, state);
 
