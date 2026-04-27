@@ -237,6 +237,11 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   };
 
   // ── 2. Live Voting ──
+  const [selectedVoter, setSelectedVoter] = useState<number | null>(null);
+  const [leaderProxyVotes, setLeaderProxyVotes] = useState<Record<number, number>>(
+    gameState.votingState?.leaderProxyVotes || {}
+  );
+
   const handleVote = async (candidateIndex: number, delta: 1 | -1) => {
     const candidate = candidates[candidateIndex];
     if (candidate.votes + delta < 0) return;
@@ -250,7 +255,19 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     localVoteTotalRef.current += delta;
 
     try {
-      await emit('day:cast-vote', { roomId: gameState.roomId, candidateIndex, delta });
+      const res = await emit('day:cast-vote', {
+        roomId: gameState.roomId,
+        candidateIndex,
+        delta,
+        voterPhysicalId: selectedVoter || undefined, // تصويت بالوكالة
+      });
+      if (res?.leaderProxyVotes) {
+        setLeaderProxyVotes(res.leaderProxyVotes);
+      }
+      // بعد تصويت بالوكالة ناجح → إلغاء الاختيار
+      if (selectedVoter && delta === 1) {
+        setSelectedVoter(null);
+      }
     } catch (err: any) {
       // إرجاع العداد عند الفشل
       localVoteTotalRef.current -= delta;
@@ -547,6 +564,57 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             </p>
           </div>
         </div>
+
+        {/* قسم الأصوات بالوكالة — سحب فردي */}
+        {(() => {
+          const proxyVotes = gameState.justificationData?.leaderProxyVotes || {};
+          const proxyEntries = Object.entries(proxyVotes);
+          if (proxyEntries.length === 0) return null;
+          const accusedIds = accused.map((a: any) => a.targetPhysicalId);
+          
+          return (
+            <div className="noir-card p-4 border-orange-500/20 mb-6">
+              <p className="text-orange-400 font-bold text-sm mb-3">🟠 الأصوات التي سجّلتها بالوكالة</p>
+              <div className="space-y-2">
+                {proxyEntries.map(([voterId, candIdx]: [string, any]) => {
+                  const voterPlayer = gameState.players.find((p: any) => p.physicalId === parseInt(voterId));
+                  const candidate = gameState.justificationData?.candidates?.[candIdx];
+                  const votedForAccused = candidate && accusedIds.includes(candidate.targetPhysicalId);
+                  const ws = gameState.withdrawalState;
+                  const alreadyWithdrawn = ws?.withdrawn?.includes(parseInt(voterId));
+
+                  return (
+                    <div key={voterId} className="flex items-center justify-between bg-[#0a0a0a] rounded-lg px-3 py-2 border border-[#222]">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-mono font-bold text-sm">#{voterId}</span>
+                        <span className="text-[#808080] text-xs">{voterPlayer?.name}</span>
+                        <span className="text-[#555] text-[10px]">→</span>
+                        <span className={`text-xs font-mono ${votedForAccused ? 'text-red-400' : 'text-[#666]'}`}>
+                          #{candidate?.targetPhysicalId} {votedForAccused && '(المتهم)'}
+                        </span>
+                      </div>
+                      {votedForAccused && !alreadyWithdrawn && (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await emit('player:withdraw-vote', { physicalId: parseInt(voterId) });
+                            } catch {}
+                          }}
+                          className="text-[10px] font-mono text-blue-300 bg-blue-500/10 border border-blue-500/30 px-2 py-1 rounded hover:bg-blue-500/20 transition-colors"
+                        >
+                          🗳️ سحب
+                        </button>
+                      )}
+                      {alreadyWithdrawn && (
+                        <span className="text-[10px] font-mono text-green-400">✓ تم السحب</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Decision Buttons */}
         {isTie ? (
@@ -1145,21 +1213,86 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </p>
         </div>
 
-        {/* ═══ Pending Voters ═══ */}
+        {/* ═══ Voter Selection Bar (Proxy Voting) ═══ */}
         {(() => {
           const playerVotesMap = gameState.votingState?.playerVotes || {};
           const pendingVoters = alivePlayers.filter((p: any) => playerVotesMap[p.physicalId] === undefined);
-          if (pendingVoters.length === 0) return null;
+          const proxyVotedPlayers = alivePlayers.filter((p: any) => leaderProxyVotes[p.physicalId] !== undefined);
+          const selfVotedPlayers = alivePlayers.filter((p: any) => 
+            playerVotesMap[p.physicalId] !== undefined && leaderProxyVotes[p.physicalId] === undefined
+          );
+
           return (
-            <div className="px-3 py-2 border-b border-[#1a1a1a] bg-[#0a0a0a]/60">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[9px] font-mono text-[#808080] tracking-widest uppercase shrink-0">⏳ لم يصوتوا:</span>
-                {pendingVoters.map((p: any) => (
-                  <span key={p.physicalId} className="text-[10px] font-mono text-[#C5A059] bg-[#C5A059]/10 border border-[#C5A059]/20 px-1.5 py-0.5 rounded">
-                    #{p.physicalId}
+            <div className="px-3 py-2 border-b border-[#1a1a1a] bg-[#0a0a0a]/60 space-y-2">
+              {/* رسالة الاختيار */}
+              {selectedVoter ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-[#C5A059]">
+                    🎯 تصويت بالوكالة عن #{selectedVoter} — اضغط على مرشح
                   </span>
-                ))}
-                <span className="text-[9px] font-mono text-[#555] ml-auto">{pendingVoters.length}/{alivePlayers.length}</span>
+                  <button onClick={() => setSelectedVoter(null)} className="text-[9px] text-red-400 font-mono px-2 py-0.5 border border-red-500/30 rounded hover:bg-red-500/10">
+                    إلغاء
+                  </button>
+                </div>
+              ) : (
+                <span className="text-[9px] font-mono text-[#808080] tracking-widest uppercase">
+                  اضغط رقم لاعب للتصويت عنه بالوكالة:
+                </span>
+              )}
+
+              {/* أرقام اللاعبين */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {alivePlayers.map((p: any) => {
+                  const hasVotedSelf = playerVotesMap[p.physicalId] !== undefined && leaderProxyVotes[p.physicalId] === undefined;
+                  const hasVotedProxy = leaderProxyVotes[p.physicalId] !== undefined;
+                  const isSelected = selectedVoter === p.physicalId;
+
+                  // اللاعب صوّت بنفسه
+                  if (hasVotedSelf) {
+                    return (
+                      <span key={p.physicalId} className="text-[10px] font-mono text-green-500 bg-green-500/10 border border-green-500/20 px-1.5 py-1 rounded opacity-60" title="صوّت بنفسه">
+                        ✅ #{p.physicalId}
+                      </span>
+                    );
+                  }
+                  // الليدر صوّت عنه
+                  if (hasVotedProxy) {
+                    const votedForCandidate = candidates[leaderProxyVotes[p.physicalId]];
+                    return (
+                      <button
+                        key={p.physicalId}
+                        onClick={() => {
+                          // إلغاء التصويت بالوكالة
+                          handleVote(leaderProxyVotes[p.physicalId], -1);
+                          const copy = { ...leaderProxyVotes };
+                          delete copy[p.physicalId];
+                          setLeaderProxyVotes(copy);
+                        }}
+                        className="text-[10px] font-mono text-orange-400 bg-orange-500/10 border border-orange-500/30 px-1.5 py-1 rounded hover:bg-orange-500/20 transition-colors"
+                        title={`صوّت بالوكالة → #${votedForCandidate?.targetPhysicalId}`}
+                      >
+                        🟠 #{p.physicalId} → #{votedForCandidate?.targetPhysicalId}
+                      </button>
+                    );
+                  }
+                  // لم يصوّت → قابل للاختيار
+                  return (
+                    <button
+                      key={p.physicalId}
+                      onClick={() => setSelectedVoter(isSelected ? null : p.physicalId)}
+                      className={`text-[10px] font-mono px-1.5 py-1 rounded transition-all ${
+                        isSelected
+                          ? 'text-[#C5A059] bg-[#C5A059]/20 border-2 border-[#C5A059] scale-110 font-bold'
+                          : 'text-[#C5A059] bg-[#C5A059]/5 border border-[#C5A059]/20 hover:bg-[#C5A059]/10'
+                      }`}
+                    >
+                      {isSelected ? '🎯' : '⬜'} #{p.physicalId}
+                    </button>
+                  );
+                })}
+                <span className="text-[9px] font-mono text-[#555] ml-auto">
+                  {pendingVoters.length} متبقي | {Object.keys(leaderProxyVotes).length} بالوكالة
+                </span>
               </div>
             </div>
           );

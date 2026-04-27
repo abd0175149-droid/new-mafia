@@ -192,6 +192,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
     roomId: string;
     candidateIndex: number;
     delta: 1 | -1;
+    voterPhysicalId?: number; // تصويت بالوكالة — الليدر يصوّت نيابة عن لاعب
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -199,6 +200,34 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const state = await castVote(data.roomId, data.candidateIndex, data.delta);
+
+      // تسجيل التصويت بالوكالة
+      if (data.voterPhysicalId !== undefined && data.delta === 1) {
+        // تحقق أن اللاعب حي ولم يصوّت
+        const player = state.players.find((p: any) => p.physicalId === data.voterPhysicalId && p.isAlive);
+        if (!player) {
+          // إلغاء الصوت الذي أضفناه للتو
+          await castVote(data.roomId, data.candidateIndex, -1);
+          return callback({ success: false, error: 'Player not found or not alive' });
+        }
+        if (state.votingState.playerVotes[data.voterPhysicalId] !== undefined) {
+          await castVote(data.roomId, data.candidateIndex, -1);
+          return callback({ success: false, error: 'Player already voted' });
+        }
+        // تسجيل في playerVotes
+        state.votingState.playerVotes[data.voterPhysicalId] = data.candidateIndex;
+        // تسجيل في leaderProxyVotes
+        if (!state.votingState.leaderProxyVotes) state.votingState.leaderProxyVotes = {};
+        state.votingState.leaderProxyVotes[data.voterPhysicalId] = data.candidateIndex;
+        await setGameState(data.roomId, state);
+      } else if (data.voterPhysicalId !== undefined && data.delta === -1) {
+        // إلغاء تصويت بالوكالة
+        delete state.votingState.playerVotes[data.voterPhysicalId];
+        if (state.votingState.leaderProxyVotes) {
+          delete state.votingState.leaderProxyVotes[data.voterPhysicalId];
+        }
+        await setGameState(data.roomId, state);
+      }
 
       // بث تحديث الأصوات لحظياً
       io.to(data.roomId).emit('day:vote-update', {
@@ -216,7 +245,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         });
       }
 
-      callback({ success: true });
+      callback({ success: true, leaderProxyVotes: state.votingState.leaderProxyVotes || {} });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -306,6 +335,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         maxJustifications: maxJust,
         candidates: state.votingState?.candidates || [],
         votersForAccused, // قائمة physicalIds للمصوتين على المتهمين
+        leaderProxyVotes: state.votingState?.leaderProxyVotes || {}, // أصوات الليدر بالوكالة
       };
 
       // حفظ بيانات التبرير في الـ state لاستعادتها عند إعادة الاتصال
