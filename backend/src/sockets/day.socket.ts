@@ -546,6 +546,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
             hiddenPlayers: newState.votingState.hiddenPlayersFromVoting,
             teamCounts: getTeamCounts(newState.players),
             playerVotes: {},
+            leaderProxyVotes: {},
           });
 
           return callback({ success: true, revote: true });
@@ -564,6 +565,20 @@ export function registerDayEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.DAY_TIEBREAKER);
         io.to(data.roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
       } else {
+        // حفظ نتيجة الإقصاء + تغيير المرحلة
+        const stateAfter = await getGameState(data.roomId);
+        if (stateAfter) {
+          stateAfter.pendingResolution = {
+            eliminated: result.eliminated,
+            revealedRoles: result.revealedRoles,
+            winResult: result.winResult,
+            type: result.type,
+          };
+          stateAfter.phase = Phase.DAY_ELIMINATION;
+          await setGameState(data.roomId, stateAfter);
+        }
+        await setPhase(data.roomId, Phase.DAY_ELIMINATION);
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_ELIMINATION });
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated: result.eliminated,
           revealedRoles: result.revealedRoles,
@@ -821,14 +836,64 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (nextSpeakerId !== null) {
         ds.currentSpeakerId = nextSpeakerId;
         ds.timeRemaining = ds.timeLimitSeconds;
-        ds.startTime = null;
-        ds.status = SpeakerStatus.WAITING;
+        // التايمر يبدأ تلقائياً عند الانتقال للتالي
+        const nextPlayer = state.players.find((p: any) => p.physicalId === nextSpeakerId);
+        const isSilenced = nextPlayer?.isSilenced === true;
+        if (isSilenced) {
+          // المسكت → نتخطاه تلقائياً بتعيين WAITING
+          ds.startTime = null;
+          ds.status = SpeakerStatus.WAITING;
+        } else {
+          ds.startTime = Date.now();
+          ds.status = SpeakerStatus.SPEAKING;
+        }
       } else {
         ds.currentSpeakerId = null;
         ds.isFinished = true;
         ds.startTime = null;
         ds.status = SpeakerStatus.WAITING;
       }
+
+      await updateRoom(data.roomId, { discussionState: ds });
+      io.to(data.roomId).emit('day:discussion-updated', { discussionState: ds });
+
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── ⏮️ المتحدث السابق ───────────────────────────
+  socket.on('day:prev-speaker', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+
+      // @ts-ignore
+      const { getRoom, updateRoom, SpeakerStatus } = await import('../game/state.js');
+      const state = await getRoom(data.roomId);
+      if (!state || !state.discussionState) return callback({ success: false, error: 'No active discussion' });
+
+      const ds = state.discussionState;
+
+      // لا يوجد متحدث سابق
+      if (ds.hasSpoken.length === 0) {
+        return callback({ success: false, error: 'لا يوجد متحدث سابق' });
+      }
+
+      // إرجاع المتحدث الحالي لبداية الطابور
+      if (ds.currentSpeakerId !== null) {
+        ds.speakingQueue.unshift(ds.currentSpeakerId);
+      } else if (ds.isFinished) {
+        // إذا انتهى النقاش → نرجع
+        ds.isFinished = false;
+      }
+
+      // استعادة المتحدث السابق
+      const prevSpeakerId = ds.hasSpoken.pop()!;
+      ds.currentSpeakerId = prevSpeakerId;
+      ds.timeRemaining = ds.timeLimitSeconds;
+      ds.startTime = null;
+      ds.status = SpeakerStatus.WAITING;
 
       await updateRoom(data.roomId, { discussionState: ds });
       io.to(data.roomId).emit('day:discussion-updated', { discussionState: ds });

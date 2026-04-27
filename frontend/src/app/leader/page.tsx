@@ -522,7 +522,7 @@ export default function LeaderPage() {
         if (!prev) return prev;
         return {
           ...prev,
-          phase: 'DAY_RESOLUTION_PENDING',
+          phase: 'DAY_ELIMINATION',
           pendingResolution: data,
         } as any;
       });

@@ -667,7 +667,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   // ==========================================
   // RENDER PENDING REVEAL
   // ==========================================
-  if (gameState.phase === 'DAY_RESOLUTION_PENDING') {
+  if (gameState.phase === 'DAY_ELIMINATION') {
     const pending = gameState.pendingResolution;
     const eliminatedIds: number[] = pending?.eliminated || [];
     const pendingRolesArr = pending?.revealedRoles || [];
@@ -998,7 +998,27 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             </div>
 
             {/* Controls */}
-            <div className="grid grid-cols-3 gap-3 w-full mt-8">
+            <div className="grid grid-cols-4 gap-3 w-full mt-8">
+              {/* ⏮ PREV */}
+              <button
+                onClick={async () => {
+                  try {
+                    await emit('day:prev-speaker', { roomId: gameState.roomId });
+                  } catch (e: any) {
+                    setError(e.message);
+                  }
+                }}
+                disabled={ds.hasSpoken.length === 0}
+                className={`p-4 font-mono uppercase tracking-widest transition-colors border text-sm ${
+                  ds.hasSpoken.length === 0
+                    ? 'bg-[#111] border-[#333] text-[#555] cursor-not-allowed'
+                    : 'bg-[#111] border-[#555] text-white hover:border-[#C5A059]'
+                }`}
+              >
+                ⏮ PREV
+              </button>
+
+              {/* ▶ START / ⏸ PAUSE */}
               {ds.status !== 'SPEAKING' ? (
                 <button
                   onClick={async () => await emit('day:timer-action', { roomId: gameState.roomId, action: ds.status === 'WAITING' ? 'START' : 'RESUME' })}
@@ -1015,6 +1035,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 </button>
               )}
 
+              {/* 🔄 RESET */}
               <button
                 onClick={async () => await emit('day:timer-action', { roomId: gameState.roomId, action: 'RESET' })}
                 className="bg-[#111] border border-[#555] text-white p-4 font-mono uppercase tracking-widest hover:border-[#C5A059] transition-colors text-sm"
@@ -1022,6 +1043,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 🔄 RESET
               </button>
 
+              {/* ⏭ NEXT */}
               <button
                 onClick={async () => {
                   try {

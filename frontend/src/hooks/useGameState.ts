@@ -125,7 +125,7 @@ export function useGameState() {
           if (!prev) return prev;
           return {
             ...prev,
-            phase: 'DAY_RESOLUTION_PENDING' as Phase,
+            phase: 'DAY_ELIMINATION' as Phase,
             pendingResolution: data,
           } as any;
         });

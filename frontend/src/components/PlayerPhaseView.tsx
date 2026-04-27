@@ -75,6 +75,10 @@ export default function PlayerPhaseView({
     if (pollData.allPlayers && allPlayers.length === 0) {
       setAllPlayers(pollData.allPlayers);
     }
+    // استعادة بيانات الإقصاء عند reconnect في DAY_ELIMINATION
+    if (pollData.pendingResolution && !eliminationData) {
+      setEliminationData(pollData.pendingResolution);
+    }
   }, [pollData]);
 
   // ── Event Listeners ──

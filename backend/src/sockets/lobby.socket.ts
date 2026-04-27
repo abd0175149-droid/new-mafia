@@ -1039,6 +1039,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         withdrawalState: state.withdrawalState || null,
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? state.discussionState || null : null,
+        // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
+        pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
         // نتيجة اللعبة
         winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
         // كشف أدوار الجميع عند انتهاء اللعبة

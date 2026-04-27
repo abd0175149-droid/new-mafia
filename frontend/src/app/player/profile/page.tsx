@@ -20,23 +20,42 @@ const RANK_CONFIG: Record<string,{name:string;icon:string;color:string;bg:string
   GODFATHER:{name:'الأب الروحي',icon:'👑',color:'#DC2626',bg:'from-red-600/20 to-red-700/10',glow:'shadow-red-500/20 shadow-lg'},
 };
 
-function resizeImage(file:File,maxSize=400):Promise<string>{
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onload=(e)=>{
-      const img=new Image();
-      img.onload=()=>{
-        const canvas=document.createElement('canvas');
-        let w=img.width,h=img.height;
-        if(w>maxSize||h>maxSize){if(w>h){h=Math.round(h*maxSize/w);w=maxSize}else{w=Math.round(w*maxSize/h);h=maxSize}}
-        canvas.width=w;canvas.height=h;
-        canvas.getContext('2d')?.drawImage(img,0,0,w,h);
-        resolve(canvas.toDataURL('image/jpeg',0.85));
+/**
+ * قص الصورة لمربع (center crop) + تغيير الحجم بجودة عالية
+ * - قص مربع من المنتصف (أكبر مربع ممكن)
+ * - تغيير الحجم لـ 512x512 (كافي لعرض واضح على الكارد)
+ * - JPEG بجودة 95%
+ */
+function cropAndResizeImage(file: File, targetSize = 512): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetSize;
+        canvas.height = targetSize;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas not supported'));
+
+        // Center crop: أكبر مربع ممكن من المنتصف
+        const minDim = Math.min(img.width, img.height);
+        const sx = (img.width - minDim) / 2;
+        const sy = (img.height - minDim) / 2;
+
+        // تفعيل الـ smoothing بأعلى جودة
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // قص من المصدر + رسم على الـ canvas المربع
+        ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, targetSize, targetSize);
+
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
       };
-      img.onerror=()=>reject(new Error('فشل'));
-      img.src=e.target?.result as string;
+      img.onerror = () => reject(new Error('فشل'));
+      img.src = e.target?.result as string;
     };
-    reader.onerror=()=>reject(new Error('فشل'));
+    reader.onerror = () => reject(new Error('فشل'));
     reader.readAsDataURL(file);
   });
 }
@@ -119,7 +138,7 @@ export default function PlayerProfilePage(){
     if(file.size>10*1024*1024){showToast('الصورة كبيرة جداً');return;}
     setSaving(true);
     try{
-      const resized=await resizeImage(file,400);
+      const resized=await cropAndResizeImage(file,512);
       const res=await fetch(`/api/player/${profile.player.id}/avatar`,{method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},body:JSON.stringify({image:resized})});
       const d=await res.json();
       if(d.success){setProfile((p:any)=>p?{...p,player:{...p.player,avatarUrl:d.avatarUrl+'?t='+Date.now()}}:p);showToast('✓ تم تحديث الصورة');}
