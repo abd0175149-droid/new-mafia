@@ -125,6 +125,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         totalVotesCast: state.votingState.totalVotesCast,
         tieBreakerLevel: state.votingState.tieBreakerLevel,
         playerVotes: state.votingState.playerVotes,
+        leaderProxyVotes: state.votingState.leaderProxyVotes || {},
       });
 
       // فحص اكتمال التصويت
@@ -235,6 +236,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         totalVotesCast: state.votingState.totalVotesCast,
         tieBreakerLevel: state.votingState.tieBreakerLevel,
         playerVotes: state.votingState.playerVotes,
+        leaderProxyVotes: state.votingState.leaderProxyVotes || {},
       });
 
       // إشعار باكتمال التصويت — الليدر يقرر الانتقال يدوياً بضغط Resolve
@@ -925,6 +927,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         io.to(data.roomId).emit('day:vote-update', {
           candidates: state.votingState.candidates,
           totalVotesCast: state.votingState.totalVotesCast,
+          playerVotes: state.votingState.playerVotes || {},
+          leaderProxyVotes: state.votingState.leaderProxyVotes || {},
         });
       }
 

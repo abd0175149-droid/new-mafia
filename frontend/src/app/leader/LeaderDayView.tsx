@@ -226,11 +226,17 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     gameState.votingState?.leaderProxyVotes || {}
   );
 
-  // مزامنة leaderProxyVotes المحلية مع gameState (مثلاً عند Revote)
+  // مزامنة leaderProxyVotes المحلية مع gameState
+  // الـ gameState هو المصدر الموثوق — يتحدث من day:vote-update
+  const serverProxyStr = JSON.stringify(gameState.votingState?.leaderProxyVotes || {});
   useEffect(() => {
-    setLeaderProxyVotes(gameState.votingState?.leaderProxyVotes || {});
+    setLeaderProxyVotes(JSON.parse(serverProxyStr));
+  }, [serverProxyStr]);
+
+  // تصفير عند تغيير المرحلة (revote)
+  useEffect(() => {
     setSelectedVoter(null);
-  }, [gameState.votingState?.tieBreakerLevel, gameState.phase]);
+  }, [gameState.phase]);
 
   const handleVote = async (candidateIndex: number, delta: 1 | -1, proxyVoterId?: number) => {
     // تحديد voterPhysicalId: من المعامل المباشر أو من selectedVoter

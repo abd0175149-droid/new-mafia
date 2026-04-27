@@ -486,6 +486,7 @@ export default function LeaderPage() {
             candidates: data.candidates,
             totalVotesCast: data.totalVotesCast,
             playerVotes: data.playerVotes || prev.votingState?.playerVotes || {},
+            leaderProxyVotes: data.leaderProxyVotes !== undefined ? data.leaderProxyVotes : (prev.votingState?.leaderProxyVotes || {}),
           } as VotingState,
         };
       });
