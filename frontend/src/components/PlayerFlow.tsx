@@ -1879,7 +1879,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               roomId,
                               voterId: parseInt(physicalId),
                               targetId: candidate.physicalId,
-                            }, () => setVoteSubmitting(false));
+                            });
+                            setTimeout(() => setVoteSubmitting(false), 1000);
                           }}
                           disabled={isPlayerDead || voteSubmitting}
                           className={`relative p-3 rounded-xl border-2 transition-all text-center ${
