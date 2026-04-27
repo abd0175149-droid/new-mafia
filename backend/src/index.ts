@@ -272,18 +272,10 @@ async function main() {
   // ── إضافة عمود welcome_bonus_applied (إن لم يكن موجوداً) ──
   try {
     const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
     const db = getDB();
     if (db) {
-      await (db as any).execute(
-        { sql: `ALTER TABLE players ADD COLUMN IF NOT EXISTS welcome_bonus_applied BOOLEAN DEFAULT false`, params: [] }
-      ).catch(() => {
-        // fallback for different drizzle execute API
-      });
-      // Try raw SQL directly via the pool
-      const pg = await import('pg');
-      const pool = new pg.default.Pool({ connectionString: env.DATABASE_URL, max: 1 });
-      await pool.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS welcome_bonus_applied BOOLEAN DEFAULT false`);
-      await pool.end();
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS welcome_bonus_applied BOOLEAN DEFAULT false`);
       console.log('✅ welcome_bonus_applied column ensured');
     }
   } catch (err: any) {

@@ -310,21 +310,24 @@ router.post('/migrate-welcome-bonus', async (_req: Request, res: Response) => {
 
     const { sql } = await import('drizzle-orm');
 
-    // تحديث كل اللاعبين الذين لم يحصلوا على المكافأة بعد
-    const result = await db.update(players)
-      .set({
-        xp: sql`COALESCE(${players.xp}, 0) + 200`,
-        welcomeBonusApplied: true,
-      })
-      .where(eq(players.welcomeBonusApplied, false))
-      .returning({ id: players.id, name: players.name });
+    // 1. إنشاء العمود إن لم يكن موجوداً
+    await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS welcome_bonus_applied BOOLEAN DEFAULT false`);
 
-    console.log(`🎁 Welcome bonus applied to ${result.length} players`);
+    // 2. تحديث كل اللاعبين الذين لم يحصلوا على المكافأة بعد
+    const result = await db.execute(sql`
+      UPDATE players
+      SET xp = COALESCE(xp, 0) + 200, welcome_bonus_applied = true
+      WHERE welcome_bonus_applied = false OR welcome_bonus_applied IS NULL
+      RETURNING id, name
+    `);
+
+    const rows = (result as any).rows || result || [];
+    console.log(`🎁 Welcome bonus applied to ${rows.length} players`);
 
     return res.json({
       success: true,
-      updatedCount: result.length,
-      players: result.map(p => `${p.name} (ID: ${p.id})`),
+      updatedCount: rows.length,
+      players: rows.map((p: any) => `${p.name} (ID: ${p.id})`),
     });
   } catch (err: any) {
     console.error('❌ Welcome bonus migration error:', err.message);
