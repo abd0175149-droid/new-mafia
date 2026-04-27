@@ -1281,10 +1281,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 type="text"
                 inputMode="numeric"
                 value={roomCode}
-                onChange={(e) => setRoomCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="------"
+                onChange={(e) => setRoomCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="----"
                 className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center font-mono text-4xl tracking-[0.4em] focus:border-[#C5A059] focus:ring-1 focus:ring-[#C5A059] focus:outline-none transition-colors mb-6 placeholder-[#222]"
-                maxLength={6}
+                maxLength={4}
                 autoFocus
               />
 
@@ -1292,7 +1292,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
               <button
                 onClick={() => handleFindRoom()}
-                disabled={roomCode.length !== 6 || !isConnected}
+                disabled={roomCode.length !== 4 || !isConnected}
                 className="btn-premium w-full !text-sm tracking-widest disabled:opacity-50 !rounded-lg"
               >
                 <span>{isConnected ? 'ESTABLISH LINK' : 'CONNECTING...'}</span>

@@ -267,6 +267,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         candidates: state.votingState.candidates,
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
         tieBreakerLevel: state.votingState.tieBreakerLevel,
+        playerVotes: {},
+        leaderProxyVotes: {},
       });
 
       callback({ success: true });
@@ -703,6 +705,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
           candidates: state.votingState.candidates,
           hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
           tieBreakerLevel: state.votingState.tieBreakerLevel,
+          playerVotes: {},
+          leaderProxyVotes: {},
         });
       }
 
