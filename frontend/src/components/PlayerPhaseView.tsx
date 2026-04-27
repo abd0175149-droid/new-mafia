@@ -88,8 +88,11 @@ export default function PlayerPhaseView({
     const c2 = on('day:justification-started', (data: any) => {
       if (data && data.accused) {
         setJustificationData(data);
+        // تصفير كامل لحالة السحب عند بدء تبرير جديد
         setWithdrawalActive(false);
         setHasWithdrawn(false);
+        setWithdrawalCount(0);
+        setWithdrawalNeeded(0);
       }
     });
 
@@ -162,6 +165,11 @@ export default function PlayerPhaseView({
     const c11 = on('day:withdrawal-update', (data: any) => {
       setWithdrawalCount(data?.count || 0);
       setWithdrawalNeeded(data?.needed || 0);
+      // تحقق هل أنا ضمن الذين سحبوا
+      const myId = parseInt(physicalId);
+      if (data?.withdrawn?.includes(myId)) {
+        setHasWithdrawn(true);
+      }
     });
 
     const c12 = on('day:withdrawal-result', (data: any) => {
@@ -176,6 +184,19 @@ export default function PlayerPhaseView({
         setEliminationData(null);
         setTiedCandidates([]);
         setWithdrawalActive(false);
+        setHasWithdrawn(false);
+        setWithdrawalCount(0);
+        setWithdrawalNeeded(0);
+      }
+      if (p === 'DAY_VOTING') {
+        // تصفير كل شيء عند إعادة التصويت
+        setJustificationData(null);
+        setEliminationData(null);
+        setTiedCandidates([]);
+        setWithdrawalActive(false);
+        setHasWithdrawn(false);
+        setWithdrawalCount(0);
+        setWithdrawalNeeded(0);
       }
       if (p === 'NIGHT') {
         setDiscussionState(null);
@@ -314,6 +335,10 @@ export default function PlayerPhaseView({
     const topVotes = justificationData?.topVotes || 0;
     // هل أنا صوّتت على أحد المتهمين؟ (نستخدم votersForAccused من الباك مباشرة)
     const iVotedForAccused = justificationData?.votersForAccused?.includes(myId) || false;
+    // حساب العداد الفعلي — من الباك إن وُجد، وإلا من votersForAccused
+    const totalVoters = justificationData?.votersForAccused?.length || 0;
+    const effectiveNeeded = withdrawalNeeded || Math.ceil(totalVoters / 2);
+    const effectiveCount = withdrawalCount;
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-4">
@@ -357,9 +382,7 @@ export default function PlayerPhaseView({
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
             <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
             <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت</p>
-            {withdrawalCount > 0 && (
-              <p className="text-[#666] text-xs mb-3 font-mono">{withdrawalCount}/{withdrawalNeeded} سحبوا أصواتهم</p>
-            )}
+            <p className="text-[#666] text-xs mb-3 font-mono">{effectiveCount}/{effectiveNeeded} سحبوا أصواتهم</p>
             {!hasWithdrawn ? (
               <button onClick={handleWithdraw} className="bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold py-3 px-8 rounded-xl hover:bg-blue-500/30 transition-all text-base">
                 🗳️ سحب صوتي
