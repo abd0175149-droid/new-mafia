@@ -1816,7 +1816,94 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 </button>
               </div>
 
-              {isPlayerDead ? (
+              {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
+              <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
+                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
+              </div>
+
+              {/* ── التصويت أولاً (إن كان فعّال) ── */}
+              {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-10">
+                  <div className="text-3xl mb-3">🗳️</div>
+                  <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-[#C5A059] text-sm font-mono">جاري تحميل التصويت...</p>
+                </motion.div>
+              ) : gamePhase === 'DAY_VOTING' && votingCandidates.length > 0 ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5 }}
+                >
+                  {/* عنوان التصويت */}
+                  <div className="text-center mb-5">
+                    <div className="text-3xl mb-2">🗳️</div>
+                    <h2 className="text-xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                      مرحلة التصويت
+                    </h2>
+                    <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.15em] mt-1">
+                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم التصويت — اضغط لاعب آخر للتغيير' : 'صوّت ضد اللاعب المشتبه'}
+                    </p>
+                  </div>
+
+                  {/* شريط التقدم */}
+                  <div className="mb-5">
+                    <div className="flex justify-between text-[9px] font-mono text-[#666] mb-1">
+                      <span>VOTES: {totalVotesCast}</span>
+                      <span>{votingComplete ? '✅ COMPLETE' : '⏳ IN PROGRESS'}</span>
+                    </div>
+                    <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                      <motion.div
+                        className="h-full rounded-full"
+                        style={{ background: 'linear-gradient(90deg, #C5A059, #D4AF37)' }}
+                        initial={{ width: '0%' }}
+                        animate={{ width: `${votingPlayersInfo.length > 0 ? (totalVotesCast / votingPlayersInfo.length) * 100 : 0}%` }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* بطاقات التصويت */}
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    {votingCandidates.map((candidate: any) => {
+                      const candidateVotes = playerVotes[candidate.physicalId] || 0;
+                      const isMyVote = myVote === candidate.physicalId;
+                      return (
+                        <motion.button
+                          key={candidate.physicalId}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => {
+                            if (isPlayerDead || voteSubmitting) return;
+                            if (isMyVote) return;
+                            setVoteSubmitting(true);
+                            emit('day:cast-vote', {
+                              roomId,
+                              voterId: parseInt(physicalId),
+                              targetId: candidate.physicalId,
+                            }, () => setVoteSubmitting(false));
+                          }}
+                          disabled={isPlayerDead || voteSubmitting}
+                          className={`relative p-3 rounded-xl border-2 transition-all text-center ${
+                            isMyVote
+                              ? 'border-[#C5A059] bg-[#C5A059]/10 shadow-[0_0_20px_rgba(197,160,89,0.3)]'
+                              : 'border-[#222] bg-[#111] hover:border-[#444]'
+                          } ${isPlayerDead ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {isMyVote && (
+                            <div className="absolute -top-2 -right-2 w-5 h-5 bg-[#C5A059] rounded-full flex items-center justify-center text-[10px]">
+                              ✓
+                            </div>
+                          )}
+                          <div className="text-2xl font-black text-[#C5A059] mb-1">#{candidate.physicalId}</div>
+                          <div className="text-[10px] text-[#888] font-mono truncate">{candidate.name}</div>
+                          {votingComplete && (
+                            <div className="mt-1 text-[10px] font-mono text-[#C5A059]">{candidateVotes} votes</div>
+                          )}
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              ) : isPlayerDead ? (
                 /* ── حالة الميت: كارد مفتوح + grayscale ── */
                 <>
                   <h2 className="text-2xl font-black mb-2 text-[#555]" style={{ fontFamily: 'Amiri, serif' }}>
