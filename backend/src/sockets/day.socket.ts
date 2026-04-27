@@ -77,11 +77,6 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'اللاعب غير موجود أو ميت' });
       }
 
-      // التحقق من عدم التصويت المسبق
-      if (state.votingState.playerVotes[data.physicalId] !== undefined) {
-        return callback({ success: false, error: 'لقد صوّتت بالفعل' });
-      }
-
       // التحقق من صلاحية المرشح
       const candidate = state.votingState.candidates[data.candidateIndex];
       if (!candidate) {
@@ -93,7 +88,23 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'لا يمكنك التصويت لنفسك' });
       }
 
-      // تسجيل الصوت
+      // ── سحب الصوت القديم إذا كان موجوداً (تغيير الصوت) ──
+      const previousVote = state.votingState.playerVotes[data.physicalId];
+      if (previousVote !== undefined) {
+        // نفس المرشح → لا تغيير
+        if (previousVote === data.candidateIndex) {
+          return callback({ success: true, message: 'نفس الصوت — لا تغيير' });
+        }
+        // سحب الصوت القديم
+        const oldCandidate = state.votingState.candidates[previousVote];
+        if (oldCandidate && oldCandidate.votes > 0) {
+          oldCandidate.votes -= 1;
+          state.votingState.totalVotesCast -= 1;
+        }
+        console.log(`🔄 Player #${data.physicalId} changing vote: candidate[${previousVote}] → candidate[${data.candidateIndex}]`);
+      }
+
+      // تسجيل الصوت الجديد
       candidate.votes += 1;
       state.votingState.totalVotesCast += 1;
       state.votingState.playerVotes[data.physicalId] = data.candidateIndex;

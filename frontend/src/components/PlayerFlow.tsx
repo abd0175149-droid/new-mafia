@@ -206,6 +206,23 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             setCardFlipped(true); // ميت = كارد مفتوح
           }
 
+          // ── استعادة حالة التصويت فورياً عند rejoin ──
+          if (res.phase) setGamePhase(res.phase);
+          if (res.votingState && res.phase === 'DAY_VOTING') {
+            setVotingCandidates(res.votingState.candidates || []);
+            setTotalVotesCast(res.votingState.totalVotesCast || 0);
+            setPlayerVotes(res.votingState.playerVotes || {});
+            if (res.votingState.playersInfo) setVotingPlayersInfo(res.votingState.playersInfo);
+            setVotingComplete(false);
+            // استعادة صوت اللاعب
+            const myPhysId = res.player.physicalId;
+            if (res.votingState.playerVotes?.[myPhysId] !== undefined) {
+              setMyVote(res.votingState.playerVotes[myPhysId]);
+            } else {
+              setMyVote(null);
+            }
+          }
+
           setStep('rejoined');
           console.log(`♻️ Rejoin success: #${res.player.physicalId} - ${res.player.name}`);
         } else {
@@ -469,7 +486,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupVoteUpdate = on('day:vote-update', (data: any) => {
       setVotingCandidates(data.candidates || []);
       setTotalVotesCast(data.totalVotesCast || 0);
-      if (data.playerVotes) setPlayerVotes(data.playerVotes);
+      if (data.playerVotes) {
+        setPlayerVotes(data.playerVotes);
+        // مزامنة صوتي من السيرفر (مهم لتغيير الصوت)
+        const myPhysId = parseInt(physicalId);
+        if (data.playerVotes[myPhysId] !== undefined) {
+          setMyVote(data.playerVotes[myPhysId]);
+        }
+      }
     });
 
     // اكتمال التصويت
@@ -480,8 +504,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     // تغيير المرحلة
     const cleanupPhaseChanged = on('game:phase-changed', (data: any) => {
       setGamePhase(data.phase);
-      if (data.phase !== 'DAY_VOTING') {
-        // مسح بيانات التصويت عند الخروج من مرحلة التصويت
+      // مسح بيانات التصويت فقط عند الخروج من مرحلة التصويت
+      // (لا نمسح عند الدخول — البيانات تأتي من day:voting-started)
+      if (data.phase !== 'DAY_VOTING' && data.phase !== 'DAY_JUSTIFICATION') {
         setVotingCandidates([]);
         setMyVote(null);
         setVotingComplete(false);
@@ -1403,7 +1428,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       مرحلة التصويت
                     </h2>
                     <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.15em] mt-1">
-                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم تسجيل صوتك' : 'صوّت ضد اللاعب المشتبه'}
+                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم التصويت — اضغط لاعب آخر للتغيير' : 'صوّت ضد اللاعب المشتبه'}
                     </p>
                   </div>
 
@@ -1446,9 +1471,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       return (
                         <motion.button
                           key={candidate.id || `c-${index}`}
-                          whileTap={!isSelf && !isPlayerDead && myVote === null ? { scale: 0.92 } : {}}
+                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.92 } : {}}
                           onClick={() => {
-                            if (isSelf || isPlayerDead || myVote !== null || voteSubmitting) return;
+                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -1461,15 +1486,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               }
                             }).catch(() => {}).finally(() => setVoteSubmitting(false));
                           }}
-                          disabled={isSelf || isPlayerDead || myVote !== null}
+                          disabled={isSelf || isPlayerDead}
                           className={`relative flex flex-col items-center p-2.5 rounded-xl border transition-all ${
                             isMyChoice
                               ? 'border-[#C5A059] bg-[#C5A059]/10 shadow-[0_0_12px_rgba(197,160,89,0.15)]'
                               : isSelf
                                 ? 'border-[#1a1a1a] bg-[#0a0a0a]/50 opacity-40'
-                                : myVote !== null
-                                  ? 'border-[#1a1a1a] bg-[#0d0d0d]'
-                                  : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
+                                : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
                           {/* صورة أو رقم */}

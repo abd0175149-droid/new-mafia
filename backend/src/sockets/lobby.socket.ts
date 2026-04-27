@@ -349,6 +349,19 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
       }
 
+      // بيانات التصويت للاستعادة الفورية عند rejoin
+      const votingData = state.phase === Phase.DAY_VOTING && state.votingState?.candidates?.length > 0 ? {
+        candidates: state.votingState.candidates,
+        totalVotesCast: state.votingState.totalVotesCast,
+        playerVotes: state.votingState.playerVotes || {},
+        hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
+        playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          avatarUrl: p.avatarUrl || null,
+        })),
+      } : null;
+
       callback({
         success: true,
         player: {
@@ -363,6 +376,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         phase: state.phase,
         gameName: state.config?.gameName || '',
         roomCode: state.roomCode || '',
+        votingState: votingData,
       });
 
       console.log(`♻️  Player rejoin: #${player.physicalId} - ${player.name} (alive: ${player.isAlive})`);
