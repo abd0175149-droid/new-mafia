@@ -50,7 +50,7 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    // إنشاء الحساب
+    // إنشاء الحساب مع مكافأة ترحيبية 200 XP
     const passwordHash = await hashPlayerPassword(password);
     const result = await db.insert(players).values({
       phone,
@@ -59,6 +59,8 @@ router.post('/register', async (req: Request, res: Response) => {
       name,
       gender: gender || 'MALE',
       dob: dob || null,
+      xp: 200,
+      welcomeBonusApplied: true,
       lastActiveAt: new Date(),
     }).returning();
 
@@ -74,11 +76,12 @@ router.post('/register', async (req: Request, res: Response) => {
       name: player.name,
     });
 
-    console.log(`🔐 New player registered: ${player.name} (${player.phone}) → ID: ${player.id}`);
+    console.log(`🔐 New player registered: ${player.name} (${player.phone}) → ID: ${player.id} [+200 XP welcome bonus]`);
 
     return res.json({
       success: true,
       token,
+      welcomeBonus: 200,
       player: {
         id: player.id,
         playerId: player.id,
@@ -296,6 +299,36 @@ router.post('/change-password', authenticatePlayer, async (req: Request, res: Re
   } catch (err: any) {
     console.error('❌ Change password error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في تغيير كلمة المرور' });
+  }
+});
+
+// ── POST /api/player-auth/migrate-welcome-bonus — منح 200 XP لكل اللاعبين القدامى (مرة واحدة) ──
+router.post('/migrate-welcome-bonus', async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const { sql } = await import('drizzle-orm');
+
+    // تحديث كل اللاعبين الذين لم يحصلوا على المكافأة بعد
+    const result = await db.update(players)
+      .set({
+        xp: sql`COALESCE(${players.xp}, 0) + 200`,
+        welcomeBonusApplied: true,
+      })
+      .where(eq(players.welcomeBonusApplied, false))
+      .returning({ id: players.id, name: players.name });
+
+    console.log(`🎁 Welcome bonus applied to ${result.length} players`);
+
+    return res.json({
+      success: true,
+      updatedCount: result.length,
+      players: result.map(p => `${p.name} (ID: ${p.id})`),
+    });
+  } catch (err: any) {
+    console.error('❌ Welcome bonus migration error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -160,8 +160,16 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
         total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
       }).from(bookings).where(eq(bookings.activityId, act.id));
 
+      // فلترة العروض: فقط العروض المفعّلة لهذا النشاط
+      const allOffers: any[] = Array.isArray(act.locationOffers) ? act.locationOffers : [];
+      const enabledIds: number[] = Array.isArray(act.enabledOfferIds) ? act.enabledOfferIds : [];
+      const activeOffers = enabledIds.length > 0
+        ? allOffers.filter((_: any, idx: number) => enabledIds.includes(idx))
+        : allOffers; // إذا لم يُحدد enabledOfferIds → عرض الكل
+
       return {
         ...act,
+        locationOffers: activeOffers,
         bookedCount: countResult?.total || 0,
         maxPlayers: act.maxCapacity || 20,
       };
@@ -174,7 +182,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
   }
 });
 
-// ── 👥 GET /activities/:actId/following-bookers — المتابَعون الحاجزون لنشاط ──
+// ── 👥 GET /activities/:actId/bookers — جميع الحاجزين لنشاط مع تمييز المتابَعين ──
 router.get('/activities/:actId/following-bookers', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -187,46 +195,48 @@ router.get('/activities/:actId/following-bookers', async (req: Request, res: Res
   }
 
   try {
-    // 1. قائمة المتابَعين
+    // 1. جلب قائمة المتابَعين
     const followRows = await db.select({ followingId: playerFollows.followingId })
       .from(playerFollows)
       .where(eq(playerFollows.followerId, playerId));
+    const followingSet = new Set(followRows.map(f => f.followingId));
 
-    const followingIds = followRows.map(f => f.followingId);
-    if (followingIds.length === 0) {
-      return res.json({ success: true, count: 0, bookers: [] });
-    }
-
-    // 2. من بين المتابَعين، من حجز هذا النشاط؟
-    const bookerRows = await db.select({
+    // 2. جلب كل الحاجزين لهذا النشاط (عدا نفسي)
+    const allBookerRows = await db.select({
       bookingId: bookings.id,
       playerId: bookings.playerId,
       name: bookings.name,
     })
       .from(bookings)
-      .where(and(
-        eq(bookings.activityId, activityId),
-        inArray(bookings.playerId, followingIds)
-      ));
+      .where(eq(bookings.activityId, activityId));
+
+    const bookerPlayerIds = allBookerRows
+      .map(b => b.playerId)
+      .filter(pid => pid && pid !== playerId) as number[];
+
+    if (bookerPlayerIds.length === 0) {
+      return res.json({ success: true, count: 0, bookers: [] });
+    }
 
     // 3. إضافة بيانات اللاعبين
-    const bookerPlayerIds = bookerRows.map(b => b.playerId).filter(Boolean) as number[];
-    let enrichedBookers: any[] = [];
+    const playerDetails = await db.select({
+      id: players.id,
+      name: players.name,
+      avatarUrl: players.avatarUrl,
+      level: players.level,
+    })
+      .from(players)
+      .where(inArray(players.id, bookerPlayerIds));
 
-    if (bookerPlayerIds.length > 0) {
-      enrichedBookers = await db.select({
-        id: players.id,
-        name: players.name,
-        avatarUrl: players.avatarUrl,
-        level: players.level,
-      })
-        .from(players)
-        .where(inArray(players.id, bookerPlayerIds));
-    }
+    // 4. إضافة علامة المتابعة — المتابَعون أولاً
+    const enrichedBookers = playerDetails.map(p => ({
+      ...p,
+      isFollowing: followingSet.has(p.id),
+    })).sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
 
     res.json({ success: true, count: enrichedBookers.length, bookers: enrichedBookers });
   } catch (err: any) {
-    console.error('❌ following-bookers error:', err.message);
+    console.error('❌ bookers error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

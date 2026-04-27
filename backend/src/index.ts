@@ -269,6 +269,27 @@ async function main() {
     console.error('⚠️ Player migration skipped:', err.message);
   }
 
+  // ── إضافة عمود welcome_bonus_applied (إن لم يكن موجوداً) ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const db = getDB();
+    if (db) {
+      await (db as any).execute(
+        { sql: `ALTER TABLE players ADD COLUMN IF NOT EXISTS welcome_bonus_applied BOOLEAN DEFAULT false`, params: [] }
+      ).catch(() => {
+        // fallback for different drizzle execute API
+      });
+      // Try raw SQL directly via the pool
+      const pg = await import('pg');
+      const pool = new pg.default.Pool({ connectionString: env.DATABASE_URL, max: 1 });
+      await pool.query(`ALTER TABLE players ADD COLUMN IF NOT EXISTS welcome_bonus_applied BOOLEAN DEFAULT false`);
+      await pool.end();
+      console.log('✅ welcome_bonus_applied column ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ welcome_bonus_applied migration:', err.message);
+  }
+
   // ── بذر لعبة تجريبية (تطوير فقط) ──
   if (env.NODE_ENV === 'development') {
     await seedDummyGame();

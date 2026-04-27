@@ -275,14 +275,14 @@ export default function GamesPage() {
                     )}
                   </div>
 
-                  {/* شارة أصدقاء حاجزين */}
+                  {/* شارة الحاجزين */}
                   {actFollowers.length > 0 && (
                     <div className="mt-2">
                       <button
                         onClick={() => setShowBookersFor(showBookersFor === act.id ? null : act.id)}
                         className="text-[11px] text-amber-400/80 hover:text-amber-400 transition-colors"
                       >
-                        👥 {actFollowers.length} من أصدقائك حجزوا
+                        👥 {actFollowers.length} لاعب حجزوا
                       </button>
 
                       <AnimatePresence>
@@ -303,6 +303,11 @@ export default function GamesPage() {
                                   </div>
                                   <span>{b.name}</span>
                                   <span className="text-gray-600">Lv.{b.level}</span>
+                                  {b.isFollowing ? (
+                                    <span className="text-amber-400 text-[9px]" title="تتابعه">⭐</span>
+                                  ) : (
+                                    <span className="text-gray-600 text-[9px]" title="لاعب">👤</span>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -413,6 +418,29 @@ export default function GamesPage() {
                   </div>
                 )}
               </div>
+
+              {/* عروض المكان */}
+              {(() => {
+                const offers: any[] = Array.isArray(selectedActivity.locationOffers) ? selectedActivity.locationOffers : [];
+                if (offers.length === 0) return null;
+                return (
+                  <div className="mb-4">
+                    <p className="text-gray-400 text-xs mb-2">🎁 العروض المتاحة:</p>
+                    <div className="space-y-1.5">
+                      {offers.map((offer: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 rounded-xl text-xs bg-white/5 border border-white/5 text-gray-300"
+                        >
+                          <span className="text-amber-400">{offer.name || offer.title || `عرض ${idx + 1}`}</span>
+                          {offer.price && <span className="text-gray-500 mr-2"> • {offer.price} ₪</span>}
+                          {offer.description && <p className="text-gray-500 text-[10px] mt-0.5">{offer.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="flex gap-2">
                 {!isBooked(selectedActivity.id) && (

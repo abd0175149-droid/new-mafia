@@ -19,6 +19,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [tempToken, setTempToken] = useState('');
   const [tempPlayer, setTempPlayer] = useState<any>(null);
+  const [welcomeBonus, setWelcomeBonus] = useState<{ show: boolean; amount: number; playerData: any; token: string }>({ show: false, amount: 0, playerData: null, token: '' });
 
   const handleLogin = async () => {
     if (!phone || !password) return setError('أدخل رقم الهاتف وكلمة المرور');
@@ -78,12 +79,22 @@ export default function LoginPage() {
         return;
       }
 
-      setPlayer({
-        playerId: data.player.id,
-        name: data.player.name,
-        phone: data.player.phone,
-        token: data.token,
-      });
+      // عرض تنبيه المكافأة الترحيبية قبل الدخول
+      if (data.welcomeBonus) {
+        setWelcomeBonus({
+          show: true,
+          amount: data.welcomeBonus,
+          playerData: data.player,
+          token: data.token,
+        });
+      } else {
+        setPlayer({
+          playerId: data.player.id,
+          name: data.player.name,
+          phone: data.player.phone,
+          token: data.token,
+        });
+      }
     } catch {
       setError('خطأ في الاتصال بالخادم');
     }
@@ -309,6 +320,68 @@ export default function LoginPage() {
             >
               {loading ? 'جاري التحديث...' : 'تحديث وإدخال'}
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── تنبيه المكافأة الترحيبية ── */}
+      <AnimatePresence>
+        {welcomeBonus.show && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/85 z-[200] flex items-center justify-center px-4"
+          >
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.7, opacity: 0 }}
+              transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+              className="w-full max-w-sm rounded-2xl p-8 text-center relative overflow-hidden"
+              style={{ background: '#111', border: '1px solid rgba(251,191,36,0.3)' }}
+            >
+              <div className="absolute inset-0 pointer-events-none">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, #fbbf24, transparent)' }} />
+              </div>
+              <div className="relative z-10">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1, rotate: [0, 10, -10, 0] }}
+                  transition={{ delay: 0.2, type: 'spring' }}
+                  className="text-6xl mb-4"
+                >
+                  🎁
+                </motion.div>
+                <h3 className="text-xl font-bold text-white mb-2">مكافأة ترحيبية!</h3>
+                <p className="text-gray-400 text-sm mb-1">مرحباً بك في نادي المافيا</p>
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="text-3xl font-bold mb-4"
+                  style={{ color: '#fbbf24' }}
+                >
+                  +{welcomeBonus.amount} XP ✨
+                </motion.p>
+                <p className="text-gray-500 text-xs mb-6">حصلت على نقاط ترحيبية — استمتع باللعب!</p>
+                <button
+                  onClick={() => {
+                    setWelcomeBonus({ show: false, amount: 0, playerData: null, token: '' });
+                    setPlayer({
+                      playerId: welcomeBonus.playerData.id,
+                      name: welcomeBonus.playerData.name,
+                      phone: welcomeBonus.playerData.phone,
+                      token: welcomeBonus.token,
+                    });
+                  }}
+                  className="w-full py-3 rounded-xl font-semibold text-black text-sm"
+                  style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}
+                >
+                  يلا نبدأ! 🎮
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

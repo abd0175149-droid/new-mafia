@@ -9,6 +9,7 @@ import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
 
 const WHATSAPP_NUMBER = '962793390966';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
+const SNAPCHAT_URL = 'https://www.snapchat.com/add/mafia_club26';
 
 const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
   easy: { label: 'سهل', color: '#22c55e', icon: '🟢' },
@@ -230,24 +231,47 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── متابعة Instagram ── */}
-      <motion.a
-        href={INSTAGRAM_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="block rounded-2xl p-4 text-center"
-        style={{
-          background: 'linear-gradient(135deg, rgba(225,48,108,0.1), rgba(131,58,180,0.1), rgba(253,29,29,0.05))',
-          border: '1px solid rgba(225,48,108,0.2)',
-        }}
-      >
-        <p className="text-sm font-medium" style={{ color: '#e1306c' }}>
-          📸 تابعنا على Instagram
-        </p>
-        <p className="text-gray-500 text-[10px] mt-1">@mafia_club_jo</p>
-      </motion.a>
+      {/* ── تابعنا على وسائل التواصل ── */}
+      <div className="space-y-2">
+        <h2 className="text-white text-sm font-semibold">📱 تابعنا</h2>
+        <div className="grid grid-cols-2 gap-2">
+          <motion.a
+            href={INSTAGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="block rounded-2xl p-4 text-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(225,48,108,0.1), rgba(131,58,180,0.1), rgba(253,29,29,0.05))',
+              border: '1px solid rgba(225,48,108,0.2)',
+            }}
+          >
+            <p className="text-sm font-medium" style={{ color: '#e1306c' }}>
+              📸 Instagram
+            </p>
+            <p className="text-gray-500 text-[10px] mt-1">@mafia_club_jo</p>
+          </motion.a>
+
+          <motion.a
+            href={SNAPCHAT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="block rounded-2xl p-4 text-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(255,252,0,0.08), rgba(255,221,0,0.05))',
+              border: '1px solid rgba(255,252,0,0.2)',
+            }}
+          >
+            <p className="text-sm font-medium" style={{ color: '#FFFC00' }}>
+              👻 Snapchat
+            </p>
+            <p className="text-gray-500 text-[10px] mt-1">@mafia_club26</p>
+          </motion.a>
+        </div>
+      </div>
 
       {/* ── زر WhatsApp عائم ── */}
       <a
@@ -319,6 +343,29 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+
+              {/* عروض المكان */}
+              {(() => {
+                const offers: any[] = Array.isArray(selectedActivity.locationOffers) ? selectedActivity.locationOffers : [];
+                if (offers.length === 0) return null;
+                return (
+                  <div className="mb-4">
+                    <p className="text-gray-400 text-xs mb-2">🎁 العروض المتاحة:</p>
+                    <div className="space-y-1.5">
+                      {offers.map((offer: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 rounded-xl text-xs bg-white/5 border border-white/5 text-gray-300"
+                        >
+                          <span className="text-amber-400">{offer.name || offer.title || `عرض ${idx + 1}`}</span>
+                          {offer.price && <span className="text-gray-500 mr-2"> • {offer.price} ₪</span>}
+                          {offer.description && <p className="text-gray-500 text-[10px] mt-0.5">{offer.description}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="flex gap-2">
                 <button
