@@ -460,12 +460,26 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string}[] }) => {
       setAssignedRole(data.role);
       setCardFlipped(false);
-      setRoleAlert(true); // ← تنبيه جلونج
+      setRoleAlert(true);
+      setIsPlayerDead(false); // ← reset: لعبة جديدة = حي
       if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
       if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
     const cleanup = on('game:started', () => {
+      console.log('🎮 New game started — resetting all game state');
+      // ── FULL RESET لكل حالة اللعبة القديمة ──
+      setIsPlayerDead(false);
+      setAssignedRole(null);
+      setMafiaTeam([]);
+      setCardFlipped(false);
+      setRoleAlert(false);
+      setGamePhase(null);
+      setVotingCandidates([]);
+      setMyVote(null);
+      setVotingComplete(false);
+      setPlayerVotes({});
+      setTotalVotesCast(0);
       if (navigator.vibrate) navigator.vibrate(200);
     });
 
@@ -512,6 +526,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         if (!me.isAlive && !isPlayerDead) {
           setIsPlayerDead(true);
           setCardFlipped(true);
+        }
+        // ← إحياء: إذا اللاعب حي في لعبة جديدة بس الـ state يقول ميت
+        if (me.isAlive && isPlayerDead) {
+          setIsPlayerDead(false);
+          setCardFlipped(false);
         }
       } else {
         // اللاعب مش موجود بالـ state → ممكن اتطرد
@@ -631,7 +650,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // انتهاء اللعبة
     const cleanupGameOver = on('game:over', () => {
+      console.log('🏁 Game over — clearing game state');
       setGamePhase('GAME_OVER');
+      // مسح بيانات التصويت
+      setVotingCandidates([]);
+      setMyVote(null);
+      setVotingComplete(false);
+      setPlayerVotes({});
+      setTotalVotesCast(0);
     });
 
     return () => {
@@ -693,6 +719,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           if (!res.player.isAlive && !isPlayerDead) {
             setIsPlayerDead(true);
             setCardFlipped(true);
+          }
+          // إحياء: لعبة جديدة → اللاعب حي بس الـ state يقول ميت
+          if (res.player.isAlive && isPlayerDead) {
+            setIsPlayerDead(false);
+            setCardFlipped(false);
           }
 
           // تحديث مرحلة اللعبة (مع حماية من الـ phase-changed event)
