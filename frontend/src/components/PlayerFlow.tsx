@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -127,6 +127,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   } | null>(null);
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
+  const phaseOverrideRef = useRef<{ phase: string; until: number } | null>(null);
 
   // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
   const [gamePhase, setGamePhaseRaw] = useState<string | null>(() => {
@@ -605,9 +606,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // تغيير المرحلة
     const cleanupPhaseChanged = on('game:phase-changed', (data: any) => {
+      console.log(`🔄 Phase changed event: ${data.phase}`);
       setGamePhase(data.phase);
+      // حماية من الـ polling: لا نسمح للـ polling بإعادة كتابة المرحلة لـ 10 ثواني
+      phaseOverrideRef.current = { phase: data.phase, until: Date.now() + 10000 };
       // مسح بيانات التصويت فقط عند الخروج من مرحلة التصويت
-      // (لا نمسح عند الدخول — البيانات تأتي من day:voting-started)
       if (data.phase !== 'DAY_VOTING' && data.phase !== 'DAY_JUSTIFICATION') {
         setVotingCandidates([]);
         setMyVote(null);
@@ -692,11 +695,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             setCardFlipped(true);
           }
 
-          // تحديث مرحلة اللعبة
-          if (res.phase) setGamePhase(res.phase);
+          // تحديث مرحلة اللعبة (مع حماية من الـ phase-changed event)
+          if (res.phase) {
+            const override = phaseOverrideRef.current;
+            if (override && Date.now() < override.until && res.phase !== override.phase) {
+              console.log(`🛡️ Poll blocked: server=${res.phase}, override=${override.phase}`);
+              // لا نسمح للـ polling بإرجاع المرحلة القديمة
+            } else {
+              if (override && Date.now() >= override.until) phaseOverrideRef.current = null;
+              setGamePhase(res.phase);
+            }
+          }
 
-          // استعادة بيانات التصويت بعد reconnect
-          if (res.votingState && res.phase === 'DAY_VOTING') {
+          // استعادة بيانات التصويت بعد reconnect (مع حماية override)
+          const overrideActive = phaseOverrideRef.current && Date.now() < phaseOverrideRef.current.until;
+          if (!overrideActive && res.votingState && res.phase === 'DAY_VOTING') {
             setVotingCandidates(res.votingState.candidates || []);
             setTotalVotesCast(res.votingState.totalVotesCast || 0);
             setPlayerVotes(res.votingState.playerVotes || {});
@@ -705,7 +718,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             if (res.votingState.playerVotes?.[myPhysId] !== undefined && myVote === null) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
-          } else if (res.phase && res.phase !== 'DAY_VOTING') {
+          } else if (!overrideActive && res.phase && res.phase !== 'DAY_VOTING') {
             // خارج التصويت → مسح بيانات التصويت إذا موجودة
             if (votingCandidates.length > 0) {
               setVotingCandidates([]);
