@@ -19,6 +19,7 @@ interface PlayerPhaseViewProps {
     discussionState?: any;
     winner?: string | null;
     allPlayers?: any[];
+    pendingResolution?: any;
   } | null;
 }
 
