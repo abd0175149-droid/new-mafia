@@ -165,6 +165,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   });
   const [votingComplete, setVotingComplete] = useState(false);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
+  const [phasePollData, setPhasePollData] = useState<any>(null);
 
   // ── Wrappers: تحفظ في localStorage عند كل تغيير ──
   const setGamePhase = (phase: string | null) => {
@@ -797,6 +798,20 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               setVotingComplete(false);
               setPlayerVotes({});
             }
+          }
+
+          // تمرير بيانات المراحل لـ PlayerPhaseView (للاستعادة عند reconnect)
+          setPhasePollData({
+            justificationData: res.justificationData || null,
+            withdrawalState: res.withdrawalState || null,
+            discussionState: res.discussionState || null,
+            winner: res.winner || null,
+            allPlayers: res.allPlayers || null,
+          });
+
+          // تحديث أسماء اللاعبين (مهم لعرض أسماء المتهمين في مرحلة التبرير)
+          if (res.playersInfo && votingPlayersInfo.length === 0) {
+            setVotingPlayersInfo(res.playersInfo);
           }
         }
       } catch { /* ignore polling errors */ }
@@ -1630,6 +1645,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   myVote={myVote}
                   votingCandidates={votingCandidates}
                   votingPlayersInfo={votingPlayersInfo}
+                  pollData={phasePollData}
                 />
               )}
 
@@ -1932,6 +1948,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   myVote={myVote}
                   votingCandidates={votingCandidates}
                   votingPlayersInfo={votingPlayersInfo}
+                  pollData={phasePollData}
                 />
               )}
 

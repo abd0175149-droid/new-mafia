@@ -13,11 +13,18 @@ interface PlayerPhaseViewProps {
   myVote: number | null;
   votingCandidates: any[];
   votingPlayersInfo: any[];
+  pollData?: {
+    justificationData?: any;
+    withdrawalState?: any;
+    discussionState?: any;
+    winner?: string | null;
+    allPlayers?: any[];
+  } | null;
 }
 
 export default function PlayerPhaseView({
   gamePhase, physicalId, assignedRole, isPlayerDead, on, emit,
-  myVote, votingCandidates, votingPlayersInfo
+  myVote, votingCandidates, votingPlayersInfo, pollData
 }: PlayerPhaseViewProps) {
   // ── حالة النقاش ──
   const [discussionState, setDiscussionState] = useState<any>(null);
@@ -40,6 +47,28 @@ export default function PlayerPhaseView({
   const [hasWithdrawn, setHasWithdrawn] = useState(false);
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [withdrawalNeeded, setWithdrawalNeeded] = useState(0);
+
+  // ── استعادة البيانات من الـ polling عند reconnect ──
+  useEffect(() => {
+    if (!pollData) return;
+    if (pollData.justificationData && !justificationData) {
+      setJustificationData(pollData.justificationData);
+    }
+    if (pollData.withdrawalState) {
+      setWithdrawalActive(true);
+      setWithdrawalCount(pollData.withdrawalState.count || 0);
+      setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
+    }
+    if (pollData.discussionState && !discussionState) {
+      setDiscussionState(pollData.discussionState);
+    }
+    if (pollData.winner && !gameWinner) {
+      setGameWinner(pollData.winner);
+    }
+    if (pollData.allPlayers && allPlayers.length === 0) {
+      setAllPlayers(pollData.allPlayers);
+    }
+  }, [pollData]);
 
   // ── Event Listeners ──
   useEffect(() => {

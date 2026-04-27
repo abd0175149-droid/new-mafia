@@ -1033,6 +1033,26 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         phase: state.phase,
         rolesConfirmed: state.rolesConfirmed || false,
         votingState: votingData,
+        // بيانات التبرير (لاستعادة الـ UI عند reconnect)
+        justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
+        // حالة سحب الأصوات
+        withdrawalState: state.withdrawalState || null,
+        // حالة النقاش
+        discussionState: state.phase === 'DAY_DISCUSSION' ? state.discussionState || null : null,
+        // نتيجة اللعبة
+        winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
+        // كشف أدوار الجميع عند انتهاء اللعبة
+        allPlayers: state.phase === 'GAME_OVER' ? state.players.map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          role: p.role,
+          isAlive: p.isAlive,
+        })) : null,
+        // معلومات اللاعبين الأحياء (لأسماء المتهمين)
+        playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+        })),
       });
     } catch (err: any) {
       callback({ success: false, error: err.message });
