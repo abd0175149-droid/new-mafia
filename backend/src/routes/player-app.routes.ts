@@ -8,7 +8,7 @@ import { eq, desc, and, sql, inArray, or } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches } from '../schemas/game.schema.js';
-import { bookings, activities } from '../schemas/admin.schema.js';
+import { bookings, activities, locations } from '../schemas/admin.schema.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 
 const router = Router();
@@ -62,6 +62,17 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       .where(eq(activities.id, activityId)).limit(1);
 
     if (actRows.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
+    const activity = actRows[0];
+
+    // التحقق من السعة القصوى
+    const [countResult] = await db.select({
+      total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
+    }).from(bookings).where(eq(bookings.activityId, activityId));
+    const currentBooked = countResult?.total || 0;
+    const maxCap = activity.maxCapacity || 20;
+    if (currentBooked >= maxCap) {
+      return res.status(409).json({ error: 'النشاط مكتمل العدد' });
+    }
 
     // التحقق من عدم الحجز المسبق (بالهاتف أو playerId)
     const existingBooking = await db.select({ id: bookings.id })
@@ -80,6 +91,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
     }
 
     // إنشاء الحجز (count=1 دائماً — لنفسه فقط)
+    const { offerId } = req.body;
     const result = await db.insert(bookings).values({
       activityId,
       name: player.name,
@@ -90,6 +102,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       isFree: false,
       playerId: player.playerId,
       createdBy: 'player-app',
+      offerItems: offerId ? [offerId] : [],
     }).returning();
 
     res.status(201).json({ success: true, booking: result[0] });
@@ -100,18 +113,49 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
 });
 
 // ── 📅 GET /activities/upcoming — الأنشطة القادمة ──
-router.get('/activities/upcoming', async (_req: Request, res: Response) => {
+router.get('/activities/upcoming', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
+  const playerIdParam = parseInt(req.query.playerId as string);
+
   try {
-    const rows = await db.select()
+    // جلب الأنشطة مع بيانات المكان
+    const rows = await db.select({
+      id: activities.id,
+      name: activities.name,
+      date: activities.date,
+      description: activities.description,
+      basePrice: activities.basePrice,
+      status: activities.status,
+      locationId: activities.locationId,
+      maxCapacity: activities.maxCapacity,
+      difficulty: activities.difficulty,
+      enabledOfferIds: activities.enabledOfferIds,
+      locationName: locations.name,
+      locationMapUrl: locations.mapUrl,
+      locationOffers: locations.offers,
+      isTestLocation: locations.isTestLocation,
+    })
       .from(activities)
+      .leftJoin(locations, eq(activities.locationId, locations.id))
       .where(or(eq(activities.status, 'planned'), eq(activities.status, 'active')))
       .orderBy(desc(activities.date));
 
+    // فلترة أنشطة الاختبار: لا تظهر إلا لحسابات الاختبار
+    let isTestUser = false;
+    if (playerIdParam) {
+      const [playerRow] = await db.select({ isTestAccount: players.isTestAccount })
+        .from(players).where(eq(players.id, playerIdParam)).limit(1);
+      isTestUser = playerRow?.isTestAccount || false;
+    }
+
+    const filtered = isTestUser
+      ? rows  // حساب اختبار → يرى كل شيء
+      : rows.filter(r => !r.isTestLocation);  // حساب عادي → يخفي أنشطة الاختبار
+
     // لكل نشاط: عدد الحاجزين
-    const enriched = await Promise.all(rows.map(async (act) => {
+    const enriched = await Promise.all(filtered.map(async (act) => {
       const [countResult] = await db.select({
         total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
       }).from(bookings).where(eq(bookings.activityId, act.id));
@@ -119,6 +163,7 @@ router.get('/activities/upcoming', async (_req: Request, res: Response) => {
       return {
         ...act,
         bookedCount: countResult?.total || 0,
+        maxPlayers: act.maxCapacity || 20,
       };
     }));
 

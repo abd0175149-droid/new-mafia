@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mafia-club-v2.3.3';
+const CACHE_NAME = 'mafia-club-v2.4.0';
 
 const PRECACHE_URLS = [
   '/player',

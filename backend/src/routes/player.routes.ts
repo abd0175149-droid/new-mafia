@@ -43,6 +43,7 @@ router.get('/all', authenticate, adminOnly, async (_req: Request, res: Response)
       createdAt: playersTable.createdAt,
       mustChangePassword: playersTable.mustChangePassword,
       email: playersTable.email,
+      isTestAccount: playersTable.isTestAccount,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
     return res.json({ success: true, players: rows });
@@ -83,6 +84,35 @@ router.post('/:id/reset-password', authenticate, adminOnly, async (req: Request,
   } catch (err: any) {
     console.error('❌ Reset password error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في إعادة تعيين كلمة المرور' });
+  }
+});
+
+// ── POST /api/player/:id/toggle-test — تبديل حالة حساب الاختبار (Admin only) ──
+router.post('/:id/toggle-test', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const [player] = await db.select({ id: playersTable.id, isTestAccount: playersTable.isTestAccount })
+      .from(playersTable).where(eq(playersTable.id, playerId)).limit(1);
+
+    if (!player) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+    const newValue = !player.isTestAccount;
+    await db.update(playersTable)
+      .set({ isTestAccount: newValue })
+      .where(eq(playersTable.id, playerId));
+
+    console.log(`🧪 Player #${playerId} isTestAccount → ${newValue}`);
+    return res.json({ success: true, isTestAccount: newValue });
+  } catch (err: any) {
+    console.error('❌ toggle-test error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

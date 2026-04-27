@@ -1,24 +1,37 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
+
+const WHATSAPP_NUMBER = '962789154719';
+const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
+
+const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: string }> = {
+  easy: { label: 'سهل', color: '#22c55e', icon: '🟢' },
+  medium: { label: 'متوسط', color: '#f59e0b', icon: '🟡' },
+  hard: { label: 'صعب', color: '#ef4444', icon: '🔴' },
+  expert: { label: 'خبير', color: '#a855f7', icon: '🟣' },
+};
 
 export default function HomePage() {
   const { player } = usePlayer();
+  const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [feed, setFeed] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedActivity, setSelectedActivity] = useState<any>(null);
 
   useEffect(() => {
     if (!player) return;
     Promise.all([
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/following-feed`).then(r => r.json()),
-      fetch('/api/player-app/activities/upcoming').then(r => r.json()),
+      fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
     ]).then(([profileData, feedData, actData]) => {
       if (profileData.success) setProfile(profileData);
       if (feedData.success) setFeed(feedData.feed || []);
@@ -38,8 +51,11 @@ export default function HomePage() {
   const stats = profile?.stats;
   const prog = profile?.progression;
 
+  // تجميع فيد الأصدقاء بالجلسة
+  const groupedFeed = groupFeedBySession(feed);
+
   return (
-    <div className="max-w-lg mx-auto px-4 pt-6 space-y-5">
+    <div className="max-w-lg mx-auto px-4 pt-6 space-y-5 pb-6">
       {/* ── Hero ── */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -136,61 +152,236 @@ export default function HomePage() {
       {/* ── أنشطة قادمة ── */}
       {upcoming.length > 0 && (
         <div>
-          <h2 className="text-white text-sm font-semibold mb-3">📅 أنشطة قادمة</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-white text-sm font-semibold">📅 أنشطة قادمة</h2>
+            <Link href="/player/games" className="text-amber-500/60 text-[10px]">عرض الكل ←</Link>
+          </div>
           <div className="space-y-2">
-            {upcoming.map((act: any) => (
-              <div key={act.id} className="rounded-xl p-3 flex items-center justify-between"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-              >
-                <div>
-                  <p className="text-white text-sm">{act.name}</p>
-                  <p className="text-gray-500 text-[10px] mt-0.5">
-                    {new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    {' • '}{act.bookedCount} حاجز
-                  </p>
-                </div>
-                <span className="text-amber-400 text-xs">🎟️</span>
-              </div>
-            ))}
+            {upcoming.map((act: any) => {
+              const diff = DIFFICULTY_LABELS[act.difficulty] || DIFFICULTY_LABELS.medium;
+              return (
+                <motion.div
+                  key={act.id}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setSelectedActivity(act)}
+                  className="rounded-xl p-3 flex items-center justify-between cursor-pointer active:bg-white/[0.06] transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-white text-sm">{act.name}</p>
+                      <span className="text-[8px] px-1.5 py-0.5 rounded-full" style={{
+                        background: `${diff.color}15`,
+                        color: diff.color,
+                      }}>{diff.icon} {diff.label}</span>
+                    </div>
+                    <p className="text-gray-500 text-[10px] mt-0.5">
+                      {new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      {act.locationName && ` • 📍 ${act.locationName}`}
+                    </p>
+                    <p className="text-gray-600 text-[10px] mt-0.5">
+                      👥 {act.bookedCount}/{act.maxPlayers || 20} لاعب
+                    </p>
+                  </div>
+                  <span className="text-amber-400 text-xs">🎟️</span>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* ── فيد الأصدقاء ── */}
-      {feed.length > 0 && (
+      {groupedFeed.length > 0 ? (
         <div>
           <h2 className="text-white text-sm font-semibold mb-3">👥 أخبار أصدقائك</h2>
           <div className="space-y-2">
-            {feed.slice(0, 5).map((item: any, i: number) => (
-              <div key={i} className="rounded-xl p-3 flex items-center gap-3"
+            {groupedFeed.slice(0, 8).map((item: any, i: number) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.03 }}
+                className="rounded-xl p-3 flex items-center gap-3"
                 style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
               >
-                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs">
-                  {item.playerInfo?.avatarUrl ? (
-                    <img src={item.playerInfo.avatarUrl} className="w-full h-full rounded-full object-cover" alt="" />
+                <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs shrink-0 overflow-hidden">
+                  {item.avatarUrl ? (
+                    <img src={item.avatarUrl} className="w-full h-full rounded-full object-cover" alt="" />
                   ) : '🎭'}
                 </div>
-                <div className="flex-1">
-                  <p className="text-white text-xs">{item.playerInfo?.name || item.playerName}</p>
-                  <p className="text-gray-500 text-[10px]">
-                    {item.role} • {item.xpEarned > 0 ? `+${item.xpEarned} XP` : ''}
-                    {item.rrChange > 0 ? ` +${item.rrChange} RR` : item.rrChange < 0 ? ` ${item.rrChange} RR` : ''}
-                  </p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-xs font-medium truncate">{item.playerName}</p>
+                  <p className="text-gray-500 text-[10px]">{item.description}</p>
                 </div>
-                <span className={`text-[10px] ${item.matchWinner === 'MAFIA' ? 'text-red-400' : 'text-cyan-400'}`}>
-                  {item.matchWinner === 'MAFIA' ? '🔴' : '🔵'} {item.survived ? 'نجا' : 'أُقصي'}
-                </span>
-              </div>
+                {item.type === 'level_up' && (
+                  <span className="text-amber-400 text-xs shrink-0">🎉</span>
+                )}
+                {item.type === 'session' && (
+                  <span className="text-cyan-400 text-[10px] shrink-0">🎮 {item.matchCount}</span>
+                )}
+              </motion.div>
             ))}
           </div>
         </div>
-      )}
-
-      {feed.length === 0 && (
+      ) : (
         <div className="text-center py-6">
           <p className="text-gray-600 text-sm">لا أخبار بعد — تابع لاعبين من صفحة التصنيف!</p>
         </div>
       )}
+
+      {/* ── متابعة Instagram ── */}
+      <motion.a
+        href={INSTAGRAM_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="block rounded-2xl p-4 text-center"
+        style={{
+          background: 'linear-gradient(135deg, rgba(225,48,108,0.1), rgba(131,58,180,0.1), rgba(253,29,29,0.05))',
+          border: '1px solid rgba(225,48,108,0.2)',
+        }}
+      >
+        <p className="text-sm font-medium" style={{ color: '#e1306c' }}>
+          📸 تابعنا على Instagram
+        </p>
+        <p className="text-gray-500 text-[10px] mt-1">@mafia_club_jo</p>
+      </motion.a>
+
+      {/* ── زر WhatsApp عائم ── */}
+      <a
+        href={`https://wa.me/${WHATSAPP_NUMBER}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-24 left-4 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg shadow-green-500/30 transition-transform hover:scale-110 active:scale-95"
+        style={{ background: 'linear-gradient(135deg, #25d366, #128c7e)' }}
+      >
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+      </a>
+
+      {/* ── Modal تفاصيل النشاط ── */}
+      <AnimatePresence>
+        {selectedActivity && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 z-[100] flex items-end justify-center"
+            onClick={() => setSelectedActivity(null)}
+          >
+            <motion.div
+              initial={{ y: 300 }}
+              animate={{ y: 0 }}
+              exit={{ y: 300 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-lg rounded-t-3xl p-6"
+              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
+              <h3 className="text-white text-lg font-bold mb-1">{selectedActivity.name}</h3>
+
+              {selectedActivity.description && (
+                <p className="text-gray-400 text-xs mb-3">{selectedActivity.description}</p>
+              )}
+
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center gap-2 text-sm text-gray-300">
+                  <span>📅</span>
+                  <span>{new Date(selectedActivity.date).toLocaleDateString('ar-JO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                {selectedActivity.locationName && (
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <span>📍</span>
+                    <span>{selectedActivity.locationName}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-sm text-gray-300">
+                  <span>👥</span>
+                  <span>{selectedActivity.bookedCount}/{selectedActivity.maxPlayers || 20} لاعب</span>
+                </div>
+                {(() => {
+                  const d = DIFFICULTY_LABELS[selectedActivity.difficulty] || DIFFICULTY_LABELS.medium;
+                  return (
+                    <div className="flex items-center gap-2 text-sm">
+                      <span>{d.icon}</span>
+                      <span style={{ color: d.color }}>{d.label}</span>
+                    </div>
+                  );
+                })()}
+                {selectedActivity.basePrice && selectedActivity.basePrice !== '0' && (
+                  <div className="flex items-center gap-2 text-sm text-gray-300">
+                    <span>💰</span>
+                    <span>{selectedActivity.basePrice} ₪</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setSelectedActivity(null);
+                    router.push('/player/games');
+                  }}
+                  className="flex-1 py-3 rounded-xl text-sm font-medium text-black"
+                  style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}
+                >
+                  احجز الآن 🎟️
+                </button>
+                {selectedActivity.locationMapUrl && (
+                  <a
+                    href={selectedActivity.locationMapUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="py-3 px-4 rounded-xl text-sm font-medium text-white flex items-center gap-1"
+                    style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)' }}
+                  >
+                    📍 الموقع
+                  </a>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
+}
+
+// ── تجميع الفيد بالجلسة ──
+function groupFeedBySession(feed: any[]): any[] {
+  const groups: any[] = [];
+  const sessionMap = new Map<string, any>();
+
+  for (const item of feed) {
+    const playerId = item.playerId;
+    const dateKey = item.matchDate ? new Date(item.matchDate).toDateString() : '';
+    const key = `${playerId}-${dateKey}`;
+
+    if (sessionMap.has(key)) {
+      sessionMap.get(key).matchCount++;
+    } else {
+      const entry = {
+        type: 'session',
+        playerId,
+        playerName: item.playerInfo?.name || item.playerName,
+        avatarUrl: item.playerInfo?.avatarUrl,
+        matchCount: 1,
+        dateKey,
+        description: `لعب يوم ${dateKey ? new Date(dateKey).toLocaleDateString('ar-JO', { weekday: 'long', month: 'short', day: 'numeric' }) : ''}`,
+      };
+      sessionMap.set(key, entry);
+    }
+  }
+
+  // تحديث الوصف بعد التجميع
+  for (const [, entry] of sessionMap) {
+    entry.description += ` — ${entry.matchCount} ${entry.matchCount === 1 ? 'لعبة' : 'ألعاب'}`;
+    groups.push(entry);
+  }
+
+  return groups;
 }

@@ -35,6 +35,7 @@ export const players = pgTable('players', {
   totalDeals: integer('total_deals').default(0),
   successfulDeals: integer('successful_deals').default(0),
   lastActiveAt: timestamp('last_active_at'),
+  isTestAccount: boolean('is_test_account').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

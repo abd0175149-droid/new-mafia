@@ -27,6 +27,7 @@ export const locations = pgTable('locations', {
   name: varchar('name', { length: 100 }).notNull(),
   mapUrl: text('map_url').default(''),
   offers: jsonb('offers').default([]),
+  isTestLocation: boolean('is_test_location').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -60,7 +61,9 @@ export const activities = pgTable('activities', {
   driveLink: text('drive_link').default(''),
   enabledOfferIds: jsonb('enabled_offer_ids').default([]),
   isLocked: boolean('is_locked').default(false),
-  // 🔗 ربط النشاط بغرفة اللعبة (FK → sessions.id — logical, not enforced in Drizzle to avoid circular deps)
+  maxCapacity: integer('max_capacity').default(20),
+  difficulty: varchar('difficulty', { length: 20 }).default('medium'),
+  // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

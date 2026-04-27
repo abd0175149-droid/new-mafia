@@ -21,6 +21,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [enabledOfferIds, setEnabledOfferIds] = useState<number[]>([]);
   const [basePrice, setBasePrice] = useState('0');
   const [description, setDescription] = useState('');
+  const [maxCapacity, setMaxCapacity] = useState('20');
+  const [difficulty, setDifficulty] = useState('medium');
   const [submitting, setSubmitting] = useState(false);
 
   // عروض المكان المختار
@@ -88,6 +90,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         locationId: locationId ? Number(locationId) : null,
         enabledOfferIds: hasOffers ? enabledOfferIds : [],
         status: 'planned',
+        maxCapacity: Number(maxCapacity) || 20,
+        difficulty,
         driveLink
       });
     } finally {
@@ -204,6 +208,34 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
               placeholder="وصف اختياري..."
               className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm"
             />
+          </div>
+        </div>
+
+        {/* السعة القصوى + مستوى الصعوبة */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">السعة القصوى (عدد اللاعبين)</label>
+            <input
+              type="number"
+              min="4"
+              max="100"
+              value={maxCapacity}
+              onChange={e => setMaxCapacity(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">مستوى الصعوبة</label>
+            <select
+              value={difficulty}
+              onChange={e => setDifficulty(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm"
+            >
+              <option value="easy">🟢 سهل</option>
+              <option value="medium">🟡 متوسط</option>
+              <option value="hard">🔴 صعب</option>
+              <option value="expert">🟣 خبير</option>
+            </select>
           </div>
         </div>
 

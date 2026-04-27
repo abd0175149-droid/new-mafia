@@ -51,6 +51,7 @@ export default function PlayersManagementPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [resettingId, setResettingId] = useState<number | null>(null);
+  const [togglingTestId, setTogglingTestId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // ── Load Players ──
@@ -102,6 +103,20 @@ export default function PlayersManagementPage() {
       showToast(`تم حذف ${player.name}`, 'success');
     } catch (err: any) {
       showToast(err.message || 'فشل حذف اللاعب', 'error');
+    }
+  }
+
+  // ── Toggle Test Account ──
+  async function handleToggleTestAccount(player: any) {
+    setTogglingTestId(player.id);
+    try {
+      await apiFetch(`/api/player/${player.id}/toggle-test`, { method: 'POST' });
+      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, isTestAccount: !p.isTestAccount } : p));
+      showToast(`${player.name}: ${player.isTestAccount ? 'تم إلغاء حساب الاختبار' : 'تم تفعيل حساب الاختبار'}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل', 'error');
+    } finally {
+      setTogglingTestId(null);
     }
   }
 
@@ -241,11 +256,16 @@ export default function PlayersManagementPage() {
                       </td>
                       {/* Status */}
                       <td className="px-4 py-3 text-center">
-                        {p.mustChangePassword ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20">افتراضي</span>
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">مفعّل</span>
-                        )}
+                        <div className="flex flex-col items-center gap-1">
+                          {p.mustChangePassword ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20">افتراضي</span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">مفعّل</span>
+                          )}
+                          {p.isTestAccount && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border bg-purple-500/10 text-purple-400 border-purple-500/20">🧪 اختبار</span>
+                          )}
+                        </div>
                       </td>
                       {/* Actions */}
                       <td className="px-4 py-3 text-center">
@@ -266,6 +286,14 @@ export default function PlayersManagementPage() {
                             title="عرض البروفايل"
                           >
                             👁
+                          </button>
+                          <button
+                            onClick={() => handleToggleTestAccount(p)}
+                            disabled={togglingTestId === p.id}
+                            className={`p-1.5 rounded-lg transition ${p.isTestAccount ? 'text-purple-400 hover:bg-purple-500/10' : 'text-gray-500/50 hover:text-purple-400 hover:bg-purple-500/10'}`}
+                            title={p.isTestAccount ? 'إلغاء حساب اختبار' : 'تفعيل حساب اختبار'}
+                          >
+                            {togglingTestId === p.id ? '⏳' : '🧪'}
                           </button>
                           <button
                             onClick={() => handleDeletePlayer(p)}
