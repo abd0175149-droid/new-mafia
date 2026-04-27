@@ -21,7 +21,7 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
