@@ -30,6 +30,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=7d
       - FRONTEND_URL=${FRONTEND_URL:-https://mafia.grade.sbs}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=${VAPID_PUBLIC_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
