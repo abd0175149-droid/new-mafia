@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { PlayerProvider, usePlayer } from '@/context/PlayerContext';
 import BottomNav from '@/components/BottomNav';
-import InAppNotificationBanner from '@/components/InAppNotificationBanner';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
 const PUBLIC_PATHS = ['/player/login', '/player/debug-push'];
@@ -97,14 +96,13 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
 
   // صفحات عامة (login) — بدون بار
   if (isPublic) {
-    return <><InAppNotificationBanner />{children}</>;
+    return <>{children}</>;
   }
 
   // صفحة اللعبة — مع بار ثابت
   if (isGamePage) {
     return (
       <div className="min-h-screen bg-[#050505] pb-20" style={{ overscrollBehavior: 'none' }}>
-        <InAppNotificationBanner />
         {children}
         <BottomNav />
       </div>
@@ -120,7 +118,6 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="w-8 h-8 border-2 border-amber-500/40 border-t-amber-500 rounded-full animate-spin" />
         </div>
       )}
-      <InAppNotificationBanner />
       {children}
       <BottomNav />
     </div>

@@ -7,7 +7,27 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+
+// ── نفس منطق resolveNotificationUrl في sw.js ──
+function resolveNotificationUrl(type: string, data: any): string | null {
+  if (data?.url) return data.url;
+  switch (type) {
+    case 'activity_started':
+      return data?.roomCode ? `/player/join?code=${data.roomCode}` : null;
+    case 'new_activity':
+      return data?.activityId ? `/player/games?activityId=${data.activityId}` : '/player/games';
+    case 'booking_confirmed':
+      return '/player/home';
+    case 'game_ended':
+      return '/player/home';
+    case 'custom':
+      return data?.url || null;
+    default:
+      return null;
+  }
+}
 
 const TYPE_ICONS: Record<string, string> = {
   new_activity: '📅', game_ended: '🎮', custom: '📢', reminder: '⏰',
@@ -24,6 +44,7 @@ export function NotificationBell() {
     notifications, unreadCount, permissionState, needsInstall,
     markAsRead, markAllAsRead, requestPermission,
   } = usePushNotifications();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -170,7 +191,14 @@ export function NotificationBell() {
                 notifications.slice(0, 30).map(n => (
                   <div
                     key={n.id}
-                    onClick={() => { if (!n.isRead) markAsRead(n.id); }}
+                    onClick={() => {
+                      if (!n.isRead) markAsRead(n.id);
+                      const url = resolveNotificationUrl(n.type, n.data);
+                      if (url) {
+                        setOpen(false);
+                        router.push(url);
+                      }
+                    }}
                     style={{
                       padding: '12px 16px',
                       borderBottom: '1px solid rgba(255,255,255,0.04)',
@@ -204,12 +232,17 @@ export function NotificationBell() {
                           {formatTimeAgo(n.createdAt)}
                         </div>
                       </div>
-                      {!n.isRead && (
-                        <div style={{
-                          width: 8, height: 8, borderRadius: '50%',
-                          background: '#f59e0b', flexShrink: 0, marginTop: 6,
-                        }} />
-                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        {!n.isRead && (
+                          <div style={{
+                            width: 8, height: 8, borderRadius: '50%',
+                            background: '#f59e0b',
+                          }} />
+                        )}
+                        {resolveNotificationUrl(n.type, n.data) && (
+                          <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 14 }}>◀</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))
