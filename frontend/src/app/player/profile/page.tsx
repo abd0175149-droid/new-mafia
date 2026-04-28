@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
+import { ImageCropper } from '@/components/ImageCropper';
 
 const ROLE_NAMES_AR: Record<string,string> = {
   GODFATHER:'شيخ المافيا',SILENCER:'قص المافيا',CHAMELEON:'حرباية المافيا',
@@ -74,6 +75,7 @@ export default function PlayerProfilePage(){
   const [leaderboard,setLeaderboard]=useState<any[]>([]);
   const fileInputRef=useRef<HTMLInputElement>(null);
   const nameInputRef=useRef<HTMLInputElement>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null); // ← ملف ينتظر القص
 
   const getAuthHeaders=useCallback(():Record<string,string>=>{
     const token=localStorage.getItem('mafia_player_token');
@@ -132,20 +134,33 @@ export default function PlayerProfilePage(){
     setSaving(false);setEditingEmail(false);
   },[profile,emailInput,getAuthHeaders]);
 
-  const handleAvatarUpload=async(e:React.ChangeEvent<HTMLInputElement>)=>{
-    const file=e.target.files?.[0];
-    if(!file||!profile)return;
-    if(file.size>10*1024*1024){showToast('الصورة كبيرة جداً');return;}
+  // ── اختيار ملف → فتح واجهة القص ──
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !profile) return;
+    if (file.size > 10 * 1024 * 1024) { showToast('الصورة كبيرة جداً (أقصى 10MB)'); return; }
+    setCropFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // ── رفع الصورة بعد القص ──
+  const handleCroppedUpload = async (croppedBase64: string) => {
+    setCropFile(null);
+    if (!profile) return;
     setSaving(true);
-    try{
-      const resized=await cropAndResizeImage(file,512);
-      const res=await fetch(`/api/player/${profile.player.id}/avatar`,{method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},body:JSON.stringify({image:resized})});
-      const d=await res.json();
-      if(d.success){setProfile((p:any)=>p?{...p,player:{...p.player,avatarUrl:d.avatarUrl+'?t='+Date.now()}}:p);showToast('✓ تم تحديث الصورة');}
-      else showToast(d.error||'خطأ');
-    }catch{showToast('خطأ في رفع الصورة');}
+    try {
+      const res = await fetch(`/api/player/${profile.player.id}/avatar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ image: croppedBase64 }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setProfile((p: any) => p ? { ...p, player: { ...p.player, avatarUrl: d.avatarUrl + '?t=' + Date.now() } } : p);
+        showToast('✓ تم تحديث الصورة');
+      } else showToast(d.error || 'خطأ');
+    } catch { showToast('خطأ في رفع الصورة'); }
     setSaving(false);
-    if(fileInputRef.current)fileInputRef.current.value='';
   };
 
   if(loading)return(
@@ -194,8 +209,18 @@ export default function PlayerProfilePage(){
               {saving&&<div className="absolute inset-0 bg-black/60 flex items-center justify-center"><div className="animate-spin w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full"/></div>}
             </motion.div>
             <button onClick={()=>fileInputRef.current?.click()} className="absolute bottom-0 left-0 w-8 h-8 rounded-full flex items-center justify-center text-black text-sm shadow-lg border-2 border-black" style={{background:rank.color}}>📷</button>
-            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleAvatarUpload}/>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFileSelect}/>
           </div>
+
+          {/* ── واجهة القص التفاعلية ── */}
+          {cropFile && (
+            <ImageCropper
+              file={cropFile}
+              onCrop={handleCroppedUpload}
+              onCancel={() => setCropFile(null)}
+              outputSize={512}
+            />
+          )}
 
           {/* Name */}
           {editingName?(

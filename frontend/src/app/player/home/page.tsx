@@ -136,27 +136,69 @@ export default function HomePage() {
       </div>
 
       {/* ── لعبة نشطة ── */}
-      {profile?.activeGame && (
-        <Link href="/player/join">
+      {profile?.activeGame && (() => {
+        const g = profile.activeGame;
+        const isDead = g.isAlive === false;
+        const isOver = g.phase === 'GAME_OVER';
+        const canLeave = isDead || isOver;
+
+        return (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="rounded-2xl p-4 cursor-pointer"
+            className="rounded-2xl p-4"
             style={{
-              background: 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(5,5,5,0.9))',
-              border: '1px solid rgba(34,197,94,0.3)',
+              background: canLeave
+                ? 'linear-gradient(135deg, rgba(239,68,68,0.1), rgba(5,5,5,0.9))'
+                : 'linear-gradient(135deg, rgba(34,197,94,0.15), rgba(5,5,5,0.9))',
+              border: canLeave
+                ? '1px solid rgba(239,68,68,0.25)'
+                : '1px solid rgba(34,197,94,0.3)',
             }}
           >
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-green-400 text-xs font-medium">🟢 لعبة نشطة</span>
-                <p className="text-white text-sm mt-1">{profile.activeGame.gameName}</p>
+                <span className={`text-xs font-medium ${canLeave ? 'text-red-400' : 'text-green-400'}`}>
+                  {isOver ? '🏁 اللعبة انتهت' : isDead ? '💀 تم إقصاؤك' : '🟢 لعبة نشطة'}
+                </span>
+                <p className="text-white text-sm mt-1">{g.gameName}</p>
               </div>
-              <span className="text-green-400 text-xs">العودة ←</span>
+              <div className="flex items-center gap-2">
+                {canLeave && (
+                  <button
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      try {
+                        const { io } = await import('socket.io-client');
+                        const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || '';
+                        const s = io(socketUrl, { transports: ['websocket'] });
+                        s.emit('room:player-exit', {
+                          roomId: g.roomId,
+                          playerId: player?.playerId,
+                        }, (res: any) => {
+                          s.disconnect();
+                          if (res?.success) {
+                            setProfile((prev: any) => prev ? { ...prev, activeGame: null } : prev);
+                          }
+                        });
+                        // timeout fallback
+                        setTimeout(() => { s.disconnect(); }, 3000);
+                      } catch {}
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
+                  >
+                    🚪 مغادرة
+                  </button>
+                )}
+                <Link href="/player/join">
+                  <span className={`text-xs ${canLeave ? 'text-gray-500' : 'text-green-400'}`}>العودة ←</span>
+                </Link>
+              </div>
             </div>
           </motion.div>
-        </Link>
-      )}
+        );
+      })()}
 
       {/* ── أنشطة قادمة ── */}
       {upcoming.length > 0 && (

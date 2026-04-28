@@ -35,7 +35,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
       totalWins: players.totalWins,
     })
       .from(players)
-      .orderBy(desc(players.level), desc(players.xp))
+      .orderBy(desc(players.level), desc(players.rankRR), desc(players.xp))
       .limit(50);
 
     res.json({ success: true, leaderboard: rows });

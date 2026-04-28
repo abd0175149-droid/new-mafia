@@ -150,6 +150,122 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         activityId: data.activityId || undefined,
       });
       console.log(`🏠 Room created: ${state.roomId} (code: ${state.roomCode}, session: #${sessionId}, activity: ${data.activityId || 'none'}) — empty, max ${maxPlayers}`);
+
+      // ── إضافة اللاعبين الحاجزين تلقائياً عند وقت النشاط ──
+      if (data.activityId) {
+        const autoAddBookedPlayers = async () => {
+          try {
+            const { getDB } = await import('../config/db.js');
+            const { eq, and, isNotNull } = await import('drizzle-orm');
+            const { bookings, activities } = await import('../schemas/admin.schema.js');
+            const { players: playersTable } = await import('../schemas/player.schema.js');
+            const db = getDB();
+            if (!db) return;
+
+            // جلب الحجوزات مع playerId
+            const bookedPlayers = await db.select({
+              bookingId: bookings.id,
+              playerId: bookings.playerId,
+              name: bookings.name,
+              phone: bookings.phone,
+            }).from(bookings)
+              .where(and(
+                eq(bookings.activityId, data.activityId!),
+                isNotNull(bookings.playerId),
+              ));
+
+            if (bookedPlayers.length === 0) return;
+
+            const currentState = await getRoom(state.roomId);
+            if (!currentState) return;
+
+            let seatNum = currentState.players.length + 1;
+            let addedCount = 0;
+
+            for (const bp of bookedPlayers) {
+              if (!bp.playerId) continue;
+              // تحقق أنه ليس موجوداً بالفعل
+              const alreadyIn = currentState.players.some((p: any) =>
+                p.playerId === bp.playerId || p.phone === bp.phone
+              );
+              if (alreadyIn) continue;
+
+              try {
+                await addPlayer(state.roomId, seatNum, bp.name, bp.phone || null, bp.playerId);
+
+                // جلب صورة اللاعب
+                const [dbP] = await db.select({ avatarUrl: playersTable.avatarUrl })
+                  .from(playersTable).where(eq(playersTable.id, bp.playerId!)).limit(1);
+                if (dbP?.avatarUrl) {
+                  await updatePlayer(state.roomId, seatNum, { avatarUrl: dbP.avatarUrl });
+                }
+
+                io.to(state.roomId).emit('room:player-joined', {
+                  physicalId: seatNum,
+                  name: bp.name,
+                  totalPlayers: seatNum,
+                  maxPlayers,
+                  avatarUrl: dbP?.avatarUrl || null,
+                });
+
+                seatNum++;
+                addedCount++;
+              } catch (e: any) {
+                console.warn(`⚠️ Failed to auto-add player ${bp.name}:`, e.message);
+              }
+            }
+
+            // تحديث العداد
+            if (addedCount > 0) {
+              const room = activeRooms.get(state.roomId);
+              if (room) room.playerCount = seatNum - 1;
+
+              console.log(`🎟️ Auto-added ${addedCount} booked players to room ${state.roomId}`);
+
+              // إرسال push للحاجزين
+              import('../services/fcm.service.js').then(({ sendPushToPlayers }) => {
+                const ids = bookedPlayers.filter(b => b.playerId).map(b => b.playerId!);
+                sendPushToPlayers(ids, '🎮 الغرفة جاهزة!',
+                  `تم إضافتك للغرفة ${gameName} — ادخل الآن!`,
+                  'game_started', { roomCode: state.roomCode, url: '/player/home' }
+                );
+              }).catch(() => {});
+            }
+          } catch (err: any) {
+            console.error('❌ Auto-add booked players error:', err.message);
+          }
+        };
+
+        // ── تحقق من وقت النشاط ──
+        try {
+          const { getDB } = await import('../config/db.js');
+          const { eq: eqOp } = await import('drizzle-orm');
+          const { activities } = await import('../schemas/admin.schema.js');
+          const db = getDB();
+          if (db) {
+            const [act] = await db.select({ date: activities.date })
+              .from(activities).where(eqOp(activities.id, data.activityId)).limit(1);
+
+            if (act) {
+              const actTime = new Date(act.date);
+              const now = new Date();
+
+              if (actTime <= now) {
+                // الوقت وصل أو مضى → أضف فوراً
+                autoAddBookedPlayers();
+              } else {
+                // جدول الإضافة عند وقت النشاط
+                const delay = actTime.getTime() - now.getTime();
+                console.log(`⏰ Scheduled auto-add for room ${state.roomId} in ${Math.round(delay / 60000)} minutes`);
+                setTimeout(autoAddBookedPlayers, delay);
+              }
+            }
+          }
+        } catch (e) {
+          // في حالة خطأ → أضف فوراً كـ fallback
+          autoAddBookedPlayers();
+        }
+      }
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -230,6 +346,25 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     dob?: string;
   }, callback) => {
     try {
+      // ── حماية: فحص هل اللاعب في غرفة أخرى نشطة ──
+      if (data.playerId) {
+        const { getAllGameStates } = await import('../config/redis.js');
+        const allStates = await getAllGameStates();
+        for (const otherState of allStates) {
+          if (!otherState || otherState.roomId === data.roomId) continue;
+          const existing = otherState.players?.find((p: any) => p.playerId === data.playerId);
+          if (existing) {
+            if (!existing.isAlive || otherState.phase === 'GAME_OVER') {
+              // مُقصى أو اللعبة انتهت → يحتاج يغادر يدوياً
+              return callback({ success: false, error: 'أنت في غرفة أخرى، اضغط "مغادرة الغرفة" أولاً' });
+            } else {
+              // لا يزال حي في لعبة نشطة → امنع الدخول
+              return callback({ success: false, error: 'أنت في غرفة أخرى نشطة، غادر أولاً' });
+            }
+          }
+        }
+      }
+
       const state = await addPlayer(
         data.roomId,
         data.physicalId,
