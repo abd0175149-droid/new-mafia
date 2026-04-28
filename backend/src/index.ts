@@ -222,18 +222,33 @@ app.get('/api/game/activities-with-rooms', async (_req, res) => {
       });
     }
 
-    // جلب أسماء الأنشطة الناقصة من DB
+    // جلب أسماء الأنشطة من DB (دائماً — لضمان دقة الاسم)
     const { getDB } = await import('./config/db.js');
     const db = getDB();
     if (db) {
-      const { eq } = await import('drizzle-orm');
+      const { inArray } = await import('drizzle-orm');
       const { activities } = await import('./schemas/admin.schema.js');
-      for (const [key, group] of activitiesMap) {
-        if (group.activityId && group.activityName.startsWith('نشاط #')) {
-          try {
-            const [act] = await db.select({ title: activities.title }).from(activities).where(eq(activities.id, group.activityId)).limit(1);
-            if (act) group.activityName = act.title;
-          } catch {}
+
+      // جمع كل الـ activityIds
+      const activityIds = Array.from(activitiesMap.values())
+        .filter(g => g.activityId)
+        .map(g => g.activityId!);
+
+      if (activityIds.length > 0) {
+        try {
+          const acts = await db.select({ id: activities.id, name: activities.name })
+            .from(activities)
+            .where(inArray(activities.id, activityIds));
+
+          for (const act of acts) {
+            for (const [, group] of activitiesMap) {
+              if (group.activityId === act.id) {
+                group.activityName = act.name;
+              }
+            }
+          }
+        } catch (err: any) {
+          console.warn('⚠️ Failed to fetch activity names:', err.message);
         }
       }
     }

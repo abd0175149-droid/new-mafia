@@ -39,6 +39,37 @@ export async function rehydrateActiveRooms(): Promise<void> {
 
     if (activeRooms.size > 0) {
       console.log(`♻️  Rehydrated ${activeRooms.size} active room(s) from Redis`);
+
+      // ── جلب أسماء الأنشطة من DB ──
+      try {
+        const { getDB } = await import('../config/db.js');
+        const { inArray } = await import('drizzle-orm');
+        const { activities } = await import('../schemas/admin.schema.js');
+        const db = getDB();
+        if (db) {
+          const activityIds = Array.from(activeRooms.values())
+            .filter(r => r.activityId)
+            .map(r => r.activityId!);
+
+          if (activityIds.length > 0) {
+            const uniqueIds = [...new Set(activityIds)];
+            const acts = await db.select({ id: activities.id, name: activities.name })
+              .from(activities)
+              .where(inArray(activities.id, uniqueIds));
+
+            for (const act of acts) {
+              for (const [, room] of activeRooms) {
+                if (room.activityId === act.id) {
+                  room.activityName = act.name;
+                }
+              }
+            }
+            console.log(`📛 Loaded activity names for ${acts.length} activity(s)`);
+          }
+        }
+      } catch (err: any) {
+        console.warn('⚠️ Failed to load activity names:', err.message);
+      }
     } else {
       console.log(`ℹ️  No active rooms found in Redis to rehydrate`);
     }
@@ -156,10 +187,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           const { activities } = await import('../schemas/admin.schema.js');
           const db = getDB();
           if (!db) return;
-          const [act] = await db.select({ title: activities.title }).from(activities).where(eq(activities.id, data.activityId!)).limit(1);
+          const [act] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, data.activityId!)).limit(1);
           if (act) {
             const room = activeRooms.get(state.roomId);
-            if (room) { room.activityName = act.title; }
+            if (room) { room.activityName = act.name; }
           }
         }).catch(() => {});
       }
