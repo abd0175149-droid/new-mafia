@@ -10,7 +10,7 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
 
-export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string }> = new Map();
+export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
 export function getActiveRooms() {
   return Array.from(activeRooms.values());
@@ -33,6 +33,7 @@ export async function rehydrateActiveRooms(): Promise<void> {
         playerCount: state.players?.length || 0,
         maxPlayers: state.config?.maxPlayers || 10,
         displayPin: state.config?.displayPin || '',
+        activityId: state.activityId || undefined,
       });
     }
 
@@ -145,7 +146,23 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         playerCount: 0,
         maxPlayers,
         displayPin: state.config.displayPin,
+        activityId: data.activityId || undefined,
       });
+
+      // جلب اسم النشاط وتحديث activeRooms
+      if (data.activityId) {
+        import('../config/db.js').then(async ({ getDB }) => {
+          const { eq } = await import('drizzle-orm');
+          const { activities } = await import('../schemas/admin.schema.js');
+          const db = getDB();
+          if (!db) return;
+          const [act] = await db.select({ title: activities.title }).from(activities).where(eq(activities.id, data.activityId!)).limit(1);
+          if (act) {
+            const room = activeRooms.get(state.roomId);
+            if (room) { room.activityName = act.title; }
+          }
+        }).catch(() => {});
+      }
 
       callback({
         success: true,

@@ -67,7 +67,13 @@ function playCardFlipSound(role: string | null, isMafia: boolean) {
 // تستخدم REST API لجلب البيانات + Socket للتحديثات الحية
 // ══════════════════════════════════════════════════════
 
-type DisplayStep = 'pin' | 'select-game' | 'lobby';
+type DisplayStep = 'select-activity' | 'select-room' | 'pin' | 'lobby';
+
+interface ActivityGroup {
+  activityId: number | null;
+  activityName: string;
+  rooms: ActiveGame[];
+}
 
 interface ActiveGame {
   roomId: string;
@@ -150,10 +156,13 @@ export default function DisplayPage() {
   const [isConnected, setIsConnected] = useState(false);
 
   // UI State
-  const [step, setStep] = useState<DisplayStep>('pin');
+  const [step, setStep] = useState<DisplayStep>('select-activity');
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [activityGroups, setActivityGroups] = useState<ActivityGroup[]>([]);
+  const [selectedActivity, setSelectedActivity] = useState<ActivityGroup | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('');
 
   // Game State
   const [activeGames, setActiveGames] = useState<ActiveGame[]>([]);
@@ -495,40 +504,49 @@ export default function DisplayPage() {
   }, [step, currentRoomId]);
 
   // ══════════════════════════════════════════════════
-  // 🔐 الخطوة 1: إدخال PIN → جلب الألعاب عبر REST
+  // 🎯 الخطوة 1: جلب الأنشطة والغرف النشطة
   // ══════════════════════════════════════════════════
+  useEffect(() => {
+    if (step !== 'select-activity') return;
+    setLoading(true);
+    fetch('/api/game/activities-with-rooms')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.activities) {
+          setActivityGroups(data.activities);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [step]);
+
+  // 🎯 اختيار نشاط → عرض غرفه
+  const handleSelectActivity = (group: ActivityGroup) => {
+    setSelectedActivity(group);
+    if (group.rooms.length === 1) {
+      // غرفة واحدة → انتقل لـ PIN مباشرة
+      setSelectedRoomId(group.rooms[0].roomId);
+      setStep('pin');
+    } else {
+      setStep('select-room');
+    }
+  };
+
+  // 📋 اختيار غرفة → انتقل لـ PIN
+  const handleSelectRoom = (roomId: string) => {
+    setSelectedRoomId(roomId);
+    setStep('pin');
+  };
+
+  // 🔐 التحقق من PIN
   const handlePinSubmit = async () => {
-    if (pin.length < 4 || loading) return;
+    if (pin.length < 4 || loading || !selectedRoomId) return;
     setPinError('');
     setLoading(true);
-
     try {
-      // جلب الألعاب عبر REST (موثوق عبر أي proxy)
-      const res = await fetch('/api/game/active');
-      if (!res.ok) {
-        setPinError('خطأ في الاتصال بالسيرفر — الكود ' + res.status);
-        return;
-      }
-      const data = await res.json();
-
-      if (!data.success || !data.rooms || data.rooms.length === 0) {
-        setPinError('رمز الدخول غير صحيح أو لا توجد ألعاب نشطة');
-        return;
-      }
-
-      const rooms: ActiveGame[] = data.rooms;
-      setActiveGames(rooms);
-
-      if (rooms.length === 1) {
-        // لعبة واحدة → تحقق من PIN مباشرة
-        await verifyPinAndJoin(rooms[0].roomId);
-      } else {
-        // أكثر من لعبة → اعرض القائمة
-        setStep('select-game');
-      }
+      await verifyPinAndJoin(selectedRoomId);
     } catch (err: any) {
       setPinError('خطأ في الاتصال بالسيرفر');
-      console.error('Fetch error:', err);
     } finally {
       setLoading(false);
     }
@@ -670,7 +688,105 @@ export default function DisplayPage() {
         <AnimatePresence mode="wait">
 
           {/* ══════════════════════════════════════════ */}
-          {/* شاشة إدخال PIN                           */}
+          {/* 🎯 الخطوة 1: اختيار النشاط                */}
+          {/* ══════════════════════════════════════════ */}
+          {step === 'select-activity' && (
+            <motion.div
+              key="activity-screen"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+              className="text-center relative z-10 noir-card p-12 w-full max-w-xl"
+            >
+              <div className="flex flex-col items-center justify-center gap-4 mb-8 w-full">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 1, delay: 0.2 }}
+                >
+                  <Image src="/mafia_logo.png" alt="Mafia Club Logo" width={100} height={100} className="select-none w-[80px] h-[80px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]" priority />
+                </motion.div>
+                <h1 className="text-center">
+                  <span className="block text-5xl font-black tracking-tight text-[#C5A059] mb-1" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.4)' }}>MAFIA</span>
+                  <span dir="ltr" className="flex justify-between text-2xl font-light text-[#8A0303] w-full" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</span>
+                </h1>
+              </div>
+
+              <div className="mb-6 border-t border-[#2a2a2a]/40 pt-6">
+                <h2 className="text-2xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>اختر النشاط</h2>
+                <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">SELECT ACTIVITY</p>
+              </div>
+
+              {loading ? (
+                <div className="flex justify-center py-8"><div className="w-10 h-10 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin" /></div>
+              ) : activityGroups.length === 0 ? (
+                <div className="py-8">
+                  <p className="text-[#808080] font-mono text-sm">لا توجد أنشطة نشطة حالياً</p>
+                  <button onClick={() => setStep('select-activity')} className="mt-4 text-[#C5A059] font-mono text-sm underline">🔄 تحديث</button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {activityGroups.map((group, idx) => (
+                    <motion.button
+                      key={group.activityId || 'unlinked-' + idx}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleSelectActivity(group)}
+                      className="noir-card p-5 w-full flex items-center justify-between hover:border-[#C5A059]/40 transition-all text-right"
+                    >
+                      <div>
+                        <h3 className="text-xl font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>{group.activityName}</h3>
+                        <p className="text-[#808080] text-sm mt-1 font-mono">{group.rooms.length} {group.rooms.length === 1 ? 'ROOM' : 'ROOMS'}</p>
+                      </div>
+                      <span className="text-[#555] text-2xl">◀</span>
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* ══════════════════════════════════════════ */}
+          {/* 📋 الخطوة 2: اختيار الغرفة                */}
+          {/* ══════════════════════════════════════════ */}
+          {step === 'select-room' && selectedActivity && (
+            <motion.div
+              key="room-screen"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="text-center w-full max-w-lg relative z-10 noir-card p-12"
+            >
+              <div className="mb-6">
+                <button onClick={() => { setStep('select-activity'); setSelectedActivity(null); }} className="text-[#808080] font-mono text-sm mb-4 inline-flex items-center gap-2 hover:text-[#C5A059] transition-colors">▶ رجوع للأنشطة</button>
+                <h2 className="text-3xl font-black text-[#C5A059] mb-1" style={{ fontFamily: 'Amiri, serif' }}>{selectedActivity.activityName}</h2>
+                <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">SELECT ROOM</p>
+              </div>
+
+              <div className="space-y-3">
+                {selectedActivity.rooms.map((game) => (
+                  <motion.button
+                    key={game.roomId}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleSelectRoom(game.roomId)}
+                    className="noir-card p-5 w-full flex items-center justify-between hover:border-[#C5A059]/40 transition-all text-right"
+                  >
+                    <div>
+                      <h3 className="text-xl font-bold text-white" style={{ fontFamily: 'Amiri, serif' }}>{game.gameName}</h3>
+                      <p className="text-[#808080] text-sm mt-1 font-mono">CODE: <span className="text-white">{game.roomCode}</span> | AGENTS: <span className="text-[#C5A059]">{game.playerCount}</span>/{game.maxPlayers}</p>
+                    </div>
+                    <span className="text-[#555] text-2xl">◀</span>
+                  </motion.button>
+              ))}
+            </div>
+
+            </motion.div>
+          )}
+
+          {/* ══════════════════════════════════════════ */}
+          {/* 🔐 الخطوة 3: إدخال PIN                   */}
           {/* ══════════════════════════════════════════ */}
           {step === 'pin' && (
             <motion.div
@@ -679,144 +795,63 @@ export default function DisplayPage() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.5, ease: 'easeOut' }}
-              className="text-center relative z-10 noir-card p-16 w-full max-w-xl"
+              className="text-center relative z-10 noir-card p-12 w-full max-w-xl"
             >
-              <div className="flex flex-col items-center justify-center gap-4 mb-10 w-full">
-                {/* اللوجو */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 1, delay: 0.2 }}
-                >
-                  <Image
-                    src="/mafia_logo.png"
-                    alt="Mafia Club Logo"
-                    width={100}
-                    height={100}
-                    className="select-none w-[80px] h-[80px] sm:w-[100px] sm:h-[100px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]"
-                    priority
-                  />
-                </motion.div>
-                
-                {/* النصوص */}
-                <h1 className="text-center">
-                  <span
-                    className="block text-5xl sm:text-6xl font-black tracking-tight text-[#C5A059] mb-1"
-                    style={{
-                      fontFamily: 'Amiri, serif',
-                      textShadow: '0 0 30px rgba(138,3,3,0.4)',
-                    }}
-                  >
-                    MAFIA
-                  </span>
-                  <span
-                    dir="ltr"
-                    className="flex justify-between text-2xl sm:text-3xl font-light text-[#8A0303] w-full"
-                    style={{
-                      fontFamily: 'Amiri, serif',
-                      textShadow: '0 0 20px rgba(138,3,3,0.3)',
-                    }}
-                  >
-                    {'CLUB'.split('').map((letter, i) => (
-                      <span key={i}>{letter}</span>
-                    ))}
-                  </span>
-                </h1>
+              <div className="mb-4">
+                <button onClick={() => {
+                  setPinError('');
+                  setPin('');
+                  if (selectedActivity && selectedActivity.rooms.length > 1) {
+                    setStep('select-room');
+                  } else {
+                    setStep('select-activity');
+                    setSelectedActivity(null);
+                  }
+                }} className="text-[#808080] font-mono text-sm mb-4 inline-flex items-center gap-2 hover:text-[#C5A059] transition-colors">▶ رجوع</button>
               </div>
 
-              <div className="mb-8 border-t border-[#2a2a2a]/40 pt-6">
-                <h2 className="text-2xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>تصريح الدخول للعملية</h2>
+              <div className="flex flex-col items-center gap-3 mb-8">
+                <Image src="/mafia_logo.png" alt="Mafia Club Logo" width={60} height={60} className="select-none w-[60px] h-[60px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]" priority />
+                <h2 className="text-2xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>تصريح الدخول للعملية</h2>
                 <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">ENTER DISPLAY ACCESS CODE</p>
               </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handlePinSubmit(); }} className="mb-8">
-              <input
-                type="password"
-                inputMode="numeric"
-                autoComplete="off"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="****"
-                className="w-full max-w-[300px] p-6 bg-[#050505] border border-[#2a2a2a] text-white text-center font-mono text-5xl tracking-[0.5em] focus:border-[#C5A059] focus:outline-none focus:ring-0 transition-all mx-auto block"
-                maxLength={6}
-                autoFocus
-              />
-              <p className="text-[#555] font-mono mt-4 uppercase text-xs tracking-[0.4em]">{pin.length} / 4+ DIGITS</p>
-            </form>
+              <form onSubmit={(e) => { e.preventDefault(); handlePinSubmit(); }} className="mb-8">
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="****"
+                  className="w-full max-w-[300px] p-6 bg-[#050505] border border-[#2a2a2a] text-white text-center font-mono text-5xl tracking-[0.5em] focus:border-[#C5A059] focus:outline-none focus:ring-0 transition-all mx-auto block"
+                  maxLength={6}
+                  autoFocus
+                />
+                <p className="text-[#555] font-mono mt-4 uppercase text-xs tracking-[0.4em]">{pin.length} / 4+ DIGITS</p>
+              </form>
 
-            {pinError && (
-              <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-[#8A0303]/10 border border-[#8A0303]/40 p-4 mb-6 max-w-sm mx-auto"
-              >
-                <p className="text-[#8A0303] font-bold font-mono text-sm uppercase tracking-widest">{pinError}</p>
-              </motion.div>
-            )}
-
-            <button
-              onClick={handlePinSubmit}
-              disabled={pin.length < 4 || loading}
-              className="btn-premium w-full max-w-[300px] mx-auto block"
-            >
-              <span>{loading ? 'VERIFYING...' : 'ACCESS'}</span>
-            </button>
-          </motion.div>
-        )}
-
-        {/* ══════════════════════════════════════════ */}
-        {/* اختيار اللعبة (أكثر من لعبة نشطة)       */}
-        {/* ══════════════════════════════════════════ */}
-        {step === 'select-game' && (
-          <motion.div
-            key="select-screen"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="text-center w-full max-w-lg relative z-10"
-          >
-            <div className="text-6xl mb-4 grayscale">🎭</div>
-            <h2 className="text-4xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>اختر اللعبة</h2>
-            <p className="text-[#808080] mb-8 font-mono">{activeGames.length} ACTIVE GAMES</p>
-
-            <div className="space-y-4">
-              {activeGames.map((game) => (
-                <motion.button
-                  key={game.roomId}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => verifyPinAndJoin(game.roomId)}
-                  disabled={loading}
-                  className="noir-card p-6 w-full flex items-center justify-between hover:border-[#C5A059]/40 transition-all text-right disabled:opacity-50"
+              {pinError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-[#8A0303]/10 border border-[#8A0303]/40 p-4 mb-6 max-w-sm mx-auto"
                 >
-                  <div>
-                    <h3 className="text-2xl font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>{game.gameName}</h3>
-                    <p className="text-[#808080] text-sm mt-2 font-mono">
-                      CODE: <span className="text-white">{game.roomCode}</span>
-                      {' | '}
-                      AGENTS: <span className="text-[#C5A059]">{game.playerCount}</span>/{game.maxPlayers}
-                    </p>
-                  </div>
-                </motion.button>
-              ))}
-            </div>
+                  <p className="text-[#8A0303] font-bold font-mono text-sm uppercase tracking-widest">{pinError}</p>
+                </motion.div>
+              )}
 
-            {pinError && (
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[#8A0303] font-mono mt-4">
-                {pinError}
-              </motion.p>
-            )}
+              <button
+                onClick={handlePinSubmit}
+                disabled={pin.length < 4 || loading}
+                className="btn-premium w-full max-w-[300px] mx-auto block"
+              >
+                <span>{loading ? 'VERIFYING...' : 'ACCESS'}</span>
+              </button>
+            </motion.div>
+          )}
 
-            <button
-              onClick={() => { setStep('pin'); setPinError(''); }}
-              className="text-[#555] mt-8 text-sm hover:text-white transition-colors font-mono tracking-widest uppercase"
-            >
-              [ Return ]
-            </button>
-          </motion.div>
-        )}
-
-        {/* ══════════════════════════════════════════ */}
+          {/* ══════════════════════════════════════════ */}
         {/* شاشة اللوبي                             */}
         {/* ══════════════════════════════════════════ */}
         {step === 'lobby' && phase === Phase.LOBBY && (

@@ -190,8 +190,58 @@ app.get('/api/game/active', (_req, res) => {
     gameName: r.gameName,
     playerCount: r.playerCount,
     maxPlayers: r.maxPlayers,
+    activityId: r.activityId || null,
+    activityName: r.activityName || null,
   }));
   res.json({ success: true, rooms });
+});
+
+// GET /api/game/activities-with-rooms — الأنشطة مع غرفها (لشاشة العرض)
+app.get('/api/game/activities-with-rooms', async (_req, res) => {
+  try {
+    const rooms = Array.from(activeRooms.values());
+
+    // تجميع الغرف حسب النشاط
+    const activitiesMap = new Map<string, { activityId: number | null; activityName: string; rooms: any[] }>();
+
+    for (const r of rooms) {
+      const key = r.activityId ? String(r.activityId) : 'unlinked';
+      if (!activitiesMap.has(key)) {
+        activitiesMap.set(key, {
+          activityId: r.activityId || null,
+          activityName: r.activityName || (r.activityId ? 'نشاط #' + r.activityId : 'بدون نشاط'),
+          rooms: [],
+        });
+      }
+      activitiesMap.get(key)!.rooms.push({
+        roomId: r.roomId,
+        roomCode: r.roomCode,
+        gameName: r.gameName,
+        playerCount: r.playerCount,
+        maxPlayers: r.maxPlayers,
+      });
+    }
+
+    // جلب أسماء الأنشطة الناقصة من DB
+    const { getDB } = await import('./config/db.js');
+    const db = getDB();
+    if (db) {
+      const { eq } = await import('drizzle-orm');
+      const { activities } = await import('./schemas/admin.schema.js');
+      for (const [key, group] of activitiesMap) {
+        if (group.activityId && group.activityName.startsWith('نشاط #')) {
+          try {
+            const [act] = await db.select({ title: activities.title }).from(activities).where(eq(activities.id, group.activityId)).limit(1);
+            if (act) group.activityName = act.title;
+          } catch {}
+        }
+      }
+    }
+
+    res.json({ success: true, activities: Array.from(activitiesMap.values()) });
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
 });
 
 // POST /api/game/verify-pin — التحقق من PIN شاشة العرض
