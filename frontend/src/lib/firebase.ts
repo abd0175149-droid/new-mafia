@@ -121,7 +121,7 @@ export async function requestNotificationPermission(): Promise<string | null> {
       console.log('🔔 Creating new push subscription...');
       subscription = await swReg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
+        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY) as BufferSource,
       });
     }
 
