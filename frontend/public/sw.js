@@ -174,15 +174,28 @@ self.addEventListener('push', (event) => {
   const url = resolveNotificationUrl(type, fcmData);
 
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/mafia_logo.png',
-      badge: '/mafia_logo.png',
-      tag: type || 'default',
-      data: { url, type, ...fcmData },
-      vibrate: [200, 100, 200],
-      requireInteraction: true,
-      renotify: true,
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // إذا التطبيق مفتوح ومركّز → أرسل postMessage (بانر داخلي)
+      const focusedClient = clients.find((c) => c.focused);
+      if (focusedClient) {
+        focusedClient.postMessage({
+          type: 'PUSH_RECEIVED',
+          payload: { title, body, data: { url, type, ...fcmData } },
+        });
+        return; // لا تعرض notification نظام
+      }
+
+      // التطبيق في الخلفية أو مغلق → notification نظام عادي
+      return self.registration.showNotification(title, {
+        body,
+        icon: '/mafia_logo.png',
+        badge: '/mafia_logo.png',
+        tag: type || 'default',
+        data: { url, type, ...fcmData },
+        vibrate: [200, 100, 200],
+        requireInteraction: true,
+        renotify: true,
+      });
     })
   );
 });

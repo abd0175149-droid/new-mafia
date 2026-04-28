@@ -1048,26 +1048,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           return;
         }
 
-        // ── الغرفة النشطة مختلفة عن الهدف ──
+        // ── الغرفة النشطة مختلفة عن الهدف → عرض تأكيد التبديل ──
         if (roomId && ag.roomId !== roomId) {
-          // اللاعب حي → يرجع لغرفته الحالية تلقائياً (لا خيار تبديل)
-          if (ag.isAlive !== false) {
-            setRoomId(ag.roomId);
-            setRoomCode(ag.roomCode || roomCode);
-            setPhysicalId(String(ag.physicalId));
-            setGameName(ag.gameName || gameName);
-            if (ag.role) setAssignedRole(ag.role);
-            localStorage.setItem('mafia_session', JSON.stringify({
-              roomId: ag.roomId, physicalId: ag.physicalId,
-              phone: playerPhone.startsWith('0') ? playerPhone : '0' + playerPhone,
-              displayName, roomCode: ag.roomCode || roomCode, playerId: pid,
-            }));
-            setStep('rejoined');
-            setApiError('أنت لا تزال على قيد الحياة في لعبة أخرى — لا يمكنك الانتقال');
-            return;
-          }
-
-          // اللاعب ميت → عرض نافذة تأكيد التبديل
           setSwitchConfirm({
             currentRoomId: ag.roomId,
             currentGameName: ag.gameName || 'غرفة نشطة',
@@ -2368,7 +2350,27 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               {/* الأزرار */}
               <div className="flex gap-3">
                 <button
-                  onClick={() => setSwitchConfirm(null)}
+                  onClick={() => {
+                    // ابقى في الغرفة الحالية → حاول rejoin
+                    if (switchConfirm && emit) {
+                      const normalized = phone.startsWith('0') ? phone : '0' + phone;
+                      emit('room:rejoin-player', {
+                        roomId: switchConfirm.currentRoomId,
+                        physicalId: 0,
+                        phone: normalized,
+                      }).then((res: any) => {
+                        if (res?.success && res.player) {
+                          setRoomId(switchConfirm.currentRoomId);
+                          setPhysicalId(String(res.player.physicalId));
+                          setDisplayName(res.player.name);
+                          if (res.player.role) setAssignedRole(res.player.role);
+                          if (!res.player.isAlive) { setIsPlayerDead(true); setCardFlipped(true); }
+                          setStep('rejoined');
+                        }
+                      }).catch(() => {});
+                    }
+                    setSwitchConfirm(null);
+                  }}
                   disabled={switchLoading}
                   className="flex-1 py-3 rounded-xl border border-[#333] bg-black/60 text-[#888] font-bold text-sm transition-all hover:border-[#555] hover:text-white disabled:opacity-50"
                   style={{ fontFamily: 'Amiri, serif' }}

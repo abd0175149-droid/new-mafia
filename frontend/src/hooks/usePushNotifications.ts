@@ -150,8 +150,19 @@ export function usePushNotifications() {
       }).catch(() => {});
     }
 
+    // ── استقبال WebPush من SW (iOS) — تحديث الإشعارات ──
+    const swHandler = (event: MessageEvent) => {
+      if (event.data?.type === 'PUSH_RECEIVED') {
+        fetchNotifications();
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', swHandler);
+
     const interval = setInterval(fetchNotifications, 60000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      navigator.serviceWorker?.removeEventListener('message', swHandler);
+    };
   }, [player, fetchNotifications, permissionState]);
 
   return {
