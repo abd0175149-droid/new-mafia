@@ -116,7 +116,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       if (player.playerId) {
         sendPushToPlayer(player.playerId, '✅ تم الحجز', `تم تأكيد حجزك في ${activity.name}`, 'booking_confirmed', {
           activityId,
-          url: '/player/games',
+          url: '/player/home',
         });
       }
     }).catch(() => {});

@@ -82,6 +82,26 @@ self.addEventListener('fetch', (event) => {
 // 🔔 Push Notifications — Firebase FCM (iOS + Android)
 // ══════════════════════════════════════════════════════
 
+// ── تحديد URL التوجيه حسب نوع الإشعار ──
+function resolveNotificationUrl(type, data) {
+  switch (type) {
+    case 'activity_started':
+      return data.roomCode
+        ? `/player/join?code=${data.roomCode}`
+        : '/player/home';
+    case 'new_activity':
+      return '/player/home';
+    case 'booking_confirmed':
+      return '/player/home';
+    case 'game_ended':
+      return '/player/home';
+    case 'custom':
+      return data.url || '/player/home';
+    default:
+      return data.url || '/player/home';
+  }
+}
+
 // ── استقبال Push عندما التطبيق مغلق/background ──
 self.addEventListener('push', (event) => {
   if (!event.data) return;
@@ -93,30 +113,23 @@ self.addEventListener('push', (event) => {
     payload = { notification: { title: 'نادي المافيا', body: event.data.text() } };
   }
 
-  // FCM notification payload — استخراج البيانات
   const notification = payload.notification || {};
   const fcmData = payload.data || {};
 
-  // إذا FCM أرسل notification مباشرة (بعض المتصفحات تعرضها تلقائياً)
-  // لكن iOS Safari لا يعرضها — لازم showNotification يدوياً
   const title = notification.title || fcmData.title || '🎭 نادي المافيا';
   const body = notification.body || fcmData.body || '';
+  const type = fcmData.type || notification.tag || '';
+  const url = resolveNotificationUrl(type, fcmData);
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       icon: '/mafia_logo.png',
       badge: '/mafia_logo.png',
-      tag: fcmData.type || notification.tag || 'default',
-      data: {
-        url: fcmData.url || notification.data?.url || '/player/home',
-        type: fcmData.type || '',
-      },
-      // iOS Safari لا يدعم vibrate — نتجاهلها بأمان
+      tag: type || 'default',
+      data: { url, type, ...fcmData },
       vibrate: [200, 100, 200],
-      // مطلوب لـ iOS: أن الإشعار يبقى حتى يضغطه المستخدم
       requireInteraction: true,
-      // iOS يحتاج renotify مع tag
       renotify: true,
     })
   );
@@ -125,19 +138,19 @@ self.addEventListener('push', (event) => {
 // ── فتح التطبيق عند الضغط على الإشعار ──
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/player/home';
+
+  const data = event.notification.data || {};
+  const url = data.url || resolveNotificationUrl(data.type, data);
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clients) => {
-        // لو التطبيق مفتوح → انتقل للصفحة
         for (const client of clients) {
           if (client.url.includes(self.location.origin)) {
             client.navigate(url);
             return client.focus();
           }
         }
-        // لو مغلق → افتح صفحة جديدة
         return self.clients.openWindow(url);
       })
   );
