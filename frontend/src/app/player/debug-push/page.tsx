@@ -166,7 +166,7 @@ export default function DebugPushPage() {
 
             // 8. إرسال Token للسيرفر
             log('📤 جاري إرسال Token للسيرفر...');
-            const playerData = localStorage.getItem('mafia_player');
+            const playerData = localStorage.getItem('mafia_player_auth');
             if (playerData) {
               const player = JSON.parse(playerData);
               const res = await fetch('/api/player-notifications/register-token', {
@@ -190,7 +190,7 @@ export default function DebugPushPage() {
       } else {
         // FCM نجح — سجل Token
         log('📤 جاري إرسال FCM Token للسيرفر...');
-        const playerData = localStorage.getItem('mafia_player');
+        const playerData = localStorage.getItem('mafia_player_auth');
         if (playerData) {
           const player = JSON.parse(playerData);
           const res = await fetch('/api/player-notifications/register-token', {
