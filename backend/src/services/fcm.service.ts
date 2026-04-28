@@ -10,6 +10,64 @@ import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas
 import { notifications, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 
+// ── Web Push لدعم Safari/iOS (lazy init) ──
+let webpushModule: any = null;
+let webpushInitialized = false;
+
+async function getWebPush() {
+  if (webpushInitialized) return webpushModule;
+  webpushInitialized = true;
+  try {
+    webpushModule = await import('web-push');
+    const VAPID_PUBLIC = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BFGiTspOQlBQjZHxS8JRZREtw81LVVtB0JJyumRbi2TGBvZ7C78naUFtCfGVO6Etllyw9Nam2gi3XQJeJcGr0qk';
+    const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
+
+    if (VAPID_PRIVATE) {
+      webpushModule.setVapidDetails('mailto:admin@club-mafia.grade.sbs', VAPID_PUBLIC, VAPID_PRIVATE);
+      console.log('✅ web-push initialized with VAPID keys');
+    } else {
+      console.warn('⚠️ VAPID_PRIVATE_KEY not set — WebPush fallback disabled');
+      webpushModule = null;
+    }
+  } catch (err: any) {
+    console.warn('⚠️ web-push module not available:', err.message);
+    webpushModule = null;
+  }
+  return webpushModule;
+}
+
+// ── إرسال عبر Web Push API (Safari/iOS) ──
+async function sendWebPush(subscriptionJson: string, title: string, body: string, type: string, data: Record<string, any> = {}) {
+  const wp = await getWebPush();
+  if (!wp) return false;
+  try {
+    const subscription = JSON.parse(subscriptionJson);
+    await wp.sendNotification(subscription, JSON.stringify({
+      notification: { title, body },
+      data: { type, url: data.url || '/player/home', ...data },
+    }));
+    return true;
+  } catch (err: any) {
+    console.error('❌ WebPush send error:', err.message);
+    return false;
+  }
+}
+
+// ── فصل tokens: FCM عادي vs WebPush ──
+function splitTokens(allTokens: { token: string }[]): { fcmTokens: string[]; webpushSubs: { token: string; sub: string }[] } {
+  const fcmTokens: string[] = [];
+  const webpushSubs: { token: string; sub: string }[] = [];
+
+  for (const t of allTokens) {
+    if (t.token.startsWith('WEBPUSH::')) {
+      webpushSubs.push({ token: t.token, sub: t.token.slice(9) }); // إزالة "WEBPUSH::"
+    } else {
+      fcmTokens.push(t.token);
+    }
+  }
+  return { fcmTokens, webpushSubs };
+}
+
 // ── بناء payload متوافق مع iOS Safari + Android + Desktop ──
 function buildFCMPayload(
   tokens: string[],
@@ -121,30 +179,43 @@ export async function sendPushToPlayer(
   });
 
   // إرسال Push
-  const messaging = getMessaging();
-  if (!messaging) return;
-
   const tokens = await db.select({ token: playerFcmTokens.fcmToken })
     .from(playerFcmTokens)
     .where(and(eq(playerFcmTokens.playerId, playerId), eq(playerFcmTokens.isActive, true)));
 
   if (tokens.length === 0) return;
 
-  try {
-    const response = await messaging.sendEachForMulticast(
-      buildFCMPayload(tokens.map(t => t.token), title, body, type, data)
-    );
+  const { fcmTokens, webpushSubs } = splitTokens(tokens);
 
-    // تنظيف tokens الفاشلة
-    response.responses.forEach((r, i) => {
-      if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
-        db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, tokens[i].token)).catch(() => {});
+  // إرسال عبر FCM (Chrome/Firefox/Edge)
+  if (fcmTokens.length > 0) {
+    const messaging = getMessaging();
+    if (messaging) {
+      try {
+        const response = await messaging.sendEachForMulticast(
+          buildFCMPayload(fcmTokens, title, body, type, data)
+        );
+        response.responses.forEach((r, i) => {
+          if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
+            db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, fcmTokens[i])).catch(() => {});
+          }
+        });
+        console.log(`🔔 FCM push to player #${playerId}: ${response.successCount}/${fcmTokens.length}`);
+      } catch (err: any) {
+        console.error(`❌ FCM push to player #${playerId}:`, err.message);
       }
-    });
+    }
+  }
 
-    console.log(`🔔 Push sent to player #${playerId}: ${response.successCount}/${tokens.length}`);
-  } catch (err: any) {
-    console.error(`❌ Push to player #${playerId}:`, err.message);
+  // إرسال عبر Web Push API (Safari/iOS)
+  for (const wp of webpushSubs) {
+    const ok = await sendWebPush(wp.sub, title, body, type, data);
+    if (ok) {
+      console.log(`🍎 WebPush sent to player #${playerId}`);
+    } else {
+      // إزالة الاشتراك الفاشل
+      db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
+    }
   }
 }
 
@@ -164,30 +235,43 @@ export async function sendPushToPlayers(
   await db.insert(playerNotifications).values(rows);
 
   // جلب tokens
-  const messaging = getMessaging();
-  if (!messaging) return;
-
   const tokenRows = await db.select({ token: playerFcmTokens.fcmToken })
     .from(playerFcmTokens)
     .where(and(inArray(playerFcmTokens.playerId, playerIds), eq(playerFcmTokens.isActive, true)));
 
   if (tokenRows.length === 0) return;
 
-  try {
-    const response = await messaging.sendEachForMulticast(
-      buildFCMPayload(tokenRows.map(t => t.token), title, body, type, data)
-    );
+  const { fcmTokens, webpushSubs } = splitTokens(tokenRows);
 
-    // تنظيف tokens الفاشلة
-    response.responses.forEach((r, i) => {
-      if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
-        db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, tokenRows[i].token)).catch(() => {});
+  // FCM
+  if (fcmTokens.length > 0) {
+    const messaging = getMessaging();
+    if (messaging) {
+      try {
+        const response = await messaging.sendEachForMulticast(
+          buildFCMPayload(fcmTokens, title, body, type, data)
+        );
+        response.responses.forEach((r, i) => {
+          if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
+            db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, fcmTokens[i])).catch(() => {});
+          }
+        });
+        console.log(`🔔 FCM push to ${playerIds.length} players: ${response.successCount} delivered`);
+      } catch (err: any) {
+        console.error('❌ FCM push to players:', err.message);
       }
-    });
+    }
+  }
 
-    console.log(`🔔 Push sent to ${playerIds.length} players: ${response.successCount} delivered`);
-  } catch (err: any) {
-    console.error('❌ Push to players:', err.message);
+  // WebPush (Safari/iOS)
+  let wpSuccess = 0;
+  for (const wp of webpushSubs) {
+    const ok = await sendWebPush(wp.sub, title, body, type, data);
+    if (ok) wpSuccess++;
+    else db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
+  }
+  if (webpushSubs.length > 0) {
+    console.log(`🍎 WebPush sent: ${wpSuccess}/${webpushSubs.length}`);
   }
 }
 

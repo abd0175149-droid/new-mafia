@@ -1,5 +1,6 @@
 // ══════════════════════════════════════════════════════
 // 🔥 Firebase Client — تهيئة Firebase في الفرونت إند
+// يدعم: Chrome/Firefox/Edge عبر FCM + Safari/iOS عبر Push API
 // ══════════════════════════════════════════════════════
 
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
@@ -39,29 +40,105 @@ export function getFirebaseMessaging(): Messaging | null {
   try {
     messaging = getMessaging(fbApp);
     return messaging;
-  } catch {
+  } catch (err) {
+    console.warn('⚠️ Firebase Messaging init failed:', err);
     return null;
   }
 }
 
+// ── هل المتصفح Safari/iOS؟ ──
+function isSafari(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /Safari/.test(ua) && !/Chrome/.test(ua);
+}
+
+// ── تحويل VAPID key من Base64 URL لـ Uint8Array ──
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 export async function requestNotificationPermission(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
-  if (!('Notification' in window)) return null;
+  if (!('Notification' in window)) {
+    console.warn('⚠️ Notification API not available');
+    return null;
+  }
 
   const permission = await Notification.requestPermission();
+  console.log('🔔 Notification permission:', permission);
   if (permission !== 'granted') return null;
 
+  // الخطوة 1: محاولة FCM أولاً
   const m = getFirebaseMessaging();
-  if (!m || !VAPID_KEY) return null;
+  if (m && VAPID_KEY) {
+    try {
+      console.log('🔔 Attempting FCM getToken...');
+      
+      // تسجيل Firebase Messaging SW — مطلوب لـ FCM على كل المتصفحات
+      let fcmSwReg: ServiceWorkerRegistration;
+      try {
+        fcmSwReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        // انتظر حتى يكون جاهز
+        await navigator.serviceWorker.ready;
+        console.log('🔔 Firebase Messaging SW registered, scope:', fcmSwReg.scope);
+      } catch (swErr) {
+        console.warn('⚠️ Firebase SW registration failed, using default:', swErr);
+        fcmSwReg = await navigator.serviceWorker.ready;
+      }
 
+      const token = await getToken(m, {
+        vapidKey: VAPID_KEY,
+        serviceWorkerRegistration: fcmSwReg,
+      });
+
+      if (token) {
+        console.log('✅ FCM token obtained:', token.substring(0, 20) + '...');
+        return token;
+      }
+      console.warn('⚠️ FCM getToken returned null/empty');
+    } catch (err) {
+      console.warn('⚠️ FCM getToken failed, trying native Push API:', err);
+    }
+  }
+
+  // الخطوة 2: Fallback — Push API مباشر (Safari iOS/macOS)
+  console.log('🔔 Falling back to native Push API (Safari)...');
   try {
-    const token = await getToken(m, {
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: await navigator.serviceWorker.ready,
-    });
-    return token;
+    const swReg = await navigator.serviceWorker.ready;
+    
+    // فحص إذا فيه اشتراك موجود
+    let subscription = await swReg.pushManager.getSubscription();
+    
+    if (!subscription) {
+      console.log('🔔 Creating new push subscription...');
+      subscription = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
+      });
+    }
+
+    if (!subscription) {
+      console.error('❌ Failed to create push subscription');
+      return null;
+    }
+
+    // نحوّل الـ subscription لنص JSON ونرسله كـ "token"
+    // الباكند سيتعرف عليه بالبادئة WEBPUSH::
+    const subJson = JSON.stringify(subscription.toJSON());
+    const webpushToken = 'WEBPUSH::' + subJson;
+    
+    console.log('✅ Native push subscription created:', subscription.endpoint.substring(0, 50) + '...');
+    return webpushToken;
   } catch (err) {
-    console.error('FCM getToken error:', err);
+    console.error('❌ Native Push API also failed:', err);
     return null;
   }
 }
