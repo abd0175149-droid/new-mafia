@@ -77,7 +77,7 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
       router.replace('/player/login');
     }
 
-    if (player && isPublic) {
+    if (player && isPublic && pathname === '/player/login') {
       router.replace('/player/home');
     }
   }, [player, isLoading, isPublic, isGamePage, router]);
