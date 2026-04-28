@@ -81,31 +81,37 @@ export default function DebugPushPage() {
       await navigator.serviceWorker.ready;
       log('⚙️ SW جاهز ✅');
 
-      // 6. محاولة FCM (Firebase)
-      log('🔥 جاري محاولة FCM...');
+      // 6. محاولة FCM (Firebase) — فقط على Android/Chrome, ليس iOS!
       let fcmToken: string | null = null;
-      try {
-        const { getFirebaseMessaging } = await import('@/lib/firebase');
-        const m = getFirebaseMessaging();
-        log(`🔥 Firebase Messaging object: ${m ? 'موجود' : 'null'}`);
-        
-        if (m) {
-          const { getToken } = await import('firebase/messaging');
-          const VAPID_KEY = 'BFGiTspOQlBQjZHxS8JRZREtw81LVVtB0JJyumRbi2TGBvZ7C78naUFtCfGVO6Etllyw9Nam2gi3XQJeJcGr0qk';
-          log('🔥 جاري getToken...');
-          fcmToken = await getToken(m, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
-          if (fcmToken) {
-            log(`✅ FCM Token: ${fcmToken.substring(0, 30)}...`);
-            log(`📝 Token type: FCM (Android/Chrome)`);
-          } else {
-            log('⚠️ FCM getToken رجع null');
+      const isIOSSafari = isIOS && isSafari;
+      
+      if (isIOSSafari) {
+        log('🍎 iOS Safari → نتجاوز FCM (tokens وهمية!) → Web Push API مباشرة');
+      } else {
+        log('🔥 جاري محاولة FCM...');
+        try {
+          const { getFirebaseMessaging } = await import('@/lib/firebase');
+          const m = getFirebaseMessaging();
+          log(`🔥 Firebase Messaging object: ${m ? 'موجود' : 'null'}`);
+          
+          if (m) {
+            const { getToken } = await import('firebase/messaging');
+            const VAPID_KEY = 'BFGiTspOQlBQjZHxS8JRZREtw81LVVtB0JJyumRbi2TGBvZ7C78naUFtCfGVO6Etllyw9Nam2gi3XQJeJcGr0qk';
+            log('🔥 جاري getToken...');
+            fcmToken = await getToken(m, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
+            if (fcmToken) {
+              log(`✅ FCM Token: ${fcmToken.substring(0, 30)}...`);
+              log(`📝 Token type: FCM (Android/Chrome)`);
+            } else {
+              log('⚠️ FCM getToken رجع null');
+            }
           }
+        } catch (fcmErr: any) {
+          log(`⚠️ FCM فشل: ${fcmErr.message}`);
         }
-      } catch (fcmErr: any) {
-        log(`⚠️ FCM فشل: ${fcmErr.message}`);
       }
 
-      // 7. محاولة Web Push API (fallback لـ iOS)
+      // 7. محاولة Web Push API (لـ iOS أو fallback)
       if (!fcmToken) {
         log('🍎 جاري محاولة Web Push API (iOS fallback)...');
         try {
