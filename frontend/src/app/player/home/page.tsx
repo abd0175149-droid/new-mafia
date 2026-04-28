@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
 import { NotificationBell } from '@/components/NotificationBell';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 const WHATSAPP_NUMBER = '962793390966';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
@@ -62,6 +63,9 @@ export default function HomePage() {
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
         <NotificationBell />
       </div>
+
+      {/* ── بانر تفعيل الإشعارات ── */}
+      <PushBanner />
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -435,4 +439,105 @@ function groupFeedBySession(feed: any[]): any[] {
   });
 
   return groups;
+}
+
+// ══════════════════════════════════════════════════════
+// 🔔 بانر تفعيل الإشعارات — يظهر مرة واحدة
+// ══════════════════════════════════════════════════════
+function PushBanner() {
+  const { permissionState, needsInstall, requestPermission } = usePushNotifications();
+  const [dismissed, setDismissed] = useState(false);
+  const [enabling, setEnabling] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const d = localStorage.getItem('push_banner_dismissed');
+      if (d) setDismissed(true);
+    }
+  }, []);
+
+  const dismiss = () => {
+    setDismissed(true);
+    localStorage.setItem('push_banner_dismissed', '1');
+  };
+
+  // لا تعرض إذا: ممنوح / مرفوض / أخفاه المستخدم
+  if (dismissed || permissionState === 'granted' || permissionState === 'denied') return null;
+
+  // ── iOS بدون PWA ──
+  if (needsInstall) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          background: 'linear-gradient(135deg, rgba(245,158,11,0.1), rgba(245,158,11,0.03))',
+          border: '1px solid rgba(245,158,11,0.2)',
+          borderRadius: 14, padding: '14px 16px', position: 'relative',
+        }}
+      >
+        <button onClick={dismiss} style={{
+          position: 'absolute', top: 8, left: 8, background: 'none', border: 'none',
+          color: 'rgba(255,255,255,0.3)', fontSize: 16, cursor: 'pointer', lineHeight: 1,
+        }}>✕</button>
+        <div style={{ color: '#f59e0b', fontWeight: 700, fontSize: 14, marginBottom: 6 }}>
+          📱 فعّل الإشعارات على iPhone
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, lineHeight: 1.7 }}>
+          1. اضغط <span style={{ fontSize: 15 }}>⎙</span> (مشاركة) في أسفل Safari<br/>
+          2. اختر <strong style={{ color: '#fff' }}>"إضافة إلى الشاشة الرئيسية"</strong><br/>
+          3. افتح التطبيق من الشاشة الرئيسية ثم فعّل الإشعارات
+        </div>
+      </motion.div>
+    );
+  }
+
+  // ── زر تفعيل عادي (Android / Desktop / iOS PWA) ──
+  if (permissionState === 'prompt') {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        style={{
+          background: 'linear-gradient(135deg, rgba(59,130,246,0.1), rgba(59,130,246,0.03))',
+          border: '1px solid rgba(59,130,246,0.2)',
+          borderRadius: 14, padding: '14px 16px',
+          display: 'flex', alignItems: 'center', gap: 12, position: 'relative',
+        }}
+      >
+        <button onClick={dismiss} style={{
+          position: 'absolute', top: 8, left: 8, background: 'none', border: 'none',
+          color: 'rgba(255,255,255,0.3)', fontSize: 16, cursor: 'pointer', lineHeight: 1,
+        }}>✕</button>
+        <div style={{ fontSize: 28 }}>🔔</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: '#fff', fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
+            لا تفوّت أي تحديث!
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>
+            فعّل الإشعارات لتصلك أخبار الأنشطة والألعاب
+          </div>
+        </div>
+        <button
+          onClick={async () => {
+            setEnabling(true);
+            const ok = await requestPermission();
+            setEnabling(false);
+            if (ok) dismiss();
+          }}
+          disabled={enabling}
+          style={{
+            padding: '8px 18px', borderRadius: 10, border: 'none',
+            background: enabling ? 'rgba(59,130,246,0.3)' : '#3b82f6',
+            color: '#fff', fontWeight: 600, fontSize: 13,
+            cursor: enabling ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          {enabling ? '⏳' : 'تفعيل'}
+        </button>
+      </motion.div>
+    );
+  }
+
+  return null;
 }
