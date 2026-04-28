@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
+import { useSearchParams } from 'next/navigation';
 
 type Tab = 'upcoming' | 'history';
 
@@ -13,7 +14,7 @@ const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: st
   expert: { label: 'خبير', color: '#a855f7', icon: '🟣' },
 };
 
-export default function GamesPage() {
+function GamesContent() {
   const { player } = usePlayer();
   const [tab, setTab] = useState<Tab>('upcoming');
   const [activities, setActivities] = useState<any[]>([]);
@@ -27,6 +28,9 @@ export default function GamesPage() {
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [confirmBooking, setConfirmBooking] = useState<any>(null);
   const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
+  const [offerError, setOfferError] = useState(false);
+  const searchParams = useSearchParams();
+  const highlightActivityId = searchParams.get('activityId');
 
   useEffect(() => {
     if (!player) return;
@@ -53,6 +57,14 @@ export default function GamesPage() {
       }
     }).finally(() => setLoading(false));
   }, [player]);
+
+  // ── فتح كارد النشاط تلقائياً من الإشعار ──
+  useEffect(() => {
+    if (highlightActivityId && activities.length > 0 && !selectedActivity) {
+      const act = activities.find(a => String(a.id) === highlightActivityId);
+      if (act) setSelectedActivity(act);
+    }
+  }, [highlightActivityId, activities]);
 
   const isBooked = (activityId: number) => myBookings.some(b => b.activityId === activityId);
 
@@ -508,12 +520,15 @@ export default function GamesPage() {
                 if (offers.length === 0) return null;
                 return (
                   <div className="mb-4">
-                    <p className="text-gray-400 text-xs mb-2">🎁 اختر عرض (اختياري):</p>
+                    <p className="text-gray-400 text-xs mb-2">🎁 اختر عرض <span className="text-red-400">*</span>:</p>
                     <div className="space-y-1.5">
                       {offers.map((offer: any, idx: number) => (
                         <button
                           key={idx}
-                          onClick={() => setSelectedOffer(selectedOffer === idx ? null : idx)}
+                          onClick={() => {
+                            setSelectedOffer(selectedOffer === idx ? null : idx);
+                            setOfferError(false);
+                          }}
                           className={`w-full text-right p-2.5 rounded-xl text-xs transition-all ${
                             selectedOffer === idx
                               ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
@@ -524,7 +539,10 @@ export default function GamesPage() {
                           {offer.price && <span className="text-gray-500 mr-2">• {offer.price} ₪</span>}
                         </button>
                       ))}
-                    </div>
+                  </div>
+                    {offerError && (
+                      <p className="text-red-400 text-[10px] text-center mt-1 animate-pulse">⚠️ يرجى اختيار عرض قبل تأكيد الحجز</p>
+                    )}
                   </div>
                 );
               })()}
@@ -538,7 +556,15 @@ export default function GamesPage() {
                   إلغاء
                 </button>
                 <button
-                  onClick={() => handleBook(confirmBooking.id, selectedOffer ?? undefined)}
+                  onClick={() => {
+                    const offers: any[] = Array.isArray(confirmBooking.locationOffers) ? confirmBooking.locationOffers : [];
+                    if (offers.length > 0 && selectedOffer === null) {
+                      setOfferError(true);
+                      return;
+                    }
+                    setOfferError(false);
+                    handleBook(confirmBooking.id, selectedOffer ?? undefined);
+                  }}
                   disabled={bookingLoading === confirmBooking.id}
                   className="flex-1 py-3 rounded-xl text-sm font-medium text-black disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg, #fbbf24, #f59e0b)' }}
@@ -551,5 +577,17 @@ export default function GamesPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function GamesPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="w-10 h-10 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+      </div>
+    }>
+      <GamesContent />
+    </Suspense>
   );
 }

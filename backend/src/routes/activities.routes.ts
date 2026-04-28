@@ -337,7 +337,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   import('../services/fcm.service.js').then(({ sendPushToAllPlayers, sendPushToStaffByPermission }) => {
     sendPushToAllPlayers('📅 نشاط جديد', `تم إضافة نشاط: ${name}`, 'new_activity', {
       activityId: activity.id,
-      url: '/player/home',
+      url: `/player/games?activityId=${activity.id}`,
     });
     sendPushToStaffByPermission('activities', '📅 نشاط جديد', `تم جدولة نشاط: ${name}`, 'new_activity', {
       targetId: `activity-${activity.id}`,

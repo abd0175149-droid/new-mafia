@@ -90,7 +90,9 @@ function resolveNotificationUrl(type, data) {
         ? `/player/join?code=${data.roomCode}`
         : '/player/home';
     case 'new_activity':
-      return '/player/home';
+      return data.activityId
+        ? `/player/games?activityId=${data.activityId}`
+        : '/player/games';
     case 'booking_confirmed':
       return '/player/home';
     case 'game_ended':

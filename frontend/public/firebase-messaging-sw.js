@@ -73,8 +73,10 @@ function resolveNotificationUrl(type, data) {
         : '/player/home';
     
     case 'new_activity':
-      // نشاط جديد → الصفحة الرئيسية (فيها الأنشطة القادمة)
-      return '/player/home';
+      // نشاط جديد → صفحة الألعاب مع فتح كارد النشاط
+      return data.activityId
+        ? `/player/games?activityId=${data.activityId}`
+        : '/player/games';
     
     case 'booking_confirmed':
       // تم الحجز → الصفحة الرئيسية
