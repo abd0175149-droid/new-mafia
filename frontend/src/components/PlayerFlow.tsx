@@ -106,6 +106,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [playerId, setPlayerId] = useState<number | null>(null);
   const [apiError, setApiError] = useState('');
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
+  const [seatMap, setSeatMap] = useState<{seat: number; name: string}[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   // ── توزيع الأدوار الرقمي ──
@@ -840,6 +841,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (res.occupiedSeats && Array.isArray(res.occupiedSeats)) {
         setOccupiedSeats(res.occupiedSeats);
       }
+      if (res.seatMap && Array.isArray(res.seatMap)) {
+        setSeatMap(res.seatMap);
+      }
 
       // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
       // نقرأ من localStorage كـ fallback لأن الـ state ممكن ما اتحدث بعد
@@ -1201,8 +1205,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   };
 
-  // ── المقاعد المتاحة فقط ──
-  const availableSeats = Array.from({ length: maxPlayers }, (_, i) => i + 1).filter(
+  const allSeats = Array.from({ length: maxPlayers }, (_, i) => i + 1);
+  const availableSeats = allSeats.filter(
     num => !occupiedSeats.includes(num)
   );
 
@@ -1546,7 +1550,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-center mb-8 border-b border-[#2a2a2a]/40 pb-6">
                 <div className="mb-4 text-[#C5A059] flex justify-center"><SeatIcon /></div>
                 <h2 className="text-2xl font-black mb-2 text-white truncate" style={{ fontFamily: 'Amiri, serif' }}>مرحباً {displayName}</h2>
-                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>اختر المقعد المخصص لك</p>
+                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>اختر رقم مقعدك</p>
               </div>
 
               {availableSeats.length === 0 ? (
@@ -1555,19 +1559,29 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 </div>
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-3 mb-6">
-                  {availableSeats.map(num => {
+                  {allSeats.map(num => {
+                    const isOccupied = occupiedSeats.includes(num);
                     const isSelected = physicalId === String(num);
+                    const occupant = seatMap.find(s => s.seat === num);
                     return (
                       <button
                         key={num}
-                        onClick={() => setPhysicalId(String(num))}
-                        className={`p-3 font-mono font-black text-xl rounded-lg border transition-all ${
-                          isSelected
-                            ? 'bg-[#C5A059] text-black border-[#C5A059] shadow-[0_0_20px_rgba(197,160,89,0.3)] scale-105'
-                            : 'bg-black/40 text-white border-[#2a2a2a] hover:border-[#C5A059]/50 hover:bg-[#0a0a0a]'
+                        onClick={() => !isOccupied && setPhysicalId(String(num))}
+                        disabled={isOccupied}
+                        className={`relative p-3 font-mono font-black text-xl rounded-lg border transition-all ${
+                          isOccupied
+                            ? 'bg-[#1a1a1a] text-[#555] border-[#222] cursor-not-allowed opacity-60'
+                            : isSelected
+                              ? 'bg-[#C5A059] text-black border-[#C5A059] shadow-[0_0_20px_rgba(197,160,89,0.3)] scale-105'
+                              : 'bg-black/40 text-white border-[#2a2a2a] hover:border-[#C5A059]/50 hover:bg-[#0a0a0a]'
                         }`}
                       >
                         {num}
+                        {isOccupied && occupant && (
+                          <span className="absolute -bottom-1 left-0 right-0 text-[8px] text-[#666] truncate px-1" style={{ fontFamily: 'Amiri, serif' }}>
+                            {occupant.name.split(' ')[0]}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
