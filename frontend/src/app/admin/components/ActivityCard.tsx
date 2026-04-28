@@ -40,15 +40,35 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'ملغي' },
 ];
 
-function safeDate(date: any): Date {
-  if (!date) return new Date();
-  return new Date(date);
+// عرض التاريخ والوقت بدون تحويل timezone
+function formatActivityDate(dateStr: any): { date: string; time: string } {
+  if (!dateStr) return { date: '—', time: '' };
+  const s = String(dateStr);
+  // التاريخ يأتي بصيغة "2026-04-28T18:30:00" أو "2026-04-28T18:30:00.000Z"
+  const match = s.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (match) {
+    const [, y, m, d, h, min] = match;
+    const hour = parseInt(h);
+    const period = hour >= 12 ? 'م' : 'ص';
+    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return {
+      date: `${d}/${m}/${y}`,
+      time: `${hour12}:${min} ${period}`,
+    };
+  }
+  // fallback
+  const dt = new Date(s);
+  return {
+    date: dt.toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' }),
+    time: '',
+  };
 }
 
 export default function ActivityCard({ activity, stats, onDelete, onStatusChange, onSelect, onEdit, userRole }: ActivityCardProps) {
   const status = STATUS_MAP[activity.status] || STATUS_MAP.planned;
   const isLocked = activity.isLocked;
   const isLocationOwner = userRole === 'location_owner';
+  const actDate = formatActivityDate(activity.date);
 
   return (
     <motion.div
@@ -73,7 +93,8 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
           </div>
           {/* التاريخ */}
           <span className="text-xs text-gray-500 font-mono">
-            {safeDate(activity.date).toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+            {actDate.date}
+            {actDate.time && <> <span className="text-amber-400/70">{actDate.time}</span></>}
           </span>
         </div>
 

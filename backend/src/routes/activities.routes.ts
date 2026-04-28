@@ -238,7 +238,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   const result = await db.insert(activities).values({
     name,
-    date: new Date(date),
+    date: date,
     description: description || '',
     basePrice: String(basePrice || 0),
     status: status || 'planned',
@@ -375,7 +375,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
-  if (date !== undefined) updates.date = new Date(date);
+  if (date !== undefined) updates.date = date;
   if (description !== undefined) updates.description = description;
   if (basePrice !== undefined) updates.basePrice = String(basePrice);
   if (status !== undefined) updates.status = status;

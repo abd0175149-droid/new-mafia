@@ -22,12 +22,26 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   const [driveLink, setDriveLink] = useState(activity.driveLink || '');
   const [submitting, setSubmitting] = useState(false);
 
-  // تحويل التاريخ لصيغة datetime-local
+  // تحويل التاريخ لصيغة datetime-local — بدون تحويل timezone
   useEffect(() => {
     if (activity.date) {
-      const d = new Date(activity.date);
-      const pad = (n: number) => String(n).padStart(2, '0');
-      setDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+      const s = String(activity.date);
+      // استخراج التاريخ والوقت مباشرة من النص بدون new Date()
+      const match = s.match(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+      if (match) {
+        setDate(`${match[1]}T${match[2]}`);
+      } else {
+        // fallback: إذا الصيغة مختلفة (مثلاً "2026-04-28 18:30:00")
+        const match2 = s.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+        if (match2) {
+          setDate(`${match2[1]}T${match2[2]}`);
+        } else {
+          // آخر fallback
+          const d = new Date(activity.date);
+          const pad = (n: number) => String(n).padStart(2, '0');
+          setDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+        }
+      }
     }
   }, [activity.date]);
 
@@ -53,7 +67,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     try {
       await onSubmit(activity.id, {
         name,
-        date,
+        date: date || undefined,
         description,
         basePrice: hasOffers ? 0 : Number(basePrice) || 0,
         locationId: locationId ? Number(locationId) : null,
