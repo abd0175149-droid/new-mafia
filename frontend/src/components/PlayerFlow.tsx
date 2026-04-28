@@ -108,6 +108,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [seatMap, setSeatMap] = useState<{seat: number; name: string}[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [userExited, setUserExited] = useState(false); // يمنع إعادة الدخول التلقائي بعد الخروج
 
   // ── توزيع الأدوار الرقمي ──
   const [assignedRole, setAssignedRole] = useState<string | null>(null);
@@ -304,7 +305,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
   useEffect(() => {
-    if (initialRoomCode && isConnected && !roomId && tokenChecked) {
+    if (initialRoomCode && isConnected && !roomId && tokenChecked && !userExited) {
       handleFindRoom(initialRoomCode);
     }
   }, [initialRoomCode, isConnected, tokenChecked]);
@@ -420,6 +421,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setAssignedRole(null);
       setPhysicalId('');
       setRoomId('');
+      setUserExited(true);
       setStep(initialRoomCode ? 'phone' : 'code');
       setApiError('تم إزالتك من اللعبة من قبل الليدر');
     });
@@ -463,6 +465,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     setMustChangePassword(false);
     setApiError('');
     setStep(initialRoomCode ? 'phone' : 'code');
+    setUserExited(true);
   }, [initialRoomCode, emit, roomId, phone, playerId]);
 
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
