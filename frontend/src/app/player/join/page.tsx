@@ -1,12 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { usePlayer } from '@/context/PlayerContext';
 import PlayerFlow from '@/components/PlayerFlow';
 
-export default function JoinPage() {
+function JoinContent() {
   const { player } = usePlayer();
+  const searchParams = useSearchParams();
   const [mounted, setMounted] = useState(false);
+
+  // قراءة كود الغرفة من URL: /player/join?code=XXXX
+  const roomCode = searchParams.get('code') || '';
 
   useEffect(() => {
     // حفظ بيانات اللاعب في localStorage للـ PlayerFlow
@@ -16,7 +21,6 @@ export default function JoinPage() {
         displayName: player.name,
         phone: player.phone,
       }));
-      // ✅ مزامنة التوكن مع PlayerFlow — حتى ما يطلب من اللاعب إعادة تسجيل الدخول
       localStorage.setItem('mafia_player_token', player.token);
       localStorage.setItem('mafia_playerId', String(player.playerId));
     }
@@ -25,5 +29,17 @@ export default function JoinPage() {
 
   if (!mounted) return null;
 
-  return <PlayerFlow />;
+  return <PlayerFlow initialRoomCode={roomCode} />;
+}
+
+export default function JoinPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-10 h-10 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+      </div>
+    }>
+      <JoinContent />
+    </Suspense>
+  );
 }
