@@ -124,29 +124,31 @@ export async function requestNotificationPermission(): Promise<string | null> {
     } catch {}
     const swReg = await navigator.serviceWorker.ready;
     
-    // فحص إذا فيه اشتراك موجود
-    let subscription = await swReg.pushManager.getSubscription();
-    
-    if (!subscription) {
-      console.log('🔔 Creating new push subscription...');
-      // جلب VAPID public key من السيرفر (لضمان التطابق مع private key)
-      let vapidPublicKey = VAPID_KEY;
-      try {
-        const vpRes = await fetch('/api/push/vapid-public-key');
-        const vpData = await vpRes.json();
-        if (vpData.publicKey) {
-          vapidPublicKey = vpData.publicKey;
-          console.log('🔑 Using server VAPID public key');
-        }
-      } catch {
-        console.log('🔑 Using fallback VAPID key');
-      }
-
-      subscription = await swReg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
-      });
+    // حذف أي اشتراك قديم (قد يكون بمفتاح مختلف → VapidPkHashMismatch)
+    const oldSub = await swReg.pushManager.getSubscription();
+    if (oldSub) {
+      console.log('🔔 Removing old push subscription (key mismatch prevention)...');
+      await oldSub.unsubscribe();
     }
+
+    // جلب VAPID public key من السيرفر (لضمان التطابق مع private key)
+    console.log('🔔 Creating new push subscription...');
+    let vapidPublicKey = VAPID_KEY;
+    try {
+      const vpRes = await fetch('/api/push/vapid-public-key');
+      const vpData = await vpRes.json();
+      if (vpData.publicKey) {
+        vapidPublicKey = vpData.publicKey;
+        console.log('🔑 Using server VAPID public key');
+      }
+    } catch {
+      console.log('🔑 Using fallback VAPID key');
+    }
+
+    subscription = await swReg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
+    });
 
     if (!subscription) {
       console.error('❌ Failed to create push subscription');

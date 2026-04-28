@@ -136,12 +136,16 @@ export default function DebugPushPage() {
             applicationServerKey[i] = rawData.charCodeAt(i);
           }
 
-          // فحص اشتراك موجود
+          // حذف أي اشتراك قديم (قد يكون بمفتاح مختلف → VapidPkHashMismatch)
           const existingSub = await swReg.pushManager.getSubscription();
-          log(`📌 اشتراك موجود: ${existingSub ? 'نعم' : 'لا'}`);
+          if (existingSub) {
+            log('📌 اشتراك قديم موجود — جاري حذفه لإعادة الإنشاء بالمفتاح الصحيح...');
+            await existingSub.unsubscribe();
+            log('📌 تم حذف الاشتراك القديم ✅');
+          }
 
-          let subscription = existingSub;
-          if (!subscription) {
+          let subscription: PushSubscription | null = null;
+          {
             log('📌 جاري إنشاء اشتراك جديد...');
             try {
               subscription = await swReg.pushManager.subscribe({
