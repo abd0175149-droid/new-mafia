@@ -344,12 +344,12 @@ export default function AdminNotificationsPage() {
                   <select value={activityId} onChange={e => setActivityId(e.target.value)}
                     style={{
                       width: '100%', padding: '10px 14px',
-                      background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                      background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)',
                       borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
                     }}
                   >
-                    <option value="">اختر النشاط</option>
-                    {activities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    <option value="" style={{ background: '#1a1a1a', color: '#999' }}>اختر النشاط</option>
+                    {activities.map(a => <option key={a.id} value={a.id} style={{ background: '#1a1a1a', color: '#fff' }}>{a.name}</option>)}
                   </select>
                 </div>
               )}
