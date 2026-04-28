@@ -145,7 +145,7 @@ export async function requestNotificationPermission(): Promise<string | null> {
       console.log('🔑 Using fallback VAPID key');
     }
 
-    subscription = await swReg.pushManager.subscribe({
+    const subscription = await swReg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
     });
