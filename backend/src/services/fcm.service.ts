@@ -18,7 +18,9 @@ async function getWebPush() {
   if (webpushInitialized) return webpushModule;
   webpushInitialized = true;
   try {
-    webpushModule = await import('web-push');
+    const wpImport = await import('web-push');
+    // web-push هو CommonJS — عند import() ديناميكي قد يكون على .default
+    webpushModule = wpImport.default || wpImport;
     let VAPID_PUBLIC = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
     let VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
 
