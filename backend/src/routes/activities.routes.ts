@@ -13,6 +13,26 @@ import { getDriveService } from './drive.routes.js';
 import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession, closeSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 
+// ── تحويل التاريخ بتوقيت الأردن (UTC+3) ──
+// datetime-local يرسل "2026-04-28T18:30" بدون timezone
+// نضيف +03:00 ليتم تحويله لـ UTC صحيح عند الحفظ
+function parseJordanDate(dateStr: string): Date {
+  const s = String(dateStr).trim();
+  // إذا فيه timezone أصلاً (Z أو +/-) → نتركه
+  if (s.endsWith('Z') || /[+\-]\d{2}:\d{2}$/.test(s)) {
+    return new Date(s);
+  }
+  // إذا فيه T بدون timezone → نضيف +03:00
+  if (s.includes('T')) {
+    // "2026-04-28T18:30" → نضيف ":00+03:00"
+    // "2026-04-28T18:30:00" → نضيف "+03:00" فقط
+    const hasSeconds = /T\d{2}:\d{2}:\d{2}/.test(s);
+    return new Date(hasSeconds ? s + '+03:00' : s + ':00+03:00');
+  }
+  // fallback
+  return new Date(s);
+}
+
 const router = Router();
 
 // 📂 المجلد الرئيسي في Google Drive الذي يتم إنشاء مجلدات الأنشطة بداخله
@@ -238,7 +258,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   const result = await db.insert(activities).values({
     name,
-    date: date,
+    date: parseJordanDate(date),
     description: description || '',
     basePrice: String(basePrice || 0),
     status: status || 'planned',
@@ -375,7 +395,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
-  if (date !== undefined) updates.date = date;
+  if (date !== undefined) updates.date = parseJordanDate(date);
   if (description !== undefined) updates.description = description;
   if (basePrice !== undefined) updates.basePrice = String(basePrice);
   if (status !== undefined) updates.status = status;

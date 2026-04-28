@@ -40,27 +40,14 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'ملغي' },
 ];
 
-// عرض التاريخ والوقت بدون تحويل timezone
+// عرض التاريخ والوقت بتوقيت الأردن
 function formatActivityDate(dateStr: any): { date: string; time: string } {
   if (!dateStr) return { date: '—', time: '' };
-  const s = String(dateStr);
-  // التاريخ يأتي بصيغة "2026-04-28T18:30:00" أو "2026-04-28T18:30:00.000Z"
-  const match = s.match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (match) {
-    const [, y, m, d, h, min] = match;
-    const hour = parseInt(h);
-    const period = hour >= 12 ? 'م' : 'ص';
-    const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return {
-      date: `${d}/${m}/${y}`,
-      time: `${hour12}:${min} ${period}`,
-    };
-  }
-  // fallback
-  const dt = new Date(s);
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { date: '—', time: '' };
   return {
-    date: dt.toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' }),
-    time: '',
+    date: d.toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit', timeZone: 'Asia/Amman' }),
+    time: d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Amman' }),
   };
 }
 

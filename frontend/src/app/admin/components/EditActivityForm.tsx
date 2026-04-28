@@ -22,25 +22,20 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   const [driveLink, setDriveLink] = useState(activity.driveLink || '');
   const [submitting, setSubmitting] = useState(false);
 
-  // تحويل التاريخ لصيغة datetime-local — بدون تحويل timezone
+  // تحويل التاريخ لصيغة datetime-local بتوقيت الأردن
   useEffect(() => {
     if (activity.date) {
-      const s = String(activity.date);
-      // استخراج التاريخ والوقت مباشرة من النص بدون new Date()
-      const match = s.match(/(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
-      if (match) {
-        setDate(`${match[1]}T${match[2]}`);
-      } else {
-        // fallback: إذا الصيغة مختلفة (مثلاً "2026-04-28 18:30:00")
-        const match2 = s.match(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
-        if (match2) {
-          setDate(`${match2[1]}T${match2[2]}`);
-        } else {
-          // آخر fallback
-          const d = new Date(activity.date);
-          const pad = (n: number) => String(n).padStart(2, '0');
-          setDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
-        }
+      const d = new Date(activity.date);
+      if (!isNaN(d.getTime())) {
+        // تحويل لتوقيت الأردن
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Amman',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', hour12: false,
+        }).formatToParts(d);
+
+        const get = (type: string) => parts.find(p => p.type === type)?.value || '00';
+        setDate(`${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`);
       }
     }
   }, [activity.date]);

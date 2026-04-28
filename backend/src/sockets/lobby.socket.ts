@@ -248,16 +248,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
             if (act) {
               const actTime = new Date(act.date);
-              // التاريخ المخزن بتوقيت الأردن — السيرفر بـ UTC → نعدل now
               const now = new Date();
-              const jordanNow = new Date(now.getTime() + (3 * 60 * 60 * 1000)); // UTC+3
 
-              if (actTime <= jordanNow) {
+              if (actTime <= now) {
                 // الوقت وصل أو مضى → أضف فوراً
                 autoAddBookedPlayers();
               } else {
                 // جدول الإضافة عند وقت النشاط
-                const delay = actTime.getTime() - jordanNow.getTime();
+                const delay = actTime.getTime() - now.getTime();
                 console.log(`⏰ Scheduled auto-add for room ${state.roomId} in ${Math.round(delay / 60000)} minutes`);
                 setTimeout(autoAddBookedPlayers, delay);
               }
