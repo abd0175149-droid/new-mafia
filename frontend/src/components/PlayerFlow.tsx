@@ -108,7 +108,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
   const [seatMap, setSeatMap] = useState<{seat: number; name: string}[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [userExited, setUserExited] = useState(false); // يمنع إعادة الدخول التلقائي بعد الخروج
+  const [userExited, setUserExited] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('mafia_user_exited') === 'true';
+  }); // يمنع إعادة الدخول التلقائي بعد الخروج
 
   // ── توزيع الأدوار الرقمي ──
   const [assignedRole, setAssignedRole] = useState<string | null>(null);
@@ -206,6 +209,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     // ننتظر فحص التوكن لأنه ممكن يُنشئ mafia_session من activeGame
     if (!tokenChecked) return;
 
+    // إذا اللاعب خرج يدوياً → لا نعيد الدخول
+    if (userExited || localStorage.getItem('mafia_user_exited') === 'true') {
+      setRejoinLoading(false);
+      return;
+    }
+
     const saved = localStorage.getItem('mafia_session');
     if (!saved) {
       setRejoinLoading(false);
@@ -287,6 +296,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           }
 
           setStep('rejoined');
+          localStorage.removeItem('mafia_user_exited');
           console.log(`♻️ Rejoin success: #${res.player.physicalId} - ${res.player.name} | role: ${res.player.role} | phase: ${res.phase}`);
         } else {
           // الغرفة مش موجودة → مسح الجلسة
@@ -335,7 +345,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           localStorage.setItem('mafia_player_token', savedToken);
 
           // إذا في جيم نشط وما فيه جلسة محفوظة → ننشئ جلسة ليلتقطها rejoin
-          if (data.activeGame && !localStorage.getItem('mafia_session')) {
+          // ⚠️ لا ننشئ جلسة إذا اللاعب خرج يدوياً (userExited)
+          if (data.activeGame && !localStorage.getItem('mafia_session') && !userExited) {
             localStorage.setItem('mafia_session', JSON.stringify({
               roomId: data.activeGame.roomId,
               roomCode: data.activeGame.roomCode || '',
@@ -422,6 +433,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setPhysicalId('');
       setRoomId('');
       setUserExited(true);
+      localStorage.setItem('mafia_user_exited', 'true');
       setStep(initialRoomCode ? 'phone' : 'code');
       setApiError('تم إزالتك من اللعبة من قبل الليدر');
     });
@@ -466,6 +478,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     setApiError('');
     setStep(initialRoomCode ? 'phone' : 'code');
     setUserExited(true);
+    localStorage.setItem('mafia_user_exited', 'true');
   }, [initialRoomCode, emit, roomId, phone, playerId]);
 
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
@@ -1202,6 +1215,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         playerId: playerId || null,
       }));
 
+      // مسح علامة الخروج — اللاعب انضم بنجاح
+      localStorage.removeItem('mafia_user_exited');
       setStep('done');
     } catch (err: any) {
       setApiError(err.message);
