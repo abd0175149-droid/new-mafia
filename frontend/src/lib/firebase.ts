@@ -76,43 +76,52 @@ export async function requestNotificationPermission(): Promise<string | null> {
   console.log('🔔 Notification permission:', permission);
   if (permission !== 'granted') return null;
 
-  // الخطوة 1: محاولة FCM أولاً
-  const m = getFirebaseMessaging();
-  if (m && VAPID_KEY) {
-    try {
-      console.log('🔔 Attempting FCM getToken...');
-      
-      // تسجيل الـ SW الرئيسي (موحّد مع Firebase) — مطلوب لـ FCM على كل المتصفحات
-      let fcmSwReg: ServiceWorkerRegistration;
+  // ── هل iOS Safari؟ FCM tokens من iOS لا تعمل — نتجاوز لـ Web Push مباشرة ──
+  const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+
+  // الخطوة 1: محاولة FCM (فقط Chrome/Firefox/Edge — ليس iOS Safari)
+  if (!isIOSSafari) {
+    const m = getFirebaseMessaging();
+    if (m && VAPID_KEY) {
       try {
-        // نستخدم sw.js (الموحّد) بدل firebase-messaging-sw.js لمنع تعارض iOS
-        fcmSwReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        // انتظر حتى يكون جاهز
-        await navigator.serviceWorker.ready;
-        console.log('🔔 Unified SW registered for FCM, scope:', fcmSwReg.scope);
-      } catch (swErr) {
-        console.warn('⚠️ SW registration failed, using default:', swErr);
-        fcmSwReg = await navigator.serviceWorker.ready;
-      }
+        console.log('🔔 Attempting FCM getToken...');
+        
+        // تسجيل الـ SW الرئيسي (موحّد مع Firebase) — مطلوب لـ FCM على كل المتصفحات
+        let fcmSwReg: ServiceWorkerRegistration;
+        try {
+          fcmSwReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+          await navigator.serviceWorker.ready;
+          console.log('🔔 Unified SW registered for FCM, scope:', fcmSwReg.scope);
+        } catch (swErr) {
+          console.warn('⚠️ SW registration failed, using default:', swErr);
+          fcmSwReg = await navigator.serviceWorker.ready;
+        }
 
-      const token = await getToken(m, {
-        vapidKey: VAPID_KEY,
-        serviceWorkerRegistration: fcmSwReg,
-      });
+        const token = await getToken(m, {
+          vapidKey: VAPID_KEY,
+          serviceWorkerRegistration: fcmSwReg,
+        });
 
-      if (token) {
-        console.log('✅ FCM token obtained:', token.substring(0, 20) + '...');
-        return token;
+        if (token) {
+          console.log('✅ FCM token obtained:', token.substring(0, 20) + '...');
+          return token;
+        }
+        console.warn('⚠️ FCM getToken returned null/empty');
+      } catch (err) {
+        console.warn('⚠️ FCM getToken failed, trying native Push API:', err);
       }
-      console.warn('⚠️ FCM getToken returned null/empty');
-    } catch (err) {
-      console.warn('⚠️ FCM getToken failed, trying native Push API:', err);
     }
+  } else {
+    console.log('🍎 iOS Safari detected — skipping FCM, using Web Push API directly');
   }
 
-  // الخطوة 2: Fallback — Push API مباشر (Safari iOS/macOS)
-  console.log('🔔 Falling back to native Push API (Safari)...');
+  // الخطوة 2: Web Push API مباشر (Safari iOS/macOS)
+  console.log('🔔 Using native Web Push API...');
   try {
+    // تسجيل SW أولاً (مهم لـ iOS)
+    try {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    } catch {}
     const swReg = await navigator.serviceWorker.ready;
     
     // فحص إذا فيه اشتراك موجود
