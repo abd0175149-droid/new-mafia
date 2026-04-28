@@ -19,16 +19,32 @@ async function getWebPush() {
   webpushInitialized = true;
   try {
     webpushModule = await import('web-push');
-    const VAPID_PUBLIC = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BFGiTspOQlBQjZHxS8JRZREtw81LVVtB0JJyumRbi2TGBvZ7C78naUFtCfGVO6Etllyw9Nam2gi3XQJeJcGr0qk';
-    const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
+    let VAPID_PUBLIC = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
+    let VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
 
-    if (VAPID_PRIVATE) {
-      webpushModule.setVapidDetails('mailto:admin@club-mafia.grade.sbs', VAPID_PUBLIC, VAPID_PRIVATE);
-      console.log('✅ web-push initialized with VAPID keys');
-    } else {
-      console.warn('⚠️ VAPID_PRIVATE_KEY not set — WebPush fallback disabled');
-      webpushModule = null;
+    // إذا ما فيه مفتاح خاص → نستخدم المفاتيح المولدة أو نولّد جديدة
+    if (!VAPID_PRIVATE) {
+      if ((global as any).__vapidKeys) {
+        // استخدام المفاتيح المولدة مسبقاً (من /api/push/vapid-public-key أو مكان آخر)
+        VAPID_PUBLIC = (global as any).__vapidKeys.publicKey;
+        VAPID_PRIVATE = (global as any).__vapidKeys.privateKey;
+        console.log('🔑 Using previously generated VAPID keys');
+      } else {
+        console.log('🔑 VAPID_PRIVATE_KEY not set — generating new VAPID key pair...');
+        const vapidKeys = webpushModule.generateVAPIDKeys();
+        VAPID_PUBLIC = vapidKeys.publicKey;
+        VAPID_PRIVATE = vapidKeys.privateKey;
+        (global as any).__vapidKeys = vapidKeys; // حفظ للمشاركة
+        console.log('══════════════════════════════════════════════════');
+        console.log('🔑 VAPID Keys Generated — Add these to your .env:');
+        console.log(`VAPID_PUBLIC_KEY=${VAPID_PUBLIC}`);
+        console.log(`VAPID_PRIVATE_KEY=${VAPID_PRIVATE}`);
+        console.log('══════════════════════════════════════════════════');
+      }
     }
+
+    webpushModule.setVapidDetails('mailto:admin@club-mafia.grade.sbs', VAPID_PUBLIC, VAPID_PRIVATE);
+    console.log('✅ web-push initialized with VAPID keys');
   } catch (err: any) {
     console.warn('⚠️ web-push module not available:', err.message);
     webpushModule = null;

@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════
-// 📦 Service Worker — Mafia Club PWA
+// 📦 Service Worker — Mafia Club PWA + Firebase FCM
 // BUILD_HASH يُستبدل تلقائياً عند كل deploy (Dockerfile)
 // ══════════════════════════════════════════════════════
 const BUILD_HASH = '__BUILD_HASH__';
@@ -10,6 +10,56 @@ const PRECACHE_URLS = [
   '/player/profile',
   '/mafia_logo.png',
 ];
+
+// ══════════════════════════════════════════════════════
+// 🔥 Firebase Messaging (للمتصفحات التي تدعم FCM)
+// ══════════════════════════════════════════════════════
+let firebaseInitialized = false;
+try {
+  importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+  firebase.initializeApp({
+    apiKey: 'AIzaSyCPsBtXEVEP0aV2kMfFJJ0za-vbXr891Eo',
+    authDomain: 'mafia-b1c74.firebaseapp.com',
+    projectId: 'mafia-b1c74',
+    storageBucket: 'mafia-b1c74.firebasestorage.app',
+    messagingSenderId: '557623626620',
+    appId: '1:557623626620:web:6f01e44a6d165008d032f9',
+  });
+
+  const messaging = firebase.messaging();
+
+  // ── استقبال رسالة FCM في الخلفية (Chrome/Firefox/Edge) ──
+  messaging.onBackgroundMessage((payload) => {
+    const notification = payload.notification || {};
+    const data = payload.data || {};
+
+    const title = notification.title || '🎭 نادي المافيا';
+    const body = notification.body || '';
+    const url = resolveNotificationUrl(data.type, data);
+
+    self.registration.showNotification(title, {
+      body,
+      icon: '/mafia_logo.png',
+      badge: '/mafia_logo.png',
+      tag: data.type || 'default',
+      data: { url, type: data.type || '', ...data },
+      requireInteraction: true,
+      renotify: true,
+    });
+  });
+
+  firebaseInitialized = true;
+  console.log('✅ Firebase Messaging initialized in SW');
+} catch (e) {
+  // Safari/iOS لا يدعم importScripts لـ Firebase — نتجاهل
+  console.log('ℹ️ Firebase not available in SW (expected on Safari/iOS)');
+}
+
+// ══════════════════════════════════════════════════════
+// 📦 PWA Cache Management
+// ══════════════════════════════════════════════════════
 
 // ── Install: تخزين الملفات الأساسية ──
 self.addEventListener('install', (event) => {
@@ -79,7 +129,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ══════════════════════════════════════════════════════
-// 🔔 Push Notifications — Firebase FCM (iOS + Android)
+// 🔔 Push Notifications (iOS Web Push + Android FCM)
 // ══════════════════════════════════════════════════════
 
 // ── تحديد URL التوجيه حسب نوع الإشعار ──
@@ -104,7 +154,7 @@ function resolveNotificationUrl(type, data) {
   }
 }
 
-// ── استقبال Push عندما التطبيق مغلق/background ──
+// ── استقبال Push عندما التطبيق مغلق/background (Web Push API — Safari/iOS) ──
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 

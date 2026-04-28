@@ -82,15 +82,16 @@ export async function requestNotificationPermission(): Promise<string | null> {
     try {
       console.log('🔔 Attempting FCM getToken...');
       
-      // تسجيل Firebase Messaging SW — مطلوب لـ FCM على كل المتصفحات
+      // تسجيل الـ SW الرئيسي (موحّد مع Firebase) — مطلوب لـ FCM على كل المتصفحات
       let fcmSwReg: ServiceWorkerRegistration;
       try {
-        fcmSwReg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+        // نستخدم sw.js (الموحّد) بدل firebase-messaging-sw.js لمنع تعارض iOS
+        fcmSwReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         // انتظر حتى يكون جاهز
         await navigator.serviceWorker.ready;
-        console.log('🔔 Firebase Messaging SW registered, scope:', fcmSwReg.scope);
+        console.log('🔔 Unified SW registered for FCM, scope:', fcmSwReg.scope);
       } catch (swErr) {
-        console.warn('⚠️ Firebase SW registration failed, using default:', swErr);
+        console.warn('⚠️ SW registration failed, using default:', swErr);
         fcmSwReg = await navigator.serviceWorker.ready;
       }
 
@@ -119,9 +120,22 @@ export async function requestNotificationPermission(): Promise<string | null> {
     
     if (!subscription) {
       console.log('🔔 Creating new push subscription...');
+      // جلب VAPID public key من السيرفر (لضمان التطابق مع private key)
+      let vapidPublicKey = VAPID_KEY;
+      try {
+        const vpRes = await fetch('/api/push/vapid-public-key');
+        const vpData = await vpRes.json();
+        if (vpData.publicKey) {
+          vapidPublicKey = vpData.publicKey;
+          console.log('🔑 Using server VAPID public key');
+        }
+      } catch {
+        console.log('🔑 Using fallback VAPID key');
+      }
+
       subscription = await swReg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY) as BufferSource,
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
       });
     }
 

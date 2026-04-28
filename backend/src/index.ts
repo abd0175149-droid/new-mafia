@@ -90,6 +90,30 @@ app.use('/api/player-app', playerAppRoutes);
 app.use('/api/player-notifications', playerNotificationRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
 
+// ── VAPID Public Key لـ Web Push (iOS Safari) ──
+app.get('/api/push/vapid-public-key', async (_req, res) => {
+  try {
+    const wp = await import('web-push');
+    let publicKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
+    let privateKey = process.env.VAPID_PRIVATE_KEY || '';
+
+    // إذا ما فيه مفتاح خاص → نولّد زوج مفاتيح
+    if (!privateKey) {
+      // نستخدم نفس الحيلة: الحفظ في متغير عملية (لا يضيع بين الطلبات)
+      if (!(global as any).__vapidKeys) {
+        const keys = wp.generateVAPIDKeys();
+        (global as any).__vapidKeys = keys;
+        console.log('🔑 VAPID keys generated for /api/push/vapid-public-key');
+      }
+      publicKey = (global as any).__vapidKeys.publicKey;
+    }
+
+    res.json({ publicKey });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ══════════════════════════════════════════════════════
 // 🎮 Game REST API Routes (History & Stats + Frontend Endpoints)
 // ══════════════════════════════════════════════════════
