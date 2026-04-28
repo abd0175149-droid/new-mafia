@@ -39,6 +39,8 @@ export default function AdminNotificationsPage() {
   const [targetAudience, setTargetAudience] = useState<'players' | 'staff' | 'both'>('players');
   const [activityId, setActivityId] = useState('');
   const [activities, setActivities] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<number[]>([]);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ success: boolean; sentCount?: number; error?: string } | null>(null);
 
@@ -61,6 +63,10 @@ export default function AdminNotificationsPage() {
     fetch('/api/activities', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => { if (Array.isArray(data)) setActivities(data); })
+      .catch(() => {});
+    fetch('/api/staff', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setStaffList(data); })
       .catch(() => {});
 
     // polling كل 15 ثانية
@@ -95,6 +101,7 @@ export default function AdminNotificationsPage() {
         body: JSON.stringify({
           title: title.trim(), body: body.trim(), target, targetAudience,
           activityId: target === 'booked' ? parseInt(activityId) : null,
+          targetIds: target === 'specific' ? selectedStaffIds : [],
           data: { url: '/player/home' },
         }),
       });
@@ -323,6 +330,7 @@ export default function AdminNotificationsPage() {
                   {[
                     { val: 'all' as const, label: 'الكل' },
                     { val: 'booked' as const, label: 'حاجزو نشاط' },
+                    ...(targetAudience === 'staff' || targetAudience === 'both' ? [{ val: 'specific' as const, label: 'موظف محدد' }] : []),
                   ].map(opt => (
                     <button key={opt.val} onClick={() => setTarget(opt.val)}
                       style={{
@@ -351,6 +359,46 @@ export default function AdminNotificationsPage() {
                     <option value="" style={{ background: '#1a1a1a', color: '#999' }}>اختر النشاط</option>
                     {activities.map(a => <option key={a.id} value={a.id} style={{ background: '#1a1a1a', color: '#fff' }}>{a.name}</option>)}
                   </select>
+                </div>
+              )}
+
+              {/* اختيار موظفين محددين */}
+              {target === 'specific' && (
+                <div>
+                  <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 8 }}>
+                    اختر الموظفين ({selectedStaffIds.length} محدد)
+                  </label>
+                  <div style={{
+                    display: 'flex', flexWrap: 'wrap', gap: 8,
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 12, padding: 12, maxHeight: 200, overflowY: 'auto',
+                  }}>
+                    {staffList.map(s => {
+                      const isSelected = selectedStaffIds.includes(s.id);
+                      const roleLabel = s.role === 'admin' ? '👑' : s.role === 'manager' ? '👔' : s.role === 'leader' ? '🎮' : '📍';
+                      return (
+                        <button key={s.id}
+                          onClick={() => setSelectedStaffIds(prev =>
+                            isSelected ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                          )}
+                          style={{
+                            padding: '6px 14px', borderRadius: 20, fontSize: 13,
+                            border: `1px solid ${isSelected ? '#3b82f6' : 'rgba(255,255,255,0.1)'}`,
+                            background: isSelected ? 'rgba(59,130,246,0.15)' : 'transparent',
+                            color: isSelected ? '#3b82f6' : 'rgba(255,255,255,0.6)',
+                            cursor: 'pointer', transition: 'all 0.2s',
+                            fontWeight: isSelected ? 600 : 400,
+                          }}
+                        >
+                          {roleLabel} {s.name}
+                          {isSelected && ' ✓'}
+                        </button>
+                      );
+                    })}
+                    {staffList.length === 0 && (
+                      <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>لا يوجد موظفون</span>
+                    )}
+                  </div>
                 </div>
               )}
 

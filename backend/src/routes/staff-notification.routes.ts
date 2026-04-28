@@ -60,8 +60,14 @@ router.post('/send-custom', authenticate, adminOnly, async (req: Request, res: R
 
     // ── إرسال للموظفين ──
     if (audience === 'staff' || audience === 'both') {
+      const { staff } = await import('../schemas/admin.schema.js');
+      const allStaff = await db.select({ id: staff.id }).from(staff);
+
       if (target === 'all') {
-        await sendPushToStaffByPermission('activities', title, body, 'new_activity', data || {});
+        for (const s of allStaff) {
+          await sendPushToStaff(s.id, title, body, 'new_activity', data || {});
+          sentCount++;
+        }
       } else if (target === 'specific' && Array.isArray(targetIds)) {
         for (const id of targetIds) {
           await sendPushToStaff(id, title, body, 'new_activity', data || {});
