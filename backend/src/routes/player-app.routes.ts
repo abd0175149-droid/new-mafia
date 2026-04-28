@@ -106,6 +106,20 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
     }).returning();
 
     res.status(201).json({ success: true, booking: result[0] });
+
+    // 🔔 Push للموظفين (حجز جديد من تطبيق اللاعب) + تأكيد للاعب
+    import('../services/fcm.service.js').then(({ sendPushToStaffByPermission, sendPushToPlayer }) => {
+      sendPushToStaffByPermission('bookings', '🎟️ حجز جديد (تطبيق)', `${player.name} حجز في ${activity.name}`, 'new_booking', {
+        targetId: `booking-${result[0].id}`,
+        url: '/admin/bookings',
+      });
+      if (player.playerId) {
+        sendPushToPlayer(player.playerId, '✅ تم الحجز', `تم تأكيد حجزك في ${activity.name}`, 'booking_confirmed', {
+          activityId,
+          url: '/player/games',
+        });
+      }
+    }).catch(() => {});
   } catch (err: any) {
     console.error('❌ book error:', err.message);
     res.status(500).json({ error: err.message });

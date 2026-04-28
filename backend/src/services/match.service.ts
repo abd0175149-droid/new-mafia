@@ -139,6 +139,22 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       console.error('⚠️ Failed to process progression rewards:', progressionErr.message);
     }
 
+    // 🔔 Push للاعبين المشاركين (نتيجة المباراة)
+    try {
+      const { sendPushToPlayers } = await import('../services/fcm.service.js');
+      const winnerLabel = state.winner === 'MAFIA' ? '🔴 المافيا' : '🟢 المواطنون';
+      const playerIdsInGame = state.players.filter(p => p.playerId).map(p => p.playerId!);
+      if (playerIdsInGame.length > 0) {
+        sendPushToPlayers(
+          playerIdsInGame,
+          '🎮 انتهت اللعبة!',
+          `فاز فريق ${winnerLabel} — تحقق من نتائجك و XP`,
+          'game_ended',
+          { matchId: state.matchId, url: '/player/home' },
+        );
+      }
+    } catch {}
+
     console.log(`📦 Match #${state.matchId} finalized — Winner: ${state.winner}, Duration: ${durationSeconds}s, Stats + Progression updated`);
   } catch (err: any) {
     console.error('❌ Failed to finalize match:', err.message);

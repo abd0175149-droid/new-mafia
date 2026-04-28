@@ -57,6 +57,14 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   }
 
   res.status(201).json(result[0]);
+
+  // 🔔 Push للموظفين
+  import('../services/fcm.service.js').then(({ sendPushToStaffByPermission }) => {
+    sendPushToStaffByPermission('finances', '💰 مصروف جديد', `تم إضافة: ${item}`, 'cost_alert', {
+      targetId: `cost-${result[0].id}`,
+      url: '/admin/finance',
+    });
+  }).catch(() => {});
 });
 
 // DELETE /api/costs/:id

@@ -27,6 +27,8 @@ import driveRoutes from './routes/drive.routes.js';
 import playerRoutes from './routes/player.routes.js';
 import playerAuthRoutes from './routes/player-auth.routes.js';
 import playerAppRoutes from './routes/player-app.routes.js';
+import playerNotificationRoutes from './routes/player-notification.routes.js';
+import staffNotificationRoutes from './routes/staff-notification.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -85,6 +87,8 @@ app.use('/api/drive', driveRoutes);
 app.use('/api/player', playerRoutes);
 app.use('/api/player-auth', playerAuthRoutes);
 app.use('/api/player-app', playerAppRoutes);
+app.use('/api/player-notifications', playerNotificationRoutes);
+app.use('/api/staff-notifications', staffNotificationRoutes);
 
 // ══════════════════════════════════════════════════════
 // 🎮 Game REST API Routes (History & Stats + Frontend Endpoints)
@@ -280,6 +284,61 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ welcome_bonus_applied migration:', err.message);
+  }
+
+  // ── إنشاء جداول الإشعارات (إن لم تكن موجودة) ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS player_fcm_tokens (
+          id SERIAL PRIMARY KEY,
+          player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+          fcm_token TEXT NOT NULL,
+          device_info VARCHAR(200) DEFAULT '',
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS staff_fcm_tokens (
+          id SERIAL PRIMARY KEY,
+          staff_id INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+          fcm_token TEXT NOT NULL,
+          device_info VARCHAR(200) DEFAULT '',
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS player_notifications (
+          id SERIAL PRIMARY KEY,
+          player_id INTEGER REFERENCES players(id) ON DELETE CASCADE,
+          title VARCHAR(200) NOT NULL,
+          body TEXT DEFAULT '',
+          type VARCHAR(30) NOT NULL,
+          data JSONB DEFAULT '{}',
+          is_read BOOLEAN DEFAULT false,
+          is_push_sent BOOLEAN DEFAULT false,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      console.log('✅ Notification tables ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Notification tables migration:', err.message);
+  }
+
+  // ── تهيئة Firebase ──
+  try {
+    const { initFirebase } = await import('./config/firebase.js');
+    initFirebase();
+  } catch (err: any) {
+    console.warn('⚠️ Firebase init skipped:', err.message);
   }
 
   // ── بذر لعبة تجريبية (تطوير فقط) ──

@@ -119,6 +119,14 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   res.status(201).json(booking);
 
+  // 🔔 Push للموظفين
+  import('../services/fcm.service.js').then(({ sendPushToStaffByPermission }) => {
+    sendPushToStaffByPermission('bookings', '🎟️ حجز جديد', `حجز جديد باسم ${name}`, 'new_booking', {
+      targetId: `booking-${booking.id}`,
+      url: '/admin/bookings',
+    });
+  }).catch(() => {});
+
   // تحديث maxPlayers في الغرفة حسب عدد الأشخاص
   syncSessionMaxPlayers(activityId).catch(() => {});
 });

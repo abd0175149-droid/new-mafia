@@ -312,6 +312,18 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   }
 
   res.status(201).json(activity);
+
+  // 🔔 Push للاعبين (نشاط جديد) + الموظفين
+  import('../services/fcm.service.js').then(({ sendPushToAllPlayers, sendPushToStaffByPermission }) => {
+    sendPushToAllPlayers('📅 نشاط جديد', `تم إضافة نشاط: ${name}`, 'new_activity', {
+      activityId: activity.id,
+      url: '/player/games',
+    });
+    sendPushToStaffByPermission('activities', '📅 نشاط جديد', `تم جدولة نشاط: ${name}`, 'new_activity', {
+      targetId: `activity-${activity.id}`,
+      url: '/admin/activities',
+    }, req.user!.id);
+  }).catch(() => {});
 });
 
 // POST /api/activities/:id/create-drive-folder — إنشاء مجلد Drive لنشاط قديم بدون مجلد

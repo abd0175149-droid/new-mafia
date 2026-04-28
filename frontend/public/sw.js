@@ -77,3 +77,68 @@ self.addEventListener('fetch', (event) => {
       })
   );
 });
+
+// ══════════════════════════════════════════════════════
+// 🔔 Push Notifications — Firebase FCM
+// ══════════════════════════════════════════════════════
+
+// ── استقبال Push عندما التطبيق مغلق/background ──
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  let payload;
+  try {
+    payload = event.data.json();
+  } catch {
+    payload = { notification: { title: 'نادي المافيا', body: event.data.text() } };
+  }
+
+  const notification = payload.notification || {};
+  const title = notification.title || '🎭 نادي المافيا';
+  const body = notification.body || '';
+  const data = payload.data || {};
+
+  const TYPE_ICONS = {
+    new_activity: '📅',
+    game_ended: '🎮',
+    custom: '📢',
+    reminder: '⏰',
+    friend_booked: '👥',
+    level_up: '🏆',
+    booking_confirmed: '✅',
+    new_booking: '🎟️',
+    cost_alert: '💰',
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/mafia_logo.png',
+      badge: '/mafia_logo.png',
+      tag: data.type || 'default',
+      data: { url: data.url || '/player/home', ...data },
+      vibrate: [200, 100, 200],
+    })
+  );
+});
+
+// ── فتح التطبيق عند الضغط على الإشعار ──
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || '/player/home';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clients) => {
+        // لو التطبيق مفتوح → انتقل للصفحة
+        for (const client of clients) {
+          if (client.url.includes(self.location.origin)) {
+            client.navigate(url);
+            return client.focus();
+          }
+        }
+        // لو مغلق → افتح صفحة جديدة
+        return self.clients.openWindow(url);
+      })
+  );
+});

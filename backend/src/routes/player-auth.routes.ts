@@ -78,6 +78,14 @@ router.post('/register', async (req: Request, res: Response) => {
 
     console.log(`🔐 New player registered: ${player.name} (${player.phone}) → ID: ${player.id} [+200 XP welcome bonus]`);
 
+    // 🔔 Push للأدمنز (لاعب جديد)
+    import('../services/fcm.service.js').then(({ sendPushToAdmins }) => {
+      sendPushToAdmins('👤 لاعب جديد', `${player.name} (${player.phone}) سجّل في التطبيق`, 'new_booking', {
+        targetId: `player-${player.id}`,
+        url: '/admin/players',
+      });
+    }).catch(() => {});
+
     return res.json({
       success: true,
       token,

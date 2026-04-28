@@ -6,6 +6,7 @@ import { usePlayer } from '@/context/PlayerContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
+import { NotificationBell } from '@/components/NotificationBell';
 
 const WHATSAPP_NUMBER = '962793390966';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
@@ -57,7 +58,10 @@ export default function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 space-y-5 pb-6">
-      {/* ── Hero ── */}
+      {/* ── الجرس + Hero ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
+        <NotificationBell />
+      </div>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
