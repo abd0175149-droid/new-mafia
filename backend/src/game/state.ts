@@ -191,9 +191,10 @@ export async function createRoom(
   maxPlayers: number = 10,
   maxJustifications: number = 2,
   displayPin?: string,
+  overrideCode?: string, // كود خارجي (من DB session) — لتوحيد الكود بين Redis و PostgreSQL
 ): Promise<GameState> {
   const roomId = uuidv4().substring(0, 8);
-  const roomCode = generateRoomCode();
+  const roomCode = overrideCode || generateRoomCode();
 
   const state: GameState = {
     roomId,

@@ -163,7 +163,7 @@ router.post('/:id/add-room', authenticate, async (req: Request, res: Response) =
 
     const sessionId = await createSession(
       roomName,
-      Math.floor(100000 + Math.random() * 900000).toString(),
+      Math.floor(1000 + Math.random() * 9000).toString(),
       Math.floor(1000 + Math.random() * 9000).toString(),
       maxPlayers,
       activityId,

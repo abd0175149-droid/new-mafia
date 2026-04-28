@@ -87,16 +87,23 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     displayPin?: string;
     activityId?: number;
     existingSessionId?: number; // إذا موجود = الغرفة منشأة في DB بالفعل
+    sessionCode?: string; // كود الجلسة من DB — لتوحيد الكود
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
       const maxPlayers = Math.min(Math.max(data.maxPlayers || 10, 6), 27);
+
+      // إذا فيه sessionCode من DB → نستخدمه ككود للغرفة (توحيد الأكواد)
+      const overrideCode = data.existingSessionId && data.sessionCode
+        ? data.sessionCode
+        : undefined;
 
       const state = await createRoom(
         gameName,
         maxPlayers,
         data.maxJustifications || 2,
         data.displayPin,
+        overrideCode,
       );
 
       let sessionId: number | null = null;
