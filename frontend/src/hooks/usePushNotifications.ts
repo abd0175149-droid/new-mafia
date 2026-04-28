@@ -50,7 +50,10 @@ export function usePushNotifications() {
       return;
     }
 
-    setPermissionState(Notification.permission as any);
+    // Notification.permission returns 'default' | 'granted' | 'denied'
+    // 'default' means the user hasn't been asked yet
+    const perm = Notification.permission;
+    setPermissionState(perm === 'default' ? 'prompt' : perm as any);
   }, []);
 
   // ── طلب إذن + تسجيل Token (يُستدعى بنقرة المستخدم) ──
