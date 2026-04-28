@@ -59,6 +59,10 @@ export default function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 space-y-5 pb-6">
+      {/* 🔧 رابط تشخيص مؤقت — يُحذف لاحقاً */}
+      <a href="/player/debug-push" style={{ display: 'block', textAlign: 'center', padding: 8, background: '#1a1a2e', borderRadius: 8, color: '#f59e0b', fontSize: 12, textDecoration: 'none' }}>
+        🔧 تشخيص الإشعارات
+      </a>
       {/* ── الجرس + Hero ── */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
         <NotificationBell />
