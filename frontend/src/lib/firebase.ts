@@ -57,7 +57,7 @@ export async function requestNotificationPermission(): Promise<string | null> {
   try {
     const token = await getToken(m, {
       vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: await navigator.serviceWorker.getRegistration(),
+      serviceWorkerRegistration: await navigator.serviceWorker.ready,
     });
     return token;
   } catch (err) {

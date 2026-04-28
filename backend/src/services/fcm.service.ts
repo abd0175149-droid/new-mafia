@@ -10,6 +10,60 @@ import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas
 import { notifications, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 
+// ── بناء payload متوافق مع iOS Safari + Android + Desktop ──
+function buildFCMPayload(
+  tokens: string[],
+  title: string,
+  body: string,
+  type: string,
+  data: Record<string, any> = {},
+) {
+  const stringifiedData = Object.fromEntries(
+    Object.entries(data).map(([k, v]) => [k, String(v)])
+  );
+  const link = data.url || '/player/home';
+
+  return {
+    tokens,
+    notification: { title, body },
+    data: { type, ...stringifiedData },
+
+    // ── WebPush (Chrome, Firefox, Safari iOS PWA) ──
+    webpush: {
+      headers: {
+        Urgency: 'high',
+        TTL: '86400',
+      },
+      notification: {
+        title,
+        body,
+        icon: '/mafia_logo.png',
+        badge: '/mafia_logo.png',
+        tag: type || 'default',
+        requireInteraction: true,
+        data: { url: link, type, ...stringifiedData },
+      },
+      fcmOptions: { link },
+    },
+
+    // ── APNs (iOS Native + Safari) ──
+    apns: {
+      headers: {
+        'apns-priority': '10',
+        'apns-push-type': 'alert',
+      },
+      payload: {
+        aps: {
+          alert: { title, body },
+          badge: 1,
+          sound: 'default',
+          'mutable-content': 1,
+        },
+      },
+    },
+  };
+}
+
 // ── تسجيل FCM Token ─────────────────────────────────
 export async function registerPlayerToken(playerId: number, token: string, deviceInfo: string = '') {
   const db = getDB();
@@ -77,14 +131,9 @@ export async function sendPushToPlayer(
   if (tokens.length === 0) return;
 
   try {
-    const response = await messaging.sendEachForMulticast({
-      tokens: tokens.map(t => t.token),
-      notification: { title, body },
-      data: { type, ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) },
-      webpush: {
-        fcmOptions: { link: data.url || '/player/home' },
-      },
-    });
+    const response = await messaging.sendEachForMulticast(
+      buildFCMPayload(tokens.map(t => t.token), title, body, type, data)
+    );
 
     // تنظيف tokens الفاشلة
     response.responses.forEach((r, i) => {
@@ -125,12 +174,9 @@ export async function sendPushToPlayers(
   if (tokenRows.length === 0) return;
 
   try {
-    const response = await messaging.sendEachForMulticast({
-      tokens: tokenRows.map(t => t.token),
-      notification: { title, body },
-      data: { type, ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) },
-      webpush: { fcmOptions: { link: data.url || '/player/home' } },
-    });
+    const response = await messaging.sendEachForMulticast(
+      buildFCMPayload(tokenRows.map(t => t.token), title, body, type, data)
+    );
 
     // تنظيف tokens الفاشلة
     response.responses.forEach((r, i) => {
@@ -194,12 +240,10 @@ export async function sendPushToStaff(
   if (tokens.length === 0) return;
 
   try {
-    const response = await messaging.sendEachForMulticast({
-      tokens: tokens.map(t => t.token),
-      notification: { title, body },
-      data: { type, ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])) },
-      webpush: { fcmOptions: { link: data.url || '/admin' } },
-    });
+    const staffData = { ...data, url: data.url || '/admin' };
+    const response = await messaging.sendEachForMulticast(
+      buildFCMPayload(tokens.map(t => t.token), title, body, type, staffData)
+    );
 
     response.responses.forEach((r, i) => {
       if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {

@@ -79,7 +79,7 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ══════════════════════════════════════════════════════
-// 🔔 Push Notifications — Firebase FCM
+// 🔔 Push Notifications — Firebase FCM (iOS + Android)
 // ══════════════════════════════════════════════════════
 
 // ── استقبال Push عندما التطبيق مغلق/background ──
@@ -93,31 +93,31 @@ self.addEventListener('push', (event) => {
     payload = { notification: { title: 'نادي المافيا', body: event.data.text() } };
   }
 
+  // FCM notification payload — استخراج البيانات
   const notification = payload.notification || {};
-  const title = notification.title || '🎭 نادي المافيا';
-  const body = notification.body || '';
-  const data = payload.data || {};
+  const fcmData = payload.data || {};
 
-  const TYPE_ICONS = {
-    new_activity: '📅',
-    game_ended: '🎮',
-    custom: '📢',
-    reminder: '⏰',
-    friend_booked: '👥',
-    level_up: '🏆',
-    booking_confirmed: '✅',
-    new_booking: '🎟️',
-    cost_alert: '💰',
-  };
+  // إذا FCM أرسل notification مباشرة (بعض المتصفحات تعرضها تلقائياً)
+  // لكن iOS Safari لا يعرضها — لازم showNotification يدوياً
+  const title = notification.title || fcmData.title || '🎭 نادي المافيا';
+  const body = notification.body || fcmData.body || '';
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
       icon: '/mafia_logo.png',
       badge: '/mafia_logo.png',
-      tag: data.type || 'default',
-      data: { url: data.url || '/player/home', ...data },
+      tag: fcmData.type || notification.tag || 'default',
+      data: {
+        url: fcmData.url || notification.data?.url || '/player/home',
+        type: fcmData.type || '',
+      },
+      // iOS Safari لا يدعم vibrate — نتجاهلها بأمان
       vibrate: [200, 100, 200],
+      // مطلوب لـ iOS: أن الإشعار يبقى حتى يضغطه المستخدم
+      requireInteraction: true,
+      // iOS يحتاج renotify مع tag
+      renotify: true,
     })
   );
 });
@@ -139,6 +139,19 @@ self.addEventListener('notificationclick', (event) => {
         }
         // لو مغلق → افتح صفحة جديدة
         return self.clients.openWindow(url);
+      })
+  );
+});
+
+// ── تحديث الاشتراك (مطلوب لـ iOS) ──
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.registration.pushManager.subscribe(event.oldSubscription?.options || { userVisibleOnly: true })
+      .then((subscription) => {
+        console.log('🔄 Push subscription renewed');
+      })
+      .catch((err) => {
+        console.error('❌ Failed to renew push subscription:', err);
       })
   );
 });
