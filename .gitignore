@@ -6,4 +6,6 @@ dist
 data/
 .next
 google-service-account.json
+firebase-service-account.json
+*-firebase-adminsdk-*.json
 testsprite_tests/tmp/
