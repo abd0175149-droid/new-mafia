@@ -29,23 +29,34 @@ export default function HomePage() {
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
+  const [activeRooms, setActiveRooms] = useState<any[]>([]);
+  const [roomSelectActivity, setRoomSelectActivity] = useState<any>(null);
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
     isOpen: !!selectedActivity,
     onClose: () => setSelectedActivity(null),
   });
+  const roomSelectModal = useModalScrollLock({
+    isOpen: !!roomSelectActivity,
+    onClose: () => setRoomSelectActivity(null),
+  });
 
   useEffect(() => {
     if (!player) return;
+    const token = localStorage.getItem('mafia_player_token');
     Promise.all([
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/following-feed`).then(r => r.json()),
       fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
-    ]).then(([profileData, feedData, actData]) => {
+      token ? fetch('/api/player-app/my-active-rooms', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }).then(r => r.json()).catch(() => ({ success: false })) : Promise.resolve({ success: false }),
+    ]).then(([profileData, feedData, actData, roomsData]) => {
       if (profileData.success) setProfile(profileData);
       if (feedData.success) setFeed(feedData.feed || []);
       if (actData.success) setUpcoming((actData.activities || []).slice(0, 3));
+      if (roomsData.success && roomsData.rooms?.length > 0) setActiveRooms(roomsData.rooms);
     }).finally(() => setLoading(false));
   }, [player]);
 
@@ -210,6 +221,129 @@ export default function HomePage() {
           </motion.div>
         );
       })()}
+      {/* ── غرف نشطة لحجوزاتك ── */}
+      {activeRooms.length > 0 && !profile?.activeGame && (
+        <div className="space-y-2">
+          {activeRooms.map((entry: any) => (
+            <motion.div
+              key={entry.activityId}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl p-4"
+              style={{
+                background: 'linear-gradient(135deg, rgba(251,191,36,0.12), rgba(5,5,5,0.9))',
+                border: '1px solid rgba(251,191,36,0.25)',
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-amber-400 text-xs font-medium">🎮 غرفة مفتوحة لحجزك</span>
+                  <p className="text-white text-sm mt-1">{entry.activityName}</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">
+                    {entry.rooms.length === 1 ? `كود الغرفة: ${entry.rooms[0].sessionCode}` : `${entry.rooms.length} غرف متاحة`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    // مسح الجلسة القديمة لضمان عدم الدخول التلقائي لغرفة سابقة
+                    localStorage.removeItem('mafia_session');
+                    localStorage.removeItem('mafia_user_exited');
+                    if (entry.rooms.length === 1) {
+                      // غرفة واحدة → دخول مباشر
+                      router.push(`/player/join?code=${entry.rooms[0].sessionCode}`);
+                    } else {
+                      // أكثر من غرفة → فتح موديل الاختيار
+                      setRoomSelectActivity(entry);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-bold transition-all"
+                  style={{
+                    background: 'linear-gradient(135deg, #fbbf24, #d97706)',
+                    color: '#000',
+                    boxShadow: '0 0 20px rgba(251,191,36,0.2)',
+                  }}
+                >
+                  🎯 ادخل
+                </button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* ── موديل اختيار الغرفة ── */}
+      <AnimatePresence>
+        {roomSelectActivity && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end justify-center"
+            onClick={() => setRoomSelectActivity(null)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-lg rounded-t-3xl p-6 pb-10"
+              style={{
+                background: 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)',
+                border: '1px solid rgba(251,191,36,0.2)',
+                borderBottom: 'none',
+              }}
+              onClick={(e) => e.stopPropagation()}
+              {...roomSelectModal.handlers}
+            >
+              {/* Handle bar */}
+              <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
+
+              <h3 className="text-white text-lg font-bold text-center mb-1">
+                اختر غرفة
+              </h3>
+              <p className="text-gray-500 text-xs text-center mb-5">
+                {roomSelectActivity.activityName} — {roomSelectActivity.rooms.length} غرف متاحة
+              </p>
+
+              <div className="space-y-3">
+                {roomSelectActivity.rooms.map((room: any, i: number) => (
+                  <motion.button
+                    key={room.sessionId}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.08 }}
+                    onClick={() => {
+                      localStorage.removeItem('mafia_session');
+                      localStorage.removeItem('mafia_user_exited');
+                      setRoomSelectActivity(null);
+                      router.push(`/player/join?code=${room.sessionCode}`);
+                    }}
+                    className="w-full rounded-xl p-4 flex items-center justify-between transition-all active:scale-[0.98]"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                        background: 'linear-gradient(135deg, rgba(251,191,36,0.15), rgba(251,191,36,0.05))',
+                        border: '1px solid rgba(251,191,36,0.3)',
+                      }}>
+                        <span className="text-amber-400 text-sm font-bold">{i + 1}</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-white text-sm font-medium">{room.sessionName || `غرفة ${i + 1}`}</p>
+                        <p className="text-gray-500 text-[10px] font-mono">كود: {room.sessionCode} • {room.maxPlayers} لاعب</p>
+                      </div>
+                    </div>
+                    <span className="text-amber-400 text-lg">→</span>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── أنشطة قادمة ── */}
       {upcoming.length > 0 && (

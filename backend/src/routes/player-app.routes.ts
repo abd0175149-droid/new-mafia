@@ -7,7 +7,7 @@ import { Router, type Request, type Response } from 'express';
 import { eq, desc, and, sql, inArray, or } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
-import { matchPlayers, matches } from '../schemas/game.schema.js';
+import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations } from '../schemas/admin.schema.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 
@@ -251,6 +251,84 @@ router.get('/activities/:actId/following-bookers', async (req: Request, res: Res
     res.json({ success: true, count: enrichedBookers.length, bookers: enrichedBookers });
   } catch (err: any) {
     console.error('❌ bookers error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 🎮 GET /my-active-rooms — الغرف النشطة لأنشطة اللاعب الحاجز ──
+router.get('/my-active-rooms', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const player = (req as any).playerAccount;
+  if (!player) return res.status(401).json({ error: 'غير مصادق' });
+
+  try {
+    // 1. جلب حجوزات اللاعب (بالهاتف أو playerId)
+    const myBookings = await db.select({
+      activityId: bookings.activityId,
+      activityName: activities.name,
+      activityDate: activities.date,
+    })
+      .from(bookings)
+      .innerJoin(activities, eq(bookings.activityId, activities.id))
+      .where(
+        or(
+          eq(bookings.phone, player.phone),
+          player.playerId ? eq(bookings.playerId, player.playerId) : sql`false`
+        )
+      );
+
+    if (myBookings.length === 0) {
+      return res.json({ success: true, rooms: [] });
+    }
+
+    // 2. جلب الغرف النشطة لهذه الأنشطة
+    const activityIds = [...new Set(myBookings.map(b => b.activityId))];
+    
+    const activeRooms = await db.select({
+      sessionId: sessions.id,
+      sessionCode: sessions.sessionCode,
+      sessionName: sessions.sessionName,
+      maxPlayers: sessions.maxPlayers,
+      isActive: sessions.isActive,
+      activityId: sessions.activityId,
+    })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.activityId, activityIds),
+          eq(sessions.isActive, true),
+        )
+      );
+
+    if (activeRooms.length === 0) {
+      return res.json({ success: true, rooms: [] });
+    }
+
+    // 3. تجميع النتائج: كل نشاط مع غرفه
+    const result = activityIds
+      .map(actId => {
+        const booking = myBookings.find(b => b.activityId === actId);
+        const rooms = activeRooms.filter(r => r.activityId === actId);
+        if (rooms.length === 0) return null;
+        return {
+          activityId: actId,
+          activityName: booking?.activityName || '',
+          activityDate: booking?.activityDate || '',
+          rooms: rooms.map(r => ({
+            sessionId: r.sessionId,
+            sessionCode: r.sessionCode,
+            sessionName: r.sessionName,
+            maxPlayers: r.maxPlayers,
+          })),
+        };
+      })
+      .filter(Boolean);
+
+    res.json({ success: true, rooms: result });
+  } catch (err: any) {
+    console.error('❌ my-active-rooms error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

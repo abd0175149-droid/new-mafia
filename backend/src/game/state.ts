@@ -159,7 +159,7 @@ export interface GameState {
 
 // ── إنشاء كود غرفة 6 أرقام ──────────────────────
 
-function generateRoomCode(): string {
+export function generateRoomCode(): string {
   // 4 أرقام مع تكرار دائماً — أسهل للحفظ
   const d = () => Math.floor(Math.random() * 10); // 0-9
   const patterns = [

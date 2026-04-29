@@ -12,6 +12,7 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
 import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession, closeSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
+import { generateRoomCode } from '../game/state.js';
 
 // ── تحويل التاريخ بتوقيت الأردن (UTC+3) ──
 // datetime-local يرسل "2026-04-28T18:30" بدون timezone
@@ -163,7 +164,7 @@ router.post('/:id/add-room', authenticate, async (req: Request, res: Response) =
 
     const sessionId = await createSession(
       roomName,
-      Math.floor(1000 + Math.random() * 9000).toString(),
+      generateRoomCode(),
       Math.floor(1000 + Math.random() * 9000).toString(),
       maxPlayers,
       activityId,
@@ -274,7 +275,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   try {
     const sessionId = await createSession(
       name,
-      Math.floor(100000 + Math.random() * 900000).toString(),
+      generateRoomCode(),
       Math.floor(1000 + Math.random() * 9000).toString(),
       10,
       activity.id,
