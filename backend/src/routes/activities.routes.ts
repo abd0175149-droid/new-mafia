@@ -334,11 +334,38 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   res.status(201).json(activity);
 
   // 🔔 Push للاعبين (نشاط جديد) + الموظفين
-  import('../services/fcm.service.js').then(({ sendPushToAllPlayers, sendPushToStaffByPermission }) => {
-    sendPushToAllPlayers('📅 نشاط جديد', `تم إضافة نشاط: ${name}`, 'new_activity', {
-      activityId: activity.id,
-      url: `/player/games?activityId=${activity.id}`,
-    });
+  import('../services/fcm.service.js').then(async ({ sendPushToAllPlayers, sendPushToPlayers, sendPushToStaffByPermission }) => {
+    // فحص إذا النشاط مرتبط بموقع اختباري
+    let isTestActivity = false;
+    if (locationId) {
+      try {
+        const { locations } = await import('../schemas/admin.schema.js');
+        const [loc] = await db.select({ isTestLocation: locations.isTestLocation })
+          .from(locations).where(eq(locations.id, locationId)).limit(1);
+        isTestActivity = loc?.isTestLocation || false;
+      } catch {}
+    }
+
+    if (isTestActivity) {
+      // إرسال فقط لحسابات الاختبار
+      const { players } = await import('../schemas/player.schema.js');
+      const testPlayers = await db.select({ id: players.id }).from(players)
+        .where(eq(players.isTestAccount, true));
+      const testIds = testPlayers.map(p => p.id);
+      if (testIds.length > 0) {
+        sendPushToPlayers(testIds, '📅 نشاط جديد (اختباري)', `تم إضافة نشاط: ${name}`, 'new_activity', {
+          activityId: activity.id,
+          url: `/player/games?activityId=${activity.id}`,
+        });
+      }
+      console.log(`🧪 Test activity push sent to ${testIds.length} test accounts only`);
+    } else {
+      sendPushToAllPlayers('📅 نشاط جديد', `تم إضافة نشاط: ${name}`, 'new_activity', {
+        activityId: activity.id,
+        url: `/player/games?activityId=${activity.id}`,
+      });
+    }
+
     sendPushToStaffByPermission('activities', '📅 نشاط جديد', `تم جدولة نشاط: ${name}`, 'new_activity', {
       targetId: `activity-${activity.id}`,
       url: '/admin/activities',

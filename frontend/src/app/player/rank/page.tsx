@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS } from '@/lib/ranks';
@@ -17,6 +17,19 @@ export default function RankPage() {
   const [followLoading, setFollowLoading] = useState<number | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
   const [selectedProfile, setSelectedProfile] = useState<any>(null);
+  const [glowing, setGlowing] = useState(true);
+  const myCardRef = useRef<HTMLDivElement>(null);
+  const touchStartY = useRef<number>(0);
+
+  // ── منع السكرول في الخلفية عند فتح الموديل ──
+  useEffect(() => {
+    if (selectedProfile) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [selectedProfile]);
 
   useEffect(() => {
     if (!player) return;
@@ -31,29 +44,36 @@ export default function RankPage() {
     }).finally(() => setLoading(false));
   }, [player]);
 
+  // ── Auto-scroll to my card + glowing timer ──
+  useEffect(() => {
+    if (loading || !myCardRef.current) return;
+    const timer1 = setTimeout(() => {
+      myCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
+    const timer2 = setTimeout(() => setGlowing(false), 5000);
+    return () => { clearTimeout(timer1); clearTimeout(timer2); };
+  }, [loading, tab]);
+
   const handleFollow = async (targetId: number) => {
     if (!player) return;
     setFollowLoading(targetId);
-
     try {
       const res = await fetch(`/api/player-app/${player.playerId}/follow/${targetId}`, { method: 'POST' });
       const data = await res.json();
-
       if (data.success || res.status === 200) {
         setCoPlayers(prev => prev.map(p => p.id === targetId ? { ...p, isFollowing: true } : p));
       }
-    } catch { /* ignore */ }
+    } catch {}
     setFollowLoading(null);
   };
 
   const handleUnfollow = async (targetId: number) => {
     if (!player) return;
     setFollowLoading(targetId);
-
     try {
       await fetch(`/api/player-app/${player.playerId}/follow/${targetId}`, { method: 'DELETE' });
       setCoPlayers(prev => prev.map(p => p.id === targetId ? { ...p, isFollowing: false } : p));
-    } catch { /* ignore */ }
+    } catch {}
     setFollowLoading(null);
   };
 
@@ -66,9 +86,11 @@ export default function RankPage() {
     }
   };
 
-  // هل هذا اللاعب co-player (يمكن متابعته)
   const isCoPlayer = (id: number) => coPlayers.some(p => p.id === id);
   const isFollowing = (id: number) => coPlayers.find(p => p.id === id)?.isFollowing || false;
+
+  // ── حساب الترتيب الخاص بي ──
+  const myRank = leaderboard.findIndex(p => p.id === player?.playerId) + 1;
 
   if (loading) {
     return (
@@ -79,9 +101,66 @@ export default function RankPage() {
   }
 
   const prog = myProfile?.progression;
+  const myStats = myProfile?.stats;
+  const isMe = (id: number) => id === player?.playerId;
+
+  // ── Glow style ──
+  const glowStyle = glowing ? {
+    boxShadow: '0 0 15px rgba(251,191,36,0.4), 0 0 30px rgba(251,191,36,0.2), 0 0 45px rgba(251,191,36,0.1)',
+    animation: 'pulse-glow 1.5s ease-in-out infinite',
+  } : {};
+
+  const renderPlayerRow = (p: any, rank: number) => {
+    const me = isMe(p.id);
+    return (
+      <div
+        key={p.id}
+        ref={me ? myCardRef : undefined}
+        onClick={() => !me && viewProfile(p.id)}
+        className={`rounded-xl p-3 flex items-center gap-3 transition-all ${!me ? 'cursor-pointer hover:bg-white/5' : ''}`}
+        style={{
+          background: me ? 'rgba(251,191,36,0.08)' : 'rgba(255,255,255,0.03)',
+          border: me ? '2px solid rgba(251,191,36,0.3)' : '1px solid rgba(255,255,255,0.06)',
+          ...(me ? glowStyle : {}),
+        }}
+      >
+        <span className={`text-sm font-bold w-6 text-center ${me ? 'text-amber-400' : 'text-gray-600'}`}>{rank}</span>
+        <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center overflow-hidden">
+          {p.avatarUrl ? <img src={p.avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className={`text-xs font-medium truncate ${me ? 'text-amber-400' : 'text-white'}`}>
+            {p.name} {me && '(أنت)'}
+          </p>
+          <p className="text-gray-500 text-[10px]">
+            {RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]} • {p.totalMatches || 0} مباراة • {p.totalWins || 0} فوز
+          </p>
+        </div>
+        <span className="text-gray-400 text-xs w-12 text-center tabular-nums">Lv.{p.level}</span>
+        <span className="text-amber-400 text-xs font-bold w-10 text-center tabular-nums">{p.rankRR}</span>
+        {!me && isCoPlayer(p.id) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); isFollowing(p.id) ? handleUnfollow(p.id) : handleFollow(p.id); }}
+            disabled={followLoading === p.id}
+            className={`text-[10px] px-2 py-1 rounded-lg transition-all ${isFollowing(p.id) ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500 hover:text-amber-400'}`}
+          >
+            {followLoading === p.id ? '...' : isFollowing(p.id) ? '⭐' : '☆'}
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6">
+      {/* ── CSS للـ Glow Animation ── */}
+      <style jsx global>{`
+        @keyframes pulse-glow {
+          0%, 100% { box-shadow: 0 0 15px rgba(251,191,36,0.4), 0 0 30px rgba(251,191,36,0.2); }
+          50% { box-shadow: 0 0 25px rgba(251,191,36,0.6), 0 0 50px rgba(251,191,36,0.3), 0 0 70px rgba(251,191,36,0.1); }
+        }
+      `}</style>
+
       <h1 className="text-white text-lg font-bold mb-4">🏆 التصنيف والرتب</h1>
 
       {/* ── رتبتي ── */}
@@ -99,6 +178,7 @@ export default function RankPage() {
             <div>
               <span className="text-2xl">{RANK_BADGES[prog.rankTier]}</span>
               <span className="text-white text-sm font-bold mr-2">{RANK_NAMES_AR[prog.rankTier]}</span>
+              {myRank > 0 && <span className="text-gray-500 text-xs">#{myRank}</span>}
             </div>
             <div className="text-left">
               <span className="text-xs text-gray-400">RR</span>
@@ -108,6 +188,27 @@ export default function RankPage() {
               <span className="text-gray-600 text-[10px]">/100</span>
             </div>
           </div>
+          {/* ── إحصائيات سريعة ── */}
+          {myStats && (
+            <div className="flex gap-3 mt-3 text-center">
+              <div className="flex-1 bg-white/5 rounded-lg py-1.5">
+                <div className="text-white text-sm font-bold">{myStats.totalMatches}</div>
+                <div className="text-gray-500 text-[9px]">مباراة</div>
+              </div>
+              <div className="flex-1 bg-white/5 rounded-lg py-1.5">
+                <div className="text-green-400 text-sm font-bold">{myStats.totalWins}</div>
+                <div className="text-gray-500 text-[9px]">فوز</div>
+              </div>
+              <div className="flex-1 bg-white/5 rounded-lg py-1.5">
+                <div className="text-amber-400 text-sm font-bold">{myStats.winRate}%</div>
+                <div className="text-gray-500 text-[9px]">نسبة فوز</div>
+              </div>
+              <div className="flex-1 bg-white/5 rounded-lg py-1.5">
+                <div className="text-blue-400 text-sm font-bold">Lv.{prog.level}</div>
+                <div className="text-gray-500 text-[9px]">المستوى</div>
+              </div>
+            </div>
+          )}
           <div className="mt-3 h-1.5 rounded-full bg-white/5 overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
@@ -127,7 +228,7 @@ export default function RankPage() {
         ].map(t => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key as Tab)}
+            onClick={() => { setTab(t.key as Tab); if (t.key === 'leaderboard') setGlowing(true); }}
             className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-all ${
               tab === t.key
                 ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
@@ -147,75 +248,44 @@ export default function RankPage() {
             {leaderboard.length >= 3 && (
               <div className="flex items-end justify-center gap-3 pt-4 pb-2">
                 {/* #2 Silver */}
-                <div className="flex flex-col items-center" onClick={() => leaderboard[1]?.id !== player?.playerId && viewProfile(leaderboard[1]?.id)}>
+                <div className="flex flex-col items-center" onClick={() => !isMe(leaderboard[1]?.id) && viewProfile(leaderboard[1]?.id)}>
                   <div className="w-14 h-14 rounded-full bg-white/5 border-2 border-gray-400/40 flex items-center justify-center overflow-hidden mb-1">
                     {leaderboard[1]?.avatarUrl ? <img src={leaderboard[1].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-xs">🥈</span>
                   <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center">{leaderboard[1]?.name}</p>
-                  <p className="text-[9px] text-gray-500">Lv.{leaderboard[1]?.level} • {leaderboard[1]?.rankRR} RR</p>
+                  <p className="text-[9px] text-gray-500">{leaderboard[1]?.totalMatches || 0} مباراة • {leaderboard[1]?.rankRR} RR</p>
                 </div>
                 {/* #1 Gold */}
-                <div className="flex flex-col items-center -mt-4" onClick={() => leaderboard[0]?.id !== player?.playerId && viewProfile(leaderboard[0]?.id)}>
+                <div className="flex flex-col items-center -mt-4" onClick={() => !isMe(leaderboard[0]?.id) && viewProfile(leaderboard[0]?.id)}>
                   <div className="w-[72px] h-[72px] rounded-full border-[3px] border-amber-400/60 flex items-center justify-center overflow-hidden mb-1 shadow-lg shadow-amber-500/20" style={{background:'rgba(251,191,36,0.08)'}}>
                     {leaderboard[0]?.avatarUrl ? <img src={leaderboard[0].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-lg">🥇</span>
                   <p className="text-xs text-amber-400 font-bold mt-0.5 max-w-[80px] truncate text-center">{leaderboard[0]?.name}</p>
-                  <p className="text-[9px] text-gray-400">Lv.{leaderboard[0]?.level} • {leaderboard[0]?.rankRR} RR</p>
+                  <p className="text-[9px] text-gray-400">{leaderboard[0]?.totalMatches || 0} مباراة • {leaderboard[0]?.rankRR} RR</p>
                 </div>
                 {/* #3 Bronze */}
-                <div className="flex flex-col items-center" onClick={() => leaderboard[2]?.id !== player?.playerId && viewProfile(leaderboard[2]?.id)}>
+                <div className="flex flex-col items-center" onClick={() => !isMe(leaderboard[2]?.id) && viewProfile(leaderboard[2]?.id)}>
                   <div className="w-14 h-14 rounded-full bg-white/5 border-2 border-amber-700/40 flex items-center justify-center overflow-hidden mb-1">
                     {leaderboard[2]?.avatarUrl ? <img src={leaderboard[2].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-xs">🥉</span>
                   <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center">{leaderboard[2]?.name}</p>
-                  <p className="text-[9px] text-gray-500">Lv.{leaderboard[2]?.level} • {leaderboard[2]?.rankRR} RR</p>
+                  <p className="text-[9px] text-gray-500">{leaderboard[2]?.totalMatches || 0} مباراة • {leaderboard[2]?.rankRR} RR</p>
                 </div>
               </div>
             )}
 
-            {/* ── Remaining List ── */}
-            {/* Header Row */}
+            {/* ── Header Row ── */}
             <div className="flex items-center gap-3 px-3 mb-1">
               <span className="w-6" /><span className="w-8" />
               <span className="flex-1 text-[9px] text-gray-600">اللاعب</span>
-              <span className="text-[9px] text-gray-600 w-14 text-center">المستوى</span>
+              <span className="text-[9px] text-gray-600 w-12 text-center">المستوى</span>
               <span className="text-[9px] text-gray-600 w-10 text-center">RR</span>
             </div>
             <div className="space-y-1.5">
-              {leaderboard.slice(3).map((p: any, i: number) => (
-                <div
-                  key={p.id}
-                  onClick={() => p.id !== player?.playerId && viewProfile(p.id)}
-                  className={`rounded-xl p-3 flex items-center gap-3 transition-colors ${p.id !== player?.playerId ? 'cursor-pointer hover:bg-white/5' : ''}`}
-                  style={{
-                    background: player?.playerId === p.id ? 'rgba(251,191,36,0.08)' : 'rgba(255,255,255,0.03)',
-                    border: player?.playerId === p.id ? '1px solid rgba(251,191,36,0.2)' : '1px solid rgba(255,255,255,0.06)',
-                  }}
-                >
-                  <span className="text-sm font-bold w-6 text-center text-gray-600">{i + 4}</span>
-                  <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center overflow-hidden">
-                    {p.avatarUrl ? <img src={p.avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-white text-xs font-medium">{p.name}</p>
-                    <p className="text-gray-500 text-[10px]">{RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]}</p>
-                  </div>
-                  <span className="text-gray-400 text-xs w-14 text-center tabular-nums">Lv.{p.level}</span>
-                  <span className="text-amber-400 text-xs font-bold w-10 text-center tabular-nums">{p.rankRR}</span>
-                  {p.id !== player?.playerId && isCoPlayer(p.id) && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); isFollowing(p.id) ? handleUnfollow(p.id) : handleFollow(p.id); }}
-                      disabled={followLoading === p.id}
-                      className={`text-[10px] px-2 py-1 rounded-lg transition-all ${isFollowing(p.id) ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500 hover:text-amber-400'}`}
-                    >
-                      {followLoading === p.id ? '...' : isFollowing(p.id) ? '⭐' : '☆'}
-                    </button>
-                  )}
-                </div>
-              ))}
+              {leaderboard.slice(3).map((p: any, i: number) => renderPlayerRow(p, i + 4))}
             </div>
           </motion.div>
         )}
@@ -278,8 +348,13 @@ export default function RankPage() {
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="w-full max-w-lg rounded-t-3xl p-5 max-h-[70vh] overflow-y-auto"
-              style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)' }}
+              style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', overscrollBehavior: 'contain' }}
               onClick={e => e.stopPropagation()}
+              onTouchStart={e => { touchStartY.current = e.touches[0].clientY; }}
+              onTouchEnd={e => {
+                const diff = e.changedTouches[0].clientY - touchStartY.current;
+                if (diff > 80) { setSelectedProfile(null); setSelectedPlayer(null); }
+              }}
             >
               <div className="w-10 h-1 rounded-full bg-gray-700 mx-auto mb-4" />
 
@@ -299,8 +374,6 @@ export default function RankPage() {
                     {' • '}Lv.{selectedProfile.progression?.level}
                   </p>
                 </div>
-
-                {/* زر متابعة */}
                 {selectedPlayer && selectedPlayer !== player?.playerId && isCoPlayer(selectedPlayer) && (
                   <button
                     onClick={() => isFollowing(selectedPlayer!) ? handleUnfollow(selectedPlayer!) : handleFollow(selectedPlayer!)}

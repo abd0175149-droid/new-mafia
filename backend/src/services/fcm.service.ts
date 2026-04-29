@@ -148,14 +148,16 @@ export async function registerPlayerToken(playerId: number, token: string, devic
   try {
     // حذف نفس الـ token إن كان مسجل للاعب آخر
     await db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, token));
-    // إدراج أو تحديث
+    // حذف كل التوكنات القديمة لنفس اللاعب (منع الإشعارات المكررة)
+    await db.delete(playerFcmTokens).where(eq(playerFcmTokens.playerId, playerId));
+    // إدراج التوكن الجديد
     await db.insert(playerFcmTokens).values({
       playerId,
       fcmToken: token,
       deviceInfo,
       isActive: true,
     });
-    console.log(`📱 FCM token registered for player #${playerId}`);
+    console.log(`📱 FCM token registered for player #${playerId} (old tokens cleaned)`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
   }

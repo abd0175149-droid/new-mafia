@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import Link from 'next/link';
@@ -28,6 +28,18 @@ export default function HomePage() {
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
+  const touchStartY = useRef<number>(0);
+  const modalDragY = useRef<number>(0);
+
+  // ── منع السكرول في الخلفية عند فتح الموديل ──
+  useEffect(() => {
+    if (selectedActivity) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [selectedActivity]);
 
   useEffect(() => {
     if (!player) return;
@@ -355,9 +367,14 @@ export default function HomePage() {
               animate={{ y: 0 }}
               exit={{ y: 300 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full max-w-lg rounded-t-3xl p-6"
-              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)' }}
+              className="w-full max-w-lg rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto"
+              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', overscrollBehavior: 'contain' }}
               onClick={e => e.stopPropagation()}
+              onTouchStart={e => { touchStartY.current = e.touches[0].clientY; }}
+              onTouchEnd={e => {
+                const diff = e.changedTouches[0].clientY - touchStartY.current;
+                if (diff > 80) setSelectedActivity(null);
+              }}
             >
               <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
               <h3 className="text-white text-lg font-bold mb-1">{selectedActivity.name}</h3>

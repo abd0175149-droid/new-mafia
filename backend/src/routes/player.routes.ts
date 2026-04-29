@@ -428,7 +428,7 @@ router.post('/:id/avatar', async (req: Request, res: Response) => {
     // حفظ الملف
     fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
 
-    const avatarUrl = `/uploads/avatars/${fileName}`;
+    const avatarUrl = `/uploads/avatars/${fileName}?v=${Date.now()}`;
 
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
