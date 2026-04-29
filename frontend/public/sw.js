@@ -31,26 +31,13 @@ try {
   const messaging = firebase.messaging();
 
   // ── استقبال رسالة FCM في الخلفية (Chrome/Firefox/Edge) ──
-  // ⚠️ data-only message: نقرأ من payload.data (لا notification)
+  // ⚠️ notification field موجود في payload → المتصفح يعرض الإشعار تلقائياً
+  //    هنا فقط نمنع push event من إعادة العرض
   messaging.onBackgroundMessage((payload) => {
-    const data = payload.data || {};
-
-    const title = data.title || '🎭 نادي المافيا';
-    const body = data.body || '';
-    const url = resolveNotificationUrl(data.type, data);
-
-    // منع push event من إعادة العرض
+    // منع push event من إعادة العرض — FCM + المتصفح يتولى الأمر
     self.__fcmHandled = true;
-    setTimeout(() => { self.__fcmHandled = false; }, 2000);
-
-    self.registration.showNotification(title, {
-      body,
-      icon: '/mafia_logo.png',
-      badge: '/mafia_logo.png',
-      tag: `${data.type || 'default'}-${Date.now()}`,
-      data: { url, type: data.type || '', ...data },
-      requireInteraction: true,
-    });
+    setTimeout(() => { self.__fcmHandled = false; }, 3000);
+    console.log('📨 FCM background message received (auto-displayed by browser)');
   });
 
   firebaseInitialized = true;

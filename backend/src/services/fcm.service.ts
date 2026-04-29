@@ -87,9 +87,8 @@ function splitTokens(allTokens: { token: string }[]): { fcmTokens: string[]; web
 }
 
 // ── بناء payload متوافق مع iOS Safari + Android + Desktop ──
-// ⚠️ data-only message: لا نضع notification في المستوى الأعلى
-//    لأن FCM يعرض notification تلقائياً + onBackgroundMessage يعرض آخر + push event يعرض ثالث = 3 مكررات!
-//    بدون notification → فقط SW يعرض الإشعار مرة واحدة عبر onBackgroundMessage أو push event
+// ⚠️ iOS يتطلب notification في المستوى الأعلى لإيقاظ الجهاز
+//    لمنع التكرار: SW يتحقق من tag ويمنع العرض المتكرر
 function buildFCMPayload(
   tokens: string[],
   title: string,
@@ -101,11 +100,14 @@ function buildFCMPayload(
     Object.entries(data).map(([k, v]) => [k, String(v)])
   );
   const link = data.url || '/player/home';
+  // tag ثابت لكل نوع — يمنع تكرار نفس الإشعار
+  const notifTag = `${type || 'default'}-${Date.now()}`;
 
   return {
     tokens,
-    // ⚠️ لا notification هنا — data-only message
-    data: { type, title, body, ...stringifiedData },
+    // ✅ notification مطلوب لإيقاظ iOS — بدونه لا يصل الإشعار
+    notification: { title, body },
+    data: { type, title, body, tag: notifTag, ...stringifiedData },
 
     // ── WebPush (Chrome, Firefox, Safari iOS PWA) ──
     webpush: {
@@ -113,7 +115,7 @@ function buildFCMPayload(
         Urgency: 'high',
         TTL: '86400',
       },
-      // ⚠️ لا notification هنا أيضاً — SW يتولى العرض
+      notification: { title, body, tag: notifTag, icon: '/mafia_logo.png' },
       data: { type, title, body, url: link, ...stringifiedData },
       fcmOptions: { link },
     },
@@ -123,6 +125,7 @@ function buildFCMPayload(
       headers: {
         'apns-priority': '10',
         'apns-push-type': 'alert',
+        'apns-collapse-id': type || 'default', // منع تكرار نفس النوع
       },
       payload: {
         aps: {
@@ -130,6 +133,7 @@ function buildFCMPayload(
           badge: 1,
           sound: 'default',
           'mutable-content': 1,
+          'content-available': 1,
         },
       },
     },
