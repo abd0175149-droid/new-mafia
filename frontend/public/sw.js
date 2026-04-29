@@ -171,17 +171,16 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // إذا التطبيق مفتوح ومركّز → أرسل postMessage (تحديث داخلي)
+      // إرسال postMessage لتحديث الواجهة إذا التطبيق مفتوح
       const focusedClient = clients.find((c) => c.focused);
       if (focusedClient) {
         focusedClient.postMessage({
           type: 'PUSH_RECEIVED',
           payload: { title, body, data: { url, type, ...fcmData } },
         });
-        return; // لا تعرض notification نظام
       }
 
-      // التطبيق في الخلفية أو مغلق → notification نظام عادي
+      // ✅ دائماً نعرض notification نظام — مطلوب لـ iOS
       return self.registration.showNotification(title, {
         body,
         icon: '/mafia_logo.png',

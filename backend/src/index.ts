@@ -430,6 +430,32 @@ async function main() {
     console.warn('⚠️ Firebase init skipped:', err.message);
   }
 
+  // ── تهيئة web-push (VAPID keys) مبكراً — يجب أن تكون جاهزة قبل أي طلب ──
+  try {
+    const wp = await import('web-push');
+    const webpush = (wp as any).default || wp;
+    let publicKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
+    let privateKey = process.env.VAPID_PRIVATE_KEY || '';
+    
+    if (!privateKey) {
+      if (!(global as any).__vapidKeys) {
+        const keys = webpush.generateVAPIDKeys();
+        (global as any).__vapidKeys = keys;
+        console.log('══════════════════════════════════════════════════');
+        console.log('🔑 VAPID Keys Generated at startup:');
+        console.log(`VAPID_PUBLIC_KEY=${keys.publicKey}`);
+        console.log(`VAPID_PRIVATE_KEY=${keys.privateKey}`);
+        console.log('══════════════════════════════════════════════════');
+      }
+      publicKey = (global as any).__vapidKeys.publicKey;
+      privateKey = (global as any).__vapidKeys.privateKey;
+    }
+    webpush.setVapidDetails('mailto:admin@club-mafia.grade.sbs', publicKey, privateKey);
+    console.log('✅ web-push initialized with VAPID keys at startup');
+  } catch (err: any) {
+    console.warn('⚠️ web-push init skipped:', err.message);
+  }
+
   // ── بذر لعبة تجريبية (تطوير فقط) ──
   if (env.NODE_ENV === 'development') {
     await seedDummyGame();
