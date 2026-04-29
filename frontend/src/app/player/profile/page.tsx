@@ -78,6 +78,16 @@ export default function PlayerProfilePage(){
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
 
+  // ── منع سكرول الخلفية عند فتح الموديل ──
+  useEffect(() => {
+    if (guideOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [guideOpen]);
+
   const getAuthHeaders=useCallback(():Record<string,string>=>{
     const token=localStorage.getItem('mafia_player_token');
     return token?{'Authorization':`Bearer ${token}`}:{};
