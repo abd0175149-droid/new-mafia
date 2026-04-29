@@ -15,12 +15,16 @@ function usePullToRefresh() {
   const pullDistance = useRef(0);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
+    // ⚠️ تجاهل إذا موديل مفتوح
+    if (document.body.classList.contains('modal-open')) return;
     if (window.scrollY === 0) {
       startY.current = e.touches[0].clientY;
     }
   }, []);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
+    // ⚠️ تجاهل إذا موديل مفتوح
+    if (document.body.classList.contains('modal-open')) return;
     if (window.scrollY > 0) return;
     const currentY = e.touches[0].clientY;
     pullDistance.current = currentY - startY.current;
@@ -30,6 +34,12 @@ function usePullToRefresh() {
   }, []);
 
   const handleTouchEnd = useCallback(() => {
+    // ⚠️ تجاهل إذا موديل مفتوح
+    if (document.body.classList.contains('modal-open')) {
+      setPulling(false);
+      pullDistance.current = 0;
+      return;
+    }
     if (pulling && pullDistance.current > 80) {
       window.location.reload();
     }
