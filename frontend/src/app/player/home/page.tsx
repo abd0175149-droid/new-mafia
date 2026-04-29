@@ -222,7 +222,7 @@ export default function HomePage() {
         );
       })()}
       {/* ── غرف نشطة لحجوزاتك ── */}
-      {activeRooms.length > 0 && !profile?.activeGame && (
+      {activeRooms.length > 0 && (
         <div className="space-y-2">
           {activeRooms.map((entry: any) => (
             <motion.div
