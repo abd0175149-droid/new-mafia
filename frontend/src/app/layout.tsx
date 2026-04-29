@@ -58,13 +58,36 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }
             localStorage.setItem('mafia_app_version', v);
 
-            // ── تسجيل Service Worker ──
+            // ── تسجيل Service Worker + تحديث تلقائي ──
             if ('serviceWorker' in navigator) {
               window.addEventListener('load', function() {
                 navigator.serviceWorker.register('/sw.js').then(function(reg) {
                   console.log('✅ PWA: Service Worker registered', reg.scope);
+
+                  // ── اكتشاف تحديث جديد ──
+                  reg.addEventListener('updatefound', function() {
+                    var newWorker = reg.installing;
+                    if (!newWorker) return;
+
+                    newWorker.addEventListener('statechange', function() {
+                      // SW الجديد جاهز + يوجد SW قديم نشط → تحديث!
+                      if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                        console.log('🔄 PWA: New version detected — reloading...');
+                        window.location.reload();
+                      }
+                    });
+                  });
                 }).catch(function(err) {
                   console.warn('⚠️ PWA: SW registration failed', err);
+                });
+
+                // ── إذا SW جديد سيطر (skipWaiting+claim) → reload فوري ──
+                var refreshing = false;
+                navigator.serviceWorker.addEventListener('controllerchange', function() {
+                  if (refreshing) return;
+                  refreshing = true;
+                  console.log('🔄 PWA: Controller changed — reloading...');
+                  window.location.reload();
                 });
               });
             }
