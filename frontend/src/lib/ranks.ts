@@ -25,3 +25,11 @@ export const RANK_COLORS: Record<string, string> = {
   UNDERBOSS: '#f59e0b',
   GODFATHER: '#ef4444',
 };
+
+export const RANK_RR_REQUIRED: Record<string, number> = {
+  INFORMANT: 100,
+  SOLDIER: 200,
+  CAPO: 300,
+  UNDERBOSS: 400,
+  GODFATHER: 9999,
+};

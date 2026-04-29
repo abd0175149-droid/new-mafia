@@ -75,7 +75,8 @@ export default function PlayerProfilePage(){
   const [leaderboard,setLeaderboard]=useState<any[]>([]);
   const fileInputRef=useRef<HTMLInputElement>(null);
   const nameInputRef=useRef<HTMLInputElement>(null);
-  const [cropFile, setCropFile] = useState<File | null>(null); // ← ملف ينتظر القص
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const getAuthHeaders=useCallback(():Record<string,string>=>{
     const token=localStorage.getItem('mafia_player_token');
@@ -294,10 +295,10 @@ export default function PlayerProfilePage(){
             </div>
           </div>
           {/* RR Progress */}
-          <div className="mb-1.5"><div className="flex justify-between text-[10px] text-gray-500 mb-1"><span>{progression?.rankRR||0} / 100 RR</span></div>
-            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden"><motion.div initial={{width:0}} animate={{width:`${progression?.rankRR||0}%`}} transition={{duration:1}} className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/></div>
+          <div className="mb-1.5"><div className="flex justify-between text-[10px] text-gray-500 mb-1"><span>{progression?.rankRR||0} / {progression?.rrRequired || 100} RR</span></div>
+            <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden"><motion.div initial={{width:0}} animate={{width:`${((progression?.rankRR||0) / (progression?.rrRequired||100)) * 100}%`}} transition={{duration:1}} className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/></div>
           </div>
-          <p className="text-[10px] text-gray-600 text-center">تحتاج {100-(progression?.rankRR||0)} RR للترقية • عند 100 RR سوف تترقى</p>
+          <p className="text-[10px] text-gray-600 text-center">تحتاج {(progression?.rrRequired||100)-(progression?.rankRR||0)} RR للترقية</p>
         </motion.div>
       </div>
 
@@ -452,7 +453,8 @@ export default function PlayerProfilePage(){
                     </div>
                     <div className="flex items-center gap-3 text-[10px] text-gray-500">
                       <span>{m.survived?'🛡️ نجا':'💀'}</span>
-                      {m.xpEarned!==undefined&&<span className="text-amber-400/70">+{m.xpEarned}XP</span>}
+                      {m.xpEarned!==undefined&&m.xpEarned!==null&&<span className="text-amber-400/70">+{m.xpEarned}XP</span>}
+                      {m.rrChange!==undefined&&m.rrChange!==null&&<span className={m.rrChange>=0?'text-green-400/70':'text-red-400/70'}>{m.rrChange>=0?'+':''}{m.rrChange}RR</span>}
                       <span className="font-mono">{dur}</span>
                       <span className="font-mono">{dateStr}</span>
                     </div>
@@ -503,6 +505,14 @@ export default function PlayerProfilePage(){
           </AnimatePresence>
         </motion.div>
 
+        {/* ═══ PROGRESSION GUIDE BUTTON ═══ */}
+        <div className="text-center pt-2">
+          <button onClick={()=>setGuideOpen(true)}
+            className="text-xs text-amber-400/80 hover:text-amber-400 transition px-5 py-2.5 rounded-xl border border-amber-500/15 hover:border-amber-500/30 bg-amber-500/5">
+            📖 كيف يعمل نظام النقاط والرتب؟
+          </button>
+        </div>
+
         {/* Logout */}
         <div className="text-center pt-4 pb-2 space-y-2">
           <button
@@ -525,6 +535,105 @@ export default function PlayerProfilePage(){
           <motion.div initial={{opacity:0,y:50}} animate={{opacity:1,y:0}} exit={{opacity:0,y:50}}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-xl text-sm font-bold bg-gray-800 border border-gray-700 text-amber-400 shadow-xl">
             {saveMsg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ PROGRESSION GUIDE MODAL ═══ */}
+      <AnimatePresence>
+        {guideOpen&&(
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={()=>setGuideOpen(false)}>
+            <motion.div initial={{scale:0.9,opacity:0}} animate={{scale:1,opacity:1}} exit={{scale:0.9,opacity:0}}
+              className="bg-gray-900 border border-amber-500/20 rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto p-5 space-y-4"
+              onClick={e=>e.stopPropagation()} dir="rtl">
+
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-black text-amber-400">📖 نظام التقدم</h2>
+                <button onClick={()=>setGuideOpen(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
+              </div>
+
+              {/* XP Section */}
+              <div className="bg-amber-500/5 border border-amber-500/10 rounded-xl p-3">
+                <h3 className="text-sm font-bold text-amber-400 mb-2">⭐ نقاط الخبرة (XP)</h3>
+                <p className="text-[11px] text-gray-400 mb-2">تتراكم بعد كل مباراة لرفع مستواك:</p>
+                <div className="space-y-1">
+                  {[
+                    {l:'المشاركة في مباراة',v:'+20'},
+                    {l:'فوز الفريق',v:'+50'},
+                    {l:'النجاة كل جولة',v:'+5'},
+                    {l:'استخدام القدرة بشكل صحيح',v:'+10'},
+                    {l:'اتفاقية ناجحة',v:'+50'},
+                    {l:'إقصاء خصم (فريقي)',v:'+15'},
+                  ].map((s,i)=>(
+                    <div key={i} className="flex justify-between text-[10px]">
+                      <span className="text-gray-300">{s.l}</span>
+                      <span className="text-amber-400 font-bold font-mono">{s.v} XP</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Level Section */}
+              <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-xl p-3">
+                <h3 className="text-sm font-bold text-cyan-400 mb-2">🆙 المستوى (Level)</h3>
+                <p className="text-[11px] text-gray-400">عند جمع XP كافي ترتفع مستوى تلقائياً. كل مستوى يحتاج XP أكثر من السابق.</p>
+              </div>
+
+              {/* RR Section */}
+              <div className="bg-purple-500/5 border border-purple-500/10 rounded-xl p-3">
+                <h3 className="text-sm font-bold text-purple-400 mb-2">🏆 تقييم الرتبة (RR)</h3>
+                <p className="text-[11px] text-gray-400 mb-2">يحدد رتبتك ومكانتك التنافسية:</p>
+                <div className="space-y-1">
+                  {[
+                    {l:'فوز الفريق',v:'+20',c:'text-green-400'},
+                    {l:'خسارة الفريق',v:'-20',c:'text-red-400'},
+                    {l:'اتفاقية ناجحة',v:'+20',c:'text-green-400'},
+                    {l:'اتفاقية فاشلة',v:'-30',c:'text-red-400'},
+                    {l:'النجاة حتى النهاية',v:'+5',c:'text-green-400'},
+                    {l:'قدرة خاصة صحيحة',v:'+5',c:'text-green-400'},
+                  ].map((s,i)=>(
+                    <div key={i} className="flex justify-between text-[10px]">
+                      <span className="text-gray-300">{s.l}</span>
+                      <span className={`font-bold font-mono ${s.c}`}>{s.v} RR</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Ranks Section */}
+              <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-3">
+                <h3 className="text-sm font-bold text-red-400 mb-2">🎖️ الرتب</h3>
+                <p className="text-[11px] text-gray-400 mb-2">عند اكتمال RR المطلوب تترقى للرتبة التالية:</p>
+                <div className="space-y-1.5">
+                  {[
+                    {icon:'🕵️',name:'مُخبر',rr:'100',tier:'INFORMANT'},
+                    {icon:'⚔️',name:'جندي',rr:'200',tier:'SOLDIER'},
+                    {icon:'🎖️',name:'كابو',rr:'300',tier:'CAPO'},
+                    {icon:'💎',name:'أندربوس',rr:'400',tier:'UNDERBOSS'},
+                    {icon:'👑',name:'الأب الروحي',rr:'—',tier:'GODFATHER'},
+                  ].map((r,i)=>(
+                    <div key={i} className={`flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg ${r.tier===(progression?.rankTier||'INFORMANT')?'bg-white/5 border border-white/10':''}`}>
+                      <span className="text-lg">{r.icon}</span>
+                      <span className="flex-1 text-gray-300">{r.name}</span>
+                      {r.rr!=='—'&&<span className="text-gray-500 text-[10px]">{r.rr} RR للترقية</span>}
+                      {r.tier===(progression?.rankTier||'INFORMANT')&&<span className="text-amber-400 text-[9px]">أنت هنا</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Warning */}
+              <div className="bg-orange-500/5 border border-orange-500/10 rounded-xl p-3">
+                <p className="text-[11px] text-orange-400">⚠️ الاتفاقيات الفاشلة تعاقب بـ <strong>-30 RR</strong> — أقوى من الخسارة العادية! تأكد قبل ما تبادر.</p>
+              </div>
+
+              <button onClick={()=>setGuideOpen(false)}
+                className="w-full py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-sm font-bold hover:bg-amber-500/20 transition">
+                فهمت! 👍
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

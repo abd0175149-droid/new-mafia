@@ -35,7 +35,16 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
       totalWins: players.totalWins,
     })
       .from(players)
-      .orderBy(desc(players.level), desc(players.rankRR), desc(players.xp))
+      .orderBy(
+        sql`CASE ${players.rankTier}
+          WHEN 'GODFATHER' THEN 5
+          WHEN 'UNDERBOSS' THEN 4
+          WHEN 'CAPO' THEN 3
+          WHEN 'SOLDIER' THEN 2
+          ELSE 1 END DESC`,
+        desc(players.rankRR),
+        desc(players.level)
+      )
       .limit(50);
 
     res.json({ success: true, leaderboard: rows });

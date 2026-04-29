@@ -84,9 +84,11 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         if (elim.team === 'CITIZEN' && playerIsMafia) teamElimBonus += 15;
       }
 
+      const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
+
       const xpEarned = p.playerId ? calculateMatchXP({
         participated: true, teamWon, roundsSurvived,
-        abilityCorrectCount: abilityResults.filter(a => a.correct).length,
+        abilityCorrectCount,
         dealSuccess: dealOutcome ? dealOutcome.success : null,
         teamEliminationBonus: teamElimBonus,
       }) : 0;
@@ -94,6 +96,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const rrChange = p.playerId ? calculateMatchRR({
         teamWon,
         dealSuccess: dealOutcome ? dealOutcome.success : null,
+        survivedToEnd: !elimEntry, // نجا إذا لم يُقصى
+        abilityCorrectCount,
       }) : 0;
 
       return {

@@ -167,6 +167,8 @@ export async function getPlayerProfile(playerId: number) {
         matchDate: matches.createdAt,
         matchDuration: matches.durationSeconds,
         matchPlayerCount: matches.playerCount,
+        xpEarned: matchPlayers.xpEarned,
+        rrChange: matchPlayers.rrChange,
       })
       .from(matchPlayers)
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -186,6 +188,8 @@ export async function getPlayerProfile(playerId: number) {
           matchDate: matches.createdAt,
           matchDuration: matches.durationSeconds,
           matchPlayerCount: matches.playerCount,
+          xpEarned: matchPlayers.xpEarned,
+          rrChange: matchPlayers.rrChange,
         })
         .from(matchPlayers)
         .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -236,7 +240,7 @@ export async function getPlayerProfile(playerId: number) {
   const citizenWinRate = citizenGames > 0 ? Math.round((citizenWins / citizenGames) * 100) : 0;
 
   // ── بيانات التقدم ──
-  const { xpForNextLevel } = await import('./progression.service.js');
+  const { xpForNextLevel, rrRequiredForTier } = await import('./progression.service.js');
   const currentXP = (playerData as any).xp || 0;
   const currentLevel = (playerData as any).level || 1;
   const nextLevelXP = xpForNextLevel(currentLevel);
@@ -266,6 +270,7 @@ export async function getPlayerProfile(playerId: number) {
       xpProgress,
       rankTier: (playerData as any).rankTier || 'INFORMANT',
       rankRR: (playerData as any).rankRR || 0,
+      rrRequired: rrRequiredForTier((playerData as any).rankTier || 'INFORMANT'),
       totalDeals: (playerData as any).totalDeals || 0,
       successfulDeals: (playerData as any).successfulDeals || 0,
       dealSuccessRate: (playerData as any).totalDeals > 0

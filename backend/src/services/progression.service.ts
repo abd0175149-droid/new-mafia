@@ -25,6 +25,20 @@ export const RANK_ORDER: Record<RankTier, number> = {
   INFORMANT: 0, SOLDIER: 1, CAPO: 2, UNDERBOSS: 3, GODFATHER: 4,
 };
 
+// ── RR المطلوب للترقية من كل رتبة (متصاعد بزيادة 100) ──
+export const RANK_RR_REQUIRED: Record<RankTier, number> = {
+  INFORMANT: 100,   // مُخبر → جندي
+  SOLDIER: 200,     // جندي → كابو
+  CAPO: 300,        // كابو → أندربوس
+  UNDERBOSS: 400,   // أندربوس → الأب الروحي
+  GODFATHER: 9999,  // أعلى رتبة — لا ترقية
+};
+
+// ── دالة مساعدة: RR المطلوب لرتبة معينة ──
+export function rrRequiredForTier(tier: string): number {
+  return RANK_RR_REQUIRED[tier as RankTier] || 100;
+}
+
 // ── معادلة Level XP ──────────────────────────────────
 export function xpForNextLevel(level: number): number {
   return Math.floor(500 * Math.pow(level, 1.2));
@@ -55,6 +69,8 @@ export function calculateMatchXP(params: {
 export function calculateMatchRR(params: {
   teamWon: boolean;
   dealSuccess: boolean | null;
+  survivedToEnd: boolean;        // نجاة حتى النهاية
+  abilityCorrectCount: number;   // عدد القدرات الصحيحة
 }): number {
   let rr = 0;
 
@@ -62,6 +78,9 @@ export function calculateMatchRR(params: {
 
   if (params.dealSuccess === true) rr += 20;  // اتفاقية ناجحة
   if (params.dealSuccess === false) rr -= 30; // اتفاقية فاشلة (عقوبة)
+
+  if (params.survivedToEnd) rr += 5;          // نجاة للنهاية
+  rr += params.abilityCorrectCount * 5;       // قدرة صحيحة
 
   return rr;
 }
@@ -94,7 +113,7 @@ export async function applyXPAndLevel(playerId: number, xpEarned: number): Promi
   return { newXP: currentXP, newLevel: currentLevel, leveledUp };
 }
 
-// ── تطبيق RR مع Promotion/Demotion ──────────────────
+// ── تطبيق RR مع Promotion/Demotion (عتبات متصاعدة) ──
 export async function applyRR(playerId: number, rrChange: number): Promise<{ newRR: number; newTier: RankTier; promoted: boolean; demoted: boolean }> {
   const db = getDB();
   if (!db) return { newRR: 0, newTier: 'INFORMANT', promoted: false, demoted: false };
@@ -110,9 +129,11 @@ export async function applyRR(playerId: number, rrChange: number): Promise<{ new
   let promoted = false;
   let demoted = false;
 
-  // ── ترقية ──
-  while (rr >= 100 && tierIdx < RANK_TIERS.length - 1) {
-    rr -= 100;
+  // ── ترقية (عتبات متصاعدة) ──
+  while (tierIdx < RANK_TIERS.length - 1) {
+    const required = RANK_RR_REQUIRED[RANK_TIERS[tierIdx]];
+    if (rr < required) break;
+    rr -= required;
     tierIdx++;
     promoted = true;
   }
@@ -120,15 +141,17 @@ export async function applyRR(playerId: number, rrChange: number): Promise<{ new
   // ── تنزيل ──
   while (rr < 0 && tierIdx > 0) {
     tierIdx--;
-    rr += 80; // يرجع بـ 80 RR في الرتبة الأدنى
+    // يرجع بـ 80% من RR الرتبة الأدنى
+    rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * 0.8);
     demoted = true;
   }
 
   // لا تنزيل تحت INFORMANT
   if (rr < 0) rr = 0;
 
-  // لا تجاوز 100
-  if (rr > 100) rr = 100;
+  // لا تجاوز سقف الرتبة الحالية
+  const maxRR = RANK_RR_REQUIRED[RANK_TIERS[tierIdx]];
+  if (rr > maxRR) rr = maxRR;
 
   tier = RANK_TIERS[tierIdx];
 
@@ -189,8 +212,6 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     // القدرات الصحيحة
     const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
     const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
-    const abilityUsed = abilityResults.length > 0;
-    const abilityCorrect = abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null;
 
     // حساب XP
     const xpEarned = calculateMatchXP({
@@ -202,13 +223,18 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       teamEliminationBonus: teamElimBonusMap[p.physicalId] || 0,
     });
 
-    // حساب RR
-    const rrChange = calculateMatchRR({ teamWon, dealSuccess });
+    // حساب RR (مع المصادر الجديدة)
+    const rrChange = calculateMatchRR({
+      teamWon,
+      dealSuccess,
+      survivedToEnd: p.isAlive,
+      abilityCorrectCount,
+    });
 
     // تطبيق التقدم
     try {
-      await applyXPAndLevel(p.playerId, xpEarned);
-      await applyRR(p.playerId, rrChange);
+      const xpResult = await applyXPAndLevel(p.playerId, xpEarned);
+      const rrResult = await applyRR(p.playerId, rrChange);
 
       // تحديث إحصائيات الاتفاقيات
       if (dealOutcome) {
@@ -220,6 +246,49 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       }
 
       console.log(`🏆 Player #${p.physicalId} (${p.name}): +${xpEarned} XP, ${rrChange >= 0 ? '+' : ''}${rrChange} RR`);
+
+      // ── إرسال تنبيهات التقدم ──
+      try {
+        const { sendPushToPlayer } = await import('./fcm.service.js');
+
+        if (xpResult.leveledUp) {
+          sendPushToPlayer(
+            p.playerId,
+            '🎉 ارتفع مستواك!',
+            `أصبحت الآن Level ${xpResult.newLevel} — استمر!`,
+            'level_up',
+            { level: String(xpResult.newLevel) }
+          );
+          console.log(`🎉 Player ${p.name} leveled up → Level ${xpResult.newLevel}`);
+        }
+
+        if (rrResult.promoted) {
+          const tierName = RANK_NAMES_AR[rrResult.newTier];
+          sendPushToPlayer(
+            p.playerId,
+            '🏆 ترقية! رتبة جديدة!',
+            `مبروك! أصبحت "${tierName}" — تستحقها!`,
+            'rank_up',
+            { rankTier: rrResult.newTier }
+          );
+          console.log(`🏆 Player ${p.name} promoted → ${rrResult.newTier}`);
+        }
+
+        if (rrResult.demoted) {
+          const tierName = RANK_NAMES_AR[rrResult.newTier];
+          sendPushToPlayer(
+            p.playerId,
+            '⬇️ انخفضت رتبتك',
+            `رجعت لرتبة "${tierName}" — حان وقت الانتقام!`,
+            'rank_down',
+            { rankTier: rrResult.newTier }
+          );
+          console.log(`⬇️ Player ${p.name} demoted → ${rrResult.newTier}`);
+        }
+      } catch (pushErr: any) {
+        // لا نوقف العملية إذا فشل الـ push
+        console.warn(`⚠️ Push notification failed for player ${p.playerId}:`, pushErr.message);
+      }
     } catch (err: any) {
       console.error(`⚠️ Failed to apply progression for player ${p.playerId}:`, err.message);
     }

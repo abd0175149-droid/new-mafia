@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
-import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS } from '@/lib/ranks';
+import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS, RANK_RR_REQUIRED } from '@/lib/ranks';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
 type Tab = 'leaderboard' | 'myrank' | 'coplayers';
@@ -181,7 +181,7 @@ export default function RankPage() {
               <span className="text-lg font-bold mr-1" style={{ color: RANK_COLORS[prog.rankTier] }}>
                 {prog.rankRR}
               </span>
-              <span className="text-gray-600 text-[10px]">/100</span>
+              <span className="text-gray-600 text-[10px]">/{RANK_RR_REQUIRED[prog.rankTier] || 100}</span>
             </div>
           </div>
           {/* ── إحصائيات سريعة ── */}
@@ -208,7 +208,7 @@ export default function RankPage() {
           <div className="mt-3 h-1.5 rounded-full bg-white/5 overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min(prog.rankRR, 100)}%` }}
+              animate={{ width: `${Math.min((prog.rankRR / (RANK_RR_REQUIRED[prog.rankTier] || 100)) * 100, 100)}%` }}
               className="h-full rounded-full"
               style={{ background: RANK_COLORS[prog.rankTier] }}
             />
