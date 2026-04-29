@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import Link from 'next/link';
@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
 import { NotificationBell } from '@/components/NotificationBell';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
 const WHATSAPP_NUMBER = '962793390966';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
@@ -28,37 +29,12 @@ export default function HomePage() {
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
-  const touchStartY = useRef<number>(0);
-  const modalDragY = useRef<number>(0);
 
-  // ── منع السكرول في الخلفية عند فتح الموديل (iOS-compatible) ──
-  useEffect(() => {
-    if (selectedActivity) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    };
-  }, [selectedActivity]);
+  // ── منع السكرول + swipe-to-close ──
+  const activityModal = useModalScrollLock({
+    isOpen: !!selectedActivity,
+    onClose: () => setSelectedActivity(null),
+  });
 
   useEffect(() => {
     if (!player) return;
@@ -380,6 +356,7 @@ export default function HomePage() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/80 z-[100] flex items-end justify-center"
             onClick={() => setSelectedActivity(null)}
+            {...activityModal.backdropProps}
           >
             <motion.div
               initial={{ y: 300 }}
@@ -387,13 +364,11 @@ export default function HomePage() {
               exit={{ y: 300 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="w-full max-w-lg rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto"
-              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', overscrollBehavior: 'contain' }}
+              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', ...activityModal.modalProps.style }}
               onClick={e => e.stopPropagation()}
-              onTouchStart={e => { touchStartY.current = e.touches[0].clientY; }}
-              onTouchEnd={e => {
-                const diff = e.changedTouches[0].clientY - touchStartY.current;
-                if (diff > 80) setSelectedActivity(null);
-              }}
+              ref={activityModal.modalContentRef}
+              onTouchStart={activityModal.handleTouchStart}
+              onTouchEnd={activityModal.handleTouchEnd}
             >
               <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
               <h3 className="text-white text-lg font-bold mb-1">{selectedActivity.name}</h3>

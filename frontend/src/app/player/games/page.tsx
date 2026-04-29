@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense, useRef } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import { useSearchParams } from 'next/navigation';
+import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
 type Tab = 'upcoming' | 'history';
 
@@ -31,37 +32,16 @@ function GamesContent() {
   const [offerError, setOfferError] = useState(false);
   const searchParams = useSearchParams();
   const highlightActivityId = searchParams.get('activityId');
-  const touchStartY = useRef<number>(0);
 
-  // ── منع السكرول في الخلفية عند فتح الموديل (iOS-compatible) ──
-  useEffect(() => {
-    const isOpen = selectedActivity || confirmBooking;
-    if (isOpen) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    };
-  }, [selectedActivity, confirmBooking]);
+  // ── منع السكرول + swipe-to-close ──
+  const activityModal = useModalScrollLock({
+    isOpen: !!selectedActivity,
+    onClose: () => setSelectedActivity(null),
+  });
+  const bookingModal = useModalScrollLock({
+    isOpen: !!confirmBooking,
+    onClose: () => { setConfirmBooking(null); setSelectedOffer(null); },
+  });
 
   useEffect(() => {
     if (!player) return;
@@ -413,6 +393,7 @@ function GamesContent() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/80 z-[100] flex items-end justify-center"
             onClick={() => setSelectedActivity(null)}
+            {...activityModal.backdropProps}
           >
             <motion.div
               initial={{ y: 300 }}
@@ -420,13 +401,11 @@ function GamesContent() {
               exit={{ y: 300 }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="w-full max-w-lg rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto"
-              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', overscrollBehavior: 'contain' }}
+              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', ...activityModal.modalProps.style }}
               onClick={e => e.stopPropagation()}
-              onTouchStart={e => { touchStartY.current = e.touches[0].clientY; }}
-              onTouchEnd={e => {
-                const diff = e.changedTouches[0].clientY - touchStartY.current;
-                if (diff > 80) setSelectedActivity(null);
-              }}
+              ref={activityModal.modalContentRef}
+              onTouchStart={activityModal.handleTouchStart}
+              onTouchEnd={activityModal.handleTouchEnd}
             >
               <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
               <h3 className="text-white text-lg font-bold mb-1">{selectedActivity.name}</h3>
@@ -529,6 +508,7 @@ function GamesContent() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center px-4"
             onClick={() => { setConfirmBooking(null); setSelectedOffer(null); }}
+            {...bookingModal.backdropProps}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS } from '@/lib/ranks';
+import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
 type Tab = 'leaderboard' | 'myrank' | 'coplayers';
 
@@ -19,36 +20,12 @@ export default function RankPage() {
   const [selectedProfile, setSelectedProfile] = useState<any>(null);
   const [glowing, setGlowing] = useState(true);
   const myCardRef = useRef<HTMLDivElement>(null);
-  const touchStartY = useRef<number>(0);
 
-  // ── منع السكرول في الخلفية عند فتح الموديل (iOS-compatible) ──
-  useEffect(() => {
-    if (selectedProfile) {
-      const scrollY = window.scrollY;
-      document.body.style.position = 'fixed';
-      document.body.style.top = `-${scrollY}px`;
-      document.body.style.left = '0';
-      document.body.style.right = '0';
-      document.body.style.overflow = 'hidden';
-    } else {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    }
-    return () => {
-      const scrollY = document.body.style.top;
-      document.body.style.position = '';
-      document.body.style.top = '';
-      document.body.style.left = '';
-      document.body.style.right = '';
-      document.body.style.overflow = '';
-      if (scrollY) window.scrollTo(0, parseInt(scrollY || '0') * -1);
-    };
-  }, [selectedProfile]);
+  // ── منع السكرول + swipe-to-close ──
+  const profileModal = useModalScrollLock({
+    isOpen: !!selectedProfile,
+    onClose: () => { setSelectedProfile(null); setSelectedPlayer(null); },
+  });
 
   useEffect(() => {
     if (!player) return;
@@ -360,6 +337,7 @@ export default function RankPage() {
             className="fixed top-0 left-0 right-0 z-[100] bg-black/80 flex items-end justify-center"
             style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))' }}
             onClick={() => { setSelectedProfile(null); setSelectedPlayer(null); }}
+            {...profileModal.backdropProps}
           >
             <motion.div
               initial={{ y: '100%' }}
@@ -367,13 +345,11 @@ export default function RankPage() {
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="w-full max-w-lg rounded-t-3xl p-5 max-h-[70vh] overflow-y-auto"
-              style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', overscrollBehavior: 'contain' }}
+              style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.1)', ...profileModal.modalProps.style }}
               onClick={e => e.stopPropagation()}
-              onTouchStart={e => { touchStartY.current = e.touches[0].clientY; }}
-              onTouchEnd={e => {
-                const diff = e.changedTouches[0].clientY - touchStartY.current;
-                if (diff > 80) { setSelectedProfile(null); setSelectedPlayer(null); }
-              }}
+              ref={profileModal.modalContentRef}
+              onTouchStart={profileModal.handleTouchStart}
+              onTouchEnd={profileModal.handleTouchEnd}
             >
               <div className="w-10 h-1 rounded-full bg-gray-700 mx-auto mb-4" />
 
