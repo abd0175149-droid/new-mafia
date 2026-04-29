@@ -293,7 +293,9 @@ export default function HomePage() {
                 borderBottom: 'none',
               }}
               onClick={(e) => e.stopPropagation()}
-              {...roomSelectModal.handlers}
+              ref={roomSelectModal.modalContentRef}
+              onTouchStart={roomSelectModal.handleTouchStart}
+              onTouchEnd={roomSelectModal.handleTouchEnd}
             >
               {/* Handle bar */}
               <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-5" />
