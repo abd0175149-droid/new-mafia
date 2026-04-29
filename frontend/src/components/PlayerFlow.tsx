@@ -1720,12 +1720,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </div>
 
                   {/* كروت المرشحين */}
-                  <div className="grid grid-cols-3 gap-2.5 px-1 max-h-[55vh] overflow-y-auto pb-4">
+                  <div className="grid grid-cols-2 gap-3 px-1 max-h-[55vh] overflow-y-auto pb-4">
                     {votingCandidates.map((candidate: any, index: number) => {
                       const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
                       const isMyChoice = myVote === index;
                       const playerInfo = votingPlayersInfo.find((p: any) => p.physicalId === candidate.targetPhysicalId);
-                      const candidateName = playerInfo?.name || `#${candidate.targetPhysicalId}`;
+                      const candidateName = playerInfo?.name || `لاعب ${candidate.targetPhysicalId}`;
                       const candidateAvatar = playerInfo?.avatarUrl;
                       const isDeal = candidate.type === 'DEAL';
                       const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
@@ -1733,7 +1733,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       return (
                         <motion.button
                           key={candidate.id || `c-${index}`}
-                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.92 } : {}}
+                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
                             if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
                             setVoteSubmitting(true);
@@ -1749,51 +1749,49 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                             }).catch(() => {}).finally(() => setVoteSubmitting(false));
                           }}
                           disabled={isSelf || isPlayerDead}
-                          className={`relative flex flex-col items-center p-2.5 rounded-xl border transition-all ${
+                          className={`relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all ${
                             isMyChoice
-                              ? 'border-[#C5A059] bg-[#C5A059]/10 shadow-[0_0_12px_rgba(197,160,89,0.15)]'
+                              ? 'border-[#C5A059] bg-gradient-to-b from-[#C5A059]/15 to-[#C5A059]/5 shadow-[0_0_20px_rgba(197,160,89,0.2)]'
                               : isSelf
                                 ? 'border-[#1a1a1a] bg-[#0a0a0a]/50 opacity-40'
                                 : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
                           {/* صورة أو رقم */}
-                          <div className="relative w-11 h-11 rounded-full overflow-hidden mb-1.5 border border-[#333] bg-[#1a1a1a] flex items-center justify-center">
+                          <div className="relative w-14 h-14 rounded-full overflow-hidden mb-2 border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center">
                             {candidateAvatar ? (
-                              <Image src={candidateAvatar} alt="" width={44} height={44} className="object-cover w-full h-full" />
+                              <Image src={candidateAvatar} alt="" width={56} height={56} className="object-cover w-full h-full" />
                             ) : (
-                              <span className="text-sm font-bold text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
+                              <span className="text-xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
                             )}
                             {isMyChoice && (
                               <motion.div
                                 initial={{ scale: 0 }}
                                 animate={{ scale: 1 }}
-                                className="absolute inset-0 bg-[#C5A059]/20 flex items-center justify-center"
+                                className="absolute inset-0 bg-[#C5A059]/25 flex items-center justify-center rounded-full"
                               >
-                                <span className="text-lg">✅</span>
+                                <span className="text-2xl">✅</span>
                               </motion.div>
                             )}
                           </div>
 
+                          {/* رقم المقعد — يظهر دائماً */}
+                          <span className="text-[11px] font-mono text-[#C5A059]/70 mb-0.5">#{candidate.targetPhysicalId}</span>
+
                           {/* الاسم */}
-                          <p className="text-[10px] font-bold text-white truncate w-full text-center leading-tight">
-                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄` : ''} {candidateName}
+                          <p className="text-xs font-bold text-white truncate w-full text-center leading-tight">
+                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄ ` : ''}{candidateName}
                           </p>
 
-                          {/* رقم المقعد */}
-                          {candidateAvatar && (
-                            <p className="text-[8px] text-[#808080] font-mono">#{candidate.targetPhysicalId}</p>
-                          )}
-
                           {/* عداد الأصوات */}
-                          <div className="mt-1 flex items-center gap-0.5">
-                            <span className="text-[11px] font-bold text-[#C5A059]">{candidate.votes || 0}</span>
-                            <span className="text-[9px] text-[#808080]">♥</span>
+                          <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5">
+                            <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
+                            <span className="text-[10px] text-[#808080]">صوت</span>
                           </div>
 
                           {/* شارة "أنت" */}
                           {isSelf && (
-                            <span className="absolute top-1 right-1 text-[7px] bg-[#222] text-[#808080] px-1 py-0.5 rounded font-mono">أنت</span>
+                            <span className="absolute top-1.5 right-1.5 text-[8px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
                           )}
                         </motion.button>
                       );
@@ -2011,12 +2009,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </div>
 
                   {/* كروت المرشحين */}
-                  <div className="grid grid-cols-3 gap-2.5 px-1 max-h-[55vh] overflow-y-auto pb-4">
+                  <div className="grid grid-cols-2 gap-3 px-1 max-h-[55vh] overflow-y-auto pb-4">
                     {votingCandidates.map((candidate: any, index: number) => {
                       const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
                       const isMyChoice = myVote === index;
                       const playerInfo = votingPlayersInfo.find((p: any) => p.physicalId === candidate.targetPhysicalId);
-                      const candidateName = playerInfo?.name || `#${candidate.targetPhysicalId}`;
+                      const candidateName = playerInfo?.name || `لاعب ${candidate.targetPhysicalId}`;
                       const candidateAvatar = playerInfo?.avatarUrl;
                       const isDeal = candidate.type === 'DEAL';
                       const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
@@ -2024,7 +2022,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       return (
                         <motion.button
                           key={candidate.id || `c-${index}`}
-                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.92 } : {}}
+                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
                             if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
                             setVoteSubmitting(true);
@@ -2040,39 +2038,49 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                             }).catch(() => {}).finally(() => setVoteSubmitting(false));
                           }}
                           disabled={isSelf || isPlayerDead}
-                          className={`relative flex flex-col items-center p-2.5 rounded-xl border transition-all ${
+                          className={`relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all ${
                             isMyChoice
-                              ? 'border-[#C5A059] bg-[#C5A059]/10 shadow-[0_0_12px_rgba(197,160,89,0.15)]'
+                              ? 'border-[#C5A059] bg-gradient-to-b from-[#C5A059]/15 to-[#C5A059]/5 shadow-[0_0_20px_rgba(197,160,89,0.2)]'
                               : isSelf
                                 ? 'border-[#1a1a1a] bg-[#0a0a0a]/50 opacity-40'
                                 : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
                           {/* صورة أو رقم */}
-                          <div className="relative w-11 h-11 rounded-full overflow-hidden mb-1.5 border border-[#333] bg-[#1a1a1a] flex items-center justify-center">
+                          <div className="relative w-14 h-14 rounded-full overflow-hidden mb-2 border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center">
                             {candidateAvatar ? (
-                              <Image src={candidateAvatar} alt="" width={44} height={44} className="object-cover w-full h-full" />
+                              <Image src={candidateAvatar} alt="" width={56} height={56} className="object-cover w-full h-full" />
                             ) : (
-                              <span className="text-sm font-bold text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
+                              <span className="text-xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
                             )}
                             {isMyChoice && (
                               <motion.div
                                 initial={{ scale: 0 }}
                                 animate={{ scale: 1 }}
-                                className="absolute inset-0 bg-[#C5A059]/20 flex items-center justify-center"
+                                className="absolute inset-0 bg-[#C5A059]/25 flex items-center justify-center rounded-full"
                               >
-                                <span className="text-lg">✅</span>
+                                <span className="text-2xl">✅</span>
                               </motion.div>
                             )}
                           </div>
 
+                          {/* رقم المقعد — يظهر دائماً */}
+                          <span className="text-[11px] font-mono text-[#C5A059]/70 mb-0.5">#{candidate.targetPhysicalId}</span>
+
                           {/* الاسم */}
-                          <p className="text-[10px] font-bold text-white truncate w-full text-center leading-tight">
-                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄` : ''} {candidateName}
+                          <p className="text-xs font-bold text-white truncate w-full text-center leading-tight">
+                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄ ` : ''}{candidateName}
                           </p>
 
+                          {/* عداد الأصوات */}
+                          <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5">
+                            <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
+                            <span className="text-[10px] text-[#808080]">صوت</span>
+                          </div>
+
+                          {/* شارة "أنت" */}
                           {isSelf && (
-                            <span className="text-[7px] text-[#555] font-mono mt-0.5">أنت</span>
+                            <span className="absolute top-1.5 right-1.5 text-[8px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
                           )}
                         </motion.button>
                       );
