@@ -75,8 +75,13 @@ export default function PlayerProfilePage(){
   const [leaderboard,setLeaderboard]=useState<any[]>([]);
   const fileInputRef=useRef<HTMLInputElement>(null);
   const nameInputRef=useRef<HTMLInputElement>(null);
+  const settingsRef=useRef<HTMLDivElement>(null);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [currentPw, setCurrentPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [pwMsg, setPwMsg] = useState('');
 
   // ── منع سكرول الخلفية عند فتح الموديل ──
   useEffect(() => {
@@ -203,7 +208,7 @@ export default function PlayerProfilePage(){
         <div className="absolute inset-0 opacity-20" style={{background:`radial-gradient(circle at 50% 30%,${rank.color}44,transparent 50%)`}}/>
         <div className="max-w-lg mx-auto px-6 pt-6 pb-8 text-center relative z-10">
           {/* Settings Icon */}
-          <button onClick={()=>setSettingsOpen(!settingsOpen)}
+          <button onClick={()=>{setSettingsOpen(true);setTimeout(()=>settingsRef.current?.scrollIntoView({behavior:'smooth',block:'center'}),100);}}
             className="absolute top-6 left-6 w-9 h-9 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition z-20">
             ⚙️
           </button>
@@ -476,7 +481,7 @@ export default function PlayerProfilePage(){
         )}
 
         {/* ═══ SETTINGS TOGGLE ═══ */}
-        <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.6}}
+        <motion.div ref={settingsRef} initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.6}}
           className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl overflow-hidden">
           <button onClick={()=>setSettingsOpen(!settingsOpen)}
             className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-400 hover:text-white transition">
@@ -486,30 +491,98 @@ export default function PlayerProfilePage(){
           <AnimatePresence>
             {settingsOpen&&(
               <motion.div initial={{height:0,opacity:0}} animate={{height:'auto',opacity:1}} exit={{height:0,opacity:0}}
-                className="border-t border-white/5 px-4 py-4 space-y-3 overflow-hidden">
-                {/* Phone */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">📱 الهاتف</span>
-                  <span className="text-xs text-gray-400 font-mono" dir="ltr">{player.phone?.replace(/(\d{3})\d{4}(\d+)/,'$1****$2')}</span>
+                className="border-t border-white/5 px-4 py-4 space-y-4 overflow-hidden">
+
+                {/* ── معلومات الحساب ── */}
+                <div>
+                  <p className="text-[10px] text-gray-600 mb-2 font-bold uppercase tracking-wider">📌 معلومات الحساب</p>
+                  <div className="space-y-2.5">
+                    {/* Phone */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">📱 الهاتف</span>
+                      <span className="text-xs text-gray-400 font-mono" dir="ltr">{player.phone?.replace(/(\d{3})\d{4}(\d+)/,'$1****$2')}</span>
+                    </div>
+                    {/* Email */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">✉️ الإيميل</span>
+                      {editingEmail?(
+                        <input value={emailInput} onChange={e=>setEmailInput(e.target.value)}
+                          onBlur={handleSaveEmail} onKeyDown={e=>e.key==='Enter'&&handleSaveEmail()}
+                          className="text-xs bg-transparent border-b border-amber-500/50 outline-none text-white w-40 text-left" dir="ltr" autoFocus placeholder="email@example.com"/>
+                      ):(
+                        <button onClick={()=>setEditingEmail(true)} className="text-xs text-amber-400/70 hover:text-amber-400 transition">
+                          {player.email||'إضافة إيميل'}
+                        </button>
+                      )}
+                    </div>
+                    {/* Gender */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">👤 الجنس</span>
+                      <span className="text-xs text-gray-400">{player.gender==='FEMALE'?'أنثى':'ذكر'}</span>
+                    </div>
+                    {/* Join Date */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">📅 تاريخ الانضمام</span>
+                      <span className="text-xs text-gray-400">{new Date(player.createdAt).toLocaleDateString('ar-SA')}</span>
+                    </div>
+                  </div>
                 </div>
-                {/* Email */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">✉️ الإيميل</span>
-                  {editingEmail?(
-                    <input value={emailInput} onChange={e=>setEmailInput(e.target.value)}
-                      onBlur={handleSaveEmail} onKeyDown={e=>e.key==='Enter'&&handleSaveEmail()}
-                      className="text-xs bg-transparent border-b border-amber-500/50 outline-none text-white w-40 text-left" dir="ltr" autoFocus placeholder="email@example.com"/>
-                  ):(
-                    <button onClick={()=>setEditingEmail(true)} className="text-xs text-amber-400/70 hover:text-amber-400 transition">
-                      {player.email||'إضافة إيميل'}
+
+                <div className="border-t border-white/5"/>
+
+                {/* ── تغيير كلمة المرور ── */}
+                <div>
+                  <p className="text-[10px] text-gray-600 mb-2 font-bold uppercase tracking-wider">🔒 الأمان</p>
+                  {!changingPassword?(
+                    <button onClick={()=>setChangingPassword(true)}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-amber-500/20 transition">
+                      <span className="text-xs text-gray-400">🔑 تغيير كلمة المرور</span>
+                      <span className="text-gray-600">›</span>
                     </button>
+                  ):(
+                    <div className="space-y-2 bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
+                      <input type="password" placeholder="كلمة المرور الحالية" value={currentPw} onChange={e=>setCurrentPw(e.target.value)}
+                        className="w-full text-xs bg-transparent border-b border-white/10 outline-none text-white py-1.5 placeholder-gray-600" dir="ltr"/>
+                      <input type="password" placeholder="كلمة المرور الجديدة (4+ أحرف)" value={newPw} onChange={e=>setNewPw(e.target.value)}
+                        className="w-full text-xs bg-transparent border-b border-white/10 outline-none text-white py-1.5 placeholder-gray-600" dir="ltr"/>
+                      {pwMsg&&<p className={`text-[10px] ${pwMsg.includes('✓')?'text-green-400':'text-red-400'}`}>{pwMsg}</p>}
+                      <div className="flex gap-2 pt-1">
+                        <button onClick={async()=>{
+                          if(!newPw||newPw.length<4){setPwMsg('كلمة المرور 4 أحرف على الأقل');return;}
+                          try{
+                            const res=await fetch('/api/player-auth/change-password',{
+                              method:'POST',headers:{'Content-Type':'application/json',...getAuthHeaders()},
+                              body:JSON.stringify({currentPassword:currentPw,newPassword:newPw}),
+                            });
+                            const d=await res.json();
+                            if(d.success){setPwMsg('✓ تم تغيير كلمة المرور');setCurrentPw('');setNewPw('');setTimeout(()=>{setChangingPassword(false);setPwMsg('');},2000);}
+                            else setPwMsg(d.error||'خطأ');
+                          }catch{setPwMsg('خطأ في الاتصال');}
+                        }} className="flex-1 text-[11px] py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 font-bold hover:bg-amber-500/20 transition">
+                          حفظ
+                        </button>
+                        <button onClick={()=>{setChangingPassword(false);setCurrentPw('');setNewPw('');setPwMsg('');}}
+                          className="text-[11px] py-1.5 px-3 rounded-lg bg-white/5 text-gray-500 hover:text-white transition">
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
-                {/* Gender */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">👤 الجنس</span>
-                  <span className="text-xs text-gray-400">{player.gender==='FEMALE'?'أنثى':'ذكر'}</span>
+
+                <div className="border-t border-white/5"/>
+
+                {/* ── الإشعارات ── */}
+                <div>
+                  <p className="text-[10px] text-gray-600 mb-2 font-bold uppercase tracking-wider">🔔 الإشعارات</p>
+                  <a href="/player/debug-push"
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:border-cyan-500/20 transition">
+                    <span className="text-xs text-gray-400">🛠️ تشخيص الإشعارات</span>
+                    <span className="text-gray-600">›</span>
+                  </a>
+                  <p className="text-[9px] text-gray-600 mt-1.5 px-1">إذا الإشعارات مش واصلة، اضغط هنا لإعادة تفعيلها.</p>
                 </div>
+
               </motion.div>
             )}
           </AnimatePresence>
