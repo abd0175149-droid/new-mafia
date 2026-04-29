@@ -29,6 +29,7 @@ import playerAuthRoutes from './routes/player-auth.routes.js';
 import playerAppRoutes from './routes/player-app.routes.js';
 import playerNotificationRoutes from './routes/player-notification.routes.js';
 import staffNotificationRoutes from './routes/staff-notification.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -88,6 +89,7 @@ app.use('/api/player', playerRoutes);
 app.use('/api/player-auth', playerAuthRoutes);
 app.use('/api/player-app', playerAppRoutes);
 app.use('/api/player-notifications', playerNotificationRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──

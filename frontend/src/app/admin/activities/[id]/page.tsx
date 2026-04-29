@@ -199,6 +199,17 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                   {copiedId === room.id ? '✅' : '📋'}
                 </button>
 
+                {/* شاشة العرض */}
+                <a
+                  href={`/display?roomId=${room.id}&pin=${room.displayPin}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition flex items-center gap-1"
+                  title="فتح شاشة العرض"
+                >
+                  📺 العرض
+                </a>
+
                 {/* دخول الغرفة (توجيه للليدر) */}
                 <button
                   onClick={() => enterRoom(room)}
@@ -340,14 +351,6 @@ export default function ActivityDetailPage() {
               <span>📅 {safeDate(activity.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
               <span>🎫 {Number(activity.basePrice || 0)} {CURRENCY} / شخص</span>
               {location && <span>📍 {location.name}</span>}
-              <a
-                href="/display"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition flex items-center gap-1"
-              >
-                📺 شاشة العرض
-              </a>
             </div>
             {activity.description && <p className="text-sm text-gray-500 mt-2">{activity.description}</p>}
             {activity.isLocked && (

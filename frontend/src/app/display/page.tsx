@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Phase, isMafiaRole, Role } from '@/lib/constants';
 import { getSocket } from '@/lib/socket';
@@ -151,7 +152,7 @@ function playWinSound(isMafia: boolean) {
   } catch (_) {}
 }
 
-export default function DisplayPage() {
+function DisplayPageContent() {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -182,6 +183,22 @@ export default function DisplayPage() {
   const [adminReveal, setAdminReveal] = useState<{physicalId: number; playerName: string; role: string} | null>(null);
   const adminRevealTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasAutoRejoined = useRef(false);
+  const searchParams = useSearchParams();
+
+  // ══════════════════════════════════════════════════
+  // 🔄 Auto-Login via Query Parameters
+  // ══════════════════════════════════════════════════
+  useEffect(() => {
+    const queryRoomId = searchParams.get('roomId');
+    const queryPin = searchParams.get('pin');
+    if (queryRoomId && queryPin && !hasAutoRejoined.current) {
+      hasAutoRejoined.current = true;
+      console.log('🔄 Display: Auto-login via query parameters...');
+      setPin(queryPin);
+      setSelectedRoomId(queryRoomId);
+      verifyPinAndJoin(queryRoomId, queryPin);
+    }
+  }, [searchParams]);
 
   // ══════════════════════════════════════════════════
   // 🔄 استعادة الجلسة عند تحديث الصفحة
@@ -196,49 +213,7 @@ export default function DisplayPage() {
         if (savedPin && savedRoomId) {
           console.log('🔄 Display: Restoring session from storage...');
           setPin(savedPin);
-          setLoading(true);
-          // إعادة الدخول تلقائياً
-          fetch('/api/game/verify-pin', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomId: savedRoomId, pin: savedPin }),
-          })
-            .then(r => r.json())
-            .then(data => {
-              if (data.success) {
-                setCurrentRoomId(savedRoomId);
-                setGameName(data.gameName);
-                setRoomCode(data.roomCode);
-                setPlayerCount(data.playerCount || 0);
-                setMaxPlayers(data.maxPlayers || 10);
-                if (data.state) {
-                  setPhase(data.state.phase || 'LOBBY');
-                  setDiscussionState(data.state.discussionState || null);
-                  if (data.state.winner) setWinner(data.state.winner);
-                  if (data.state.players) {
-                    const activePlayers = data.state.players.filter((p: any) => !p.frozen);
-                    setPlayers(activePlayers.map((p: any) => ({
-                      physicalId: p.physicalId,
-                      name: p.name,
-                      isAlive: p.isAlive,
-                      gender: p.gender,
-                      role: p.role,
-                      avatarUrl: p.avatarUrl || null,
-                    })));
-                  }
-                }
-                setStep('lobby');
-                console.log('✅ Display: Session restored successfully');
-              } else {
-                // الجلسة انتهت — حذفها
-                sessionStorage.removeItem('display_session');
-                console.log('⚠️ Display: Saved session expired, showing PIN screen');
-              }
-            })
-            .catch(() => {
-              sessionStorage.removeItem('display_session');
-            })
-            .finally(() => setLoading(false));
+          verifyPinAndJoin(savedRoomId, savedPin);
         }
       }
     } catch (_) {}
@@ -544,7 +519,7 @@ export default function DisplayPage() {
     setPinError('');
     setLoading(true);
     try {
-      await verifyPinAndJoin(selectedRoomId);
+      await verifyPinAndJoin(selectedRoomId, pin);
     } catch (err: any) {
       setPinError('خطأ في الاتصال بالسيرفر');
     } finally {
@@ -555,7 +530,7 @@ export default function DisplayPage() {
   // ══════════════════════════════════════════════════
   // 🔓 التحقق من PIN والدخول عبر REST
   // ══════════════════════════════════════════════════
-  const verifyPinAndJoin = async (roomId: string) => {
+  const verifyPinAndJoin = async (roomId: string, currentPin: string) => {
     setLoading(true);
     setPinError('');
 
@@ -563,7 +538,7 @@ export default function DisplayPage() {
       const res = await fetch('/api/game/verify-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId, pin }),
+        body: JSON.stringify({ roomId, pin: currentPin }),
       });
 
       const data = await res.json();
@@ -602,7 +577,7 @@ export default function DisplayPage() {
       }
 
       // حفظ الجلسة في sessionStorage للاستعادة عند التحديث
-      try { sessionStorage.setItem('display_session', JSON.stringify({ pin, roomId })); } catch (_) {}
+      try { sessionStorage.setItem('display_session', JSON.stringify({ pin: currentPin, roomId })); } catch (_) {}
 
       setStep('lobby');
     } catch (err: any) {
@@ -1366,5 +1341,13 @@ function QRDisplay({ url }: { url: string }) {
   }
 
   return <QRComponent value={url} size={250} bgColor="#ffffff" fgColor="#000000" level="M" />;
+}
+
+export default function DisplayPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center text-white">جاري التحميل...</div>}>
+      <DisplayPageContent />
+    </Suspense>
+  );
 }
 
