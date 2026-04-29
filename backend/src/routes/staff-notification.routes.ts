@@ -84,4 +84,44 @@ router.post('/send-custom', authenticate, adminOnly, async (req: Request, res: R
   }
 });
 
+// ── GET /players/search — بحث عن لاعبين (للإرسال المخصص) ──
+router.get('/players/search', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const q = (req.query.q as string || '').trim();
+  try {
+    let rows;
+    if (q) {
+      const { or, ilike } = await import('drizzle-orm');
+      rows = await db.select({
+        id: players.id,
+        name: players.name,
+        phone: players.phone,
+        avatarUrl: players.avatarUrl,
+        totalMatches: players.totalMatches,
+      }).from(players)
+        .where(or(
+          ilike(players.name, `%${q}%`),
+          ilike(players.phone, `%${q}%`),
+        ))
+        .orderBy(desc(players.id))
+        .limit(50);
+    } else {
+      rows = await db.select({
+        id: players.id,
+        name: players.name,
+        phone: players.phone,
+        avatarUrl: players.avatarUrl,
+        totalMatches: players.totalMatches,
+      }).from(players)
+        .orderBy(desc(players.id))
+        .limit(50);
+    }
+    res.json({ success: true, players: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

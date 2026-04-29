@@ -44,6 +44,19 @@ export default function AdminNotificationsPage() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ success: boolean; sentCount?: number; error?: string } | null>(null);
 
+  // ── حالة اختيار اللاعبين ──
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [playerResults, setPlayerResults] = useState<any[]>([]);
+  const [selectedPlayers, setSelectedPlayers] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [playerGroups, setPlayerGroups] = useState<{ name: string; playerIds: number[]; players: any[] }[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try { return JSON.parse(localStorage.getItem('mafia_player_groups') || '[]'); } catch { return []; }
+  });
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedGroupIdx, setSelectedGroupIdx] = useState<number | null>(null);
+
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   // ── جلب الإشعارات الواردة ──
@@ -95,13 +108,24 @@ export default function AdminNotificationsPage() {
     setSending(true);
     setResult(null);
     try {
+      // تحديد الـ targetIds حسب الحالة
+      let ids: number[] = [];
+      if (target === 'specific') {
+        if (targetAudience === 'staff' || targetAudience === 'both') {
+          ids = selectedStaffIds;
+        }
+        if (targetAudience === 'players' || targetAudience === 'both') {
+          ids = [...ids, ...selectedPlayers.map(p => p.id)];
+        }
+      }
+
       const res = await fetch('/api/staff-notifications/send-custom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           title: title.trim(), body: body.trim(), target, targetAudience,
           activityId: target === 'booked' ? parseInt(activityId) : null,
-          targetIds: target === 'specific' ? selectedStaffIds : [],
+          targetIds: target === 'specific' ? ids : [],
           data: { url: '/player/home' },
         }),
       });
@@ -111,6 +135,55 @@ export default function AdminNotificationsPage() {
     } catch (err: any) {
       setResult({ success: false, error: err.message });
     } finally { setSending(false); }
+  };
+
+  // ── بحث اللاعبين ──
+  const searchPlayers = async (q: string) => {
+    setPlayerSearch(q);
+    if (q.length < 1) { setPlayerResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const res = await fetch(`/api/staff-notifications/players/search?q=${encodeURIComponent(q)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setPlayerResults(data.players || []);
+    } catch {} finally { setSearchLoading(false); }
+  };
+
+  const togglePlayer = (p: any) => {
+    setSelectedPlayers(prev =>
+      prev.find(x => x.id === p.id)
+        ? prev.filter(x => x.id !== p.id)
+        : [...prev, p]
+    );
+  };
+
+  // ── إدارة المجموعات ──
+  const saveGroup = () => {
+    if (!newGroupName.trim() || selectedPlayers.length === 0) return;
+    const updated = [...playerGroups, {
+      name: newGroupName.trim(),
+      playerIds: selectedPlayers.map(p => p.id),
+      players: selectedPlayers.map(p => ({ id: p.id, name: p.name, phone: p.phone })),
+    }];
+    setPlayerGroups(updated);
+    localStorage.setItem('mafia_player_groups', JSON.stringify(updated));
+    setNewGroupName('');
+    setShowGroupModal(false);
+  };
+
+  const deleteGroup = (idx: number) => {
+    const updated = playerGroups.filter((_, i) => i !== idx);
+    setPlayerGroups(updated);
+    localStorage.setItem('mafia_player_groups', JSON.stringify(updated));
+    if (selectedGroupIdx === idx) setSelectedGroupIdx(null);
+  };
+
+  const loadGroup = (idx: number) => {
+    setSelectedGroupIdx(idx);
+    setSelectedPlayers(playerGroups[idx].players);
+    setTarget('specific');
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -330,7 +403,7 @@ export default function AdminNotificationsPage() {
                   {[
                     { val: 'all' as const, label: 'الكل' },
                     { val: 'booked' as const, label: 'حاجزو نشاط' },
-                    ...(targetAudience === 'staff' || targetAudience === 'both' ? [{ val: 'specific' as const, label: 'موظف محدد' }] : []),
+                    { val: 'specific' as const, label: '🎯 محدد' },
                   ].map(opt => (
                     <button key={opt.val} onClick={() => setTarget(opt.val)}
                       style={{
@@ -362,42 +435,180 @@ export default function AdminNotificationsPage() {
                 </div>
               )}
 
-              {/* اختيار موظفين محددين */}
+              {/* ══════ اختيار محدد: لاعبين + موظفين ══════ */}
               {target === 'specific' && (
-                <div>
-                  <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 8 }}>
-                    اختر الموظفين ({selectedStaffIds.length} محدد)
-                  </label>
-                  <div style={{
-                    display: 'flex', flexWrap: 'wrap', gap: 8,
-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 12, padding: 12, maxHeight: 200, overflowY: 'auto',
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                  {/* ── المجموعات المحفوظة ── */}
+                  {playerGroups.length > 0 && (targetAudience === 'players' || targetAudience === 'both') && (
+                    <div>
+                      <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 8 }}>📁 المجموعات المحفوظة</label>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {playerGroups.map((g, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <button onClick={() => loadGroup(i)}
+                              style={{
+                                padding: '6px 14px', borderRadius: 20, fontSize: 13,
+                                border: `1px solid ${selectedGroupIdx === i ? '#8b5cf6' : 'rgba(255,255,255,0.1)'}`,
+                                background: selectedGroupIdx === i ? 'rgba(139,92,246,0.15)' : 'transparent',
+                                color: selectedGroupIdx === i ? '#8b5cf6' : 'rgba(255,255,255,0.6)',
+                                cursor: 'pointer', fontWeight: selectedGroupIdx === i ? 600 : 400,
+                              }}
+                            >📁 {g.name} ({g.playerIds.length})</button>
+                            <button onClick={() => deleteGroup(i)}
+                              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16, padding: '0 4px' }}
+                            >✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── بحث اللاعبين ── */}
+                  {(targetAudience === 'players' || targetAudience === 'both') && (
+                    <div>
+                      <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 8 }}>
+                        🔍 بحث لاعب (بالاسم أو الهاتف)
+                      </label>
+                      <input value={playerSearch} onChange={e => searchPlayers(e.target.value)}
+                        placeholder="ابحث..."
+                        style={{
+                          width: '100%', padding: '10px 14px',
+                          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 8,
+                        }}
+                      />
+
+                      {/* نتائج البحث */}
+                      {playerResults.length > 0 && (
+                        <div style={{
+                          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: 12, maxHeight: 180, overflowY: 'auto',
+                        }}>
+                          {playerResults.map(p => {
+                            const isSel = selectedPlayers.find(x => x.id === p.id);
+                            return (
+                              <div key={p.id} onClick={() => togglePlayer(p)}
+                                style={{
+                                  padding: '10px 14px', cursor: 'pointer',
+                                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                  background: isSel ? 'rgba(34,197,94,0.08)' : 'transparent',
+                                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                }}
+                              >
+                                <div>
+                                  <span style={{ color: isSel ? '#22c55e' : '#fff', fontWeight: 600, fontSize: 14 }}>{p.name}</span>
+                                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, marginRight: 8 }}>{p.phone}</span>
+                                </div>
+                                <span style={{ fontSize: 16 }}>{isSel ? '✅' : '➕'}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {searchLoading && <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, textAlign: 'center', padding: 8 }}>⏳ جاري البحث...</div>}
+
+                      {/* اللاعبون المحددون */}
+                      {selectedPlayers.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                            <span style={{ color: '#22c55e', fontSize: 13, fontWeight: 600 }}>✅ المحددون ({selectedPlayers.length})</span>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button onClick={() => setShowGroupModal(true)}
+                                style={{ background: 'none', border: 'none', color: '#8b5cf6', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                              >💾 حفظ كمجموعة</button>
+                              <button onClick={() => { setSelectedPlayers([]); setSelectedGroupIdx(null); }}
+                                style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 12, cursor: 'pointer' }}
+                              >🗑️ مسح الكل</button>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {selectedPlayers.map(p => (
+                              <span key={p.id} onClick={() => togglePlayer(p)}
+                                style={{
+                                  padding: '4px 12px', borderRadius: 20, fontSize: 12,
+                                  background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)',
+                                  color: '#22c55e', cursor: 'pointer',
+                                }}
+                              >{p.name} ✕</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── اختيار موظفين ── */}
+                  {(targetAudience === 'staff' || targetAudience === 'both') && (
+                    <div>
+                      <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 8 }}>
+                        اختر الموظفين ({selectedStaffIds.length} محدد)
+                      </label>
+                      <div style={{
+                        display: 'flex', flexWrap: 'wrap', gap: 8,
+                        background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 12, padding: 12, maxHeight: 200, overflowY: 'auto',
+                      }}>
+                        {staffList.map(s => {
+                          const isSelected = selectedStaffIds.includes(s.id);
+                          const roleLabel = s.role === 'admin' ? '👑' : s.role === 'manager' ? '👔' : s.role === 'leader' ? '🎮' : '📍';
+                          return (
+                            <button key={s.id}
+                              onClick={() => setSelectedStaffIds(prev =>
+                                isSelected ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                              )}
+                              style={{
+                                padding: '6px 14px', borderRadius: 20, fontSize: 13,
+                                border: `1px solid ${isSelected ? '#3b82f6' : 'rgba(255,255,255,0.1)'}`,
+                                background: isSelected ? 'rgba(59,130,246,0.15)' : 'transparent',
+                                color: isSelected ? '#3b82f6' : 'rgba(255,255,255,0.6)',
+                                cursor: 'pointer', fontWeight: isSelected ? 600 : 400,
+                              }}
+                            >
+                              {roleLabel} {s.name}
+                              {isSelected && ' ✓'}
+                            </button>
+                          );
+                        })}
+                        {staffList.length === 0 && (
+                          <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>لا يوجد موظفون</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── مودال حفظ مجموعة ── */}
+              {showGroupModal && (
+                <div style={{
+                  background: 'rgba(0,0,0,0.8)', position: 'fixed', inset: 0, zIndex: 999,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+                }} onClick={() => setShowGroupModal(false)}>
+                  <div onClick={e => e.stopPropagation()} style={{
+                    background: '#1a1a1a', border: '1px solid rgba(139,92,246,0.3)',
+                    borderRadius: 16, padding: 24, width: 340,
                   }}>
-                    {staffList.map(s => {
-                      const isSelected = selectedStaffIds.includes(s.id);
-                      const roleLabel = s.role === 'admin' ? '👑' : s.role === 'manager' ? '👔' : s.role === 'leader' ? '🎮' : '📍';
-                      return (
-                        <button key={s.id}
-                          onClick={() => setSelectedStaffIds(prev =>
-                            isSelected ? prev.filter(id => id !== s.id) : [...prev, s.id]
-                          )}
-                          style={{
-                            padding: '6px 14px', borderRadius: 20, fontSize: 13,
-                            border: `1px solid ${isSelected ? '#3b82f6' : 'rgba(255,255,255,0.1)'}`,
-                            background: isSelected ? 'rgba(59,130,246,0.15)' : 'transparent',
-                            color: isSelected ? '#3b82f6' : 'rgba(255,255,255,0.6)',
-                            cursor: 'pointer', transition: 'all 0.2s',
-                            fontWeight: isSelected ? 600 : 400,
-                          }}
-                        >
-                          {roleLabel} {s.name}
-                          {isSelected && ' ✓'}
-                        </button>
-                      );
-                    })}
-                    {staffList.length === 0 && (
-                      <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>لا يوجد موظفون</span>
-                    )}
+                    <h3 style={{ color: '#8b5cf6', fontSize: 16, fontWeight: 700, marginBottom: 16 }}>💾 حفظ كمجموعة</h3>
+                    <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)}
+                      placeholder="اسم المجموعة (مثال: VIP)"
+                      style={{
+                        width: '100%', padding: '10px 14px',
+                        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', marginBottom: 12,
+                      }}
+                    />
+                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginBottom: 16 }}>
+                      سيتم حفظ {selectedPlayers.length} لاعب في هذه المجموعة
+                    </p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => setShowGroupModal(false)}
+                        style={{ flex: 1, padding: 10, borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}
+                      >إلغاء</button>
+                      <button onClick={saveGroup} disabled={!newGroupName.trim()}
+                        style={{ flex: 1, padding: 10, borderRadius: 10, border: 'none', background: '#8b5cf6', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                      >حفظ</button>
+                    </div>
                   </div>
                 </div>
               )}
