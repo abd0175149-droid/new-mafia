@@ -476,7 +476,15 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     setNewPassword('');
     setMustChangePassword(false);
     setApiError('');
-    setStep(initialRoomCode ? 'phone' : 'code');
+    if (initialRoomCode) {
+      // إذا دخل عبر زر الحجز → العودة للصفحة الرئيسية ليختار غرفة من جديد
+      setStep('code');
+      setUserExited(true);
+      localStorage.setItem('mafia_user_exited', 'true');
+      window.location.href = '/player/home';
+      return;
+    }
+    setStep('code');
     setUserExited(true);
     localStorage.setItem('mafia_user_exited', 'true');
   }, [initialRoomCode, emit, roomId, phone, playerId]);
@@ -1313,7 +1321,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em]">AGENT IDENTIFICATION</p>
               </div>
 
-              {initialRoomCode && !roomId && !apiError && (
+              {initialRoomCode && !roomId && !apiError && !userExited && (
                 <div className="text-center mb-4">
                   <p className="text-[#C5A059] text-[10px] font-mono tracking-widest uppercase animate-pulse">LOCATING COMPONENT...</p>
                 </div>
@@ -1325,7 +1333,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 </div>
               )}
 
-              {(roomId || !initialRoomCode) && (
+              {(roomId || !initialRoomCode || userExited) && (
                 <>
                   <div className="flex items-center gap-2 mb-6 font-mono">
                     <span className="bg-black/40 border border-[#2a2a2a] rounded-lg px-4 py-4 text-[#808080] text-sm shrink-0">
