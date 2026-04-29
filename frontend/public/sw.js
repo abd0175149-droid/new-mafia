@@ -31,22 +31,25 @@ try {
   const messaging = firebase.messaging();
 
   // ── استقبال رسالة FCM في الخلفية (Chrome/Firefox/Edge) ──
+  // ⚠️ data-only message: نقرأ من payload.data (لا notification)
   messaging.onBackgroundMessage((payload) => {
-    const notification = payload.notification || {};
     const data = payload.data || {};
 
-    const title = notification.title || '🎭 نادي المافيا';
-    const body = notification.body || '';
+    const title = data.title || '🎭 نادي المافيا';
+    const body = data.body || '';
     const url = resolveNotificationUrl(data.type, data);
+
+    // منع push event من إعادة العرض
+    self.__fcmHandled = true;
+    setTimeout(() => { self.__fcmHandled = false; }, 2000);
 
     self.registration.showNotification(title, {
       body,
       icon: '/mafia_logo.png',
       badge: '/mafia_logo.png',
-      tag: data.type || 'default',
+      tag: `${data.type || 'default'}-${Date.now()}`,
       data: { url, type: data.type || '', ...data },
       requireInteraction: true,
-      renotify: true,
     });
   });
 
@@ -158,6 +161,12 @@ function resolveNotificationUrl(type, data) {
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
+  // ⚠️ إذا FCM onBackgroundMessage عالج هذا الإشعار — لا نكرره
+  if (self.__fcmHandled) {
+    console.log('ℹ️ Push event skipped — already handled by FCM onBackgroundMessage');
+    return;
+  }
+
   let payload;
   try {
     payload = event.data.json();
@@ -175,7 +184,7 @@ self.addEventListener('push', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // إذا التطبيق مفتوح ومركّز → أرسل postMessage (بانر داخلي)
+      // إذا التطبيق مفتوح ومركّز → أرسل postMessage (تحديث داخلي)
       const focusedClient = clients.find((c) => c.focused);
       if (focusedClient) {
         focusedClient.postMessage({
@@ -190,11 +199,10 @@ self.addEventListener('push', (event) => {
         body,
         icon: '/mafia_logo.png',
         badge: '/mafia_logo.png',
-        tag: type || 'default',
+        tag: `${type || 'default'}-${Date.now()}`,
         data: { url, type, ...fcmData },
         vibrate: [200, 100, 200],
         requireInteraction: true,
-        renotify: true,
       });
     })
   );

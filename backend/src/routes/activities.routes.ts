@@ -370,7 +370,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       targetId: `activity-${activity.id}`,
       url: '/admin/activities',
     }, req.user!.id);
-  }).catch(() => {});
+  }).catch((err: any) => { console.error('❌ Activity push error:', err?.message || err); });
 });
 
 // POST /api/activities/:id/create-drive-folder — إنشاء مجلد Drive لنشاط قديم بدون مجلد

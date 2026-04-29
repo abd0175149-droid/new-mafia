@@ -87,6 +87,9 @@ function splitTokens(allTokens: { token: string }[]): { fcmTokens: string[]; web
 }
 
 // ── بناء payload متوافق مع iOS Safari + Android + Desktop ──
+// ⚠️ data-only message: لا نضع notification في المستوى الأعلى
+//    لأن FCM يعرض notification تلقائياً + onBackgroundMessage يعرض آخر + push event يعرض ثالث = 3 مكررات!
+//    بدون notification → فقط SW يعرض الإشعار مرة واحدة عبر onBackgroundMessage أو push event
 function buildFCMPayload(
   tokens: string[],
   title: string,
@@ -101,8 +104,8 @@ function buildFCMPayload(
 
   return {
     tokens,
-    notification: { title, body },
-    data: { type, ...stringifiedData },
+    // ⚠️ لا notification هنا — data-only message
+    data: { type, title, body, ...stringifiedData },
 
     // ── WebPush (Chrome, Firefox, Safari iOS PWA) ──
     webpush: {
@@ -110,15 +113,8 @@ function buildFCMPayload(
         Urgency: 'high',
         TTL: '86400',
       },
-      notification: {
-        title,
-        body,
-        icon: '/mafia_logo.png',
-        badge: '/mafia_logo.png',
-        tag: type || 'default',
-        requireInteraction: true,
-        data: { url: link, type, ...stringifiedData },
-      },
+      // ⚠️ لا notification هنا أيضاً — SW يتولى العرض
+      data: { type, title, body, url: link, ...stringifiedData },
       fcmOptions: { link },
     },
 
