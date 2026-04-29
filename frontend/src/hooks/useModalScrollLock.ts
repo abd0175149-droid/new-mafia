@@ -2,7 +2,8 @@
 
 // ══════════════════════════════════════════════════════
 // 🔒 useModalScrollLock — منع السكرول + pull-to-refresh + swipe-to-close
-// يعمل على iOS Safari / Chrome Android / Desktop
+// يستخدم CSS class (modal-open) بدل inline styles لضمان عمل
+// overscroll-behavior على مستوى compositor thread
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useRef, useCallback } from 'react';
@@ -10,7 +11,7 @@ import { useEffect, useRef, useCallback } from 'react';
 interface UseModalScrollLockOptions {
   isOpen: boolean;
   onClose: () => void;
-  swipeThreshold?: number; // مسافة السحب لإغلاق الموديل (بالبكسل)
+  swipeThreshold?: number;
 }
 
 export function useModalScrollLock({ isOpen, onClose, swipeThreshold = 80 }: UseModalScrollLockOptions) {
@@ -20,42 +21,50 @@ export function useModalScrollLock({ isOpen, onClose, swipeThreshold = 80 }: Use
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  // ── قفل السكرول ──
+  // ── قفل السكرول عبر CSS class ──
   useEffect(() => {
     if (!isOpen) return;
 
-    // حفظ موضع السكرول الحالي
+    // حفظ موضع السكرول
     scrollYRef.current = window.scrollY;
 
-    const html = document.documentElement;
-    const body = document.body;
+    // إضافة class + تعيين top لحفظ موضع الصفحة
+    document.body.classList.add('modal-open');
+    document.body.style.top = `-${scrollYRef.current}px`;
 
-    // تثبيت body لمنع السكرول
-    body.style.position = 'fixed';
-    body.style.top = `-${scrollYRef.current}px`;
-    body.style.left = '0';
-    body.style.right = '0';
-    body.style.width = '100%';
-    body.style.overflow = 'hidden';
+    return () => {
+      // إزالة class واستعادة السكرول
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, scrollYRef.current);
+    };
+  }, [isOpen]);
 
-    // منع pull-to-refresh + overscroll
-    html.style.overscrollBehavior = 'none';
-    body.style.overscrollBehavior = 'none';
-    html.style.overflow = 'hidden';
+  // ── منع touchmove خارج الموديل (طبقة إضافية) ──
+  useEffect(() => {
+    if (!isOpen) return;
 
-    // ⚠️ منع touchmove على كل الصفحة (إلا داخل الموديل)
-    // يجب أن يكون passive: false حتى يعمل preventDefault على iOS
     const preventTouch = (e: TouchEvent) => {
       const modal = modalContentRef.current;
+      // السماح بالسكرول داخل الموديل فقط
       if (modal && modal.contains(e.target as Node)) {
-        // السماح بالسكرول داخل الموديل
-        // لكن إذا وصل لأعلى الموديل ويسحب للأسفل → منع (overscroll/pull-to-refresh)
+        // منع overscroll عند أعلى الموديل (pull-to-refresh)
         if (modal.scrollTop <= 0) {
           const touch = e.touches[0];
-          if (touch && touchStartRef.current > 0) {
+          if (touch) {
             const deltaY = touch.clientY - touchStartRef.current;
-            if (deltaY > 0) {
-              e.preventDefault(); // منع pull-to-refresh داخل الموديل
+            if (deltaY > 0 && touchStartRef.current > 0) {
+              e.preventDefault();
+            }
+          }
+        }
+        // منع overscroll عند أسفل الموديل
+        if (modal.scrollTop + modal.clientHeight >= modal.scrollHeight) {
+          const touch = e.touches[0];
+          if (touch) {
+            const deltaY = touch.clientY - touchStartRef.current;
+            if (deltaY < 0 && touchStartRef.current > 0) {
+              e.preventDefault();
             }
           }
         }
@@ -66,27 +75,10 @@ export function useModalScrollLock({ isOpen, onClose, swipeThreshold = 80 }: Use
     };
 
     document.addEventListener('touchmove', preventTouch, { passive: false });
-
-    return () => {
-      document.removeEventListener('touchmove', preventTouch);
-
-      // استعادة الوضع الطبيعي
-      body.style.position = '';
-      body.style.top = '';
-      body.style.left = '';
-      body.style.right = '';
-      body.style.width = '';
-      body.style.overflow = '';
-      html.style.overscrollBehavior = '';
-      body.style.overscrollBehavior = '';
-      html.style.overflow = '';
-
-      // استعادة موضع السكرول
-      window.scrollTo(0, scrollYRef.current);
-    };
+    return () => document.removeEventListener('touchmove', preventTouch);
   }, [isOpen]);
 
-  // ── Swipe-to-close handlers ──
+  // ── Swipe-to-close ──
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartRef.current = e.touches[0].clientY;
   }, []);
@@ -94,13 +86,11 @@ export function useModalScrollLock({ isOpen, onClose, swipeThreshold = 80 }: Use
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     const diff = e.changedTouches[0].clientY - touchStartRef.current;
     const modal = modalContentRef.current;
+    const scrollTop = modal?.scrollTop || 0;
 
-    // إذا الموديل في أعلاه (scrollTop ≈ 0) والمستخدم سحب للأسفل بما يكفي → أغلق
-    if (diff > swipeThreshold) {
-      const scrollTop = modal?.scrollTop || 0;
-      if (scrollTop <= 5) {
-        onCloseRef.current();
-      }
+    // سحب للأسفل + الموديل في أعلاه → أغلق
+    if (diff > swipeThreshold && scrollTop <= 5) {
+      onCloseRef.current();
     }
     touchStartRef.current = 0;
   }, [swipeThreshold]);
@@ -109,14 +99,11 @@ export function useModalScrollLock({ isOpen, onClose, swipeThreshold = 80 }: Use
     modalContentRef,
     handleTouchStart,
     handleTouchEnd,
-    // خصائص إضافية للـ overlay backdrop
     backdropProps: {
       style: {
         touchAction: 'none' as const,
-        overscrollBehavior: 'none' as const,
       },
     },
-    // خصائص للموديل الداخلي
     modalProps: {
       ref: modalContentRef,
       onTouchStart: handleTouchStart,

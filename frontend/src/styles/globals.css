@@ -22,6 +22,8 @@
 
   html {
     scroll-behavior: smooth;
+    /* منع pull-to-refresh على Chrome/Safari عند السحب من أعلى الصفحة */
+    overscroll-behavior-y: contain;
   }
 
   body {
@@ -29,6 +31,22 @@
     direction: rtl;
     min-height: 100vh;
     background-color: #050505;
+    overscroll-behavior-y: contain;
+  }
+
+  /* منع السكرول عند فتح موديل */
+  body.modal-open {
+    position: fixed;
+    left: 0;
+    right: 0;
+    width: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  body.modal-open + * {
+    overscroll-behavior: none;
   }
 
   /* ── Noise Overlay ── */
