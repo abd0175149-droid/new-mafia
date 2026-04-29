@@ -335,9 +335,8 @@ export default function RankPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed top-0 left-0 right-0 z-[100] bg-black/80 flex items-end justify-center"
-            style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))' }}
+            style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))', ...profileModal.backdropProps.style }}
             onClick={() => { setSelectedProfile(null); setSelectedPlayer(null); }}
-            {...profileModal.backdropProps}
           >
             <motion.div
               initial={{ y: '100%' }}
