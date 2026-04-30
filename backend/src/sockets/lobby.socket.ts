@@ -365,12 +365,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           if (!otherState || otherState.roomId === data.roomId) continue;
           const existing = otherState.players?.find((p: any) => p.playerId === data.playerId);
           if (existing) {
-            if (!existing.isAlive || otherState.phase === 'GAME_OVER') {
-              // مُقصى أو اللعبة انتهت → يحتاج يغادر يدوياً
-              return callback({ success: false, error: 'أنت في غرفة أخرى، اضغط "مغادرة الغرفة" أولاً' });
+            if (otherState.phase === 'GAME_OVER') {
+              // اللعبة انتهت أو مغلقة → نتجاهل هذا التواجد، اللاعب حر في الانضمام لغرفة جديدة
+              continue;
+            } else if (!existing.isAlive) {
+              return callback({ success: false, error: 'أنت في غرفة أخرى نشطة (كلاعب مُقصى)، يرجى الدخول إليها ومغادرتها أولاً' });
             } else {
               // لا يزال حي في لعبة نشطة → امنع الدخول
-              return callback({ success: false, error: 'أنت في غرفة أخرى نشطة، غادر أولاً' });
+              return callback({ success: false, error: 'أنت في غرفة أخرى نشطة، يرجى الخروج منها أولاً' });
             }
           }
         }
