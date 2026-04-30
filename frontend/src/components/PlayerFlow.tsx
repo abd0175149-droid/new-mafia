@@ -2282,11 +2282,23 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       <p className="text-[#8A0303] text-[9px] font-mono uppercase tracking-[0.15em] text-center mb-2">
                         🕴️ زملاؤك في الفريق
                       </p>
-                      <div className="flex justify-center gap-3 flex-wrap">
-                        {mafiaTeam.map(m => (
-                          <div key={m.physicalId} className="flex flex-col items-center">
-                            <span className="text-[#C5A059] text-lg font-black">#{m.physicalId}</span>
-                            <span className="text-[#666] text-[8px] font-mono">{m.name}</span>
+                      <div className="flex justify-center gap-4 flex-wrap mt-3">
+                        {mafiaTeam.map((m: any) => (
+                          <div key={m.physicalId} className="flex flex-col items-center bg-black/40 p-2 rounded-lg border border-[#8A0303]/40 min-w-[70px]">
+                            <div className="relative mb-1">
+                              {m.avatarUrl ? (
+                                <Image src={m.avatarUrl} alt="" width={40} height={40} className="rounded-full object-cover w-10 h-10 border border-[#C5A059]/50" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 flex items-center justify-center font-mono text-[#C5A059] font-bold text-xs">
+                                  #{m.physicalId}
+                                </div>
+                              )}
+                              <div className="absolute -bottom-1 -right-1 bg-black text-[#C5A059] text-[9px] font-black px-1 rounded-sm border border-[#C5A059]/50">
+                                #{m.physicalId}
+                              </div>
+                            </div>
+                            <span className="text-white text-[10px] font-bold truncate max-w-[60px] text-center mt-1">{m.name}</span>
+                            <span className="text-[#8A0303] text-[9px] font-mono mt-0.5">{m.role ? (ROLE_NAMES[m.role as keyof typeof ROLE_NAMES] || m.role) : 'مافيا'}</span>
                           </div>
                         ))}
                       </div>
