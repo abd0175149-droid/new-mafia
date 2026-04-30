@@ -20,6 +20,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   // ── حالة التحويل (Pan + Zoom) ──
   const [scale, setScale] = useState(1);
@@ -96,43 +97,23 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   }, [imgLoaded, draw]);
 
   // ── منع سكرول وتحديث الصفحة تماماً أثناء القص ──
+  // Chrome Android pull-to-refresh يعمل على compositor thread
+  // ولا يحترم JS preventDefault — يجب استخدام CSS فقط
   useEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-
-    // حفظ القيم الأصلية
-    const prev = {
-      bodyOverflow: body.style.overflow,
-      bodyOverscroll: body.style.overscrollBehavior,
-      bodyTouch: body.style.touchAction,
-      htmlOverscroll: html.style.overscrollBehavior,
-      htmlTouch: html.style.touchAction,
-    };
-
-    // قفل كامل على body + html
-    body.style.overflow = 'hidden';
-    body.style.overscrollBehavior = 'none';
-    body.style.touchAction = 'none';
-    html.style.overscrollBehavior = 'none';
-    html.style.touchAction = 'none';
-
-    // منع touchmove على كل الصفحة لإيقاف pull-to-refresh
-    const blockTouch = (e: TouchEvent) => {
-      // السماح فقط داخل منطقة الـ canvas
-      const el = containerRef.current;
-      if (el && el.contains(e.target as Node)) return; // لا نمنع — السحب يتم بالـ native listener
-      e.preventDefault();
-    };
-    document.addEventListener('touchmove', blockTouch, { passive: false });
-
-    return () => {
-      body.style.overflow = prev.bodyOverflow;
-      body.style.overscrollBehavior = prev.bodyOverscroll;
-      body.style.touchAction = prev.bodyTouch;
-      html.style.overscrollBehavior = prev.htmlOverscroll;
-      html.style.touchAction = prev.htmlTouch;
-      document.removeEventListener('touchmove', blockTouch);
-    };
+    const style = document.createElement('style');
+    style.id = 'image-cropper-lock';
+    style.textContent = `
+      html, body {
+        overflow: hidden !important;
+        overscroll-behavior: none !important;
+        touch-action: none !important;
+        position: fixed !important;
+        width: 100% !important;
+        height: 100% !important;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => { style.remove(); };
   }, []);
 
   // ── تسجيل touch handlers كـ non-passive على container ──

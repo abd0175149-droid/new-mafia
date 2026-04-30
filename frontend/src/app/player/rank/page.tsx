@@ -125,8 +125,8 @@ export default function RankPage() {
           {p.avatarUrl ? <img src={p.avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
         </div>
         <div className="flex-1 min-w-0">
-          <p className={`text-xs font-medium truncate ${me ? 'text-amber-400' : 'text-white'}`}>
-            {p.name} {me && '(أنت)'}
+          <p className={`text-xs font-medium ${me ? 'text-amber-400' : 'text-white'}`} style={{ overflow: 'hidden', whiteSpace: 'nowrap' }}>
+            {(p.name || '').length > 16 ? p.name.slice(0, 16) + '…' : p.name} {me && '(أنت)'}
           </p>
           <p className="text-gray-500 text-[10px]">
             {RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]} • {p.totalMatches || 0} مباراة • {p.totalWins || 0} فوز
@@ -249,7 +249,7 @@ export default function RankPage() {
                     {leaderboard[1]?.avatarUrl ? <img src={leaderboard[1].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-xs">🥈</span>
-                  <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center">{(leaderboard[1]?.name || '').length > 10 ? leaderboard[1].name.slice(0, 10) + '…' : leaderboard[1]?.name}</p>
+                  <p className="text-[10px] text-white font-medium mt-0.5 text-center" style={{ maxWidth: 70, overflow: 'hidden', whiteSpace: 'nowrap' }}>{(leaderboard[1]?.name || '').length > 8 ? leaderboard[1].name.slice(0, 8) + '…' : leaderboard[1]?.name}</p>
                   <p className="text-[9px] text-gray-500">{leaderboard[1]?.totalMatches || 0} مباراة • {leaderboard[1]?.rankRR} RR</p>
                 </div>
                 {/* #1 Gold */}
@@ -258,7 +258,7 @@ export default function RankPage() {
                     {leaderboard[0]?.avatarUrl ? <img src={leaderboard[0].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-lg">🥇</span>
-                  <p className="text-xs text-amber-400 font-bold mt-0.5 max-w-[80px] truncate text-center">{(leaderboard[0]?.name || '').length > 12 ? leaderboard[0].name.slice(0, 12) + '…' : leaderboard[0]?.name}</p>
+                  <p className="text-xs text-amber-400 font-bold mt-0.5 text-center" style={{ maxWidth: 80, overflow: 'hidden', whiteSpace: 'nowrap' }}>{(leaderboard[0]?.name || '').length > 10 ? leaderboard[0].name.slice(0, 10) + '…' : leaderboard[0]?.name}</p>
                   <p className="text-[9px] text-gray-400">{leaderboard[0]?.totalMatches || 0} مباراة • {leaderboard[0]?.rankRR} RR</p>
                 </div>
                 {/* #3 Bronze */}
@@ -267,7 +267,7 @@ export default function RankPage() {
                     {leaderboard[2]?.avatarUrl ? <img src={leaderboard[2].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-xs">🥉</span>
-                  <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center">{(leaderboard[2]?.name || '').length > 10 ? leaderboard[2].name.slice(0, 10) + '…' : leaderboard[2]?.name}</p>
+                  <p className="text-[10px] text-white font-medium mt-0.5 text-center" style={{ maxWidth: 70, overflow: 'hidden', whiteSpace: 'nowrap' }}>{(leaderboard[2]?.name || '').length > 8 ? leaderboard[2].name.slice(0, 8) + '…' : leaderboard[2]?.name}</p>
                   <p className="text-[9px] text-gray-500">{leaderboard[2]?.totalMatches || 0} مباراة • {leaderboard[2]?.rankRR} RR</p>
                 </div>
               </div>
