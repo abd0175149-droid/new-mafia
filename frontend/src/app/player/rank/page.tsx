@@ -249,7 +249,7 @@ export default function RankPage() {
                     {leaderboard[1]?.avatarUrl ? <img src={leaderboard[1].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-xs">🥈</span>
-                  <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center">{leaderboard[1]?.name}</p>
+                  <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center" dir="rtl">{leaderboard[1]?.name}</p>
                   <p className="text-[9px] text-gray-500">{leaderboard[1]?.totalMatches || 0} مباراة • {leaderboard[1]?.rankRR} RR</p>
                 </div>
                 {/* #1 Gold */}
@@ -258,7 +258,7 @@ export default function RankPage() {
                     {leaderboard[0]?.avatarUrl ? <img src={leaderboard[0].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-lg">🥇</span>
-                  <p className="text-xs text-amber-400 font-bold mt-0.5 max-w-[80px] truncate text-center">{leaderboard[0]?.name}</p>
+                  <p className="text-xs text-amber-400 font-bold mt-0.5 max-w-[80px] truncate text-center" dir="rtl">{leaderboard[0]?.name}</p>
                   <p className="text-[9px] text-gray-400">{leaderboard[0]?.totalMatches || 0} مباراة • {leaderboard[0]?.rankRR} RR</p>
                 </div>
                 {/* #3 Bronze */}
@@ -267,7 +267,7 @@ export default function RankPage() {
                     {leaderboard[2]?.avatarUrl ? <img src={leaderboard[2].avatarUrl} className="w-full h-full object-cover" alt="" /> : '🎭'}
                   </div>
                   <span className="text-xs">🥉</span>
-                  <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center">{leaderboard[2]?.name}</p>
+                  <p className="text-[10px] text-white font-medium mt-0.5 max-w-[70px] truncate text-center" dir="rtl">{leaderboard[2]?.name}</p>
                   <p className="text-[9px] text-gray-500">{leaderboard[2]?.totalMatches || 0} مباراة • {leaderboard[2]?.rankRR} RR</p>
                 </div>
               </div>

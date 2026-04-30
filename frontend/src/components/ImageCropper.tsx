@@ -113,6 +113,12 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   }, []);
 
   // ── تسجيل touch handlers كـ non-passive على container ──
+  // نستخدم refs لتجنب إعادة التسجيل عند كل render
+  const scaleRef = useRef(scale);
+  const offsetRef = useRef(offset);
+  scaleRef.current = scale;
+  offsetRef.current = offset;
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -124,14 +130,14 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY,
         );
-        pinchStart.current = { dist, scale };
+        pinchStart.current = { dist, scale: scaleRef.current };
       } else if (e.touches.length === 1) {
-        dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offset.x, oy: offset.y };
+        dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offsetRef.current.x, oy: offsetRef.current.y };
       }
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      e.preventDefault(); // يعمل فقط مع { passive: false }
+      e.preventDefault();
       if (e.touches.length === 2 && pinchStart.current) {
         const dist = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
@@ -160,7 +166,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
       el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('touchend', onTouchEnd);
     };
-  });
+  }, []); // ← مرة واحدة فقط
 
   // ── التعامل مع الماوس ──
   const handlePointerDown = (e: React.PointerEvent) => {
