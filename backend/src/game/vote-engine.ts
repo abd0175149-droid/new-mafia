@@ -262,6 +262,11 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
       // إذا الدور غير معروف (null) → يُعامل كمواطن (الأسوأ للمُبادر)
       const targetIsMafia = target.role ? isMafiaRole(target.role) : false;
+      const initiatorIsMafia = initiator && initiator.role ? isMafiaRole(initiator.role) : false;
+      
+      // الديل يعتبر ناجحاً ومستحقاً للنقاط فقط إذا كان المبادر (مواطن) وأخرج (مافيا).
+      // إذا قام مافيا بعمل ديل على مافيا، فهو يعتبر ديل فاشل (لأنه أضر بفريقه) ولن يحصل على نقاط.
+      const isSuccessfulDeal = !initiatorIsMafia && targetIsMafia;
 
       // ── تتبع نتيجة الاتفاقية ──
       if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
@@ -269,7 +274,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         initiatorPhysicalId: winner.initiatorPhysicalId!,
         targetPhysicalId: winner.targetPhysicalId,
         targetRole: target.role || 'UNKNOWN',
-        success: targetIsMafia,
+        success: isSuccessfulDeal,
       });
       state.performanceTracking.eliminationLog.push({
         physicalId: target.physicalId,
