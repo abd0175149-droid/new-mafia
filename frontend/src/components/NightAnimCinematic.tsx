@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
+import { playEventSound, playGameSound } from '@/lib/soundManager';
 
 // ══════════════════════════════════════════════════════
 // 🌙 Night Cinematic Animation — GSAP-powered
@@ -18,81 +19,8 @@ interface NightAnimProps {
   };
 }
 
-// ── مؤثر صوتي بسيط عبر Web Audio API ──
-function playImpactSound(type: string) {
-  try {
-    const ACClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!ACClass) return;
-    const ctx = new ACClass();
-
-    if (type === 'slash') {
-      // صوت قطع حاد
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(800, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.3);
-      gain.gain.setValueAtTime(0.4, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
-    } else if (type === 'shield') {
-      // صوت درع (ارتداد معدني)
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(1200, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.5);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.6);
-    } else if (type === 'snipe') {
-      // صوت طلقة
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(2000, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.5, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.2);
-    } else if (type === 'eye') {
-      // صوت نبض خافت
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(60, ctx.currentTime);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime + 0.3);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.8);
-    } else if (type === 'silence') {
-      // صوت ثابت مكتوم
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(200, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.6);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.6);
-    }
-  } catch (_) {}
-}
+// ── مؤثر صوتي — يستخدم soundManager المركزي ──
+// (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
 
 // ══════════════════════════════════════════
 // 🔪 Assassination Animation — خط قطع أحمر يعبر الشاشة
@@ -101,7 +29,7 @@ function AssassinationAnim() {
   const slashRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    playImpactSound('slash');
+    playEventSound('night_assassination');
   }, []);
 
   return (
@@ -175,7 +103,7 @@ function AssassinationAnim() {
 // ══════════════════════════════════════════
 function InvestigationAnim() {
   useEffect(() => {
-    playImpactSound('eye');
+    playEventSound('night_investigation');
   }, []);
 
   return (
@@ -223,7 +151,7 @@ function InvestigationAnim() {
 // ══════════════════════════════════════════
 function ProtectionAnim() {
   useEffect(() => {
-    playImpactSound('shield');
+    playEventSound('night_protection');
   }, []);
 
   return (
@@ -270,7 +198,7 @@ function ProtectionAnim() {
 // ══════════════════════════════════════════
 function SnipeAnim() {
   useEffect(() => {
-    const timer = setTimeout(() => playImpactSound('snipe'), 600);
+    const timer = setTimeout(() => playEventSound('night_snipe'), 600);
     return () => clearTimeout(timer);
   }, []);
 
@@ -343,7 +271,7 @@ function SnipeAnim() {
 // ══════════════════════════════════════════
 function SilenceAnim() {
   useEffect(() => {
-    playImpactSound('silence');
+    playEventSound('night_silence');
   }, []);
 
   return (
@@ -398,7 +326,7 @@ function SilenceAnim() {
 // 🩸 Morning: Assassination Success
 // ══════════════════════════════════════════
 function MorningAssassinationAnim({ data }: NightAnimProps) {
-  useEffect(() => { playImpactSound('slash'); }, []);
+  useEffect(() => { playGameSound('morning_assassination_success'); }, []);
   const targetRole = data.extra?.targetRole || null;
 
   return (
@@ -459,7 +387,7 @@ function MorningAssassinationAnim({ data }: NightAnimProps) {
 // 🛡️ Morning: Protection Success
 // ══════════════════════════════════════════
 function MorningProtectionAnim() {
-  useEffect(() => { playImpactSound('shield'); }, []);
+  useEffect(() => { playGameSound('morning_protection_success'); }, []);
 
   return (
     <div className="text-center py-4">
@@ -496,7 +424,7 @@ function MorningProtectionAnim() {
 // 🎯 Morning: Snipe Results
 // ══════════════════════════════════════════
 function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean }) {
-  useEffect(() => { playImpactSound('snipe'); }, []);
+  useEffect(() => { playGameSound(success ? 'morning_snipe_mafia' : 'morning_snipe_citizen'); }, []);
   const targetRole = data.extra?.targetRole || null;
   const sniperPhysicalId = data.extra?.sniperPhysicalId as number | undefined;
   const sniperName = data.extra?.sniperName as string | undefined;
@@ -595,7 +523,7 @@ function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean
 // 🤐 Morning: Silenced Player
 // ══════════════════════════════════════════
 function MorningSilencedAnim({ data }: NightAnimProps) {
-  useEffect(() => { playImpactSound('silence'); }, []);
+  useEffect(() => { playGameSound('morning_silenced'); }, []);
 
   return (
     <div className="text-center py-4">

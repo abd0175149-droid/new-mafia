@@ -30,6 +30,7 @@ import playerAppRoutes from './routes/player-app.routes.js';
 import playerNotificationRoutes from './routes/player-notification.routes.js';
 import staffNotificationRoutes from './routes/staff-notification.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
+import soundsRoutes from './routes/sounds.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -91,6 +92,7 @@ app.use('/api/player-app', playerAppRoutes);
 app.use('/api/player-notifications', playerNotificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
+app.use('/api/sounds', soundsRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 app.get('/api/push/vapid-public-key', async (_req, res) => {
@@ -422,6 +424,32 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ Notification tables migration:', err.message);
+  }
+
+  // ── إنشاء جدول المؤثرات الصوتية ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS sound_effects (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          filename VARCHAR(255) NOT NULL,
+          original_name VARCHAR(255) NOT NULL,
+          mime_type VARCHAR(50) NOT NULL,
+          size_bytes INTEGER DEFAULT 0,
+          event_keys JSONB DEFAULT '[]',
+          is_active BOOLEAN DEFAULT true,
+          uploaded_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      console.log('✅ Sound effects table ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Sound effects table migration:', err.message);
   }
 
   // ── تهيئة Firebase ──

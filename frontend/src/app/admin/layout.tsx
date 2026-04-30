@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { href: '/admin/players', icon: '🎮', label: 'اللاعبون' },
   { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
   { href: '/admin/notifications', icon: '🔔', label: 'الإشعارات' },
+  { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية' },
   { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
   // ── فاصل ──
   { href: '/__separator__', icon: '', label: '' },

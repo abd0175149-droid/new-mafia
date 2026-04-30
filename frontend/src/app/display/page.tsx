@@ -10,57 +10,15 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
+import { loadSoundMap, playGameSound, playAmbientSound, stopAmbientSound } from '@/lib/soundManager';
 
-// مؤثرات صوتية باستخدام Web Audio API
+// مؤثرات صوتية — يستخدم soundManager المركزي
+// (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
 function playCardFlipSound(role: string | null, isMafia: boolean) {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    if (role === 'GODFATHER') {
-      // صوت دراماتيكي للشيخ
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(120, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.8);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.8);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.8);
-    } else if (role === 'SHERIFF') {
-      // صوت بطولي للشريف
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(523, ctx.currentTime);
-      osc.frequency.setValueAtTime(659, ctx.currentTime + 0.15);
-      osc.frequency.setValueAtTime(784, ctx.currentTime + 0.3);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.5);
-    } else if (isMafia) {
-      // صوت مشؤوم للمافيا
-      osc.type = 'square';
-      osc.frequency.setValueAtTime(200, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.4);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
-    } else {
-      // صوت محايد للمواطن
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(440, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.2);
-    }
-  } catch (_) {}
+  if (role === 'GODFATHER') playGameSound('card_flip_godfather');
+  else if (role === 'SHERIFF') playGameSound('card_flip_sheriff');
+  else if (isMafia) playGameSound('card_flip_mafia');
+  else playGameSound('card_flip_citizen');
 }
 
 // ══════════════════════════════════════════════════════
@@ -93,64 +51,7 @@ interface PlayerInfo {
   avatarUrl?: string | null;
 }
 
-// ── مؤثرات صوتية للفوز ──
-function playWinSound(isMafia: boolean) {
-  try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    
-    if (isMafia) {
-      // فوز المافيا — نغمات مظلمة ومرعبة  
-      const playDarkNote = (freq: number, start: number, dur: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-        osc.frequency.exponentialRampToValueAtTime(freq * 0.7, ctx.currentTime + start + dur);
-        gain.gain.setValueAtTime(0, ctx.currentTime + start);
-        gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + start + 0.1);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + dur);
-      };
-      playDarkNote(110, 0, 2);
-      playDarkNote(92, 0.3, 2);
-      playDarkNote(82, 0.6, 2.5);
-      playDarkNote(65, 1, 3);
-      playDarkNote(55, 1.5, 3);
-      const drum = ctx.createOscillator();
-      const drumGain = ctx.createGain();
-      drum.type = 'sine';
-      drum.frequency.setValueAtTime(60, ctx.currentTime);
-      drum.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 1);
-      drumGain.gain.setValueAtTime(0.3, ctx.currentTime);
-      drumGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
-      drum.connect(drumGain).connect(ctx.destination);
-      drum.start(ctx.currentTime);
-      drum.stop(ctx.currentTime + 2);
-    } else {
-      // فوز المواطنين — نغمات مبهجة وهادئة
-      const playBrightNote = (freq: number, start: number, dur: number) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-        gain.gain.setValueAtTime(0, ctx.currentTime + start);
-        gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + start + 0.05);
-        gain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + start + dur * 0.6);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(ctx.currentTime + start);
-        osc.stop(ctx.currentTime + start + dur);
-      };
-      const melody = [523, 659, 784, 1047, 784, 1047, 1319];
-      melody.forEach((f, i) => playBrightNote(f, i * 0.25, 0.6));
-      playBrightNote(262, 0, 2.5);
-      playBrightNote(330, 0.5, 2);
-      playBrightNote(392, 1, 2);
-    }
-  } catch (_) {}
-}
+// مؤثرات الفوز أصبحت مُدارة من soundManager
 
 function DisplayPageContent() {
   const socketRef = useRef<Socket | null>(null);
@@ -236,6 +137,9 @@ function DisplayPageContent() {
       socket.off('disconnect', onDisconnect);
     };
   }, []);
+
+  // ── تحميل الأصوات المخصصة عند فتح شاشة العرض ──
+  useEffect(() => { loadSoundMap(); }, []);
 
   // ── Socket Events (بعد الدخول للوبي) ──
   useEffect(() => {
@@ -336,6 +240,22 @@ function DisplayPageContent() {
       if (data.phase === Phase.LOBBY) {
         setWinner(null);
         setTeamCounts({ citizenAlive: 0, mafiaAlive: 0 });
+        stopAmbientSound();
+      }
+
+      // صوت خلفي حسب المرحلة
+      if (data.phase === Phase.NIGHT) {
+        playAmbientSound('ambient_night');
+        playGameSound('phase_night_start');
+      } else if (data.phase === 'DAY_DISCUSSION' || data.phase === 'DAY_VOTING') {
+        stopAmbientSound();
+        playAmbientSound('ambient_day');
+        if (data.phase === 'DAY_DISCUSSION') playGameSound('phase_day_start');
+        if (data.phase === 'DAY_VOTING') playGameSound('phase_voting_start');
+      } else if (data.phase === 'DAY_ELIMINATION') {
+        playGameSound('phase_elimination');
+      } else if (data.phase === Phase.GAME_OVER) {
+        stopAmbientSound();
       }
 
       // ✅ تحديث أعداد الفرق (يأتي مع الحدث مباشرة)
@@ -369,7 +289,8 @@ function DisplayPageContent() {
       setWinner(data.winner);
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
-      playWinSound(data.winner === 'MAFIA');
+      stopAmbientSound();
+      playGameSound(data.winner === 'MAFIA' ? 'win_mafia' : 'win_citizen');
     };
 
     const onPlayerUpdated = (data: any) => {

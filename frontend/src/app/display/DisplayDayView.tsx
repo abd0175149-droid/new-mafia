@@ -6,75 +6,15 @@ import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
 import CircularTimer from '@/components/CircularTimer';
 import Image from 'next/image';
+import { playGameSound } from '@/lib/soundManager';
 
+// ── مؤثرات صوتية — يستخدم soundManager المركزي ──
 const playAudioBeep = (type: 'tick' | 'buzzer') => {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const audioCtx = new AudioContextClass();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    
-    if (type === 'tick') {
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
-      gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 0.1);
-    } else {
-      oscillator.type = 'sawtooth';
-      oscillator.frequency.setValueAtTime(150, audioCtx.currentTime); 
-      oscillator.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.8);
-      gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 0.8);
-    }
-  } catch(e) {}
+  playGameSound(type === 'tick' ? 'timer_tick' : 'timer_buzzer');
 };
 
-const playVoteSound = () => {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const audioCtx = new AudioContextClass();
-    const osc = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
-    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-    osc.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.1);
-  } catch(e) {}
-};
-
-const playShiftSound = () => {
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const audioCtx = new AudioContextClass();
-    const osc = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.3);
-    gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-    osc.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.3);
-  } catch(e) {}
-};
+const playVoteSound = () => playGameSound('vote_cast');
+const playShiftSound = () => playGameSound('vote_shift');
 
 // ── مؤثرات صوتية للكشف عن الهوية ──
 const playDrumroll = () => {

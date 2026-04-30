@@ -147,3 +147,18 @@ export const auditLog = pgTable('audit_log', {
   details: jsonb('details'),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
 });
+
+// ── Sound Effects (المؤثرات الصوتية المخصصة) ────────
+
+export const soundEffects = pgTable('sound_effects', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  filename: varchar('filename', { length: 255 }).notNull(),
+  originalName: varchar('original_name', { length: 255 }).notNull(),
+  mimeType: varchar('mime_type', { length: 50 }).notNull(),
+  sizeBytes: integer('size_bytes').default(0),
+  eventKeys: jsonb('event_keys').default([]),           // ["night_assassination", "phase_night_start"]
+  isActive: boolean('is_active').default(true),
+  uploadedBy: varchar('uploaded_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

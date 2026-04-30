@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { playGameSound } from '@/lib/soundManager';
 
 interface CircularTimerProps {
   /** الوقت المتبقي بالثواني */
@@ -16,30 +17,7 @@ interface CircularTimerProps {
   enableShake?: boolean;
 }
 
-// ── Web Audio: دقات قلب ──
-function playHeartbeat(intensity: 'slow' | 'fast') {
-  try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-
-    // نبضة مزدوجة (lub-dub)
-    const vol = intensity === 'fast' ? 0.25 : 0.12;
-    osc.frequency.setValueAtTime(60, ctx.currentTime);
-    gain.gain.setValueAtTime(vol, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(vol * 0.7, ctx.currentTime + 0.15);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.3);
-  } catch (_) {}
-}
+// ── دقات القلب — يستخدم soundManager المركزي ──
 
 export default function CircularTimer({
   timeRemaining,
@@ -79,9 +57,9 @@ export default function CircularTimer({
     prevTimeRef.current = timeRemaining;
 
     if (isCritical && displayTime > 0) {
-      playHeartbeat('fast');
+      playGameSound('timer_heartbeat_fast');
     } else if (isUrgent && displayTime > 0 && displayTime % 2 === 0) {
-      playHeartbeat('slow');
+      playGameSound('timer_heartbeat_slow');
     }
   }, [displayTime, enableHeartbeat, isUrgent, isCritical]);
 
