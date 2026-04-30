@@ -132,6 +132,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     targetRoomId: string;
     targetGameName: string;
   } | null>(null);
+  const [joinConfirmation, setJoinConfirmation] = useState<{message: string} | null>(null);
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
   const phaseOverrideRef = useRef<{ phase: string } | null>(null);
@@ -1204,7 +1205,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   // ── الخطوة 4: الانضمام للعبة ──
-  const handleJoinGame = async () => {
+  const handleJoinGame = async (forceJoin = false) => {
     if (!physicalId || !displayName) return;
     setApiError('');
     try {
@@ -1212,7 +1213,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         ? `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`
         : undefined;
       const genderUpper = gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined;
-      const res = await joinRoom(roomId, parseInt(physicalId), displayName, phone, playerId || undefined, genderUpper, dateOfBirth);
+      const res = await joinRoom(roomId, parseInt(physicalId), displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin);
 
       // إذا تم ربط اللاعب بمقعد ليدر → تحديث الرقم الفيزيائي
       const actualPhysicalId = res?.linkedSeat || parseInt(physicalId);
@@ -1233,9 +1234,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
       // مسح علامة الخروج — اللاعب انضم بنجاح
       localStorage.removeItem('mafia_user_exited');
+      setJoinConfirmation(null);
       setStep('done');
     } catch (err: any) {
-      setApiError(err.message);
+      if (err.response?.requiresConfirmation) {
+        setJoinConfirmation({ message: err.response.error });
+      } else {
+        setApiError(err.message);
+      }
     }
   };
 
@@ -1246,6 +1252,40 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
   return (
     <div className="display-bg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white">
+      <AnimatePresence>
+        {joinConfirmation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#111] border border-[#C5A059]/30 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <h3 className="text-[#C5A059] text-xl font-bold mb-4 text-center">تأكيد الانتقال</h3>
+              <p className="text-white text-center mb-6 text-sm leading-relaxed">{joinConfirmation.message}</p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setJoinConfirmation(null)}
+                  className="flex-1 py-3 rounded-xl border border-[#333] text-[#888] font-mono text-sm hover:bg-[#222] transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={() => handleJoinGame(true)}
+                  className="flex-1 py-3 rounded-xl bg-[#8A0303] text-white font-mono text-sm shadow-[0_0_15px_rgba(138,3,3,0.4)] hover:bg-[#a00404] transition-colors"
+                >
+                  موافق، انتقل
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Title: MAFIA CLUB + Logo ── */}
       <motion.div

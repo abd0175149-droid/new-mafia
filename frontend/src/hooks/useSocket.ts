@@ -58,7 +58,9 @@ export function useSocket() {
             resolve(response);
           } else {
             console.error(`[useSocket] ❌ Server returned error for ${event}:`, response?.error);
-            reject(new Error(response?.error || 'Unknown error'));
+            const errorObj: any = new Error(response?.error || 'Unknown error');
+            errorObj.response = response;
+            reject(errorObj);
           }
         });
       } else {
@@ -68,7 +70,9 @@ export function useSocket() {
             resolve(response);
           } else {
             console.error(`[useSocket] ❌ Server returned error for ${event}:`, response?.error);
-            reject(new Error(response?.error || 'Unknown error'));
+            const errorObj: any = new Error(response?.error || 'Unknown error');
+            errorObj.response = response;
+            reject(errorObj);
           }
         });
       }

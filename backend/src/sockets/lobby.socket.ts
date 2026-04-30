@@ -355,6 +355,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     playerId?: number;
     gender?: string;
     dob?: string;
+    forceJoin?: boolean;
   }, callback) => {
     try {
       // ── حماية: فحص هل اللاعب في غرفة أخرى نشطة ──
@@ -371,8 +372,26 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             } else if (!existing.isAlive) {
               return callback({ success: false, error: 'أنت في غرفة أخرى نشطة (كلاعب مُقصى)، يرجى الدخول إليها ومغادرتها أولاً' });
             } else {
-              // لا يزال حي في لعبة نشطة → امنع الدخول
-              return callback({ success: false, error: 'أنت في غرفة أخرى نشطة، يرجى الخروج منها أولاً' });
+              // لا يزال حي في لعبة نشطة
+              if (!data.forceJoin) {
+                return callback({ 
+                  success: false, 
+                  requiresConfirmation: true, 
+                  error: 'أنت متواجد بالفعل في غرفة أخرى نشطة، هل تريد مغادرتها والانضمام إلى هذه الغرفة؟'
+                });
+              } else {
+                // إزالة اللاعب من الغرفة السابقة
+                const oldState = await getGameState(otherState.roomId);
+                if (oldState) {
+                  const pIndex = oldState.players.findIndex((p: any) => p.playerId === data.playerId);
+                  if (pIndex !== -1) {
+                    oldState.players.splice(pIndex, 1);
+                    await setGameState(otherState.roomId, oldState);
+                    io.to(otherState.roomId).emit('game:state-sync', oldState);
+                    console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId} to join ${data.roomId}`);
+                  }
+                }
+              }
             }
           }
         }
