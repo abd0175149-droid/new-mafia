@@ -7,6 +7,7 @@ import Link from 'next/link';
 import MafiaCard from './MafiaCard';
 import PlayerPhaseView from './PlayerPhaseView';
 import { useGameState } from '@/hooks/useGameState';
+import { ROLE_NAMES } from '@/lib/constants';
 
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'number' | 'done' | 'rejoined';
 
@@ -171,6 +172,20 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [votingComplete, setVotingComplete] = useState(false);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
   const [phasePollData, setPhasePollData] = useState<any>(null);
+  
+  const [lastVoteTime, setLastVoteTimeRaw] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const saved = localStorage.getItem('mafia_lastVoteTime');
+    return saved ? parseInt(saved) : null;
+  });
+  const [now, setNow] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (gamePhase === 'DAY_VOTING') {
+      const timer = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(timer);
+    }
+  }, [gamePhase]);
 
   // ── Wrappers: تحفظ في localStorage عند كل تغيير ──
   const setGamePhase = (phase: string | null) => {
@@ -197,6 +212,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     setPlayerVotesRaw(votes);
     if (Object.keys(votes).length > 0) localStorage.setItem('mafia_playerVotes', JSON.stringify(votes));
     else localStorage.removeItem('mafia_playerVotes');
+  };
+  const setLastVoteTime = (time: number | null) => {
+    setLastVoteTimeRaw(time);
+    if (time !== null) localStorage.setItem('mafia_lastVoteTime', time.toString());
+    else localStorage.removeItem('mafia_lastVoteTime');
   };
 
   // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
@@ -517,6 +537,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setVotingComplete(false);
       setPlayerVotes({});
       setTotalVotesCast(0);
+      setLastVoteTime(null);
       if (navigator.vibrate) navigator.vibrate(200);
     });
 
@@ -638,6 +659,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }
       setTotalVotesCast(0);
       setVotingComplete(false);
+      if (myVote === null) setLastVoteTime(null);
       if (navigator.vibrate) navigator.vibrate([100, 200]);
     });
 
@@ -672,6 +694,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setMyVote(null);
         setVotingComplete(false);
         setPlayerVotes({});
+        setLastVoteTime(null);
       }
     });
 
@@ -692,6 +715,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setMyVote(null);
       setVotingComplete(false);
       setPlayerVotes({});
+      setLastVoteTime(null);
     });
 
     // انتهاء اللعبة — لا نمسح الدور أو حالة الموت (اللاعب لازم يشوفهم)
@@ -706,6 +730,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setVotingComplete(false);
       setPlayerVotes({});
       setTotalVotesCast(0);
+      setLastVoteTime(null);
     });
 
     // إغلاق الغرفة من الليدر
@@ -722,6 +747,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setVotingComplete(false);
       setPlayerVotes({});
       setTotalVotesCast(0);
+      setLastVoteTime(null);
     });
 
     return () => {
@@ -1691,16 +1717,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5 }}
                 >
-                  {/* عنوان */}
-                  <div className="text-center mb-5">
-                    <div className="text-3xl mb-2">🗳️</div>
-                    <h2 className="text-xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                      مرحلة التصويت
-                    </h2>
-                    <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.15em] mt-1">
-                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم التصويت — اضغط لاعب آخر للتغيير' : 'صوّت ضد اللاعب المشتبه'}
-                    </p>
-                  </div>
+                  {(() => {
+                    const timeSinceVote = lastVoteTime ? now - lastVoteTime : 0;
+                    const voteWindowOpen = lastVoteTime !== null && timeSinceVote < 10000;
+                    const secondsLeft = Math.max(0, 10 - Math.floor(timeSinceVote / 1000));
+                    const canVote = myVote === null || voteWindowOpen;
+
+                    return (
+                      <>
+                        {/* عنوان */}
+                        <div className="text-center mb-5">
+                          <div className="text-3xl mb-2">🗳️</div>
+                          <h2 className="text-2xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                            مرحلة التصويت
+                          </h2>
+                          <p className="text-[#808080] text-xs font-mono uppercase tracking-[0.1em] mt-2">
+                            {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? (
+                              voteWindowOpen ? (
+                                <span className="text-amber-500 font-bold">يمكنك تغيير تصويتك خلال {secondsLeft} ثانية</span>
+                              ) : (
+                                <span className="text-green-500 font-bold">✅ تم التصويت (مغلق)</span>
+                              )
+                            ) : 'صوّت ضد اللاعب المشتبه'}
+                          </p>
+                        </div>
 
                   {/* شريط التقدم */}
                   <div className="mb-5 px-2">
@@ -1728,7 +1768,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </div>
 
                   {/* كروت المرشحين */}
-                  <div className="grid grid-cols-2 gap-3 px-1 max-h-[55vh] overflow-y-auto pb-4">
+                  <div className="grid grid-cols-1 gap-4 px-1 max-h-[55vh] overflow-y-auto pb-4">
                     {votingCandidates.map((candidate: any, index: number) => {
                       const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
                       const isMyChoice = myVote === index;
@@ -1743,7 +1783,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           key={candidate.id || `c-${index}`}
                           whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
-                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
+                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || !canVote) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -1752,6 +1792,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                             }).then((res: any) => {
                               if (res?.success) {
                                 setMyVote(index);
+                                setLastVoteTime(Date.now());
                                 if (navigator.vibrate) navigator.vibrate(100);
                               }
                             }).catch(() => {}).finally(() => setVoteSubmitting(false));
@@ -1765,31 +1806,42 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                                 : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
-                          {/* صورة أو رقم */}
-                          <div className="relative w-14 h-14 rounded-full overflow-hidden mb-2 border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center">
-                            {candidateAvatar ? (
-                              <Image src={candidateAvatar} alt="" width={56} height={56} className="object-cover w-full h-full" />
-                            ) : (
-                              <span className="text-xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
-                            )}
-                            {isMyChoice && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                className="absolute inset-0 bg-[#C5A059]/25 flex items-center justify-center rounded-full"
-                              >
-                                <span className="text-2xl">✅</span>
-                              </motion.div>
-                            )}
+                          {/* صورة واسم */}
+                          <div className="flex items-center gap-4 w-full">
+                            <div className="relative w-16 h-16 shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
+                              {candidateAvatar ? (
+                                <Image src={candidateAvatar} alt="" width={64} height={64} className="object-cover w-full h-full" />
+                              ) : (
+                                <span className="text-2xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
+                              )}
+                              {isMyChoice && (
+                                <motion.div
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="absolute inset-0 bg-[#C5A059]/40 flex items-center justify-center rounded-full backdrop-blur-sm"
+                                >
+                                  <span className="text-2xl drop-shadow-md">✅</span>
+                                </motion.div>
+                              )}
+                            </div>
+
+                            <div className="flex flex-col items-start flex-1 overflow-hidden">
+                              <span className="text-xs font-mono text-[#C5A059]/80 mb-1 tracking-widest">
+                                مقعد #{candidate.targetPhysicalId}
+                              </span>
+                              <p className="text-lg font-bold text-white truncate w-full leading-tight">
+                                {isDeal ? (
+                                  <>
+                                    <span className="text-red-500">{initiatorInfo?.name || `لاعب ${candidate.initiatorPhysicalId}`}</span>
+                                    <span className="mx-2 text-[#808080]">⇄</span>
+                                    <span>{candidateName}</span>
+                                  </>
+                                ) : (
+                                  candidateName
+                                )}
+                              </p>
+                            </div>
                           </div>
-
-                          {/* رقم المقعد — يظهر دائماً */}
-                          <span className="text-[11px] font-mono text-[#C5A059]/70 mb-0.5">#{candidate.targetPhysicalId}</span>
-
-                          {/* الاسم */}
-                          <p className="text-xs font-bold text-white truncate w-full text-center leading-tight">
-                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄ ` : ''}{candidateName}
-                          </p>
 
                           {/* عداد الأصوات */}
                           <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5">
@@ -1805,6 +1857,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       );
                     })}
                   </div>
+                  </>
+                  );
+                })()}
                 </motion.div>
               ) : assignedRole === null ? (
                 /* ── حالة الانتظار (لم يُوزَّع الدور بعد) ── */
@@ -1873,15 +1928,44 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
                   <AnimatePresence mode="wait">
                     {cardFlipped ? (
-                      <motion.p
+                      <motion.div
                         key="hide-msg"
                         initial={{ opacity: 0, y: 5 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0 }}
-                        className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em] animate-pulse"
+                        className="flex flex-col items-center w-full"
                       >
-                        ⚠️ أخفِ هاتفك الآن!
-                      </motion.p>
+                        <p className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em] animate-pulse mb-4">
+                          ⚠️ أخفِ هاتفك الآن!
+                        </p>
+
+                        {/* عرض فريق المافيا إذا كان اللاعب مافيا */}
+                        {mafiaTeam.length > 0 && (
+                          <div className="w-full max-w-[95%] mt-2 bg-black/40 border border-[#C5A059]/30 rounded-xl p-4 flex flex-col items-center shadow-lg">
+                            <h3 className="text-[#C5A059] font-bold text-sm mb-3">👥 زملاؤك في المافيا:</h3>
+                            <div className="flex flex-col gap-3 w-full">
+                              {mafiaTeam.map((m: any) => (
+                                <div key={m.physicalId} className="flex items-center gap-4 bg-black/60 p-2 rounded-lg border border-[#333]">
+                                  {m.avatarUrl ? (
+                                    <Image src={m.avatarUrl} alt="" width={48} height={48} className="rounded-full object-cover w-12 h-12 border-2 border-[#C5A059]/50" />
+                                  ) : (
+                                    <div className="w-12 h-12 rounded-full bg-[#1a1a1a] border-2 border-[#C5A059]/50 flex items-center justify-center font-mono text-[#C5A059] font-black text-lg">
+                                      #{m.physicalId}
+                                    </div>
+                                  )}
+                                  <div className="flex flex-col items-start text-right flex-1 overflow-hidden">
+                                    <span className="text-white font-bold text-sm truncate w-full">{m.name}</span>
+                                    <span className="text-red-500 font-mono text-xs mt-0.5">{m.role ? (ROLE_NAMES[m.role as keyof typeof ROLE_NAMES] || m.role) : 'مافيا'}</span>
+                                  </div>
+                                  <div className="mr-auto px-2 py-1 bg-[#111] rounded-md border border-[#222]">
+                                    <span className="text-xs font-mono text-[#C5A059]">مقعد #{m.physicalId}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </motion.div>
                     ) : (
                       <motion.p
                         key="tap-msg"

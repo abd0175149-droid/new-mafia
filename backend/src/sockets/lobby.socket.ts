@@ -492,7 +492,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (shouldShowRole && player.role && isMafiaRole(player.role as Role)) {
         mafiaTeamData = state.players
           .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
-          .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
+          .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
       }
 
       // بيانات التصويت للاستعادة الفورية عند rejoin
@@ -1067,7 +1067,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // جمع قائمة لاعبي المافيا (أرقام المقاعد) لإرسالها لأعضاء الفريق
       const mafiaPlayers = state.players
         .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false)
-        .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
+        .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
 
       // بث الدور لكل لاعب متصل على جهازه فقط
       const allSockets = await io.in(data.roomId).fetchSockets();
@@ -1085,7 +1085,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             if (isMafiaRole(player.role as Role)) {
               roleData.mafiaTeam = mafiaPlayers
                 .filter((m: any) => m.physicalId !== player.physicalId)
-                .map((m: any) => ({ physicalId: m.physicalId, name: m.name }));
+                .map((m: any) => ({ physicalId: m.physicalId, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null }));
             }
             s.emit('player:role-assigned', roleData);
           }
@@ -1118,7 +1118,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (player?.role && isMafiaRole(player.role as Role)) {
         response.mafiaTeam = state.players
           .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
-          .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
+          .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
       }
       callback(response);
     } catch {
