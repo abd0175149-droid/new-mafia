@@ -57,6 +57,7 @@ export default function PlayerProfilePage() {
   const [editName, setEditName] = useState('');
   const [editGender, setEditGender] = useState('MALE');
   const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [saving, setSaving] = useState(false);
 
   function showToast(msg: string, type: 'success' | 'error') {
@@ -84,6 +85,7 @@ export default function PlayerProfilePage() {
     setEditName(data.player.name || '');
     setEditGender(data.player.gender || 'MALE');
     setEditEmail(data.player.email || '');
+    setEditPhone(data.player.phone || '');
     setEditing(true);
   }
 
@@ -93,12 +95,12 @@ export default function PlayerProfilePage() {
     try {
       const result = await apiFetch(`/api/player/${playerId}/profile`, {
         method: 'PUT',
-        body: JSON.stringify({ name: editName, gender: editGender, email: editEmail }),
+        body: JSON.stringify({ name: editName, gender: editGender, email: editEmail, phone: editPhone }),
       });
       // Update local data
       setData((prev: any) => ({
         ...prev,
-        player: { ...prev.player, name: editName, gender: editGender, email: editEmail },
+        player: { ...prev.player, name: editName, gender: editGender, email: editEmail, phone: editPhone },
       }));
       setEditing(false);
       showToast('تم حفظ التعديلات', 'success');
@@ -280,6 +282,19 @@ export default function PlayerProfilePage() {
                   value={editEmail}
                   onChange={e => setEditEmail(e.target.value)}
                   placeholder="email@example.com"
+                  className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
+                  dir="ltr"
+                />
+              </div>
+
+              {/* Phone */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">📱 رقم الهاتف</label>
+                <input
+                  type="tel"
+                  value={editPhone}
+                  onChange={e => setEditPhone(e.target.value)}
+                  placeholder="0791234567"
                   className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
                   dir="ltr"
                 />

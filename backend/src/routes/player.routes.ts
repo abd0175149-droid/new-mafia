@@ -344,11 +344,12 @@ router.put('/:id/profile', async (req: Request, res: Response) => {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
-    const { name, email, gender } = req.body;
+    const { name, email, gender, phone } = req.body;
     const updates: any = {};
     if (name && name.trim()) updates.name = name.trim();
     if (email !== undefined) updates.email = email?.trim() || null;
     if (gender && ['MALE', 'FEMALE'].includes(gender)) updates.gender = gender;
+    if (phone && phone.trim()) updates.phone = phone.trim();
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'لا توجد بيانات للتحديث' });
