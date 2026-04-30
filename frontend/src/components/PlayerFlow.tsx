@@ -1205,7 +1205,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   // ── الخطوة 4: الانضمام للعبة ──
-  const handleJoinGame = async (forceJoin = false) => {
+  const handleJoinGame = async (forceJoin: boolean = false) => {
     if (!physicalId || !displayName) return;
     setApiError('');
     try {
@@ -1673,7 +1673,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mb-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <button
-                onClick={handleJoinGame}
+                onClick={() => handleJoinGame(false)}
                 disabled={!physicalId || loading}
                 className="w-full py-4 text-lg font-black rounded-lg border-2 transition-all disabled:opacity-50"
                 style={{
