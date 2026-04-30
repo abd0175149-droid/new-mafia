@@ -95,6 +95,15 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
     if (imgLoaded) draw();
   }, [imgLoaded, draw]);
 
+  // ── منع سكرول الصفحة أثناء التحريك (non-passive listener) ──
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const preventScroll = (e: TouchEvent) => { e.preventDefault(); };
+    el.addEventListener('touchmove', preventScroll, { passive: false });
+    return () => el.removeEventListener('touchmove', preventScroll);
+  }, []);
+
   // ── التعامل مع الماوس ──
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -153,6 +162,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   };
 
   // ── حفظ الصورة المقصوصة ──
+  // ⚠️ الناتج مربع بدون clip دائري — الكارد يعرض الصورة بـ object-cover
   const handleCrop = () => {
     const img = imgRef.current;
     if (!img) return;
@@ -171,11 +181,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    // clip دائري
-    ctx.beginPath();
-    ctx.arc(outputSize / 2, outputSize / 2, outputSize / 2, 0, Math.PI * 2);
-    ctx.clip();
-
+    // بدون clip دائري — مربع كامل لملء الكارد
     ctx.drawImage(
       img,
       offset.x * ratio,
