@@ -29,7 +29,8 @@ export async function loadSoundMap(): Promise<void> {
       // Pre-load كل الملفات الصوتية
       for (const [key, url] of Object.entries(customSoundMap)) {
         try {
-          const audio = new Audio(url);
+          const fullUrl = `${API_URL}${url}`;
+          const audio = new Audio(fullUrl);
           audio.preload = 'auto';
           audio.load();
           preloadedAudios[key] = audio;
@@ -73,7 +74,7 @@ export function playGameSound(eventKey: string): void {
         return;
       }
       // Fallback: تحميل مباشر
-      const newAudio = new Audio(customSoundMap[eventKey]);
+      const newAudio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
       newAudio.volume = 0.7;
       newAudio.play().catch(() => {});
       return;
@@ -93,7 +94,7 @@ export function playAmbientSound(eventKey: string): void {
 
   if (customSoundMap[eventKey]) {
     try {
-      const audio = new Audio(customSoundMap[eventKey]);
+      const audio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
       audio.loop = true;
       audio.volume = 0.3;
       audio.play().catch(() => {});

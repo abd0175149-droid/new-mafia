@@ -201,7 +201,7 @@ export default function SoundsPage() {
   const handlePlay = (sound: SoundRecord) => {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (playingId === sound.id) { setPlayingId(null); return; }
-    const audio = new Audio(`/sounds/${sound.filename}`);
+    const audio = new Audio(`${API_URL}/uploads/sounds/${sound.filename}`);
     audio.onended = () => setPlayingId(null);
     audio.play().catch(() => {});
     audioRef.current = audio;

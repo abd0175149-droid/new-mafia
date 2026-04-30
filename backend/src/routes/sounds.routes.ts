@@ -15,7 +15,8 @@ import fs from 'fs';
 const router = Router();
 
 // ── مسار تخزين الملفات الصوتية ──
-const SOUNDS_DIR = path.resolve(process.cwd(), '../frontend/public/sounds');
+// تُحفظ داخل backend/uploads/sounds/ وتُخدم عبر express.static('/uploads')
+const SOUNDS_DIR = path.resolve(process.cwd(), 'uploads/sounds');
 
 // التأكد من وجود المجلد
 if (!fs.existsSync(SOUNDS_DIR)) {
@@ -79,12 +80,12 @@ router.get('/active-map', async (_req: Request, res: Response) => {
     .from(soundEffects)
     .where(eq(soundEffects.isActive, true));
 
-    // بناء الخريطة: { eventKey: "/sounds/filename.mp3" }
+    // بناء الخريطة: { eventKey: "/uploads/sounds/filename.mp3" }
     const map: Record<string, string> = {};
     for (const row of rows) {
       const keys = (row.eventKeys as string[]) || [];
       for (const key of keys) {
-        map[key] = `/sounds/${row.filename}`;
+        map[key] = `/uploads/sounds/${row.filename}`;
       }
     }
 
