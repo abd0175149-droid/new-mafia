@@ -248,6 +248,12 @@ export default function MafiaCard({
   const voteCountSize = { sm: 'text-4xl', md: 'text-5xl', lg: 'text-6xl', fluid: 'text-5xl' }[size];
   const voteLabelSize = { sm: 'text-[10px]', md: 'text-xs', lg: 'text-sm', fluid: 'text-xs' }[size];
 
+  // قص الاسم من النهاية (الاسم الأخير) — يعمل لكل اللغات
+  const nameMaxLen = { sm: 10, md: 14, lg: 18, fluid: 14 }[size];
+  const truncatedName = playerName.length > nameMaxLen
+    ? playerName.slice(0, nameMaxLen) + '…'
+    : playerName;
+
   const handleCardClick = () => {
     if (!flippable) return;
     if (onFlip) {
@@ -381,16 +387,11 @@ export default function MafiaCard({
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full">
                   <h2
                     className={`${nameSize} font-black text-white leading-tight`}
-                    dir="rtl"
                     style={{
                       fontFamily: 'Amiri, serif',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: '65%',
                     }}
                   >
-                    {playerName}
+                    {truncatedName}
                   </h2>
                   <span
                     className={`font-mono font-black transition-all duration-300 ${
@@ -417,16 +418,9 @@ export default function MafiaCard({
               <>
                 <h2
                   className={`${nameSize} font-black text-white text-center leading-tight`}
-                  dir="rtl"
-                  style={{
-                    fontFamily: 'Amiri, serif',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '90%',
-                  }}
+                  style={{ fontFamily: 'Amiri, serif' }}
                 >
-                  {playerName}
+                  {truncatedName}
                 </h2>
                 <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
                   isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'

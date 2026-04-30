@@ -97,18 +97,41 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
 
   // ── منع سكرول وتحديث الصفحة تماماً أثناء القص ──
   useEffect(() => {
-    // قفل body scroll + pull-to-refresh
-    const prevOverflow = document.body.style.overflow;
-    const prevOverscroll = document.body.style.overscrollBehavior;
-    const prevTouchAction = document.body.style.touchAction;
-    document.body.style.overflow = 'hidden';
-    document.body.style.overscrollBehavior = 'none';
-    document.body.style.touchAction = 'none';
+    const html = document.documentElement;
+    const body = document.body;
+
+    // حفظ القيم الأصلية
+    const prev = {
+      bodyOverflow: body.style.overflow,
+      bodyOverscroll: body.style.overscrollBehavior,
+      bodyTouch: body.style.touchAction,
+      htmlOverscroll: html.style.overscrollBehavior,
+      htmlTouch: html.style.touchAction,
+    };
+
+    // قفل كامل على body + html
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'none';
+    body.style.touchAction = 'none';
+    html.style.overscrollBehavior = 'none';
+    html.style.touchAction = 'none';
+
+    // منع touchmove على كل الصفحة لإيقاف pull-to-refresh
+    const blockTouch = (e: TouchEvent) => {
+      // السماح فقط داخل منطقة الـ canvas
+      const el = containerRef.current;
+      if (el && el.contains(e.target as Node)) return; // لا نمنع — السحب يتم بالـ native listener
+      e.preventDefault();
+    };
+    document.addEventListener('touchmove', blockTouch, { passive: false });
 
     return () => {
-      document.body.style.overflow = prevOverflow;
-      document.body.style.overscrollBehavior = prevOverscroll;
-      document.body.style.touchAction = prevTouchAction;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.overscrollBehavior = prev.bodyOverscroll;
+      body.style.touchAction = prev.bodyTouch;
+      html.style.overscrollBehavior = prev.htmlOverscroll;
+      html.style.touchAction = prev.htmlTouch;
+      document.removeEventListener('touchmove', blockTouch);
     };
   }, []);
 
