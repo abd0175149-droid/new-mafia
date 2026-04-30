@@ -95,14 +95,72 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
     if (imgLoaded) draw();
   }, [imgLoaded, draw]);
 
-  // ── منع سكرول الصفحة أثناء التحريك (non-passive listener) ──
+  // ── منع سكرول وتحديث الصفحة تماماً أثناء القص ──
+  useEffect(() => {
+    // قفل body scroll + pull-to-refresh
+    const prevOverflow = document.body.style.overflow;
+    const prevOverscroll = document.body.style.overscrollBehavior;
+    const prevTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'none';
+    document.body.style.touchAction = 'none';
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.overscrollBehavior = prevOverscroll;
+      document.body.style.touchAction = prevTouchAction;
+    };
+  }, []);
+
+  // ── تسجيل touch handlers كـ non-passive على container ──
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const preventScroll = (e: TouchEvent) => { e.preventDefault(); };
-    el.addEventListener('touchmove', preventScroll, { passive: false });
-    return () => el.removeEventListener('touchmove', preventScroll);
-  }, []);
+
+    const onTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY,
+        );
+        pinchStart.current = { dist, scale };
+      } else if (e.touches.length === 1) {
+        dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offset.x, oy: offset.y };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault(); // يعمل فقط مع { passive: false }
+      if (e.touches.length === 2 && pinchStart.current) {
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY,
+        );
+        const newScale = pinchStart.current.scale * (dist / pinchStart.current.dist);
+        setScale(Math.max(0.1, Math.min(5, newScale)));
+      } else if (e.touches.length === 1 && dragStart.current) {
+        const dx = e.touches[0].clientX - dragStart.current.x;
+        const dy = e.touches[0].clientY - dragStart.current.y;
+        setOffset({ x: dragStart.current.ox + dx, y: dragStart.current.oy + dy });
+      }
+    };
+
+    const onTouchEnd = () => {
+      dragStart.current = null;
+      pinchStart.current = null;
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  });
 
   // ── التعامل مع الماوس ──
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -119,40 +177,6 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   };
 
   const handlePointerUp = () => { dragStart.current = null; };
-
-  // ── Pinch to Zoom (Touch) ──
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-      pinchStart.current = { dist, scale };
-    } else if (e.touches.length === 1) {
-      dragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, ox: offset.x, oy: offset.y };
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault();
-    if (e.touches.length === 2 && pinchStart.current) {
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-      const newScale = pinchStart.current.scale * (dist / pinchStart.current.dist);
-      setScale(Math.max(0.1, Math.min(5, newScale)));
-    } else if (e.touches.length === 1 && dragStart.current) {
-      const dx = e.touches[0].clientX - dragStart.current.x;
-      const dy = e.touches[0].clientY - dragStart.current.y;
-      setOffset({ x: dragStart.current.ox + dx, y: dragStart.current.oy + dy });
-    }
-  };
-
-  const handleTouchEnd = () => {
-    dragStart.current = null;
-    pinchStart.current = null;
-  };
 
   // ── Scroll to Zoom ──
   const handleWheel = (e: React.WheelEvent) => {
@@ -209,6 +233,8 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
           background: 'rgba(0,0,0,0.9)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           padding: 20,
+          touchAction: 'none',
+          overscrollBehavior: 'none',
         }}
       >
         <h3 style={{ color: '#fff', fontWeight: 700, fontSize: 16, marginBottom: 16 }}>
@@ -232,9 +258,6 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerLeave={handlePointerUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
           onWheel={handleWheel}
         >
           <canvas

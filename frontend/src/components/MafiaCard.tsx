@@ -417,7 +417,14 @@ export default function MafiaCard({
               <>
                 <h2
                   className={`${nameSize} font-black text-white text-center leading-tight`}
-                  style={{ fontFamily: 'Amiri, serif' }}
+                  dir="rtl"
+                  style={{
+                    fontFamily: 'Amiri, serif',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '90%',
+                  }}
                 >
                   {playerName}
                 </h2>
