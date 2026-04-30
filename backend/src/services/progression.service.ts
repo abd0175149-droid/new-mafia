@@ -50,7 +50,7 @@ export function calculateMatchXP(params: {
   teamWon: boolean;
   roundsSurvived: number;
   abilityCorrectCount: number;
-  dealSuccess: boolean | null; // null = لم يبادر
+  successfulDealsCount: number;
   teamEliminationBonus: number; // عدد مرات إقصاء الخصم × 15
 }): number {
   let xp = 0;
@@ -59,7 +59,7 @@ export function calculateMatchXP(params: {
   if (params.teamWon) xp += 50;               // فوز الفريق
   xp += params.roundsSurvived * 5;            // نجاة لكل جولة
   xp += params.abilityCorrectCount * 10;      // قدرة صحيحة
-  if (params.dealSuccess === true) xp += 50;  // اتفاقية ناجحة
+  xp += params.successfulDealsCount * 50;     // اتفاقية ناجحة
   xp += params.teamEliminationBonus;          // مكافأة إقصاء الخصم
 
   return xp;
@@ -68,7 +68,8 @@ export function calculateMatchXP(params: {
 // ── حساب RR المتغير من مباراة واحدة ─────────────────
 export function calculateMatchRR(params: {
   teamWon: boolean;
-  dealSuccess: boolean | null;
+  successfulDealsCount: number;
+  failedDealsCount: number;
   survivedToEnd: boolean;        // نجاة حتى النهاية
   abilityCorrectCount: number;   // عدد القدرات الصحيحة
 }): number {
@@ -76,8 +77,8 @@ export function calculateMatchRR(params: {
 
   rr += params.teamWon ? 20 : -20;           // فوز/خسارة
 
-  if (params.dealSuccess === true) rr += 20;  // اتفاقية ناجحة
-  if (params.dealSuccess === false) rr -= 30; // اتفاقية فاشلة (عقوبة)
+  rr += params.successfulDealsCount * 20;  // اتفاقية ناجحة
+  rr -= params.failedDealsCount * 30; // اتفاقية فاشلة (عقوبة)
 
   if (params.survivedToEnd) rr += 5;          // نجاة للنهاية
   rr += params.abilityCorrectCount * 5;       // قدرة صحيحة
@@ -206,8 +207,9 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
 
     // هل بادر باتفاقية؟
-    const dealOutcome = tracking.dealOutcomes.find(d => d.initiatorPhysicalId === p.physicalId);
-    const dealSuccess = dealOutcome ? dealOutcome.success : null;
+    const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
+    const successfulDealsCount = playerDeals.filter(d => d.success).length;
+    const failedDealsCount = playerDeals.filter(d => !d.success).length;
 
     // القدرات الصحيحة
     const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
@@ -219,14 +221,15 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       teamWon,
       roundsSurvived,
       abilityCorrectCount,
-      dealSuccess,
+      successfulDealsCount,
       teamEliminationBonus: teamElimBonusMap[p.physicalId] || 0,
     });
 
     // حساب RR (مع المصادر الجديدة)
     const rrChange = calculateMatchRR({
       teamWon,
-      dealSuccess,
+      successfulDealsCount,
+      failedDealsCount,
       survivedToEnd: p.isAlive,
       abilityCorrectCount,
     });
@@ -237,10 +240,12 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       const rrResult = await applyRR(p.playerId, rrChange);
 
       // تحديث إحصائيات الاتفاقيات
-      if (dealOutcome) {
-        const dealUpdates: any = { totalDeals: sql`${players.totalDeals} + 1` };
-        if (dealOutcome.success) {
-          dealUpdates.successfulDeals = sql`${players.successfulDeals} + 1`;
+      if (playerDeals.length > 0) {
+        const dealUpdates: any = { 
+          totalDeals: sql`${players.totalDeals} + ${playerDeals.length}` 
+        };
+        if (successfulDealsCount > 0) {
+          dealUpdates.successfulDeals = sql`${players.successfulDeals} + ${successfulDealsCount}`;
         }
         await db.update(players).set(dealUpdates).where(eq(players.id, p.playerId));
       }

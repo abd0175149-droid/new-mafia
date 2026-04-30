@@ -86,16 +86,21 @@ export async function finalizeMatch(state: GameState): Promise<void> {
 
       const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
 
+      const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
+      const successfulDealsCount = playerDeals.filter(d => d.success).length;
+      const failedDealsCount = playerDeals.filter(d => !d.success).length;
+
       const xpEarned = p.playerId ? calculateMatchXP({
         participated: true, teamWon, roundsSurvived,
         abilityCorrectCount,
-        dealSuccess: dealOutcome ? dealOutcome.success : null,
+        successfulDealsCount,
         teamEliminationBonus: teamElimBonus,
       }) : 0;
 
       const rrChange = p.playerId ? calculateMatchRR({
         teamWon,
-        dealSuccess: dealOutcome ? dealOutcome.success : null,
+        successfulDealsCount,
+        failedDealsCount,
         survivedToEnd: !elimEntry, // نجا إذا لم يُقصى
         abilityCorrectCount,
       }) : 0;
