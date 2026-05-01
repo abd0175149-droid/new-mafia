@@ -10,6 +10,7 @@ import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES } from '@/lib/constants';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
+import PlayerNotepad from './PlayerNotepad';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'number' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
@@ -137,6 +138,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [joinConfirmation, setJoinConfirmation] = useState<{message: string} | null>(null);
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
+  const [roster, setRoster] = useState<any[]>([]);
+  const [isNotepadOpen, setIsNotepadOpen] = useState(false);
+  const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
   const phaseOverrideRef = useRef<{ phase: string } | null>(null);
 
   // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
@@ -550,6 +554,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
     const cleanupSync = on('game:state-sync', (state: any) => {
       if (!state || !state.players) return;
+      setRoster(state.players);
 
       // البحث بـ playerId أولاً (الطريقة الموثوقة)
       let me = playerId
@@ -737,6 +742,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setPlayerVotes({});
       setTotalVotesCast(0);
       setLastVoteTime(null);
+      if (roomId && physicalId) {
+        localStorage.removeItem(`mafia_notes_${roomId}_${physicalId}`);
+        setNotepadNotes({});
+      }
     });
 
     // إغلاق الغرفة من الليدر
@@ -748,6 +757,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       localStorage.removeItem('mafia_votingPlayersInfo');
       localStorage.removeItem('mafia_myVote');
       localStorage.removeItem('mafia_playerVotes');
+      if (roomId && physicalId) {
+        localStorage.removeItem(`mafia_notes_${roomId}_${physicalId}`);
+      }
+      setNotepadNotes({});
       setGamePhase(null);
       setAssignedRole(null);
       setIsPlayerDead(false);
@@ -1908,9 +1921,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                                 مقعد #{candidate.targetPhysicalId}
                               </span>
                               
-                              <p className="text-xl font-bold text-white w-full leading-snug break-words">
-                                {candidateName}
-                              </p>
+                              <div className="flex items-center gap-2 w-full">
+                                <p className="text-xl font-bold text-white leading-snug break-words">
+                                  {candidateName}
+                                </p>
+                                {notepadNotes[candidate.targetPhysicalId] && notepadNotes[candidate.targetPhysicalId].suspicion !== 'none' && (
+                                  <span className="text-sm bg-black/50 px-1.5 py-0.5 rounded-md border border-[#333] shadow-inner">
+                                    {notepadNotes[candidate.targetPhysicalId].suspicion === 'safe' ? '🟢' : notepadNotes[candidate.targetPhysicalId].suspicion === 'suspect' ? '🟡' : '🔴'}
+                                  </span>
+                                )}
+                              </div>
                               
                               {isDeal && (
                                 <div className="mt-2 bg-red-500/20 border border-red-500/30 px-2.5 py-1 rounded-md flex items-center gap-2">
@@ -2224,9 +2244,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                                 مقعد #{candidate.targetPhysicalId}
                               </span>
                               
-                              <p className="text-xl font-bold text-white w-full leading-snug break-words">
-                                {candidateName}
-                              </p>
+                              <div className="flex items-center gap-2 w-full">
+                                <p className="text-xl font-bold text-white leading-snug break-words">
+                                  {candidateName}
+                                </p>
+                                {notepadNotes[candidate.targetPhysicalId] && notepadNotes[candidate.targetPhysicalId].suspicion !== 'none' && (
+                                  <span className="text-sm bg-black/50 px-1.5 py-0.5 rounded-md border border-[#333] shadow-inner">
+                                    {notepadNotes[candidate.targetPhysicalId].suspicion === 'safe' ? '🟢' : notepadNotes[candidate.targetPhysicalId].suspicion === 'suspect' ? '🟡' : '🔴'}
+                                  </span>
+                                )}
+                              </div>
                               
                               {isDeal && (
                                 <div className="mt-2 bg-red-500/20 border border-red-500/30 px-2.5 py-1 rounded-md flex items-center gap-2">
@@ -2578,6 +2605,26 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         isOpen={isGalleryOpen}
         onClose={() => setIsGalleryOpen(false)}
         team={mafiaTeam}
+      />
+
+      {/* Player Notepad FAB */}
+      {(step === 'done' || step === 'rejoined') && (
+        <button
+          onClick={() => setIsNotepadOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-[#111] border-2 border-[#C5A059] text-2xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(197,160,89,0.3)] z-[90] hover:scale-105 transition-transform"
+        >
+          📝
+        </button>
+      )}
+
+      {/* Player Notepad Modal */}
+      <PlayerNotepad
+        roomId={roomId}
+        myPhysicalId={parseInt(physicalId) || 0}
+        players={roster.length > 0 ? roster : votingPlayersInfo}
+        isOpen={isNotepadOpen}
+        onClose={() => setIsNotepadOpen(false)}
+        onNotesChange={setNotepadNotes}
       />
     </div>
   );
