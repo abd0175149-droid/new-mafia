@@ -26,7 +26,7 @@ if (!fs.existsSync(SOUNDS_DIR)) {
 
 // ── إعداد multer لرفع الملفات ──
 const ALLOWED_MIMES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/x-m4a'];
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, SOUNDS_DIR),
@@ -103,7 +103,7 @@ router.post('/upload', authenticate, (req: Request, res: Response) => {
   upload.single('file')(req, res, async (uploadErr: any) => {
     if (uploadErr) {
       if (uploadErr.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ error: 'حجم الملف يتجاوز 5 ميجابايت' });
+        return res.status(400).json({ error: 'حجم الملف يتجاوز 50 ميجابايت' });
       }
       return res.status(400).json({ error: uploadErr.message });
     }
