@@ -8,7 +8,8 @@ import MafiaCard from './MafiaCard';
 import PlayerPhaseView from './PlayerPhaseView';
 import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES } from '@/lib/constants';
-
+import { Users } from 'lucide-react';
+import MafiaTeamGallery from './MafiaTeamGallery';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'number' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
@@ -125,7 +126,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [roleAlert, setRoleAlert] = useState(false);
-  const [mafiaTeam, setMafiaTeam] = useState<{physicalId: number; name: string}[]>([]);
+  const [mafiaTeam, setMafiaTeam] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null}[]>([]);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [switchConfirm, setSwitchConfirm] = useState<{
     currentRoomId: string;
     currentGameName: string;
@@ -2028,40 +2030,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     )}
                   </AnimatePresence>
 
-                  {/* ── عرض زملاء المافيا عند قلب الكارد ── */}
+                  {/* ── عرض زر زملاء المافيا عند قلب الكارد ── */}
                   {cardFlipped && mafiaTeam.length > 0 && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.5, duration: 0.4 }}
-                      className="mt-4 p-3 rounded-xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0505] to-[#0d0202]"
+                      className="mt-4 flex flex-col items-center"
                     >
-                      <p className="text-[#8A0303] text-[9px] font-mono uppercase tracking-[0.15em] text-center mb-2">
-                        🕴️ زملاؤك في الفريق
-                      </p>
-                      <div className="flex justify-center gap-4 flex-wrap mt-3">
-                        {mafiaTeam.map((m: any) => (
-                          <div key={m.physicalId} className="flex flex-col items-center bg-black/40 p-2 rounded-lg border border-[#8A0303]/40 min-w-[70px]">
-                            <div className="relative mb-1">
-                              {m.avatarUrl ? (
-                                <Image src={m.avatarUrl} alt="" width={40} height={40} className="rounded-full object-cover w-10 h-10 border border-[#C5A059]/50" />
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 flex items-center justify-center font-mono text-[#C5A059] font-bold text-xs">
-                                  #{m.physicalId}
-                                </div>
-                              )}
-                              <div className="absolute -bottom-1 -right-1 bg-black text-[#C5A059] text-[9px] font-black px-1 rounded-sm border border-[#C5A059]/50">
-                                #{m.physicalId}
-                              </div>
-                            </div>
-                            <span className="text-white text-[10px] font-bold truncate max-w-[60px] text-center mt-1">{m.name}</span>
-                            <span className="text-[#8A0303] text-[9px] font-mono mt-0.5">{m.role ? (ROLE_NAMES[m.role as keyof typeof ROLE_NAMES] || m.role) : 'مافيا'}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[#4a2020] text-[8px] font-mono uppercase tracking-widest text-center mt-2">
-                        ⭕ لا تكشف هويتك
-                      </p>
+                      <button
+                        onClick={() => setIsGalleryOpen(true)}
+                        className="flex items-center gap-2 bg-[#8A0303]/20 hover:bg-[#8A0303]/40 text-[#8A0303] border border-[#8A0303]/50 px-4 py-2 rounded-full font-bold transition-colors"
+                      >
+                        <Users className="w-5 h-5" />
+                        عرض شركاء المافيا
+                      </button>
                     </motion.div>
                   )}
                 </motion.div>
@@ -2311,34 +2294,15 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.5, duration: 0.4 }}
-                      className="mt-4 p-3 rounded-xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0505] to-[#0d0202]"
+                      className="mt-4 flex flex-col items-center"
                     >
-                      <p className="text-[#8A0303] text-[9px] font-mono uppercase tracking-[0.15em] text-center mb-2">
-                        🕴️ زملاؤك في الفريق
-                      </p>
-                      <div className="flex justify-center gap-4 flex-wrap mt-3">
-                        {mafiaTeam.map((m: any) => (
-                          <div key={m.physicalId} className="flex flex-col items-center bg-black/40 p-2 rounded-lg border border-[#8A0303]/40 min-w-[70px]">
-                            <div className="relative mb-1">
-                              {m.avatarUrl ? (
-                                <Image src={m.avatarUrl} alt="" width={40} height={40} className="rounded-full object-cover w-10 h-10 border border-[#C5A059]/50" />
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 flex items-center justify-center font-mono text-[#C5A059] font-bold text-xs">
-                                  #{m.physicalId}
-                                </div>
-                              )}
-                              <div className="absolute -bottom-1 -right-1 bg-black text-[#C5A059] text-[9px] font-black px-1 rounded-sm border border-[#C5A059]/50">
-                                #{m.physicalId}
-                              </div>
-                            </div>
-                            <span className="text-white text-[10px] font-bold truncate max-w-[60px] text-center mt-1">{m.name}</span>
-                            <span className="text-[#8A0303] text-[9px] font-mono mt-0.5">{m.role ? (ROLE_NAMES[m.role as keyof typeof ROLE_NAMES] || m.role) : 'مافيا'}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[#4a2020] text-[8px] font-mono uppercase tracking-widest text-center mt-2">
-                        ⭕ لا تكشف هويتك
-                      </p>
+                      <button
+                        onClick={() => setIsGalleryOpen(true)}
+                        className="flex items-center gap-2 bg-[#8A0303]/20 hover:bg-[#8A0303]/40 text-[#8A0303] border border-[#8A0303]/50 px-4 py-2 rounded-full font-bold transition-colors"
+                      >
+                        <Users className="w-5 h-5" />
+                        عرض شركاء المافيا
+                      </button>
                     </motion.div>
                   )}
                 </>
@@ -2563,6 +2527,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* Mafia Team Gallery Modal */}
+      <MafiaTeamGallery
+        isOpen={isGalleryOpen}
+        onClose={() => setIsGalleryOpen(false)}
+        team={mafiaTeam}
+      />
     </div>
   );
 }
