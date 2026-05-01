@@ -513,7 +513,7 @@ export default function PlayerPhaseView({
             {myEvents.map((e: any, i: number) => (
               <motion.div key={i} initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.3 }}
                 className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                <p className="text-white text-sm">{e.targetName}: {e.type === 'SNIPE' ? '🎯 تم قنصك!' : e.extra || e.type}</p>
+                <p className="text-white text-sm">{e.targetName}: {e.type.includes('SNIPE') ? '🎯 تم قنصك!' : (typeof e.extra === 'string' ? e.extra : e.type)}</p>
               </motion.div>
             ))}
           </div>
