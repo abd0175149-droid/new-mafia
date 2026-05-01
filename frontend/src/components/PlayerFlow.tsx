@@ -517,7 +517,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
     // استقبال الدور من الليدر (عند تأكيد الأدوار)
-    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string}[] }) => {
+    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[] }) => {
       setAssignedRole(data.role);
       setCardFlipped(false);
       setRoleAlert(true);
