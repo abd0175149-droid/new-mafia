@@ -736,7 +736,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // إغلاق الغرفة من الليدر
     const cleanupClosed = on('game:closed', () => {
-      console.log('🔒 Game closed — full reset');
+      console.log('🔒 Game closed — full reset + clear session');
+      localStorage.removeItem('mafia_session');
+      localStorage.removeItem('mafia_gamePhase');
+      localStorage.removeItem('mafia_votingCandidates');
+      localStorage.removeItem('mafia_votingPlayersInfo');
+      localStorage.removeItem('mafia_myVote');
+      localStorage.removeItem('mafia_playerVotes');
       setGamePhase(null);
       setAssignedRole(null);
       setIsPlayerDead(false);
@@ -751,6 +757,33 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setLastVoteTime(null);
     });
 
+    // حذف الغرفة نهائياً من القائد
+    const cleanupRoomDeleted = on('game:room-deleted', () => {
+      console.log('🗑️ Room deleted — full cleanup + redirect');
+      localStorage.removeItem('mafia_session');
+      localStorage.removeItem('mafia_gamePhase');
+      localStorage.removeItem('mafia_votingCandidates');
+      localStorage.removeItem('mafia_votingPlayersInfo');
+      localStorage.removeItem('mafia_myVote');
+      localStorage.removeItem('mafia_playerVotes');
+      setGamePhase(null);
+      setAssignedRole(null);
+      setIsPlayerDead(false);
+      setMafiaTeam([]);
+      setCardFlipped(false);
+      setRoleAlert(false);
+      setVotingCandidates([]);
+      setMyVote(null);
+      setVotingComplete(false);
+      setPlayerVotes({});
+      setTotalVotesCast(0);
+      setLastVoteTime(null);
+      setRoomId('');
+      setRoomCode('');
+      setStep(initialRoomCode ? 'phone' : 'code');
+      setApiError('تم إغلاق الغرفة');
+    });
+
     return () => {
       cleanupVotingStarted();
       cleanupVoteUpdate();
@@ -760,6 +793,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       cleanupElimination();
       cleanupGameOver();
       cleanupClosed();
+      cleanupRoomDeleted();
     };
   }, [step, on, physicalId]);
 

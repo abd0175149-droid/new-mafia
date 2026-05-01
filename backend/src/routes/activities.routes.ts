@@ -271,26 +271,8 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   const activity = result[0];
 
-  // 🎮 إنشاء غرفة ألعاب تلقائياً مرتبطة بالنشاط
-  try {
-    const sessionId = await createSession(
-      name,
-      generateRoomCode(),
-      Math.floor(1000 + Math.random() * 9000).toString(),
-      10,
-      activity.id,
-    );
-
-    if (sessionId) {
-      await db.update(activities)
-        .set({ sessionId })
-        .where(eq(activities.id, activity.id));
-      activity.sessionId = sessionId;
-      console.log(`🎮 Auto-created Session #${sessionId} for Activity #${activity.id}`);
-    }
-  } catch (err: any) {
-    console.error('⚠️ Failed to auto-create session for activity:', err.message);
-  }
+  // 🎮 الغرفة لا تُنشأ تلقائياً — تُنشأ فقط عبر زر "إضافة غرفة" أو دخول القائد
+  // هذا يمنع ازدواجية الغرف ويضمن أن maxPlayers يُحدد بشكل صحيح
 
   // 📂 إنشاء مجلد Drive تلقائياً للنشاط
   if (!activity.driveLink) {

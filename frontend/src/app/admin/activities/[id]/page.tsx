@@ -83,7 +83,7 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
     try {
       const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, {
         method: 'POST',
-        body: JSON.stringify({ maxPlayers: 10 }),
+        body: JSON.stringify({}),
       });
       setRooms(prev => [newRoom, ...prev]);
     } catch (err: any) {
@@ -131,6 +131,7 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
       sessionName: room.sessionName,
       sessionId: room.id,
       activityId,
+      maxPlayers: room.maxPlayers || 10,
     }));
     window.open('/leader', '_blank');
   };

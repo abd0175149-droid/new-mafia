@@ -10,6 +10,8 @@ import { resolveNight, resetNightActions, getAvailableTargets } from '../game/ni
 import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { WinResult } from '../game/win-checker.js';
 import { finalizeMatch } from '../services/match.service.js';
+import { markRoomAsFinished } from './lobby.socket.js';
+import { closeSession } from '../services/session.service.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -392,6 +394,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       // حفظ نتيجة المباراة في PostgreSQL
       await finalizeMatch(state);
+
+      // تنظيف: حذف من activeRooms + إغلاق DB Session
+      markRoomAsFinished(data.roomId);
+      if (state.sessionId) closeSession(state.sessionId).catch(() => {});
 
       callback({ success: true });
     } catch (err: any) {

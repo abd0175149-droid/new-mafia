@@ -250,7 +250,7 @@ export default function LeaderPage() {
               try {
                 const response = await emit('room:create', {
                   gameName: roomData.sessionName,
-                  maxPlayers: 10,
+                  maxPlayers: roomData.maxPlayers || 10,
                   maxJustifications: 2,
                   displayPin: roomData.displayPin || undefined,
                   activityId: roomData.activityId || undefined,

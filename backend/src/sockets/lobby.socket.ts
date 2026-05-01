@@ -16,6 +16,11 @@ export function getActiveRooms() {
   return Array.from(activeRooms.values());
 }
 
+// ── حذف الغرفة من activeRooms عند انتهاء اللعبة ──
+export function markRoomAsFinished(roomId: string) {
+  activeRooms.delete(roomId);
+}
+
 // ── إعادة بناء activeRooms من Redis عند بدء السيرفر ──
 export async function rehydrateActiveRooms(): Promise<void> {
   try {
@@ -1575,6 +1580,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // إعادة تعيين الحالة باستخدام الدالة المشتركة
       resetRoomState(state, excludeIds);
       await setGameState(data.roomId, state);
+
+      // ── إبلاغ المستبعدين قبل بث الحالة الجديدة ──
+      if (excludeIds.length > 0) {
+        const allSockets = await io.in(data.roomId).fetchSockets();
+        for (const s of allSockets) {
+          if (s.data.role === 'player' && excludeIds.includes(s.data.physicalId)) {
+            s.emit('player:kicked-self');
+            s.leave(data.roomId);
+          }
+        }
+      }
 
       // تحديث عدد اللاعبين في activeRooms
       const room = activeRooms.get(data.roomId);
