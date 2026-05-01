@@ -1857,9 +1857,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       return (
                         <motion.button
                           key={candidate.id || `c-${index}`}
-                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
+                          whileTap={!isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
-                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || !canVote) return;
+                            if (isPlayerDead || isMyChoice || voteSubmitting || !canVote) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -1873,20 +1873,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               }
                             }).catch(() => {}).finally(() => setVoteSubmitting(false));
                           }}
-                          disabled={isSelf || isPlayerDead}
-                          className={`relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all ${
+                          disabled={isPlayerDead}
+                          className={`relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all w-full overflow-hidden ${
                             isMyChoice
                               ? 'border-[#C5A059] bg-gradient-to-b from-[#C5A059]/15 to-[#C5A059]/5 shadow-[0_0_20px_rgba(197,160,89,0.2)]'
-                              : isSelf
-                                ? 'border-[#1a1a1a] bg-[#0a0a0a]/50 opacity-40'
-                                : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
+                              : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
                           {/* صورة واسم */}
-                          <div className="flex items-center gap-4 w-full">
-                            <div className="relative w-20 h-20 shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
+                          <div className="flex items-center gap-3 w-full">
+                            <div className="relative w-[72px] h-[72px] shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
                               {candidateAvatar ? (
-                                <Image src={candidateAvatar} alt="" width={80} height={80} className="object-cover w-full h-full" />
+                                <Image src={candidateAvatar} alt="" width={72} height={72} className="object-cover w-full h-full" />
                               ) : (
                                 <span className="text-3xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
                               )}
@@ -1901,7 +1899,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               )}
                             </div>
 
-                            <div className="flex flex-col items-start flex-1 overflow-visible">
+                            <div className="flex flex-col items-start flex-1 min-w-0">
                               <span className="text-sm font-mono text-[#C5A059] mb-1 tracking-widest bg-black/40 px-2 py-0.5 rounded-full border border-[#C5A059]/20">
                                 مقعد #{candidate.targetPhysicalId}
                               </span>
@@ -2160,9 +2158,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       return (
                         <motion.button
                           key={candidate.id || `c-${index}`}
-                          whileTap={!isSelf && !isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
+                          whileTap={!isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
-                            if (isSelf || isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
+                            if (isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -2175,20 +2173,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               }
                             }).catch(() => {}).finally(() => setVoteSubmitting(false));
                           }}
-                          disabled={isSelf || isPlayerDead}
-                          className={`relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all ${
+                          disabled={isPlayerDead}
+                          className={`relative flex flex-col items-center p-3 rounded-2xl border-2 transition-all w-full overflow-hidden ${
                             isMyChoice
                               ? 'border-[#C5A059] bg-gradient-to-b from-[#C5A059]/15 to-[#C5A059]/5 shadow-[0_0_20px_rgba(197,160,89,0.2)]'
-                              : isSelf
-                                ? 'border-[#1a1a1a] bg-[#0a0a0a]/50 opacity-40'
-                                : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
+                              : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
                           {/* صورة واسم */}
-                          <div className="flex items-center gap-4 w-full">
-                            <div className="relative w-20 h-20 shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
+                          <div className="flex items-center gap-3 w-full">
+                            <div className="relative w-[72px] h-[72px] shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
                               {candidateAvatar ? (
-                                <Image src={candidateAvatar} alt="" width={80} height={80} className="object-cover w-full h-full" />
+                                <Image src={candidateAvatar} alt="" width={72} height={72} className="object-cover w-full h-full" />
                               ) : (
                                 <span className="text-3xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
                               )}
@@ -2203,7 +2199,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               )}
                             </div>
 
-                            <div className="flex flex-col items-start flex-1 overflow-visible">
+                            <div className="flex flex-col items-start flex-1 min-w-0">
                               <span className="text-sm font-mono text-[#C5A059] mb-1 tracking-widest bg-black/40 px-2 py-0.5 rounded-full border border-[#C5A059]/20">
                                 مقعد #{candidate.targetPhysicalId}
                               </span>
