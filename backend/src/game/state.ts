@@ -118,6 +118,7 @@ export interface GameConfig {
   gameName: string;
   maxPlayers: number;
   displayPin: string;
+  allowMafiaReveal: boolean; // السماح للمافيا بمعرفة بعضهم
 }
 
 export interface GameState {
@@ -207,6 +208,7 @@ export async function createRoom(
       gameName,
       maxPlayers: Math.min(Math.max(maxPlayers, 6), 27),
       displayPin: displayPin || generateDisplayPin(),
+      allowMafiaReveal: true,
     },
     players: [],
     rolesPool: [],

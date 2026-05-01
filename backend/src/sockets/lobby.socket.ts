@@ -515,7 +515,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // جمع زملاء المافيا إذا اللاعب مافيا
       let mafiaTeamData: any[] | undefined;
-      if (shouldShowRole && player.role && isMafiaRole(player.role as Role)) {
+      if (shouldShowRole && player.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
         mafiaTeamData = state.players
           .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
           .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
@@ -909,6 +909,28 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── تحديث خيار تعارف المافيا ────────────────────────
+  socket.on('room:update-mafia-reveal', async (data: {
+    roomId: string;
+    allowMafiaReveal: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      state.config.allowMafiaReveal = data.allowMafiaReveal;
+      await updateRoom(data.roomId, { config: state.config });
+
+      callback({ success: true });
+      console.log(`👑 Leader toggled mafia reveal: ${data.allowMafiaReveal}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── بدء توليد الأدوار ──────────────────────────
   socket.on('room:start-generation', async (data: { roomId: string }, callback) => {
     try {
@@ -1108,7 +1130,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               role: player.role,
             };
             // إذا اللاعب من فريق المافيا → أرسل أرقام زملائه
-            if (isMafiaRole(player.role as Role)) {
+            if (isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
               roleData.mafiaTeam = mafiaPlayers
                 .filter((m: any) => m.physicalId !== player.physicalId)
                 .map((m: any) => ({ physicalId: m.physicalId, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null }));
@@ -1141,7 +1163,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         confirmed: state.rolesConfirmed || false,
       };
       // إذا اللاعب مافيا → أرسل أرقام زملائه
-      if (player?.role && isMafiaRole(player.role as Role)) {
+      if (player?.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false) {
         response.mafiaTeam = state.players
           .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
           .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));

@@ -105,9 +105,9 @@ function buildFCMPayload(
 
   return {
     tokens,
-    // ✅ notification مطلوب لإيقاظ iOS — بدونه لا يصل الإشعار
-    notification: { title, body },
-    data: { type, title, body, tag: notifTag, ...stringifiedData },
+    // ⚠️ لا نرسل notification في المستوى الأعلى — لمنع المتصفح من عرض إشعار تلقائي
+    // العرض يتم فقط من sw.js (مصدر واحد = بلا تكرار)
+    data: { type, title, body, tag: notifTag, url: link, ...stringifiedData },
 
     // ── WebPush (Chrome, Firefox, Safari iOS PWA) ──
     webpush: {
@@ -115,8 +115,8 @@ function buildFCMPayload(
         Urgency: 'high',
         TTL: '86400',
       },
-      notification: { title, body, tag: notifTag, icon: '/mafia_logo.png' },
-      data: { type, title, body, url: link, ...stringifiedData },
+      // لا نرسل notification هنا أيضاً — sw.js يتولى العرض
+      data: { type, title, body, tag: notifTag, url: link, ...stringifiedData },
       fcmOptions: { link },
     },
 

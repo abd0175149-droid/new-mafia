@@ -31,13 +31,25 @@ try {
   const messaging = firebase.messaging();
 
   // ── استقبال رسالة FCM في الخلفية (Chrome/Firefox/Edge) ──
-  // ⚠️ notification field موجود في payload → المتصفح يعرض الإشعار تلقائياً
-  //    هنا فقط نمنع push event من إعادة العرض
+  // data-only message — نعرضه يدوياً (مصدر وحيد للإشعار)
   messaging.onBackgroundMessage((payload) => {
-    // منع push event من إعادة العرض — FCM + المتصفح يتولى الأمر
+    const d = payload.data || {};
+    const title = d.title || '🎭 نادي المافيا';
+    const body = d.body || '';
+    const tag = d.tag || 'default';
+    const type = d.type || '';
+    const url = d.url || '/player/home';
+    self.registration.showNotification(title, {
+      body,
+      icon: '/mafia_logo.png',
+      badge: '/mafia_logo.png',
+      tag,
+      data: { url, type, ...d },
+      vibrate: [200, 100, 200],
+    });
+    // منع push event من إعادة العرض
     self.__fcmHandled = true;
     setTimeout(() => { self.__fcmHandled = false; }, 3000);
-    console.log('📨 FCM background message received (auto-displayed by browser)');
   });
 
   firebaseInitialized = true;
@@ -148,7 +160,7 @@ function resolveNotificationUrl(type, data) {
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
-  // ⚠️ إذا FCM onBackgroundMessage عالج هذا الإشعار — لا نكرره
+  // إذا FCM onBackgroundMessage عالج هذا الإشعار — لا نكرره
   if (self.__fcmHandled) {
     console.log('ℹ️ Push event skipped — already handled by FCM onBackgroundMessage');
     return;
@@ -168,6 +180,7 @@ self.addEventListener('push', (event) => {
   const body = notification.body || fcmData.body || '';
   const type = fcmData.type || notification.tag || '';
   const url = resolveNotificationUrl(type, fcmData);
+  const tag = fcmData.tag || `${type || 'default'}-${Date.now()}`;
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
@@ -180,15 +193,13 @@ self.addEventListener('push', (event) => {
         });
       }
 
-      // ✅ دائماً نعرض notification نظام — مطلوب لـ iOS
       return self.registration.showNotification(title, {
         body,
         icon: '/mafia_logo.png',
         badge: '/mafia_logo.png',
-        tag: `${type || 'default'}-${Date.now()}`,
+        tag,
         data: { url, type, ...fcmData },
         vibrate: [200, 100, 200],
-        requireInteraction: true,
       });
     })
   );

@@ -28,6 +28,9 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
   const [randomDone, setRandomDone] = useState(false);
   const [rolesConfirmed, setRolesConfirmed] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [allowMafiaReveal, setAllowMafiaReveal] = useState(
+    gameState?.config?.allowMafiaReveal !== false
+  );
 
   // ── تهيئة الأدوار من rolesPool ──
   useEffect(() => {
@@ -267,8 +270,34 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         </div>
       )}
 
-      {/* ═══ Random Assign + Confirm + Start Buttons ═══ */}
+      {/* ═══ Mafia Reveal Toggle + Random Assign + Confirm + Start Buttons ═══ */}
       <div className="text-center mb-10 space-y-4">
+        {/* خيار تعارف المافيا */}
+        <div className="flex items-center justify-between bg-black/40 border border-[#2a2a2a] rounded-xl p-4">
+          <div className="text-right">
+            <p className="text-white text-sm font-bold" style={{ fontFamily: 'Amiri, serif' }}>السماح للمافيا بمعرفة بعضهم</p>
+            <p className="text-[#666] text-[10px] font-mono mt-0.5">MAFIA TEAM REVEAL</p>
+          </div>
+          <button
+            onClick={async () => {
+              const newValue = !allowMafiaReveal;
+              setAllowMafiaReveal(newValue);
+              try {
+                await emit('room:update-mafia-reveal', {
+                  roomId: gameState.roomId,
+                  allowMafiaReveal: newValue,
+                });
+              } catch (err: any) {
+                setAllowMafiaReveal(!newValue);
+                setError(err.message);
+              }
+            }}
+            className={`w-14 h-7 rounded-full transition-all duration-300 relative shrink-0 ${allowMafiaReveal ? 'bg-[#C5A059]' : 'bg-[#333]'}`}
+          >
+            <div className={`w-5 h-5 rounded-full bg-white shadow-md absolute top-1 transition-all duration-300 ${allowMafiaReveal ? 'right-1' : 'left-1'}`} />
+          </button>
+        </div>
+
         {/* زر التوزيع العشوائي */}
         <button
           onClick={handleRandomAssign}
