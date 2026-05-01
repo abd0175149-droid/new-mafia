@@ -146,7 +146,7 @@ router.post('/:id/add-room', authenticate, async (req: Request, res: Response) =
     const activityId = parseInt(req.params.id);
 
     // تحقق من وجود النشاط
-    const [act] = await db.select({ id: activities.id, name: activities.name })
+    const [act] = await db.select({ id: activities.id, name: activities.name, maxCapacity: activities.maxCapacity })
       .from(activities)
       .where(eq(activities.id, activityId))
       .limit(1);
@@ -160,7 +160,7 @@ router.post('/:id/add-room', authenticate, async (req: Request, res: Response) =
 
     const roomNumber = existingRooms.length + 1;
     const roomName = req.body.roomName || `${act.name} — غرفة ${roomNumber}`;
-    const maxPlayers = req.body.maxPlayers || 10;
+    const maxPlayers = req.body.maxPlayers || act.maxCapacity || 20;
 
     const sessionId = await createSession(
       roomName,
