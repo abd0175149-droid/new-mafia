@@ -879,23 +879,23 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         initial={{ opacity: 0, scale: 0.8 }}
                         animate={{ opacity: 1, scale: 1 }}
                         layout
-                        className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all duration-500 ${
+                        className={`flex items-center gap-4 px-6 py-3 rounded-full border-2 transition-all duration-500 ${
                           hasWithdrawn
                             ? 'bg-[#1a1a1a] border-[#333] opacity-50'
-                            : 'bg-[#8A0303]/15 border-[#8A0303]/40'
+                            : 'bg-gradient-to-r from-[#8A0303]/40 to-[#8A0303]/10 border-[#ff4444] shadow-[0_0_15px_rgba(138,3,3,0.6)]'
                         }`}
                       >
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-mono font-black ${
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-mono font-black ${
                           hasWithdrawn
                             ? 'bg-[#333] text-[#666]'
-                            : 'bg-[#8A0303] text-white'
+                            : 'bg-[#ff4444] text-white shadow-lg'
                         }`}>
                           {voterId}
                         </div>
-                        <span className={`text-sm font-mono ${
+                        <span className={`text-xl font-bold ${
                           hasWithdrawn
                             ? 'text-[#555] line-through'
-                            : 'text-white'
+                            : 'text-white drop-shadow-md'
                         }`}>
                           {voterPlayer?.name || `#${voterId}`}
                         </span>

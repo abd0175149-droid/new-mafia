@@ -702,9 +702,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     });
 
     // التبرير
-    const cleanupJustification = on('day:justification-started', () => {
+    const cleanupJustification = on('day:justification-started', (data: any) => {
       console.log('⚖️ Justification started');
       setGamePhase('DAY_JUSTIFICATION');
+      if (data && data.playerVotes) {
+        setPlayerVotes(data.playerVotes);
+      }
       phaseOverrideRef.current = { phase: 'DAY_JUSTIFICATION' };
     });
 
@@ -1853,6 +1856,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       const candidateAvatar = playerInfo?.avatarUrl;
                       const isDeal = candidate.type === 'DEAL';
                       const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
+                      const votersForThisCandidate = Object.entries(playerVotes).filter(([_, targetIdx]) => targetIdx === index).map(([vId]) => parseInt(vId));
 
                       return (
                         <motion.button
@@ -1920,10 +1924,25 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           </div>
 
                           {/* عداد الأصوات */}
-                          <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5">
+                          <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5 w-fit mx-auto">
                             <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
                             <span className="text-[10px] text-[#808080]">صوت</span>
                           </div>
+
+                          {/* أسماء المصوتين */}
+                          {votersForThisCandidate.length > 0 && (
+                            <div className="mt-2 w-full flex flex-wrap justify-center gap-1.5 border-t border-[#333]/50 pt-2 px-1">
+                              {votersForThisCandidate.map(vId => {
+                                const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `لاعب ${vId}`;
+                                return (
+                                  <span key={vId} className="text-[9px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <span className="font-black text-[#ff4444]">{vId}</span>
+                                    <span className="truncate max-w-[50px] text-gray-300">{vName}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
 
                           {/* شارة "أنت" */}
                           {isSelf && (
@@ -2154,6 +2173,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       const candidateAvatar = playerInfo?.avatarUrl;
                       const isDeal = candidate.type === 'DEAL';
                       const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
+                      const votersForThisCandidate = Object.entries(playerVotes).filter(([_, targetIdx]) => targetIdx === index).map(([vId]) => parseInt(vId));
 
                       return (
                         <motion.button
@@ -2220,10 +2240,25 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           </div>
 
                           {/* عداد الأصوات */}
-                          <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5">
+                          <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5 w-fit mx-auto">
                             <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
                             <span className="text-[10px] text-[#808080]">صوت</span>
                           </div>
+
+                          {/* أسماء المصوتين */}
+                          {votersForThisCandidate.length > 0 && (
+                            <div className="mt-2 w-full flex flex-wrap justify-center gap-1.5 border-t border-[#333]/50 pt-2 px-1">
+                              {votersForThisCandidate.map(vId => {
+                                const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `لاعب ${vId}`;
+                                return (
+                                  <span key={vId} className="text-[9px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <span className="font-black text-[#ff4444]">{vId}</span>
+                                    <span className="truncate max-w-[50px] text-gray-300">{vName}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
 
                           {/* شارة "أنت" */}
                           {isSelf && (

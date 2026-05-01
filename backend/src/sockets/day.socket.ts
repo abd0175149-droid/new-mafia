@@ -342,6 +342,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         maxJustifications: maxJust,
         candidates: state.votingState?.candidates || [],
         votersForAccused, // قائمة physicalIds للمصوتين على المتهمين
+        playerVotes: state.votingState?.playerVotes || {}, // الأصوات
         leaderProxyVotes: state.votingState?.leaderProxyVotes || {}, // أصوات الليدر بالوكالة
       };
 
