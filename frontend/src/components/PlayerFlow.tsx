@@ -1884,11 +1884,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         >
                           {/* صورة واسم */}
                           <div className="flex items-center gap-4 w-full">
-                            <div className="relative w-16 h-16 shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
+                            <div className="relative w-20 h-20 shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
                               {candidateAvatar ? (
-                                <Image src={candidateAvatar} alt="" width={64} height={64} className="object-cover w-full h-full" />
+                                <Image src={candidateAvatar} alt="" width={80} height={80} className="object-cover w-full h-full" />
                               ) : (
-                                <span className="text-2xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
+                                <span className="text-3xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
                               )}
                               {isMyChoice && (
                                 <motion.div
@@ -1896,26 +1896,28 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                                   animate={{ scale: 1 }}
                                   className="absolute inset-0 bg-[#C5A059]/40 flex items-center justify-center rounded-full backdrop-blur-sm"
                                 >
-                                  <span className="text-2xl drop-shadow-md">✅</span>
+                                  <span className="text-3xl drop-shadow-md">✅</span>
                                 </motion.div>
                               )}
                             </div>
 
-                            <div className="flex flex-col items-start flex-1 overflow-hidden">
-                              <span className="text-xs font-mono text-[#C5A059]/80 mb-1 tracking-widest">
+                            <div className="flex flex-col items-start flex-1 overflow-visible">
+                              <span className="text-sm font-mono text-[#C5A059] mb-1 tracking-widest bg-black/40 px-2 py-0.5 rounded-full border border-[#C5A059]/20">
                                 مقعد #{candidate.targetPhysicalId}
                               </span>
-                              <p className="text-lg font-bold text-white truncate w-full leading-tight">
-                                {isDeal ? (
-                                  <>
-                                    <span className="text-red-500">{initiatorInfo?.name || `لاعب ${candidate.initiatorPhysicalId}`}</span>
-                                    <span className="mx-2 text-[#808080]">⇄</span>
-                                    <span>{candidateName}</span>
-                                  </>
-                                ) : (
-                                  candidateName
-                                )}
+                              
+                              <p className="text-xl font-bold text-white w-full leading-snug break-words">
+                                {candidateName}
                               </p>
+                              
+                              {isDeal && (
+                                <div className="mt-2 bg-red-500/20 border border-red-500/30 px-2.5 py-1 rounded-md flex items-center gap-2">
+                                  <span className="text-red-500 text-xs font-bold whitespace-nowrap">🤝 ديل من:</span>
+                                  <span className="text-white text-xs font-bold truncate">
+                                    {initiatorInfo?.name || `لاعب ${candidate.initiatorPhysicalId}`} <span className="font-mono text-red-400">#{candidate.initiatorPhysicalId}</span>
+                                  </span>
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -2145,7 +2147,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </div>
 
                   {/* كروت المرشحين */}
-                  <div className="grid grid-cols-2 gap-3 px-1 max-h-[55vh] overflow-y-auto pb-4">
+                  <div className="grid grid-cols-1 gap-4 px-1 max-h-[55vh] overflow-y-auto pb-4">
                     {votingCandidates.map((candidate: any, index: number) => {
                       const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
                       const isMyChoice = myVote === index;
@@ -2182,31 +2184,44 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                                 : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
-                          {/* صورة أو رقم */}
-                          <div className="relative w-14 h-14 rounded-full overflow-hidden mb-2 border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center">
-                            {candidateAvatar ? (
-                              <Image src={candidateAvatar} alt="" width={56} height={56} className="object-cover w-full h-full" />
-                            ) : (
-                              <span className="text-xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
-                            )}
-                            {isMyChoice && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                className="absolute inset-0 bg-[#C5A059]/25 flex items-center justify-center rounded-full"
-                              >
-                                <span className="text-2xl">✅</span>
-                              </motion.div>
-                            )}
+                          {/* صورة واسم */}
+                          <div className="flex items-center gap-4 w-full">
+                            <div className="relative w-20 h-20 shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
+                              {candidateAvatar ? (
+                                <Image src={candidateAvatar} alt="" width={80} height={80} className="object-cover w-full h-full" />
+                              ) : (
+                                <span className="text-3xl font-black text-[#C5A059] font-mono">#{candidate.targetPhysicalId}</span>
+                              )}
+                              {isMyChoice && (
+                                <motion.div
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="absolute inset-0 bg-[#C5A059]/40 flex items-center justify-center rounded-full backdrop-blur-sm"
+                                >
+                                  <span className="text-3xl drop-shadow-md">✅</span>
+                                </motion.div>
+                              )}
+                            </div>
+
+                            <div className="flex flex-col items-start flex-1 overflow-visible">
+                              <span className="text-sm font-mono text-[#C5A059] mb-1 tracking-widest bg-black/40 px-2 py-0.5 rounded-full border border-[#C5A059]/20">
+                                مقعد #{candidate.targetPhysicalId}
+                              </span>
+                              
+                              <p className="text-xl font-bold text-white w-full leading-snug break-words">
+                                {candidateName}
+                              </p>
+                              
+                              {isDeal && (
+                                <div className="mt-2 bg-red-500/20 border border-red-500/30 px-2.5 py-1 rounded-md flex items-center gap-2">
+                                  <span className="text-red-500 text-xs font-bold whitespace-nowrap">🤝 ديل من:</span>
+                                  <span className="text-white text-xs font-bold truncate">
+                                    {initiatorInfo?.name || `لاعب ${candidate.initiatorPhysicalId}`} <span className="font-mono text-red-400">#{candidate.initiatorPhysicalId}</span>
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-
-                          {/* رقم المقعد — يظهر دائماً */}
-                          <span className="text-[11px] font-mono text-[#C5A059]/70 mb-0.5">#{candidate.targetPhysicalId}</span>
-
-                          {/* الاسم */}
-                          <p className="text-xs font-bold text-white truncate w-full text-center leading-tight">
-                            {isDeal ? `${initiatorInfo?.name || '?'} ⇄ ` : ''}{candidateName}
-                          </p>
 
                           {/* عداد الأصوات */}
                           <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5">
