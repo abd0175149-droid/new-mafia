@@ -61,12 +61,13 @@ export default function PlayerNotepad({ roomId, myPhysicalId, players, isOpen, o
     if (!currentInput.trim()) return;
     
     // Extract @number from text
-    const matches = [...currentInput.matchAll(/@(\d+)/g)];
+    const regex = /@(\d+)/g;
     const pids = new Set<number>();
-    matches.forEach(m => {
+    let m;
+    while ((m = regex.exec(currentInput)) !== null) {
       const pid = parseInt(m[1]);
       if (!isNaN(pid)) pids.add(pid);
-    });
+    }
 
     if (pids.size > 0) {
       // Add note to mentioned players
