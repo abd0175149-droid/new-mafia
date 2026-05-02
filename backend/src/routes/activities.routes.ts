@@ -194,12 +194,36 @@ router.delete('/:id/rooms/:sessionId', authenticate, async (req: Request, res: R
     const activityId = parseInt(req.params.id);
     const sessionId = parseInt(req.params.sessionId);
 
+    // جلب الـ sessionCode لمسحه من Redis
+    const [sessionData] = await db.select({ sessionCode: sessions.sessionCode })
+      .from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    const sessionCode = sessionData?.sessionCode;
+
     // فك الربط أولاً
     await unlinkSessionFromActivity(sessionId);
 
     // حذف الغرفة (soft delete)
     const deleted = await deleteSession(sessionId);
     if (!deleted) return res.status(500).json({ error: 'فشل حذف الغرفة' });
+
+    // مسح الغرفة من الذاكرة والـ Redis لتختفي من واجهة الليدر
+    if (sessionCode) {
+      try {
+        const { getRoomByCode } = await import('../game/state.js');
+        const { deleteGameState } = await import('../config/redis.js');
+        const { activeRooms } = await import('../sockets/lobby.socket.js');
+        
+        const existingState = await getRoomByCode(sessionCode);
+        if (existingState) {
+           await deleteGameState(existingState.roomId);
+           await deleteGameState(`code:${sessionCode}`);
+           activeRooms.delete(existingState.roomId);
+           console.log(`🧹 Cleared Session #${sessionId} (${sessionCode}) from Redis and activeRooms`);
+        }
+      } catch (e: any) {
+        console.warn('⚠️ Could not clear Redis room:', e.message);
+      }
+    }
 
     console.log(`🗑️ Admin: Deleted Room #${sessionId} from Activity #${activityId}`);
     res.json({ success: true });

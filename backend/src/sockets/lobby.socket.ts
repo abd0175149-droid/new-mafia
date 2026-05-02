@@ -138,7 +138,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // ── حماية: منع تكرار إنشاء الغرفة في Redis لنفس الجلسة ──
       if (overrideCode) {
         const existingState = await getRoomByCode(overrideCode);
-        if (existingState && existingState.phase !== 'GAME_OVER') {
+        
+        // التحقق من أن الغرفة ليست منتهية، وأنها تنتمي بالفعل لنفس الـ SessionId الخاص بالنشاط
+        // (لمنع تداخل الغرف في حال تشابه كود الـ 4 أرقام بالصدفة مع غرفة قديمة)
+        if (existingState && existingState.phase !== 'GAME_OVER' && existingState.sessionId === data.existingSessionId) {
           console.log(`♻️ Leader re-entered existing active room ${existingState.roomId} for session ${data.existingSessionId}`);
           
           socket.join(existingState.roomId);
@@ -154,6 +157,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             sessionId: existingState.sessionId || data.existingSessionId,
             activityId: existingState.activityId || data.activityId,
           });
+        } else if (existingState && existingState.sessionId !== data.existingSessionId) {
+          console.log(`⚠️ Room Code Collision: Code ${overrideCode} was used by Session ${existingState.sessionId}, but requested for Session ${data.existingSessionId}. Creating new room.`);
         }
       }
 
