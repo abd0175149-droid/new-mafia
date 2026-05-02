@@ -159,6 +159,12 @@ export default function LeaderPage() {
     // إذا عندنا gameState أصلاً → ما نحتاج نعيد
     if (gameState) return;
 
+    // إذا كان هناك دخول مقصود لغرفة جديدة من الداش بورد، نتجاهل الغرفة السابقة
+    if (sessionStorage.getItem('leader_room_entry')) {
+      sessionStorage.removeItem('leader_active_room');
+      return;
+    }
+
     const savedRoomId = sessionStorage.getItem('leader_active_room');
     if (!savedRoomId) return;
 
