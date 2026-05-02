@@ -21,6 +21,7 @@ function GamesContent() {
   const [activities, setActivities] = useState<any[]>([]);
   const [myBookings, setMyBookings] = useState<any[]>([]);
   const [matchHistory, setMatchHistory] = useState<any[]>([]);
+  const [activeRoomsMap, setActiveRoomsMap] = useState<Record<number, any[]>>({});
   const [loading, setLoading] = useState(true);
   const [bookingLoading, setBookingLoading] = useState<number | null>(null);
   const [followingBookers, setFollowingBookers] = useState<Record<number, any[]>>({});
@@ -49,10 +50,19 @@ function GamesContent() {
       fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/bookings`).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
-    ]).then(([actData, bookData, profileData]) => {
+      fetch('/api/player-app/my-active-rooms', { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
+    ]).then(([actData, bookData, profileData, roomsData]) => {
       if (actData.success) setActivities(actData.activities || []);
       if (bookData.success) setMyBookings(bookData.bookings || []);
       if (profileData.success) setMatchHistory(profileData.matchHistory || []);
+      
+      if (roomsData.success && roomsData.rooms) {
+        const roomsMap: Record<number, any[]> = {};
+        roomsData.rooms.forEach((r: any) => {
+          roomsMap[r.activityId] = r.rooms || [];
+        });
+        setActiveRoomsMap(roomsMap);
+      }
 
       // جلب المتابَعين الحاجزين لكل نشاط
       if (actData.success && actData.activities) {
@@ -337,6 +347,25 @@ function GamesContent() {
                           </motion.div>
                         )}
                       </AnimatePresence>
+                    </div>
+                  {/* أزرار الدخول للغرف النشطة (إن وجدت) */}
+                  {booked && activeRoomsMap[act.id] && activeRoomsMap[act.id].length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/5">
+                      <p className="text-xs text-amber-400 mb-2 font-medium">🎮 الغرف المتاحة حالياً:</p>
+                      <div className="flex flex-col gap-2">
+                        {activeRoomsMap[act.id].map((room: any, idx: number) => (
+                          <a
+                            key={idx}
+                            href={`/player/join?code=${room.sessionCode}`}
+                            className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+                          >
+                            <span className="text-sm text-white font-bold">{room.sessionName || `غرفة ${idx + 1}`}</span>
+                            <span className="text-xs px-3 py-1.5 bg-amber-500 text-black font-bold rounded-lg">
+                              دخول ←
+                            </span>
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </motion.div>

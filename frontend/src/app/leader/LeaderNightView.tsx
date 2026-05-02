@@ -35,12 +35,14 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
   const [loading, setLoading] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<number | null>(null);
   const [revealedEvents, setRevealedEvents] = useState<Set<number>>(new Set());
-  // Overlay مستقل لنتيجة الشريف — يبقى حتى يُغلق يدوياً
   const [sheriffOverlay, setSheriffOverlay] = useState<any>(null);
-  // كشف مؤقت للكارد (ضغط مطول)
   const [peekedCard, setPeekedCard] = useState<number | null>(null);
   const peekTimerRef = useRef<NodeJS.Timeout | null>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 👮‍♀️ حالة الشرطية
+  const [policewomanTarget, setPolicewomanTarget] = useState<number | null>(null);
+  const [policewomanLoading, setPolicewomanLoading] = useState(false);
+  const [policewomanResult, setPolicewomanResult] = useState<any>(null);
 
   // بدء الضغط المطول — إذا استمر 500ms → كشف الكارد
   const handleCardPressStart = useCallback((physicalId: number) => {
@@ -265,6 +267,169 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
       </AnimatePresence>
     );
   };
+
+  // ══════════════════════════════════════════════════
+  // RENDER: 👮‍♀️ اختيار الشرطية (بعد ملخص الليل)
+  // ══════════════════════════════════════════════════
+  if (gameState.policewomanChoice && !policewomanResult) {
+    const pwData = gameState.policewomanChoice;
+    const handlePolicewomanExecute = async () => {
+      if (policewomanTarget === null) return;
+      setPolicewomanLoading(true);
+      try {
+        const res = await emit('policewoman:execute', {
+          roomId: gameState.roomId,
+          targetPhysicalId: policewomanTarget,
+        });
+        if (res.success) {
+          setPolicewomanResult(res);
+        }
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setPolicewomanLoading(false);
+      }
+    };
+
+    const handlePolicewomanSkip = async () => {
+      setPolicewomanLoading(true);
+      try {
+        await emit('policewoman:skip', { roomId: gameState.roomId });
+        setPolicewomanResult(null);
+        setPolicewomanTarget(null);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setPolicewomanLoading(false);
+      }
+    };
+
+    return (
+      <div className="h-full flex flex-col p-4 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-3 mb-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <motion.span
+              className="text-3xl"
+              animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >👮‍♀️</motion.span>
+            <div>
+              <h2 className="text-xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>صلاحية الشرطية</h2>
+              <p className="text-[#808080] font-mono text-[8px] tracking-widest uppercase">POLICEWOMAN ABILITY ACTIVATED</p>
+            </div>
+          </div>
+        </div>
+
+        {/* معلومات */}
+        <div className="bg-[#1a0a2e]/60 border border-[#6a3d9a]/40 rounded-xl p-4 mb-4">
+          <p className="text-[#a78bfa] text-sm font-bold mb-2" style={{ fontFamily: 'Amiri, serif' }}>
+            🏅 {pwData.policewomanName} (#{pwData.policewomanPhysicalId})
+          </p>
+          <p className="text-[#808080] text-xs font-mono">
+            المواطنون عند خروجها: <span className="text-white font-bold">{pwData.threshold * 4}</span> | العتبة: <span className="text-[#C5A059] font-bold">{pwData.threshold}</span> | الوفيات: <span className="text-[#ff4444] font-bold">{pwData.citizenDeaths}</span>
+          </p>
+          <p className="text-[#a78bfa]/70 text-[10px] font-mono mt-2 tracking-widest">
+            اختر لاعباً لإقصائه — إذا كان مافيا ستحصل الشرطية على نقاط رانك
+          </p>
+        </div>
+
+        {/* كروت اللاعبين */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-wrap justify-center gap-3">
+            {pwData.targets.map((t: any) => {
+              const isSelected = policewomanTarget === t.physicalId;
+              const playerData = gameState.players?.find((p: any) => p.physicalId === t.physicalId);
+              return (
+                <div
+                  key={t.physicalId}
+                  onClick={() => setPolicewomanTarget(t.physicalId)}
+                  className="cursor-pointer select-none"
+                >
+                  <MafiaCard
+                    playerNumber={t.physicalId}
+                    playerName={t.name}
+                    role={null}
+                    isFlipped={false}
+                    flippable={false}
+                    gender={playerData?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                    avatarUrl={playerData?.avatarUrl || null}
+                    size="sm"
+                    isAlive={true}
+                    className={`transition-all duration-300 ${
+                      isSelected ? 'ring-2 ring-[#a78bfa] shadow-lg scale-[1.05]' : ''
+                    }`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* أزرار */}
+        <div className="grid grid-cols-2 gap-3 pt-4 border-t border-[#2a2a2a] mt-4 shrink-0">
+          <button
+            onClick={handlePolicewomanExecute}
+            disabled={policewomanTarget === null || policewomanLoading}
+            className={`py-4 border font-mono text-sm uppercase tracking-widest transition-all rounded-lg ${
+              policewomanTarget !== null
+                ? 'border-[#a78bfa] text-[#a78bfa] hover:bg-[#a78bfa]/10'
+                : 'border-[#1a1a1a] text-[#333] cursor-not-allowed'
+            }`}
+          >
+            {policewomanLoading ? '...' : '⚡ تنفيذ الإقصاء'}
+          </button>
+          <button
+            onClick={handlePolicewomanSkip}
+            disabled={policewomanLoading}
+            className="py-4 border border-[#333] text-[#555] font-mono text-sm uppercase tracking-widest hover:border-[#555] hover:text-[#808080] transition-all rounded-lg"
+          >
+            ⏭ تخطي
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 👮‍♀️ نتيجة إقصاء الشرطية — عرض مؤقت ثم الانتقال للنهار
+  if (policewomanResult) {
+    const isMafia = policewomanResult.targetIsMafia;
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+        <motion.div
+          initial={{ scale: 0.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="flex flex-col items-center gap-6"
+        >
+          <div className="text-6xl">{isMafia ? '🎯' : '💔'}</div>
+          <h2 className="text-2xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>
+            {isMafia ? 'الشرطية أصابت! 🎭' : 'الشرطية أخطأت'}
+          </h2>
+          <p className={`text-lg font-bold ${isMafia ? 'text-[#C5A059]' : 'text-[#8A0303]'}`}>
+            #{policewomanResult.targetName} — {policewomanResult.targetRole}
+          </p>
+          {isMafia && (
+            <p className="text-[#a78bfa] text-sm font-mono">+نقاط رانك للشرطية 🏆</p>
+          )}
+          <button
+            onClick={async () => {
+              setPolicewomanResult(null);
+              setPolicewomanTarget(null);
+              // الانتقال للنهار
+              try {
+                await emit('night:end-recap', { roomId: gameState.roomId });
+              } catch (err: any) {
+                setError(err.message);
+              }
+            }}
+            className="btn-premium px-12 py-4 !text-sm !border-[#C5A059] mt-4"
+          >
+            <span>☀️ متابعة لنقاش اليوم</span>
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
 
   // ══════════════════════════════════════════════════
   // RENDER: MORNING_RECAP — ملخص الصباح المرحلي

@@ -155,6 +155,18 @@ export interface GameState {
     abilityResults: Array<{ physicalId: number; role: string; correct: boolean }>;
     eliminationLog: Array<{ physicalId: number; eliminatedBy: string; round: number; team: 'MAFIA' | 'CITIZEN' }>;
   };
+  // ── حالة الشرطية ──
+  policewomanState?: {
+    isTriggered: boolean;              // هل خرجت الشرطية من اللعبة؟
+    triggerRound: number;              // الجولة التي خرجت فيها
+    citizenAliveAtTrigger: number;     // عدد المواطنين الأحياء لحظة خروجها
+    threshold: number;                 // ceil(citizenAliveAtTrigger / 4)
+    citizenDeathsSinceTrigger: number; // عدد المواطنين الذين ماتوا بعد خروجها
+    isReady: boolean;                  // هل وصلنا للعتبة؟
+    isUsed: boolean;                   // هل استُخدمت الصلاحية؟
+    policewomanPhysicalId: number;
+    policewomanName: string;
+  } | null;
   createdAt: string;
 }
 

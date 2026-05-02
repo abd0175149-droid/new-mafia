@@ -267,7 +267,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     driveLink: driveLink || '',
     enabledOfferIds: Array.isArray(enabledOfferIds) ? enabledOfferIds : [],
     isLocked: isLocked || false,
-  }).returning();
+  } as any).returning();
 
   const activity = result[0];
 
@@ -290,7 +290,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       if (folderRes.data.id) {
         const driveLink = `https://drive.google.com/drive/folders/${folderRes.data.id}`;
         await db.update(activities)
-          .set({ driveLink })
+          .set({ driveLink } as any)
           .where(eq(activities.id, activity.id));
         activity.driveLink = driveLink;
         console.log(`📂 Auto-created Drive folder for Activity #${activity.id}: ${folderRes.data.id}`);
@@ -310,7 +310,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
         message: `تم جدولة نشاط جديد: ${name}`,
         type: 'new_activity',
         targetId: `activity-${activity.id}`,
-      });
+      } as any);
     }
   }
 
@@ -385,7 +385,7 @@ router.post('/:id/create-drive-folder', authenticate, async (req: Request, res: 
     }
 
     const driveLink = `https://drive.google.com/drive/folders/${folderRes.data.id}`;
-    await db.update(activities).set({ driveLink }).where(eq(activities.id, activityId));
+    await db.update(activities).set({ driveLink } as any).where(eq(activities.id, activityId));
 
     console.log(`📂 Created Drive folder for old Activity #${activityId}: ${folderRes.data.id}`);
     res.json({ success: true, driveLink });
@@ -459,7 +459,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
 
     if (linkedRooms.length > 0) {
       await db.update(sessions)
-        .set({ isActive: false, status: 'deleted', activityId: null })
+        .set({ isActive: false, status: 'deleted', activityId: null } as any)
         .where(eq(sessions.activityId, id));
       console.log(`🗑️ Soft-deleted ${linkedRooms.length} room(s) linked to Activity #${id}`);
     }

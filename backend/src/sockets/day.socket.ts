@@ -19,6 +19,7 @@ import {
 import { checkWinCondition, WinResult } from '../game/win-checker.js';
 import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
+import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
@@ -931,6 +932,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       // ═══ إقصاء اللاعب ═══
       player.isAlive = false;
+      checkPolicewomanTrigger(state, data.physicalId);
 
       // ═══ تحديث النقاش (Discussion) ═══
       if (state.discussionState && !state.discussionState.isFinished) {

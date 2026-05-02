@@ -37,7 +37,7 @@ async function syncSessionMaxPlayers(activityId: number) {
     const newMax = Math.max(totalPeople, 6); // حد أدنى 6
 
     await db.update(sessions)
-      .set({ maxPlayers: newMax })
+      .set({ maxPlayers: newMax } as any)
       .where(eq(sessions.id, act.sessionId));
 
     console.log(`🔄 Session #${act.sessionId} maxPlayers updated to ${newMax} (${totalPeople} people booked)`);
@@ -101,7 +101,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     notes: notes || '',
     offerItems: Array.isArray(offerItems) ? offerItems : [],
     createdBy: createdByName,
-  }).returning();
+  } as any).returning();
 
   const booking = result[0];
 
@@ -114,7 +114,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       message: `حجز جديد باسم ${name}`,
       type: 'new_booking',
       targetId: `booking-${booking.id}`,
-    });
+    } as any);
   }
 
   res.status(201).json(booking);
@@ -165,7 +165,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
         message: `تم إستلام دفعة للحجز التابع لـ ${existing[0].name}`,
         type: 'financial',
         targetId: `booking-${id}`,
-      });
+      } as any);
     }
   }
 
@@ -184,7 +184,7 @@ router.put('/:id/pay', authenticate, async (req: Request, res: Response) => {
   const { paidAmount } = req.body;
 
   const result = await db.update(bookings)
-    .set({ isPaid: true, paidAmount: String(paidAmount || 0) })
+    .set({ isPaid: true, paidAmount: String(paidAmount || 0) } as any)
     .where(eq(bookings.id, id))
     .returning();
 

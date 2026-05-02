@@ -135,6 +135,28 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         ? data.sessionCode
         : undefined;
 
+      // ── حماية: منع تكرار إنشاء الغرفة في Redis لنفس الجلسة ──
+      if (overrideCode) {
+        const existingState = await getRoomByCode(overrideCode);
+        if (existingState && existingState.phase !== 'GAME_OVER') {
+          console.log(`♻️ Leader re-entered existing active room ${existingState.roomId} for session ${data.existingSessionId}`);
+          
+          socket.join(existingState.roomId);
+          socket.data.role = 'leader';
+          socket.data.roomId = existingState.roomId;
+          
+          return callback({
+            success: true,
+            roomId: existingState.roomId,
+            roomCode: existingState.roomCode,
+            displayPin: existingState.config.displayPin,
+            gameName: existingState.config.gameName,
+            sessionId: existingState.sessionId || data.existingSessionId,
+            activityId: existingState.activityId || data.activityId,
+          });
+        }
+      }
+
       const state = await createRoom(
         gameName,
         maxPlayers,

@@ -76,7 +76,7 @@ router.post('/:id/reset-password', authenticate, adminOnly, async (req: Request,
     // إعادة تعيين كلمة المرور للافتراضية
     const defaultHash = await hashPlayerPassword(PLAYER_DEFAULT_PASSWORD);
     await db.update(playersTable)
-      .set({ passwordHash: defaultHash, mustChangePassword: true })
+      .set({ passwordHash: defaultHash, mustChangePassword: true } as any)
       .where(eq(playersTable.id, playerId));
 
     console.log(`🔄 Admin reset password for player #${playerId} (${existing[0].name}) to default`);
@@ -105,7 +105,7 @@ router.post('/:id/toggle-test', authenticate, adminOnly, async (req: Request, re
 
     const newValue = !player.isTestAccount;
     await db.update(playersTable)
-      .set({ isTestAccount: newValue })
+      .set({ isTestAccount: newValue } as any)
       .where(eq(playersTable.id, playerId));
 
     console.log(`🧪 Player #${playerId} isTestAccount → ${newValue}`);
@@ -436,7 +436,7 @@ router.post('/:id/avatar', async (req: Request, res: Response) => {
 
     const { players } = await import('../schemas/player.schema.js');
     await db.update(players)
-      .set({ avatarUrl })
+      .set({ avatarUrl } as any)
       .where(eq(players.id, playerId));
 
     console.log(`📸 Player #${playerId} avatar updated: ${avatarUrl}`);

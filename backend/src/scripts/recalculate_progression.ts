@@ -35,7 +35,7 @@ async function recalculate() {
     totalMatches: 0,
     totalWins: 0,
     totalSurvived: 0,
-  });
+  } as any);
   console.log('✅ Reset all players progression to 0');
 
   // 2. سحب كل سجلات المباريات مع تفاصيل المباراة (لمعرفة الفريق الفائز)
@@ -116,7 +116,7 @@ async function recalculate() {
       totalMatches: (p.totalMatches || 0) + 1,
       totalWins: (p.totalWins || 0) + won,
       totalSurvived: (p.totalSurvived || 0) + isSurvived,
-    }).where(eq(players.id, record.playerId));
+    } as any).where(eq(players.id, record.playerId));
   }
 
   console.log('🎉 Recalculation complete! Players stats (including matches and wins) have been restored.');

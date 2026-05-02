@@ -67,12 +67,12 @@ export async function checkInPlayer(
       .set({
         checkedIn: true,
         playerId: sessionPlayerId,
-      })
+      } as any)
       .where(eq(bookings.id, bookingId));
 
     // تحديث session_player
     await db.update(sessionPlayers)
-      .set({ bookingId })
+      .set({ bookingId } as any)
       .where(eq(sessionPlayers.id, sessionPlayerId));
 
     console.log(`✅ Check-in: Booking #${bookingId} ↔ Player #${sessionPlayerId}`);

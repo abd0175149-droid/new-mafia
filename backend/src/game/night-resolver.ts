@@ -138,6 +138,31 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   // حفظ الهدف المحمي لمنع تكراره في الليلة القادمة
   state.nightActions.lastProtectedTarget = nightActions.doctorTarget ?? nightActions.nurseTarget ?? null;
 
+  // ── 5.5. فحص تفعيل الشرطية (لكل لاعب مات هذه الليلة) ──
+  const deadThisNight: number[] = [];
+  for (const ev of events) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN'].includes(ev.type)) {
+      deadThisNight.push(ev.targetPhysicalId);
+      // القناص يموت أيضاً عند قنص مواطن
+      if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {
+        deadThisNight.push(ev.extra.sniperPhysicalId as number);
+      }
+    }
+  }
+
+  // فرز: إذا كانت الشرطية من ضمن الموتى، نفحصها أولاً لتفعيل صلاحيتها حتى تُحسب وفيات نفس الليلة
+  deadThisNight.sort((a, b) => {
+    const roleA = state.players.find(p => p.physicalId === a)?.role;
+    const roleB = state.players.find(p => p.physicalId === b)?.role;
+    if (roleA === Role.POLICEWOMAN) return -1;
+    if (roleB === Role.POLICEWOMAN) return 1;
+    return 0;
+  });
+
+  for (const pid of deadThisNight) {
+    checkPolicewomanTrigger(state, pid);
+  }
+
   // ── 6. حفظ أحداث الصباح ───────────────────────
   state.morningEvents = events;
 
@@ -150,6 +175,50 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   await setGameState(roomId, state);
 
   return { events, winResult };
+}
+
+// ══════════════════════════════════════════════════════
+// 👮‍♀️ فحص تفعيل الشرطية عند خروج أي لاعب
+// ══════════════════════════════════════════════════════
+export function checkPolicewomanTrigger(state: GameState, eliminatedPhysicalId: number): void {
+  const eliminated = state.players.find(p => p.physicalId === eliminatedPhysicalId);
+  if (!eliminated || !eliminated.role) return;
+
+  // 1. هل الشرطية هي من خرجت؟
+  if (eliminated.role === Role.POLICEWOMAN && !state.policewomanState) {
+    // عدد المواطنين الأحياء لحظة خروجها (بدونها هي)
+    const citizenAlive = state.players.filter(
+      p => p.isAlive && p.role && !isMafiaRole(p.role as Role) && p.physicalId !== eliminatedPhysicalId
+    ).length;
+    const threshold = Math.ceil(citizenAlive / 4);
+
+    state.policewomanState = {
+      isTriggered: true,
+      triggerRound: state.round || 1,
+      citizenAliveAtTrigger: citizenAlive,
+      threshold,
+      citizenDeathsSinceTrigger: 0,
+      isReady: threshold === 0,
+      isUsed: false,
+      policewomanPhysicalId: eliminated.physicalId,
+      policewomanName: eliminated.name,
+    };
+    return;
+  }
+
+  // 2. هل المُقصى مواطن + الشرطية مُفعّلة ولم تستخدم بعد؟
+  if (
+    state.policewomanState &&
+    state.policewomanState.isTriggered &&
+    !state.policewomanState.isReady &&
+    !state.policewomanState.isUsed &&
+    !isMafiaRole(eliminated.role as Role)
+  ) {
+    state.policewomanState.citizenDeathsSinceTrigger += 1;
+    if (state.policewomanState.citizenDeathsSinceTrigger >= state.policewomanState.threshold) {
+      state.policewomanState.isReady = true;
+    }
+  }
 }
 
 /**

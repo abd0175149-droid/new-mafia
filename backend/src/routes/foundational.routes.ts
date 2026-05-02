@@ -35,7 +35,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     paidBy: paidBy || '',
     source: source || '',
     date: new Date(date),
-  }).returning();
+  } as any).returning();
 
   // Notify admins
   const admins = await db.select({ id: staff.id }).from(staff).where(eq(staff.role, 'admin'));
@@ -47,7 +47,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
         message: `تم تسجيل مصروف تأسيسي جديد: ${item}`,
         type: 'foundational_cost',
         targetId: `foundational-${result[0].id}`,
-      });
+      } as any);
     }
   }
 
@@ -65,7 +65,7 @@ router.put('/:id/process', authenticate, async (req: Request, res: Response) => 
   const existing = await db.select().from(foundationalCosts).where(eq(foundationalCosts.id, id)).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'التكلفة غير موجودة' });
 
-  await db.update(foundationalCosts).set({ isProcessed: !!isProcessed }).where(eq(foundationalCosts.id, id));
+  await db.update(foundationalCosts).set({ isProcessed: !!isProcessed } as any).where(eq(foundationalCosts.id, id));
   res.json({ success: true, isProcessed });
 });
 

@@ -307,6 +307,47 @@ app.post('/api/game/verify-pin', async (req, res) => {
   }
 });
 
+// POST /api/game/verify-pin-by-code — التحقق عبر sessionCode (من صفحة النشاط)
+app.post('/api/game/verify-pin-by-code', async (req, res) => {
+  try {
+    const { sessionCode, pin } = req.body;
+    if (!sessionCode || !pin) {
+      return res.json({ success: false, error: 'sessionCode and pin are required' });
+    }
+
+    // البحث عن الغرفة النشطة بـ sessionCode (= roomCode في activeRooms)
+    const room = Array.from(activeRooms.values()).find(r => r.roomCode === sessionCode);
+    if (!room) {
+      return res.json({ success: false, error: 'الغرفة غير نشطة — تأكد أن القائد دخلها' });
+    }
+
+    if (room.displayPin !== pin) {
+      return res.json({ success: false, error: 'الرقم السري غير صحيح' });
+    }
+
+    const state = await getRoom(room.roomId);
+    res.json({
+      success: true,
+      roomId: room.roomId,
+      gameName: room.gameName,
+      roomCode: room.roomCode,
+      playerCount: room.playerCount,
+      maxPlayers: room.maxPlayers,
+      state: state ? {
+        phase: state.phase,
+        players: state.players.map(p => ({
+          physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
+          gender: p.gender, role: p.role, avatarUrl: (p as any).avatarUrl || null,
+        })),
+        winner: state.winner || null,
+        discussionState: state.discussionState || null,
+      } : null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/game/closed-sessions — الغرف المنتهية
 app.get('/api/game/closed-sessions', async (_req, res) => {
   const sessions = await getClosedSessions();

@@ -62,7 +62,7 @@ router.post('/register', async (req: Request, res: Response) => {
       xp: 200,
       welcomeBonusApplied: true,
       lastActiveAt: new Date(),
-    }).returning();
+    } as any).returning();
 
     const player = result[0];
     if (!player) {
@@ -148,7 +148,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // تحديث آخر نشاط
-    await db.update(players).set({ lastActiveAt: new Date() }).where(eq(players.id, player.id));
+    await db.update(players).set({ lastActiveAt: new Date() } as any).where(eq(players.id, player.id));
 
     // إصدار Token
     const token = generatePlayerToken({
@@ -287,7 +287,7 @@ router.post('/change-password', authenticatePlayer, async (req: Request, res: Re
 
     const newHash = await hashPlayerPassword(newPassword);
     await db.update(players)
-      .set({ passwordHash: newHash, mustChangePassword: false })
+      .set({ passwordHash: newHash, mustChangePassword: false } as any)
       .where(eq(players.id, player.id));
 
     // إصدار Token جديد

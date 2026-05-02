@@ -139,10 +139,10 @@ router.post('/upload', authenticate, (req: Request, res: Response) => {
             const remainingKeys = existingKeys.filter(k => !eventKeys.includes(k));
             if (remainingKeys.length === 0) {
               // لا يوجد keys أخرى → إلغاء التفعيل
-              await db.update(soundEffects).set({ isActive: false }).where(eq(soundEffects.id, sound.id));
+              await db.update(soundEffects).set({ isActive: false } as any).where(eq(soundEffects.id, sound.id));
             } else {
               // بقي keys أخرى → تحديث القائمة فقط
-              await db.update(soundEffects).set({ eventKeys: remainingKeys }).where(eq(soundEffects.id, sound.id));
+              await db.update(soundEffects).set({ eventKeys: remainingKeys } as any).where(eq(soundEffects.id, sound.id));
             }
           }
         }
@@ -158,7 +158,7 @@ router.post('/upload', authenticate, (req: Request, res: Response) => {
         eventKeys,
         isActive: true,
         uploadedBy: (req as any).user?.displayName || 'admin',
-      }).returning();
+      } as any).returning();
 
       console.log(`🔊 Sound uploaded: "${soundName}" → ${file.filename} (${eventKeys.join(', ')})`);
       res.json({ success: true, sound: newSound });
@@ -196,9 +196,9 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
           const remaining = existingKeys.filter((k: string) => !eventKeys.includes(k));
           if (remaining.length !== existingKeys.length) {
             if (remaining.length === 0) {
-              await db.update(soundEffects).set({ isActive: false }).where(eq(soundEffects.id, sound.id));
+              await db.update(soundEffects).set({ isActive: false } as any).where(eq(soundEffects.id, sound.id));
             } else {
-              await db.update(soundEffects).set({ eventKeys: remaining }).where(eq(soundEffects.id, sound.id));
+              await db.update(soundEffects).set({ eventKeys: remaining } as any).where(eq(soundEffects.id, sound.id));
             }
           }
         }
@@ -243,16 +243,16 @@ router.put('/:id/toggle', authenticate, async (req: Request, res: Response) => {
           const remaining = otherKeys.filter((k: string) => !eventKeys.includes(k));
           if (remaining.length !== otherKeys.length) {
             if (remaining.length === 0) {
-              await db.update(soundEffects).set({ isActive: false }).where(eq(soundEffects.id, other.id));
+              await db.update(soundEffects).set({ isActive: false } as any).where(eq(soundEffects.id, other.id));
             } else {
-              await db.update(soundEffects).set({ eventKeys: remaining }).where(eq(soundEffects.id, other.id));
+              await db.update(soundEffects).set({ eventKeys: remaining } as any).where(eq(soundEffects.id, other.id));
             }
           }
         }
       }
     }
 
-    await db.update(soundEffects).set({ isActive: newActive }).where(eq(soundEffects.id, id));
+    await db.update(soundEffects).set({ isActive: newActive } as any).where(eq(soundEffects.id, id));
     res.json({ success: true, isActive: newActive });
   } catch (err: any) {
     console.error('❌ Failed to toggle sound:', err.message);

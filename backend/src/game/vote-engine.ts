@@ -7,6 +7,7 @@ import { type GameState, type Candidate, CandidateType, getAlivePlayers, type Pl
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { isMafiaRole } from './roles.js';
+import { checkPolicewomanTrigger } from './night-resolver.js';
 
 // ── تهيئة ساحة التصويت ──────────────────────────
 
@@ -240,6 +241,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       player.isAlive = false;
       eliminated.push(player.physicalId);
       revealedRoles.push({ physicalId: player.physicalId, role: player.role || 'UNKNOWN' });
+      checkPolicewomanTrigger(state, player.physicalId);
 
       // ── تتبع الإقصاء ──
       if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
@@ -259,6 +261,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       target.isAlive = false;
       eliminated.push(target.physicalId);
       revealedRoles.push({ physicalId: target.physicalId, role: target.role || 'UNKNOWN' });
+      checkPolicewomanTrigger(state, target.physicalId);
 
       // إذا الدور غير معروف (null) → يُعامل كمواطن (الأسوأ للمُبادر)
       const targetIsMafia = target.role ? isMafiaRole(target.role) : false;
@@ -286,6 +289,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
       if (!targetIsMafia && initiator) {
         initiator.isAlive = false;
         eliminated.push(initiator.physicalId);
+        checkPolicewomanTrigger(state, initiator.physicalId);
         revealedRoles.push({ physicalId: initiator.physicalId, role: initiator.role || 'UNKNOWN' });
         state.performanceTracking.eliminationLog.push({
           physicalId: initiator.physicalId,
@@ -372,7 +376,10 @@ export async function handleTieBreaker(
             ? candidate.targetPhysicalId
             : candidate.targetPhysicalId;
           const player = state.players.find(p => p.physicalId === physicalId);
-          if (player) player.isAlive = false;
+          if (player) {
+            player.isAlive = false;
+            checkPolicewomanTrigger(state, physicalId);
+          }
         }
       }
       state.votingState.tieBreakerLevel = 0;

@@ -604,6 +604,66 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
     case 'SNIPE_CITIZEN':
       return <MorningSnipeAnim data={data} success={false} />;
 
+    // 👮‍♀️ إقصاء الشرطية
+    case 'POLICEWOMAN_EXECUTION': {
+      const isMafia = data.extra?.targetIsMafia;
+      return (
+        <div className="text-center py-4">
+          <motion.div
+            className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(167,139,250,0.8)]"
+            animate={{ scale: [0.8, 1.3, 1], rotate: [0, -10, 10, 0] }}
+            transition={{ duration: 0.8 }}
+          >
+            👮‍♀️
+          </motion.div>
+          <motion.p
+            className={`text-3xl md:text-4xl font-black ${isMafia ? 'text-[#a78bfa]' : 'text-[#8A0303]'} tracking-widest mb-3`}
+            style={{ fontFamily: 'Amiri, serif' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            {isMafia ? 'صلاحية الشرطية — إصابة!' : 'صلاحية الشرطية'}
+          </motion.p>
+          {data.extra?.targetRole && (
+            <motion.div
+              className="flex justify-center mt-6"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8, type: 'spring', damping: 12 }}
+            >
+              <MafiaCard
+                playerNumber={data.targetPhysicalId!}
+                playerName={data.targetName || 'Unknown'}
+                role={data.extra.targetRole}
+                isFlipped={true}
+                flippable={false}
+                isAlive={true}
+                size="fluid"
+                className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+              />
+            </motion.div>
+          )}
+          {isMafia && (
+            <motion.p
+              className="text-[#a78bfa] text-sm font-mono mt-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.2 }}
+            >
+              🏆 الشرطية {data.extra?.policewomanName} حصلت على نقاط رانك
+            </motion.p>
+          )}
+          <motion.div
+            className="w-64 h-[2px] bg-gradient-to-r from-transparent via-[#a78bfa] to-transparent mx-auto mt-6"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: 0.5, duration: 0.6 }}
+          />
+        </div>
+      );
+    }
+
     // Fallback — عرض أساسي
     default:
       return (

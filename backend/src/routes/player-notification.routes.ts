@@ -70,7 +70,7 @@ router.put('/:id/read', authenticatePlayer, async (req: Request, res: Response) 
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
-  await db.update(playerNotifications).set({ isRead: true })
+  await db.update(playerNotifications).set({ isRead: true } as any)
     .where(and(eq(playerNotifications.id, parseInt(req.params.id)), eq(playerNotifications.playerId, playerId)));
   res.json({ success: true });
 });
@@ -83,7 +83,7 @@ router.put('/read-all', authenticatePlayer, async (req: Request, res: Response) 
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
-  await db.update(playerNotifications).set({ isRead: true })
+  await db.update(playerNotifications).set({ isRead: true } as any)
     .where(eq(playerNotifications.playerId, playerId));
   res.json({ success: true });
 });

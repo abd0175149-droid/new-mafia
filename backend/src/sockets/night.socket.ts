@@ -6,9 +6,9 @@
 import { Server, Socket } from 'socket.io';
 import { setPhase, Phase } from '../game/state.js';
 import { getGameState, setGameState } from '../config/redis.js';
-import { resolveNight, resetNightActions, getAvailableTargets } from '../game/night-resolver.js';
+import { resolveNight, resetNightActions, getAvailableTargets, checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, getTeamCounts } from '../game/roles.js';
-import { WinResult } from '../game/win-checker.js';
+import { WinResult, checkWinCondition } from '../game/win-checker.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
@@ -405,7 +405,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
     }
   });
 
-  // ── إنهاء ملخص الصباح والانتقال للنهار ────────
+  // ── إنهاء ملخص الليل والانتقال للنهار ────────
   socket.on('night:end-recap', async (data: { roomId: string }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -431,10 +431,132 @@ export function registerNightEvents(io: Server, socket: Socket) {
           }
         });
         await setGameState(data.roomId, state);
+
+        // 👮‍♀️ فحص: هل صلاحية الشرطية جاهزة؟ (بعد ملخص الليل)
+        if (state.policewomanState?.isReady && !state.policewomanState.isUsed) {
+          const targets = state.players
+            .filter(p => p.isAlive)
+            .map(p => ({ physicalId: p.physicalId, name: p.name }));
+
+          socket.emit('policewoman:choice-available', {
+            policewomanName: state.policewomanState.policewomanName,
+            policewomanPhysicalId: state.policewomanState.policewomanPhysicalId,
+            targets,
+            threshold: state.policewomanState.threshold,
+            citizenDeaths: state.policewomanState.citizenDeathsSinceTrigger,
+          });
+          return callback({ success: true, policewomanPending: true });
+        }
       }
 
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
       // إرسال الـ state كاملة لضمان تحديث isAlive على شاشة العرض
+      const updatedState = await getGameState(data.roomId);
+      io.to(data.roomId).emit('game:phase-changed', {
+        phase: Phase.DAY_DISCUSSION,
+        teamCounts: getTeamCounts(updatedState!.players),
+        state: updatedState,
+      });
+
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 👮‍♀️ تنفيذ اختيار الشرطية ────────────────────
+  socket.on('policewoman:execute', async (data: {
+    roomId: string;
+    targetPhysicalId: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (!state.policewomanState?.isReady || state.policewomanState.isUsed) {
+        return callback({ success: false, error: 'صلاحية الشرطية غير متاحة' });
+      }
+
+      const target = state.players.find(p => p.physicalId === data.targetPhysicalId && p.isAlive);
+      if (!target) return callback({ success: false, error: 'الهدف غير صالح' });
+
+      // إقصاء الهدف
+      target.isAlive = false;
+      state.policewomanState.isUsed = true;
+
+      const targetIsMafia = target.role ? isMafiaRole(target.role as Role) : false;
+
+      // تسجيل في performanceTracking
+      if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+      state.performanceTracking.eliminationLog.push({
+        physicalId: target.physicalId,
+        eliminatedBy: 'POLICEWOMAN',
+        round: state.round || 1,
+        team: targetIsMafia ? 'MAFIA' : 'CITIZEN',
+      });
+
+      // نقاط رانك إذا مافيا
+      if (targetIsMafia) {
+        state.performanceTracking.abilityResults.push({
+          physicalId: state.policewomanState.policewomanPhysicalId,
+          role: 'POLICEWOMAN',
+          correct: true,
+        });
+      }
+
+      // فحص الفوز بعد الإقصاء
+      const winResult = checkWinCondition(state);
+      let pendingWinner: string | null = null;
+      if (winResult !== WinResult.GAME_CONTINUES) {
+        pendingWinner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+        state.pendingWinner = pendingWinner;
+        state.winner = pendingWinner as 'MAFIA' | 'CITIZEN';
+      }
+
+      await setGameState(data.roomId, state);
+
+      // بث الأنيميشن لشاشة العرض
+      io.to(data.roomId).emit('display:morning-event', {
+        type: 'POLICEWOMAN_EXECUTION',
+        targetPhysicalId: target.physicalId,
+        targetName: target.name,
+        extra: {
+          policewomanName: state.policewomanState.policewomanName,
+          targetRole: target.role,
+          targetIsMafia,
+        },
+      });
+
+      callback({
+        success: true,
+        targetName: target.name,
+        targetRole: target.role,
+        targetIsMafia,
+        pendingWinner,
+        teamCounts: getTeamCounts(state.players),
+      });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 👮‍♀️ تخطي الشرطية والانتقال للنهار ────────────────
+  socket.on('policewoman:skip', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (state?.policewomanState) {
+        state.policewomanState.isUsed = true; // تعليم كمستخدمة لمنع التكرار
+        await setGameState(data.roomId, state);
+      }
+
+      await setPhase(data.roomId, Phase.DAY_DISCUSSION);
       const updatedState = await getGameState(data.roomId);
       io.to(data.roomId).emit('game:phase-changed', {
         phase: Phase.DAY_DISCUSSION,
@@ -496,6 +618,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         tieBreakerLevel: 0,
         playerVotes: {},
       };
+      state.policewomanState = null;
 
       await setGameState(data.roomId, state);
 

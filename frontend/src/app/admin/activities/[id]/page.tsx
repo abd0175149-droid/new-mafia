@@ -202,7 +202,7 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
 
                 {/* شاشة العرض */}
                 <a
-                  href={`/display?roomId=${room.id}&pin=${room.displayPin}`}
+                  href={`/display?sessionCode=${room.sessionCode}&pin=${room.displayPin}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition flex items-center gap-1"

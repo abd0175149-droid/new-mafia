@@ -37,7 +37,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     name,
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
-  }).returning();
+  } as any).returning();
 
   const locationId = result[0].id;
 
@@ -55,9 +55,9 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     role: 'location_owner',
     locationId,
     permissions: [],
-  }).returning();
+  } as any).returning();
 
-  await db.insert(userSettings).values({ userId: staffResult[0].id }).onConflictDoNothing();
+  await db.insert(userSettings).values({ userId: staffResult[0].id } as any).onConflictDoNothing();
 
   // Notify admins
   const admins = await db.select({ id: staff.id }).from(staff).where(eq(staff.role, 'admin'));
@@ -68,7 +68,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       message: `تم إضافة مكان فعالية جديد: ${name}`,
       type: 'new_location',
       targetId: `location-${locationId}`,
-    });
+    } as any);
   }
 
   res.status(201).json({
@@ -90,7 +90,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     name,
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
-  }).where(eq(locations.id, id));
+  } as any).where(eq(locations.id, id));
 
   res.json({ success: true });
 });

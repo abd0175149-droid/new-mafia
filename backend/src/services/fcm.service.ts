@@ -61,8 +61,7 @@ async function sendWebPush(subscriptionJson: string, title: string, body: string
   try {
     const subscription = JSON.parse(subscriptionJson);
     await wp.sendNotification(subscription, JSON.stringify({
-      notification: { title, body },
-      data: { type, url: data.url || '/player/home', ...data },
+      data: { title, body, type, url: data.url || '/player/home', ...data },
     }));
     return true;
   } catch (err: any) {

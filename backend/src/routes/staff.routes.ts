@@ -59,10 +59,10 @@ router.post('/', authenticate, adminOnly, async (req: Request, res: Response) =>
     role: role || 'manager',
     permissions: perms,
     isPartner: isPartner || false,
-  }).returning();
+  } as any).returning();
 
   // Create default settings
-  await db.insert(userSettings).values({ userId: result[0].id }).onConflictDoNothing();
+  await db.insert(userSettings).values({ userId: result[0].id } as any).onConflictDoNothing();
 
   res.status(201).json(result[0]);
 });
@@ -96,7 +96,7 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
     role: role || 'manager',
     permissions: permissions || ['activities', 'bookings', 'finances', 'locations'],
     isPartner: isPartner || false,
-  }).where(eq(staff.id, id));
+  } as any).where(eq(staff.id, id));
 
   res.json({ success: true });
 });
@@ -112,7 +112,7 @@ router.put('/:id/password', authenticate, adminOnly, async (req: Request, res: R
   }
 
   const hash = await bcrypt.hash(password, 10);
-  await db.update(staff).set({ passwordHash: hash }).where(eq(staff.id, parseInt(req.params.id)));
+  await db.update(staff).set({ passwordHash: hash } as any).where(eq(staff.id, parseInt(req.params.id)));
   res.json({ success: true });
 });
 

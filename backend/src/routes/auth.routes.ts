@@ -39,7 +39,7 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 
   // Update last login
-  await db.update(staff).set({ lastLogin: new Date() }).where(eq(staff.id, user.id));
+  await db.update(staff).set({ lastLogin: new Date() } as any).where(eq(staff.id, user.id));
 
   const permissions = (user.permissions as string[]) || [];
 

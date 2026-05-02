@@ -48,28 +48,28 @@ async function mergePlayers() {
 
     // 2. Transfer Match Players
     const matchUpdate = await db.update(matchPlayers)
-      .set({ playerId: newId })
+      .set({ playerId: newId } as any)
       .where(eq(matchPlayers.playerId, oldId))
       .returning({ id: matchPlayers.id });
     console.log(`✅ Transferred ${matchUpdate.length} match records.`);
 
     // 3. Transfer Bookings
     const bookingUpdate = await db.update(bookings)
-      .set({ playerId: newId, phone: newPlayer.phone, name: newPlayer.name })
+      .set({ playerId: newId, phone: newPlayer.phone, name: newPlayer.name } as any)
       .where(eq(bookings.playerId, oldId))
       .returning({ id: bookings.id });
     console.log(`✅ Transferred ${bookingUpdate.length} bookings.`);
 
     // 4. Transfer Follows (where old player is the follower)
     const followingUpdate = await db.update(playerFollows)
-      .set({ followerId: newId })
+      .set({ followerId: newId } as any)
       .where(eq(playerFollows.followerId, oldId))
       .returning({ id: playerFollows.id });
     console.log(`✅ Transferred ${followingUpdate.length} following records.`);
 
     // 5. Transfer Follows (where old player is the followed)
     const followersUpdate = await db.update(playerFollows)
-      .set({ followingId: newId })
+      .set({ followingId: newId } as any)
       .where(eq(playerFollows.followingId, oldId))
       .returning({ id: playerFollows.id });
     console.log(`✅ Transferred ${followersUpdate.length} follower records.`);

@@ -92,12 +92,17 @@ function DisplayPageContent() {
   useEffect(() => {
     const queryRoomId = searchParams.get('roomId');
     const queryPin = searchParams.get('pin');
+    const querySessionCode = searchParams.get('sessionCode');
+
     if (queryRoomId && queryPin && !hasAutoRejoined.current) {
       hasAutoRejoined.current = true;
-      console.log('🔄 Display: Auto-login via query parameters...');
       setPin(queryPin);
       setSelectedRoomId(queryRoomId);
       verifyPinAndJoin(queryRoomId, queryPin);
+    } else if (querySessionCode && queryPin && !hasAutoRejoined.current) {
+      hasAutoRejoined.current = true;
+      setPin(queryPin);
+      verifyPinBySessionCode(querySessionCode, queryPin);
     }
   }, [searchParams]);
 
@@ -504,6 +509,51 @@ function DisplayPageContent() {
     } catch (err: any) {
       setPinError('خطأ في الاتصال');
       console.error('Verify error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ══════════════════════════════════════════════════
+  // 🔓 التحقق عبر sessionCode (من صفحة النشاط)
+  // ══════════════════════════════════════════════════
+  const verifyPinBySessionCode = async (sessionCode: string, currentPin: string) => {
+    setLoading(true);
+    setPinError('');
+    try {
+      const res = await fetch('/api/game/verify-pin-by-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionCode, pin: currentPin }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setPinError(data.error || 'الغرفة غير نشطة');
+        setStep('select-activity');
+        return;
+      }
+      setCurrentRoomId(data.roomId);
+      setGameName(data.gameName);
+      setRoomCode(data.roomCode);
+      setPlayerCount(data.playerCount || 0);
+      setMaxPlayers(data.maxPlayers || 10);
+      if (data.state) {
+        setPhase(data.state.phase || 'LOBBY');
+        setDiscussionState(data.state.discussionState || null);
+        if (data.state.winner) setWinner(data.state.winner);
+        if (data.state.players) {
+          const activePlayers = data.state.players.filter((p: any) => !p.frozen);
+          setPlayers(activePlayers.map((p: any) => ({
+            physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
+            gender: p.gender, role: p.role, avatarUrl: p.avatarUrl || null,
+          })));
+        }
+      }
+      try { sessionStorage.setItem('display_session', JSON.stringify({ pin: currentPin, roomId: data.roomId })); } catch (_) {}
+      setStep('lobby');
+    } catch (err: any) {
+      setPinError('الغرفة غير نشطة — تأكد أن القائد دخلها');
+      setStep('select-activity');
     } finally {
       setLoading(false);
     }

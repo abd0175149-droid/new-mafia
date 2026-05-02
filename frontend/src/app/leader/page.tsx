@@ -612,6 +612,17 @@ export default function LeaderPage() {
       });
     });
 
+    // 👮‍♀️ صلاحية الشرطية جاهزة — عرض واجهة الاختيار
+    const offPolicewomanAvailable = on('policewoman:choice-available', (data: any) => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          policewomanChoice: data,
+        } as any;
+      });
+    });
+
     const offGameOver = on('game:over', (data: any) => {
       setGameState(prev => {
         if (!prev) return prev;
@@ -638,6 +649,7 @@ export default function LeaderPage() {
           discussionState: undefined,
           justificationData: undefined,
           pendingResolution: undefined,
+          policewomanChoice: undefined,
           round: 1,
         } as any;
       });
@@ -732,6 +744,7 @@ export default function LeaderPage() {
       offNightComplete();
       offMorningRecap();
       offSheriffResult();
+      offPolicewomanAvailable();
       offGameOver();
       offGameRestarted();
       offConfigUpdated();

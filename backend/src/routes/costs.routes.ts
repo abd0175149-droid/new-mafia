@@ -42,7 +42,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     date: new Date(date),
     paidBy: paidBy || '',
     type: type || 'general',
-  }).returning();
+  } as any).returning();
 
   // Notify admins
   const admins = await db.select({ id: staff.id }).from(staff).where(eq(staff.role, 'admin'));
@@ -53,7 +53,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       message: `تم إضافة مصروف جديد: ${item}`,
       type: 'cost_alert',
       targetId: `cost-${result[0].id}`,
-    });
+    } as any);
   }
 
   res.status(201).json(result[0]);

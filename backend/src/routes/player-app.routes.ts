@@ -112,7 +112,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       playerId: player.playerId,
       createdBy: 'player-app',
       offerItems: offerId ? [offerId] : [],
-    }).returning();
+    } as any).returning();
 
     res.status(201).json({ success: true, booking: result[0] });
 
@@ -463,7 +463,7 @@ router.post('/:id/follow/:targetId', async (req: Request, res: Response) => {
       return res.json({ success: true, message: 'متابع مسبقاً' });
     }
 
-    await db.insert(playerFollows).values({ followerId, followingId });
+    await db.insert(playerFollows).values({ followerId, followingId } as any);
     res.json({ success: true, message: 'تمت المتابعة' });
   } catch (err: any) {
     console.error('❌ follow error:', err.message);

@@ -26,7 +26,7 @@ router.put('/:id/read', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  await db.update(notifications).set({ read: true })
+  await db.update(notifications).set({ read: true } as any)
     .where(and(eq(notifications.id, parseInt(req.params.id)), eq(notifications.userId, req.user!.id)));
   res.json({ success: true });
 });
@@ -36,7 +36,7 @@ router.put('/read-all', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  await db.update(notifications).set({ read: true })
+  await db.update(notifications).set({ read: true } as any)
     .where(eq(notifications.userId, req.user!.id));
   res.json({ success: true });
 });
@@ -46,7 +46,7 @@ router.put('/:id/unread', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  await db.update(notifications).set({ read: false })
+  await db.update(notifications).set({ read: false } as any)
     .where(and(eq(notifications.id, parseInt(req.params.id)), eq(notifications.userId, req.user!.id)));
   res.json({ success: true });
 });
