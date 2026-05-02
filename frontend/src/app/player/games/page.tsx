@@ -348,6 +348,8 @@ function GamesContent() {
                         )}
                       </AnimatePresence>
                     </div>
+                  )}
+
                   {/* أزرار الدخول للغرف النشطة (إن وجدت) */}
                   {booked && activeRoomsMap[act.id] && activeRoomsMap[act.id].length > 0 && (
                     <div className="mt-3 pt-3 border-t border-white/5">
