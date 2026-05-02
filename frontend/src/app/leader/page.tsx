@@ -264,21 +264,53 @@ export default function LeaderPage() {
                   sessionCode: roomData.sessionCode || undefined, // توحيد الكود مع DB
                 });
 
-                setGameState({
-                  roomId: response.roomId,
-                  roomCode: response.roomCode,
-                  phase: 'LOBBY',
-                  config: {
-                    gameName: response.gameName || roomData.sessionName,
-                    maxPlayers: 10,
-                    displayPin: response.displayPin || '',
-                  },
-                  players: [],
-                  rolesPool: [],
-                  sessionId: response.sessionId,
-                  activityId: roomData.activityId || undefined,
+                // ── بدلاً من تثبيت قيم مبدئية، نجلب الحالة الكاملة (لأن الغرفة قد تكون موجودة وبها لاعبين) ──
+                const resState = await fetch(`/api/leader/state/${response.roomId}`, {
+                  headers: { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` }
                 });
-                setInSession(true);
+                const stateData = await resState.json();
+
+                if (stateData.success) {
+                  const st = stateData.state;
+                  setGameState({
+                    roomId: response.roomId,
+                    roomCode: st.roomCode || '',
+                    phase: st.phase,
+                    config: st.config || { gameName: '', maxPlayers: 10, displayPin: '' },
+                    players: st.players || [],
+                    rolesPool: st.rolesPool || [],
+                    votingState: st.votingState,
+                    discussionState: st.discussionState,
+                    justificationData: st.justificationData,
+                    pendingResolution: st.pendingResolution,
+                    round: st.round,
+                    winner: st.winner,
+                    sessionId: st.sessionId,
+                    activityId: st.activityId || roomData.activityId || undefined,
+                  });
+                  if (st.phase === 'LOBBY' || st.phase === 'GAME_OVER') {
+                    setInSession(true);
+                  } else {
+                    setInSession(false);
+                  }
+                } else {
+                  // Fallback (لا يفترض أن يحدث)
+                  setGameState({
+                    roomId: response.roomId,
+                    roomCode: response.roomCode,
+                    phase: 'LOBBY',
+                    config: {
+                      gameName: response.gameName || roomData.sessionName,
+                      maxPlayers: response.maxPlayers || roomData.maxPlayers || 10,
+                      displayPin: response.displayPin || '',
+                    },
+                    players: [],
+                    rolesPool: [],
+                    sessionId: response.sessionId,
+                    activityId: roomData.activityId || undefined,
+                  });
+                  setInSession(true);
+                }
                 fetchActiveGames();
                 console.log('✅ Room created from admin entry:', response.roomCode);
               } catch (err: any) {

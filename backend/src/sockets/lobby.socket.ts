@@ -156,6 +156,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             gameName: existingState.config.gameName,
             sessionId: existingState.sessionId || data.existingSessionId,
             activityId: existingState.activityId || data.activityId,
+            maxPlayers: existingState.config.maxPlayers,
           });
         } else if (existingState && existingState.sessionId !== data.existingSessionId) {
           console.log(`⚠️ Room Code Collision: Code ${overrideCode} was used by Session ${existingState.sessionId}, but requested for Session ${data.existingSessionId}. Creating new room.`);
@@ -235,6 +236,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         gameName,
         sessionId: sessionId || undefined,
         activityId: data.activityId || undefined,
+        maxPlayers,
       });
       console.log(`🏠 Room created: ${state.roomId} (code: ${state.roomCode}, session: #${sessionId}, activity: ${data.activityId || 'none'}) — empty, max ${maxPlayers}`);
 
