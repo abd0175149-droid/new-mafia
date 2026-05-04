@@ -673,6 +673,12 @@ export default function LeaderPage() {
       });
     });
 
+    // ── إغلاق الفعالية بالكامل (من زر انتهت الفعالية) ──
+    const offEventClosed = on('event:closed', () => {
+      setGameState(null);
+      setInSession(false);
+    });
+
     const offGameRestarted = on('game:restarted', (data: any) => {
       setGameState(prev => {
         if (!prev) return prev;
@@ -2212,6 +2218,24 @@ export default function LeaderPage() {
 
               {/* أزرار التحكم */}
               <div className="flex flex-col items-center gap-4">
+                {/* زر انتهت الفعالية — يُغلق الغرفة نهائياً */}
+                <button
+                  onClick={async () => {
+                    if (!confirm('🏁 انتهت الفعالية بالكامل؟ ستُغلق الغرفة ولن يتمكن أحد من الدخول إليها.')) return;
+                    try {
+                      const res = await emit('room:close-event', { roomId: gameState.roomId });
+                      if (res?.success) {
+                        setGameState(null);
+                        setInSession(false);
+                      }
+                    } catch (err: any) {
+                      setError(err.message);
+                    }
+                  }}
+                  className="text-rose-400 text-xs font-mono uppercase tracking-[0.15em] hover:text-rose-300 transition-colors border border-rose-500/30 px-6 py-2.5 hover:border-rose-400/60 hover:bg-rose-500/5 rounded"
+                >
+                  🏁 انتهت الفعالية — إغلاق الغرفة
+                </button>
                 {/* زر تفعيل/إلغاء الاستبعاد */}
                 {gameState.players.length > 0 && (
                   <button

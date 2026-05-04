@@ -380,30 +380,57 @@ export function registerNightEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'No pending winner' });
       }
 
-      // الآن نبث game:over للجميع
+      // إبلاغ الجميع بنتيجة اللعبة
       io.to(data.roomId).emit('game:over', {
         winner: winner,
         players: state.players,
       });
       await setPhase(data.roomId, Phase.GAME_OVER);
-      state.phase = Phase.GAME_OVER; // ← تحديث محلي لمنع الكتابة الفوقية
+      state.phase = Phase.GAME_OVER;
 
       // مسح pendingWinner
       state.pendingWinner = null;
       await setGameState(data.roomId, state);
 
-      // حفظ نتيجة المباراة في PostgreSQL
+      // ── حفظ نتيجة المباراة + احتساب النقاط ──
+      // (الغرفة تبقى مفتوحة لألعاب إضافية حتى يضغط الليدر "انتهت الفعالية")
       await finalizeMatch(state);
 
-      // تنظيف: حذف من activeRooms + إغلاق DB Session
-      markRoomAsFinished(data.roomId);
-      if (state.sessionId) closeSession(state.sessionId).catch(() => {});
-
+      console.log(`✅ Match finalized for room ${data.roomId} — Room stays OPEN for next game`);
       callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
   });
+
+  // ── إنهاء الفعالية بالكامل (يُغلق الغرفة نهائياً) ────
+  socket.on('room:close-event', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // إبلاغ الجميع بإغلاق الفعالية
+      io.to(data.roomId).emit('event:closed', {
+        message: 'انتهت الفعالية — شكراً لمشاركتكم!',
+      });
+
+      // تنظيف: حذف من activeRooms + إغلاق DB Session
+      markRoomAsFinished(data.roomId);
+      if (state.sessionId) {
+        closeSession(state.sessionId).catch(() => {});
+      }
+
+      console.log(`🔒 Event closed for room ${data.roomId} by leader`);
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
 
   // ── إنهاء ملخص الليل والانتقال للنهار ────────
   socket.on('night:end-recap', async (data: { roomId: string }, callback) => {

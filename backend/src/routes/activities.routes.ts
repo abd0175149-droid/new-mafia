@@ -137,6 +137,71 @@ router.get('/:id/rooms', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/activities/:id/rooms-summary — ملخص ألعاب النشاط مقسم حسب الغرف
+router.get('/:id/rooms-summary', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const activityId = parseInt(req.params.id);
+    const { matches, matchPlayers } = await import('../schemas/game.schema.js');
+    const { eq: drizzleEq, desc: drizzleDesc, and: drizzleAnd, sql: drizzleSql } = await import('drizzle-orm');
+
+    // جلب الغرف (بدون المحذوفة)
+    const rooms = await db.select().from(sessions)
+      .where(drizzleAnd(
+        drizzleEq(sessions.activityId, activityId),
+        drizzleSql`${sessions.status} != 'deleted'`
+      ))
+      .orderBy(drizzleDesc(sessions.createdAt));
+
+    // لكل غرفة: جلب مباراياتها مع إحصاءات
+    const roomsWithMatches = await Promise.all(rooms.map(async (room) => {
+      const roomMatches = await db.select({
+        id: matches.id,
+        gameName: matches.gameName,
+        roomCode: matches.roomCode,
+        playerCount: matches.playerCount,
+        winner: matches.winner,
+        totalRounds: matches.totalRounds,
+        durationSeconds: matches.durationSeconds,
+        createdAt: matches.createdAt,
+        endedAt: matches.endedAt,
+      })
+        .from(matches)
+        .where(drizzleAnd(
+          drizzleEq(matches.sessionId, room.id),
+          drizzleEq(matches.isActive, false),
+        ))
+        .orderBy(drizzleDesc(matches.createdAt));
+
+      // إحصاءات الغرفة
+      const totalMatches = roomMatches.length;
+      const mafiaWins = roomMatches.filter(m => m.winner === 'MAFIA').length;
+      const citizenWins = roomMatches.filter(m => m.winner === 'CITIZEN').length;
+      const totalDuration = roomMatches.reduce((s, m) => s + (m.durationSeconds || 0), 0);
+
+      return {
+        id: room.id,
+        sessionCode: room.sessionCode,
+        displayPin: room.displayPin,
+        sessionName: room.sessionName,
+        maxPlayers: room.maxPlayers,
+        isActive: room.isActive,
+        status: room.status,
+        createdAt: room.createdAt,
+        stats: { totalMatches, mafiaWins, citizenWins, totalDuration },
+        matches: roomMatches,
+      };
+    }));
+
+    res.json({ success: true, rooms: roomsWithMatches });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // POST /api/activities/:id/add-room — إنشاء غرفة جديدة مرتبطة بالنشاط
 router.post('/:id/add-room', authenticate, async (req: Request, res: Response) => {
   const db = getDB();

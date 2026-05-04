@@ -57,18 +57,25 @@ function DonutChart({ data, size = 140 }: { data: { name: string; value: number;
 }
 
 // ══════════════════════════════════════════════════════
-// 🎮 قسم الغرف المرتبطة بالنشاط
+// 🎮 قسم الغرف المرتبطة بالنشاط (مع ملخص الألعاب)
 // ══════════════════════════════════════════════════════
 function RoomsSection({ activityId, activityName }: { activityId: number; activityName: string }) {
   const [rooms, setRooms] = useState<any[]>([]);
+  const [summary, setSummary] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [expandedRoom, setExpandedRoom] = useState<number | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
 
   const fetchRooms = async () => {
     try {
-      const data = await apiFetch(`/api/activities/${activityId}/rooms`);
-      setRooms(data);
+      const [roomsData, summaryData] = await Promise.all([
+        apiFetch(`/api/activities/${activityId}/rooms`),
+        apiFetch(`/api/activities/${activityId}/rooms-summary`).catch(() => ({ rooms: [] })),
+      ]);
+      setRooms(roomsData);
+      setSummary(summaryData.rooms || []);
     } catch (err) {
       console.error('Failed to fetch rooms:', err);
     } finally {
@@ -81,11 +88,9 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   const handleAddRoom = async () => {
     setAdding(true);
     try {
-      const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, {
-        method: 'POST',
-        body: JSON.stringify({}),
-      });
+      const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, { method: 'POST', body: JSON.stringify({}) });
       setRooms(prev => [newRoom, ...prev]);
+      fetchRooms(); // تحديث الملخص
     } catch (err: any) {
       alert('فشل إنشاء الغرفة: ' + err.message);
     } finally {
@@ -94,24 +99,22 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   };
 
   const handleDeleteRoom = async (sessionId: number) => {
-    if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟ لن يمكن استرجاعها.')) return;
+    if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟')) return;
     try {
-      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}`, {
-        method: 'DELETE',
-      });
+      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}`, { method: 'DELETE' });
       setRooms(prev => prev.filter(r => r.id !== sessionId));
+      setSummary(prev => prev.filter(r => r.id !== sessionId));
     } catch (err: any) {
       alert('فشل الحذف: ' + err.message);
     }
   };
 
   const handleCloseRoom = async (sessionId: number) => {
-    if (!confirm('🔒 هل تريد إغلاق هذه الغرفة؟')) return;
+    if (!confirm('🔒 انتهت الفعالية؟ سيتم إغلاق هذه الغرفة ولن تظهر للقائد بعد الآن.')) return;
     try {
-      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}/close`, {
-        method: 'PATCH',
-      });
+      await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}/close`, { method: 'PATCH' });
       setRooms(prev => prev.map(r => r.id === sessionId ? { ...r, isActive: false, status: 'closed' } : r));
+      setSummary(prev => prev.map(r => r.id === sessionId ? { ...r, isActive: false, status: 'closed' } : r));
     } catch (err: any) {
       alert('فشل الإغلاق: ' + err.message);
     }
@@ -124,7 +127,6 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   };
 
   const enterRoom = (room: any) => {
-    // حفظ بيانات الغرفة في sessionStorage للليدر
     sessionStorage.setItem('leader_room_entry', JSON.stringify({
       sessionCode: room.sessionCode,
       displayPin: room.displayPin,
@@ -136,117 +138,180 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
     window.open('/leader', '_blank');
   };
 
+  const fmtDuration = (s: number) => s > 0 ? `${Math.floor(s / 60)}د ${s % 60}ث` : '—';
+  const fmtDate = (d: string) => d ? new Date(d).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' }) : '—';
+
+  // دمج بيانات الغرف مع الملخص
+  const mergedRooms = rooms.map(r => ({
+    ...r,
+    ...(summary.find(s => s.id === r.id) || {}),
+  }));
+
   return (
-    <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          🎮 غرف اللعبة
-          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{rooms.length}</span>
-        </h3>
-        <button
-          onClick={handleAddRoom}
-          disabled={adding}
-          className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition disabled:opacity-50"
-        >
-          {adding ? '⏳ جارٍ...' : '➕ إضافة غرفة'}
-        </button>
+    <div className="space-y-4">
+      {/* ── رأس القسم ── */}
+      <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            🎮 غرف اللعبة
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{rooms.length}</span>
+          </h3>
+          <button
+            onClick={handleAddRoom}
+            disabled={adding}
+            className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition disabled:opacity-50"
+          >
+            {adding ? '⏳ جارٍ...' : '➕ إضافة غرفة'}
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+          </div>
+        ) : mergedRooms.length > 0 ? (
+          <div className="space-y-3">
+            {mergedRooms.map((room, i) => {
+              const stats = room.stats || { totalMatches: 0, mafiaWins: 0, citizenWins: 0, totalDuration: 0 };
+              const isExpanded = expandedRoom === room.id;
+              return (
+                <motion.div key={room.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                  className="bg-gray-900/50 border border-gray-700/30 rounded-xl overflow-hidden"
+                >
+                  {/* ── معلومات الغرفة ── */}
+                  <div className="flex items-center justify-between p-3.5">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-xl">🕹️</div>
+                      <div>
+                        <p className="text-white font-bold text-sm">{room.sessionName}</p>
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                          <span className="text-xs text-gray-500 font-mono">🔑 <span className="text-amber-400 font-bold">{room.sessionCode}</span></span>
+                          <span className="text-xs text-gray-500 font-mono">🔒 PIN: <span className="text-blue-400">{room.displayPin || '—'}</span></span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${room.isActive ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' : 'bg-gray-500/15 text-gray-500 border-gray-600/20'}`}>
+                            {room.isActive ? '🟢 نشطة' : '⚪ مغلقة'}
+                          </span>
+                          {stats.totalMatches > 0 && (
+                            <span className="text-[10px] text-gray-500">{stats.totalMatches} مباراة</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => copyCode(room.sessionCode, room.id)} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-600/40 text-gray-400 hover:text-white transition" title="نسخ">
+                        {copiedId === room.id ? '✅' : '📋'}
+                      </button>
+                      <a href={`/display?sessionCode=${room.sessionCode}&pin=${room.displayPin}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition">
+                        📺 العرض
+                      </a>
+                      {room.isActive && (
+                        <button onClick={() => enterRoom(room)} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition">
+                          🎮 دخول
+                        </button>
+                      )}
+                      {/* ── زر انتهت الفعالية ── */}
+                      {room.isActive && (
+                        <button
+                          onClick={() => handleCloseRoom(room.id)}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition font-bold"
+                          title="إغلاق الفعالية نهائياً"
+                        >
+                          🏁 انتهت الفعالية
+                        </button>
+                      )}
+                      <button onClick={() => handleDeleteRoom(room.id)} className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/20 text-rose-500/60 hover:text-rose-400 hover:border-rose-500/30 transition" title="حذف">
+                        🗑️
+                      </button>
+                      {stats.totalMatches > 0 && (
+                        <button onClick={() => setExpandedRoom(isExpanded ? null : room.id)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/20 text-amber-400/70 hover:bg-amber-500/10 transition">
+                          {isExpanded ? '▲ إخفاء' : '▼ الألعاب'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* ── إحصاءات الغرفة السريعة ── */}
+                  {stats.totalMatches > 0 && (
+                    <div className="px-3.5 pb-3 flex items-center gap-4 border-t border-white/5 pt-2.5">
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="text-gray-500">إجمالي: <span className="text-white font-bold">{stats.totalMatches}</span></span>
+                        <span className="text-rose-400">🔴 مافيا: <strong>{stats.mafiaWins}</strong></span>
+                        <span className="text-emerald-400">🟢 مواطنين: <strong>{stats.citizenWins}</strong></span>
+                        {stats.totalDuration > 0 && (
+                          <span className="text-gray-500">⏱️ {fmtDuration(stats.totalDuration)}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── قائمة الألعاب ── */}
+                  {isExpanded && room.matches && room.matches.length > 0 && (
+                    <div className="border-t border-white/5 px-3.5 pb-3 pt-2.5 space-y-2">
+                      <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">📜 الألعاب</p>
+                      {room.matches.map((match: any, mi: number) => (
+                        <div key={match.id} onClick={() => setSelectedMatch(match)}
+                          className="flex items-center justify-between bg-gray-800/40 border border-gray-700/20 rounded-lg px-3 py-2 cursor-pointer hover:border-amber-500/20 transition"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${match.winner === 'MAFIA' ? 'bg-rose-500/15 text-rose-400' : match.winner === 'CITIZEN' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                              {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : '⏳'}
+                            </span>
+                            <div>
+                              <p className="text-xs text-white font-medium">لعبة {mi + 1}</p>
+                              <p className="text-[10px] text-gray-500">{match.playerCount} لاعب • {match.totalRounds} جولة • {fmtDuration(match.durationSeconds)}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${match.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : match.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
+                              {match.winner === 'MAFIA' ? 'فازت المافيا' : match.winner === 'CITIZEN' ? 'فاز المواطنون' : 'جارية'}
+                            </span>
+                            {match.endedAt && <span className="text-[10px] text-gray-600">{fmtDate(match.endedAt)}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-6 text-gray-600 text-sm">
+            <span className="text-3xl block mb-2 opacity-30">🎮</span>
+            لا توجد غرف مرتبطة بهذا النشاط
+          </div>
+        )}
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-6">
-          <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
-        </div>
-      ) : rooms.length > 0 ? (
-        <div className="space-y-3">
-          {rooms.map((room, i) => (
-            <motion.div
-              key={room.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="flex items-center justify-between p-3.5 bg-gray-900/50 border border-gray-700/30 rounded-xl hover:border-gray-600/40 transition"
-            >
-              <div className="flex items-center gap-3.5">
-                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-xl">
-                  🕹️
+      {/* ── Modal تفاصيل مباراة ── */}
+      {selectedMatch && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSelectedMatch(null)}>
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            onClick={e => e.stopPropagation()}
+            className="bg-gray-900 border border-gray-700/50 rounded-2xl p-6 max-w-sm w-full"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">تفاصيل اللعبة</h3>
+              <button onClick={() => setSelectedMatch(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
+            </div>
+            <div className={`rounded-xl p-3 mb-4 text-center font-bold ${selectedMatch.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : selectedMatch.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-700/30 text-gray-400'}`}>
+              {selectedMatch.winner === 'MAFIA' ? '🔴 فازت المافيا' : selectedMatch.winner === 'CITIZEN' ? '🟢 فاز المواطنون' : '⏳ بدون نتيجة'}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { v: selectedMatch.playerCount, l: 'لاعب' },
+                { v: selectedMatch.totalRounds, l: 'جولة' },
+                { v: fmtDuration(selectedMatch.durationSeconds), l: 'المدة' },
+              ].map((s, i) => (
+                <div key={i} className="bg-gray-800/50 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-white">{s.v}</p>
+                  <p className="text-xs text-gray-500">{s.l}</p>
                 </div>
-                <div>
-                  <p className="text-white font-bold text-sm">{room.sessionName}</p>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-xs text-gray-500 font-mono flex items-center gap-1">
-                      🔑 كود: <span className="text-amber-400 font-bold">{room.sessionCode}</span>
-                    </span>
-                    <span className="text-xs text-gray-500 font-mono flex items-center gap-1">
-                      🔒 PIN: <span className="text-blue-400">{room.displayPin || '—'}</span>
-                    </span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                      room.isActive
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20'
-                        : 'bg-gray-500/15 text-gray-500 border-gray-600/20'
-                    }`}>
-                      {room.isActive ? '🟢 نشطة' : '⚪ مغلقة'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* نسخ الكود */}
-                <button
-                  onClick={() => copyCode(room.sessionCode, room.id)}
-                  className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-600/40 text-gray-400 hover:text-white hover:border-gray-500 transition"
-                  title="نسخ كود الغرفة"
-                >
-                  {copiedId === room.id ? '✅' : '📋'}
-                </button>
-
-                {/* شاشة العرض */}
-                <a
-                  href={`/display?sessionCode=${room.sessionCode}&pin=${room.displayPin}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition flex items-center gap-1"
-                  title="فتح شاشة العرض"
-                >
-                  📺 العرض
-                </a>
-
-                {/* دخول الغرفة (توجيه للليدر) */}
-                <button
-                  onClick={() => enterRoom(room)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition flex items-center gap-1"
-                  title="الدخول كقائد"
-                >
-                  🎮 دخول
-                </button>
-
-                {/* إغلاق الغرفة */}
-                {room.isActive && (
-                  <button
-                    onClick={() => handleCloseRoom(room.id)}
-                    className="text-xs px-2.5 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition"
-                    title="إغلاق الغرفة"
-                  >
-                    🔒 إغلاق
-                  </button>
-                )}
-
-                {/* حذف الغرفة نهائياً */}
-                <button
-                  onClick={() => handleDeleteRoom(room.id)}
-                  className="text-xs px-2.5 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
-                  title="حذف الغرفة نهائياً"
-                >
-                  🗑️ حذف
-                </button>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-6 text-gray-600 text-sm">
-          <span className="text-3xl block mb-2 opacity-30">🎮</span>
-          لا توجد غرف مرتبطة بهذا النشاط
+              ))}
+            </div>
+          </motion.div>
         </div>
       )}
     </div>
