@@ -114,7 +114,7 @@ export async function applyXPAndLevel(playerId: number, xpEarned: number): Promi
   }
 
   await db.update(players)
-    .set({ xp: currentXP, level: currentLevel })
+    .set({ xp: currentXP, level: currentLevel } as any)
     .where(eq(players.id, playerId));
 
   return { newXP: currentXP, newLevel: currentLevel, leveledUp };
@@ -163,7 +163,7 @@ export async function applyRR(playerId: number, rrChange: number): Promise<{ new
   tier = RANK_TIERS[tierIdx];
 
   await db.update(players)
-    .set({ rankRR: rr, rankTier: tier })
+    .set({ rankRR: rr, rankTier: tier } as any)
     .where(eq(players.id, playerId));
 
   return { newRR: rr, newTier: tier, promoted, demoted };

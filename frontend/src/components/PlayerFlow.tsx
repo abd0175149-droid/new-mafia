@@ -141,7 +141,19 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [roster, setRoster] = useState<any[]>([]);
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
+  // ── Auto Night Mode state ──
+  const [nightActionRequired, setNightActionRequired] = useState<{
+    actionType: string;
+    availableTargets: { physicalId: number; name: string }[];
+    timeoutSeconds: number;
+    canSkip: boolean;
+  } | null>(null);
+  const [nightActionCountdown, setNightActionCountdown] = useState<number>(0);
+  const [nightActionSubmitted, setNightActionSubmitted] = useState(false);
+  const [nurseActivationPending, setNurseActivationPending] = useState(false);
+  const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const phaseOverrideRef = useRef<{ phase: string } | null>(null);
+
 
   // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
   const [gamePhase, setGamePhaseRaw] = useState<string | null>(() => {
@@ -930,6 +942,44 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     return () => clearInterval(interval);
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead]);
+
+  // ── Auto Night Mode: استقبال طلب الإجراء الليلي ──
+  useEffect(() => {
+    if (!on) return;
+
+    const handleNightActionRequired = (data: {
+      actionType: string;
+      availableTargets: { physicalId: number; name: string }[];
+      timeoutSeconds: number;
+      canSkip: boolean;
+    }) => {
+      setNightActionRequired(data);
+      setNightActionSubmitted(false);
+      setNightActionCountdown(data.timeoutSeconds);
+      // بدء العداد التنازلي
+      if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+      nightCountdownRef.current = setInterval(() => {
+        setNightActionCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(nightCountdownRef.current!);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    };
+
+    const handleNurseActivation = (data: { message: string }) => {
+      setNurseActivationPending(true);
+    };
+
+    on('night:action-required', handleNightActionRequired);
+    on('nurse:activation-request', handleNurseActivation);
+
+    return () => {
+      if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+    };
+  }, [on]);
 
 
   // ── الخطوة 1: إدخال كود اللعبة ──
@@ -2628,6 +2678,126 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         onClose={() => setIsNotepadOpen(false)}
         onNotesChange={setNotepadNotes}
       />
+
+      {/* ══ Auto Night: شاشة الإجراء الليلي ══ */}
+      {nightActionRequired && !nightActionSubmitted && (
+        <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col" style={{ fontFamily: 'Amiri, serif' }}>
+          <div className="flex-1 flex flex-col items-center justify-center px-4 gap-5">
+            {/* Header */}
+            <div className="text-center">
+              <div className="text-5xl mb-2">🌙</div>
+              <h2 className="text-2xl font-black text-[#C5A059]">وقت الليل</h2>
+              <p className="text-gray-400 text-sm mt-1">
+                {nightActionRequired.actionType === 'KILL' && 'اختر هدف الاغتيال'}
+                {nightActionRequired.actionType === 'INVESTIGATE' && 'من تريد التحقيق معه؟'}
+                {nightActionRequired.actionType === 'PROTECT' && 'من تريد حمايته الليلة؟'}
+                {nightActionRequired.actionType === 'SNIPE' && 'اختر هدف القنص'}
+                {nightActionRequired.actionType === 'SILENCE' && 'من تريد إسكاته؟'}
+                {nightActionRequired.actionType === 'DECOY' && 'اختر أي شخص'}
+              </p>
+            </div>
+
+            {/* Timer */}
+            <div className={`text-4xl font-black font-mono ${nightActionCountdown <= 10 ? 'text-red-400' : 'text-[#C5A059]'}`}>
+              {String(Math.floor(nightActionCountdown / 60)).padStart(2, '0')}:{String(nightActionCountdown % 60).padStart(2, '0')}
+            </div>
+
+            {/* قائمة الأهداف */}
+            <div className="w-full max-w-sm flex flex-col gap-2 max-h-64 overflow-y-auto">
+              {nightActionRequired.availableTargets.map(target => (
+                <button
+                  key={target.physicalId}
+                  onClick={async () => {
+                    if (!emit || nightActionSubmitted) return;
+                    setNightActionSubmitted(true);
+                    if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+                    await emit('player:night-action', {
+                      roomId,
+                      actionType: nightActionRequired.actionType,
+                      targetPhysicalId: target.physicalId,
+                    }).catch(() => {});
+                    setTimeout(() => setNightActionRequired(null), 1500);
+                  }}
+                  className="flex items-center gap-3 px-4 py-3 bg-[#111] border border-[#2a2a2a] rounded-2xl hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-right"
+                >
+                  <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center shrink-0">
+                    <span className="text-sm font-black text-[#C5A059]">#{target.physicalId}</span>
+                  </div>
+                  <span className="text-white font-bold flex-1">{target.name || `لاعب #${target.physicalId}`}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* زر تخطي */}
+            {nightActionRequired.canSkip && (
+              <button
+                onClick={async () => {
+                  if (!emit || nightActionSubmitted) return;
+                  setNightActionSubmitted(true);
+                  if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+                  await emit('player:night-action', {
+                    roomId,
+                    actionType: nightActionRequired.actionType,
+                    targetPhysicalId: null,
+                  }).catch(() => {});
+                  setTimeout(() => setNightActionRequired(null), 1500);
+                }}
+                className="text-gray-500 hover:text-gray-300 text-sm transition-colors font-mono"
+              >
+                تخطي ←
+              </button>
+            )}
+          </div>
+
+          {/* رسالة تأكيد */}
+          {nightActionSubmitted && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+              <div className="text-center">
+                <div className="text-6xl mb-4">✅</div>
+                <p className="text-white font-black text-xl">تم الإرسال</p>
+                <p className="text-gray-400 text-sm mt-1">انتظر نتائج الليل...</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══ Nurse Activation Prompt ══ */}
+      {nurseActivationPending && (
+        <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center px-4" style={{ fontFamily: 'Amiri, serif' }}>
+          <div className="bg-[#111] border border-[#C5A059]/30 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl">
+            <div className="text-5xl mb-4">🏥</div>
+            <h2 className="text-2xl font-black text-[#C5A059] mb-2">الممرضة</h2>
+            <p className="text-gray-300 text-sm mb-6 leading-relaxed">
+              الطبيب غير متاح هذه الليلة.<br/>
+              هل تريدين تفعيل صلاحية الحماية؟
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  setNurseActivationPending(false);
+                  if (!emit) return;
+                  await emit('nurse:activation-response', { roomId, activate: false }).catch(() => {});
+                }}
+                className="flex-1 py-3 rounded-xl border border-[#333] bg-black/60 text-[#888] font-bold text-sm"
+              >
+                لا، تخطي
+              </button>
+              <button
+                onClick={async () => {
+                  setNurseActivationPending(false);
+                  if (!emit) return;
+                  await emit('nurse:activation-response', { roomId, activate: true }).catch(() => {});
+                }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black text-sm"
+              >
+                نعم، أريد الحماية
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

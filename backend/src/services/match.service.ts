@@ -30,7 +30,7 @@ export async function createMatch(state: GameState): Promise<number | null> {
       maxPlayers: state.config.maxPlayers,
       isActive: true,
       totalRounds: state.round || 1,
-    }).returning({ id: matches.id });
+    } as any).returning({ id: matches.id });
 
     const matchId = result[0]?.id;
     console.log(`📦 Match #${matchId} created for room ${state.roomId}`);
@@ -57,12 +57,13 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     await db.update(matches)
       .set({
         isActive: false,
-        winner: state.winner as 'MAFIA' | 'CITIZEN' | null,
+        winner: (state.winner as 'MAFIA' | 'CITIZEN' | null) ?? null,
         totalRounds: state.round || 0,
         durationSeconds,
         endedAt: new Date(),
-      })
+      } as any)
       .where(eq(matches.id, state.matchId));
+
 
     const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
     const totalRounds = state.round || 1;

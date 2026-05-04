@@ -44,6 +44,103 @@ const ASSASSINATION_INHERITANCE: Role[] = [
   Role.MAFIA_REGULAR,
 ];
 
+// ── مصفوفة التايمرز للغرف (Auto Mode) ──
+const autoNightTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// ── تحديد actionType بناءً على الدور (Auto Mode) ──
+function getAutoActionType(role: Role | null): string {
+  switch (role) {
+    case Role.GODFATHER:
+    case Role.CHAMELEON:
+    case Role.SILENCER:
+    case Role.MAFIA_REGULAR: return 'KILL';
+    case Role.SHERIFF:       return 'INVESTIGATE';
+    case Role.DOCTOR:        return 'PROTECT';
+    case Role.NURSE:         return 'PROTECT';
+    case Role.SNIPER:        return 'SNIPE';
+    default:                 return 'DECOY'; // مواطن عادي — يُهمل
+  }
+}
+
+// ── تحديد قائمة الأهداف المتاحة لكل لاعب (Auto Mode) ──
+function getAutoTargets(state: any, role: Role | null, selfId: number): number[] {
+  const alive = state.players.filter((p: any) => p.isAlive).map((p: any) => p.physicalId);
+  switch (role) {
+    case Role.GODFATHER:
+    case Role.CHAMELEON:
+    case Role.MAFIA_REGULAR:
+      // الاغتيال: المواطنون الأحياء فقط
+      return state.players.filter((p: any) => p.isAlive && !isMafiaRole(p.role)).map((p: any) => p.physicalId);
+    case Role.SILENCER:
+      return alive;
+    case Role.SHERIFF:
+      return alive.filter((id: number) => id !== selfId);
+    case Role.DOCTOR:
+    case Role.NURSE:
+      return alive.filter((id: number) => id !== state.nightActions.lastProtectedTarget);
+    case Role.SNIPER:
+      return alive.filter((id: number) => id !== selfId);
+    default:
+      // DECOY: نفس الأحياء للتمويه
+      return alive.filter((id: number) => id !== selfId);
+  }
+}
+
+// ── إيجاد socket لاعب بـ physicalId ──
+function findPlayerSocket(io: Server, roomId: string, physicalId: number) {
+  const room = io.sockets.adapter.rooms.get(roomId);
+  if (!room) return undefined;
+  for (const socketId of room) {
+    const sock = io.sockets.sockets.get(socketId);
+    if (sock?.data.physicalId === physicalId && sock?.data.role === 'player') return sock;
+  }
+  return undefined;
+}
+
+// ── إيجاد socket الليدر ──
+function findLeaderSocket(io: Server, roomId: string) {
+  const room = io.sockets.adapter.rooms.get(roomId);
+  if (!room) return undefined;
+  for (const socketId of room) {
+    const sock = io.sockets.sockets.get(socketId);
+    if (sock?.data.role === 'leader' && sock?.data.roomId === roomId) return sock;
+  }
+  return undefined;
+}
+
+// ── تسوية الليل في Auto Mode ──
+async function resolveAutoNight(io: Server, roomId: string) {
+  // إلغاء التايمر إن وجد
+  const timer = autoNightTimers.get(roomId);
+  if (timer) { clearTimeout(timer); autoNightTimers.delete(roomId); }
+
+  const resolution = await resolveNight(roomId);
+  await setPhase(roomId, Phase.MORNING_RECAP);
+
+  const stateAfter = await getGameState(roomId);
+  io.to(roomId).emit('game:phase-changed', {
+    phase: Phase.MORNING_RECAP,
+    teamCounts: stateAfter ? getTeamCounts(stateAfter.players) : undefined,
+  });
+
+  let pendingWinner: string | null = null;
+  if (resolution.winResult !== WinResult.GAME_CONTINUES) {
+    pendingWinner = resolution.winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+    const state = await getGameState(roomId);
+    if (state) { state.pendingWinner = pendingWinner; await setGameState(roomId, state); }
+  }
+
+  // إرسال ملخص الصباح للليدر
+  const leaderSock = findLeaderSocket(io, roomId);
+  leaderSock?.emit('night:morning-recap', {
+    events: resolution.events,
+    pendingWinner,
+    players: stateAfter?.players || [],
+  });
+
+  console.log(`✅ Auto night resolved for room ${roomId}`);
+}
+
 export function registerNightEvents(io: Server, socket: Socket) {
 
   // ── بدء مرحلة الليل ──────────────────────────
@@ -60,20 +157,91 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const nurse = state.players.find((p: any) => p.role === Role.NURSE && p.isAlive);
       const nurseAvailable = doctor && !doctor.isAlive && !!nurse;
 
+      // ═══════════════════════════════════════
+      // 🔀 AUTO MODE
+      // ═══════════════════════════════════════
+      if (state.config.nightMode === 'auto') {
+        if (nurseAvailable) {
+          // إخطار الممرضة مباشرة عبر جهازها
+          const nurseSocket = findPlayerSocket(io, data.roomId, nurse!.physicalId);
+          nurseSocket?.emit('nurse:activation-request', {
+            message: 'الطبيب غير متاح — هل تريدين التفعيل؟',
+          });
+          state.round += 1;
+          await setGameState(data.roomId, state);
+          return callback({ success: true, round: state.round, nurseAvailable: true, mode: 'auto' });
+        }
+
+        // الانتقال لمرحلة الليل
+        await setPhase(data.roomId, Phase.NIGHT);
+        state.phase = Phase.NIGHT;
+        state.round += 1;
+        // تصفير submitted
+        state.playerNightActions = { submitted: {} };
+        await setGameState(data.roomId, state);
+
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
+        io.to(data.roomId).emit('display:night-started');
+
+        // ── إرسال night:action-required لكل لاعب حي ──
+        const alivePlayers = state.players.filter((p: any) => p.isAlive);
+        for (const player of alivePlayers) {
+          const actionType = getAutoActionType(player.role as Role);
+          const availableTargets = getAutoTargets(state, player.role as Role, player.physicalId);
+          const canSkip = actionType === 'SILENCE' || actionType === 'SNIPE' || actionType === 'DECOY';
+
+          const playerSock = findPlayerSocket(io, data.roomId, player.physicalId);
+          if (playerSock) {
+            playerSock.emit('night:action-required', {
+              actionType,
+              availableTargets: availableTargets.map((id: number) => {
+                const p = state.players.find((pl: any) => pl.physicalId === id);
+                return { physicalId: id, name: p?.name || '' };
+              }),
+              timeoutSeconds: 60,
+              canSkip,
+            });
+          }
+        }
+
+        // ── Timer 60 ثانية ──
+        const timerId = setTimeout(async () => {
+          try {
+            const currentState = await getGameState(data.roomId);
+            if (!currentState || currentState.phase !== Phase.NIGHT) return;
+            console.log(`⏰ Night auto timeout fired for room ${data.roomId}`);
+            await resolveAutoNight(io, data.roomId);
+          } catch (err) {
+            console.error('Auto night timer error:', err);
+          }
+        }, 60_000);
+
+        // حفظ مرجع الـ timer (لا يُخزَّن في Redis — في الذاكرة فقط)
+        autoNightTimers.set(data.roomId, timerId as any);
+
+        // إعلام الليدر بعدد الأحياء
+        socket.emit('night:auto-started', {
+          totalAlive: alivePlayers.length,
+          timeoutSeconds: 60,
+        });
+
+        return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
+      }
+
+      // ═══════════════════════════════════════
+      // 🎮 MANUAL MODE (الأصلي)
+      // ═══════════════════════════════════════
       if (nurseAvailable) {
-        // لا نغيّر المرحلة — الليدر يبقى في الشاشة الحالية ليرى سؤال الممرضة
         state.round += 1;
         await setGameState(data.roomId, state);
         return callback({ success: true, round: state.round, nurseAvailable: true });
       }
 
-      // لا يوجد سؤال ممرضة — ننتقل للّيل مباشرة
       await setPhase(data.roomId, Phase.NIGHT);
-      state.phase = Phase.NIGHT; // ← تحديث محلي لمنع الكتابة الفوقية
+      state.phase = Phase.NIGHT;
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
-      // تحديد أول دور نشط حي
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
@@ -89,6 +257,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
       callback({ success: false, error: err.message });
     }
   });
+
+
 
   // ── بدء طابور الليل (بعد قرار الممرضة) ──────────
   socket.on('night:begin-queue', async (data: { roomId: string; activateNurse: boolean }, callback) => {
@@ -668,6 +838,184 @@ export function registerNightEvents(io: Server, socket: Socket) {
       callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 📱 player:night-action — Auto Mode: كل لاعب يرسل إجراءه
+  // ══════════════════════════════════════════════════════
+  socket.on('player:night-action', async (data: {
+    roomId: string;
+    actionType: string;          // KILL | INVESTIGATE | PROTECT | SNIPE | SILENCE | DECOY
+    targetPhysicalId: number | null; // null = skip
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'player') {
+        return callback?.({ success: false, error: 'Only players' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback?.({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'Not night phase' });
+      if (state.config.nightMode !== 'auto') return callback?.({ success: false, error: 'Not auto mode' });
+
+      const physicalId: number = socket.data.physicalId;
+      const player = state.players.find((p: any) => p.physicalId === physicalId);
+      if (!player || !player.isAlive) return callback?.({ success: false, error: 'Player not alive' });
+
+      // منع الإرسال المزدوج
+      if (!state.playerNightActions) state.playerNightActions = { submitted: {} };
+      if (state.playerNightActions.submitted[physicalId]) {
+        return callback?.({ success: false, error: 'Already submitted' });
+      }
+
+      // تحقق: هل actionType يطابق دور اللاعب الفعلي؟
+      const expectedActionType = getAutoActionType(player.role as Role);
+      const isRoleOwner = data.actionType === expectedActionType;
+
+      // تسجيل submitted
+      state.playerNightActions.submitted[physicalId] = true;
+
+      if (isRoleOwner && data.targetPhysicalId !== null) {
+        // ── صاحب الدور الفعلي — تسجيل في nightActions ──
+        switch (player.role) {
+          case Role.GODFATHER:
+          case Role.CHAMELEON:
+          case Role.MAFIA_REGULAR:
+            // وراثة: يُقبل فقط إذا كان أول حي في سلسلة الوراثة
+            const heir = ASSASSINATION_INHERITANCE.find(
+              (r: Role) => state.players.find((p: any) => p.role === r && p.isAlive)
+            );
+            if (player.role === heir) {
+              state.nightActions.godfatherTarget = data.targetPhysicalId;
+            }
+            break;
+          case Role.SILENCER:
+            state.nightActions.silencerTarget = data.targetPhysicalId;
+            break;
+          case Role.SHERIFF: {
+            state.nightActions.sheriffTarget = data.targetPhysicalId;
+            // حساب النتيجة وإرسالها للشريف مباشرة
+            const investigated = state.players.find((p: any) => p.physicalId === data.targetPhysicalId);
+            let sheriffResult = 'CITIZEN';
+            if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
+            else if (investigated?.role && isMafiaRole(investigated.role as Role)) sheriffResult = 'MAFIA';
+            state.nightActions.sheriffResult = sheriffResult;
+            // إرسال النتيجة لجهاز الشريف فقط
+            socket.emit('night:sheriff-result', {
+              result: sheriffResult,
+              targetPhysicalId: data.targetPhysicalId,
+              targetName: investigated?.name || '',
+            });
+            break;
+          }
+          case Role.DOCTOR:
+            state.nightActions.doctorTarget = data.targetPhysicalId;
+            break;
+          case Role.NURSE:
+            state.nightActions.nurseTarget = data.targetPhysicalId;
+            break;
+          case Role.SNIPER:
+            state.nightActions.sniperTarget = data.targetPhysicalId;
+            break;
+        }
+      }
+      // DECOY أو صاحب الدور اختار skip: يُسجَّل submitted فقط — nightActions لا يتغير
+
+      await setGameState(data.roomId, state);
+
+      // إعلام الليدر بالتقدم
+      const alivePlayers = state.players.filter((p: any) => p.isAlive);
+      const submittedCount = Object.keys(state.playerNightActions.submitted).length;
+      const leaderSock = findLeaderSocket(io, data.roomId);
+      leaderSock?.emit('night:auto-progress', {
+        total: alivePlayers.length,
+        submitted: submittedCount,
+      });
+
+      callback?.({ success: true });
+
+      // إذا أرسل الجميع → حل فوري بدون انتظار الـ timeout
+      if (submittedCount >= alivePlayers.length) {
+        console.log(`✅ All players submitted in room ${data.roomId} — resolving early`);
+        await resolveAutoNight(io, data.roomId);
+      }
+    } catch (err: any) {
+      callback?.({ success: false, error: err.message });
+    }
+  });
+
+  // ── استجابة الممرضة في Auto Mode ────────────────
+  socket.on('nurse:activation-response', async (data: {
+    roomId: string;
+    activate: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'player') return callback?.({ success: false, error: 'Only players' });
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback?.({ success: false, error: 'Room not found' });
+
+      if (data.activate) {
+        state.nurseActivated = true;
+        await setGameState(data.roomId, state);
+
+        // إرسال شاشة الاختيار للممرضة
+        const targets = getAvailableTargets(state, Role.NURSE);
+        socket.emit('night:action-required', {
+          actionType: 'PROTECT',
+          availableTargets: targets.map((id: number) => {
+            const p = state.players.find((pl: any) => pl.physicalId === id);
+            return { physicalId: id, name: p?.name || '' };
+          }),
+          timeoutSeconds: 45,
+          canSkip: false,
+        });
+      } else {
+        // رفضت → تابع دون حماية
+        await setGameState(data.roomId, state);
+      }
+
+      // الانتقال لمرحلة الليل الفعلية (Auto)
+      await setPhase(data.roomId, Phase.NIGHT);
+      state.phase = Phase.NIGHT;
+      state.playerNightActions = { submitted: {} };
+      await setGameState(data.roomId, state);
+
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
+      io.to(data.roomId).emit('display:night-started');
+
+      // إرسال night:action-required لبقية اللاعبين
+      const nurse = state.players.find((p: any) => p.role === Role.NURSE && p.isAlive);
+      const alivePlayers = state.players.filter((p: any) => p.isAlive && p.physicalId !== nurse?.physicalId);
+      for (const player of alivePlayers) {
+        const actionType = getAutoActionType(player.role as Role);
+        const targets2 = getAutoTargets(state, player.role as Role, player.physicalId);
+        const canSkip = actionType === 'SILENCE' || actionType === 'SNIPE' || actionType === 'DECOY';
+        const playerSock = findPlayerSocket(io, data.roomId, player.physicalId);
+        if (playerSock) {
+          playerSock.emit('night:action-required', {
+            actionType,
+            availableTargets: targets2.map((id: number) => {
+              const p = state.players.find((pl: any) => pl.physicalId === id);
+              return { physicalId: id, name: p?.name || '' };
+            }),
+            timeoutSeconds: 60,
+            canSkip,
+          });
+        }
+      }
+
+      const timerId = setTimeout(async () => {
+        const cur = await getGameState(data.roomId);
+        if (!cur || cur.phase !== Phase.NIGHT) return;
+        await resolveAutoNight(io, data.roomId);
+      }, 60_000);
+      autoNightTimers.set(data.roomId, timerId as any);
+
+      callback?.({ success: true });
+    } catch (err: any) {
+      callback?.({ success: false, error: err.message });
     }
   });
 }

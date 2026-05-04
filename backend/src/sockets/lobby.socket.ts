@@ -123,8 +123,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     maxJustifications?: number;
     displayPin?: string;
     activityId?: number;
-    existingSessionId?: number; // إذا موجود = الغرفة منشأة في DB بالفعل
-    sessionCode?: string; // كود الجلسة من DB — لتوحيد الكود
+    existingSessionId?: number;
+    sessionCode?: string;
+    nightMode?: 'manual' | 'auto'; // جديد: نمط الليل — افتراضي: manual
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
@@ -181,6 +182,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         if (data.activityId) {
           state.activityId = data.activityId;
         }
+        // تطبيق نمط الليل لو حدده الليدر
+        if (data.nightMode && (data.nightMode === 'manual' || data.nightMode === 'auto')) {
+          state.config.nightMode = data.nightMode;
+        }
         await setGameState(state.roomId, state);
         console.log(`🔗 Room created using existing Session #${sessionId}`);
       } else {
@@ -191,6 +196,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           state.sessionCode = state.roomCode;
           if (data.activityId) {
             state.activityId = data.activityId;
+          }
+          // تطبيق نمط الليل
+          if (data.nightMode && (data.nightMode === 'manual' || data.nightMode === 'auto')) {
+            state.config.nightMode = data.nightMode;
           }
           await setGameState(state.roomId, state);
         }
@@ -1666,7 +1675,37 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── تغيير نمط الليل (Manual / Auto) ──────────
+  socket.on('game:set-night-mode', async (data: {
+    roomId: string;
+    mode: 'manual' | 'auto';
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // يُسمح بالتغيير فقط في مرحلة LOBBY
+      if (state.phase !== 'LOBBY') {
+        return callback({ success: false, error: 'يمكن تغيير النمط فقط في اللوبي' });
+      }
+
+      state.config.nightMode = data.mode;
+      await setGameState(data.roomId, state);
+
+      // إعلام الليدر بالتغيير
+      socket.emit('game:night-mode-changed', { mode: data.mode });
+      console.log(`🌙 Night mode set to '${data.mode}' for room ${data.roomId}`);
+      callback({ success: true, mode: data.mode });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── تنظيف عند قطع الاتصال ─────────────────────
+
   socket.on('disconnect', () => {
     if (socket.data.role === 'leader' && socket.data.roomId) {
       console.log(`⚠️ Leader disconnected from room ${socket.data.roomId}`);

@@ -155,7 +155,7 @@ export async function registerPlayerToken(playerId: number, token: string, devic
       fcmToken: token,
       deviceInfo,
       isActive: true,
-    });
+    } as any);
     console.log(`📱 FCM token registered for player #${playerId} (old tokens cleaned)`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
@@ -173,7 +173,7 @@ export async function registerStaffToken(staffId: number, token: string, deviceI
       fcmToken: token,
       deviceInfo,
       isActive: true,
-    });
+    } as any);
     console.log(`📱 FCM token registered for staff #${staffId}`);
   } catch (err: any) {
     console.error('❌ registerStaffToken:', err.message);
@@ -195,7 +195,7 @@ export async function sendPushToPlayer(
   await db.insert(playerNotifications).values({
     playerId, title, body, type, data,
     isPushSent: false,
-  });
+  } as any);
 
   // إرسال Push
   const tokens = await db.select({ token: playerFcmTokens.fcmToken })
@@ -251,7 +251,8 @@ export async function sendPushToPlayers(
 
   // حفظ إشعار لكل لاعب
   const rows = playerIds.map(pid => ({ playerId: pid, title, body, type, data, isPushSent: false }));
-  await db.insert(playerNotifications).values(rows);
+  await db.insert(playerNotifications).values(rows as any);
+
 
   // جلب tokens
   const tokenRows = await db.select({ token: playerFcmTokens.fcmToken })
@@ -328,9 +329,10 @@ export async function sendPushToStaff(
     message: body,
     type: type as any,
     targetId: data.targetId || null,
-  }).catch(() => {
+  } as any).catch(() => {
     // نوع الإشعار قد لا يكون في الـ enum — نتجاهل
   });
+
 
   // إرسال Push
   const messaging = getMessaging();

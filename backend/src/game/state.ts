@@ -119,6 +119,7 @@ export interface GameConfig {
   maxPlayers: number;
   displayPin: string;
   allowMafiaReveal: boolean; // السماح للمافيا بمعرفة بعضهم
+  nightMode: 'manual' | 'auto'; // نمط الليل — manual: الليدر يتحكم / auto: اللاعبون يرسلون
 }
 
 export interface GameState {
@@ -157,16 +158,21 @@ export interface GameState {
   };
   // ── حالة الشرطية ──
   policewomanState?: {
-    isTriggered: boolean;              // هل خرجت الشرطية من اللعبة؟
-    triggerRound: number;              // الجولة التي خرجت فيها
-    citizenAliveAtTrigger: number;     // عدد المواطنين الأحياء لحظة خروجها
-    threshold: number;                 // ceil(citizenAliveAtTrigger / 4)
-    citizenDeathsSinceTrigger: number; // عدد المواطنين الذين ماتوا بعد خروجها
-    isReady: boolean;                  // هل وصلنا للعتبة؟
-    isUsed: boolean;                   // هل استُخدمت الصلاحية؟
+    isTriggered: boolean;
+    triggerRound: number;
+    citizenAliveAtTrigger: number;
+    threshold: number;
+    citizenDeathsSinceTrigger: number;
+    isReady: boolean;
+    isUsed: boolean;
     policewomanPhysicalId: number;
     policewomanName: string;
   } | null;
+  // ── Auto Night Mode — تتبع إرسال اللاعبين ──
+  playerNightActions: {
+    submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه
+    timerHandle?: any;                  // مرجع setInterval/setTimeout للإلغاء
+  };
   createdAt: string;
 }
 
@@ -221,6 +227,7 @@ export async function createRoom(
       maxPlayers: Math.min(Math.max(maxPlayers, 6), 27),
       displayPin: displayPin || generateDisplayPin(),
       allowMafiaReveal: true,
+      nightMode: 'manual',
     },
     players: [],
     rolesPool: [],
@@ -246,6 +253,7 @@ export async function createRoom(
     morningEvents: [],
     winner: null,
     performanceTracking: { dealOutcomes: [], abilityResults: [], eliminationLog: [] },
+    playerNightActions: { submitted: {} },
     createdAt: new Date().toISOString(),
   };
 

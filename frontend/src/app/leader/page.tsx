@@ -80,6 +80,9 @@ export default function LeaderPage() {
   const [displayPin, setDisplayPin] = useState('');
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const [availableActivities, setAvailableActivities] = useState<any[]>([]);
+  const [nightMode, setNightMode] = useState<'manual' | 'auto'>('manual'); // نمط الليل
+  // تتبع Auto Night Progress
+  const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number } | null>(null);
 
   // Active game state
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -650,6 +653,14 @@ export default function LeaderPage() {
       });
     });
 
+    // ── Auto Night Mode: تقدم الإجراءات ──
+    const offAutoProgress = on('night:auto-progress', (data: { total: number; submitted: number }) => {
+      setAutoNightProgress(data);
+    });
+    const offAutoStarted = on('night:auto-started', (data: { totalAlive: number; timeoutSeconds: number }) => {
+      setAutoNightProgress({ total: data.totalAlive, submitted: 0 });
+    });
+
     // 👮‍♀️ صلاحية الشرطية جاهزة — عرض واجهة الاختيار
     const offPolicewomanAvailable = on('policewoman:choice-available', (data: any) => {
       setGameState(prev => {
@@ -788,6 +799,8 @@ export default function LeaderPage() {
       offNightComplete();
       offMorningRecap();
       offSheriffResult();
+      offAutoProgress();
+      offAutoStarted();
       offPolicewomanAvailable();
       offGameOver();
       offGameRestarted();
@@ -812,6 +825,7 @@ export default function LeaderPage() {
         maxJustifications,
         displayPin: displayPin || undefined,
         activityId: selectedActivityId || undefined,
+        nightMode,
       });
 
       setGameState({
@@ -2163,7 +2177,31 @@ export default function LeaderPage() {
           )}
 
           {(gameState.phase === 'NIGHT' || gameState.phase === 'MORNING_RECAP') && (
-            <LeaderNightView gameState={gameState} emit={emit} setError={setError} />
+            <>
+              {/* Auto Night Progress — يظهر فقط في Auto Mode أثناء الليل */}
+              {gameState.phase === 'NIGHT' && autoNightProgress && (
+                <div className="mb-4 px-1" dir="rtl">
+                  <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono text-[#808080] tracking-widest">📱 AUTO NIGHT</span>
+                      <span className="text-xs font-mono text-[#C5A059]">
+                        {autoNightProgress.submitted} / {autoNightProgress.total}
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#C5A059] to-[#b38b47] rounded-full transition-all duration-500"
+                        style={{ width: `${autoNightProgress.total > 0 ? (autoNightProgress.submitted / autoNightProgress.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-[#555] font-mono text-center mt-2 tracking-widest">
+                      اللاعبون يختارون من أجهزتهم...
+                    </p>
+                  </div>
+                </div>
+              )}
+              <LeaderNightView gameState={gameState} emit={emit} setError={setError} />
+            </>
           )}
 
           {gameState.phase === 'GAME_OVER' && (
@@ -2500,6 +2538,42 @@ export default function LeaderPage() {
             )}
           </div>
 
+          {/* 🌙 Night Mode Toggle */}
+          <div className="mb-10">
+            <label className="block text-xs font-mono text-[#808080] mb-3 tracking-widest uppercase text-center">Night Mode</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setNightMode('manual')}
+                className={`flex-1 py-3 px-3 border transition-all text-xs font-mono tracking-wider flex flex-col items-center gap-1 ${
+                  nightMode === 'manual'
+                    ? 'border-[#C5A059] bg-[#C5A059]/10 text-[#C5A059]'
+                    : 'border-[#2a2a2a] bg-[#050505] text-[#555] hover:border-[#444]'
+                }`}
+              >
+                <span className="text-lg">🎮</span>
+                <span>MANUAL</span>
+                <span className="text-[9px] text-[#666] tracking-normal">الليدر يتحكم</span>
+              </button>
+              <button
+                onClick={() => setNightMode('auto')}
+                className={`flex-1 py-3 px-3 border transition-all text-xs font-mono tracking-wider flex flex-col items-center gap-1 ${
+                  nightMode === 'auto'
+                    ? 'border-[#C5A059] bg-[#C5A059]/10 text-[#C5A059]'
+                    : 'border-[#2a2a2a] bg-[#050505] text-[#555] hover:border-[#444]'
+                }`}
+              >
+                <span className="text-lg">📱</span>
+                <span>AUTO</span>
+                <span className="text-[9px] text-[#666] tracking-normal">كل لاعب يرسل</span>
+              </button>
+            </div>
+            {nightMode === 'auto' && (
+              <p className="text-[#C5A059] text-[10px] font-mono text-center mt-2 tracking-widest">
+                ✓ مبدأ التمويه — الكل يرسل، يُعتمد صاحب الدور فقط
+              </p>
+            )}
+          </div>
+
           <button
             onClick={handleCreateRoom}
             disabled={!isConnected || creating || !gameName.trim()}
@@ -2507,6 +2581,7 @@ export default function LeaderPage() {
           >
             <span>{creating ? 'INITIALIZING...' : 'CREATE ROOM'}</span>
           </button>
+
 
           {error && <p className="text-[#8A0303] mt-6 text-xs font-mono text-center tracking-widest uppercase">{error}</p>}
         </motion.div>

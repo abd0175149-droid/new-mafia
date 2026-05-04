@@ -65,7 +65,7 @@ export async function seedDatabase(): Promise<void> {
         displayName: 'المدير العام',
         role: 'admin',
         permissions: ['activities', 'bookings', 'finances', 'locations', 'staff', 'games'],
-      }).returning({ id: staff.id });
+      } as any).returning({ id: staff.id });
 
       const adminId = result[0]?.id;
 

@@ -52,12 +52,12 @@ export async function createPlayer(data: {
   const result = await db.insert(players).values({
     phone: data.phone,
     passwordHash,
-    mustChangePassword: !data.password, // إذا بدون كلمة سر → يجب تغييرها لاحقاً
+    mustChangePassword: !data.password,
     name: data.name,
     gender: data.gender || 'MALE',
     dob: data.dob || null,
     lastActiveAt: new Date(),
-  }).returning();
+  } as any).returning();
 
   console.log(`👤 New player created: ${data.name} (${data.phone}) → ID: ${result[0]?.id}`);
   return result[0] || null;
@@ -69,7 +69,7 @@ export async function touchPlayerActivity(playerId: number) {
   const db = getDB();
   if (!db) return;
 
-  await db.update(players).set({ lastActiveAt: new Date() }).where(eq(players.id, playerId));
+  await db.update(players).set({ lastActiveAt: new Date() } as any).where(eq(players.id, playerId));
 }
 
 // ── تحديث إحصائيات بعد نهاية المباراة ──────────────
@@ -83,7 +83,7 @@ export async function updatePlayerStats(playerId: number, won: boolean, survived
     totalWins: won ? sql`${players.totalWins} + 1` : players.totalWins,
     totalSurvived: survived ? sql`${players.totalSurvived} + 1` : players.totalSurvived,
     lastActiveAt: new Date(),
-  }).where(eq(players.id, playerId));
+  } as any).where(eq(players.id, playerId));
 }
 
 // ── إنشاء حجز تلقائي للاعب بدون حجز ────────────────
@@ -105,7 +105,7 @@ export async function autoCreateBookingMember(data: {
     phone: data.phone || null,
     isGuest: data.isGuest || false,
     checkedIn: true,
-  }).returning();
+  } as any).returning();
 
   return result[0] || null;
 }
@@ -130,8 +130,9 @@ export async function migratePlayersWithDefaultPassword(): Promise<number> {
       .set({
         passwordHash: defaultHash,
         mustChangePassword: true,
-      })
+      } as any)
       .where(isNull(players.passwordHash));
+
 
     console.log(`🔄 Migrated ${playersWithoutPassword.length} players with default password '${PLAYER_DEFAULT_PASSWORD}' — they must change it on first login`);
     return playersWithoutPassword.length;

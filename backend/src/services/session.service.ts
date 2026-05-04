@@ -30,14 +30,14 @@ export async function createSession(
       maxPlayers,
       isActive: true,
       activityId: activityId || null,
-    }).returning({ id: sessions.id });
+    } as any).returning({ id: sessions.id });
 
     const sessionId = result[0]?.id;
 
     // ربط ثنائي الاتجاه: تحديث activities.sessionId
     if (activityId && sessionId) {
       await db.update(activities)
-        .set({ sessionId })
+        .set({ sessionId } as any)
         .where(eq(activities.id, activityId));
       console.log(`🔗 Session #${sessionId} linked to Activity #${activityId}`);
     }
@@ -61,12 +61,12 @@ export async function linkSessionToActivity(
   try {
     // تحديث sessions.activityId
     await db.update(sessions)
-      .set({ activityId })
+      .set({ activityId } as any)
       .where(eq(sessions.id, sessionId));
 
     // تحديث activities.sessionId (ربط ثنائي)
     await db.update(activities)
-      .set({ sessionId })
+      .set({ sessionId } as any)
       .where(eq(activities.id, activityId));
 
     console.log(`🔗 Linked: Session #${sessionId} ↔ Activity #${activityId}`);
@@ -95,13 +95,13 @@ export async function unlinkSessionFromActivity(
 
     // مسح sessions.activityId
     await db.update(sessions)
-      .set({ activityId: null })
+      .set({ activityId: null } as any)
       .where(eq(sessions.id, sessionId));
 
     // مسح activities.sessionId (إذا كان مرتبطاً)
     if (activityId) {
       await db.update(activities)
-        .set({ sessionId: null })
+        .set({ sessionId: null } as any)
         .where(eq(activities.id, activityId));
     }
 
@@ -142,7 +142,7 @@ export async function addPlayerToSession(
           gender: gender || existing.gender,
           dateOfBirth: dateOfBirth || existing.dateOfBirth,
           playerId: playerId || existing.playerId || null,
-        })
+        } as any)
         .where(eq(sessionPlayers.id, existing.id));
     } else {
       // إضافة جديد
@@ -154,7 +154,7 @@ export async function addPlayerToSession(
         gender: gender || 'MALE',
         dateOfBirth: dateOfBirth || null,
         playerId: playerId || null,
-      });
+      } as any);
     }
   } catch (err: any) {
     console.error('❌ Failed to add player to session:', err.message);
@@ -203,7 +203,7 @@ export async function closeSession(sessionId: number): Promise<boolean> {
 
   try {
     await db.update(sessions)
-      .set({ isActive: false, status: 'closed' })
+      .set({ isActive: false, status: 'closed' } as any)
       .where(eq(sessions.id, sessionId));
 
     console.log(`🔒 Session #${sessionId} closed (status=closed)`);
@@ -221,7 +221,7 @@ export async function deleteSession(sessionId: number): Promise<boolean> {
 
   try {
     await db.update(sessions)
-      .set({ isActive: false, status: 'deleted' })
+      .set({ isActive: false, status: 'deleted' } as any)
       .where(eq(sessions.id, sessionId));
 
     console.log(`🗑️ Session #${sessionId} soft-deleted (status=deleted)`);
@@ -256,7 +256,7 @@ export async function getClosedSessions() {
       ORDER BY MAX(m.ended_at) DESC NULLS LAST, s.created_at DESC
     `);
 
-    return (rows.rows || rows).map((r: any) => ({
+    return ((rows as any).rows || (rows as unknown as any[])).map((r: any) => ({
       id: r.id,
       sessionCode: r.session_code,
       sessionName: r.session_name,
@@ -307,7 +307,7 @@ export async function getAllSessions() {
       ORDER BY s.is_active DESC, s.created_at DESC
     `);
 
-    return (rows.rows || rows).map((r: any) => ({
+    return ((rows as any).rows || (rows as unknown as any[])).map((r: any) => ({
       id: r.id,
       sessionCode: r.session_code,
       displayPin: r.display_pin,
