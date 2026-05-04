@@ -93,6 +93,11 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
           if (protectedPlayer) {
             events.push({ type: 'PROTECTION_FAILED', targetPhysicalId: protectedPlayer.physicalId, targetName: protectedPlayer.name, revealed: false });
           }
+          // الطبيب/الممرضة أخطأ
+          const doctorPlayer = state.players.find(p => (p.role === Role.DOCTOR || p.role === Role.NURSE) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
+          if (doctorPlayer) {
+            pt.abilityResults.push({ physicalId: doctorPlayer.physicalId, role: doctorPlayer.role || 'DOCTOR', correct: false });
+          }
         }
       }
     }

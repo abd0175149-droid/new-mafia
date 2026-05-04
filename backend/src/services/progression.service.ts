@@ -50,7 +50,9 @@ export function calculateMatchXP(params: {
   teamWon: boolean;
   roundsSurvived: number;
   abilityCorrectCount: number;
+  abilityIncorrectCount: number;
   successfulDealsCount: number;
+  failedDealsCount: number;
   teamEliminationBonus: number; // عدد مرات إقصاء الخصم × 15
 }): number {
   let xp = 0;
@@ -59,10 +61,12 @@ export function calculateMatchXP(params: {
   if (params.teamWon) xp += 50;               // فوز الفريق
   xp += params.roundsSurvived * 5;            // نجاة لكل جولة
   xp += params.abilityCorrectCount * 10;      // قدرة صحيحة
+  xp -= params.abilityIncorrectCount * 5;     // قدرة خاطئة (عقوبة)
   xp += params.successfulDealsCount * 50;     // اتفاقية ناجحة
+  xp -= params.failedDealsCount * 10;         // اتفاقية فاشلة (عقوبة)
   xp += params.teamEliminationBonus;          // مكافأة إقصاء الخصم
 
-  return xp;
+  return Math.max(0, xp); // لا يمكن أن يكون XP بالسالب
 }
 
 // ── حساب RR المتغير من مباراة واحدة ─────────────────
@@ -72,6 +76,7 @@ export function calculateMatchRR(params: {
   failedDealsCount: number;
   survivedToEnd: boolean;        // نجاة حتى النهاية
   abilityCorrectCount: number;   // عدد القدرات الصحيحة
+  abilityIncorrectCount: number; // عدد القدرات الخاطئة
 }): number {
   let rr = 0;
 
@@ -82,6 +87,7 @@ export function calculateMatchRR(params: {
 
   if (params.survivedToEnd) rr += 5;          // نجاة للنهاية
   rr += params.abilityCorrectCount * 5;       // قدرة صحيحة
+  rr -= params.abilityIncorrectCount * 5;     // قدرة خاطئة (عقوبة)
 
   return rr;
 }
@@ -211,9 +217,10 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     const successfulDealsCount = playerDeals.filter(d => d.success).length;
     const failedDealsCount = playerDeals.filter(d => !d.success).length;
 
-    // القدرات الصحيحة
+    // القدرات الصحيحة والخاطئة
     const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
     const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
+    const abilityIncorrectCount = abilityResults.filter(a => !a.correct).length;
 
     // حساب XP
     const xpEarned = calculateMatchXP({
@@ -221,7 +228,9 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       teamWon,
       roundsSurvived,
       abilityCorrectCount,
+      abilityIncorrectCount,
       successfulDealsCount,
+      failedDealsCount,
       teamEliminationBonus: teamElimBonusMap[p.physicalId] || 0,
     });
 
@@ -232,6 +241,7 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       failedDealsCount,
       survivedToEnd: p.isAlive,
       abilityCorrectCount,
+      abilityIncorrectCount,
     });
 
     // تطبيق التقدم

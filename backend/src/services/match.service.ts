@@ -85,6 +85,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       }
 
       const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
+      const abilityIncorrectCount = abilityResults.filter(a => !a.correct).length;
 
       const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
       const successfulDealsCount = playerDeals.filter(d => d.success).length;
@@ -93,7 +94,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const xpEarned = p.playerId ? calculateMatchXP({
         participated: true, teamWon, roundsSurvived,
         abilityCorrectCount,
+        abilityIncorrectCount,
         successfulDealsCount,
+        failedDealsCount,
         teamEliminationBonus: teamElimBonus,
       }) : 0;
 
@@ -103,6 +106,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         failedDealsCount,
         survivedToEnd: !elimEntry, // نجا إذا لم يُقصى
         abilityCorrectCount,
+        abilityIncorrectCount,
       }) : 0;
 
       return {

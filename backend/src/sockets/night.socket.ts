@@ -498,12 +498,18 @@ export function registerNightEvents(io: Server, socket: Socket) {
         team: targetIsMafia ? 'MAFIA' : 'CITIZEN',
       });
 
-      // نقاط رانك إذا مافيا
+      // نقاط رانك
       if (targetIsMafia) {
         state.performanceTracking.abilityResults.push({
           physicalId: state.policewomanState.policewomanPhysicalId,
           role: 'POLICEWOMAN',
           correct: true,
+        });
+      } else {
+        state.performanceTracking.abilityResults.push({
+          physicalId: state.policewomanState.policewomanPhysicalId,
+          role: 'POLICEWOMAN',
+          correct: false,
         });
       }
 

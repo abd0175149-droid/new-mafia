@@ -447,7 +447,10 @@ export default function PlayerProfilePage(){
         {matchHistory?.length>0&&(
           <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.5}}
             className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
-            <h3 className="text-sm font-bold text-gray-300 mb-3">📜 آخر المباريات</h3>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-bold text-gray-300">📜 آخر المباريات</h3>
+              <Link href="/player/history" className="text-[10px] text-amber-400 border border-amber-400/20 px-2 py-1 rounded-lg hover:bg-amber-400/10 transition">عرض السجل التفصيلي</Link>
+            </div>
             <div className="space-y-1.5">
               {matchHistory.slice(0,8).map((m:any,i:number)=>{
                 const isMafia=MAFIA_ROLES.includes(m.role);

@@ -612,4 +612,40 @@ router.get('/:id/bookings', async (req: Request, res: Response) => {
   }
 });
 
+// ── 🎮 GET /:id/matches — سجل مباريات اللاعب وتفاصيل النقاط ──
+router.get('/:id/matches', async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const playerId = parseInt(req.params.id);
+
+  try {
+    const playerMatches = await db.select({
+      matchId: matches.id,
+      gameName: matches.gameName,
+      matchDate: matches.createdAt,
+      matchWinner: matches.winner,
+      durationSeconds: matches.durationSeconds,
+      role: matchPlayers.role,
+      survivedToEnd: matchPlayers.survivedToEnd,
+      eliminatedDuring: matchPlayers.eliminatedDuring,
+      roundsSurvived: matchPlayers.roundsSurvived,
+      dealInitiated: matchPlayers.dealInitiated,
+      dealSuccess: matchPlayers.dealSuccess,
+      abilityUsed: matchPlayers.abilityUsed,
+      abilityCorrect: matchPlayers.abilityCorrect,
+      xpEarned: matchPlayers.xpEarned,
+      rrChange: matchPlayers.rrChange,
+    })
+      .from(matchPlayers)
+      .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+      .where(eq(matchPlayers.playerId, playerId))
+      .orderBy(desc(matches.createdAt));
+
+    res.json({ success: true, matches: playerMatches });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
