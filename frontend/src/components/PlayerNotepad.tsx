@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+'use client';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export type SuspicionLevel = 'safe' | 'suspect' | 'mafia' | 'none';
@@ -17,14 +18,34 @@ interface PlayerNotepadProps {
   onNotesChange: (notes: Record<number, PlayerNote>) => void;
 }
 
-export default function PlayerNotepad({ roomId, myPhysicalId, players, isOpen, onClose, onNotesChange }: PlayerNotepadProps) {
-  const [notes, setNotes] = useState<Record<number, PlayerNote>>({});
-  const [activeTab, setActiveTab] = useState<'add' | 'view'>('add');
-  const [currentInput, setCurrentInput] = useState('');
-  
+const SUSPICION_CONFIG = {
+  safe:    { label: '🟢 بريء',   cls: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40' },
+  suspect: { label: '🟡 مشتبه',  cls: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40' },
+  mafia:   { label: '🔴 مافيا',  cls: 'bg-red-500/20 text-red-400 border-red-500/40' },
+  none:    { label: '⚪ غير محدد', cls: 'bg-[#222] text-gray-500 border-[#444]' },
+};
+
+export default function PlayerNotepad({
+  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange,
+}: PlayerNotepadProps) {
   const storageKey = `mafia_notes_${roomId}_${myPhysicalId}`;
 
-  // Load notes on mount or open
+  // ── State ──
+  const [notes, setNotes] = useState<Record<number, PlayerNote>>({});
+  const [activeTab, setActiveTab] = useState<'add' | 'view'>('add');
+
+  // حالة كتابة الملاحظة
+  const [noteText, setNoteText] = useState('');
+  const [targetPlayer, setTargetPlayer] = useState<any | null>(null); // اللاعب المربوط
+
+  // @ mention picker
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
+  const [pickerAnchor, setPickerAnchor] = useState(0); // موضع @ في النص
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load notes from localStorage
   useEffect(() => {
     if (isOpen) {
       try {
@@ -34,216 +55,375 @@ export default function PlayerNotepad({ roomId, myPhysicalId, players, isOpen, o
           setNotes(parsed);
           onNotesChange(parsed);
         }
-      } catch (e) {
-        console.error('Failed to load notes', e);
+      } catch {}
+    }
+  }, [isOpen, storageKey]);
+
+  // Filtered players for picker
+  const pickerPlayers = players.filter(p => {
+    if (p.physicalId === myPhysicalId) return false;
+    const q = pickerQuery.toLowerCase();
+    return (
+      !q ||
+      String(p.physicalId).includes(q) ||
+      (p.name || '').toLowerCase().includes(q)
+    );
+  });
+
+  // ── Textarea change handler ──
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const cursor = e.target.selectionStart ?? val.length;
+    setNoteText(val);
+
+    // كشف @ جديدة قبل الـ cursor
+    const textBeforeCursor = val.slice(0, cursor);
+    const atIdx = textBeforeCursor.lastIndexOf('@');
+
+    if (atIdx !== -1) {
+      const afterAt = textBeforeCursor.slice(atIdx + 1);
+      // لا توجد مسافة بعد الـ @
+      if (!afterAt.includes(' ') && !afterAt.includes('\n')) {
+        setPickerAnchor(atIdx);
+        setPickerQuery(afterAt);
+        setShowPicker(true);
+        return;
       }
     }
-  }, [isOpen, roomId, myPhysicalId, storageKey]);
+    setShowPicker(false);
+    setPickerQuery('');
+  };
 
-  const updateNote = (targetPhysicalId: number, appendedText: string, suspicion?: SuspicionLevel) => {
-    setNotes((prev) => {
-      const current = prev[targetPhysicalId] || { text: '', suspicion: 'none' };
-      const newText = appendedText ? (current.text ? current.text + '\n' + appendedText : appendedText) : current.text;
-      const updated = {
-        ...prev,
-        [targetPhysicalId]: {
-          text: newText,
-          suspicion: suspicion !== undefined ? suspicion : current.suspicion,
-        },
-      };
+  // ── اختيار لاعب من الـ picker ──
+  const selectPlayer = (player: any) => {
+    // احذف الـ @ + الكلمة المكتوبة بعدها من النص
+    const before = noteText.slice(0, pickerAnchor);
+    const afterAt = noteText.slice(pickerAnchor + 1 + pickerQuery.length);
+    setNoteText((before + afterAt).trimStart());
+
+    setTargetPlayer(player);
+    setShowPicker(false);
+    setPickerQuery('');
+    // إعادة التركيز على textarea
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  };
+
+  // ── حفظ الملاحظة ──
+  const saveNote = () => {
+    const text = noteText.trim();
+    if (!text && !targetPlayer) return;
+
+    const pid = targetPlayer ? targetPlayer.physicalId : 0;
+
+    setNotes(prev => {
+      const current = prev[pid] || { text: '', suspicion: 'none' };
+      const newText = text
+        ? (current.text ? current.text + '\n' + text : text)
+        : current.text;
+      const updated = { ...prev, [pid]: { ...current, text: newText } };
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+      onNotesChange(updated);
+      return updated;
+    });
+
+    setNoteText('');
+    setTargetPlayer(null);
+  };
+
+  // ── تعديل مستوى الريبة ──
+  const setSuspicion = (pid: number, level: SuspicionLevel) => {
+    setNotes(prev => {
+      const current = prev[pid] || { text: '', suspicion: 'none' };
+      const updated = { ...prev, [pid]: { ...current, suspicion: level === current.suspicion ? 'none' : level } };
       localStorage.setItem(storageKey, JSON.stringify(updated));
       onNotesChange(updated);
       return updated;
     });
   };
 
-  const handleAddNote = () => {
-    if (!currentInput.trim()) return;
-    
-    // Extract @number from text
-    const regex = /@(\d+)/g;
-    const pids = new Set<number>();
-    let m;
-    while ((m = regex.exec(currentInput)) !== null) {
-      const pid = parseInt(m[1]);
-      if (!isNaN(pid)) pids.add(pid);
-    }
-
-    if (pids.size > 0) {
-      // Add note to mentioned players
-      pids.forEach(pid => {
-        updateNote(pid, currentInput.trim());
-      });
-    } else {
-      // Add to general notes (ID: 0)
-      updateNote(0, currentInput.trim());
-    }
-
-    setCurrentInput('');
-    // Optionally switch to view tab
-    // setActiveTab('view');
-  };
-
-  const clearPlayerNoteText = (pid: number) => {
-    setNotes((prev) => {
+  // ── مسح نص ملاحظة ──
+  const clearNoteText = (pid: number) => {
+    setNotes(prev => {
       const updated = { ...prev };
-      if (updated[pid]) {
-        updated[pid] = { ...updated[pid], text: '' };
-      }
+      if (updated[pid]) updated[pid] = { ...updated[pid], text: '' };
+      // إذا لا نص ولا ريبة → احذف المفتاح
+      if (!updated[pid]?.text && updated[pid]?.suspicion === 'none') delete updated[pid];
       localStorage.setItem(storageKey, JSON.stringify(updated));
       onNotesChange(updated);
       return updated;
     });
   };
 
-  const getSuspicionColor = (level: SuspicionLevel) => {
-    switch (level) {
-      case 'safe': return 'bg-green-500 text-white border-green-400';
-      case 'suspect': return 'bg-yellow-500 text-black border-yellow-400';
-      case 'mafia': return 'bg-[#8A0303] text-white border-red-500';
-      default: return 'bg-[#222] text-gray-400 border-[#444]';
-    }
-  };
+  // اللاعبون الذين عندهم ملاحظات
+  const playersWithNotes = players.filter(p => {
+    const n = notes[p.physicalId];
+    return n && (n.text || n.suspicion !== 'none');
+  });
+  const generalNote = notes[0];
+  const hasAnyNotes = playersWithNotes.length > 0 || (generalNote?.text);
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0, y: 100 }}
+          initial={{ opacity: 0, y: '100%' }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 100 }}
-          className="fixed inset-0 z-[100] flex flex-col bg-black/90 backdrop-blur-md"
+          exit={{ opacity: 0, y: '100%' }}
+          transition={{ type: 'spring', damping: 28, stiffness: 350 }}
+          className="fixed inset-0 z-[100] flex flex-col bg-[#080808]"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          {/* Header */}
-          <div className="flex flex-col p-4 bg-[#111] border-b border-[#333] shrink-0">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-[#C5A059] flex items-center gap-2" style={{ fontFamily: 'Amiri, serif' }}>
-                <span>📝</span> مفكرة التحري
-              </h2>
-              <button
-                onClick={onClose}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-[#222] text-white hover:bg-red-500 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-            
-            {/* Tabs */}
-            <div className="flex bg-[#222] rounded-lg p-1 gap-1">
-              <button
-                onClick={() => setActiveTab('add')}
-                className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'add' ? 'bg-[#C5A059] text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
-              >
-                إدخال الملاحظات
-              </button>
-              <button
-                onClick={() => setActiveTab('view')}
-                className={`flex-1 py-2 rounded-md text-sm font-bold transition-colors ${activeTab === 'view' ? 'bg-[#C5A059] text-black shadow-sm' : 'text-gray-400 hover:text-white'}`}
-              >
-                عرض الملاحظات
-              </button>
-            </div>
+          {/* ── Header ── */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#1e1e1e] shrink-0 bg-[#0d0d0d]">
+            <h2 className="text-lg font-black text-[#C5A059] flex items-center gap-2" style={{ fontFamily: 'Amiri, serif' }}>
+              📝 <span>مفكرة التحري</span>
+            </h2>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-[#1a1a1a] text-gray-400 hover:bg-red-500/20 hover:text-red-400 transition-colors text-lg"
+            >
+              ✕
+            </button>
           </div>
 
-          {/* Body */}
-          <div className="flex-1 overflow-y-auto p-4 pb-24">
-            {activeTab === 'add' ? (
-              <div className="flex flex-col gap-4 h-full">
-                <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-4 flex-1 flex flex-col shadow-inner">
-                  <p className="text-gray-400 text-xs mb-3 font-mono leading-relaxed">
-                    💡 يمكنك كتابة ملاحظاتك هنا. إذا أردت ربط الملاحظة بلاعب معين، اكتب <span className="text-[#C5A059] font-bold">@</span> متبوعة برقم اللاعب.
-                    <br/>مثال: <span className="text-white">@3 يبدو مرتبكاً جداً اليوم</span>
+          {/* ── Tabs ── */}
+          <div className="flex gap-1 px-4 pt-3 pb-2 shrink-0">
+            {(['add', 'view'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
+                  activeTab === tab
+                    ? 'bg-[#C5A059] text-black shadow'
+                    : 'bg-[#1a1a1a] text-gray-400 hover:text-white border border-[#2a2a2a]'
+                }`}
+              >
+                {tab === 'add' ? '✏️ إضافة ملاحظة' : `📋 عرض الملاحظات${hasAnyNotes ? ` (${playersWithNotes.length + (generalNote?.text ? 1 : 0)})` : ''}`}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Body ── */}
+          <div className="flex-1 overflow-y-auto px-4 pb-6">
+
+            {/* ══ تبويب الإضافة ══ */}
+            {activeTab === 'add' && (
+              <div className="flex flex-col gap-3">
+
+                {/* ── بطاقة اللاعب المحدد ── */}
+                <div className="bg-[#111] border border-[#222] rounded-2xl p-3">
+                  <p className="text-[10px] text-gray-600 font-mono uppercase tracking-widest mb-2">
+                    الملاحظة مرتبطة بـ
                   </p>
-                  <textarea
-                    placeholder="دوّن ملاحظاتك هنا..."
-                    value={currentInput}
-                    onChange={(e) => setCurrentInput(e.target.value)}
-                    className="flex-1 w-full bg-[#0a0a0a] text-gray-200 text-base p-3 rounded-lg border border-[#333] focus:border-[#C5A059] focus:ring-1 focus:ring-[#C5A059] outline-none resize-none"
-                    dir="auto"
-                  />
+
+                  {targetPlayer ? (
+                    <div className="flex items-center justify-between bg-[#C5A059]/10 border border-[#C5A059]/30 rounded-xl px-3 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-9 h-9 rounded-full bg-[#1a1a1a] border border-[#C5A059]/40 flex items-center justify-center overflow-hidden shrink-0">
+                          {targetPlayer.avatarUrl
+                            ? <img src={targetPlayer.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            : <span className="text-sm font-black text-[#C5A059]">#{targetPlayer.physicalId}</span>
+                          }
+                        </div>
+                        <div>
+                          <p className="text-white font-bold text-sm">{targetPlayer.name || `لاعب #${targetPlayer.physicalId}`}</p>
+                          <p className="text-[#C5A059] text-[10px] font-mono">مقعد #{targetPlayer.physicalId}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setTargetPlayer(null)}
+                        className="text-gray-500 hover:text-red-400 text-sm transition-colors px-2"
+                        title="إلغاء الربط"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-[#0d0d0d] border border-dashed border-[#333] rounded-xl px-3 py-3 text-center">
+                      <p className="text-gray-600 text-xs font-mono">
+                        اكتب <span className="text-[#C5A059] font-bold">@</span> لاختيار لاعب — أو اترك فارغاً للملاحظات العامة
+                      </p>
+                    </div>
+                  )}
                 </div>
+
+                {/* ── حقل الكتابة + picker ── */}
+                <div className="relative">
+                  <textarea
+                    ref={textareaRef}
+                    value={noteText}
+                    onChange={handleTextChange}
+                    placeholder={targetPlayer
+                      ? `ملاحظتك عن ${targetPlayer.name || `لاعب #${targetPlayer.physicalId}`}...`
+                      : 'اكتب ملاحظتك هنا... (اكتب @ لتحديد لاعب)'
+                    }
+                    rows={5}
+                    dir="auto"
+                    className="w-full bg-[#0d0d0d] text-gray-200 text-sm p-4 rounded-2xl border border-[#2a2a2a] focus:border-[#C5A059]/60 focus:ring-1 focus:ring-[#C5A059]/30 outline-none resize-none placeholder-gray-700"
+                  />
+
+                  {/* ── @ Picker Dropdown ── */}
+                  <AnimatePresence>
+                    {showPicker && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        className="absolute bottom-full left-0 right-0 mb-1 bg-[#111] border border-[#C5A059]/40 rounded-2xl overflow-hidden shadow-xl z-10 max-h-52 overflow-y-auto"
+                      >
+                        <p className="text-[9px] text-[#C5A059]/60 font-mono uppercase tracking-widest px-3 pt-2 pb-1">
+                          اختر لاعباً
+                        </p>
+                        {pickerPlayers.length === 0 ? (
+                          <p className="text-gray-600 text-xs text-center py-4">لا يوجد لاعبون مطابقون</p>
+                        ) : (
+                          pickerPlayers.map(player => (
+                            <button
+                              key={player.physicalId}
+                              onMouseDown={e => { e.preventDefault(); selectPlayer(player); }}
+                              className="flex items-center gap-3 w-full px-3 py-2.5 hover:bg-[#C5A059]/10 transition-colors text-right"
+                            >
+                              <div className="w-8 h-8 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center overflow-hidden shrink-0">
+                                {player.avatarUrl
+                                  ? <img src={player.avatarUrl} alt="" className="w-full h-full object-cover" />
+                                  : <span className="text-xs font-black text-[#C5A059]">{player.physicalId}</span>
+                                }
+                              </div>
+                              <div className="flex-1 text-right">
+                                <p className="text-white text-sm font-bold">{player.name || `لاعب`}</p>
+                                <p className="text-[#C5A059] text-[10px] font-mono">مقعد #{player.physicalId}</p>
+                              </div>
+                            </button>
+                          ))
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* ── زر حفظ ── */}
                 <button
-                  onClick={handleAddNote}
-                  disabled={!currentInput.trim()}
-                  className="w-full bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black py-4 rounded-xl shadow-lg disabled:opacity-50 disabled:grayscale transition-all active:scale-[0.98]"
+                  onClick={saveNote}
+                  disabled={!noteText.trim()}
+                  className="w-full py-4 bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black rounded-2xl shadow-lg disabled:opacity-30 disabled:grayscale transition-all active:scale-[0.98] text-base"
                   style={{ fontFamily: 'Amiri, serif' }}
                 >
-                  حفظ الملاحظة
+                  {targetPlayer
+                    ? `💾 حفظ عن ${targetPlayer.name || `لاعب #${targetPlayer.physicalId}`}`
+                    : '💾 حفظ ملاحظة عامة'
+                  }
                 </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* General Notes */}
-                {notes[0] && notes[0].text && (
-                  <div className="bg-[#1a1a1a] p-4 rounded-xl border border-[#333] flex flex-col gap-2 shadow-lg">
-                    <div className="flex justify-between items-center border-b border-[#333] pb-2">
-                      <span className="font-bold text-[#C5A059]">ملاحظات عامة</span>
-                      <button onClick={() => clearPlayerNoteText(0)} className="text-red-400 text-xs hover:text-red-300">مسح</button>
+
+                {/* ── قائمة اللاعبين السريعة للربط ── */}
+                {!targetPlayer && players.filter(p => p.physicalId !== myPhysicalId).length > 0 && (
+                  <div>
+                    <p className="text-[10px] text-gray-600 font-mono uppercase tracking-widest mb-2 px-1">أو اختر لاعباً مباشرة</p>
+                    <div className="flex flex-wrap gap-2">
+                      {players.filter(p => p.physicalId !== myPhysicalId).map(player => (
+                        <button
+                          key={player.physicalId}
+                          onClick={() => setTargetPlayer(player)}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-[#2a2a2a] rounded-full hover:border-[#C5A059]/40 hover:bg-[#C5A059]/5 transition-all"
+                        >
+                          <span className="text-[#C5A059] font-mono text-xs font-bold">#{player.physicalId}</span>
+                          <span className="text-gray-300 text-xs">{player.name || `لاعب`}</span>
+                        </button>
+                      ))}
                     </div>
-                    <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{notes[0].text}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ══ تبويب العرض ══ */}
+            {activeTab === 'view' && (
+              <div className="space-y-3">
+                {/* ملاحظات عامة */}
+                {generalNote?.text && (
+                  <div className="bg-[#111] border border-[#2a2a2a] rounded-2xl p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-[#C5A059] text-sm font-bold">📌 ملاحظات عامة</span>
+                      <button onClick={() => clearNoteText(0)} className="text-red-500/60 hover:text-red-400 text-xs transition-colors">مسح</button>
+                    </div>
+                    <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{generalNote.text}</p>
                   </div>
                 )}
 
-                {/* Player Notes */}
-                {players.map((p) => {
-                  const note = notes[p.physicalId] || { text: '', suspicion: 'none' };
-                  // Show player if they have text OR a suspicion tag
-                  if (!note.text && note.suspicion === 'none') return null;
-
+                {/* ملاحظات اللاعبين */}
+                {playersWithNotes.map(player => {
+                  const note = notes[player.physicalId];
+                  if (!note) return null;
                   return (
-                    <div key={p.physicalId} className="bg-[#1a1a1a] p-4 rounded-xl border border-[#333] flex flex-col gap-3 shadow-lg">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-[#222] border border-[#555] flex items-center justify-center text-sm font-bold text-white overflow-hidden">
-                            {p.avatarUrl ? (
-                              <img src={p.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
-                            ) : (
-                              p.physicalId
-                            )}
-                          </div>
-                          <span className="font-bold text-gray-200">{p.name || `لاعب #${p.physicalId}`}</span>
+                    <div key={player.physicalId} className="bg-[#111] border border-[#2a2a2a] rounded-2xl p-4">
+                      {/* رأس البطاقة */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center overflow-hidden shrink-0">
+                          {player.avatarUrl
+                            ? <img src={player.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            : <span className="text-sm font-black text-[#C5A059]">#{player.physicalId}</span>
+                          }
                         </div>
-
-                        {/* Suspicion Buttons */}
-                        <div className="flex gap-1">
-                          {(['safe', 'suspect', 'mafia'] as SuspicionLevel[]).map((level) => {
-                            const isActive = note.suspicion === level;
-                            return (
-                              <button
-                                key={level}
-                                onClick={() => updateNote(p.physicalId, '', isActive ? 'none' : level)}
-                                className={`px-2 py-1 text-[10px] rounded-md font-bold transition-all border ${
-                                  isActive ? getSuspicionColor(level) : 'bg-[#222] text-gray-400 border-[#444] opacity-50 hover:opacity-100'
-                                }`}
-                              >
-                                {level === 'safe' ? '🟢' : level === 'suspect' ? '🟡' : '🔴'}
-                              </button>
-                            );
-                          })}
+                        <div className="flex-1">
+                          <p className="text-white font-bold text-sm">{player.name || `لاعب #${player.physicalId}`}</p>
+                          <p className="text-[#C5A059] text-[10px] font-mono">مقعد #{player.physicalId}</p>
                         </div>
+                        <button
+                          onClick={() => clearNoteText(player.physicalId)}
+                          className="text-red-500/50 hover:text-red-400 text-xs transition-colors"
+                          title="مسح النص"
+                        >
+                          🗑️
+                        </button>
                       </div>
 
-                      {note.text && (
-                        <div className="bg-[#0a0a0a] p-3 rounded-lg border border-[#222] relative group">
-                          <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed pr-6">{note.text}</p>
-                          <button 
-                            onClick={() => clearPlayerNoteText(p.physicalId)} 
-                            className="absolute top-2 right-2 text-red-500 opacity-50 hover:opacity-100 p-1"
-                            title="مسح الملاحظات المكتوبة"
-                          >
-                            🗑️
-                          </button>
+                      {/* أزرار الريبة */}
+                      <div className="flex gap-1.5 mb-3">
+                        {(['safe', 'suspect', 'mafia'] as SuspicionLevel[]).map(level => {
+                          const cfg = SUSPICION_CONFIG[level];
+                          const isActive = note.suspicion === level;
+                          return (
+                            <button
+                              key={level}
+                              onClick={() => setSuspicion(player.physicalId, level)}
+                              className={`flex-1 py-1.5 text-[11px] rounded-lg font-bold transition-all border ${
+                                isActive ? cfg.cls : 'bg-[#0d0d0d] text-gray-600 border-[#1e1e1e] hover:border-[#333]'
+                              }`}
+                            >
+                              {cfg.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* نص الملاحظة */}
+                      {note.text ? (
+                        <div className="bg-[#0a0a0a] border border-[#1e1e1e] rounded-xl p-3">
+                          <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">{note.text}</p>
                         </div>
+                      ) : (
+                        <p className="text-gray-700 text-xs text-center py-1">لا يوجد نص — فقط تصنيف</p>
                       )}
+
+                      {/* إضافة ملاحظة إضافية */}
+                      <button
+                        onClick={() => {
+                          setTargetPlayer(player);
+                          setActiveTab('add');
+                        }}
+                        className="mt-2 w-full text-[11px] text-[#C5A059]/60 hover:text-[#C5A059] transition-colors font-mono"
+                      >
+                        + إضافة ملاحظة
+                      </button>
                     </div>
                   );
                 })}
 
-                {/* Empty State */}
-                {Object.keys(notes).length === 0 && (
-                  <div className="text-center py-10 opacity-50">
-                    <div className="text-4xl mb-3">📭</div>
-                    <p className="text-gray-300 text-sm">لا توجد ملاحظات مسجلة بعد.</p>
+                {/* حالة فارغة */}
+                {!hasAnyNotes && (
+                  <div className="text-center py-16 opacity-40">
+                    <div className="text-5xl mb-3">📭</div>
+                    <p className="text-gray-400 text-sm">لا توجد ملاحظات مسجّلة بعد</p>
+                    <p className="text-gray-600 text-xs mt-1">انتقل لتبويب "إضافة ملاحظة" للبدء</p>
                   </div>
                 )}
               </div>

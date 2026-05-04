@@ -2607,15 +2607,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         team={mafiaTeam}
       />
 
-      {/* Player Notepad FAB */}
+      {/* Player Notepad FAB — فوق البوتوم بار */}
       {(step === 'done' || step === 'rejoined') && (
         <button
           onClick={() => setIsNotepadOpen(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 bg-[#111] border-2 border-[#C5A059] text-2xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(197,160,89,0.3)] z-[90] hover:scale-105 transition-transform"
+          className="fixed bottom-[88px] right-4 w-12 h-12 bg-[#111] border-2 border-[#C5A059] text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(197,160,89,0.3)] z-[90] hover:scale-105 transition-transform"
+          title="مفكرة التحري"
         >
           📝
         </button>
       )}
+
 
       {/* Player Notepad Modal */}
       <PlayerNotepad
