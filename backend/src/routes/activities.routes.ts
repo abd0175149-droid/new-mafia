@@ -343,7 +343,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
 
   const result = await db.insert(activities).values({
@@ -389,24 +389,16 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     }
   }
 
-  // Notify admins
-  const admins = await db.select({ id: staff.id }).from(staff).where(eq(staff.role, 'admin'));
-  for (const admin of admins) {
-    if (admin.id !== req.user!.id) {
-      await db.insert(notifications).values({
-        userId: admin.id,
-        title: 'نشاط جديد',
-        message: `تم جدولة نشاط جديد: ${name}`,
-        type: 'new_activity',
-        targetId: `activity-${activity.id}`,
-      } as any);
-    }
-  }
-
   res.status(201).json(activity);
 
   // 🔔 Push للاعبين (نشاط جديد) + الموظفين
   import('../services/fcm.service.js').then(async ({ sendPushToAllPlayers, sendPushToPlayers, sendPushToStaffByPermission }) => {
+    // هل طلب المشرف إرسال إشعار؟ (القيمة الافتراضية true)
+    if (sendNotification === false) {
+      console.log(`🔕 Activity #${activity.id}: player push SKIPPED (admin disabled notification)`);
+      return;
+    }
+
     // فحص إذا النشاط مرتبط بموقع اختباري
     let isTestActivity = false;
     if (locationId) {
@@ -419,7 +411,6 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     }
 
     if (isTestActivity) {
-      // إرسال فقط لحسابات الاختبار
       const { players } = await import('../schemas/player.schema.js');
       const testPlayers = await db.select({ id: players.id }).from(players)
         .where(eq(players.isTestAccount, true));

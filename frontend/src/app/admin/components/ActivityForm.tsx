@@ -24,6 +24,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [maxCapacity, setMaxCapacity] = useState('20');
   const [difficulty, setDifficulty] = useState('medium');
   const [submitting, setSubmitting] = useState(false);
+  const [sendNotification, setSendNotification] = useState(true);
 
   // عروض المكان المختار
   const selectedLocation = locations.find(l => l.id === Number(locationId));
@@ -92,7 +93,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         status: 'planned',
         maxCapacity: Number(maxCapacity) || 20,
         difficulty,
-        driveLink
+        driveLink,
+        sendNotification,
       });
     } finally {
       setSubmitting(false);
@@ -245,6 +247,38 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
             اسم النشاط: <strong className="text-amber-400">{generateName() || '—'}</strong>
           </div>
         )}
+
+        {/* ── خيار إرسال الإشعار ── */}
+        <div
+          onClick={() => setSendNotification(v => !v)}
+          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${
+            sendNotification
+              ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/15'
+              : 'bg-gray-900/40 border-gray-700/30 hover:border-gray-600/50'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{sendNotification ? '🔔' : '🔕'}</span>
+            <div>
+              <p className="text-sm font-medium text-white">
+                {sendNotification ? 'إرسال إشعار للاعبين' : 'بدون إشعار للاعبين'}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {sendNotification
+                  ? 'سيتلقى جميع اللاعبين إشعار Push بهذا النشاط الجديد'
+                  : 'لن يُرسل أي إشعار — مناسب للاختبار أو الأنشطة الخاصة'}
+              </p>
+            </div>
+          </div>
+          {/* Toggle Switch */}
+          <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+            sendNotification ? 'bg-amber-500' : 'bg-gray-600'
+          }`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+              sendNotification ? 'translate-x-5' : 'translate-x-0.5'
+            }`} />
+          </div>
+        </div>
 
         {/* أزرار */}
         <div className="flex items-center gap-3 pt-2">
