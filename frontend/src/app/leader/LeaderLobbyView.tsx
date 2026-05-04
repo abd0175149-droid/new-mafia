@@ -577,19 +577,49 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
       {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة) ── */}
       {gameState.players.length === gameState.config.maxPlayers && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mt-16">
-          <button
-            onClick={async () => {
-              try {
-                await emit('room:start-generation', { roomId: gameState.roomId });
-              } catch (err: any) {
-                setError(err.message);
-              }
-            }}
-            className="btn-premium px-16 py-6 !text-lg !border-[#C5A059]/50 animate-pulse relative group"
-          >
-            <div className="absolute inset-0 bg-[#C5A059]/10 rounded-xl blur-xl group-hover:bg-[#C5A059]/20 transition-all opacity-50" />
-            <span className="relative z-10">START ROLE GENERATION</span>
-          </button>
+          <div className="flex flex-col items-center justify-center gap-6">
+            
+            {/* Night Mode Toggle */}
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">NIGHT PHASE MODE</span>
+              <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-64 mx-auto">
+                <button
+                  onClick={() => emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' })}
+                  className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                    (gameState.config as any).nightMode !== 'auto'
+                      ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
+                      : 'text-[#666] hover:text-[#aaa]'
+                  }`}
+                >
+                  MANUAL
+                </button>
+                <button
+                  onClick={() => emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto' })}
+                  className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                    (gameState.config as any).nightMode === 'auto'
+                      ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
+                      : 'text-[#666] hover:text-[#aaa]'
+                  }`}
+                >
+                  AUTO
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={async () => {
+                try {
+                  await emit('room:start-generation', { roomId: gameState.roomId });
+                } catch (err: any) {
+                  setError(err.message);
+                }
+              }}
+              className="btn-premium px-16 py-6 !text-lg !border-[#C5A059]/50 animate-pulse relative group"
+            >
+              <div className="absolute inset-0 bg-[#C5A059]/10 rounded-xl blur-xl group-hover:bg-[#C5A059]/20 transition-all opacity-50" />
+              <span className="relative z-10">START ROLE GENERATION</span>
+            </button>
+          </div>
         </motion.div>
       )}
     </div>

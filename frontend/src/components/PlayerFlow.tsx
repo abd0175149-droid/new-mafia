@@ -2119,23 +2119,6 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     )}
                   </AnimatePresence>
 
-                  {/* ── عرض زر زملاء المافيا عند قلب الكارد ── */}
-                  {cardFlipped && mafiaTeam.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.5, duration: 0.4 }}
-                      className="mt-4 flex flex-col items-center"
-                    >
-                      <button
-                        onClick={() => setIsGalleryOpen(true)}
-                        className="flex items-center gap-2 bg-[#8A0303]/20 hover:bg-[#8A0303]/40 text-[#8A0303] border border-[#8A0303]/50 px-4 py-2 rounded-full font-bold transition-colors"
-                      >
-                        <Users className="w-5 h-5" />
-                        عرض شركاء المافيا
-                      </button>
-                    </motion.div>
-                  )}
                 </motion.div>
               )}
 
@@ -2411,23 +2394,6 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     )}
                   </AnimatePresence>
 
-                  {/* ── عرض زملاء المافيا عند قلب الكارد (rejoined) ── */}
-                  {cardFlipped && mafiaTeam.length > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.5, duration: 0.4 }}
-                      className="mt-4 flex flex-col items-center"
-                    >
-                      <button
-                        onClick={() => setIsGalleryOpen(true)}
-                        className="flex items-center gap-2 bg-[#8A0303]/20 hover:bg-[#8A0303]/40 text-[#8A0303] border border-[#8A0303]/50 px-4 py-2 rounded-full font-bold transition-colors"
-                      >
-                        <Users className="w-5 h-5" />
-                        عرض شركاء المافيا
-                      </button>
-                    </motion.div>
-                  )}
                 </>
               ) : (
                 /* ── حالة حي بدون دور (في الانتظار) ── */
@@ -2529,8 +2495,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               >
                 🎴
               </motion.div>
-
-              {/* النص الرئيسي */}
+                          {/* النص الرئيسي */}
               <h3
                 className="text-[#C5A059] text-xl font-black text-center mb-1"
                 style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(197,160,89,0.5)' }}
@@ -2656,6 +2621,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         onClose={() => setIsGalleryOpen(false)}
         team={mafiaTeam}
       />
+
+      {/* ── زر شركاء المافيا العائم (متاح دائماً للاعب المافيا) ── */}
+      {mafiaTeam.length > 0 && gamePhase !== 'GAME_OVER' && (
+        <button
+          onClick={() => setIsGalleryOpen(true)}
+          className="fixed bottom-[110px] left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
+          title="عرض شركاء المافيا"
+        >
+          <Users className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Player Notepad FAB — فوق البوتوم بار */}
       {(step === 'done' || step === 'rejoined') && (
