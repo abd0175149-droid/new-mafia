@@ -129,10 +129,10 @@ export default function RankPage() {
             {(p.name || '').length > 16 ? p.name.slice(0, 16) + '…' : p.name} {me && '(أنت)'}
           </p>
           <p className="text-gray-500 text-[10px]">
-            {RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]} • {p.totalMatches || 0} مباراة • {p.totalWins || 0} فوز
+            {p.totalMatches || 0} مباراة • {p.totalWins || 0} فوز
           </p>
         </div>
-        <span className="text-gray-400 text-xs w-12 text-center tabular-nums">Lv.{p.level}</span>
+        <span className="text-gray-300 text-[10px] w-16 text-center truncate">{RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]}</span>
         <span className="text-amber-400 text-xs font-bold w-10 text-center tabular-nums">{p.rankRR}</span>
         {!me && isCoPlayer(p.id) && (
           <button
@@ -200,8 +200,8 @@ export default function RankPage() {
                 <div className="text-gray-500 text-[9px]">نسبة فوز</div>
               </div>
               <div className="flex-1 bg-white/5 rounded-lg py-1.5">
-                <div className="text-blue-400 text-sm font-bold">Lv.{prog.level}</div>
-                <div className="text-gray-500 text-[9px]">المستوى</div>
+                <div className="text-blue-400 text-sm font-bold">{prog.rankTier}</div>
+                <div className="text-gray-500 text-[9px]">الرانك</div>
               </div>
             </div>
           )}
@@ -277,7 +277,7 @@ export default function RankPage() {
             <div className="flex items-center gap-3 px-3 mb-1">
               <span className="w-6" /><span className="w-8" />
               <span className="flex-1 text-[9px] text-gray-600">اللاعب</span>
-              <span className="text-[9px] text-gray-600 w-12 text-center">المستوى</span>
+              <span className="text-[9px] text-gray-600 w-16 text-center">الرتبة</span>
               <span className="text-[9px] text-gray-600 w-10 text-center">RR</span>
             </div>
             <div className="space-y-1.5">
@@ -307,7 +307,7 @@ export default function RankPage() {
                 <div className="flex-1">
                   <p className="text-white text-xs font-medium">{p.name}</p>
                   <p className="text-gray-500 text-[10px]">
-                    {RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]} • Lv.{p.level} • {p.matchCount} مباراة مشتركة
+                    {RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]} • {p.matchCount} مباراة مشتركة
                   </p>
                 </div>
                 <button
@@ -365,7 +365,6 @@ export default function RankPage() {
                   <h3 className="text-white font-bold">{selectedProfile.player?.name}</h3>
                   <p className="text-gray-500 text-xs">
                     {RANK_BADGES[selectedProfile.progression?.rankTier]} {RANK_NAMES_AR[selectedProfile.progression?.rankTier]}
-                    {' • '}Lv.{selectedProfile.progression?.level}
                   </p>
                 </div>
                 {selectedPlayer && selectedPlayer !== player?.playerId && isCoPlayer(selectedPlayer) && (
