@@ -422,23 +422,23 @@ function GamesContent() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 z-[100] flex items-end justify-center"
+            className="fixed top-0 left-0 right-0 bottom-20 z-40 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4"
             onClick={() => setSelectedActivity(null)}
             {...activityModal.backdropProps}
           >
             <motion.div
-              initial={{ y: 300 }}
+              initial={{ y: '100%' }}
               animate={{ y: 0 }}
-              exit={{ y: 300 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full max-w-lg rounded-t-3xl p-6 max-h-[80vh] overflow-y-auto"
-              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.08)', ...activityModal.modalProps.style }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-6 max-h-[80vh] overflow-y-auto"
+              style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)', ...activityModal.modalProps.style }}
               onClick={e => e.stopPropagation()}
               ref={activityModal.modalContentRef}
               onTouchStart={activityModal.handleTouchStart}
               onTouchEnd={activityModal.handleTouchEnd}
             >
-              <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
+              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
               <h3 className="text-white text-lg font-bold mb-1">{selectedActivity.name}</h3>
 
               {selectedActivity.description && (
@@ -482,17 +482,22 @@ function GamesContent() {
                 const offers: any[] = Array.isArray(selectedActivity.locationOffers) ? selectedActivity.locationOffers : [];
                 if (offers.length === 0) return null;
                 return (
-                  <div className="mb-4">
-                    <p className="text-gray-400 text-xs mb-2">🎁 العروض المتاحة:</p>
-                    <div className="space-y-1.5">
+                  <div className="mb-5">
+                    <p className="text-gray-400 text-xs mb-3 font-bold">🎁 العروض المتاحة (سيطلب تحديدها عند الحجز):</p>
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
                       {offers.map((offer: any, idx: number) => (
                         <div
                           key={idx}
-                          className="p-2.5 rounded-xl text-xs bg-white/5 border border-white/5 text-gray-300"
+                          className="shrink-0 w-48 p-4 rounded-2xl bg-gradient-to-br from-white/5 to-white/[0.02] border border-white/10 snap-start relative overflow-hidden"
                         >
-                          <span className="text-amber-400">{offer.name || offer.title || `عرض ${idx + 1}`}</span>
-                          {offer.price && <span className="text-gray-500 mr-2"> • {offer.price} ₪</span>}
-                          {offer.description && <p className="text-gray-500 text-[10px] mt-0.5">{offer.description}</p>}
+                          <div className="absolute -top-6 -right-6 w-16 h-16 bg-amber-500/10 blur-xl rounded-full" />
+                          <h4 className="text-amber-400 text-sm font-bold mb-1 relative z-10">{offer.name || offer.title || `عرض ${idx + 1}`}</h4>
+                          {offer.price && (
+                            <div className="inline-block px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-bold mb-2 relative z-10">
+                              {offer.price} ₪
+                            </div>
+                          )}
+                          {offer.description && <p className="text-gray-400 text-[10px] leading-relaxed relative z-10">{offer.description}</p>}
                         </div>
                       ))}
                     </div>
@@ -537,18 +542,20 @@ function GamesContent() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center px-4"
+            className="fixed top-0 left-0 right-0 bottom-20 z-40 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4"
             onClick={() => { setConfirmBooking(null); setSelectedOffer(null); }}
             {...bookingModal.backdropProps}
           >
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm rounded-2xl p-6"
-              style={{ background: '#111', border: '1px solid rgba(255,255,255,0.1)' }}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-w-sm rounded-t-3xl sm:rounded-2xl p-6"
+              style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)' }}
               onClick={e => e.stopPropagation()}
             >
+              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
               <h3 className="text-white text-lg font-bold mb-1 text-center">تأكيد الحجز</h3>
               <p className="text-gray-400 text-sm text-center mb-4">{confirmBooking.name}</p>
 
@@ -566,29 +573,41 @@ function GamesContent() {
                 const offers: any[] = Array.isArray(confirmBooking.locationOffers) ? confirmBooking.locationOffers : [];
                 if (offers.length === 0) return null;
                 return (
-                  <div className="mb-4">
-                    <p className="text-gray-400 text-xs mb-2">🎁 اختر عرض <span className="text-red-400">*</span>:</p>
-                    <div className="space-y-1.5">
-                      {offers.map((offer: any, idx: number) => (
-                        <button
-                          key={idx}
-                          onClick={() => {
-                            setSelectedOffer(selectedOffer === idx ? null : idx);
-                            setOfferError(false);
-                          }}
-                          className={`w-full text-right p-2.5 rounded-xl text-xs transition-all ${
-                            selectedOffer === idx
-                              ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
-                              : 'bg-white/5 border border-white/5 text-gray-400'
-                          }`}
-                        >
-                          {offer.name || offer.title || `عرض ${idx + 1}`}
-                          {offer.price && <span className="text-gray-500 mr-2">• {offer.price} ₪</span>}
-                        </button>
-                      ))}
-                  </div>
+                  <div className="mb-6">
+                    <p className="text-gray-400 text-xs mb-3 font-bold">🎁 اختر العرض المناسب لك <span className="text-red-400">*</span>:</p>
+                    <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-1">
+                      {offers.map((offer: any, idx: number) => {
+                        const isSelected = selectedOffer === idx;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              setSelectedOffer(isSelected ? null : idx);
+                              setOfferError(false);
+                            }}
+                            className={`w-full text-right p-3 rounded-2xl border transition-all flex items-center justify-between ${
+                              isSelected
+                                ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                                : 'bg-white/5 border-white/10 hover:bg-white/10'
+                            }`}
+                          >
+                            <div>
+                              <p className={`text-sm font-bold ${isSelected ? 'text-amber-400' : 'text-gray-300'}`}>
+                                {offer.name || offer.title || `عرض ${idx + 1}`}
+                              </p>
+                              {offer.price && <p className="text-amber-500/80 text-[10px] mt-1">{offer.price} ₪</p>}
+                            </div>
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                              isSelected ? 'border-amber-500 bg-amber-500/20' : 'border-gray-600 bg-black/50'
+                            }`}>
+                              {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
                     {offerError && (
-                      <p className="text-red-400 text-[10px] text-center mt-1 animate-pulse">⚠️ يرجى اختيار عرض قبل تأكيد الحجز</p>
+                      <p className="text-red-400 text-xs text-center mt-3 font-bold animate-pulse">⚠️ يرجى اختيار عرض قبل تأكيد الحجز</p>
                     )}
                   </div>
                 );

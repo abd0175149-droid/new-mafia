@@ -66,6 +66,17 @@ export default function MatchHistoryPage() {
       .finally(() => setLoading(false));
   }, [getAuthHeaders]);
 
+  useEffect(() => {
+    if (selectedMatch) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedMatch]);
+
   if (loading) return (
     <div className="min-h-screen bg-black flex items-center justify-center">
       <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}>
@@ -154,17 +165,18 @@ export default function MatchHistoryPage() {
         {selectedMatch && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
+            className="fixed top-0 left-0 right-0 bottom-20 z-40 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4"
             onClick={() => setSelectedMatch(null)}
           >
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="bg-gray-900 border border-white/10 rounded-t-3xl sm:rounded-2xl max-w-md w-full p-6 space-y-6"
+              className="bg-gradient-to-b from-gray-900 to-black border-t border-white/10 sm:border rounded-t-3xl sm:rounded-2xl w-full max-w-md p-6 space-y-6 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
               onClick={e => e.stopPropagation()} dir="rtl"
             >
-              <div className="flex justify-between items-center mb-2">
+              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-2" />
+              <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-black text-white">تفاصيل النقاط</h2>
-                <button onClick={() => setSelectedMatch(null)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-400 hover:text-white flex items-center justify-center">✕</button>
+                <button onClick={() => setSelectedMatch(null)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-colors">✕</button>
               </div>
 
               {/* Roles & Match Basic */}
@@ -213,21 +225,24 @@ export default function MatchHistoryPage() {
               </div>
 
               {/* Total Rewards */}
-              <div className="bg-gradient-to-r from-amber-500/10 to-amber-600/5 border border-amber-500/20 rounded-xl p-4 flex justify-around">
-                <div className="text-center">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Total XP</p>
-                  <p className="text-2xl font-black text-amber-400">+{selectedMatch.xpEarned}</p>
+              <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 rounded-2xl p-5 flex justify-around items-center relative overflow-hidden">
+                {/* Glow effect inside reward box */}
+                <div className="absolute inset-0 bg-amber-500/5 blur-xl rounded-full" />
+                
+                <div className="text-center relative z-10">
+                  <p className="text-[10px] text-amber-500/70 uppercase tracking-widest mb-1 font-bold">Total XP</p>
+                  <p className="text-3xl font-black text-amber-400 drop-shadow-md">+{selectedMatch.xpEarned}</p>
                 </div>
-                <div className="w-px bg-amber-500/20" />
-                <div className="text-center">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Total RR</p>
-                  <p className={`text-2xl font-black ${selectedMatch.rrChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                <div className="w-px h-12 bg-gradient-to-b from-transparent via-amber-500/30 to-transparent relative z-10" />
+                <div className="text-center relative z-10">
+                  <p className="text-[10px] text-amber-500/70 uppercase tracking-widest mb-1 font-bold">Total RR</p>
+                  <p className={`text-3xl font-black drop-shadow-md ${selectedMatch.rrChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {selectedMatch.rrChange >= 0 ? '+' : ''}{selectedMatch.rrChange}
                   </p>
                 </div>
               </div>
               
-              <button onClick={() => setSelectedMatch(null)} className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-bold transition">
+              <button onClick={() => setSelectedMatch(null)} className="w-full py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 text-white font-bold transition-all active:scale-[0.98]">
                 إغلاق
               </button>
             </motion.div>
