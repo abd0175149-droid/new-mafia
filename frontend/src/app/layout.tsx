@@ -72,8 +72,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     newWorker.addEventListener('statechange', function() {
                       // SW الجديد جاهز + يوجد SW قديم نشط → تحديث!
                       if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
-                        console.log('🔄 PWA: New version detected — reloading...');
-                        window.location.reload();
+                        console.log('🔄 PWA: New version detected — please reload manually.');
+                        // window.location.reload(); // تم الإيقاف لمنع الـ Infinite Loop
                       }
                     });
                   });
@@ -86,8 +86,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 navigator.serviceWorker.addEventListener('controllerchange', function() {
                   if (refreshing) return;
                   refreshing = true;
-                  console.log('🔄 PWA: Controller changed — reloading...');
-                  window.location.reload();
+                  console.log('🔄 PWA: Controller changed — please reload manually.');
+                  // window.location.reload(); // تم الإيقاف لمنع الـ Infinite Loop
                 });
               });
             }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import ActivityCard from '../components/ActivityCard';
 import ActivityForm from '../components/ActivityForm';
@@ -55,6 +56,7 @@ export default function ActivitiesPage() {
   const [locations, setLocations] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   // Forms
   const [showActivityForm, setShowActivityForm] = useState(false);
@@ -337,8 +339,7 @@ export default function ActivitiesPage() {
               userRole={user.role}
               onStatusChange={(newStatus) => handleStatusChange(activity.id, newStatus)}
               onSelect={() => {
-                // TODO: navigate to detail page or show inline
-                window.location.href = `/admin/activities/${activity.id}`;
+                router.push(`/admin/activities/${activity.id}`);
               }}
               onEdit={() => setShowEditForm(activity)}
               onDelete={() => handleDelete(activity.id)}
