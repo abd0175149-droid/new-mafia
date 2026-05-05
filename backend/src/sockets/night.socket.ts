@@ -141,6 +141,65 @@ async function resolveAutoNight(io: Server, roomId: string) {
   console.log(`✅ Auto night resolved for room ${roomId}`);
 }
 
+// ── تشغيل خطوة واحدة في طابور الليل (Auto Mode) ──
+async function startAutoQueueStep(io: Server, roomId: string, currentIndex: number) {
+  const state = await getGameState(roomId);
+  if (!state) return;
+
+  const nextStep = getNextQueueStep(state, currentIndex);
+  if (!nextStep) {
+    // انتهى الطابور → معالجة الليل
+    await resolveAutoNight(io, roomId);
+    return;
+  }
+
+  // 1. إعادة ضبط الإرسالات للخطوة الحالية وحفظ الدور الفاعل
+  state.playerNightActions = { submitted: {} };
+  state.autoNightStepRole = nextStep.role;
+  state.autoNightPerformerId = nextStep.performerPhysicalId;
+  await setGameState(roomId, state);
+
+  const alivePlayers = state.players.filter((p: any) => p.isAlive);
+  
+  // 2. نوع الحدث الذي يظهر لجميع اللاعبين كتمويه هو نفس نوع الإجراء للدور الفاعل
+  const stepActionType = getAutoActionType(nextStep.role);
+
+  for (const player of alivePlayers) {
+    const playerSock = findPlayerSocket(io, roomId, player.physicalId);
+    if (playerSock) {
+      playerSock.emit('night:action-required', {
+        actionType: stepActionType,
+        availableTargets: nextStep.availableTargets,
+        timeoutSeconds: 15, // إعطاء 15 ثانية لكل دور
+        canSkip: nextStep.canSkip,
+        stepRole: nextStep.role,
+      });
+    }
+  }
+
+  // إلغاء التايمر القديم إن وجد
+  const oldTimer = autoNightTimers.get(roomId);
+  if (oldTimer) clearTimeout(oldTimer);
+
+  // 3. مؤقت للخطوة الحالية
+  const timerId = setTimeout(async () => {
+    console.log(`⏰ Auto step ${nextStep.role} timeout in room ${roomId}`);
+    // الانتقال للخطوة التالية
+    const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
+    const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
+    startAutoQueueStep(io, roomId, newIndex);
+  }, 15_000);
+
+  autoNightTimers.set(roomId, timerId as any);
+
+  // إعلام الليدر بانطلاق الخطوة
+  const leaderSock = findLeaderSocket(io, roomId);
+  leaderSock?.emit('night:auto-step-started', {
+    roleName: nextStep.roleName,
+    timeoutSeconds: 15,
+  });
+}
+
 export function registerNightEvents(io: Server, socket: Socket) {
 
   // ── بدء مرحلة الليل ──────────────────────────
@@ -176,54 +235,19 @@ export function registerNightEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.NIGHT);
         state.phase = Phase.NIGHT;
         state.round += 1;
-        // تصفير submitted
-        state.playerNightActions = { submitted: {} };
         await setGameState(data.roomId, state);
 
         io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
         io.to(data.roomId).emit('display:night-started');
 
-        // ── إرسال night:action-required لكل لاعب حي ──
+        // إعلام الليدر لبداية الليل
         const alivePlayers = state.players.filter((p: any) => p.isAlive);
-        for (const player of alivePlayers) {
-          const actionType = getAutoActionType(player.role as Role);
-          const availableTargets = getAutoTargets(state, player.role as Role, player.physicalId);
-          const canSkip = actionType === 'SILENCE' || actionType === 'SNIPE' || actionType === 'DECOY';
-
-          const playerSock = findPlayerSocket(io, data.roomId, player.physicalId);
-          if (playerSock) {
-            playerSock.emit('night:action-required', {
-              actionType,
-              availableTargets: availableTargets.map((id: number) => {
-                const p = state.players.find((pl: any) => pl.physicalId === id);
-                return { physicalId: id, name: p?.name || '' };
-              }),
-              timeoutSeconds: 60,
-              canSkip,
-            });
-          }
-        }
-
-        // ── Timer 60 ثانية ──
-        const timerId = setTimeout(async () => {
-          try {
-            const currentState = await getGameState(data.roomId);
-            if (!currentState || currentState.phase !== Phase.NIGHT) return;
-            console.log(`⏰ Night auto timeout fired for room ${data.roomId}`);
-            await resolveAutoNight(io, data.roomId);
-          } catch (err) {
-            console.error('Auto night timer error:', err);
-          }
-        }, 60_000);
-
-        // حفظ مرجع الـ timer (لا يُخزَّن في Redis — في الذاكرة فقط)
-        autoNightTimers.set(data.roomId, timerId as any);
-
-        // إعلام الليدر بعدد الأحياء
         socket.emit('night:auto-started', {
           totalAlive: alivePlayers.length,
-          timeoutSeconds: 60,
         });
+
+        // ── بدء طابور الخطوات خطوة بخطوة ──
+        startAutoQueueStep(io, data.roomId, -1);
 
         return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
       }
@@ -869,39 +893,33 @@ export function registerNightEvents(io: Server, socket: Socket) {
         return callback?.({ success: false, error: 'Already submitted' });
       }
 
-      // تحقق: هل actionType يطابق دور اللاعب الفعلي؟
-      const expectedActionType = getAutoActionType(player.role as Role);
-      const isRoleOwner = data.actionType === expectedActionType;
+      // تحقق: هل اللاعب هو صاحب الدور الفعلي لهذه الخطوة؟
+      const stepRole = state.autoNightStepRole;
+      if (!stepRole) return callback?.({ success: false, error: 'No active step' });
+
+      const isRoleOwner = physicalId === state.autoNightPerformerId;
 
       // تسجيل submitted
       state.playerNightActions.submitted[physicalId] = true;
 
       if (isRoleOwner && data.targetPhysicalId !== null) {
         // ── صاحب الدور الفعلي — تسجيل في nightActions ──
-        switch (player.role) {
+        switch (stepRole) {
           case Role.GODFATHER:
           case Role.CHAMELEON:
           case Role.MAFIA_REGULAR:
-            // وراثة: يُقبل فقط إذا كان أول حي في سلسلة الوراثة
-            const heir = ASSASSINATION_INHERITANCE.find(
-              (r: Role) => state.players.find((p: any) => p.role === r && p.isAlive)
-            );
-            if (player.role === heir) {
-              state.nightActions.godfatherTarget = data.targetPhysicalId;
-            }
+            state.nightActions.godfatherTarget = data.targetPhysicalId;
             break;
           case Role.SILENCER:
             state.nightActions.silencerTarget = data.targetPhysicalId;
             break;
           case Role.SHERIFF: {
             state.nightActions.sheriffTarget = data.targetPhysicalId;
-            // حساب النتيجة وإرسالها للشريف مباشرة
             const investigated = state.players.find((p: any) => p.physicalId === data.targetPhysicalId);
             let sheriffResult = 'CITIZEN';
             if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
             else if (investigated?.role && isMafiaRole(investigated.role as Role)) sheriffResult = 'MAFIA';
             state.nightActions.sheriffResult = sheriffResult;
-            // إرسال النتيجة لجهاز الشريف فقط
             socket.emit('night:sheriff-result', {
               result: sheriffResult,
               targetPhysicalId: data.targetPhysicalId,
@@ -920,7 +938,6 @@ export function registerNightEvents(io: Server, socket: Socket) {
             break;
         }
       }
-      // DECOY أو صاحب الدور اختار skip: يُسجَّل submitted فقط — nightActions لا يتغير
 
       await setGameState(data.roomId, state);
 
@@ -935,10 +952,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       callback?.({ success: true });
 
-      // إذا أرسل الجميع → حل فوري بدون انتظار الـ timeout
+      // إذا أرسل الجميع → انتقل للخطوة التالية مباشرة بدون انتظار الـ timeout
       if (submittedCount >= alivePlayers.length) {
-        console.log(`✅ All players submitted in room ${data.roomId} — resolving early`);
-        await resolveAutoNight(io, data.roomId);
+        console.log(`✅ All players submitted for step ${stepRole} in room ${data.roomId} — proceeding early`);
+        const oldTimer = autoNightTimers.get(data.roomId);
+        if (oldTimer) clearTimeout(oldTimer);
+        const effectiveRole = stepRole === Role.NURSE ? Role.DOCTOR : stepRole;
+        const currentIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
+        startAutoQueueStep(io, data.roomId, currentIndex);
       }
     } catch (err: any) {
       callback?.({ success: false, error: err.message });
@@ -959,21 +980,6 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (data.activate) {
         state.nurseActivated = true;
         await setGameState(data.roomId, state);
-
-        // إرسال شاشة الاختيار للممرضة
-        const targets = getAvailableTargets(state, Role.NURSE);
-        socket.emit('night:action-required', {
-          actionType: 'PROTECT',
-          availableTargets: targets.map((id: number) => {
-            const p = state.players.find((pl: any) => pl.physicalId === id);
-            return { physicalId: id, name: p?.name || '' };
-          }),
-          timeoutSeconds: 45,
-          canSkip: false,
-        });
-      } else {
-        // رفضت → تابع دون حماية
-        await setGameState(data.roomId, state);
       }
 
       // الانتقال لمرحلة الليل الفعلية (Auto)
@@ -985,33 +991,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
-      // إرسال night:action-required لبقية اللاعبين
-      const nurse = state.players.find((p: any) => p.role === Role.NURSE && p.isAlive);
-      const alivePlayers = state.players.filter((p: any) => p.isAlive && p.physicalId !== nurse?.physicalId);
-      for (const player of alivePlayers) {
-        const actionType = getAutoActionType(player.role as Role);
-        const targets2 = getAutoTargets(state, player.role as Role, player.physicalId);
-        const canSkip = actionType === 'SILENCE' || actionType === 'SNIPE' || actionType === 'DECOY';
-        const playerSock = findPlayerSocket(io, data.roomId, player.physicalId);
-        if (playerSock) {
-          playerSock.emit('night:action-required', {
-            actionType,
-            availableTargets: targets2.map((id: number) => {
-              const p = state.players.find((pl: any) => pl.physicalId === id);
-              return { physicalId: id, name: p?.name || '' };
-            }),
-            timeoutSeconds: 60,
-            canSkip,
-          });
-        }
-      }
+      const alivePlayers = state.players.filter((p: any) => p.isAlive);
+      const leaderSock = findLeaderSocket(io, data.roomId);
+      leaderSock?.emit('night:auto-started', {
+        totalAlive: alivePlayers.length,
+      });
 
-      const timerId = setTimeout(async () => {
-        const cur = await getGameState(data.roomId);
-        if (!cur || cur.phase !== Phase.NIGHT) return;
-        await resolveAutoNight(io, data.roomId);
-      }, 60_000);
-      autoNightTimers.set(data.roomId, timerId as any);
+      startAutoQueueStep(io, data.roomId, -1);
 
       callback?.({ success: true });
     } catch (err: any) {
