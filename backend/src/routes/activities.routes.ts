@@ -301,8 +301,41 @@ router.delete('/:id/rooms/:sessionId', authenticate, async (req: Request, res: R
 router.patch('/:id/rooms/:sessionId/close', authenticate, async (req: Request, res: Response) => {
   try {
     const sessionId = parseInt(req.params.sessionId);
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    // جلب كود الغرفة قبل الإغلاق لمسحها من الذاكرة
+    const [sessionData] = await db.select({ sessionCode: sessions.sessionCode })
+      .from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    const sessionCode = sessionData?.sessionCode;
+
     const closed = await closeSession(sessionId);
     if (!closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
+
+    // تفريغ الذاكرة وإرسال حدث طرد للـ Leader واللاعبين
+    if (sessionCode) {
+      try {
+        const { getRoomByCode } = await import('../game/state.js');
+        const { deleteGameState } = await import('../config/redis.js');
+        const { activeRooms } = await import('../sockets/lobby.socket.js');
+        
+        const existingState = await getRoomByCode(sessionCode);
+        if (existingState) {
+           const io = req.app.get('io');
+           if (io) {
+             io.to(existingState.roomId).emit('game:kicked', { reason: 'تم إنهاء الفعالية وإغلاق الغرفة من قبل الإدارة.' });
+           }
+
+           await deleteGameState(existingState.roomId);
+           await deleteGameState(`code:${sessionCode}`);
+           activeRooms.delete(existingState.roomId);
+           console.log(`🧹 Cleared Session #${sessionId} (${sessionCode}) from Redis and activeRooms after close`);
+        }
+      } catch (e: any) {
+        console.warn('⚠️ Could not clear Redis room on close:', e.message);
+      }
+    }
+
     console.log(`🔒 Activity: Closed Room #${sessionId}`);
     res.json({ success: true });
   } catch (err: any) {

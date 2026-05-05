@@ -598,6 +598,17 @@ export default function LeaderPage() {
       setGameState(null);
     });
 
+    const offGameKicked = on('game:kicked', (data: any) => {
+      console.warn('🚪 Game kicked/closed:', data.reason);
+      sessionStorage.removeItem('leader_active_room');
+      sessionStorage.removeItem('leader_room_entry');
+      setGameState(null);
+      setInSession(false);
+      fetchActiveGames();
+      fetchHistory();
+      alert(data.reason || 'تم إغلاق الغرفة');
+    });
+
     const offRoomDeleted = on('game:room-deleted', () => {
       setGameState(null);
       setInSession(false);
@@ -794,6 +805,7 @@ export default function LeaderPage() {
       offEliminationRevealed();
       offDiscussionUpdate();
       offGameClosed();
+      offGameKicked();
       offRoomDeleted();
       offNightStep();
       offNightComplete();

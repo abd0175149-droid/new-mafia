@@ -165,9 +165,44 @@ app.delete('/api/leader/sessions/:id', async (req, res) => {
 app.patch('/api/leader/sessions/:id/close', async (req, res) => {
   try {
     const sessionId = parseInt(req.params.id);
+    const { getDB } = await import('./config/db.js');
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    const { sessions } = await import('./schemas/game.schema.js');
+    const { eq } = await import('drizzle-orm');
+
+    const [sessionData] = await db.select({ sessionCode: sessions.sessionCode })
+      .from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    const sessionCode = sessionData?.sessionCode;
+
     const { closeSession } = await import('./services/session.service.js');
     const closed = await closeSession(sessionId);
     if (!closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
+
+    if (sessionCode) {
+      try {
+        const { getRoomByCode } = await import('./game/state.js');
+        const { deleteGameState } = await import('./config/redis.js');
+        const { activeRooms } = await import('./sockets/lobby.socket.js');
+        
+        const existingState = await getRoomByCode(sessionCode);
+        if (existingState) {
+           const io = req.app.get('io');
+           if (io) {
+             io.to(existingState.roomId).emit('game:kicked', { reason: 'تم إنهاء الفعالية وإغلاق الغرفة من قبل الإدارة.' });
+           }
+
+           await deleteGameState(existingState.roomId);
+           await deleteGameState(`code:${sessionCode}`);
+           activeRooms.delete(existingState.roomId);
+           console.log(`🧹 Cleared Session #${sessionId} (${sessionCode}) from Redis and activeRooms after close`);
+        }
+      } catch (e: any) {
+        console.warn('⚠️ Could not clear Redis room on close:', e.message);
+      }
+    }
+
     console.log(`🔒 Game History: Closed Session #${sessionId}`);
     res.json({ success: true });
   } catch (err: any) {
