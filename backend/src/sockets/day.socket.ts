@@ -68,6 +68,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
     roomId: string;
     physicalId: number;
     candidateIndex: number;
+    autoVote?: boolean;
   }, callback) => {
     try {
       const state = await getGameState(data.roomId);
@@ -90,8 +91,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'مرشح غير صالح' });
       }
 
-      // منع التصويت لنفسه
-      if (candidate.targetPhysicalId === data.physicalId) {
+      // منع التصويت لنفسه (مسموح فقط كعقوبة تلقائية)
+      if (!data.autoVote && candidate.targetPhysicalId === data.physicalId) {
         return callback({ success: false, error: 'لا يمكنك التصويت لنفسك' });
       }
 

@@ -327,7 +327,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           if (res.player.role) {
             setAssignedRole(res.player.role);
           }
-          if (res.mafiaTeam && res.mafiaTeam.length > 0) {
+          if (res.mafiaTeam !== undefined) {
             setMafiaTeam(res.mafiaTeam);
           }
 
@@ -565,13 +565,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     const cleanup = on('game:started', () => {
       console.log('🎮 New game started — resetting all game state');
-      // ── FULL RESET لكل حالة اللعبة القديمة ──
+      // ── إعادة تعيين حالات الجولة ──
       setIsPlayerDead(false);
-      setAssignedRole(null);
-      setMafiaTeam([]);
-      setCardFlipped(false);
-      setRoleAlert(false);
-      setGamePhase(null);
       setVotingCandidates([]);
       setMyVote(null);
       setVotingComplete(false);
@@ -1022,6 +1017,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           roomId,
           physicalId: myPhysId,
           candidateIndex: selfIndex,
+          autoVote: true,
         }).then((res: any) => {
           if (res?.success) {
             setMyVote(selfIndex);
@@ -1231,7 +1227,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setGender(res.player.gender === 'FEMALE' ? 'female' : 'male');
           setPlayerId(pid);
           if (res.player.role) setAssignedRole(res.player.role);
-          if (res.mafiaTeam && res.mafiaTeam.length > 0) setMafiaTeam(res.mafiaTeam);
+          if (res.mafiaTeam !== undefined) setMafiaTeam(res.mafiaTeam);
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
             setCardFlipped(true);
@@ -2763,6 +2759,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             <div className="text-center">
               <div className="text-5xl mb-2">🌙</div>
               <h2 className="text-2xl font-black text-[#C5A059]">وقت الليل</h2>
+              <h3 className="text-xl text-white font-bold my-1 border-b border-[#C5A059]/30 pb-2 mb-2">
+                دور: {{
+                  'MAFIA': 'المافيا',
+                  'GODFATHER': 'العراب',
+                  'SILENCER': 'المُسكت',
+                  'SHERIFF': 'المحقق',
+                  'DOCTOR': 'الطبيب',
+                  'NURSE': 'الممرض',
+                  'SNIPER': 'القناص',
+                  'CHAMELEON': 'الحرباء'
+                }[nightActionRequired.stepRole] || nightActionRequired.stepRole || 'مجهول'}
+              </h3>
               <p className="text-gray-400 text-sm mt-1">
                 {nightActionRequired.isDecoy
                   ? 'اختر أي شخص للتمويه...'
