@@ -2342,33 +2342,65 @@ export default function LeaderPage() {
                 {/* Night Mode Toggle */}
                 <div className="flex flex-col items-center gap-2 mt-4 mb-2">
                   <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">NIGHT PHASE MODE</span>
-                  <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-64 mx-auto">
-                    <button
-                      onClick={async () => {
-                        const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' });
-                        if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'manual' } }));
-                      }}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
-                        (gameState.config as any).nightMode !== 'auto'
-                          ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
-                          : 'text-[#666] hover:text-[#aaa]'
-                      }`}
-                    >
-                      MANUAL
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto' });
-                        if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'auto' } }));
-                      }}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
-                        (gameState.config as any).nightMode === 'auto'
-                          ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
-                          : 'text-[#666] hover:text-[#aaa]'
-                      }`}
-                    >
-                      AUTO
-                    </button>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-64 mx-auto">
+                      <button
+                        onClick={async () => {
+                          const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' });
+                          if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'manual' } }));
+                        }}
+                        className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                          (gameState.config as any).nightMode !== 'auto'
+                            ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
+                            : 'text-[#666] hover:text-[#aaa]'
+                        }`}
+                      >
+                        MANUAL
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto', autoTimeSeconds: 15 });
+                          if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'auto', autoNightTime: 15 } }));
+                        }}
+                        className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                          (gameState.config as any).nightMode === 'auto'
+                            ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
+                            : 'text-[#666] hover:text-[#aaa]'
+                        }`}
+                      >
+                        AUTO
+                      </button>
+                    </div>
+
+                    {/* Auto Night Time Input */}
+                    <AnimatePresence>
+                      {(gameState.config as any).nightMode === 'auto' && (
+                        <motion.div 
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="flex items-center gap-3 bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl px-4 py-2"
+                        >
+                          <span className="text-[#808080] text-[10px] font-mono uppercase tracking-widest flex-1 text-right">
+                            وقت كل مرحلة (ثواني)
+                          </span>
+                          <input 
+                            type="number"
+                            min="5"
+                            max="60"
+                            value={(gameState.config as any).autoNightTime || 15}
+                            onChange={async (e) => {
+                              const val = parseInt(e.target.value);
+                              if (!isNaN(val) && val >= 5) {
+                                await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto', autoTimeSeconds: val });
+                                setGameState((prev: any) => ({ ...prev, config: { ...prev.config, autoNightTime: val } }));
+                              }
+                            }}
+                            className="w-16 bg-[#111] border border-[#333] rounded px-2 py-1 text-white text-center font-mono text-sm focus:border-[#C5A059] focus:outline-none"
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
 
