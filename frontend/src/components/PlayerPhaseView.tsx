@@ -40,6 +40,8 @@ export default function PlayerPhaseView({
   const [tiedCandidates, setTiedCandidates] = useState<any[]>([]);
   // ── ملخص الصباح ──
   const [morningEvents, setMorningEvents] = useState<any[]>([]);
+  // ── تفاصيل خطوة الليل (متاحة للجميع) ──
+  const [nightStepInfo, setNightStepInfo] = useState<string | null>(null);
   // ── نتيجة اللعبة ──
   const [gameWinner, setGameWinner] = useState<string | null>(null);
   const [allPlayers, setAllPlayers] = useState<any[]>([]);
@@ -183,6 +185,11 @@ export default function PlayerPhaseView({
       setWithdrawalActive(false);
     });
 
+    // ── معلومات طابور الليل ──
+    const c14 = on('night:step-info', (data: any) => {
+      setNightStepInfo(data.roleName || null);
+    });
+
     // ── مسح عند تغيير المرحلة ──
     const c13 = on('game:phase-changed', (data: any) => {
       const p = data?.phase;
@@ -211,6 +218,8 @@ export default function PlayerPhaseView({
         setEliminationData(null);
         setMorningEvents([]);
         setWithdrawalActive(false);
+      } else {
+        setNightStepInfo(null);
       }
       if (p === 'MORNING_RECAP') {
         setMorningEvents([]);
@@ -223,7 +232,7 @@ export default function PlayerPhaseView({
     });
 
     return () => {
-      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13].forEach(c => c?.());
+      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14].forEach(c => c?.());
       if (justTimerRef.current) clearInterval(justTimerRef.current);
     };
   }, [on, physicalId]);
@@ -477,6 +486,15 @@ export default function PlayerPhaseView({
         <motion.div animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }} transition={{ duration: 3, repeat: Infinity }} className="text-6xl mb-4">🌙</motion.div>
         <h3 className="text-xl font-bold text-indigo-300" style={{ fontFamily: 'Amiri, serif' }}>الليل يسدل ستاره</h3>
         <p className="text-[#555] text-xs font-mono mt-3 tracking-widest">NIGHT PHASE</p>
+        
+        {nightStepInfo && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 inline-block bg-[#111] border border-[#C5A059]/30 rounded-lg px-6 py-3">
+            <p className="text-[#C5A059] text-sm font-bold animate-pulse" style={{ fontFamily: 'Amiri, serif' }}>
+              جارٍ اختيار الهدف من قبل {nightStepInfo}...
+            </p>
+          </motion.div>
+        )}
+
         <motion.div animate={{ opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 2, repeat: Infinity }}
           className="flex justify-center gap-1 mt-6">
           {[...Array(5)].map((_, i) => (

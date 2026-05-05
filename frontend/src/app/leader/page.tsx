@@ -429,6 +429,7 @@ export default function LeaderPage() {
           justificationData: undefined,
           pendingResolution: undefined,
           revealedData: undefined,
+          nightComplete: false,
         } : prev);
         return;
       }

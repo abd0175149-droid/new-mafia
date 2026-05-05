@@ -276,6 +276,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
+        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName });
       } else {
         socket.emit('night:queue-complete');
       }
@@ -317,6 +318,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
+        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName });
       } else {
         socket.emit('night:queue-complete');
       }
@@ -410,6 +412,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       if (nextStep) {
         socket.emit('night:queue-step', nextStep);
+        io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName });
       } else {
         // انتهى الطابور → معالجة التقاطعات
         socket.emit('night:queue-complete');
@@ -440,6 +443,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       if (nextStep) {
         socket.emit('night:queue-step', nextStep);
+        io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName });
       } else {
         socket.emit('night:queue-complete');
       }
@@ -473,7 +477,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       // إرسال خطوة الممرضة
       const targets = getAvailableTargets(state, Role.NURSE);
-      socket.emit('night:queue-step', {
+      const nurseStep = {
         role: Role.NURSE,
         roleName: 'حماية الممرضة',
         performerPhysicalId: nurse.physicalId,
@@ -483,7 +487,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
           return { physicalId: id, name: p?.name || '' };
         }),
         canSkip: false,
-      });
+      };
+      socket.emit('night:queue-step', nurseStep);
+      io.to(data.roomId).emit('night:step-info', { roleName: nurseStep.roleName });
 
       callback({ success: true });
     } catch (err: any) {

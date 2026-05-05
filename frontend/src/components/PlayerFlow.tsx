@@ -741,6 +741,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setGamePhase(data.phase);
       // حماية من الـ polling: لا نسمح للـ polling بإعادة كتابة المرحلة لـ 10 ثواني
       phaseOverrideRef.current = { phase: data.phase };
+      
+      // مسح أدوار المافيا عند بدء جولة جديدة لتجنب تسريبها
+      if (data.phase === 'LOBBY' || data.phase === 'ROLE_GENERATION' || data.phase === 'ROLE_BINDING') {
+        setMafiaTeam([]);
+        setAssignedRole(null);
+      }
+
       // مسح بيانات التصويت فقط عند الخروج من مرحلة التصويت
       if (data.phase !== 'DAY_VOTING' && data.phase !== 'DAY_JUSTIFICATION') {
         setVotingCandidates([]);
@@ -782,13 +789,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       console.log('🏁 Game over — clearing voting only');
       setGamePhase('GAME_OVER');
       phaseOverrideRef.current = { phase: 'GAME_OVER' };
-      // مسح التصويت فقط
+      // مسح التصويت
       setVotingCandidates([]);
       setMyVote(null);
       setVotingComplete(false);
       setPlayerVotes({});
       setTotalVotesCast(0);
       setLastVoteTime(null);
+      setMafiaTeam([]);
       if (roomId && physicalId) {
         localStorage.removeItem(`mafia_notes_${roomId}_${physicalId}`);
         setNotepadNotes({});
