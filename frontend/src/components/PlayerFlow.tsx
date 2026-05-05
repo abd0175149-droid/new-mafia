@@ -2760,16 +2760,15 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-5xl mb-2">🌙</div>
               <h2 className="text-2xl font-black text-[#C5A059]">وقت الليل</h2>
               <h3 className="text-xl text-white font-bold my-1 border-b border-[#C5A059]/30 pb-2 mb-2">
-                دور: {{
-                  'MAFIA': 'المافيا',
-                  'GODFATHER': 'العراب',
-                  'SILENCER': 'المُسكت',
-                  'SHERIFF': 'المحقق',
-                  'DOCTOR': 'الطبيب',
-                  'NURSE': 'الممرض',
-                  'SNIPER': 'القناص',
-                  'CHAMELEON': 'الحرباء'
-                }[nightActionRequired.stepRole] || nightActionRequired.stepRole || 'مجهول'}
+                دور: {nightActionRequired.stepRole === 'MAFIA' ? 'المافيا' :
+                  nightActionRequired.stepRole === 'GODFATHER' ? 'العراب' :
+                  nightActionRequired.stepRole === 'SILENCER' ? 'المُسكت' :
+                  nightActionRequired.stepRole === 'SHERIFF' ? 'المحقق' :
+                  nightActionRequired.stepRole === 'DOCTOR' ? 'الطبيب' :
+                  nightActionRequired.stepRole === 'NURSE' ? 'الممرض' :
+                  nightActionRequired.stepRole === 'SNIPER' ? 'القناص' :
+                  nightActionRequired.stepRole === 'CHAMELEON' ? 'الحرباء' :
+                  nightActionRequired.stepRole || 'مجهول'}
               </h3>
               <p className="text-gray-400 text-sm mt-1">
                 {nightActionRequired.isDecoy
