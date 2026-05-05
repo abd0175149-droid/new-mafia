@@ -61,11 +61,14 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    // في وضع الأوتو، القائد لا يمكنه اختيار الأهداف
+    if (gameState.config?.nightMode === 'auto') return;
+
     // إذا لم يكن الكارد مكشوفاً = ضغطة قصيرة → اختيار
     if (peekedCard !== physicalId) {
       setSelectedTarget(physicalId);
     }
-  }, [peekedCard]);
+  }, [peekedCard, gameState.config?.nightMode]);
 
   // تصفير الاختيار عند تغير الخطوة
   useEffect(() => {
@@ -101,6 +104,21 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
   const nightComplete = gameState.nightComplete;
   const morningEvents = gameState.morningEvents || [];
   const meta = nightStep ? (ACTION_META[nightStep.role] || ACTION_META.GODFATHER) : null;
+
+  // تحديد الهدف في وضع الأوتو
+  const getAutoTargetId = (role: any) => {
+    if (!gameState.nightActions) return null;
+    switch (role) {
+      case 'GODFATHER': case 'CHAMELEON': case 'MAFIA_REGULAR': return gameState.nightActions.godfatherTarget;
+      case 'SILENCER': return gameState.nightActions.silencerTarget;
+      case 'SHERIFF': return gameState.nightActions.sheriffTarget;
+      case 'DOCTOR': return gameState.nightActions.doctorTarget;
+      case 'NURSE': return gameState.nightActions.nurseTarget;
+      case 'SNIPER': return gameState.nightActions.sniperTarget;
+      default: return null;
+    }
+  };
+  const autoTargetId = gameState.config?.nightMode === 'auto' && nightStep ? getAutoTargetId(nightStep.role) : null;
 
   // اللاعبين الأحياء
   const alivePlayers = (gameState.players || []).filter((p: any) => p.isAlive);
@@ -762,7 +780,9 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
         </label>
         <div className="flex flex-wrap justify-center gap-3 mb-5">
           {nightStep.availableTargets.map((target: any) => {
-            const isSelected = selectedTarget === target.physicalId;
+            const isSelected = gameState.config?.nightMode === 'auto' 
+              ? autoTargetId === target.physicalId 
+              : selectedTarget === target.physicalId;
             const targetPlayer = gameState.players?.find((p: any) => p.physicalId === target.physicalId);
             const isPeeked = peekedCard === target.physicalId;
             return (
@@ -799,30 +819,47 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           })}
         </div>
 
-        {/* أزرار الإجراء */}
-        <div className={`grid ${nightStep.canSkip ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
-          <button
-            onClick={handleSubmitAction}
-            disabled={selectedTarget === null || loading}
-            className={`py-4 border font-mono text-sm uppercase tracking-widest transition-all rounded-lg ${
-              selectedTarget !== null
-                ? `${meta.color.replace('text-', 'border-')} text-white hover:bg-white/5`
-                : 'border-[#1a1a1a] text-[#333] cursor-not-allowed'
-            }`}
-          >
-            {loading ? '...' : '✅ تأكيد'}
-          </button>
-
-          {nightStep.canSkip && (
+        {/* أزرار الإجراء أو رسالة الأوتو */}
+        {gameState.config?.nightMode === 'auto' ? (
+          <div className="bg-[#111] border border-[#333] rounded-xl p-4 text-center mt-4">
+            {autoTargetId ? (
+              <div className="animate-pulse">
+                <p className="text-[#4ade80] font-mono text-sm uppercase tracking-widest mb-1">✅ تم اختيار الهدف بنجاح</p>
+                <p className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">
+                  (سينتقل للخطوة التالية قريباً)
+                </p>
+              </div>
+            ) : (
+              <p className="text-[#C5A059] font-mono text-sm uppercase tracking-widest animate-pulse">
+                📱 يختار اللاعبون من أجهزتهم...
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className={`grid ${nightStep.canSkip ? 'grid-cols-2' : 'grid-cols-1'} gap-3 mt-4`}>
             <button
-              onClick={handleSkipAction}
-              disabled={loading}
-              className="py-4 border border-[#333] text-[#555] font-mono text-sm uppercase tracking-widest hover:border-[#555] hover:text-[#808080] transition-all rounded-lg"
+              onClick={handleSubmitAction}
+              disabled={selectedTarget === null || loading}
+              className={`py-4 border font-mono text-sm uppercase tracking-widest transition-all rounded-lg ${
+                selectedTarget !== null
+                  ? `${meta.color.replace('text-', 'border-')} text-white hover:bg-white/5`
+                  : 'border-[#1a1a1a] text-[#333] cursor-not-allowed'
+              }`}
             >
-              ⏭ تخطي
+              {loading ? '...' : '✅ تأكيد'}
             </button>
-          )}
-        </div>
+
+            {nightStep.canSkip && (
+              <button
+                onClick={handleSkipAction}
+                disabled={loading}
+                className="py-4 border border-[#333] text-[#555] font-mono text-sm uppercase tracking-widest hover:border-[#555] hover:text-[#808080] transition-all rounded-lg"
+              >
+                ⏭ تخطي
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }

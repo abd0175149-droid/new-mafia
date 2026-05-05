@@ -1679,6 +1679,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   socket.on('game:set-night-mode', async (data: {
     roomId: string;
     mode: 'manual' | 'auto';
+    autoTimeSeconds?: number;
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -1698,6 +1699,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       state.config.nightMode = data.mode;
+      if (data.mode === 'auto' && data.autoTimeSeconds) {
+        state.config.autoNightTime = data.autoTimeSeconds;
+      }
       await setGameState(data.roomId, state);
 
       // إعلام الجميع (أو الليدر) بالحالة الجديدة لتحديث الواجهة

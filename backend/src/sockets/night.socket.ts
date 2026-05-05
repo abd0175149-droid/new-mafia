@@ -157,7 +157,10 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
   state.playerNightActions = { submitted: {} };
   state.autoNightStepRole = nextStep.role;
   state.autoNightPerformerId = nextStep.performerPhysicalId;
+  state.nightStep = nextStep; // حفظ الخطوة ليراها الليدر
   await setGameState(roomId, state);
+
+  const timeoutSeconds = state.config.autoNightTime || 15;
 
   const alivePlayers = state.players.filter((p: any) => p.isAlive);
   
@@ -176,7 +179,7 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
       playerSock.emit('night:action-required', {
         actionType: stepActionType,
         availableTargets: isPerformer ? nextStep.availableTargets : decoyTargets,
-        timeoutSeconds: 15, // إعطاء 15 ثانية لكل دور
+        timeoutSeconds: timeoutSeconds, // استخدام الوقت المخصص
         canSkip: nextStep.canSkip,
         stepRole: nextStep.role,
         isDecoy: !isPerformer,
@@ -195,16 +198,19 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
     const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
     const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
     startAutoQueueStep(io, roomId, newIndex);
-  }, 15_000);
+  }, timeoutSeconds * 1000);
 
   autoNightTimers.set(roomId, timerId as any);
 
-  // إعلام الليدر بانطلاق الخطوة
+  // إعلام الليدر وتحديث الواجهة
   const leaderSock = findLeaderSocket(io, roomId);
-  leaderSock?.emit('night:auto-step-started', {
-    roleName: nextStep.roleName,
-    timeoutSeconds: 15,
-  });
+  if (leaderSock) {
+    leaderSock.emit('game:state-updated', state);
+    leaderSock.emit('night:auto-step-started', {
+      roleName: nextStep.roleName,
+      timeoutSeconds: timeoutSeconds,
+    });
+  }
 }
 
 export function registerNightEvents(io: Server, socket: Socket) {
@@ -954,14 +960,17 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       await setGameState(data.roomId, state);
 
-      // إعلام الليدر بالتقدم
+      // إعلام الليدر بالتقدم وتحديث الحالة (لكي يرى اختيارات اللاعبين)
       const alivePlayers = state.players.filter((p: any) => p.isAlive);
       const submittedCount = Object.keys(state.playerNightActions.submitted).length;
       const leaderSock = findLeaderSocket(io, data.roomId);
-      leaderSock?.emit('night:auto-progress', {
-        total: alivePlayers.length,
-        submitted: submittedCount,
-      });
+      if (leaderSock) {
+        leaderSock.emit('game:state-updated', state);
+        leaderSock.emit('night:auto-progress', {
+          total: alivePlayers.length,
+          submitted: submittedCount,
+        });
+      }
 
       callback?.({ success: true });
 
