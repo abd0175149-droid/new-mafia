@@ -167,6 +167,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   } | null>(null);
   const [nightActionCountdown, setNightActionCountdown] = useState<number>(0);
   const [nightActionSubmitted, setNightActionSubmitted] = useState(false);
+  const [selectedTargetForConfirm, setSelectedTargetForConfirm] = useState<number | null>(null);
   const [nurseActivationPending, setNurseActivationPending] = useState(false);
   const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const phaseOverrideRef = useRef<{ phase: string } | null>(null);
@@ -1010,6 +1011,27 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     return () => clearInterval(interval);
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead]);
 
+  // ── Auto-Vote on Self ──
+  useEffect(() => {
+    if (votingCountdown === 0 && myVote === null && !isPlayerDead && emit && roomId && gamePhase === 'DAY_VOTING') {
+      const myPhysId = parseInt(physicalId);
+      const selfIndex = votingCandidates.findIndex(c => c.targetPhysicalId === myPhysId);
+      if (selfIndex !== -1) {
+        console.log('⏰ Time expired, auto-voting for self');
+        emit('player:cast-vote', {
+          roomId,
+          physicalId: myPhysId,
+          candidateIndex: selfIndex,
+        }).then((res: any) => {
+          if (res?.success) {
+            setMyVote(selfIndex);
+            setLastVoteTime(Date.now());
+          }
+        }).catch(() => {});
+      }
+    }
+  }, [votingCountdown, myVote, isPlayerDead, emit, roomId, physicalId, votingCandidates, gamePhase]);
+
   // ── Auto Night Mode: استقبال طلب الإجراء الليلي ──
   useEffect(() => {
     if (!on) return;
@@ -1022,6 +1044,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }) => {
       setNightActionRequired(data);
       setNightActionSubmitted(false);
+      setSelectedTargetForConfirm(null);
       setNightActionCountdown(data.timeoutSeconds);
       // بدء العداد التنازلي
       if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
@@ -1947,7 +1970,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                               ) : (
                                 <span className="text-green-500 font-bold">✅ تم التصويت (مغلق)</span>
                               )
-                            ) : 'صوّت ضد اللاعب المشتبه'}
+                            ) : (
+                              votingCountdown === 0 ? <span className="text-[#8A0303] font-bold">❌ لم تقم بالتصويت</span> : 'صوّت ضد اللاعب المشتبه'
+                            )}
                           </p>
                         </div>
 
@@ -1993,7 +2018,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           key={candidate.id || `c-${index}`}
                           whileTap={!isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
-                            if (isPlayerDead || isMyChoice || voteSubmitting || !canVote) return;
+                            if (isPlayerDead || isMyChoice || voteSubmitting || !canVote || isSelf) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -2262,7 +2287,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       مرحلة التصويت
                     </h2>
                     <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.15em] mt-1">
-                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم التصويت — اضغط لاعب آخر للتغيير' : 'صوّت ضد اللاعب المشتبه'}
+                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم التصويت — اضغط لاعب آخر للتغيير' : (votingCountdown === 0 ? <span className="text-[#8A0303] font-bold">❌ لم تقم بالتصويت</span> : 'صوّت ضد اللاعب المشتبه')}
                     </p>
                   </div>
 
@@ -2308,7 +2333,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           key={candidate.id || `c-${index}`}
                           whileTap={!isPlayerDead && !isMyChoice ? { scale: 0.95 } : {}}
                           onClick={() => {
-                            if (isPlayerDead || isMyChoice || voteSubmitting || votingComplete) return;
+                            if (isPlayerDead || isMyChoice || voteSubmitting || votingComplete || isSelf) return;
                             setVoteSubmitting(true);
                             emit('player:cast-vote', {
                               roomId,
@@ -2698,7 +2723,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       />
 
       {/* ── زر شركاء المافيا العائم (متاح دائماً للاعب المافيا) ── */}
-      {mafiaTeam.length > 0 && gamePhase !== 'GAME_OVER' && step === 'done' && (
+      {mafiaTeam.length > 0 && gamePhase !== 'GAME_OVER' && (step === 'done' || step === 'rejoined') && (
         <button
           onClick={() => setIsGalleryOpen(true)}
           className="fixed bottom-[110px] left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
@@ -2764,6 +2789,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 <button
                   key={target.physicalId}
                   onClick={async () => {
+                    if (selectedTargetForConfirm !== target.physicalId && !nightActionRequired.isDecoy) {
+                      setSelectedTargetForConfirm(target.physicalId);
+                      return;
+                    }
                     if (!emit || nightActionSubmitted) return;
                     setNightActionSubmitted(true);
                     if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
@@ -2774,12 +2803,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     }).catch(() => {});
                     setTimeout(() => setNightActionRequired(null), 1500);
                   }}
-                  className="flex items-center gap-3 px-4 py-3 bg-[#111] border border-[#2a2a2a] rounded-2xl hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-right"
+                  className={`flex items-center gap-3 px-4 py-3 border rounded-2xl transition-all text-right ${
+                    selectedTargetForConfirm === target.physicalId && !nightActionRequired.isDecoy
+                      ? 'bg-[#8A0303]/20 border-[#8A0303] animate-pulse'
+                      : 'bg-[#111] border-[#2a2a2a] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5'
+                  }`}
                 >
                   <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center shrink-0">
                     <span className="text-sm font-black text-[#C5A059]">#{target.physicalId}</span>
                   </div>
-                  <span className="text-white font-bold flex-1">{target.name || `لاعب #${target.physicalId}`}</span>
+                  <span className="text-white font-bold flex-1">
+                    {target.name || `لاعب #${target.physicalId}`}
+                    {selectedTargetForConfirm === target.physicalId && !nightActionRequired.isDecoy && (
+                      <span className="block text-xs text-[#8A0303] mt-1 font-mono">اضغط مرة أخرى للتأكيد ⚠️</span>
+                    )}
+                  </span>
                 </button>
               ))}
             </div>
