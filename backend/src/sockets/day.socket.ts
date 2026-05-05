@@ -27,7 +27,7 @@ import { closeSession } from '../services/session.service.js';
 export function registerDayEvents(io: Server, socket: Socket) {
 
   // ── بدء مرحلة التصويت ──────────────────────────
-  socket.on('day:start-voting', async (data: { roomId: string }, callback) => {
+  socket.on('day:start-voting', async (data: { roomId: string; durationSeconds?: number }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
@@ -54,6 +54,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: getTeamCounts(state.players),
         playersInfo,
         playerVotes: state.votingState.playerVotes,
+        durationSeconds: data.durationSeconds || null,
       });
 
       callback({ success: true });

@@ -161,18 +161,25 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
 
   const alivePlayers = state.players.filter((p: any) => p.isAlive);
   
-  // 2. نوع الحدث الذي يظهر لجميع اللاعبين كتمويه هو نفس نوع الإجراء للدور الفاعل
   const stepActionType = getAutoActionType(nextStep.role);
+
+  // ── قائمة أهداف التمويه: جميع الأحياء ──
+  const decoyTargets = alivePlayers.map((p: any) => ({
+    physicalId: p.physicalId,
+    name: p.name,
+  }));
 
   for (const player of alivePlayers) {
     const playerSock = findPlayerSocket(io, roomId, player.physicalId);
     if (playerSock) {
+      const isPerformer = player.physicalId === nextStep.performerPhysicalId;
       playerSock.emit('night:action-required', {
         actionType: stepActionType,
-        availableTargets: nextStep.availableTargets,
+        availableTargets: isPerformer ? nextStep.availableTargets : decoyTargets,
         timeoutSeconds: 15, // إعطاء 15 ثانية لكل دور
         canSkip: nextStep.canSkip,
         stepRole: nextStep.role,
+        isDecoy: !isPerformer,
       });
     }
   }

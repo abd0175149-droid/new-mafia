@@ -127,7 +127,23 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [roleAlert, setRoleAlert] = useState(false);
-  const [mafiaTeam, setMafiaTeam] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null}[]>([]);
+  const [mafiaTeam, setMafiaTeamRaw] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null}[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const saved = localStorage.getItem('mafia_mafiaTeam');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+  
+  const setMafiaTeam = (team: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[]) => {
+    setMafiaTeamRaw(team);
+    if (team && team.length > 0) {
+      localStorage.setItem('mafia_mafiaTeam', JSON.stringify(team));
+    } else {
+      localStorage.removeItem('mafia_mafiaTeam');
+    }
+  };
+
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [switchConfirm, setSwitchConfirm] = useState<{
     currentRoomId: string;
@@ -141,12 +157,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [roster, setRoster] = useState<any[]>([]);
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
-  // ── Auto Night Mode state ──
   const [nightActionRequired, setNightActionRequired] = useState<{
     actionType: string;
     availableTargets: { physicalId: number; name: string }[];
     timeoutSeconds: number;
     canSkip: boolean;
+    stepRole?: string;
+    isDecoy?: boolean;
   } | null>(null);
   const [nightActionCountdown, setNightActionCountdown] = useState<number>(0);
   const [nightActionSubmitted, setNightActionSubmitted] = useState(false);
@@ -154,6 +171,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const phaseOverrideRef = useRef<{ phase: string } | null>(null);
 
+
+  const [votingCountdown, setVotingCountdown] = useState<number | null>(null);
+  const votingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
   const [gamePhase, setGamePhaseRaw] = useState<string | null>(() => {
@@ -681,6 +701,23 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setVotingComplete(false);
       if (myVote === null) setLastVoteTime(null);
       if (navigator.vibrate) navigator.vibrate([100, 200]);
+
+      if (data.durationSeconds) {
+        setVotingCountdown(data.durationSeconds);
+        if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+        votingTimerRef.current = setInterval(() => {
+          setVotingCountdown(prev => {
+            if (prev === null || prev <= 1) {
+              if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        setVotingCountdown(null);
+        if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+      }
     });
 
     // تحديث الأصوات اللحظي
@@ -715,6 +752,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setVotingComplete(false);
         setPlayerVotes({});
         setLastVoteTime(null);
+        setVotingCountdown(null);
+        if (votingTimerRef.current) clearInterval(votingTimerRef.current);
       }
     });
 
@@ -2227,6 +2266,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     </p>
                   </div>
 
+                  {votingCountdown !== null && votingCountdown > 0 && (
+                    <div className={`text-3xl font-black font-mono text-center mb-5 transition-colors ${
+                      votingCountdown <= 10 ? 'text-red-500 animate-pulse' : 'text-[#C5A059]'
+                    }`}>
+                      ⏱ {votingCountdown}ث
+                    </div>
+                  )}
+
                   {/* شريط التقدم */}
                   <div className="mb-5">
                     <div className="flex justify-between text-[9px] font-mono text-[#666] mb-1">
@@ -2651,7 +2698,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       />
 
       {/* ── زر شركاء المافيا العائم (متاح دائماً للاعب المافيا) ── */}
-      {mafiaTeam.length > 0 && gamePhase !== 'GAME_OVER' && (
+      {mafiaTeam.length > 0 && gamePhase !== 'GAME_OVER' && step === 'done' && (
         <button
           onClick={() => setIsGalleryOpen(true)}
           className="fixed bottom-[110px] left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
@@ -2692,12 +2739,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-5xl mb-2">🌙</div>
               <h2 className="text-2xl font-black text-[#C5A059]">وقت الليل</h2>
               <p className="text-gray-400 text-sm mt-1">
-                {nightActionRequired.actionType === 'KILL' && 'اختر هدف الاغتيال'}
-                {nightActionRequired.actionType === 'INVESTIGATE' && 'من تريد التحقيق معه؟'}
-                {nightActionRequired.actionType === 'PROTECT' && 'من تريد حمايته الليلة؟'}
-                {nightActionRequired.actionType === 'SNIPE' && 'اختر هدف القنص'}
-                {nightActionRequired.actionType === 'SILENCE' && 'من تريد إسكاته؟'}
-                {nightActionRequired.actionType === 'DECOY' && 'اختر أي شخص'}
+                {nightActionRequired.isDecoy
+                  ? 'اختر أي شخص للتمويه...'
+                  : (
+                    (nightActionRequired.actionType === 'KILL' && 'اختر هدف الاغتيال') ||
+                    (nightActionRequired.actionType === 'INVESTIGATE' && 'من تريد التحقيق معه؟') ||
+                    (nightActionRequired.actionType === 'PROTECT' && 'من تريد حمايته الليلة؟') ||
+                    (nightActionRequired.actionType === 'SNIPE' && 'اختر هدف القنص') ||
+                    (nightActionRequired.actionType === 'SILENCE' && 'من تريد إسكاته؟') ||
+                    (nightActionRequired.actionType === 'DECOY' && 'اختر أي شخص')
+                  )
+                }
               </p>
             </div>
 
@@ -2733,7 +2785,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             </div>
 
             {/* زر تخطي */}
-            {nightActionRequired.canSkip && (
+            {nightActionRequired.canSkip && !nightActionRequired.isDecoy && (
               <button
                 onClick={async () => {
                   if (!emit || nightActionSubmitted) return;

@@ -210,11 +210,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }
   };
 
+  const [votingDuration, setVotingDuration] = useState<number>(20);
+
   const handleStartVoting = async () => {
     if (!confirm('هل أنت متأكد من بدء التصويت؟ لن تتمكن من تعديل الاتفاقيات.')) return;
     localVoteTotalRef.current = 0; // تصفير العداد المحلي عند بدء تصويت جديد
     try {
-      await emit('day:start-voting', { roomId: gameState.roomId });
+      await emit('day:start-voting', { roomId: gameState.roomId, durationSeconds: votingDuration });
     } catch (err: any) {
       setError(err.message);
     }
@@ -1083,7 +1085,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             <button
               onClick={async () => {
                 try {
-                  await emit('day:start-voting', { roomId: gameState.roomId });
+                  await emit('day:start-voting', { roomId: gameState.roomId, durationSeconds: votingDuration });
                 } catch (err: any) {
                   setError(err.message);
                 }
@@ -1171,8 +1173,24 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </div>
         </div>
 
-        <div className="text-center mt-12">
-          <button onClick={handleStartVoting} className="btn-premium px-12 py-4">
+        <div className="text-center mt-12 flex flex-col items-center">
+          <div className="flex gap-2 mb-4">
+            <p className="text-sm text-[#808080] font-mono mb-1 self-center mr-2">VOTING TIME:</p>
+            {[10, 20, 30].map(d => (
+              <button
+                key={d}
+                onClick={() => setVotingDuration(d)}
+                className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
+                  votingDuration === d
+                    ? 'bg-[#C5A059] text-black'
+                    : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
+                }`}
+              >
+                {d}s
+              </button>
+            ))}
+          </div>
+          <button onClick={handleStartVoting} className="btn-premium px-12 py-4 w-full max-w-md">
             <span className="text-white">LOCK DEALS & COMMENCE VOTING</span>
           </button>
         </div>
