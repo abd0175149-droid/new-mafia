@@ -1682,25 +1682,31 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader' });
+        if (callback) callback({ success: false, error: 'Only leader' });
+        return;
       }
       const state = await getGameState(data.roomId);
-      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (!state) {
+        if (callback) callback({ success: false, error: 'Room not found' });
+        return;
+      }
 
-      // يُسمح بالتغيير فقط في مرحلة LOBBY
-      if (state.phase !== 'LOBBY') {
-        return callback({ success: false, error: 'يمكن تغيير النمط فقط في اللوبي' });
+      // يُسمح بالتغيير في اللوبي أو بعد نهاية اللعبة
+      if (state.phase !== 'LOBBY' && state.phase !== 'GAME_OVER') {
+        if (callback) callback({ success: false, error: 'يمكن تغيير النمط فقط بين الألعاب' });
+        return;
       }
 
       state.config.nightMode = data.mode;
       await setGameState(data.roomId, state);
 
-      // إعلام الليدر بالتغيير
-      socket.emit('game:night-mode-changed', { mode: data.mode });
+      // إعلام الجميع (أو الليدر) بالحالة الجديدة لتحديث الواجهة
+      io.to(data.roomId).emit('game:state-updated', state);
+      
       console.log(`🌙 Night mode set to '${data.mode}' for room ${data.roomId}`);
-      callback({ success: true, mode: data.mode });
+      if (callback) callback({ success: true, mode: data.mode });
     } catch (err: any) {
-      callback({ success: false, error: err.message });
+      if (callback) callback({ success: false, error: err.message });
     }
   });
 

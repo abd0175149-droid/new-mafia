@@ -1559,7 +1559,10 @@ export default function LeaderPage() {
                 <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">NIGHT PHASE MODE</span>
                 <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-64 mx-auto">
                   <button
-                    onClick={() => emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' })}
+                    onClick={async () => {
+                      const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' });
+                      if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'manual' } }));
+                    }}
                     className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
                       (gameState.config as any).nightMode !== 'auto'
                         ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
@@ -1569,7 +1572,10 @@ export default function LeaderPage() {
                     MANUAL
                   </button>
                   <button
-                    onClick={() => emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto' })}
+                    onClick={async () => {
+                      const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto' });
+                      if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'auto' } }));
+                    }}
                     className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
                       (gameState.config as any).nightMode === 'auto'
                         ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
@@ -2325,7 +2331,10 @@ export default function LeaderPage() {
                   <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">NIGHT PHASE MODE</span>
                   <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-64 mx-auto">
                     <button
-                      onClick={() => emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' })}
+                      onClick={async () => {
+                        const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'manual' });
+                        if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'manual' } }));
+                      }}
                       className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
                         (gameState.config as any).nightMode !== 'auto'
                           ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
@@ -2335,7 +2344,10 @@ export default function LeaderPage() {
                       MANUAL
                     </button>
                     <button
-                      onClick={() => emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto' })}
+                      onClick={async () => {
+                        const res = await emit('game:set-night-mode', { roomId: gameState.roomId, mode: 'auto' });
+                        if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, nightMode: 'auto' } }));
+                      }}
                       className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
                         (gameState.config as any).nightMode === 'auto'
                           ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
