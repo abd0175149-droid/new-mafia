@@ -20,18 +20,18 @@ const NAV_ITEMS = [
   { href: '/admin/bookings', icon: '📅', label: 'الحجوزات' },
   { href: '/admin/finance', icon: '💰', label: 'المالية' },
   { href: '/admin/locations', icon: '📍', label: 'المواقع' },
-  { href: '/admin/staff', icon: '👥', label: 'الموظفون' },
-  { href: '/admin/players', icon: '🎮', label: 'اللاعبون' },
+  { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
+  { href: '/admin/players', icon: '🎮', label: 'اللاعبون', roles: ['admin', 'accountant'] },
   { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
   { href: '/admin/notifications', icon: '🔔', label: 'الإشعارات' },
-  { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية' },
+  { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },
   { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
   // ── فاصل ──
   { href: '/__separator__', icon: '', label: '' },
   // ── روابط اللعبة ──
-  { href: '/leader', icon: '🕹️', label: 'واجهة القائد', external: true },
+  { href: '/leader', icon: '🕹️', label: 'واجهة القائد', external: true, roles: ['admin', 'manager', 'leader'] },
   { href: '/', icon: '🏠', label: 'الصفحة الرئيسية', external: true },
-];
+] as const;
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -117,7 +117,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
         {/* Nav Items */}
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) => {
+            // إذا العنصر محدد لأدوار معينة فقط
+            if ((item as any).roles && user) {
+              return (item as any).roles.includes(user.role);
+            }
+            return true;
+          }).map((item) => {
             // فاصل
             if (item.href === '/__separator__') {
               return <div key="sep" className="border-t border-gray-800/50 my-2" />;

@@ -287,6 +287,7 @@ export default function BookingsPage() {
     : activities;
 
   const isLocationOwner = user.role === 'location_owner';
+  const isAccountant = user.role === 'accountant';
 
   // ══ Loading ══
   if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
@@ -300,7 +301,7 @@ export default function BookingsPage() {
           <h1 className="text-2xl font-bold text-white">سجل الحجوزات</h1>
           <p className="text-gray-400 text-sm mt-1">إدارة المشاركين وحالة الدفع — {filteredBookings.length} من {bookings.length}</p>
         </div>
-        {!isLocationOwner && (
+        {!isLocationOwner && !isAccountant && (
           <button
             onClick={() => setShowBookingForm(!showBookingForm)}
             className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 text-white rounded-xl text-sm font-bold hover:opacity-90 transition"
@@ -405,9 +406,9 @@ export default function BookingsPage() {
                   const st = getBookingStatus(b);
                   const badge = STATUS_BADGE[st];
                   const locked = isActivityLocked(b.activityId);
-                  const canEdit = !locked && (!b.isPaid || user.username === 'admin');
+                  const canEdit = !locked && !isAccountant && (!b.isPaid || user.username === 'admin');
                   const canPay = !locked && !b.isPaid && !b.isFree;
-                  const canDelete = !locked && !isLocationOwner;
+                  const canDelete = !locked && !isLocationOwner && !isAccountant;
 
                   return (
                     <tr

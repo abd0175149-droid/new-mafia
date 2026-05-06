@@ -228,7 +228,7 @@ export default function ActivitiesPage() {
           <h1 className="text-2xl font-bold text-white">الأنشطة المجدولة</h1>
           <p className="text-gray-400 text-sm mt-1">إدارة الجلسات والفعاليات</p>
         </div>
-        {user.role !== 'location_owner' && (
+        {user.role !== 'location_owner' && user.role !== 'accountant' && (
           <div className="flex items-center gap-2">
             <button
               onClick={() => { setShowBookingForm(!showBookingForm); setShowActivityForm(false); }}

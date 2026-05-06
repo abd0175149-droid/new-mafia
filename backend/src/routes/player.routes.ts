@@ -9,7 +9,7 @@ import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
 import { players as playersTable, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
 import { eq, desc } from 'drizzle-orm';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, adminOnly, authorize } from '../middleware/auth.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
 import {
   findPlayerByPhone,
@@ -21,7 +21,7 @@ import {
 const router = Router();
 
 // ── GET /api/player/all — جلب جميع اللاعبين (Admin only) ──
-router.get('/all', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });

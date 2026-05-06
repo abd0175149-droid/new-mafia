@@ -55,6 +55,7 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
   const status = STATUS_MAP[activity.status] || STATUS_MAP.planned;
   const isLocked = activity.isLocked;
   const isLocationOwner = userRole === 'location_owner';
+  const isAccountant = userRole === 'accountant';
   const actDate = formatActivityDate(activity.date);
 
   return (
@@ -121,7 +122,7 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
       <div className="border-t border-gray-700/30 px-4 py-3 flex items-center justify-between">
         {/* تغيير الحالة */}
         <div>
-          {!isLocked && !isLocationOwner && onStatusChange ? (
+          {!isLocked && !isLocationOwner && !isAccountant && onStatusChange ? (
             <select
               value={activity.status}
               onChange={(e) => onStatusChange(e.target.value)}
@@ -141,7 +142,7 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
         {/* أزرار التعديل/التفاصيل/الحذف */}
         <div className="flex items-center gap-1">
           {/* تعديل */}
-          {!isLocked && !isLocationOwner && onEdit && (
+          {!isLocked && !isLocationOwner && !isAccountant && onEdit && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
               className="p-1.5 rounded-lg text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
@@ -161,7 +162,7 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
             </button>
           )}
           {/* حذف */}
-          {!isLocked && !isLocationOwner && onDelete && (
+          {!isLocked && !isLocationOwner && !isAccountant && onDelete && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
               className="p-1.5 rounded-lg text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 transition-all"

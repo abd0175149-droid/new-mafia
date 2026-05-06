@@ -324,6 +324,7 @@ export default function ActivityDetailPage() {
   const router = useRouter();
   const activityId = Number(params.id);
   const user = useMemo(() => getUser(), []);
+  const isAccountant = user.role === 'accountant';
 
   const [activity, setActivity] = useState<any>(null);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -471,12 +472,14 @@ export default function ActivityDetailPage() {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowEditForm(true)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition flex items-center gap-1.5"
-                >
-                  ✏️ تعديل النشاط
-                </button>
+                {!isAccountant && (
+                  <button
+                    onClick={() => setShowEditForm(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition flex items-center gap-1.5"
+                  >
+                    ✏️ تعديل النشاط
+                  </button>
+                )}
                 {user.role === 'admin' && (
                   <button
                     onClick={toggleLock}
@@ -664,7 +667,7 @@ export default function ActivityDetailPage() {
                                   💰 تأكيد دفع
                                 </button>
                               )}
-                              {b.isPaid && !b.isFree && (
+                              {b.isPaid && !b.isFree && !isAccountant && (
                                 <button
                                   onClick={() => handleUnpay(b.id)}
                                   className="text-[10px] px-2 py-1 rounded-lg text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 transition"
@@ -673,13 +676,15 @@ export default function ActivityDetailPage() {
                                   ↩️
                                 </button>
                               )}
-                              <button
-                                onClick={() => handleDeleteBooking(b.id)}
-                                className="text-[10px] px-2 py-1 rounded-lg text-rose-400/50 hover:text-rose-400 hover:bg-rose-500/10 transition"
-                                title="حذف الحجز"
-                              >
-                                🗑️
-                              </button>
+                              {!isAccountant && (
+                                <button
+                                  onClick={() => handleDeleteBooking(b.id)}
+                                  className="text-[10px] px-2 py-1 rounded-lg text-rose-400/50 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                                  title="حذف الحجز"
+                                >
+                                  🗑️
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

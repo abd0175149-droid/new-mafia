@@ -12,7 +12,7 @@ import { env } from '../config/env.js';
 export interface JwtPayload {
   id: number;
   username: string;
-  role: 'admin' | 'manager' | 'leader' | 'location_owner';
+  role: 'admin' | 'manager' | 'leader' | 'location_owner' | 'accountant';
   displayName: string;
 }
 
@@ -95,3 +95,7 @@ export const managerOrAbove = authorize('admin', 'manager');
 // ── Middleware: admin أو manager أو leader ────────────
 
 export const leaderOrAbove = authorize('admin', 'manager', 'leader');
+
+// ── Middleware: admin أو manager أو accountant ────────
+
+export const accountantOrAbove = authorize('admin', 'manager', 'accountant');

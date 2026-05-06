@@ -174,6 +174,7 @@ export default function StaffManagementPage() {
     manager: { label: 'مدير', badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
     leader: { label: 'قائد لعبة', badge: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
     location_owner: { label: 'صاحب مكان', badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+    accountant: { label: 'محاسب', badge: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' },
   };
 
   if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full" /></div>;
@@ -283,6 +284,7 @@ export default function StaffManagementPage() {
                     <select value={role} onChange={e => setRole(e.target.value)} className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/30">
                       <option value="manager">مدير (Manager)</option>
                       <option value="leader">قائد لعبة (Leader)</option>
+                      <option value="accountant">محاسب (Accountant)</option>
                       <option value="admin">مسؤول (Admin)</option>
                     </select>
                   </div>
@@ -325,6 +327,10 @@ export default function StaffManagementPage() {
                   ) : role === 'leader' ? (
                      <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-purple-400 text-sm">
                       <p>يمتلك **قائد اللعبة (Leader)** وصولاً لمحرك تشغيل اللعبة والواجهات التشغيلية المرتبطة بجلسة اللعب فقط.</p>
+                    </div>
+                  ) : role === 'accountant' ? (
+                     <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-xl p-3 text-cyan-400 text-sm">
+                      <p>يمتلك **المحاسب (Accountant)** صلاحيات مالية كاملة (تكاليف، تأسيسية، مدفوعات) + إدارة المواقع، مع اطلاع (قراءة فقط) على الأنشطة والحجوزات واللاعبين.</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-3">

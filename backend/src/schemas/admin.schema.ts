@@ -11,7 +11,7 @@ import {
 
 // ── Enums ─────────────────────────────────────────────
 
-export const staffRoleEnum = pgEnum('staff_role', ['admin', 'manager', 'leader', 'location_owner']);
+export const staffRoleEnum = pgEnum('staff_role', ['admin', 'manager', 'leader', 'location_owner', 'accountant']);
 export const activityStatusEnum = pgEnum('activity_status', ['planned', 'active', 'completed', 'cancelled']);
 export const costTypeEnum = pgEnum('cost_type', ['activity', 'general']);
 export const notificationTypeEnum = pgEnum('notification_type', [

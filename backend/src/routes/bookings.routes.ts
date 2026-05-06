@@ -81,6 +81,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
 // POST /api/bookings
 router.post('/', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role === 'accountant') return res.status(403).json({ error: 'ليس لديك صلاحية إنشاء الحجوزات' });
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
@@ -133,6 +134,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
 // PUT /api/bookings/:id
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role === 'accountant') return res.status(403).json({ error: 'ليس لديك صلاحية تعديل الحجوزات' });
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
@@ -214,6 +216,7 @@ router.put('/:id/pay', authenticate, async (req: Request, res: Response) => {
 
 // DELETE /api/bookings/:id
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role === 'accountant') return res.status(403).json({ error: 'ليس لديك صلاحية حذف الحجوزات' });
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 

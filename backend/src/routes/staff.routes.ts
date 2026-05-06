@@ -7,12 +7,12 @@ import { eq, desc } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
 import { staff, userSettings } from '../schemas/admin.schema.js';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, adminOnly, authorize } from '../middleware/auth.js';
 
 const router = Router();
 
 // GET /api/staff (admin only)
-router.get('/', authenticate, adminOnly, async (_req: Request, res: Response) => {
+router.get('/', authenticate, authorize('admin', 'accountant'), async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 

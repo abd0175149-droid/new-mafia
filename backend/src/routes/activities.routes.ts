@@ -373,6 +373,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
 // POST /api/activities
 router.post('/', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role === 'accountant') return res.status(403).json({ error: 'ليس لديك صلاحية إنشاء الأنشطة' });
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
@@ -510,6 +511,7 @@ router.post('/:id/create-drive-folder', authenticate, async (req: Request, res: 
 
 // PUT /api/activities/:id
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
+  if (req.user?.role === 'accountant') return res.status(403).json({ error: 'ليس لديك صلاحية تعديل الأنشطة' });
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 

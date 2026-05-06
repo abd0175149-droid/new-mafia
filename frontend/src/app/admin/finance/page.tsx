@@ -29,6 +29,7 @@ export default function FinancePage() {
   const user = useMemo(() => getUser(), []);
   const isLocationOwner = user.role === 'location_owner';
   const isAdmin = user.username === 'admin' || user.role === 'admin';
+  const isFinanceManager = isAdmin || user.role === 'accountant'; // المحاسب له نفس صلاحيات الأدمن المالية
 
   // ── Data ──
   const [bookings, setBookings] = useState<any[]>([]);
@@ -353,13 +354,13 @@ export default function FinancePage() {
                         <th className="text-right px-4 py-3 font-medium">الارتباط</th>
                         {!isLocationOwner && <th className="text-center px-4 py-3 font-medium">النوع</th>}
                         <th className="text-center px-4 py-3 font-medium">المبلغ</th>
-                        {isAdmin && <th className="text-center px-4 py-3 font-medium">إجراءات</th>}
+                        {isFinanceManager && <th className="text-center px-4 py-3 font-medium">إجراءات</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {txPaginated.map((t: any) => {
                         const locked = activities.find(a => a.id === t.activityId)?.isLocked;
-                        const canDelete = isAdmin && t.type === 'expense' && !locked;
+                        const canDelete = isFinanceManager && t.type === 'expense' && !locked;
                         return (
                           <tr key={t.id} id={`glow-${t.id.startsWith('rev') ? 'booking' : 'cost'}-${t.rawId}`} className="border-b border-gray-700/15 hover:bg-gray-700/10 transition">
                             <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDate(t.date)}</td>
@@ -377,7 +378,7 @@ export default function FinancePage() {
                                 {t.type === 'revenue' ? '+' : '-'}{Number(t.amount).toLocaleString()} {CURRENCY}
                               </span>
                             </td>
-                            {isAdmin && (
+                            {isFinanceManager && (
                               <td className="px-4 py-3 text-center">
                                 {canDelete && <button onClick={() => handleDeleteCost(t.rawId)} className="p-1.5 rounded-lg text-rose-400/50 hover:text-rose-400 hover:bg-rose-500/10 transition" title="حذف">🗑️</button>}
                               </td>
@@ -451,13 +452,13 @@ export default function FinancePage() {
                         <th className="text-center px-4 py-3 font-medium">المبلغ</th>
                         <th className="text-right px-4 py-3 font-medium">معلومات الدفع</th>
                         <th className="text-center px-4 py-3 font-medium">معالج؟</th>
-                        {isAdmin && <th className="text-center px-4 py-3 font-medium">إجراءات</th>}
+                        {isFinanceManager && <th className="text-center px-4 py-3 font-medium">إجراءات</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {fPaginated.map((c: any) => {
                         const isProcessed = !!c.isProcessed;
-                        const canToggle = isAdmin || staffList.find(s => s.username === user.username)?.isPartner;
+                        const canToggle = isFinanceManager || staffList.find(s => s.username === user.username)?.isPartner;
                         return (
                           <tr key={c.id} className="border-b border-gray-700/15 hover:bg-gray-700/10 transition">
                             <td className="px-4 py-3 text-gray-500 text-xs">{fmtDateFull(c.date)}</td>
@@ -479,7 +480,7 @@ export default function FinancePage() {
                                 className={`accent-emerald-500 w-4 h-4 ${!canToggle ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer'}`}
                               />
                             </td>
-                            {isAdmin && (
+                            {isFinanceManager && (
                               <td className="px-4 py-3 text-center">
                                 <button onClick={() => handleDeleteFoundational(c.id)} className="p-1.5 rounded-lg text-rose-400/50 hover:text-rose-400 hover:bg-rose-500/10 transition">🗑️</button>
                               </td>
