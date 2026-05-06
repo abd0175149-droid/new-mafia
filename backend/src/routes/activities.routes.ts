@@ -201,7 +201,50 @@ router.get('/:id/rooms-summary', authenticate, async (req: Request, res: Respons
   }
 });
 
+// GET /api/activities/:id/unbooked-players — جلب اللاعبين الذين دخلوا الغرف بدون حجز
+router.get('/:id/unbooked-players', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
+  try {
+    const activityId = parseInt(req.params.id);
+    const { eq, sql } = await import('drizzle-orm');
+    const { bookings } = await import('../schemas/admin.schema.js');
+
+    // 1. جلب جميع اللاعبين الذين دخلوا جلسات تابعة لهذا النشاط
+    const joinedRows = await db.execute(sql`
+      SELECT DISTINCT sp.player_id, sp.player_name, sp.phone 
+      FROM session_players sp
+      JOIN sessions s ON sp.session_id = s.id
+      WHERE s.activity_id = ${activityId}
+    `);
+    const joinedPlayers = ((joinedRows as any).rows || joinedRows) as any[];
+
+    // 2. جلب الحجوزات التابعة للنشاط
+    const activityBookings = await db.select({
+      playerId: bookings.playerId,
+      name: bookings.name,
+      phone: bookings.phone
+    }).from(bookings).where(eq(bookings.activityId, activityId));
+
+    // 3. فلترة اللاعبين غير الحاجزين
+    const unbooked = joinedPlayers.filter(jp => {
+      return !activityBookings.some(b => {
+        // المطابقة برقم اللاعب
+        if (jp.player_id && b.playerId === jp.player_id) return true;
+        // المطابقة برقم الهاتف
+        if (jp.phone && b.phone && jp.phone === b.phone) return true;
+        // المطابقة بالاسم كخيار أخير إذا لم يتوفر غيره
+        if (!jp.player_id && !jp.phone && jp.player_name === b.name) return true;
+        return false;
+      });
+    });
+
+    res.json({ success: true, unbooked });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // POST /api/activities/:id/add-room — إنشاء غرفة جديدة مرتبطة بالنشاط
 router.post('/:id/add-room', authenticate, async (req: Request, res: Response) => {
   const db = getDB();

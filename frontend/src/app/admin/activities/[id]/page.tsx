@@ -69,6 +69,10 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   const [expandedRoom, setExpandedRoom] = useState<number | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
 
+  const [unbookedPlayers, setUnbookedPlayers] = useState<any[]>([]);
+  const [showUnbooked, setShowUnbooked] = useState(false);
+  const [loadingUnbooked, setLoadingUnbooked] = useState(false);
+
   const fetchRooms = async () => {
     try {
       const [roomsData, summaryData] = await Promise.all([
@@ -85,6 +89,19 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   };
 
   useEffect(() => { fetchRooms(); }, [activityId]);
+
+  const fetchUnbooked = async () => {
+    setLoadingUnbooked(true);
+    setShowUnbooked(true);
+    try {
+      const res = await apiFetch(`/api/activities/${activityId}/unbooked-players`);
+      setUnbookedPlayers(res.unbooked || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingUnbooked(false);
+    }
+  };
 
   const handleAddRoom = async () => {
     setAdding(true);
@@ -157,13 +174,21 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
             🎮 غرف اللعبة
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{rooms.length}</span>
           </h3>
-          <button
-            onClick={handleAddRoom}
-            disabled={adding}
-            className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition disabled:opacity-50"
-          >
-            {adding ? '⏳ جارٍ...' : '➕ إضافة غرفة'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={fetchUnbooked}
+              className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
+            >
+              ⚠️ حضروا بدون حجز
+            </button>
+            <button
+              onClick={handleAddRoom}
+              disabled={adding}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition disabled:opacity-50"
+            >
+              {adding ? '⏳ جارٍ...' : '➕ إضافة غرفة'}
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -312,6 +337,41 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                 </div>
               ))}
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── Modal اللاعبون بدون حجز ── */}
+      {showUnbooked && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowUnbooked(false)}>
+          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} onClick={e => e.stopPropagation()} className="bg-gray-900 border border-rose-500/30 rounded-2xl p-6 w-full max-w-md max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-rose-400 flex items-center gap-2">⚠️ حضروا بدون حجز</h3>
+              <button onClick={() => setShowUnbooked(false)} className="text-gray-500 hover:text-white">✕</button>
+            </div>
+            
+            {loadingUnbooked ? (
+              <div className="flex justify-center py-10">
+                <div className="animate-spin h-8 w-8 border-2 border-rose-500 border-t-transparent rounded-full" />
+              </div>
+            ) : unbookedPlayers.length === 0 ? (
+              <div className="py-10 text-center">
+                <span className="text-4xl mb-3 block">🎉</span>
+                <p className="text-emerald-400 font-bold">جميع اللاعبين المتواجدين في الغرف لديهم حجوزات مطابقة!</p>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto pr-2 space-y-3">
+                <p className="text-gray-400 text-sm mb-3">هؤلاء اللاعبون مسجلون في غرف اللعب لكن النظام لم يجد حجوزات تطابقهم:</p>
+                {unbookedPlayers.map((p, i) => (
+                  <div key={i} className="bg-gray-800/80 border border-rose-500/20 rounded-xl p-3 flex justify-between items-center">
+                    <div>
+                      <p className="text-white font-bold">{p.player_name}</p>
+                      <p className="text-xs text-gray-500 font-mono mt-0.5" dir="ltr">{p.phone || '—'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </motion.div>
         </div>
       )}
