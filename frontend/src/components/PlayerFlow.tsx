@@ -979,6 +979,22 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             if (res.votingState.playerVotes?.[myPhysId] !== undefined && myVote === null) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
+            // استعادة التايمر إذا كان مفقوداً
+            if (res.votingState.durationSeconds && res.votingState.votingStartTime && votingCountdown === null) {
+              const elapsed = Math.floor((Date.now() - res.votingState.votingStartTime) / 1000);
+              const remaining = Math.max(0, res.votingState.durationSeconds - elapsed);
+              setVotingCountdown(remaining);
+              if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+              votingTimerRef.current = setInterval(() => {
+                setVotingCountdown(prev => {
+                  if (prev === null || prev <= 1) {
+                    if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+                    return 0;
+                  }
+                  return prev - 1;
+                });
+              }, 1000);
+            }
           } else if (!overrideActive && res.phase && res.phase !== 'DAY_VOTING') {
             // خارج التصويت → مسح بيانات التصويت إذا موجودة
             if (votingCandidates.length > 0) {
@@ -1018,17 +1034,24 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   useEffect(() => {
     if (votingCountdown === 0 && myVote === null && !isPlayerDead && emit && roomId && gamePhase === 'DAY_VOTING') {
       const myPhysId = parseInt(physicalId);
-      const selfIndex = votingCandidates.findIndex(c => c.targetPhysicalId === myPhysId);
-      if (selfIndex !== -1) {
-        console.log('⏰ Time expired, auto-voting for self');
+      let voteIndex = votingCandidates.findIndex(c => c.targetPhysicalId === myPhysId);
+      
+      // في حال لم يكن اللاعب من ضمن المرشحين (بسبب ديل أو حصر تصويت)
+      // ولم يصوت حتى انتهى الوقت، يتم اختيار أول مرشح كإجراء افتراضي لتفادي تعليق الجولة
+      if (voteIndex === -1 && votingCandidates.length > 0) {
+        voteIndex = 0;
+      }
+
+      if (voteIndex !== -1) {
+        console.log('⏰ Time expired, auto-voting for candidate index:', voteIndex);
         emit('player:cast-vote', {
           roomId,
           physicalId: myPhysId,
-          candidateIndex: selfIndex,
+          candidateIndex: voteIndex,
           autoVote: true,
         }).then((res: any) => {
           if (res?.success) {
-            setMyVote(selfIndex);
+            setMyVote(voteIndex);
             setLastVoteTime(Date.now());
           }
         }).catch(() => {});

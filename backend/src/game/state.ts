@@ -91,6 +91,8 @@ export interface VotingState {
   tieBreakerLevel: number;
   playerVotes: Record<number, number>; // physicalId → candidateIndex (تتبع أصوات اللاعبين)
   leaderProxyVotes?: Record<number, number>; // physicalId → candidateIndex (أصوات الليدر بالوكالة)
+  durationSeconds?: number;
+  votingStartTime?: number;
 }
 
 export interface NightActions {

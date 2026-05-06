@@ -36,6 +36,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const state = await initVoting(data.roomId);
       await setPhase(data.roomId, Phase.DAY_VOTING);
 
+      if (data.durationSeconds) {
+        state.votingState.durationSeconds = data.durationSeconds;
+        state.votingState.votingStartTime = Date.now();
+        await setGameState(data.roomId, state);
+      }
+
       // بناء بيانات اللاعبين مع الأسماء والصور للـ PlayerFlow
       const playersInfo = state.players
         .filter((p: any) => p.isAlive)
@@ -54,7 +60,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: getTeamCounts(state.players),
         playersInfo,
         playerVotes: state.votingState.playerVotes,
-        durationSeconds: data.durationSeconds || null,
+        durationSeconds: state.votingState.durationSeconds || null,
       });
 
       callback({ success: true });
@@ -713,6 +719,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           tieBreakerLevel: state.votingState.tieBreakerLevel,
           playerVotes: {},
           leaderProxyVotes: {},
+          durationSeconds: state.votingState.durationSeconds || null,
         });
       }
 

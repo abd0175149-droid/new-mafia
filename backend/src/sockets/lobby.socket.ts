@@ -1245,6 +1245,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         totalVotesCast: state.votingState.totalVotesCast,
         playerVotes: state.votingState.playerVotes || {},
         hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
+        durationSeconds: state.votingState.durationSeconds,
+        votingStartTime: state.votingState.votingStartTime,
         playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
