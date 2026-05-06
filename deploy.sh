@@ -56,6 +56,8 @@ docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
    ALTER TABLE match_players ADD COLUMN IF NOT EXISTS rr_change INTEGER DEFAULT 0;
    ALTER TABLE bookings ADD COLUMN IF NOT EXISTS player_id INTEGER;
    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
+   ALTER TABLE activities ADD COLUMN IF NOT EXISTS max_capacity INTEGER DEFAULT 20;
+   ALTER TABLE activities ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium';
    UPDATE sessions SET status = 'closed' WHERE is_active = false AND status IS NULL;
    UPDATE sessions SET status = 'closed' WHERE is_active = false AND status = 'active';
    UPDATE sessions SET status = 'active' WHERE is_active = true AND (status IS NULL OR status = '');
