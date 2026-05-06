@@ -566,13 +566,27 @@ export default function ActivityDetailPage() {
               { name: 'مدفوع', value: paidAttendees, color: '#10b981' },
               { name: 'مجاني', value: freeAttendees, color: '#3b82f6' },
               { name: 'غير مدفوع', value: unpaidAttendees, color: '#f59e0b' },
+              { name: 'متبقي', value: Math.max(0, (activity.maxCapacity || 20) - totalAttendees), color: '#374151' },
             ]} />
             <div className="flex-1 space-y-3">
-              <div className="flex items-center justify-between p-2.5 bg-gray-900/60 rounded-xl">
-                <span className="text-gray-400 text-sm">إجمالي الحضور</span>
-                <span className="font-bold text-lg text-white">
-                  {totalAttendees} <span className="text-xs text-gray-500 font-normal">من {actBookings.length} حجز</span>
-                </span>
+              <div className="p-2.5 bg-gray-900/60 rounded-xl">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-gray-400 text-sm">إجمالي الحضور</span>
+                  <span className="font-bold text-lg text-white">
+                    {totalAttendees}<span className="text-xs text-gray-500 font-normal">/{activity.maxCapacity || 20}</span>
+                  </span>
+                </div>
+                {/* شريط التعبئة */}
+                <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      totalAttendees >= (activity.maxCapacity || 20) ? 'bg-rose-500' :
+                      totalAttendees >= (activity.maxCapacity || 20) * 0.8 ? 'bg-amber-500' : 'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(100, (totalAttendees / (activity.maxCapacity || 20)) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-600 mt-1">{actBookings.length} حجز — {Math.max(0, (activity.maxCapacity || 20) - totalAttendees)} مقعد متبقي</p>
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-sm text-gray-500"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> مدفوع</span>

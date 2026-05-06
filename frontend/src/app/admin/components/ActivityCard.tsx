@@ -99,8 +99,20 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
         <div className="grid grid-cols-2 gap-2 mb-3">
           {/* الحضور */}
           <div className="bg-gray-900/50 rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-white">{stats.attendees}</div>
+            <div className="text-lg font-bold text-white">
+              {stats.attendees}<span className="text-xs text-gray-500 font-normal">/{activity.maxCapacity || 20}</span>
+            </div>
             <div className="text-[10px] text-gray-500 mt-0.5">الحضور</div>
+            {/* شريط التعبئة */}
+            <div className="w-full bg-gray-800 rounded-full h-1.5 mt-1.5 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  stats.attendees >= (activity.maxCapacity || 20) ? 'bg-rose-500' :
+                  stats.attendees >= (activity.maxCapacity || 20) * 0.8 ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${Math.min(100, (stats.attendees / (activity.maxCapacity || 20)) * 100)}%` }}
+              />
+            </div>
           </div>
           {/* الربح */}
           <div className="bg-gray-900/50 rounded-xl p-3 text-center">

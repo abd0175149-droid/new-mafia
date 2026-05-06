@@ -26,6 +26,54 @@ const DIFFICULTY_OPTIONS = [
   { value: 'expert', label: 'خبير', icon: '🟣' },
 ];
 
+// ── مكون قسم قابل للطي ──
+function Section({ 
+  id, 
+  title, 
+  icon, 
+  activeSection, 
+  setActiveSection, 
+  children 
+}: { 
+  id: string; 
+  title: string; 
+  icon: string; 
+  activeSection: string | null;
+  setActiveSection: (val: string | null) => void;
+  children: React.ReactNode;
+}) {
+  const isOpen = activeSection === id;
+  return (
+    <div className="border border-gray-700/30 rounded-xl overflow-hidden transition-colors hover:border-gray-600/40">
+      <button
+        type="button"
+        onClick={() => setActiveSection(isOpen ? null : id)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-900/40 hover:bg-gray-800/50 transition-colors"
+      >
+        <span className="flex items-center gap-2 text-sm font-medium text-white">
+          <span>{icon}</span> {title}
+        </span>
+        <span className="text-gray-500 text-xs">{isOpen ? '▲' : '▼'}</span>
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="p-4 space-y-4 border-t border-gray-700/20">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function EditActivityForm({ activity, locations, onSubmit, onCancel }: EditActivityFormProps) {
   // ── الحقول الأساسية ──
   const [name, setName] = useState(activity.name || '');
@@ -116,39 +164,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     }
   }
 
-  // ── مكون قسم قابل للطي ──
-  function Section({ id, title, icon, children }: { id: string; title: string; icon: string; children: React.ReactNode }) {
-    const isOpen = activeSection === id;
-    return (
-      <div className="border border-gray-700/30 rounded-xl overflow-hidden transition-colors hover:border-gray-600/40">
-        <button
-          type="button"
-          onClick={() => setActiveSection(isOpen ? null : id)}
-          className="w-full flex items-center justify-between px-4 py-3 bg-gray-900/40 hover:bg-gray-800/50 transition-colors"
-        >
-          <span className="flex items-center gap-2 text-sm font-medium text-white">
-            <span>{icon}</span> {title}
-          </span>
-          <span className="text-gray-500 text-xs">{isOpen ? '▲' : '▼'}</span>
-        </button>
-        <AnimatePresence>
-          {isOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="p-4 space-y-4 border-t border-gray-700/20">
-                {children}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  }
+
 
   return (
     <motion.div
@@ -173,7 +189,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         {/* ══════════════════════════════════════════ */}
         {/* القسم 1: المعلومات الأساسية              */}
         {/* ══════════════════════════════════════════ */}
-        <Section id="basic" title="المعلومات الأساسية" icon="📝">
+        <Section id="basic" title="المعلومات الأساسية" icon="📝" activeSection={activeSection} setActiveSection={setActiveSection}>
           {/* الاسم */}
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">اسم النشاط</label>
@@ -213,7 +229,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         {/* ══════════════════════════════════════════ */}
         {/* القسم 2: الحالة والإعدادات                */}
         {/* ══════════════════════════════════════════ */}
-        <Section id="settings" title="الحالة والإعدادات" icon="⚙️">
+        <Section id="settings" title="الحالة والإعدادات" icon="⚙️" activeSection={activeSection} setActiveSection={setActiveSection}>
           {/* حالة النشاط */}
           <div>
             <label className="block text-xs text-gray-400 mb-2">حالة النشاط</label>
@@ -277,7 +293,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         {/* ══════════════════════════════════════════ */}
         {/* القسم 3: المكان والعروض والأسعار          */}
         {/* ══════════════════════════════════════════ */}
-        <Section id="pricing" title="المكان والأسعار" icon="💰">
+        <Section id="pricing" title="المكان والأسعار" icon="💰" activeSection={activeSection} setActiveSection={setActiveSection}>
           {/* المكان */}
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">موقع الفعالية</label>
@@ -363,7 +379,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         {/* ══════════════════════════════════════════ */}
         {/* القسم 4: رابط Drive                       */}
         {/* ══════════════════════════════════════════ */}
-        <Section id="drive" title="Google Drive" icon="📂">
+        <Section id="drive" title="Google Drive" icon="📂" activeSection={activeSection} setActiveSection={setActiveSection}>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">رابط مجلد Google Drive</label>
             <input
