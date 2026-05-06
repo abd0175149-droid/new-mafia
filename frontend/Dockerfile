@@ -2,6 +2,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# SWC requires libc6-compat on Alpine
+RUN apk add --no-cache libc6-compat
+
 COPY package*.json ./
 RUN npm ci
 
