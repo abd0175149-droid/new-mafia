@@ -480,6 +480,24 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         } catch (e) { /* DB might be unavailable */ }
       }
 
+      // ── حفظ اللاعب في قاعدة البيانات (Session Players) ──
+      if (state.sessionId) {
+        try {
+          const finalName = data.name || actualPlayer?.name || 'غير معروف';
+          await addPlayerToSession(
+            state.sessionId, 
+            actualPhysicalId, 
+            finalName, 
+            data.phone || undefined, 
+            data.gender || undefined, 
+            data.dob || undefined, 
+            data.playerId || undefined
+          );
+        } catch (e: any) {
+          console.error(`⚠️ Failed to save player to session_players in DB:`, e.message);
+        }
+      }
+
       socket.join(data.roomId);
       socket.data.role = 'player';
       socket.data.roomId = data.roomId;

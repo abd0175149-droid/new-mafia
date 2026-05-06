@@ -213,12 +213,36 @@ router.get('/:id/unbooked-players', authenticate, async (req: Request, res: Resp
 
     // 1. جلب جميع اللاعبين الذين دخلوا جلسات تابعة لهذا النشاط
     const joinedRows = await db.execute(sql`
-      SELECT DISTINCT sp.player_id, sp.player_name, sp.phone 
+      SELECT player_id, player_name, phone 
       FROM session_players sp
       JOIN sessions s ON sp.session_id = s.id
       WHERE s.activity_id = ${activityId}
+      
+      UNION
+      
+      SELECT mp.player_id, mp.player_name, NULL as phone
+      FROM match_players mp
+      JOIN matches m ON mp.match_id = m.id
+      JOIN sessions s ON m.session_id = s.id
+      WHERE s.activity_id = ${activityId}
     `);
-    const joinedPlayers = ((joinedRows as any).rows || joinedRows) as any[];
+    
+    // إزالة التكرار بناءً على player_name أو player_id
+    const rawJoinedPlayers = ((joinedRows as any).rows || joinedRows) as any[];
+    const uniquePlayersMap = new Map();
+    
+    for (const p of rawJoinedPlayers) {
+      const key = p.player_id ? `id_${p.player_id}` : `name_${p.player_name.trim()}`;
+      if (!uniquePlayersMap.has(key)) {
+        uniquePlayersMap.set(key, p);
+      } else {
+        // إذا كان هناك نسخة برقم هاتف، نفضلها على النسخة التي بدون رقم هاتف (من match_players)
+        if (p.phone && !uniquePlayersMap.get(key).phone) {
+          uniquePlayersMap.set(key, p);
+        }
+      }
+    }
+    const joinedPlayers = Array.from(uniquePlayersMap.values());
 
     // 2. جلب الحجوزات التابعة للنشاط
     const activityBookings = await db.select({
