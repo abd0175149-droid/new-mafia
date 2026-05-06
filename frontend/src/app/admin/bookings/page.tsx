@@ -63,7 +63,8 @@ export default function BookingsPage() {
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [viewingBooking, setViewingBooking] = useState<any | null>(null);
   const [editingBooking, setEditingBooking] = useState<any | null>(null);
-  const [payingBooking, setPayingBooking] = useState<any | null>(null);
+  const [payingBooking, setPayingBooking] = useState<any[] | null>(null);
+  const [selectedBookings, setSelectedBookings] = useState<number[]>([]);
 
   // ── Edit form state ──
   const [editName, setEditName] = useState('');
@@ -236,32 +237,62 @@ export default function BookingsPage() {
   }
 
   // ── Open Pay ──
-  function openPay(booking: any) {
-    setPayingBooking(booking);
-    const act = activities.find(a => a.id === booking.activityId);
-    // حساب المبلغ المقترح
-    let suggested = 0;
-    if (booking.offerItems?.length > 0) {
-      suggested = booking.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
-    } else {
-      suggested = (Number(act?.basePrice || 0)) * (booking.count || 1);
-    }
-    setPayAmount(String(suggested || 0));
+  function openPay(bookingsToPay: any[]) {
+    setPayingBooking(bookingsToPay);
+    
+    let totalSuggested = 0;
+    bookingsToPay.forEach(booking => {
+      const act = activities.find(a => a.id === booking.activityId);
+      if (booking.offerItems?.length > 0) {
+        totalSuggested += booking.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
+      } else {
+        totalSuggested += (Number(act?.basePrice || 0)) * (booking.count || 1);
+      }
+    });
+
+    setPayAmount(String(totalSuggested || 0));
     setPayReceivedBy('');
   }
 
   // ── Confirm Pay ──
   async function handlePayConfirm() {
-    if (!payingBooking) return;
+    if (!payingBooking || payingBooking.length === 0) return;
     if (!payAmount || Number(payAmount) <= 0) { alert('أدخل مبلغ صحيح'); return; }
     if (!payReceivedBy) { alert('اختر الموظف المستلم'); return; }
     setPaySubmitting(true);
+    
+    const expectedPerBooking = payingBooking.map(b => {
+      const act = activities.find(a => a.id === b.activityId);
+      let expected = 0;
+      if (b.offerItems?.length > 0) {
+        expected = b.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
+      } else {
+        expected = (Number(act?.basePrice || 0)) * (b.count || 1);
+      }
+      return expected;
+    });
+    
+    const totalExpected = expectedPerBooking.reduce((a, b) => a + b, 0);
+    const actualTotalPaid = Number(payAmount) || 0;
+
     try {
-      await apiFetch(`/api/bookings/${payingBooking.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ isPaid: true, paidAmount: Number(payAmount), receivedBy: payReceivedBy }),
+      const promises = payingBooking.map((booking, i) => {
+        let bookingPaid = expectedPerBooking[i];
+        if (totalExpected > 0 && actualTotalPaid !== totalExpected) {
+           bookingPaid = Number(((expectedPerBooking[i] / totalExpected) * actualTotalPaid).toFixed(2));
+        } else if (totalExpected === 0 && actualTotalPaid > 0) {
+           bookingPaid = Number((actualTotalPaid / payingBooking.length).toFixed(2));
+        }
+
+        return apiFetch(`/api/bookings/${booking.id}/pay`, {
+          method: 'PUT',
+          body: JSON.stringify({ isPaid: true, paidAmount: bookingPaid, receivedBy: payReceivedBy }),
+        });
       });
+
+      await Promise.all(promises);
       setPayingBooking(null);
+      setSelectedBookings([]);
       await fetchAll();
     } catch (err: any) {
       alert('فشل تأكيد الدفع: ' + (err.message || 'خطأ في الاتصال بالسيرفر'));
@@ -301,14 +332,24 @@ export default function BookingsPage() {
           <h1 className="text-2xl font-bold text-white">سجل الحجوزات</h1>
           <p className="text-gray-400 text-sm mt-1">إدارة المشاركين وحالة الدفع — {filteredBookings.length} من {bookings.length}</p>
         </div>
-        {!isLocationOwner && !isAccountant && (
-          <button
-            onClick={() => setShowBookingForm(!showBookingForm)}
-            className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 text-white rounded-xl text-sm font-bold hover:opacity-90 transition"
-          >
-            + حجز جديد
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {selectedBookings.length > 0 && (
+            <button
+              onClick={() => openPay(paginatedData.filter((b: any) => selectedBookings.includes(b.id)))}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-xl text-sm font-bold hover:opacity-90 transition shadow-[0_0_15px_rgba(16,185,129,0.3)]"
+            >
+              💰 دفع المحدد ({selectedBookings.length})
+            </button>
+          )}
+          {!isLocationOwner && !isAccountant && (
+            <button
+              onClick={() => setShowBookingForm(!showBookingForm)}
+              className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-600 text-white rounded-xl text-sm font-bold hover:opacity-90 transition"
+            >
+              + حجز جديد
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ══════ BOOKING FORM ══════ */}
@@ -391,6 +432,20 @@ export default function BookingsPage() {
             <table className="w-full text-sm" dir="rtl">
               <thead>
                 <tr className="bg-gray-900/50 text-gray-500 text-xs border-b border-gray-700/30">
+                  <th className="text-right px-4 py-3 font-medium w-8">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-gray-600 bg-gray-700/50 text-emerald-500 focus:ring-emerald-500/30 w-3.5 h-3.5 cursor-pointer"
+                      checked={selectedBookings.length > 0 && selectedBookings.length === paginatedData.filter((b: any) => !b.isPaid && !b.isFree && !isActivityLocked(b.activityId)).length}
+                      onChange={(e) => {
+                         if (e.target.checked) {
+                           setSelectedBookings(paginatedData.filter((b: any) => !b.isPaid && !b.isFree && !isActivityLocked(b.activityId)).map((b: any) => b.id));
+                         } else {
+                           setSelectedBookings([]);
+                         }
+                      }}
+                    />
+                  </th>
                   <th className="text-right px-4 py-3 font-medium">الاسم</th>
                   <th className="text-right px-4 py-3 font-medium">النشاط</th>
                   <th className="text-center px-4 py-3 font-medium">العدد</th>
@@ -416,6 +471,19 @@ export default function BookingsPage() {
                       id={`glow-booking-${b.id}`}
                       className="border-b border-gray-700/15 hover:bg-gray-700/10 transition-all"
                     >
+                      <td className="px-4 py-3">
+                        {!b.isPaid && !b.isFree && !locked && (
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-600 bg-gray-700/50 text-emerald-500 focus:ring-emerald-500/30 w-3.5 h-3.5 cursor-pointer"
+                            checked={selectedBookings.includes(b.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedBookings(prev => [...prev, b.id]);
+                              else setSelectedBookings(prev => prev.filter(id => id !== b.id));
+                            }}
+                          />
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-white font-medium">{b.name}</td>
                       <td className="px-4 py-3 text-gray-400 text-xs">{getActivityName(b.activityId)}</td>
                       <td className="px-4 py-3 text-center text-white">{b.count || 1}</td>
@@ -441,7 +509,7 @@ export default function BookingsPage() {
                           )}
                           {/* دفع */}
                           {canPay && !isLocationOwner && (
-                            <button onClick={() => openPay(b)} className="text-[10px] px-2 py-1 rounded-lg border border-gray-600/50 text-gray-400 hover:text-amber-400 hover:border-amber-500/30 transition">دفع</button>
+                            <button onClick={() => openPay([b])} className="text-[10px] px-2 py-1 rounded-lg border border-gray-600/50 text-gray-400 hover:text-amber-400 hover:border-amber-500/30 transition">دفع</button>
                           )}
                           {/* حذف */}
                           {canDelete && (
@@ -619,8 +687,12 @@ export default function BookingsPage() {
         {payingBooking && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setPayingBooking(null)}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={e => e.stopPropagation()} className="bg-gray-800 border border-gray-700/50 rounded-2xl p-6 w-full max-w-sm space-y-4">
-              <h3 className="text-lg font-bold text-white text-center">تأكيد الدفع</h3>
-              <p className="text-sm text-gray-400 text-center">الحجز: <strong className="text-white">{payingBooking.name}</strong></p>
+              <h3 className="text-lg font-bold text-white text-center mb-2">تأكيد الدفع</h3>
+              {payingBooking.length === 1 ? (
+                <p className="text-sm text-gray-400 text-center mb-2">الحجز: <strong className="text-white">{payingBooking[0].name}</strong></p>
+              ) : (
+                <p className="text-sm text-gray-400 text-center mb-2">دفع <strong className="text-white">{payingBooking.length}</strong> حجوزات محددة</p>
+              )}
 
               <div>
                 <label className="block text-xs text-gray-400 mb-1">المبلغ المدفوع ({CURRENCY})</label>

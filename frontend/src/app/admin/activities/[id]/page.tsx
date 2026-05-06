@@ -436,7 +436,8 @@ export default function ActivityDetailPage() {
   const [costsOpen, setCostsOpen] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   // Payment modal
-  const [payModal, setPayModal] = useState<any | null>(null);
+  const [payModal, setPayModal] = useState<any[] | null>(null);
+  const [selectedBookings, setSelectedBookings] = useState<number[]>([]);
   const [payAmount, setPayAmount] = useState('');
   const [payReceiver, setPayReceiver] = useState('');
   const [payNotes, setPayNotes] = useState('');
@@ -496,28 +497,69 @@ export default function ActivityDetailPage() {
   }
 
   // ── Payment handlers ──
-  function openPayModal(booking: any) {
-    const expectedAmount = Number(activity.basePrice || 0) * (booking.count || 1);
-    setPayModal(booking);
-    setPayAmount(String(expectedAmount || ''));
+  function openPayModal(bookingsToPay: any[]) {
+    let totalSuggested = 0;
+    bookingsToPay.forEach(booking => {
+      if (booking.offerItems?.length > 0) {
+        totalSuggested += booking.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
+      } else {
+        totalSuggested += (Number(activity?.basePrice || 0)) * (booking.count || 1);
+      }
+    });
+
+    setPayModal(bookingsToPay);
+    setPayAmount(String(totalSuggested || ''));
     setPayReceiver('');
-    setPayNotes(booking.notes || '');
+    setPayNotes(bookingsToPay.length === 1 ? (bookingsToPay[0].notes || '') : '');
   }
 
   async function confirmPayment() {
-    if (!payModal) return;
+    if (!payModal || payModal.length === 0) return;
     setPaySubmitting(true);
+    
+    // حساب المبلغ المتوقع لكل حجز لتوزيع المبلغ الكلي إذا تم تعديله
+    const expectedPerBooking = payModal.map(b => {
+      let expected = 0;
+      if (b.offerItems?.length > 0) {
+        expected = b.offerItems.reduce((s: number, item: any) => s + ((item.unitPrice || item.price || 0) * (item.quantity || 0)), 0);
+      } else {
+        expected = (Number(activity?.basePrice || 0)) * (b.count || 1);
+      }
+      return expected;
+    });
+    
+    const totalExpected = expectedPerBooking.reduce((a, b) => a + b, 0);
+    const actualTotalPaid = Number(payAmount) || 0;
+
     try {
-      const updated = await apiFetch(`/api/bookings/${payModal.id}/pay`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          paidAmount: Number(payAmount) || 0,
-          receivedBy: payReceiver,
-          notes: payNotes,
-        }),
+      const promises = payModal.map(async (booking, i) => {
+        let bookingPaid = expectedPerBooking[i];
+        
+        // توزيع المبلغ المدفوع بشكل نسبي إذا كان مختلف عن المجموع المتوقع
+        if (totalExpected > 0 && actualTotalPaid !== totalExpected) {
+           bookingPaid = Number(((expectedPerBooking[i] / totalExpected) * actualTotalPaid).toFixed(2));
+        } else if (totalExpected === 0 && actualTotalPaid > 0) {
+           bookingPaid = Number((actualTotalPaid / payModal.length).toFixed(2));
+        }
+
+        return apiFetch(`/api/bookings/${booking.id}/pay`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            paidAmount: bookingPaid,
+            receivedBy: payReceiver,
+            notes: payNotes,
+          }),
+        });
       });
-      setBookings(prev => prev.map(b => b.id === payModal.id ? updated : b));
+
+      const updatedBookings = await Promise.all(promises);
+      
+      setBookings(prev => prev.map(b => {
+         const updated = updatedBookings.find((u: any) => u.id === b.id);
+         return updated ? updated : b;
+      }));
       setPayModal(null);
+      setSelectedBookings([]);
     } catch (err: any) {
       alert('فشل تأكيد الدفع: ' + err.message);
     } finally {
@@ -715,6 +757,17 @@ export default function ActivityDetailPage() {
             <span className="text-lg">👥</span>
             <span className="font-bold text-white">قائمة الحجوزات</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{actBookings.length} حجز</span>
+            {selectedBookings.length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openPayModal(actBookings.filter((b: any) => selectedBookings.includes(b.id)));
+                }}
+                className="ml-4 text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition font-bold"
+              >
+                💰 دفع المحدد ({selectedBookings.length})
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {unpaidAttendees > 0 && (
@@ -732,6 +785,20 @@ export default function ActivityDetailPage() {
                   <table className="w-full text-sm" dir="rtl">
                     <thead>
                       <tr className="bg-gray-900/50 text-gray-500 text-xs">
+                        <th className="text-right px-3 py-2.5 font-medium w-8">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-600 bg-gray-700/50 text-emerald-500 focus:ring-emerald-500/30 w-3.5 h-3.5 cursor-pointer"
+                            checked={selectedBookings.length > 0 && selectedBookings.length === actBookings.filter((b: any) => !b.isPaid && !b.isFree).length}
+                            onChange={(e) => {
+                               if (e.target.checked) {
+                                 setSelectedBookings(actBookings.filter((b: any) => !b.isPaid && !b.isFree).map((b: any) => b.id));
+                               } else {
+                                 setSelectedBookings([]);
+                               }
+                            }}
+                          />
+                        </th>
                         <th className="text-right px-3 py-2.5 font-medium">#</th>
                         <th className="text-right px-3 py-2.5 font-medium">الاسم</th>
                         <th className="text-right px-3 py-2.5 font-medium">الهاتف</th>
@@ -746,6 +813,19 @@ export default function ActivityDetailPage() {
                     <tbody>
                       {actBookings.map((b: any, i: number) => (
                         <tr key={b.id} className={`border-t border-gray-700/20 transition ${!b.isPaid && !b.isFree ? 'bg-amber-500/[0.03] hover:bg-amber-500/[0.06]' : 'hover:bg-gray-700/10'}`}>
+                          <td className="px-3 py-2.5">
+                            {!b.isPaid && !b.isFree && (
+                              <input 
+                                type="checkbox" 
+                                className="rounded border-gray-600 bg-gray-700/50 text-emerald-500 focus:ring-emerald-500/30 w-3.5 h-3.5 cursor-pointer"
+                                checked={selectedBookings.includes(b.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedBookings(prev => [...prev, b.id]);
+                                  else setSelectedBookings(prev => prev.filter(id => id !== b.id));
+                                }}
+                              />
+                            )}
+                          </td>
                           <td className="px-3 py-2.5 text-gray-600 text-xs font-mono">{i + 1}</td>
                           <td className="px-3 py-2.5 text-white font-medium">{b.name}</td>
                           <td className="px-3 py-2.5 text-gray-400 text-xs" dir="ltr">{b.phone || '—'}</td>
@@ -774,7 +854,7 @@ export default function ActivityDetailPage() {
                             <div className="flex items-center justify-center gap-1">
                               {!b.isFree && !b.isPaid && (
                                 <button
-                                  onClick={() => openPayModal(b)}
+                                  onClick={() => openPayModal([b])}
                                   className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 transition font-bold"
                                   title="تأكيد الدفع"
                                 >
@@ -841,23 +921,34 @@ export default function ActivityDetailPage() {
 
             {/* معلومات الحجز */}
             <div className="bg-gray-800/60 border border-gray-700/30 rounded-xl p-4 mb-5 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">الاسم</span>
-                <span className="text-white font-bold">{payModal.name}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">العدد</span>
-                <span className="text-white">{payModal.count || 1} شخص</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-400">المبلغ المتوقع</span>
-                <span className="text-amber-400 font-bold">{(Number(activity.basePrice || 0) * (payModal.count || 1)).toLocaleString()} {CURRENCY}</span>
-              </div>
-              {payModal.phone && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-400">الهاتف</span>
-                  <span className="text-gray-300" dir="ltr">{payModal.phone}</span>
-                </div>
+              {payModal.length === 1 ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">الاسم</span>
+                    <span className="text-white font-bold">{payModal[0].name}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">العدد</span>
+                    <span className="text-white">{payModal[0].count || 1} شخص</span>
+                  </div>
+                  {payModal[0].phone && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">الهاتف</span>
+                      <span className="text-gray-300" dir="ltr">{payModal[0].phone}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">الحجوزات المحددة</span>
+                    <span className="text-white font-bold">{payModal.length} حجوزات</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-400">إجمالي الأشخاص</span>
+                    <span className="text-white">{payModal.reduce((s: number, b: any) => s + (b.count || 1), 0)} شخص</span>
+                  </div>
+                </>
               )}
             </div>
 
