@@ -103,6 +103,26 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
     }
   };
 
+  const [bookingInProgress, setBookingInProgress] = useState<number[] | 'all' | null>(null);
+
+  const handleAutoBook = async (playersToBook: any[]) => {
+    if (!confirm(`⚠️ هل تريد إنشاء حجز تلقائي لـ ${playersToBook.length} لاعب؟`)) return;
+    
+    setBookingInProgress(playersToBook.length > 1 ? 'all' : [playersToBook[0].player_id || playersToBook[0].player_name]);
+    try {
+      await apiFetch(`/api/activities/${activityId}/auto-book`, {
+        method: 'POST',
+        body: JSON.stringify({ players: playersToBook })
+      });
+      alert('✅ تم التسجيل بنجاح!');
+      fetchUnbooked(); // إعادة التحديث
+    } catch (err: any) {
+      alert('فشل التسجيل: ' + err.message);
+    } finally {
+      setBookingInProgress(null);
+    }
+  };
+
   const handleAddRoom = async () => {
     setAdding(true);
     try {
@@ -361,15 +381,35 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto pr-2 space-y-3">
-                <p className="text-gray-400 text-sm mb-3">هؤلاء اللاعبون مسجلون في غرف اللعب لكن النظام لم يجد حجوزات تطابقهم:</p>
-                {unbookedPlayers.map((p, i) => (
-                  <div key={i} className="bg-gray-800/80 border border-rose-500/20 rounded-xl p-3 flex justify-between items-center">
-                    <div>
-                      <p className="text-white font-bold">{p.player_name}</p>
-                      <p className="text-xs text-gray-500 font-mono mt-0.5" dir="ltr">{p.phone || '—'}</p>
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-gray-400 text-sm">هؤلاء اللاعبون مسجلون في غرف اللعب لكن النظام لم يجد حجوزات تطابقهم:</p>
+                  <button
+                    onClick={() => handleAutoBook(unbookedPlayers)}
+                    disabled={bookingInProgress === 'all'}
+                    className="text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-3 py-1.5 rounded-lg border border-emerald-500/30 whitespace-nowrap disabled:opacity-50"
+                  >
+                    {bookingInProgress === 'all' ? '⏳...' : '✅ تسجيل الكل كحجز'}
+                  </button>
+                </div>
+                {unbookedPlayers.map((p, i) => {
+                  const idKey = p.player_id || p.player_name;
+                  const isLoad = Array.isArray(bookingInProgress) && bookingInProgress.includes(idKey);
+                  return (
+                    <div key={i} className="bg-gray-800/80 border border-rose-500/20 rounded-xl p-3 flex justify-between items-center">
+                      <div>
+                        <p className="text-white font-bold">{p.player_name}</p>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5" dir="ltr">{p.phone || '—'}</p>
+                      </div>
+                      <button
+                        onClick={() => handleAutoBook([p])}
+                        disabled={bookingInProgress !== null}
+                        className="text-xs text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 px-3 py-1 rounded-lg disabled:opacity-50 transition"
+                      >
+                        {isLoad ? '⏳...' : 'تسجيل حجز'}
+                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </motion.div>

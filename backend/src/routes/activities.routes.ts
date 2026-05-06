@@ -245,6 +245,43 @@ router.get('/:id/unbooked-players', authenticate, async (req: Request, res: Resp
     res.status(500).json({ error: err.message });
   }
 });
+
+// POST /api/activities/:id/auto-book — إضافة حجز تلقائي للاعبين دخلوا الغرفة بدون حجز
+router.post('/:id/auto-book', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    const activityId = parseInt(req.params.id);
+    const { players } = req.body;
+    if (!Array.isArray(players) || players.length === 0) {
+      return res.status(400).json({ error: 'لم يتم توفير لاعبين للإضافة' });
+    }
+
+    const { bookings } = await import('../schemas/admin.schema.js');
+
+    const newBookings = players.map((p: any) => ({
+      activityId,
+      name: p.player_name,
+      phone: p.phone || '',
+      count: 1,
+      isPaid: false,
+      paidAmount: '0',
+      notes: 'تم تسجيله تلقائياً لدخوله الغرفة بدون حجز (عبر النظام)',
+      createdBy: 'النظام (Auto-Sync)',
+      playerId: p.player_id || null,
+      checkedIn: true, // لأنه متواجد بالفعل في الغرفة
+    }));
+
+    await db.insert(bookings).values(newBookings);
+
+    console.log(`✅ Auto-booked ${newBookings.length} players for Activity #${activityId}`);
+    res.json({ success: true, message: `تم تسجيل ${newBookings.length} حجز بنجاح` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/activities/:id/add-room — إنشاء غرفة جديدة مرتبطة بالنشاط
 router.post('/:id/add-room', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
