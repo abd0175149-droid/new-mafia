@@ -244,6 +244,22 @@ router.get('/:id/unbooked-players', authenticate, async (req: Request, res: Resp
     }
     const joinedPlayers = Array.from(uniquePlayersMap.values());
 
+    // --- تحديث أرقام الهواتف من جدول اللاعبين إذا كانت ناقصة ---
+    const { inArray } = await import('drizzle-orm');
+    const { players: playersTable } = await import('../schemas/player.schema.js');
+    const playerIds = joinedPlayers.map((p: any) => p.player_id).filter(Boolean);
+    if (playerIds.length > 0) {
+      const registeredPlayers = await db.select({ id: playersTable.id, phone: playersTable.phone })
+        .from(playersTable).where(inArray(playersTable.id, playerIds));
+      
+      for (const p of joinedPlayers as any[]) {
+        if (p.player_id) {
+          const rp = registeredPlayers.find(r => r.id === p.player_id);
+          if (rp && rp.phone) p.phone = rp.phone; // تحديث الرقم
+        }
+      }
+    }
+
     // 2. جلب الحجوزات التابعة للنشاط
     const activityBookings = await db.select({
       playerId: bookings.playerId,
@@ -283,19 +299,36 @@ router.post('/:id/auto-book', authenticate, async (req: Request, res: Response) 
     }
 
     const { bookings } = await import('../schemas/admin.schema.js');
+    const { inArray } = await import('drizzle-orm');
+    const { players: playersTable } = await import('../schemas/player.schema.js');
 
-    const newBookings = players.map((p: any) => ({
-      activityId,
-      name: p.player_name,
-      phone: p.phone || '',
-      count: 1,
-      isPaid: false,
-      paidAmount: '0',
-      notes: 'تم تسجيله تلقائياً لدخوله الغرفة بدون حجز (عبر النظام)',
-      createdBy: 'النظام (Auto-Sync)',
-      playerId: p.player_id || null,
-      checkedIn: true, // لأنه متواجد بالفعل في الغرفة
-    }));
+    // جلب أرقام الهواتف المؤكدة من جدول اللاعبين
+    const playerIds = players.map((p: any) => p.player_id).filter(Boolean);
+    let registeredPlayers: any[] = [];
+    if (playerIds.length > 0) {
+      registeredPlayers = await db.select({ id: playersTable.id, phone: playersTable.phone })
+        .from(playersTable).where(inArray(playersTable.id, playerIds));
+    }
+
+    const newBookings = players.map((p: any) => {
+      let phoneToSave = p.phone || '';
+      if (p.player_id) {
+        const rp = registeredPlayers.find(r => r.id === p.player_id);
+        if (rp && rp.phone) phoneToSave = rp.phone;
+      }
+      return {
+        activityId,
+        name: p.player_name,
+        phone: phoneToSave,
+        count: 1,
+        isPaid: false,
+        paidAmount: '0',
+        notes: 'تم تسجيله تلقائياً لدخوله الغرفة بدون حجز (عبر النظام)',
+        createdBy: 'النظام (Auto-Sync)',
+        playerId: p.player_id || null,
+        checkedIn: true, // لأنه متواجد بالفعل في الغرفة
+      };
+    });
 
     await db.insert(bookings).values(newBookings);
 
