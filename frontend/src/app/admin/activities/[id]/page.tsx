@@ -329,24 +329,33 @@ export default function ActivityDetailPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [costs, setCosts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [bookingsOpen, setBookingsOpen] = useState(false);
   const [costsOpen, setCostsOpen] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
+  // Payment modal
+  const [payModal, setPayModal] = useState<any | null>(null);
+  const [payAmount, setPayAmount] = useState('');
+  const [payReceiver, setPayReceiver] = useState('');
+  const [payNotes, setPayNotes] = useState('');
+  const [paySubmitting, setPaySubmitting] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const [act, bks, csts, locs] = await Promise.all([
+        const [act, bks, csts, locs, stf] = await Promise.all([
           apiFetch(`/api/activities/${activityId}`),
           apiFetch(`/api/bookings?activityId=${activityId}`),
           apiFetch(`/api/costs?activityId=${activityId}`),
           apiFetch('/api/locations'),
+          apiFetch('/api/staff').catch(() => []),
         ]);
         setActivity(act);
         setBookings(bks);
         setCosts(csts);
         setLocations(locs);
+        setStaffList(stf);
       } catch (err) {
         console.error(err);
       } finally {
@@ -383,6 +392,59 @@ export default function ActivityDetailPage() {
     const updated = await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
     setActivity(updated);
     setShowEditForm(false);
+  }
+
+  // ── Payment handlers ──
+  function openPayModal(booking: any) {
+    const expectedAmount = Number(activity.basePrice || 0) * (booking.count || 1);
+    setPayModal(booking);
+    setPayAmount(String(expectedAmount || ''));
+    setPayReceiver('');
+    setPayNotes(booking.notes || '');
+  }
+
+  async function confirmPayment() {
+    if (!payModal) return;
+    setPaySubmitting(true);
+    try {
+      const updated = await apiFetch(`/api/bookings/${payModal.id}/pay`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          paidAmount: Number(payAmount) || 0,
+          receivedBy: payReceiver,
+          notes: payNotes,
+        }),
+      });
+      setBookings(prev => prev.map(b => b.id === payModal.id ? updated : b));
+      setPayModal(null);
+    } catch (err: any) {
+      alert('فشل تأكيد الدفع: ' + err.message);
+    } finally {
+      setPaySubmitting(false);
+    }
+  }
+
+  async function handleUnpay(bookingId: number) {
+    if (!confirm('هل تريد إلغاء تأكيد الدفع لهذا الحجز؟')) return;
+    try {
+      const updated = await apiFetch(`/api/bookings/${bookingId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isPaid: false, paidAmount: '0' }),
+      });
+      setBookings(prev => prev.map(b => b.id === bookingId ? updated : b));
+    } catch (err: any) {
+      alert('فشل: ' + err.message);
+    }
+  }
+
+  async function handleDeleteBooking(bookingId: number) {
+    if (!confirm('⚠️ هل تريد حذف هذا الحجز نهائياً؟')) return;
+    try {
+      await apiFetch(`/api/bookings/${bookingId}`, { method: 'DELETE' });
+      setBookings(prev => prev.filter(b => b.id !== bookingId));
+    } catch (err: any) {
+      alert('فشل الحذف: ' + err.message);
+    }
   }
 
   return (
@@ -561,12 +623,12 @@ export default function ActivityDetailPage() {
                         <th className="text-center px-3 py-2.5 font-medium">المبلغ</th>
                         <th className="text-right px-3 py-2.5 font-medium">المستلم</th>
                         <th className="text-right px-3 py-2.5 font-medium">ملاحظات</th>
-                        <th className="text-right px-3 py-2.5 font-medium">التاريخ</th>
+                        <th className="text-center px-3 py-2.5 font-medium">إجراءات</th>
                       </tr>
                     </thead>
                     <tbody>
                       {actBookings.map((b: any, i: number) => (
-                        <tr key={b.id} className="border-t border-gray-700/20 hover:bg-gray-700/10 transition">
+                        <tr key={b.id} className={`border-t border-gray-700/20 transition ${!b.isPaid && !b.isFree ? 'bg-amber-500/[0.03] hover:bg-amber-500/[0.06]' : 'hover:bg-gray-700/10'}`}>
                           <td className="px-3 py-2.5 text-gray-600 text-xs font-mono">{i + 1}</td>
                           <td className="px-3 py-2.5 text-white font-medium">{b.name}</td>
                           <td className="px-3 py-2.5 text-gray-400 text-xs" dir="ltr">{b.phone || '—'}</td>
@@ -577,9 +639,9 @@ export default function ActivityDetailPage() {
                             {b.isFree ? (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/20">مجاني</span>
                             ) : b.isPaid ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">مدفوع</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">✅ مدفوع</span>
                             ) : (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">غير مدفوع</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20 animate-pulse">⏳ غير مدفوع</span>
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-center font-medium">
@@ -590,9 +652,35 @@ export default function ActivityDetailPage() {
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-gray-400 text-xs">{b.receivedBy || '—'}</td>
-                          <td className="px-3 py-2.5 text-gray-500 text-xs max-w-[150px] truncate" title={b.notes}>{b.notes || '—'}</td>
-                          <td className="px-3 py-2.5 text-gray-600 text-xs whitespace-nowrap">
-                            {b.createdAt ? safeDate(b.createdAt).toLocaleDateString('ar-EG', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                          <td className="px-3 py-2.5 text-gray-500 text-xs max-w-[120px] truncate" title={b.notes}>{b.notes || '—'}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {!b.isFree && !b.isPaid && (
+                                <button
+                                  onClick={() => openPayModal(b)}
+                                  className="text-[10px] px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 transition font-bold"
+                                  title="تأكيد الدفع"
+                                >
+                                  💰 تأكيد دفع
+                                </button>
+                              )}
+                              {b.isPaid && !b.isFree && (
+                                <button
+                                  onClick={() => handleUnpay(b.id)}
+                                  className="text-[10px] px-2 py-1 rounded-lg text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 transition"
+                                  title="إلغاء تأكيد الدفع"
+                                >
+                                  ↩️
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleDeleteBooking(b.id)}
+                                className="text-[10px] px-2 py-1 rounded-lg text-rose-400/50 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                                title="حذف الحجز"
+                              >
+                                🗑️
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -617,6 +705,101 @@ export default function ActivityDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ══ Payment Confirmation Modal ══ */}
+      {payModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setPayModal(null)}>
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+            onClick={e => e.stopPropagation()}
+            className="bg-gray-900 border border-gray-700/50 rounded-2xl p-6 max-w-md w-full"
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">💰 تأكيد الدفع</h3>
+              <button onClick={() => setPayModal(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
+            </div>
+
+            {/* معلومات الحجز */}
+            <div className="bg-gray-800/60 border border-gray-700/30 rounded-xl p-4 mb-5 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">الاسم</span>
+                <span className="text-white font-bold">{payModal.name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">العدد</span>
+                <span className="text-white">{payModal.count || 1} شخص</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-400">المبلغ المتوقع</span>
+                <span className="text-amber-400 font-bold">{(Number(activity.basePrice || 0) * (payModal.count || 1)).toLocaleString()} {CURRENCY}</span>
+              </div>
+              {payModal.phone && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-400">الهاتف</span>
+                  <span className="text-gray-300" dir="ltr">{payModal.phone}</span>
+                </div>
+              )}
+            </div>
+
+            {/* حقول التأكيد */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">المبلغ المدفوع ({CURRENCY}) *</label>
+                <input
+                  type="number" min="0" step="0.5"
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-800/60 border border-gray-600/50 rounded-xl text-white text-lg font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">المستلم</label>
+                <select
+                  value={payReceiver}
+                  onChange={e => setPayReceiver(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-800/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                >
+                  <option value="">اختر المستلم</option>
+                  {staffList.map((s: any) => (
+                    <option key={s.id} value={s.displayName}>{s.displayName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">ملاحظات</label>
+                <input
+                  type="text"
+                  value={payNotes}
+                  onChange={e => setPayNotes(e.target.value)}
+                  placeholder="ملاحظات اختيارية..."
+                  className="w-full px-4 py-3 bg-gray-800/60 border border-gray-600/50 rounded-xl text-white placeholder-gray-600 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                />
+              </div>
+            </div>
+
+            {/* أزرار */}
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={confirmPayment}
+                disabled={paySubmitting || !payAmount || Number(payAmount) <= 0}
+                className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:opacity-90 transition disabled:opacity-50 text-sm"
+              >
+                {paySubmitting ? '⏳ جاري التأكيد...' : '✅ تأكيد الدفع'}
+              </button>
+              <button
+                onClick={() => setPayModal(null)}
+                className="px-5 py-3 bg-gray-700/50 text-gray-300 rounded-xl hover:bg-gray-700/70 transition text-sm"
+              >
+                إلغاء
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* ══ Costs Table (Collapsible) ══ */}
       <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl overflow-hidden">

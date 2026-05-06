@@ -181,12 +181,33 @@ router.put('/:id/pay', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { paidAmount } = req.body;
+  const { paidAmount, receivedBy, notes } = req.body;
+
+  const updates: any = { isPaid: true, paidAmount: String(paidAmount || 0) };
+  if (receivedBy !== undefined) updates.receivedBy = receivedBy;
+  if (notes !== undefined) updates.notes = notes;
+
+  const existing = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+  if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
   const result = await db.update(bookings)
-    .set({ isPaid: true, paidAmount: String(paidAmount || 0) } as any)
+    .set(updates)
     .where(eq(bookings.id, id))
     .returning();
+
+  // إشعار عند تأكيد الدفع
+  if (!existing[0].isPaid) {
+    const admins = await db.select({ id: staff.id }).from(staff).where(eq(staff.role, 'admin'));
+    for (const admin of admins) {
+      await db.insert(notifications).values({
+        userId: admin.id,
+        title: '💰 تأكيد دفع',
+        message: `تم تأكيد دفع ${paidAmount} ${receivedBy ? `بواسطة ${receivedBy}` : ''} — ${existing[0].name}`,
+        type: 'financial',
+        targetId: `booking-${id}`,
+      } as any);
+    }
+  }
 
   res.json(result[0]);
 });
