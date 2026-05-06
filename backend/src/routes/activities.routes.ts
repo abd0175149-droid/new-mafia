@@ -514,7 +514,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty } = req.body;
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
@@ -527,6 +527,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (enabledOfferIds !== undefined) updates.enabledOfferIds = enabledOfferIds;
   if (isLocked !== undefined) updates.isLocked = isLocked;
   if (sessionId !== undefined) updates.sessionId = sessionId;
+  if (maxCapacity !== undefined) updates.maxCapacity = maxCapacity;
+  if (difficulty !== undefined) updates.difficulty = difficulty;
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });

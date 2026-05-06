@@ -141,7 +141,7 @@ export default function ActivityCard({ activity, stats, onDelete, onStatusChange
         {/* أزرار التعديل/التفاصيل/الحذف */}
         <div className="flex items-center gap-1">
           {/* تعديل */}
-          {!isLocked && !isLocationOwner && onEdit && activity.status === 'planned' && (
+          {!isLocked && !isLocationOwner && onEdit && (
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(); }}
               className="p-1.5 rounded-lg text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10 transition-all"

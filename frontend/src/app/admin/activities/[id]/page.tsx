@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
+import EditActivityForm from '../../components/EditActivityForm';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -331,6 +332,7 @@ export default function ActivityDetailPage() {
   const [loading, setLoading] = useState(true);
   const [bookingsOpen, setBookingsOpen] = useState(false);
   const [costsOpen, setCostsOpen] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -377,6 +379,12 @@ export default function ActivityDetailPage() {
     } catch {}
   }
 
+  async function handleEditActivity(id: number, data: any) {
+    const updated = await apiFetch(`/api/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    setActivity(updated);
+    setShowEditForm(false);
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-10" dir="rtl">
 
@@ -400,23 +408,33 @@ export default function ActivityDetailPage() {
                   </span>
                 )}
               </div>
-              {user.role === 'admin' && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={toggleLock}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition ${
-                    activity.isLocked
-                      ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
-                      : 'border-gray-600/50 text-gray-400 hover:bg-gray-800'
-                  }`}
+                  onClick={() => setShowEditForm(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition flex items-center gap-1.5"
                 >
-                  {activity.isLocked ? '🔓 فك القفل' : '🔒 قفل النشاط'}
+                  ✏️ تعديل النشاط
                 </button>
-              )}
+                {user.role === 'admin' && (
+                  <button
+                    onClick={toggleLock}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition ${
+                      activity.isLocked
+                        ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
+                        : 'border-gray-600/50 text-gray-400 hover:bg-gray-800'
+                    }`}
+                  >
+                    {activity.isLocked ? '🔓 فك القفل' : '🔒 قفل النشاط'}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
               <span>📅 {safeDate(activity.date).toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
               <span>🎫 {Number(activity.basePrice || 0)} {CURRENCY} / شخص</span>
               {location && <span>📍 {location.name}</span>}
+              <span>👥 {activity.maxCapacity || 20} لاعب كحد أقصى</span>
+              <span>{{'easy':'🟢 سهل','medium':'🟡 متوسط','hard':'🔴 صعب','expert':'🟣 خبير'}[activity.difficulty as string] || '🟡 متوسط'}</span>
             </div>
             {activity.description && <p className="text-sm text-gray-500 mt-2">{activity.description}</p>}
             {activity.isLocked && (
@@ -428,6 +446,16 @@ export default function ActivityDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* ══ نموذج التعديل ══ */}
+      {showEditForm && (
+        <EditActivityForm
+          activity={activity}
+          locations={locations}
+          onSubmit={handleEditActivity}
+          onCancel={() => setShowEditForm(false)}
+        />
+      )}
 
       {/* ══ الغرف المرتبطة (متعددة) ══ */}
       <RoomsSection activityId={activity.id} activityName={activity.name} />
