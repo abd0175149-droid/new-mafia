@@ -559,10 +559,8 @@ function DisplayPageContent() {
     }
   };
 
-  // ── QR URL ──
-  const joinUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/join/${roomCode}`
-    : '';
+  // ── QR URL — دائماً يوجه لصفحة تسجيل الدخول ──
+  const joinUrl = 'https://club-mafia.grade.sbs/player/login';
 
   // ══════════════════════════════════════════════════
   // 🖥️ واجهة العرض
@@ -821,11 +819,6 @@ function DisplayPageContent() {
                     <span className="block text-3xl font-black tracking-tight text-[#C5A059]" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(138,3,3,0.4)' }}>MAFIA</span>
                     <span className="flex justify-between w-full text-sm font-light text-[#8A0303]" dir="ltr" style={{ fontFamily: 'Amiri, serif' }}>{'CLUB'.split('').map((l, i) => <span key={i}>{l}</span>)}</span>
                   </h1>
-                </div>
-
-                <div className="w-full text-center flex flex-col items-center">
-                  <p className="text-[#808080] text-sm uppercase tracking-widest font-mono mb-2">OPERATION CODE</p>
-                  <p className="text-5xl font-mono text-[#C5A059] tracking-[0.2em] mb-6">{roomCode}</p>
                 </div>
 
                 <div className="noir-card p-6 mb-8 border-[#8A0303]/30 relative w-full flex flex-col items-center justify-center">
