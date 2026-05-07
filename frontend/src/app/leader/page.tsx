@@ -2683,6 +2683,11 @@ export default function LeaderPage() {
                 ✓ مبدأ التمويه — الكل يرسل، يُعتمد صاحب الدور فقط
               </p>
             )}
+            {nightMode === 'manual' && (
+              <p className="text-[#555] text-[10px] font-mono text-center mt-2 tracking-widest">
+                🎮 الليدر يتحكم بكل خطوات الليل يدوياً
+              </p>
+            )}
           </div>
 
           <button

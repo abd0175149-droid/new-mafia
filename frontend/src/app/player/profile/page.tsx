@@ -61,6 +61,108 @@ function cropAndResizeImage(file: File, targetSize = 512): Promise<string> {
   });
 }
 
+// ══════════════════════════════════════════════
+// 📜 مكوّن سجل المباريات مع التفاصيل القابلة للتوسيع
+// ══════════════════════════════════════════════
+function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const MAFIA = ['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'];
+
+  return (
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.5}}
+      className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-bold text-gray-300">📜 آخر المباريات</h3>
+        <Link href="/player/history" className="text-[10px] text-amber-400 border border-amber-400/20 px-2 py-1 rounded-lg hover:bg-amber-400/10 transition">عرض السجل التفصيلي</Link>
+      </div>
+      <div className="space-y-1.5">
+        {matchHistory.slice(0,8).map((m:any,i:number)=>{
+          const isMafia=MAFIA.includes(m.role);
+          const won=(isMafia&&m.matchWinner==='MAFIA')||(!isMafia&&m.matchWinner==='CITIZEN');
+          const dur=m.matchDuration?`${Math.floor(m.matchDuration/60)}:${String(m.matchDuration%60).padStart(2,'0')}`:'—';
+          const dt=m.matchDate?new Date(m.matchDate):null;
+          const dateStr=dt?`${dt.getDate()}/${dt.getMonth()+1}`:'—';
+          const isExpanded = expandedIdx === i;
+
+          return(
+            <div key={i}>
+              <motion.div initial={{opacity:0,x:-10}} animate={{opacity:1,x:0}} transition={{delay:0.05*i}}
+                onClick={()=>setExpandedIdx(isExpanded ? null : i)}
+                className={`flex items-center justify-between rounded-xl px-3 py-2.5 border transition cursor-pointer hover:scale-[1.01] ${
+                  won?'bg-emerald-500/5 border-emerald-500/10':'bg-rose-500/5 border-rose-500/10'} ${
+                  isExpanded ? (won ? 'border-emerald-500/30' : 'border-rose-500/30') : ''}`}>
+                <div className="flex items-center gap-2.5">
+                  <span className={`w-2 h-2 rounded-full ${won?'bg-emerald-400':'bg-rose-400'}`}/>
+                  <span className="text-xs text-gray-300">{ROLE_NAMES_AR[m.role]||m.role||'—'}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded ${isMafia?'bg-red-500/10 text-red-400':'bg-cyan-500/10 text-cyan-400'}`}>
+                    {isMafia?'مافيا':'مواطن'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                  <span>{m.survived?'🛡️ نجا':'💀'}</span>
+                  {m.xpEarned!==undefined&&m.xpEarned!==null&&<span className="text-amber-400/70">+{m.xpEarned}XP</span>}
+                  {m.rrChange!==undefined&&m.rrChange!==null&&<span className={m.rrChange>=0?'text-green-400/70':'text-red-400/70'}>{m.rrChange>=0?'+':''}{m.rrChange}RR</span>}
+                  <span className="font-mono">{dur}</span>
+                  <span className={`transition-transform ${isExpanded?'rotate-180':''}`}>▾</span>
+                </div>
+              </motion.div>
+
+              {/* تفصيل النقاط */}
+              <AnimatePresence>
+                {isExpanded && (
+                  <motion.div
+                    initial={{height:0,opacity:0}}
+                    animate={{height:'auto',opacity:1}}
+                    exit={{height:0,opacity:0}}
+                    className="overflow-hidden"
+                  >
+                    <div className="mx-1 mt-1 mb-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-3">
+                      {/* XP Breakdown */}
+                      <div>
+                        <p className="text-[10px] text-amber-400 font-bold mb-1.5">⭐ تفصيل الخبرة (XP)</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <div className="flex justify-between text-[10px]"><span className="text-gray-400">المشاركة</span><span className="text-amber-400 font-mono">+20</span></div>
+                          <div className="flex justify-between text-[10px]"><span className="text-gray-400">فوز الفريق</span><span className={`font-mono ${won?'text-amber-400':'text-gray-600'}`}>{won?'+50':'—'}</span></div>
+                          <div className="flex justify-between text-[10px]"><span className="text-gray-400">النجاة</span><span className="text-amber-400 font-mono">{m.survived?'✓ مكافأة':'—'}</span></div>
+                          <div className="flex justify-between text-[10px]"><span className="text-gray-400">المدة</span><span className="text-gray-500 font-mono">{dur}</span></div>
+                        </div>
+                        <div className="flex justify-between mt-1.5 pt-1.5 border-t border-white/[0.06]">
+                          <span className="text-[10px] text-gray-300 font-bold">المجموع</span>
+                          <span className="text-xs text-amber-400 font-black font-mono">+{m.xpEarned ?? 0} XP</span>
+                        </div>
+                      </div>
+
+                      {/* RR Breakdown */}
+                      <div>
+                        <p className="text-[10px] text-purple-400 font-bold mb-1.5">🏆 تفصيل الرتبة (RR)</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <div className="flex justify-between text-[10px]"><span className="text-gray-400">{won?'فوز':'خسارة'} الفريق</span><span className={`font-mono ${won?'text-green-400':'text-red-400'}`}>{won?'+20':'-20'}</span></div>
+                          <div className="flex justify-between text-[10px]"><span className="text-gray-400">النجاة للنهاية</span><span className={`font-mono ${m.survived?'text-green-400':'text-gray-600'}`}>{m.survived?'+5':'—'}</span></div>
+                        </div>
+                        <div className="flex justify-between mt-1.5 pt-1.5 border-t border-white/[0.06]">
+                          <span className="text-[10px] text-gray-300 font-bold">المجموع</span>
+                          <span className={`text-xs font-black font-mono ${(m.rrChange??0)>=0?'text-green-400':'text-red-400'}`}>{(m.rrChange??0)>=0?'+':''}{m.rrChange ?? 0} RR</span>
+                        </div>
+                      </div>
+
+                      {/* معلومات إضافية */}
+                      <div className="flex justify-between text-[9px] text-gray-600 pt-1 border-t border-white/[0.04]">
+                        <span>📅 {dateStr}</span>
+                        <span>👥 {m.matchPlayerCount || '—'} لاعب</span>
+                        <span>🏅 #{m.physicalId || '—'}</span>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
+
 export default function PlayerProfilePage(){
   const [profile,setProfile]=useState<any>(null);
   const [loading,setLoading]=useState(true);
@@ -445,42 +547,7 @@ export default function PlayerProfilePage(){
 
         {/* ═══ MATCH HISTORY ═══ */}
         {matchHistory?.length>0&&(
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.5}}
-            className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-4">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-sm font-bold text-gray-300">📜 آخر المباريات</h3>
-              <Link href="/player/history" className="text-[10px] text-amber-400 border border-amber-400/20 px-2 py-1 rounded-lg hover:bg-amber-400/10 transition">عرض السجل التفصيلي</Link>
-            </div>
-            <div className="space-y-1.5">
-              {matchHistory.slice(0,8).map((m:any,i:number)=>{
-                const isMafia=MAFIA_ROLES.includes(m.role);
-                const won=(isMafia&&m.matchWinner==='MAFIA')||(!isMafia&&m.matchWinner==='CITIZEN');
-                const dur=m.matchDuration?`${Math.floor(m.matchDuration/60)}:${String(m.matchDuration%60).padStart(2,'0')}`:'—';
-                const dt=m.matchDate?new Date(m.matchDate):null;
-                const dateStr=dt?`${dt.getDate()}/${dt.getMonth()+1}`:'—';
-                return(
-                  <motion.div key={i} initial={{opacity:0,x:-10}} animate={{opacity:1,x:0}} transition={{delay:0.05*i}}
-                    className={`flex items-center justify-between rounded-xl px-3 py-2.5 border transition hover:scale-[1.01] ${
-                      won?'bg-emerald-500/5 border-emerald-500/10':'bg-rose-500/5 border-rose-500/10'}`}>
-                    <div className="flex items-center gap-2.5">
-                      <span className={`w-2 h-2 rounded-full ${won?'bg-emerald-400':'bg-rose-400'}`}/>
-                      <span className="text-xs text-gray-300">{ROLE_NAMES_AR[m.role]||m.role||'—'}</span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded ${isMafia?'bg-red-500/10 text-red-400':'bg-cyan-500/10 text-cyan-400'}`}>
-                        {isMafia?'مافيا':'مواطن'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[10px] text-gray-500">
-                      <span>{m.survived?'🛡️ نجا':'💀'}</span>
-                      {m.xpEarned!==undefined&&m.xpEarned!==null&&<span className="text-amber-400/70">+{m.xpEarned}XP</span>}
-                      {m.rrChange!==undefined&&m.rrChange!==null&&<span className={m.rrChange>=0?'text-green-400/70':'text-red-400/70'}>{m.rrChange>=0?'+':''}{m.rrChange}RR</span>}
-                      <span className="font-mono">{dur}</span>
-                      <span className="font-mono">{dateStr}</span>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </motion.div>
+          <MatchHistorySection matchHistory={matchHistory} />
         )}
 
         {/* ═══ SETTINGS TOGGLE ═══ */}

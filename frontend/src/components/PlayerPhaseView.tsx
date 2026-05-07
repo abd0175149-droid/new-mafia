@@ -279,12 +279,66 @@ export default function PlayerPhaseView({
     );
   }
 
-  // ── مرحلة النقاش ──
+  // ── مرحلة النقاش (مع تايمر + تنبيه بصري) ──
+  // حساب التايمر من بيانات الباكإند
+  const dsForTimer = discussionState;
+  const discTimerCalc = (() => {
+    if (!dsForTimer) return null;
+    const { status, timeRemaining, startTime, timeLimitSeconds } = dsForTimer;
+    if (status === 'SPEAKING' && startTime) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      return Math.max(0, (timeRemaining ?? timeLimitSeconds ?? 60) - elapsed);
+    }
+    if (status === 'PAUSED' || status === 'WAITING') {
+      return timeRemaining ?? timeLimitSeconds ?? null;
+    }
+    return null;
+  })();
+
+  // تايمر محلي للعد التنازلي
+  const [discCountdown, setDiscCountdown] = useState<number | null>(null);
+  const discTimerRef = useRef<any>(null);
+  const prevSpeakerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!dsForTimer) { setDiscCountdown(null); return; }
+    const { status, timeRemaining, startTime, timeLimitSeconds } = dsForTimer;
+    if (status === 'SPEAKING' && startTime) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, (timeRemaining ?? timeLimitSeconds ?? 60) - elapsed);
+      setDiscCountdown(remaining);
+      if (discTimerRef.current) clearInterval(discTimerRef.current);
+      discTimerRef.current = setInterval(() => {
+        setDiscCountdown(prev => {
+          if (prev === null || prev <= 1) { clearInterval(discTimerRef.current); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (status === 'PAUSED' || status === 'WAITING') {
+      if (discTimerRef.current) clearInterval(discTimerRef.current);
+      setDiscCountdown(timeRemaining ?? timeLimitSeconds ?? null);
+    }
+    return () => { if (discTimerRef.current) clearInterval(discTimerRef.current); };
+  }, [dsForTimer?.status, dsForTimer?.startTime, dsForTimer?.timeRemaining]);
+
+  // تنبيه عند حلول دور اللاعب
+  useEffect(() => {
+    const currentSpeakerId = dsForTimer?.currentSpeakerId;
+    if (currentSpeakerId === myId && prevSpeakerRef.current !== myId) {
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
+    }
+    prevSpeakerRef.current = currentSpeakerId ?? null;
+  }, [dsForTimer?.currentSpeakerId, myId]);
+
   if (gamePhase === 'DAY_DISCUSSION') {
     const ds = discussionState;
     const currentSpeaker = ds?.currentSpeakerId;
     const speakerInfo = ds?.speakers?.find((s: any) => s.physicalId === currentSpeaker);
     const speakers = ds?.speakers || [];
+    const isMyTurn = currentSpeaker === myId;
+    const isSpeaking = ds?.status === 'SPEAKING';
+    const timeUp = discCountdown !== null && discCountdown <= 0 && isSpeaking;
+    const totalTime = ds?.timeLimitSeconds || 60;
 
     return (
       <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="py-4">
@@ -293,23 +347,71 @@ export default function PlayerPhaseView({
           <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>مرحلة النقاش</h3>
         </div>
 
-        {/* المتكلم الحالي */}
+        {/* تنبيه دور اللاعب */}
+        <AnimatePresence>
+          {isMyTurn && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: -20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: -20 }}
+              className="mx-2 mb-4 bg-gradient-to-r from-[#C5A059]/25 to-[#C5A059]/10 border-2 border-[#C5A059] rounded-2xl p-4 text-center"
+              style={{ boxShadow: '0 0 30px rgba(197,160,89,0.3)' }}
+            >
+              <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                <span className="text-4xl">{timeUp ? '🔇' : '🎙️'}</span>
+              </motion.div>
+              <p className="text-[#C5A059] font-black text-lg mt-2">
+                {timeUp ? 'انتهى وقتك!' : 'دورك في النقاش!'}
+              </p>
+              <p className="text-[#C5A059]/70 text-xs mt-1">
+                {timeUp ? 'يُرجى التوقف عن الكلام' : 'تحدّث الآن أمام الجميع'}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* المتكلم الحالي + التايمر */}
         {speakerInfo ? (
           <motion.div
             key={currentSpeaker}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-gradient-to-br from-[#C5A059]/20 to-[#C5A059]/5 border border-[#C5A059]/30 rounded-2xl p-5 mx-2 mb-4 text-center"
+            className={`border rounded-2xl p-5 mx-2 mb-4 text-center ${
+              isMyTurn
+                ? 'bg-gradient-to-br from-[#C5A059]/30 to-[#C5A059]/10 border-[#C5A059]'
+                : 'bg-gradient-to-br from-[#C5A059]/20 to-[#C5A059]/5 border-[#C5A059]/30'
+            }`}
+            style={isMyTurn ? { boxShadow: '0 0 20px rgba(197,160,89,0.2)' } : {}}
           >
             <div className="w-16 h-16 rounded-full bg-[#C5A059]/20 border-2 border-[#C5A059] flex items-center justify-center mx-auto mb-3">
               <span className="text-2xl font-black text-[#C5A059]">#{speakerInfo.physicalId}</span>
             </div>
             <p className="text-white font-bold text-lg">{speakerInfo.name || `لاعب #${speakerInfo.physicalId}`}</p>
-            <p className="text-[#C5A059] text-xs font-mono mt-1 tracking-widest">SPEAKING NOW</p>
-            {currentSpeaker === myId && (
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mt-3 bg-[#C5A059]/20 rounded-lg py-2 px-4">
-                <p className="text-[#C5A059] text-sm font-bold">🎙️ دورك في الكلام!</p>
-              </motion.div>
+            <p className="text-[#C5A059] text-xs font-mono mt-1 tracking-widest">
+              {timeUp ? 'TIME UP' : isSpeaking ? 'SPEAKING NOW' : 'WAITING'}
+            </p>
+
+            {/* التايمر الدائري */}
+            {discCountdown !== null && isSpeaking && (
+              <div className="flex items-center justify-center gap-3 mt-4">
+                <span className="text-2xl">{timeUp ? '🔇' : '🎙️'}</span>
+                <div className="relative w-16 h-16">
+                  <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                    <circle cx="18" cy="18" r="15.5" fill="none" stroke="#1a1a2e" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="15.5" fill="none"
+                      stroke={discCountdown <= 5 ? '#ef4444' : discCountdown <= 10 ? '#f59e0b' : '#C5A059'}
+                      strokeWidth="3" strokeLinecap="round"
+                      strokeDasharray={`${Math.max(0, (discCountdown / totalTime) * 97.4)} 97.4`}
+                      style={{ transition: 'stroke-dasharray 0.5s ease, stroke 0.3s ease' }}
+                    />
+                  </svg>
+                  <span className={`absolute inset-0 flex items-center justify-center text-lg font-black font-mono ${
+                    discCountdown <= 5 ? 'text-red-400 animate-pulse' : discCountdown <= 10 ? 'text-amber-400' : 'text-white'
+                  }`}>
+                    {discCountdown}
+                  </span>
+                </div>
+              </div>
             )}
           </motion.div>
         ) : (
@@ -323,16 +425,23 @@ export default function PlayerPhaseView({
             {speakers.map((s: any, i: number) => {
               const isCurrent = s.physicalId === currentSpeaker;
               const isDone = s.status === 'done';
+              const isMe = s.physicalId === myId;
               return (
                 <div key={s.physicalId}
                   className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all ${
                     isCurrent ? 'bg-[#C5A059]/15 border border-[#C5A059]/30' :
-                    isDone ? 'bg-white/5 opacity-50' : 'bg-white/5'
+                    isDone ? 'bg-white/5 opacity-50' :
+                    isMe ? 'bg-[#C5A059]/5 border border-[#C5A059]/10' : 'bg-white/5'
                   }`}
                 >
                   <span className={`text-xs font-mono w-5 ${isCurrent ? 'text-[#C5A059]' : 'text-[#555]'}`}>{i + 1}</span>
-                  <span className={`flex-1 text-sm ${isCurrent ? 'text-white font-bold' : isDone ? 'text-[#666] line-through' : 'text-[#999]'}`}>
+                  <span className={`flex-1 text-sm ${
+                    isCurrent ? 'text-white font-bold' :
+                    isDone ? 'text-[#666] line-through' :
+                    isMe ? 'text-[#C5A059] font-bold' : 'text-[#999]'
+                  }`}>
                     {s.name || `#${s.physicalId}`}
+                    {isMe && !isCurrent && !isDone && ' (أنت)'}
                   </span>
                   {isDone && <span className="text-green-500 text-xs">✓</span>}
                   {isCurrent && <span className="text-[#C5A059] text-xs animate-pulse">●</span>}
