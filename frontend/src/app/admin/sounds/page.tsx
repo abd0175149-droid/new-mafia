@@ -61,6 +61,7 @@ const EVENT_GROUPS = [
   {
     label: '🗳️ التصويت',
     events: [
+      { key: 'ambient_voting', label: '🗳️ صوت خلفي للتصويت', desc: 'يعمل طوال مرحلة التصويت/التبرير ويتكرر' },
       { key: 'vote_cast', label: '🗳️ إضافة صوت', desc: 'عند التصويت' },
       { key: 'vote_shift', label: '🔄 تبديل مرشح', desc: 'عند تغيير المرشح المعروض' },
     ],

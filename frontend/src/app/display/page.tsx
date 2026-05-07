@@ -252,11 +252,18 @@ function DisplayPageContent() {
       if (data.phase === Phase.NIGHT) {
         playAmbientSound('ambient_night');
         playGameSound('phase_night_start');
-      } else if (data.phase === 'DAY_DISCUSSION' || data.phase === 'DAY_VOTING') {
+      } else if (data.phase === 'DAY_DISCUSSION') {
         stopAmbientSound();
         playAmbientSound('ambient_day');
-        if (data.phase === 'DAY_DISCUSSION') playGameSound('phase_day_start');
-        if (data.phase === 'DAY_VOTING') playGameSound('phase_voting_start');
+        playGameSound('phase_day_start');
+      } else if (data.phase === 'DAY_VOTING') {
+        stopAmbientSound();
+        playAmbientSound('ambient_voting');
+        playGameSound('phase_voting_start');
+      } else if (data.phase === 'DAY_JUSTIFICATION') {
+        // التبرير: نفس صوت التصويت الخلفي (إن لم يكن يعمل بالفعل)
+        stopAmbientSound();
+        playAmbientSound('ambient_voting');
       } else if (data.phase === 'DAY_ELIMINATION') {
         playGameSound('phase_elimination');
       } else if (data.phase === Phase.GAME_OVER) {
