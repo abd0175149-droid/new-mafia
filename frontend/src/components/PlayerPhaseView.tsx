@@ -114,11 +114,38 @@ export default function PlayerPhaseView({
     return () => { if (discTimerRef.current) clearInterval(discTimerRef.current); };
   }, [discussionState?.status, discussionState?.startTime, discussionState?.timeRemaining]);
 
-  // ── تنبيه عند حلول دور اللاعب ──
+  // ── تنبيه عند حلول دور اللاعب (اهتزاز أندرويد + صوت iOS) ──
   useEffect(() => {
     const currentSpeakerId = discussionState?.currentSpeakerId;
     if (currentSpeakerId === myId && prevSpeakerRef.current !== myId) {
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
+      // محاولة الاهتزاز (أندرويد فقط — iOS لا يدعم vibrate)
+      if (navigator.vibrate) {
+        navigator.vibrate([200, 100, 200, 100, 300]);
+      }
+      // تنبيه صوتي قصير (يعمل على iOS + أندرويد)
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const playTone = (freq: number, start: number, dur: number) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = freq;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.3, ctx.currentTime + start);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + dur);
+            osc.start(ctx.currentTime + start);
+            osc.stop(ctx.currentTime + start + dur);
+          };
+          // 3 نغمات صاعدة قصيرة
+          playTone(660, 0, 0.15);
+          playTone(880, 0.2, 0.15);
+          playTone(1100, 0.4, 0.2);
+          setTimeout(() => ctx.close(), 1000);
+        }
+      } catch {}
     }
     prevSpeakerRef.current = currentSpeakerId ?? null;
   }, [discussionState?.currentSpeakerId, myId]);
