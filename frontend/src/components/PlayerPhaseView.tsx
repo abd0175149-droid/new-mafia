@@ -51,6 +51,12 @@ export default function PlayerPhaseView({
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [withdrawalNeeded, setWithdrawalNeeded] = useState(0);
 
+  // ── تايمر النقاش (يجب أن يكون هنا قبل أي return مشروط) ──
+  const [discCountdown, setDiscCountdown] = useState<number | null>(null);
+  const discTimerRef = useRef<any>(null);
+  const prevSpeakerRef = useRef<number | null>(null);
+  const myId = parseInt(physicalId);
+
   // ── استعادة البيانات من الـ polling عند reconnect ──
   useEffect(() => {
     if (!pollData) return;
@@ -85,6 +91,38 @@ export default function PlayerPhaseView({
   }, [pollData]);
 
   // ── Event Listeners ──
+  // ── تايمر النقاش: مزامنة مع حالة الباكإند ──
+  useEffect(() => {
+    const ds = discussionState;
+    if (!ds) { setDiscCountdown(null); return; }
+    const { status, timeRemaining, startTime, timeLimitSeconds } = ds;
+    if (status === 'SPEAKING' && startTime) {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, (timeRemaining ?? timeLimitSeconds ?? 60) - elapsed);
+      setDiscCountdown(remaining);
+      if (discTimerRef.current) clearInterval(discTimerRef.current);
+      discTimerRef.current = setInterval(() => {
+        setDiscCountdown(prev => {
+          if (prev === null || prev <= 1) { clearInterval(discTimerRef.current); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (status === 'PAUSED' || status === 'WAITING') {
+      if (discTimerRef.current) clearInterval(discTimerRef.current);
+      setDiscCountdown(timeRemaining ?? timeLimitSeconds ?? null);
+    }
+    return () => { if (discTimerRef.current) clearInterval(discTimerRef.current); };
+  }, [discussionState?.status, discussionState?.startTime, discussionState?.timeRemaining]);
+
+  // ── تنبيه عند حلول دور اللاعب ──
+  useEffect(() => {
+    const currentSpeakerId = discussionState?.currentSpeakerId;
+    if (currentSpeakerId === myId && prevSpeakerRef.current !== myId) {
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
+    }
+    prevSpeakerRef.current = currentSpeakerId ?? null;
+  }, [discussionState?.currentSpeakerId, myId]);
+
   useEffect(() => {
     if (!on) return;
 
@@ -250,7 +288,6 @@ export default function PlayerPhaseView({
     } catch {}
   };
 
-  const myId = parseInt(physicalId);
 
   // ══════════════════════════════════════
   // RENDER
@@ -278,57 +315,6 @@ export default function PlayerPhaseView({
       </motion.div>
     );
   }
-
-  // ── مرحلة النقاش (مع تايمر + تنبيه بصري) ──
-  // حساب التايمر من بيانات الباكإند
-  const dsForTimer = discussionState;
-  const discTimerCalc = (() => {
-    if (!dsForTimer) return null;
-    const { status, timeRemaining, startTime, timeLimitSeconds } = dsForTimer;
-    if (status === 'SPEAKING' && startTime) {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      return Math.max(0, (timeRemaining ?? timeLimitSeconds ?? 60) - elapsed);
-    }
-    if (status === 'PAUSED' || status === 'WAITING') {
-      return timeRemaining ?? timeLimitSeconds ?? null;
-    }
-    return null;
-  })();
-
-  // تايمر محلي للعد التنازلي
-  const [discCountdown, setDiscCountdown] = useState<number | null>(null);
-  const discTimerRef = useRef<any>(null);
-  const prevSpeakerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!dsForTimer) { setDiscCountdown(null); return; }
-    const { status, timeRemaining, startTime, timeLimitSeconds } = dsForTimer;
-    if (status === 'SPEAKING' && startTime) {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const remaining = Math.max(0, (timeRemaining ?? timeLimitSeconds ?? 60) - elapsed);
-      setDiscCountdown(remaining);
-      if (discTimerRef.current) clearInterval(discTimerRef.current);
-      discTimerRef.current = setInterval(() => {
-        setDiscCountdown(prev => {
-          if (prev === null || prev <= 1) { clearInterval(discTimerRef.current); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
-    } else if (status === 'PAUSED' || status === 'WAITING') {
-      if (discTimerRef.current) clearInterval(discTimerRef.current);
-      setDiscCountdown(timeRemaining ?? timeLimitSeconds ?? null);
-    }
-    return () => { if (discTimerRef.current) clearInterval(discTimerRef.current); };
-  }, [dsForTimer?.status, dsForTimer?.startTime, dsForTimer?.timeRemaining]);
-
-  // تنبيه عند حلول دور اللاعب
-  useEffect(() => {
-    const currentSpeakerId = dsForTimer?.currentSpeakerId;
-    if (currentSpeakerId === myId && prevSpeakerRef.current !== myId) {
-      if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 300]);
-    }
-    prevSpeakerRef.current = currentSpeakerId ?? null;
-  }, [dsForTimer?.currentSpeakerId, myId]);
 
   if (gamePhase === 'DAY_DISCUSSION') {
     const ds = discussionState;
