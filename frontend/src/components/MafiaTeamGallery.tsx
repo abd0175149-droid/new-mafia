@@ -68,33 +68,43 @@ export default function MafiaTeamGallery({ isOpen, onClose, team }: MafiaTeamGal
               </p>
             </div>
 
-            {/* Gallery Container */}
-            <div className="w-full max-w-[100vw] overflow-x-auto snap-x snap-mandatory flex gap-4 px-4 pb-8 pt-4 hide-scrollbar touch-pan-x">
-              {team.map((member, index) => (
-                <div 
-                  key={member.physicalId} 
-                  className="snap-center shrink-0 flex items-center justify-center"
-                  style={{ width: '80vw', maxWidth: '280px' }}
-                >
-                  <MafiaCard
-                    playerNumber={member.physicalId}
-                    playerName={member.name}
-                    role={member.role}
-                    avatarUrl={member.avatarUrl}
-                    size="fluid"
-                    className="w-full aspect-[3/4] max-h-[60vh]"
-                    flippable={true}
-                  />
+            {team.length > 0 ? (
+              <>
+                {/* Gallery Container */}
+                <div className="w-full max-w-[100vw] overflow-x-auto snap-x snap-mandatory flex gap-4 px-4 pb-8 pt-4 hide-scrollbar touch-pan-x">
+                  {team.map((member, index) => (
+                    <div 
+                      key={member.physicalId} 
+                      className="snap-center shrink-0 flex items-center justify-center"
+                      style={{ width: '80vw', maxWidth: '280px' }}
+                    >
+                      <MafiaCard
+                        playerNumber={member.physicalId}
+                        playerName={member.name}
+                        role={member.role}
+                        avatarUrl={member.avatarUrl}
+                        size="fluid"
+                        className="w-full aspect-[3/4] max-h-[60vh]"
+                        flippable={true}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            
-            {/* Dots indicator */}
-            {team.length > 1 && (
-              <div className="flex gap-2 mt-2">
-                {team.map((_, i) => (
-                  <div key={i} className="w-2 h-2 rounded-full bg-[#8A0303]/40 border border-[#8A0303]/20" />
-                ))}
+                
+                {/* Dots indicator */}
+                {team.length > 1 && (
+                  <div className="flex gap-2 mt-2">
+                    {team.map((_, i) => (
+                      <div key={i} className="w-2 h-2 rounded-full bg-[#8A0303]/40 border border-[#8A0303]/20" />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-12 px-4 border border-[#8A0303]/20 bg-[#1a0505]/50 rounded-2xl w-full max-w-sm mt-4">
+                <Users size={48} className="mx-auto text-[#8A0303]/40 mb-4" />
+                <p className="text-[#8A0303] font-bold text-lg">أنت لست من المافيا</p>
+                <p className="text-[#8A0303]/60 text-sm mt-2">ليس لديك شركاء لتتعرف عليهم</p>
               </div>
             )}
           </motion.div>

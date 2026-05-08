@@ -61,7 +61,7 @@ const EVENT_GROUPS = [
   {
     label: '🗳️ التصويت',
     events: [
-      { key: 'ambient_voting', label: '🗳️ صوت خلفي للتصويت', desc: 'يعمل طوال مرحلة التصويت/التبرير ويتكرر' },
+      { key: 'ambient_voting', label: '🗳️ صوت خلفي للتصويت', desc: 'يعمل أثناء التصويت، التبرير، الحصر، والإقصاء ويتكرر' },
       { key: 'vote_cast', label: '🗳️ إضافة صوت', desc: 'عند التصويت' },
       { key: 'vote_shift', label: '🔄 تبديل مرشح', desc: 'عند تغيير المرشح المعروض' },
     ],
@@ -69,7 +69,7 @@ const EVENT_GROUPS = [
   {
     label: '🔄 انتقال المراحل',
     events: [
-      { key: 'ambient_day', label: '☀️ صوت خلفي للنهار', desc: 'يعمل طوال مرحلة النهار' },
+      { key: 'ambient_day', label: '☀️ صوت خلفي للنقاش', desc: 'يعمل فقط أثناء مرحلة النقاش ويتوقف عند بدء التصويت' },
       { key: 'phase_day_start', label: '☀️ بداية النهار', desc: 'صوت انتقال للنهار' },
       { key: 'phase_night_start', label: '🌙 بداية الليل', desc: 'صوت انتقال لليل' },
       { key: 'phase_voting_start', label: '🗳️ بداية التصويت', desc: 'صوت بدء التصويت' },

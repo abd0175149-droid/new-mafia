@@ -82,7 +82,7 @@ export default function LeaderPage() {
   const [availableActivities, setAvailableActivities] = useState<any[]>([]);
   const [nightMode, setNightMode] = useState<'manual' | 'auto'>('manual'); // نمط الليل
   // تتبع Auto Night Progress
-  const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number } | null>(null);
+  const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number; missingPlayers?: {physicalId: number, name: string}[] } | null>(null);
   // الخطوة الجاهزة للليدر (Auto Night)
   const [autoNightStep, setAutoNightStep] = useState<{
     roleName: string; role: string; performerName: string; performerPhysicalId: number;
@@ -2323,11 +2323,23 @@ export default function LeaderPage() {
                                     style={{ width: `${autoNightProgress.total > 0 ? (autoNightProgress.submitted / autoNightProgress.total) * 100 : 0}%` }}
                                   />
                                 </div>
-                                <p className="text-[10px] text-[#555] font-mono text-center tracking-widest">
+                                <p className="text-[10px] text-[#555] font-mono text-center tracking-widest mb-2">
                                   {autoNightProgress.submitted >= autoNightProgress.total
                                     ? '✅ الجميع أرسلوا — جارٍ تحضير الخطوة التالية...'
                                     : 'اللاعبون يختارون من أجهزتهم...'}
                                 </p>
+                                {autoNightProgress.missingPlayers && autoNightProgress.missingPlayers.length > 0 && (
+                                  <div className="bg-[#111] border border-[#2a2a2a] rounded-lg p-2 max-h-32 overflow-y-auto">
+                                    <p className="text-[9px] text-[#888] font-mono mb-1">في انتظار الإرسال:</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {autoNightProgress.missingPlayers.map(p => (
+                                        <span key={p.physicalId} className="text-[10px] px-2 py-0.5 bg-[#222] border border-[#333] text-[#ccc] rounded-md">
+                                          #{p.physicalId} {p.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

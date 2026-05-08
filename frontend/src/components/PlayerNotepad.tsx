@@ -323,10 +323,13 @@ export default function PlayerNotepad({
                         <button
                           key={player.physicalId}
                           onClick={() => setTargetPlayer(player)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#111] border border-[#2a2a2a] rounded-full hover:border-[#C5A059]/40 hover:bg-[#C5A059]/5 transition-all"
+                          className="flex items-center gap-2 px-3 py-2 bg-[#1a1a1a] border border-[#333] rounded-xl hover:border-[#C5A059] hover:bg-[#C5A059]/10 transition-all shadow-sm"
                         >
-                          <span className="text-[#C5A059] font-mono text-xs font-bold">#{player.physicalId}</span>
-                          <span className="text-gray-300 text-xs">{player.name || `لاعب`}</span>
+                          {player.avatarUrl && (
+                            <img src={player.avatarUrl} alt="" className="w-6 h-6 rounded-full object-cover" />
+                          )}
+                          <span className="text-[#C5A059] font-mono text-sm font-black shadow-sm">#{player.physicalId}</span>
+                          <span className="text-gray-200 text-sm font-bold">{player.name || `لاعب`}</span>
                         </button>
                       ))}
                     </div>

@@ -260,11 +260,12 @@ function DisplayPageContent() {
         stopAmbientSound();
         playAmbientSound('ambient_voting');
         playGameSound('phase_voting_start');
-      } else if (data.phase === 'DAY_JUSTIFICATION') {
-        // التبرير: نفس صوت التصويت الخلفي (إن لم يكن يعمل بالفعل)
+      } else if (data.phase === 'DAY_JUSTIFICATION' || data.phase === 'DAY_TIEBREAKER' || data.phase === 'DAY_REVEALED') {
         stopAmbientSound();
         playAmbientSound('ambient_voting');
       } else if (data.phase === 'DAY_ELIMINATION') {
+        stopAmbientSound();
+        playAmbientSound('ambient_voting');
         playGameSound('phase_elimination');
       } else if (data.phase === Phase.GAME_OVER) {
         stopAmbientSound();

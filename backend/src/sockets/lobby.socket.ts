@@ -1295,6 +1295,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
         // نتيجة اللعبة
         winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
+        // معلومات قائمة اللاعبين للمفكرة وغيرها
+        rosterInfo: state.players.map((p: any) => ({
+          physicalId: p.physicalId,
+          name: p.name,
+          avatarUrl: p.avatarUrl || null,
+          isAlive: p.isAlive,
+        })),
         // كشف أدوار الجميع عند انتهاء اللعبة
         allPlayers: state.phase === 'GAME_OVER' ? state.players.map((p: any) => ({
           physicalId: p.physicalId,
