@@ -2014,6 +2014,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                           </p>
                         </div>
 
+                  {votingCountdown !== null && votingCountdown > 0 && (
+                    <div 
+                      key={votingCountdown <= 10 ? 'red' : 'gold'}
+                      className={`text-3xl font-black font-mono text-center mb-5 ${
+                        votingCountdown <= 10 ? 'text-red-500 animate-pulse' : 'text-[#C5A059]'
+                      }`}
+                      style={{ transform: 'translateZ(0)' }}
+                    >
+                      ⏱ {votingCountdown}ث
+                    </div>
+                  )}
+
                   {/* شريط التقدم */}
                   <div className="mb-5 px-2">
                     <div className="flex justify-between text-[10px] text-[#808080] font-mono mb-1">
@@ -2330,9 +2342,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   </div>
 
                   {votingCountdown !== null && votingCountdown > 0 && (
-                    <div className={`text-3xl font-black font-mono text-center mb-5 transition-colors ${
-                      votingCountdown <= 10 ? 'text-red-500 animate-pulse' : 'text-[#C5A059]'
-                    }`}>
+                    <div 
+                      key={votingCountdown <= 10 ? 'red' : 'gold'}
+                      className={`text-3xl font-black font-mono text-center mb-5 ${
+                        votingCountdown <= 10 ? 'text-red-500 animate-pulse' : 'text-[#C5A059]'
+                      }`}
+                      style={{ transform: 'translateZ(0)' }}
+                    >
                       ⏱ {votingCountdown}ث
                     </div>
                   )}
