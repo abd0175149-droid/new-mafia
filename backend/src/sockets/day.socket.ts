@@ -34,13 +34,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const state = await initVoting(data.roomId);
-      await setPhase(data.roomId, Phase.DAY_VOTING);
+      state.phase = Phase.DAY_VOTING;
 
       if (data.durationSeconds) {
         state.votingState.durationSeconds = data.durationSeconds;
         state.votingState.votingStartTime = Date.now();
-        await setGameState(data.roomId, state);
       }
+      await setGameState(data.roomId, state);
 
       // بناء بيانات اللاعبين مع الأسماء والصور للـ PlayerFlow
       const playersInfo = state.players
@@ -51,8 +51,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
           avatarUrl: p.avatarUrl || null,
         }));
 
-      // بث تغيير المرحلة أولاً (لكل العملاء بما فيهم الـ PlayerFlow)
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING });
+      // بث تغيير المرحلة مع الحالة الكاملة (يمنع race condition مع REST fallback)
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING, state });
 
       io.to(data.roomId).emit('day:voting-started', {
         candidates: state.votingState.candidates,
