@@ -141,8 +141,8 @@ async function resolveAutoNight(io: Server, roomId: string) {
   console.log(`✅ Auto night resolved for room ${roomId}`);
 }
 
-// ── تشغيل خطوة واحدة في طابور الليل (Auto Mode) ──
-async function startAutoQueueStep(io: Server, roomId: string, currentIndex: number) {
+// ── تجهيز الخطوة التالية (بدون إرسال للاعبين — ينتظر الليدر) ──
+async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: number) {
   const state = await getGameState(roomId);
   if (!state) return;
 
@@ -153,20 +153,45 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
     return;
   }
 
-  // 1. إعادة ضبط الإرسالات للخطوة الحالية وحفظ الدور الفاعل
+  // إعادة ضبط الإرسالات للخطوة الحالية وحفظ الدور الفاعل
   state.playerNightActions = { submitted: {} };
   state.autoNightStepRole = nextStep.role;
   state.autoNightPerformerId = nextStep.performerPhysicalId;
-  state.nightStep = nextStep; // حفظ الخطوة ليراها الليدر
+  state.nightStep = nextStep;
+  state.autoNightStepDispatched = false; // الليدر لم يبدأ هذه الخطوة بعد
+  await setGameState(roomId, state);
+
+  // إعلام الليدر بالخطوة الجاهزة (ينتظر زره لبدئها)
+  const leaderSock = findLeaderSocket(io, roomId);
+  if (leaderSock) {
+    leaderSock.emit('game:state-updated', state);
+    leaderSock.emit('night:auto-step-ready', {
+      roleName: nextStep.roleName,
+      role: nextStep.role,
+      performerName: nextStep.performerName,
+      performerPhysicalId: nextStep.performerPhysicalId,
+      canSkip: nextStep.canSkip,
+      timeoutSeconds: state.config.autoNightTime || 15,
+    });
+  }
+  console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId}`);
+}
+
+// ── الليدر يبدأ الخطوة: إرسال للاعبين + بدء المؤقت ──
+async function dispatchAutoStepToPlayers(io: Server, roomId: string) {
+  const state = await getGameState(roomId);
+  if (!state || !state.nightStep) return;
+
+  const nextStep = state.nightStep;
+  state.autoNightStepDispatched = true;
+  state.playerNightActions = { submitted: {} };
   await setGameState(roomId, state);
 
   const timeoutSeconds = state.config.autoNightTime || 15;
-
   const alivePlayers = state.players.filter((p: any) => p.isAlive);
-  
   const stepActionType = getAutoActionType(nextStep.role);
 
-  // ── قائمة أهداف التمويه: جميع الأحياء ──
+  // قائمة أهداف التمويه: جميع الأحياء
   const decoyTargets = alivePlayers.map((p: any) => ({
     physicalId: p.physicalId,
     name: p.name,
@@ -179,7 +204,7 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
       playerSock.emit('night:action-required', {
         actionType: stepActionType,
         availableTargets: isPerformer ? nextStep.availableTargets : decoyTargets,
-        timeoutSeconds: timeoutSeconds, // استخدام الوقت المخصص
+        timeoutSeconds,
         canSkip: nextStep.canSkip,
         stepRole: nextStep.role,
         isDecoy: !isPerformer,
@@ -191,26 +216,27 @@ async function startAutoQueueStep(io: Server, roomId: string, currentIndex: numb
   const oldTimer = autoNightTimers.get(roomId);
   if (oldTimer) clearTimeout(oldTimer);
 
-  // 3. مؤقت للخطوة الحالية
+  // مؤقت — عند الانتهاء يجهّز الخطوة التالية وينتظر الليدر
   const timerId = setTimeout(async () => {
     console.log(`⏰ Auto step ${nextStep.role} timeout in room ${roomId}`);
-    // الانتقال للخطوة التالية
     const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
     const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
-    startAutoQueueStep(io, roomId, newIndex);
+    // تجهيز الخطوة التالية (تنتظر الليدر)
+    prepareAutoQueueStep(io, roomId, newIndex);
   }, timeoutSeconds * 1000);
 
   autoNightTimers.set(roomId, timerId as any);
 
-  // إعلام الليدر وتحديث الواجهة
+  // إعلام الليدر أن الخطوة بدأت
   const leaderSock = findLeaderSocket(io, roomId);
   if (leaderSock) {
     leaderSock.emit('game:state-updated', state);
     leaderSock.emit('night:auto-step-started', {
       roleName: nextStep.roleName,
-      timeoutSeconds: timeoutSeconds,
+      timeoutSeconds,
     });
   }
+  console.log(`▶️ Auto step dispatched: ${nextStep.roleName} in room ${roomId}`);
 }
 
 export function registerNightEvents(io: Server, socket: Socket) {
@@ -259,8 +285,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
           totalAlive: alivePlayers.length,
         });
 
-        // ── بدء طابور الخطوات خطوة بخطوة ──
-        startAutoQueueStep(io, data.roomId, -1);
+        // ── تجهيز أول خطوة (تنتظر الليدر) ──
+        prepareAutoQueueStep(io, data.roomId, -1);
 
         return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
       }
@@ -974,15 +1000,40 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       callback?.({ success: true });
 
-      // إذا أرسل الجميع → انتقل للخطوة التالية مباشرة بدون انتظار الـ timeout
+      // إذا أرسل الجميع → تجهيز الخطوة التالية (تنتظر الليدر)
       if (submittedCount >= alivePlayers.length) {
-        console.log(`✅ All players submitted for step ${stepRole} in room ${data.roomId} — proceeding early`);
+        console.log(`✅ All players submitted for step ${stepRole} in room ${data.roomId} — preparing next`);
         const oldTimer = autoNightTimers.get(data.roomId);
         if (oldTimer) clearTimeout(oldTimer);
         const effectiveRole = stepRole === Role.NURSE ? Role.DOCTOR : stepRole;
         const currentIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
-        startAutoQueueStep(io, data.roomId, currentIndex);
+        prepareAutoQueueStep(io, data.roomId, currentIndex);
       }
+    } catch (err: any) {
+      callback?.({ success: false, error: err.message });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 📱 night:auto-advance-step — الليدر يبدأ الخطوة الحالية
+  // ══════════════════════════════════════════════════════
+  socket.on('night:auto-advance-step', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback?.({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback?.({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'Not night phase' });
+      if (state.config.nightMode !== 'auto') return callback?.({ success: false, error: 'Not auto mode' });
+      if (!state.nightStep) return callback?.({ success: false, error: 'No pending step' });
+      if (state.autoNightStepDispatched) return callback?.({ success: false, error: 'Step already dispatched' });
+
+      // الليدر يبدأ الخطوة → إرسال للاعبين + بدء المؤقت
+      await dispatchAutoStepToPlayers(io, data.roomId);
+
+      callback?.({ success: true });
     } catch (err: any) {
       callback?.({ success: false, error: err.message });
     }
@@ -1019,7 +1070,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         totalAlive: alivePlayers.length,
       });
 
-      startAutoQueueStep(io, data.roomId, -1);
+      prepareAutoQueueStep(io, data.roomId, -1);
 
       callback?.({ success: true });
     } catch (err: any) {

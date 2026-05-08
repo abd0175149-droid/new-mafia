@@ -83,6 +83,11 @@ export default function LeaderPage() {
   const [nightMode, setNightMode] = useState<'manual' | 'auto'>('manual'); // نمط الليل
   // تتبع Auto Night Progress
   const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number } | null>(null);
+  // الخطوة الجاهزة للليدر (Auto Night)
+  const [autoNightStep, setAutoNightStep] = useState<{
+    roleName: string; role: string; performerName: string; performerPhysicalId: number;
+    canSkip: boolean; timeoutSeconds: number; dispatched: boolean;
+  } | null>(null);
 
   // Active game state
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -423,6 +428,11 @@ export default function LeaderPage() {
     const offPhaseChanged = on('game:phase-changed', async (data: any) => {
       // للمراحل الليلية: لا نجلب من API — Socket يتكفل بالبيانات
       if (data.phase === 'NIGHT' || data.phase === 'MORNING_RECAP') {
+        // تنظيف حالة الليل عند الانتقال لملخص الصباح
+        if (data.phase === 'MORNING_RECAP') {
+          setAutoNightStep(null);
+          setAutoNightProgress(null);
+        }
         setGameState(prev => prev ? {
           ...prev,
           phase: data.phase,
@@ -669,8 +679,18 @@ export default function LeaderPage() {
     const offAutoProgress = on('night:auto-progress', (data: { total: number; submitted: number }) => {
       setAutoNightProgress(data);
     });
-    const offAutoStarted = on('night:auto-started', (data: { totalAlive: number; timeoutSeconds: number }) => {
+    const offAutoStarted = on('night:auto-started', (data: { totalAlive: number }) => {
       setAutoNightProgress({ total: data.totalAlive, submitted: 0 });
+      setAutoNightStep(null);
+    });
+    // الخطوة جاهزة — تنتظر الليدر
+    const offAutoStepReady = on('night:auto-step-ready', (data: any) => {
+      setAutoNightStep({ ...data, dispatched: false });
+      setAutoNightProgress(prev => prev ? { ...prev, submitted: 0 } : null);
+    });
+    // الخطوة أُرسلت للاعبين
+    const offAutoStepStarted = on('night:auto-step-started', (data: any) => {
+      setAutoNightStep(prev => prev ? { ...prev, dispatched: true } : null);
     });
 
     // 👮‍♀️ صلاحية الشرطية جاهزة — عرض واجهة الاختيار
@@ -703,6 +723,8 @@ export default function LeaderPage() {
     });
 
     const offGameRestarted = on('game:restarted', (data: any) => {
+      setAutoNightStep(null);
+      setAutoNightProgress(null);
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -2224,25 +2246,98 @@ export default function LeaderPage() {
 
           {(gameState.phase === 'NIGHT' || gameState.phase === 'MORNING_RECAP') && (
             <>
-              {/* Auto Night Progress — يظهر فقط في Auto Mode أثناء الليل */}
-              {gameState.phase === 'NIGHT' && autoNightProgress && (
+              {/* ═══ Auto Night Control Panel — لوحة تحكم الليدر ═══ */}
+              {gameState.phase === 'NIGHT' && (gameState.config as any).nightMode === 'auto' && (
                 <div className="mb-4 px-1" dir="rtl">
                   <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-mono text-[#808080] tracking-widest">📱 AUTO NIGHT</span>
-                      <span className="text-xs font-mono text-[#C5A059]">
-                        {autoNightProgress.submitted} / {autoNightProgress.total}
-                      </span>
+                    {/* عنوان */}
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-mono text-[#808080] tracking-widest">🌙 AUTO NIGHT</span>
+                      {autoNightProgress && (
+                        <span className="text-xs font-mono text-[#C5A059]">
+                          {autoNightProgress.submitted} / {autoNightProgress.total} أرسلوا
+                        </span>
+                      )}
                     </div>
-                    <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-[#C5A059] to-[#b38b47] rounded-full transition-all duration-500"
-                        style={{ width: `${autoNightProgress.total > 0 ? (autoNightProgress.submitted / autoNightProgress.total) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <p className="text-[10px] text-[#555] font-mono text-center mt-2 tracking-widest">
-                      اللاعبون يختارون من أجهزتهم...
-                    </p>
+
+                    {/* الخطوة الحالية */}
+                    {autoNightStep ? (
+                      <div className="space-y-3">
+                        {/* معلومات الخطوة */}
+                        <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-3 text-center">
+                          <p className="text-[9px] font-mono text-[#666] tracking-widest uppercase mb-1">CURRENT STEP</p>
+                          <p className="text-[#C5A059] font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>
+                            {autoNightStep.roleName}
+                          </p>
+                          <p className="text-[#555] text-xs font-mono mt-1">
+                            #{autoNightStep.performerPhysicalId} — {autoNightStep.performerName}
+                          </p>
+                          <p className="text-[10px] text-[#444] font-mono mt-1">
+                            ⏱ {autoNightStep.timeoutSeconds} ثانية
+                          </p>
+                        </div>
+
+                        {/* زر بدء الخطوة أو حالة التقدم */}
+                        {!autoNightStep.dispatched ? (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await emit('night:auto-advance-step', { roomId: gameState.roomId });
+                                if (!res?.success) setError(res?.error || 'فشل بدء الخطوة');
+                              } catch (err: any) { setError(err.message); }
+                            }}
+                            className="w-full py-3.5 bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black text-sm rounded-xl hover:from-[#d4af63] hover:to-[#c49b52] transition-all"
+                            style={{ boxShadow: '0 0 20px rgba(197,160,89,0.3)' }}
+                          >
+                            ▶ بدء {autoNightStep.roleName}
+                          </button>
+                        ) : (
+                          <div>
+                            {/* شريط التقدم */}
+                            {autoNightProgress && (
+                              <div>
+                                <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden mb-2">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-[#C5A059] to-[#b38b47] rounded-full transition-all duration-500"
+                                    style={{ width: `${autoNightProgress.total > 0 ? (autoNightProgress.submitted / autoNightProgress.total) * 100 : 0}%` }}
+                                  />
+                                </div>
+                                <p className="text-[10px] text-[#555] font-mono text-center tracking-widest">
+                                  {autoNightProgress.submitted >= autoNightProgress.total
+                                    ? '✅ الجميع أرسلوا — جارٍ تحضير الخطوة التالية...'
+                                    : 'اللاعبون يختارون من أجهزتهم...'}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* زر تخطي (للقناص والقص) */}
+                        {autoNightStep.canSkip && !autoNightStep.dispatched && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await emit('night:skip-action', {
+                                  roomId: gameState.roomId,
+                                  role: autoNightStep.role,
+                                });
+                                if (res?.success) setAutoNightStep(null);
+                              } catch {}
+                            }}
+                            className="w-full py-2 text-[#666] hover:text-[#999] text-xs font-mono transition-colors"
+                          >
+                            تخطي ←
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-2" />
+                        <p className="text-[10px] text-[#555] font-mono tracking-widest">
+                          جارٍ تحضير الخطوة التالية...
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

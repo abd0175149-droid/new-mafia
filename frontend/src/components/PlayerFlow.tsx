@@ -2787,26 +2787,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         onNotesChange={setNotepadNotes}
       />
 
-      {/* ══ Auto Night: شاشة الإجراء الليلي ══ */}
+      {/* ══ Auto Night: شاشة الإجراء الليلي — تصميم مطابق للتصويت ══ */}
       {nightActionRequired && !nightActionSubmitted && (
-        <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col" style={{ fontFamily: 'Amiri, serif' }}>
-          <div className="flex-1 flex flex-col items-center justify-center px-4 gap-5">
+        <div className="fixed inset-0 z-[200] bg-gradient-to-b from-[#0a0812] via-[#070510] to-[#000]" style={{ fontFamily: 'Amiri, serif' }}>
+          <div className="flex flex-col h-full safe-area-inset">
             {/* Header */}
-            <div className="text-center">
-              <div className="text-5xl mb-2">🌙</div>
-              <h2 className="text-2xl font-black text-[#C5A059]">وقت الليل</h2>
-              <h3 className="text-xl text-white font-bold my-1 border-b border-[#C5A059]/30 pb-2 mb-2">
-                دور: {nightActionRequired.stepRole === 'MAFIA' ? 'المافيا' :
+            <div className="text-center pt-8 pb-3 px-4">
+              <motion.div
+                animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 3, repeat: Infinity }}
+                className="text-4xl mb-2"
+              >🌙</motion.div>
+              <p className="text-[9px] font-mono text-[#666] tracking-[0.2em] uppercase mb-1">NIGHT PHASE</p>
+              <h2 className="text-xl font-black text-[#C5A059]">
+                {nightActionRequired.stepRole === 'MAFIA' ? 'المافيا' :
                   nightActionRequired.stepRole === 'GODFATHER' ? 'العراب' :
                   nightActionRequired.stepRole === 'SILENCER' ? 'المُسكت' :
                   nightActionRequired.stepRole === 'SHERIFF' ? 'المحقق' :
                   nightActionRequired.stepRole === 'DOCTOR' ? 'الطبيب' :
-                  nightActionRequired.stepRole === 'NURSE' ? 'الممرض' :
+                  nightActionRequired.stepRole === 'NURSE' ? 'الممرضة' :
                   nightActionRequired.stepRole === 'SNIPER' ? 'القناص' :
                   nightActionRequired.stepRole === 'CHAMELEON' ? 'الحرباء' :
                   nightActionRequired.stepRole || 'مجهول'}
-              </h3>
-              <p className="text-gray-400 text-sm mt-1">
+              </h2>
+              <p className="text-[#888] text-xs mt-1">
                 {nightActionRequired.isDecoy
                   ? 'اختر أي شخص للتمويه...'
                   : (
@@ -2821,80 +2825,136 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </p>
             </div>
 
-            {/* Timer */}
-            <div className={`text-4xl font-black font-mono ${nightActionCountdown <= 10 ? 'text-red-400' : 'text-[#C5A059]'}`}>
-              {String(Math.floor(nightActionCountdown / 60)).padStart(2, '0')}:{String(nightActionCountdown % 60).padStart(2, '0')}
+            {/* التايمر الدائري */}
+            <div className="flex justify-center py-2">
+              <div className="relative w-16 h-16">
+                <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                  <circle cx="18" cy="18" r="15.5" fill="none" stroke="#1a1a2e" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="15.5" fill="none"
+                    stroke={nightActionCountdown <= 5 ? '#ef4444' : nightActionCountdown <= 10 ? '#f59e0b' : '#C5A059'}
+                    strokeWidth="3" strokeLinecap="round"
+                    strokeDasharray={`${Math.max(0, (nightActionCountdown / (nightActionRequired.timeoutSeconds || 15)) * 97.4)} 97.4`}
+                    style={{ transition: 'stroke-dasharray 0.5s ease, stroke 0.3s ease' }}
+                  />
+                </svg>
+                <span className={`absolute inset-0 flex items-center justify-center text-lg font-black font-mono ${
+                  nightActionCountdown <= 5 ? 'text-red-400 animate-pulse' : nightActionCountdown <= 10 ? 'text-amber-400' : 'text-white'
+                }`}>
+                  {nightActionCountdown}
+                </span>
+              </div>
             </div>
 
-            {/* قائمة الأهداف */}
-            <div className="w-full max-w-sm flex flex-col gap-2 max-h-64 overflow-y-auto">
-              {nightActionRequired.availableTargets.map(target => (
+            {/* قائمة الأهداف — تصميم مطابق للتصويت */}
+            <div className="flex-1 overflow-y-auto px-4 pb-2">
+              <div className="space-y-2">
+                {nightActionRequired.availableTargets.map(target => {
+                  const isSelected = selectedTargetForConfirm === target.physicalId && !nightActionRequired.isDecoy;
+                  return (
+                    <motion.button
+                      key={target.physicalId}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      onClick={async () => {
+                        if (!nightActionRequired.isDecoy && selectedTargetForConfirm !== target.physicalId) {
+                          setSelectedTargetForConfirm(target.physicalId);
+                          return;
+                        }
+                        if (!emit || nightActionSubmitted) return;
+                        setNightActionSubmitted(true);
+                        if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+                        await emit('player:night-action', {
+                          roomId,
+                          actionType: nightActionRequired.actionType,
+                          targetPhysicalId: target.physicalId,
+                        }).catch(() => {});
+                        setTimeout(() => setNightActionRequired(null), 1500);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 border rounded-2xl transition-all text-right ${
+                        isSelected
+                          ? 'bg-gradient-to-r from-[#8A0303]/20 to-[#8A0303]/10 border-[#8A0303]/60'
+                          : 'bg-gradient-to-r from-white/[0.03] to-transparent border-[#2a2a2a] hover:border-[#C5A059]/40 hover:bg-[#C5A059]/5'
+                      }`}
+                      style={isSelected ? { boxShadow: '0 0 15px rgba(138,3,3,0.2)' } : {}}
+                    >
+                      <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-[#8A0303]/20 border-[#8A0303]/50' : 'bg-[#C5A059]/10 border-[#C5A059]/30'
+                      }`}>
+                        <span className={`text-sm font-black ${isSelected ? 'text-red-400' : 'text-[#C5A059]'}`}>
+                          #{target.physicalId}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold text-sm truncate">
+                          {target.name || `لاعب #${target.physicalId}`}
+                        </p>
+                        {isSelected && (
+                          <motion.p
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="text-[#8A0303] text-[11px] font-mono mt-0.5"
+                          >
+                            اضغط مرة أخرى للتأكيد ⚠️
+                          </motion.p>
+                        )}
+                      </div>
+                      {isSelected && (
+                        <motion.div
+                          animate={{ scale: [1, 1.3, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                          className="text-[#8A0303] text-lg shrink-0"
+                        >●</motion.div>
+                      )}
+                    </motion.button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* زر تخطي */}
+            {nightActionRequired.canSkip && !nightActionRequired.isDecoy && (
+              <div className="px-4 pb-4 pt-2">
                 <button
-                  key={target.physicalId}
                   onClick={async () => {
-                    if (selectedTargetForConfirm !== target.physicalId && !nightActionRequired.isDecoy) {
-                      setSelectedTargetForConfirm(target.physicalId);
-                      return;
-                    }
                     if (!emit || nightActionSubmitted) return;
                     setNightActionSubmitted(true);
                     if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
                     await emit('player:night-action', {
                       roomId,
                       actionType: nightActionRequired.actionType,
-                      targetPhysicalId: target.physicalId,
+                      targetPhysicalId: null,
                     }).catch(() => {});
                     setTimeout(() => setNightActionRequired(null), 1500);
                   }}
-                  className={`flex items-center gap-3 px-4 py-3 border rounded-2xl transition-all text-right ${
-                    selectedTargetForConfirm === target.physicalId && !nightActionRequired.isDecoy
-                      ? 'bg-[#8A0303]/20 border-[#8A0303] animate-pulse'
-                      : 'bg-[#111] border-[#2a2a2a] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5'
-                  }`}
+                  className="w-full py-2.5 text-[#666] hover:text-[#999] text-xs font-mono transition-colors border border-[#1a1a1a] rounded-xl hover:border-[#333]"
                 >
-                  <div className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center shrink-0">
-                    <span className="text-sm font-black text-[#C5A059]">#{target.physicalId}</span>
-                  </div>
-                  <span className="text-white font-bold flex-1">
-                    {target.name || `لاعب #${target.physicalId}`}
-                    {selectedTargetForConfirm === target.physicalId && !nightActionRequired.isDecoy && (
-                      <span className="block text-xs text-[#8A0303] mt-1 font-mono">اضغط مرة أخرى للتأكيد ⚠️</span>
-                    )}
-                  </span>
+                  تخطي هذه الخطوة ←
                 </button>
-              ))}
-            </div>
-
-            {/* زر تخطي */}
-            {nightActionRequired.canSkip && !nightActionRequired.isDecoy && (
-              <button
-                onClick={async () => {
-                  if (!emit || nightActionSubmitted) return;
-                  setNightActionSubmitted(true);
-                  if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
-                  await emit('player:night-action', {
-                    roomId,
-                    actionType: nightActionRequired.actionType,
-                    targetPhysicalId: null,
-                  }).catch(() => {});
-                  setTimeout(() => setNightActionRequired(null), 1500);
-                }}
-                className="text-gray-500 hover:text-gray-300 text-sm transition-colors font-mono"
-              >
-                تخطي ←
-              </button>
+              </div>
             )}
           </div>
 
           {/* رسالة تأكيد */}
           {nightActionSubmitted && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-              <div className="text-center">
-                <div className="text-6xl mb-4">✅</div>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="absolute inset-0 flex items-center justify-center bg-black/90"
+            >
+              <motion.div
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                className="text-center"
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                  className="text-6xl mb-4"
+                >✅</motion.div>
                 <p className="text-white font-black text-xl">تم الإرسال</p>
-                <p className="text-gray-400 text-sm mt-1">انتظر نتائج الليل...</p>
-              </div>
-            </div>
+                <p className="text-[#666] text-xs font-mono mt-2 tracking-widest">WAITING FOR RESULTS...</p>
+              </motion.div>
+            </motion.div>
           )}
         </div>
       )}
