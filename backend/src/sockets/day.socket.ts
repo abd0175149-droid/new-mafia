@@ -710,6 +710,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
           winResult,
         });
       } else {
+        if (state.votingState.durationSeconds) {
+          state.votingState.votingStartTime = Date.now();
+          await setGameState(data.roomId, state);
+        }
         await setPhase(data.roomId, Phase.DAY_VOTING);
         // بث تغيير المرحلة أيضاً ليتم تحديث جميع العملاء
         io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING, teamCounts: getTeamCounts(state.players) });

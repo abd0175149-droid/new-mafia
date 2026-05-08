@@ -726,6 +726,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         const myPhysId = parseInt(physicalId);
         if (data.playerVotes[myPhysId] !== undefined) {
           setMyVote(data.playerVotes[myPhysId]);
+        } else {
+          setMyVote(null);
         }
       }
     });
@@ -1989,7 +1991,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     const timeSinceVote = lastVoteTime ? now - lastVoteTime : 0;
                     const voteWindowOpen = lastVoteTime !== null && timeSinceVote < 10000;
                     const secondsLeft = Math.max(0, 10 - Math.floor(timeSinceVote / 1000));
-                    const canVote = myVote === null || voteWindowOpen;
+                    const canVote = (myVote === null || voteWindowOpen) && (votingCountdown === null || votingCountdown > 0);
 
                     return (
                       <>
