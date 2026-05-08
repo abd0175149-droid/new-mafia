@@ -178,7 +178,7 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
 }
 
 // ── الليدر يبدأ الخطوة: إرسال للاعبين + بدء المؤقت ──
-async function dispatchAutoStepToPlayers(io: Server, roomId: string) {
+async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSeconds?: number) {
   const state = await getGameState(roomId);
   if (!state || !state.nightStep) return;
 
@@ -187,7 +187,7 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string) {
   state.playerNightActions = { submitted: {} };
   await setGameState(roomId, state);
 
-  const timeoutSeconds = state.config.autoNightTime || 15;
+  const timeoutSeconds = durationSeconds || state.config.autoNightTime || 15;
   const alivePlayers = state.players.filter((p: any) => p.isAlive);
   const stepActionType = getAutoActionType(nextStep.role);
 
@@ -195,6 +195,7 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string) {
   const decoyTargets = alivePlayers.map((p: any) => ({
     physicalId: p.physicalId,
     name: p.name,
+    avatarUrl: p.avatarUrl || null,
   }));
 
   for (const player of alivePlayers) {
@@ -1017,7 +1018,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ══════════════════════════════════════════════════════
   // 📱 night:auto-advance-step — الليدر يبدأ الخطوة الحالية
   // ══════════════════════════════════════════════════════
-  socket.on('night:auto-advance-step', async (data: { roomId: string }, callback) => {
+  socket.on('night:auto-advance-step', async (data: { roomId: string, durationSeconds?: number }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback?.({ success: false, error: 'Only leader' });
@@ -1031,7 +1032,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (state.autoNightStepDispatched) return callback?.({ success: false, error: 'Step already dispatched' });
 
       // الليدر يبدأ الخطوة → إرسال للاعبين + بدء المؤقت
-      await dispatchAutoStepToPlayers(io, data.roomId);
+      await dispatchAutoStepToPlayers(io, data.roomId, data.durationSeconds);
 
       callback?.({ success: true });
     } catch (err: any) {
@@ -1089,7 +1090,7 @@ interface QueueStep {
   roleName: string;
   performerPhysicalId: number;
   performerName: string;
-  availableTargets: { physicalId: number; name: string }[];
+  availableTargets: { physicalId: number; name: string; avatarUrl?: string | null }[];
   canSkip: boolean;
 }
 
@@ -1119,7 +1120,7 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
             performerName: performer.name,
             availableTargets: targets.map((id: number) => {
               const p = state.players.find((pl: any) => pl.physicalId === id);
-              return { physicalId: id, name: p?.name || '' };
+              return { physicalId: id, name: p?.name || '', avatarUrl: p?.avatarUrl || null };
             }),
             canSkip: false,
           };
@@ -1141,7 +1142,7 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
       performerName: performer.name,
       availableTargets: targets.map((id: number) => {
         const p = state.players.find((pl: any) => pl.physicalId === id);
-        return { physicalId: id, name: p?.name || '' };
+        return { physicalId: id, name: p?.name || '', avatarUrl: p?.avatarUrl || null };
       }),
       canSkip: actionRole === Role.SNIPER || actionRole === Role.SILENCER,
     };

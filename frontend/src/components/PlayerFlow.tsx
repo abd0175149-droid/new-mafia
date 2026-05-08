@@ -2877,12 +2877,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                       }`}
                       style={isSelected ? { boxShadow: '0 0 15px rgba(138,3,3,0.2)' } : {}}
                     >
-                      <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-[#8A0303]/20 border-[#8A0303]/50' : 'bg-[#C5A059]/10 border-[#C5A059]/30'
+                      <div className={`relative w-11 h-11 rounded-full border-2 flex items-center justify-center shrink-0 overflow-hidden ${
+                        isSelected ? 'border-[#8A0303]' : 'border-[#C5A059]/30'
                       }`}>
-                        <span className={`text-sm font-black ${isSelected ? 'text-red-400' : 'text-[#C5A059]'}`}>
-                          #{target.physicalId}
-                        </span>
+                        {(target as any).avatarUrl ? (
+                          <>
+                            <img src={(target as any).avatarUrl} alt="" className="w-full h-full object-cover grayscale opacity-80" />
+                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                              <span className={`text-sm font-black drop-shadow-md ${isSelected ? 'text-red-400' : 'text-white'}`}>#{target.physicalId}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className={`w-full h-full flex items-center justify-center ${isSelected ? 'bg-[#8A0303]/20' : 'bg-[#C5A059]/10'}`}>
+                            <span className={`text-sm font-black ${isSelected ? 'text-red-400' : 'text-[#C5A059]'}`}>#{target.physicalId}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-white font-bold text-sm truncate">

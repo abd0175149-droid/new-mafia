@@ -88,6 +88,7 @@ export default function LeaderPage() {
     roleName: string; role: string; performerName: string; performerPhysicalId: number;
     canSkip: boolean; timeoutSeconds: number; dispatched: boolean;
   } | null>(null);
+  const [customNightTimer, setCustomNightTimer] = useState<number | null>(null);
 
   // Active game state
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -2273,8 +2274,25 @@ export default function LeaderPage() {
                             #{autoNightStep.performerPhysicalId} — {autoNightStep.performerName}
                           </p>
                           <p className="text-[10px] text-[#444] font-mono mt-1">
-                            ⏱ {autoNightStep.timeoutSeconds} ثانية
+                            المدة: {customNightTimer || autoNightStep.timeoutSeconds} ثانية
                           </p>
+                          {!autoNightStep.dispatched && (
+                            <div className="mt-2 flex items-center justify-center gap-2">
+                              {[15, 20, 30].map(t => (
+                                <button
+                                  key={t}
+                                  onClick={() => setCustomNightTimer(t)}
+                                  className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
+                                    (customNightTimer === t) || (!customNightTimer && autoNightStep.timeoutSeconds === t)
+                                      ? 'bg-[#C5A059] text-black font-bold'
+                                      : 'bg-[#111] text-[#808080] border border-[#2a2a2a] hover:border-[#C5A059]'
+                                  }`}
+                                >
+                                  {t}s
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         {/* زر بدء الخطوة أو حالة التقدم */}
@@ -2282,7 +2300,10 @@ export default function LeaderPage() {
                           <button
                             onClick={async () => {
                               try {
-                                const res = await emit('night:auto-advance-step', { roomId: gameState.roomId });
+                                const res = await emit('night:auto-advance-step', { 
+                                  roomId: gameState.roomId,
+                                  durationSeconds: customNightTimer || autoNightStep.timeoutSeconds
+                                });
                                 if (!res?.success) setError(res?.error || 'فشل بدء الخطوة');
                               } catch (err: any) { setError(err.message); }
                             }}
