@@ -213,17 +213,6 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     }
   }
 
-  // إرسال التحديث الأولي لليدر بقائمة من ننتظرهم
-  const leaderSock = findLeaderSocket(io, roomId);
-  if (leaderSock) {
-    leaderSock.emit('night:auto-step-started', {});
-    leaderSock.emit('night:auto-progress', {
-      total: alivePlayers.length,
-      submitted: 0,
-      missingPlayers: alivePlayers.map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
-    });
-  }
-
   // إلغاء التايمر القديم إن وجد
   const oldTimer = autoNightTimers.get(roomId);
   if (oldTimer) clearTimeout(oldTimer);
@@ -304,6 +293,11 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     leaderSock.emit('night:auto-step-started', {
       roleName: nextStep.roleName,
       timeoutSeconds,
+    });
+    leaderSock.emit('night:auto-progress', {
+      total: alivePlayers.length,
+      submitted: 0,
+      missingPlayers: alivePlayers.map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
     });
   }
   console.log(`▶️ Auto step dispatched: ${nextStep.roleName} in room ${roomId}`);
