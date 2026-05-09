@@ -96,9 +96,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <div className="p-4 flex items-center gap-3 border-b border-gray-800/50">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-rose-600 text-white text-lg shrink-0"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-lg shrink-0"
+            title="فتح/إغلاق القائمة"
           >
-            🎭
+            ☰
           </button>
           <AnimatePresence>
             {sidebarOpen && (
@@ -106,17 +107,21 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="overflow-hidden whitespace-nowrap"
+                className="overflow-hidden whitespace-nowrap flex items-center gap-2"
               >
-                <h2 className="font-bold text-white text-sm">نادي المافيا</h2>
-                <p className="text-xs text-gray-500">لوحة الإدارة</p>
+                <div className="w-8 h-8 flex items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-rose-600 text-white text-sm shrink-0">
+                  🎭
+                </div>
+                <div>
+                  <h2 className="font-bold text-white text-sm">نادي المافيا</h2>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
         {/* Nav Items */}
-        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-2 space-y-1 overflow-hidden">
           {NAV_ITEMS.filter((item) => {
             // إذا العنصر محدد لأدوار معينة فقط
             if ((item as any).roles && user) {
