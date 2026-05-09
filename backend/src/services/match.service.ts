@@ -6,6 +6,7 @@
 import { eq, desc, and } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { matches, matchPlayers } from '../schemas/game.schema.js';
+import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
 import { processMatchRewards, calculateMatchXP, calculateMatchRR } from './progression.service.js';
@@ -50,6 +51,17 @@ export async function finalizeMatch(state: GameState): Promise<void> {
   }
 
   try {
+    let isTestGame = false;
+    if (state.activityId) {
+      const activityInfo = await db.select({ isTest: locations.isTestLocation })
+        .from(activities)
+        .leftJoin(locations, eq(activities.locationId, locations.id))
+        .where(eq(activities.id, state.activityId))
+        .limit(1);
+      if (activityInfo[0]?.isTest) {
+        isTestGame = true;
+      }
+    }
     const startTime = state.startedAt ? new Date(state.startedAt).getTime() : 0;
     const endTime = Date.now();
     const durationSeconds = startTime > 0 ? Math.floor((endTime - startTime) / 1000) : null;
@@ -92,23 +104,25 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const successfulDealsCount = playerDeals.filter(d => d.success).length;
       const failedDealsCount = playerDeals.filter(d => !d.success).length;
 
-      const xpEarned = p.playerId ? calculateMatchXP({
-        participated: true, teamWon, roundsSurvived,
+      const xpEarned = p.playerId ? (!isTestGame ? calculateMatchXP({
+        participated: true,
+        teamWon,
+        roundsSurvived,
         abilityCorrectCount,
         abilityIncorrectCount,
         successfulDealsCount,
         failedDealsCount,
         teamEliminationBonus: teamElimBonus,
-      }) : 0;
+      }) : 0) : 0;
 
-      const rrChange = p.playerId ? calculateMatchRR({
+      const rrChange = p.playerId ? (!isTestGame ? calculateMatchRR({
         teamWon,
         successfulDealsCount,
         failedDealsCount,
         survivedToEnd: !elimEntry, // نجا إذا لم يُقصى
         abilityCorrectCount,
         abilityIncorrectCount,
-      }) : 0;
+      }) : 0) : 0;
 
       return {
         matchId: state.matchId!,
@@ -134,23 +148,29 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     }
 
     // ── تحديث إحصائيات اللاعبين (القديمة) + نظام التقدم الجديد ──
-    for (const p of state.players) {
-      if (p.playerId) {
-        try {
-          const playerIsMafia = isMafiaRole(p.role as any);
-          const won = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
-          await updatePlayerStats(p.playerId, won, p.isAlive);
-        } catch (statsErr: any) {
-          console.error(`⚠️ Failed to update stats for player ${p.playerId}:`, statsErr.message);
+    if (!isTestGame) {
+      for (const p of state.players) {
+        if (p.playerId) {
+          try {
+            const playerIsMafia = isMafiaRole(p.role as any);
+            const won = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+            await updatePlayerStats(p.playerId, won, p.isAlive);
+          } catch (statsErr: any) {
+            console.error(`⚠️ Failed to update stats for player ${p.playerId}:`, statsErr.message);
+          }
         }
       }
     }
 
     // ── تطبيق نظام التقدم (XP + Level + RR + Rank) ──
-    try {
-      await processMatchRewards(state);
-    } catch (progressionErr: any) {
-      console.error('⚠️ Failed to process progression rewards:', progressionErr.message);
+    if (!isTestGame) {
+      try {
+        await processMatchRewards(state);
+      } catch (progressionErr: any) {
+        console.error('⚠️ Failed to process progression rewards:', progressionErr.message);
+      }
+    } else {
+      console.log(`[Match] Skipping stats and progression updates for match #${state.matchId} because it is a Test Location.`);
     }
 
     // 🔔 Push للاعبين المشاركين (نتيجة المباراة)

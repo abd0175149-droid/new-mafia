@@ -6,6 +6,7 @@
 import { eq, sql, desc } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players } from '../schemas/player.schema.js';
+import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import type { GameState } from '../game/state.js';
 
@@ -173,6 +174,20 @@ export async function applyRR(playerId: number, rrChange: number): Promise<{ new
 export async function processMatchRewards(state: GameState): Promise<void> {
   const db = getDB();
   if (!db) return;
+
+  // ── 1. فحص هل النشاط في Test Location؟ ──
+  if (state.activityId) {
+    const activityInfo = await db.select({ isTest: locations.isTestLocation })
+      .from(activities)
+      .leftJoin(locations, eq(activities.locationId, locations.id))
+      .where(eq(activities.id, state.activityId))
+      .limit(1);
+
+    if (activityInfo[0]?.isTest) {
+      console.log(`[Progression] Skipping match rewards (XP/RR) because activity #${state.activityId} is at a Test Location.`);
+      return; // تجاهل توزيع النقاط والرانك لهذه الجلسة بالكامل
+    }
+  }
 
   const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
   const totalRounds = state.round || 1;
