@@ -117,10 +117,11 @@ export default function MatchHistoryPage() {
   useEffect(() => {
     if (!selectedMatch) return;
 
-    // حفظ موقع السكرول الحالي
     const scrollY = window.scrollY;
 
-    // تجميد الصفحة بالكامل — يمنع pull-to-refresh نهائياً
+    // إضافة modal-open — يوقف ميزة pull-to-refresh المخصصة في layout.tsx
+    document.body.classList.add('modal-open');
+    // تجميد الصفحة بالكامل
     document.body.style.position = 'fixed';
     document.body.style.top = `-${scrollY}px`;
     document.body.style.left = '0';
@@ -128,7 +129,7 @@ export default function MatchHistoryPage() {
     document.body.style.overflow = 'hidden';
 
     return () => {
-      // إعادة الوضع الطبيعي واستعادة موقع السكرول
+      document.body.classList.remove('modal-open');
       document.body.style.position = '';
       document.body.style.top = '';
       document.body.style.left = '';

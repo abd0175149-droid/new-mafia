@@ -15,16 +15,18 @@ function usePullToRefresh() {
   const pullDistance = useRef(0);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
-    // ⚠️ تجاهل إذا موديل مفتوح
+    // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة
     if (document.body.classList.contains('modal-open')) return;
+    if (document.body.style.position === 'fixed') return;
     if (window.scrollY === 0) {
       startY.current = e.touches[0].clientY;
     }
   }, []);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    // ⚠️ تجاهل إذا موديل مفتوح
+    // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة
     if (document.body.classList.contains('modal-open')) return;
+    if (document.body.style.position === 'fixed') return;
     if (window.scrollY > 0) return;
     const currentY = e.touches[0].clientY;
     pullDistance.current = currentY - startY.current;
