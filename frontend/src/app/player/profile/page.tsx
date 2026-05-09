@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ImageCropper } from '@/components/ImageCropper';
+import RolesInfoModal from '@/components/RolesInfoModal';
 
 const ROLE_NAMES_AR: Record<string,string> = {
   GODFATHER:'شيخ المافيا',SILENCER:'قص المافيا',CHAMELEON:'حرباية المافيا',
@@ -230,6 +231,7 @@ export default function PlayerProfilePage(){
   const settingsRef=useRef<HTMLDivElement>(null);
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -237,13 +239,13 @@ export default function PlayerProfilePage(){
 
   // ── منع سكرول الخلفية عند فتح الموديل ──
   useEffect(() => {
-    if (guideOpen) {
+    if (guideOpen || rolesModalOpen) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [guideOpen]);
+  }, [guideOpen, rolesModalOpen]);
 
   const getAuthHeaders=useCallback(():Record<string,string>=>{
     const token=localStorage.getItem('mafia_player_token');
@@ -595,6 +597,18 @@ export default function PlayerProfilePage(){
           </motion.div>
         )}
 
+        {/* ═══ ROLES GUIDE BUTTON ═══ */}
+        <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.55}}
+          className="flex justify-center mb-5">
+          <button
+            onClick={() => setRolesModalOpen(true)}
+            className="flex items-center justify-center gap-3 w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-gray-800 to-gray-900 hover:from-gray-700 hover:to-gray-800 border border-white/10 text-white font-bold transition-all shadow-lg"
+          >
+            <span className="text-xl">🃏</span>
+            تعرف على الكروت والأدوار
+          </button>
+        </motion.div>
+
         {/* ═══ MATCH HISTORY ═══ */}
         {matchHistory?.length>0&&(
           <MatchHistorySection matchHistory={matchHistory} />
@@ -874,6 +888,9 @@ export default function PlayerProfilePage(){
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ═══ ROLES MODAL ═══ */}
+      <RolesInfoModal isOpen={rolesModalOpen} onClose={() => setRolesModalOpen(false)} />
     </div>
   );
 }
