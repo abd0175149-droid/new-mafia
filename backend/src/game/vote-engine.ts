@@ -45,6 +45,8 @@ export async function initVoting(roomId: string): Promise<GameState> {
 
   const allCandidates = [...dealCandidates, ...playerCandidates];
 
+  const oldDuration = state.votingState?.durationSeconds;
+
   state.votingState = {
     totalVotesCast: 0,
     deals: state.votingState.deals, // نحتفظ بها لغايات المرجعية
@@ -54,6 +56,11 @@ export async function initVoting(roomId: string): Promise<GameState> {
     playerVotes: {},
     leaderProxyVotes: {},
   };
+
+  if (oldDuration) {
+    state.votingState.durationSeconds = oldDuration;
+    state.votingState.votingStartTime = Date.now();
+  }
 
   // تصفير بيانات الجولة السابقة
   state.withdrawalState = null;
@@ -140,6 +147,11 @@ export async function unNarrowVoting(roomId: string): Promise<GameState> {
   state.votingState.tieBreakerLevel = 0;
   state.votingState.playerVotes = {};
   state.votingState.leaderProxyVotes = {};
+
+  if (state.votingState.durationSeconds) {
+    state.votingState.votingStartTime = Date.now();
+  }
+
   // مسح بيانات الجولة السابقة
   state.withdrawalState = null;
   state.justificationData = null;
@@ -337,6 +349,7 @@ export async function handleTieBreaker(
       state.votingState.tieBreakerLevel = 1;
       state.votingState.playerVotes = {};
       state.votingState.leaderProxyVotes = {};
+      if (state.votingState.durationSeconds) state.votingState.votingStartTime = Date.now();
       // مسح بيانات الجولة السابقة
       state.withdrawalState = null;
       state.justificationData = null;
@@ -350,6 +363,7 @@ export async function handleTieBreaker(
         state.votingState.tieBreakerLevel = 2;
         state.votingState.playerVotes = {};
         state.votingState.leaderProxyVotes = {};
+        if (state.votingState.durationSeconds) state.votingState.votingStartTime = Date.now();
         // مسح بيانات الجولة السابقة
         state.withdrawalState = null;
         state.justificationData = null;

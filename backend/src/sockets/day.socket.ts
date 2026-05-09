@@ -280,6 +280,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         tieBreakerLevel: state.votingState.tieBreakerLevel,
         playerVotes: {},
         leaderProxyVotes: {},
+        durationSeconds: state.votingState.durationSeconds || null,
       });
 
       callback({ success: true });
@@ -561,6 +562,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
             teamCounts: getTeamCounts(newState.players),
             playerVotes: {},
             leaderProxyVotes: {},
+            durationSeconds: newState.votingState.durationSeconds || null,
           });
 
           return callback({ success: true, revote: true });

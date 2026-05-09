@@ -154,6 +154,25 @@ export default function PlayerNotepad({
     });
   };
 
+  // ── حذف ملاحظة اللاعب بالكامل (النص والريبة) ──
+  const deletePlayerNote = (pid: number) => {
+    setNotes(prev => {
+      const updated = { ...prev };
+      delete updated[pid];
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+      onNotesChange(updated);
+      return updated;
+    });
+  };
+
+  // ── مسح جميع الملاحظات ──
+  const clearAllNotes = () => {
+    if (!confirm('هل أنت متأكد من مسح جميع الملاحظات ومستويات الريبة لجميع اللاعبين؟')) return;
+    setNotes({});
+    localStorage.removeItem(storageKey);
+    onNotesChange({});
+  };
+
   // اللاعبون الذين عندهم ملاحظات
   const playersWithNotes = players.filter(p => {
     const n = notes[p.physicalId];
@@ -341,6 +360,16 @@ export default function PlayerNotepad({
             {/* ══ تبويب العرض ══ */}
             {activeTab === 'view' && (
               <div className="space-y-3">
+                {hasAnyNotes && (
+                  <div className="flex justify-end px-1">
+                    <button
+                      onClick={clearAllNotes}
+                      className="text-red-500/80 hover:text-red-400 text-xs font-bold transition-colors flex items-center gap-1 bg-red-500/10 px-3 py-1.5 rounded-lg border border-red-500/20"
+                    >
+                      <span>🗑️</span> مسح كل الملاحظات
+                    </button>
+                  </div>
+                )}
                 {/* ملاحظات عامة */}
                 {generalNote?.text && (
                   <div className="bg-[#111] border border-[#2a2a2a] rounded-2xl p-4">
@@ -371,11 +400,11 @@ export default function PlayerNotepad({
                           <p className="text-[#C5A059] text-[10px] font-mono">مقعد #{player.physicalId}</p>
                         </div>
                         <button
-                          onClick={() => clearNoteText(player.physicalId)}
-                          className="text-red-500/50 hover:text-red-400 text-xs transition-colors"
-                          title="مسح النص"
+                          onClick={() => deletePlayerNote(player.physicalId)}
+                          className="text-red-500/50 hover:text-red-400 text-xs transition-colors bg-red-500/10 px-2 py-1 rounded-lg border border-red-500/20"
+                          title="حذف الملاحظة بالكامل"
                         >
-                          🗑️
+                          🗑️ حذف
                         </button>
                       </div>
 

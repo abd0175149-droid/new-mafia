@@ -516,7 +516,7 @@ export default function PlayerPhaseView({
         )}
 
         {/* سحب الصوت — يظهر مباشرة أثناء التبرير لمن صوّت على المتهم */}
-        {iVotedForAccused && !isPlayerDead && (
+        {withdrawalActive && iVotedForAccused && !isPlayerDead && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
             <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
             <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت</p>
