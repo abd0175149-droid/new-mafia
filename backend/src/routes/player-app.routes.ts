@@ -618,6 +618,7 @@ router.get('/:id/matches', async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
   const playerId = parseInt(req.params.id);
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
 
   try {
     const playerMatches = await db.select({
@@ -626,9 +627,12 @@ router.get('/:id/matches', async (req: Request, res: Response) => {
       matchDate: matches.createdAt,
       matchWinner: matches.winner,
       durationSeconds: matches.durationSeconds,
+      totalRounds: matches.totalRounds,
+      playerCount: matches.playerCount,
       role: matchPlayers.role,
       survivedToEnd: matchPlayers.survivedToEnd,
       eliminatedDuring: matchPlayers.eliminatedDuring,
+      eliminatedAtRound: matchPlayers.eliminatedAtRound,
       roundsSurvived: matchPlayers.roundsSurvived,
       dealInitiated: matchPlayers.dealInitiated,
       dealSuccess: matchPlayers.dealSuccess,
@@ -642,7 +646,59 @@ router.get('/:id/matches', async (req: Request, res: Response) => {
       .where(eq(matchPlayers.playerId, playerId))
       .orderBy(desc(matches.createdAt));
 
-    res.json({ success: true, matches: playerMatches });
+    // حساب التفاصيل (breakdown) لكل مباراة من البيانات الموجودة
+    const enriched = playerMatches.map(m => {
+      const isMafia = MAFIA_ROLES.includes(m.role);
+      const teamWon = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
+      const rounds = m.roundsSurvived || 0;
+
+      // ── حساب تفصيل XP ──
+      const xpParticipation = 20;
+      const xpTeamWin = teamWon ? 50 : 0;
+      const xpSurvival = rounds * 5;
+      const xpAbilityCorrect = (m.abilityUsed && m.abilityCorrect === true) ? 10 : 0;
+      const xpAbilityIncorrect = (m.abilityUsed && m.abilityCorrect === false) ? -5 : 0;
+      const xpDealSuccess = (m.dealInitiated && m.dealSuccess === true) ? 50 : 0;
+      const xpDealFailed = (m.dealInitiated && m.dealSuccess === false) ? -10 : 0;
+
+      // تقدير مكافأة الإقصاء (الفرق بين المجموع والبنود المعروفة)
+      const xpKnown = xpParticipation + xpTeamWin + xpSurvival + xpAbilityCorrect + xpAbilityIncorrect + xpDealSuccess + xpDealFailed;
+      const xpElimBonus = Math.max(0, (m.xpEarned || 0) - Math.max(0, xpKnown));
+
+      // ── حساب تفصيل RR ──
+      const rrTeamResult = teamWon ? 20 : -20;
+      const rrDealSuccess = (m.dealInitiated && m.dealSuccess === true) ? 20 : 0;
+      const rrDealFailed = (m.dealInitiated && m.dealSuccess === false) ? -30 : 0;
+      const rrSurvivedToEnd = m.survivedToEnd ? 5 : 0;
+      const rrAbilityCorrect = (m.abilityUsed && m.abilityCorrect === true) ? 5 : 0;
+      const rrAbilityIncorrect = (m.abilityUsed && m.abilityCorrect === false) ? -5 : 0;
+
+      return {
+        ...m,
+        breakdown: {
+          xp: {
+            participation: xpParticipation,
+            teamWin: xpTeamWin,
+            survival: xpSurvival,
+            abilityCorrect: xpAbilityCorrect,
+            abilityIncorrect: xpAbilityIncorrect,
+            dealSuccess: xpDealSuccess,
+            dealFailed: xpDealFailed,
+            elimBonus: xpElimBonus,
+          },
+          rr: {
+            teamResult: rrTeamResult,
+            dealSuccess: rrDealSuccess,
+            dealFailed: rrDealFailed,
+            survivedToEnd: rrSurvivedToEnd,
+            abilityCorrect: rrAbilityCorrect,
+            abilityIncorrect: rrAbilityIncorrect,
+          },
+        },
+      };
+    });
+
+    res.json({ success: true, matches: enriched });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

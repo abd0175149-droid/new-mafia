@@ -10,15 +10,38 @@ const ROLE_NAMES_AR: Record<string, string> = {
 };
 const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
 
+interface XPBreakdown {
+  participation: number;
+  teamWin: number;
+  survival: number;
+  abilityCorrect: number;
+  abilityIncorrect: number;
+  dealSuccess: number;
+  dealFailed: number;
+  elimBonus: number;
+}
+
+interface RRBreakdown {
+  teamResult: number;
+  dealSuccess: number;
+  dealFailed: number;
+  survivedToEnd: number;
+  abilityCorrect: number;
+  abilityIncorrect: number;
+}
+
 interface MatchDetails {
   matchId: number;
   gameName: string;
   matchDate: string;
   matchWinner: 'MAFIA' | 'CITIZEN' | null;
   durationSeconds: number;
+  totalRounds: number;
+  playerCount: number;
   role: string;
   survivedToEnd: boolean;
   eliminatedDuring: string | null;
+  eliminatedAtRound: number | null;
   roundsSurvived: number;
   dealInitiated: boolean;
   dealSuccess: boolean | null;
@@ -26,6 +49,31 @@ interface MatchDetails {
   abilityCorrect: boolean | null;
   xpEarned: number;
   rrChange: number;
+  breakdown?: {
+    xp: XPBreakdown;
+    rr: RRBreakdown;
+  };
+}
+
+// مكوّن سطر نقاط واحد
+function PointRow({ icon, label, value, type }: { icon: string; label: string; value: number; type: 'xp' | 'rr' }) {
+  if (value === 0) return null;
+  const isPositive = value > 0;
+  const colorClass = isPositive ? 'text-green-400' : 'text-red-400';
+  const prefix = isPositive ? '+' : '';
+  const suffix = type === 'xp' ? ' XP' : ' RR';
+
+  return (
+    <div className="flex justify-between items-center py-1.5 border-b border-white/[0.03] last:border-b-0">
+      <span className="flex items-center gap-2 text-[11px] text-gray-300">
+        <span className="text-sm w-5 text-center">{icon}</span>
+        {label}
+      </span>
+      <span className={`text-[11px] font-bold font-mono ${colorClass}`}>
+        {prefix}{value}{suffix}
+      </span>
+    </div>
+  );
 }
 
 export default function MatchHistoryPage() {
@@ -165,86 +213,141 @@ export default function MatchHistoryPage() {
         {selectedMatch && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed top-0 left-0 right-0 bottom-20 z-40 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4"
+            className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-end sm:items-center justify-center sm:p-4"
             onClick={() => setSelectedMatch(null)}
           >
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="bg-gradient-to-b from-gray-900 to-black border-t border-white/10 sm:border rounded-t-3xl sm:rounded-2xl w-full max-w-md p-6 space-y-6 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
+              className="bg-gradient-to-b from-gray-900 to-black border-t border-white/10 sm:border rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
               onClick={e => e.stopPropagation()} dir="rtl"
             >
-              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-2" />
+              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-3" />
+
+              {/* Header */}
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-black text-white">تفاصيل النقاط</h2>
+                <h2 className="text-lg font-black text-white">📊 تفصيل النقاط</h2>
                 <button onClick={() => setSelectedMatch(null)} className="w-8 h-8 rounded-full bg-white/5 border border-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-colors">✕</button>
               </div>
 
-              {/* Roles & Match Basic */}
-              <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex justify-between items-center">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">الدور</p>
-                  <p className="font-bold text-amber-400">{ROLE_NAMES_AR[selectedMatch.role] || selectedMatch.role}</p>
-                </div>
-                <div className="text-left">
-                  <p className="text-xs text-gray-500 mb-1">النتيجة</p>
-                  <p className={`font-bold ${((MAFIA_ROLES.includes(selectedMatch.role) && selectedMatch.matchWinner === 'MAFIA') || (!MAFIA_ROLES.includes(selectedMatch.role) && selectedMatch.matchWinner === 'CITIZEN')) ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {((MAFIA_ROLES.includes(selectedMatch.role) && selectedMatch.matchWinner === 'MAFIA') || (!MAFIA_ROLES.includes(selectedMatch.role) && selectedMatch.matchWinner === 'CITIZEN')) ? 'فوز الفريق' : 'خسارة الفريق'}
-                  </p>
-                </div>
-              </div>
+              {(() => {
+                const m = selectedMatch;
+                const isMafia = MAFIA_ROLES.includes(m.role);
+                const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
+                const b = m.breakdown;
 
-              {/* Breakdown */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-bold text-gray-400 border-b border-white/5 pb-2">تفصيل الاحتساب</h3>
+                return (
+                  <div className="space-y-4">
+                    {/* Match Info Card */}
+                    <div className={`rounded-xl p-4 border ${won ? 'bg-emerald-500/5 border-emerald-500/15' : 'bg-rose-500/5 border-rose-500/15'}`}>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="text-[10px] text-gray-500 mb-0.5">الدور</p>
+                          <p className="font-bold text-amber-400 text-sm">{ROLE_NAMES_AR[m.role] || m.role}</p>
+                          <span className={`text-[9px] px-2 py-0.5 rounded mt-1 inline-block ${isMafia ? 'bg-red-500/10 text-red-400' : 'bg-cyan-500/10 text-cyan-400'}`}>
+                            {isMafia ? 'فريق المافيا' : 'فريق المواطنين'}
+                          </span>
+                        </div>
+                        <div className="text-left">
+                          <p className="text-[10px] text-gray-500 mb-0.5">النتيجة</p>
+                          <p className={`font-black text-lg ${won ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {won ? '🏆 فوز' : '💀 خسارة'}
+                          </p>
+                        </div>
+                      </div>
+                      {/* Match meta */}
+                      <div className="flex justify-between mt-3 pt-2 border-t border-white/5 text-[10px] text-gray-500">
+                        <span>🛡️ {m.survivedToEnd ? 'نجا للنهاية' : `أُقصي ${m.eliminatedDuring === 'NIGHT' ? 'ليلاً' : 'نهاراً'} (جولة ${m.eliminatedAtRound || '?'})`}</span>
+                        <span>📊 {m.roundsSurvived} جولات</span>
+                      </div>
+                    </div>
 
-                {/* Survival */}
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-300">🛡️ النجاة ({selectedMatch.roundsSurvived} جولات)</span>
-                  <span className="text-green-400">{selectedMatch.survivedToEnd ? 'نجا للنهاية' : `أُقصي (جولة ${selectedMatch.eliminatedDuring || '?'})`}</span>
-                </div>
+                    {/* ═══ XP Breakdown ═══ */}
+                    <div className="bg-amber-500/[0.03] border border-amber-500/10 rounded-xl p-4">
+                      <h3 className="text-sm font-bold text-amber-400 mb-2 flex items-center gap-2">
+                        ⭐ تفصيل نقاط الخبرة (XP)
+                      </h3>
+                      <div className="space-y-0.5">
+                        {b ? (
+                          <>
+                            <PointRow icon="🎮" label="المشاركة في المباراة" value={b.xp.participation} type="xp" />
+                            <PointRow icon="🏆" label={won ? 'فوز الفريق' : 'خسارة الفريق'} value={b.xp.teamWin} type="xp" />
+                            <PointRow icon="🛡️" label={`النجاة (${m.roundsSurvived} جولة × 5)`} value={b.xp.survival} type="xp" />
+                            <PointRow icon="✅" label="قدرة خاصة صحيحة" value={b.xp.abilityCorrect} type="xp" />
+                            <PointRow icon="❌" label="قدرة خاصة خاطئة" value={b.xp.abilityIncorrect} type="xp" />
+                            <PointRow icon="🤝" label="اتفاقية ناجحة (ديل)" value={b.xp.dealSuccess} type="xp" />
+                            <PointRow icon="💔" label="اتفاقية فاشلة" value={b.xp.dealFailed} type="xp" />
+                            <PointRow icon="⚔️" label="مكافأة إقصاء خصم" value={b.xp.elimBonus} type="xp" />
+                          </>
+                        ) : (
+                          <p className="text-[10px] text-gray-600 text-center py-2">التفاصيل غير متوفرة</p>
+                        )}
+                      </div>
+                      {/* XP Total */}
+                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-500/15">
+                        <span className="text-xs font-bold text-gray-300">المجموع</span>
+                        <span className="text-lg font-black text-amber-400 font-mono">+{m.xpEarned} XP</span>
+                      </div>
+                    </div>
 
-                {/* Deals */}
-                {selectedMatch.dealInitiated && (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-300">🤝 الاتفاقية</span>
-                    <span className={selectedMatch.dealSuccess ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
-                      {selectedMatch.dealSuccess ? 'ناجحة (+XP, +RR)' : 'فاشلة (-XP, -RR)'}
-                    </span>
+                    {/* ═══ RR Breakdown ═══ */}
+                    <div className="bg-purple-500/[0.03] border border-purple-500/10 rounded-xl p-4">
+                      <h3 className="text-sm font-bold text-purple-400 mb-2 flex items-center gap-2">
+                        🏆 تفصيل نقاط الرتبة (RR)
+                      </h3>
+                      <div className="space-y-0.5">
+                        {b ? (
+                          <>
+                            <PointRow icon={won ? '🏆' : '💀'} label={won ? 'فوز الفريق' : 'خسارة الفريق'} value={b.rr.teamResult} type="rr" />
+                            <PointRow icon="🤝" label="اتفاقية ناجحة" value={b.rr.dealSuccess} type="rr" />
+                            <PointRow icon="💔" label="اتفاقية فاشلة" value={b.rr.dealFailed} type="rr" />
+                            <PointRow icon="🛡️" label="النجاة حتى النهاية" value={b.rr.survivedToEnd} type="rr" />
+                            <PointRow icon="✅" label="قدرة خاصة صحيحة" value={b.rr.abilityCorrect} type="rr" />
+                            <PointRow icon="❌" label="قدرة خاصة خاطئة" value={b.rr.abilityIncorrect} type="rr" />
+                          </>
+                        ) : (
+                          <p className="text-[10px] text-gray-600 text-center py-2">التفاصيل غير متوفرة</p>
+                        )}
+                      </div>
+                      {/* RR Total */}
+                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-purple-500/15">
+                        <span className="text-xs font-bold text-gray-300">المجموع</span>
+                        <span className={`text-lg font-black font-mono ${m.rrChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {m.rrChange >= 0 ? '+' : ''}{m.rrChange} RR
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* ═══ Total Rewards Box ═══ */}
+                    <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 rounded-2xl p-5 flex justify-around items-center relative overflow-hidden">
+                      <div className="absolute inset-0 bg-amber-500/5 blur-xl rounded-full" />
+                      <div className="text-center relative z-10">
+                        <p className="text-[10px] text-amber-500/70 uppercase tracking-widest mb-1 font-bold">TOTAL XP</p>
+                        <p className="text-3xl font-black text-amber-400 drop-shadow-md">+{m.xpEarned}</p>
+                      </div>
+                      <div className="w-px h-12 bg-gradient-to-b from-transparent via-amber-500/30 to-transparent relative z-10" />
+                      <div className="text-center relative z-10">
+                        <p className="text-[10px] text-amber-500/70 uppercase tracking-widest mb-1 font-bold">TOTAL RR</p>
+                        <p className={`text-3xl font-black drop-shadow-md ${m.rrChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {m.rrChange >= 0 ? '+' : ''}{m.rrChange}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Deal info note */}
+                    {m.dealInitiated && (
+                      <div className={`rounded-xl p-3 border text-[10px] ${m.dealSuccess ? 'bg-green-500/5 border-green-500/15 text-green-400' : 'bg-red-500/5 border-red-500/15 text-red-400'}`}>
+                        {m.dealSuccess
+                          ? '✅ الاتفاقية ناجحة — صوّت عليها الأغلبية وكان الهدف مافيا'
+                          : '❌ الاتفاقية فاشلة — الهدف كان مواطناً (تمت معاقبة المبادر)'}
+                      </div>
+                    )}
+
+                    <button onClick={() => setSelectedMatch(null)} className="w-full py-3.5 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 text-white font-bold transition-all active:scale-[0.98]">
+                      إغلاق
+                    </button>
                   </div>
-                )}
-
-                {/* Abilities */}
-                {selectedMatch.abilityUsed && (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-300">✨ القدرة الخاصة</span>
-                    <span className={selectedMatch.abilityCorrect ? 'text-green-400 font-bold' : 'text-red-400 font-bold'}>
-                      {selectedMatch.abilityCorrect ? 'صحيحة (+XP, +RR)' : 'خاطئة (-XP, -RR)'}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Total Rewards */}
-              <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 rounded-2xl p-5 flex justify-around items-center relative overflow-hidden">
-                {/* Glow effect inside reward box */}
-                <div className="absolute inset-0 bg-amber-500/5 blur-xl rounded-full" />
-                
-                <div className="text-center relative z-10">
-                  <p className="text-[10px] text-amber-500/70 uppercase tracking-widest mb-1 font-bold">Total XP</p>
-                  <p className="text-3xl font-black text-amber-400 drop-shadow-md">+{selectedMatch.xpEarned}</p>
-                </div>
-                <div className="w-px h-12 bg-gradient-to-b from-transparent via-amber-500/30 to-transparent relative z-10" />
-                <div className="text-center relative z-10">
-                  <p className="text-[10px] text-amber-500/70 uppercase tracking-widest mb-1 font-bold">Total RR</p>
-                  <p className={`text-3xl font-black drop-shadow-md ${selectedMatch.rrChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {selectedMatch.rrChange >= 0 ? '+' : ''}{selectedMatch.rrChange}
-                  </p>
-                </div>
-              </div>
-              
-              <button onClick={() => setSelectedMatch(null)} className="w-full py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 text-white font-bold transition-all active:scale-[0.98]">
-                إغلاق
-              </button>
+                );
+              })()}
             </motion.div>
           </motion.div>
         )}
