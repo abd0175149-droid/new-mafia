@@ -116,13 +116,34 @@ export default function MatchHistoryPage() {
 
   useEffect(() => {
     if (selectedMatch) {
+      // منع السكرول + pull-to-refresh على الخلفية
       document.body.style.overflow = 'hidden';
+      document.body.style.overscrollBehavior = 'none';
+      document.documentElement.style.overflow = 'hidden';
+      document.documentElement.style.overscrollBehavior = 'none';
+
+      // منع touchmove على الخلفية فقط — السماح بالسكرول داخل المودال
+      const blockTouch = (e: TouchEvent) => {
+        const target = e.target as HTMLElement;
+        // إذا اللمسة داخل المودال (.modal-scroll) → لا نمنعها
+        if (target.closest('.modal-scroll')) return;
+        e.preventDefault();
+      };
+      document.addEventListener('touchmove', blockTouch, { passive: false });
+
+      return () => {
+        document.body.style.overflow = '';
+        document.body.style.overscrollBehavior = '';
+        document.documentElement.style.overflow = '';
+        document.documentElement.style.overscrollBehavior = '';
+        document.removeEventListener('touchmove', blockTouch);
+      };
     } else {
       document.body.style.overflow = '';
+      document.body.style.overscrollBehavior = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.overscrollBehavior = '';
     }
-    return () => {
-      document.body.style.overflow = '';
-    };
   }, [selectedMatch]);
 
   if (loading) return (
@@ -218,7 +239,8 @@ export default function MatchHistoryPage() {
           >
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="bg-gradient-to-b from-gray-900 to-black border-t border-white/10 sm:border rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
+              className="modal-scroll bg-gradient-to-b from-gray-900 to-black border-t border-white/10 sm:border rounded-t-3xl sm:rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-5 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
+              style={{ overscrollBehavior: 'contain' }}
               onClick={e => e.stopPropagation()} dir="rtl"
             >
               <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-3" />
