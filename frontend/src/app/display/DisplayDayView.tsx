@@ -280,6 +280,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       if (data.teamCounts) {
         setLocalTeamCounts(data.teamCounts);
       }
+      // ══ تصفير بيانات الجولة السابقة عند بدء تصويت جديد ══
+      setJustificationData(null);
+      setJustTimer(null);
+      setJustTimeRemaining(0);
+      setWithdrawalState(null);
       setPhase('VOTING');
     };
 
@@ -841,13 +846,13 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               </div>
             )}
 
-            {/* ═══ قائمة المصوّتين على المتهم — Chips ═══ */}
+            {/* ═══ قائمة المصوّتين على المتهم — Chips مجمّعة حسب المتهم ═══ */}
             {justificationData.votersForAccused && justificationData.votersForAccused.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5 }}
-                className="w-full max-w-[900px] mx-auto mt-8 px-6"
+                className="w-full max-w-[1100px] mx-auto mt-8 px-6"
               >
                 {/* عداد الأصوات والسحب */}
                 <div className="flex items-center justify-center gap-8 mb-4">
@@ -867,45 +872,116 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                   </div>
                 </div>
 
-                {/* Chips */}
-                <div className="flex flex-wrap justify-center gap-2">
-                  {justificationData.votersForAccused.map((voterId: number) => {
-                    const voterPlayer = players.find((p: any) => p.physicalId === voterId);
-                    const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
+                {/* ══ تجميع المصوتين حسب المتهم ══ */}
+                {(() => {
+                  const accused = justificationData.accused || [];
+                  const playerVotes = justificationData.playerVotes || {};
+                  const candidatesList = justificationData.candidates || [];
 
+                  // بناء خريطة: accusedPhysicalId → [voterIds]
+                  const votersByAccused: Record<number, number[]> = {};
+                  for (const acc of accused) {
+                    votersByAccused[acc.targetPhysicalId] = [];
+                  }
+
+                  for (const [voterIdStr, candidateIdx] of Object.entries(playerVotes)) {
+                    const voterId = parseInt(voterIdStr);
+                    const candidate = candidatesList[candidateIdx as number];
+                    if (candidate && votersByAccused[candidate.targetPhysicalId] !== undefined) {
+                      votersByAccused[candidate.targetPhysicalId].push(voterId);
+                    }
+                  }
+
+                  // إذا كان هناك متهم واحد فقط → عرض بدون فصل
+                  if (accused.length <= 1) {
                     return (
-                      <motion.div
-                        key={voterId}
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        layout
-                        className={`flex items-center gap-4 px-6 py-3 rounded-full border-2 transition-all duration-500 ${
-                          hasWithdrawn
-                            ? 'bg-[#1a1a1a] border-[#333] opacity-50'
-                            : 'bg-gradient-to-r from-[#8A0303]/40 to-[#8A0303]/10 border-[#ff4444] shadow-[0_0_15px_rgba(138,3,3,0.6)]'
-                        }`}
-                      >
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-mono font-black ${
-                          hasWithdrawn
-                            ? 'bg-[#333] text-[#666]'
-                            : 'bg-[#ff4444] text-white shadow-lg'
-                        }`}>
-                          {voterId}
-                        </div>
-                        <span className={`text-xl font-bold ${
-                          hasWithdrawn
-                            ? 'text-[#555] line-through'
-                            : 'text-white drop-shadow-md'
-                        }`}>
-                          {voterPlayer?.name || `#${voterId}`}
-                        </span>
-                        {hasWithdrawn && (
-                          <span className="text-[10px] text-[#555] font-mono">سُحب</span>
-                        )}
-                      </motion.div>
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {justificationData.votersForAccused.map((voterId: number) => {
+                          const voterPlayer = players.find((p: any) => p.physicalId === voterId);
+                          const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
+                          return (
+                            <motion.div
+                              key={voterId}
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              layout
+                              className={`flex items-center gap-4 px-6 py-3 rounded-full border-2 transition-all duration-500 ${
+                                hasWithdrawn
+                                  ? 'bg-[#1a1a1a] border-[#333] opacity-50'
+                                  : 'bg-gradient-to-r from-[#8A0303]/40 to-[#8A0303]/10 border-[#ff4444] shadow-[0_0_15px_rgba(138,3,3,0.6)]'
+                              }`}
+                            >
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-mono font-black ${
+                                hasWithdrawn ? 'bg-[#333] text-[#666]' : 'bg-[#ff4444] text-white shadow-lg'
+                              }`}>{voterId}</div>
+                              <span className={`text-xl font-bold ${hasWithdrawn ? 'text-[#555] line-through' : 'text-white drop-shadow-md'}`}>
+                                {voterPlayer?.name || `#${voterId}`}
+                              </span>
+                              {hasWithdrawn && <span className="text-[10px] text-[#555] font-mono">سُحب</span>}
+                            </motion.div>
+                          );
+                        })}
+                      </div>
                     );
-                  })}
-                </div>
+                  }
+
+                  // عدة متهمين → فصل واضح حسب كل متهم
+                  return (
+                    <div className="flex flex-col gap-5">
+                      {accused.map((acc: any, accIdx: number) => {
+                        const accPlayer = players.find((p: any) => p.physicalId === acc.targetPhysicalId);
+                        const voterIds = votersByAccused[acc.targetPhysicalId] || [];
+                        if (voterIds.length === 0) return null;
+
+                        return (
+                          <div key={acc.targetPhysicalId} className="bg-black/30 border border-[#2a2a2a] rounded-2xl p-4">
+                            {/* رأس المتهم */}
+                            <div className="flex items-center gap-3 mb-3 pb-2 border-b border-[#2a2a2a]">
+                              <div className="w-10 h-10 rounded-full bg-[#8A0303]/30 border-2 border-[#8A0303] flex items-center justify-center text-lg font-mono font-black text-[#ff4444]">
+                                {acc.targetPhysicalId}
+                              </div>
+                              <span className="text-lg font-bold text-white">{accPlayer?.name || `#${acc.targetPhysicalId}`}</span>
+                              <span className="text-[10px] font-mono text-[#808080] bg-[#1a1a1a] px-3 py-1 rounded-full border border-[#2a2a2a]">
+                                {voterIds.length} {voterIds.length === 1 ? 'صوت' : 'أصوات'}
+                              </span>
+                              {acc.type === 'DEAL' && (
+                                <span className="text-[9px] font-mono text-[#ff4444] bg-[#8A0303]/20 px-2 py-0.5 rounded-full border border-[#8A0303]/30">DEAL</span>
+                              )}
+                            </div>
+                            {/* المصوتين */}
+                            <div className="flex flex-wrap gap-2">
+                              {voterIds.map((voterId: number) => {
+                                const voterPlayer = players.find((p: any) => p.physicalId === voterId);
+                                const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
+                                return (
+                                  <motion.div
+                                    key={voterId}
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    layout
+                                    className={`flex items-center gap-3 px-5 py-2.5 rounded-full border-2 transition-all duration-500 ${
+                                      hasWithdrawn
+                                        ? 'bg-[#1a1a1a] border-[#333] opacity-50'
+                                        : 'bg-gradient-to-r from-[#8A0303]/40 to-[#8A0303]/10 border-[#ff4444] shadow-[0_0_12px_rgba(138,3,3,0.5)]'
+                                    }`}
+                                  >
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-mono font-black ${
+                                      hasWithdrawn ? 'bg-[#333] text-[#666]' : 'bg-[#ff4444] text-white shadow-lg'
+                                    }`}>{voterId}</div>
+                                    <span className={`text-base font-bold ${hasWithdrawn ? 'text-[#555] line-through' : 'text-white'}`}>
+                                      {voterPlayer?.name || `#${voterId}`}
+                                    </span>
+                                    {hasWithdrawn && <span className="text-[9px] text-[#555] font-mono">سُحب</span>}
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </motion.div>
             )}
 
