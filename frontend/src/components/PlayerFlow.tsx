@@ -668,6 +668,27 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             if (res.votingState.playerVotes?.[myPhysId] !== undefined) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
+            
+            // استعادة تايمر التصويت
+            if (res.votingState.durationSeconds && res.votingState.votingStartTime) {
+              const elapsed = Math.floor((Date.now() - res.votingState.votingStartTime) / 1000);
+              const remaining = Math.max(0, res.votingState.durationSeconds - elapsed);
+              if (remaining > 0) {
+                setVotingCountdown(remaining);
+                if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+                votingTimerRef.current = setInterval(() => {
+                  setVotingCountdown(prev => {
+                    if (prev === null || prev <= 1) {
+                      if (votingTimerRef.current) clearInterval(votingTimerRef.current);
+                      return 0;
+                    }
+                    return prev - 1;
+                  });
+                }, 1000);
+              } else {
+                setVotingCountdown(0);
+              }
+            }
           }
         }
       } catch { /* ignore */ }

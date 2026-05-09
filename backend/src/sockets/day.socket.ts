@@ -377,11 +377,20 @@ export function registerDayEvents(io: Server, socket: Socket) {
     try {
       if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
 
-      io.to(data.roomId).emit('day:justification-timer-started', {
+      const timerData = {
         physicalId: data.physicalId,
         timeLimitSeconds: data.timeLimitSeconds,
         startTime: Date.now(),
-      });
+      };
+
+      const state = await getGameState(data.roomId);
+      if (state && state.justificationData) {
+        state.justificationData.timer = timerData;
+        state.justificationData.timerFinished = false;
+        await setGameState(data.roomId, state);
+      }
+
+      io.to(data.roomId).emit('day:justification-timer-started', timerData);
 
       callback({ success: true });
     } catch (err: any) {
@@ -393,6 +402,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
   socket.on('day:stop-justification-timer', async (data: { roomId: string }, callback) => {
     try {
       if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      const state = await getGameState(data.roomId);
+      if (state && state.justificationData) {
+        state.justificationData.timer = null;
+        state.justificationData.timerFinished = true;
+        await setGameState(data.roomId, state);
+      }
+
       io.to(data.roomId).emit('day:justification-timer-stopped');
       callback({ success: true });
     } catch (err: any) {
@@ -409,12 +425,21 @@ export function registerDayEvents(io: Server, socket: Socket) {
     try {
       if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
 
-      // إعادة بث التايمر بدون زيادة justificationCount
-      io.to(data.roomId).emit('day:justification-timer-started', {
+      const timerData = {
         physicalId: data.physicalId,
         timeLimitSeconds: data.timeLimitSeconds,
         startTime: Date.now(),
-      });
+      };
+
+      const state = await getGameState(data.roomId);
+      if (state && state.justificationData) {
+        state.justificationData.timer = timerData;
+        state.justificationData.timerFinished = false;
+        await setGameState(data.roomId, state);
+      }
+
+      // إعادة بث التايمر بدون زيادة justificationCount
+      io.to(data.roomId).emit('day:justification-timer-started', timerData);
 
       callback({ success: true });
     } catch (err: any) {

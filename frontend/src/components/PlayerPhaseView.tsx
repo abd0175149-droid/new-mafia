@@ -62,6 +62,30 @@ export default function PlayerPhaseView({
     if (!pollData) return;
     if (pollData.justificationData && !justificationData) {
       setJustificationData(pollData.justificationData);
+      
+      // استعادة تايمر التبرير إذا كان يعمل
+      if (pollData.justificationData.timer && justTimer === null) {
+        const tData = pollData.justificationData.timer;
+        const limit = tData.timeLimitSeconds || 60;
+        const elapsed = Math.floor((Date.now() - (tData.startTime || Date.now())) / 1000);
+        const remaining = Math.max(0, limit - elapsed);
+        
+        if (remaining > 0) {
+          setJustTimer(remaining);
+          if (justTimerRef.current) clearInterval(justTimerRef.current);
+          justTimerRef.current = setInterval(() => {
+            setJustTimer(prev => {
+              if (prev === null || prev <= 1) {
+                clearInterval(justTimerRef.current);
+                return 0;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        } else {
+          setJustTimer(0);
+        }
+      }
     }
     // استعادة حالة السحب — فقط عند الـ reconnect الأول (إذا ما عندنا بيانات تبرير حية بعد)
     if (pollData.withdrawalState && !justificationData) {
@@ -173,7 +197,11 @@ export default function PlayerPhaseView({
     // ── تايمر التبرير ──
     const c3 = on('day:justification-timer-started', (data: any) => {
       if (justTimerRef.current) clearInterval(justTimerRef.current);
-      setJustTimer(data.duration || 60);
+      const limit = data.timeLimitSeconds || data.duration || 60;
+      const elapsed = Math.floor((Date.now() - (data.startTime || Date.now())) / 1000);
+      const remaining = Math.max(0, limit - elapsed);
+      setJustTimer(remaining);
+      
       justTimerRef.current = setInterval(() => {
         setJustTimer(prev => {
           if (prev === null || prev <= 1) {
@@ -515,8 +543,8 @@ export default function PlayerPhaseView({
           </div>
         )}
 
-        {/* سحب الصوت — يظهر مباشرة أثناء التبرير لمن صوّت على المتهم */}
-        {withdrawalActive && iVotedForAccused && !isPlayerDead && (
+        {/* سحب الصوت — يظهر بعد انتهاء التبرير لمن صوّت على المتهم */}
+        {(withdrawalActive || justTimer === 0 || justificationData?.timerFinished) && iVotedForAccused && !isPlayerDead && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
             <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
             <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت</p>
