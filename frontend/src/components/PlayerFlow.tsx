@@ -3043,7 +3043,6 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </button>
             </div>
           </div>
-          </div>
         </div>
       )}
 
