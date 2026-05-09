@@ -669,19 +669,6 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
           }
-
-          if (res.phase === 'DAY_JUSTIFICATION') {
-            if (res.justificationData) setJustificationData(res.justificationData);
-            if (res.withdrawalState) {
-              setWithdrawalActive(true);
-              setWithdrawalCount(res.withdrawalState.count || 0);
-              setWithdrawalNeeded(res.withdrawalState.needed || 0);
-              const myPhysId = parseInt(physicalId);
-              if (res.withdrawalState.withdrawn?.includes(myPhysId)) {
-                setHasWithdrawn(true);
-              }
-            }
-          }
         }
       } catch { /* ignore */ }
     }, 500);
