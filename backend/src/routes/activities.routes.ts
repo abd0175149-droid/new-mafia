@@ -514,7 +514,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
 
   const result = await db.insert(activities).values({
@@ -527,6 +527,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     driveLink: driveLink || '',
     enabledOfferIds: Array.isArray(enabledOfferIds) ? enabledOfferIds : [],
     isLocked: isLocked || false,
+    maxCapacity: maxCapacity ? Number(maxCapacity) : 20,
   } as any).returning();
 
   const activity = result[0];
