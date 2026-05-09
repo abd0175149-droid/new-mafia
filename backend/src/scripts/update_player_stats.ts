@@ -29,16 +29,16 @@ async function run() {
     console.log(`✅ Player Found: ID ${player.id}, Name: ${player.name}, Phone: ${player.phone}`);
     console.log(`📊 Current Stats -> Level: ${player.level}, XP: ${player.xp}, Rank: ${player.rankTier}, RR: ${player.rankRR}`);
 
-    // الهدف: كابو (CAPO) ومستوى (Level) 10
-    // RR for CAPO is ~300. XP for Level 10 is cumulative.
+    // الهدف المطلوب: رتبة جندي (SOLDIER) و 50 نقطة RR
+    // رتبة Soldier تقع بين 100-200 RR إجمالاً أو يتم ضبطها كـ Rank مستقل مع 50 نقطة RR
     const newStats = {
-      level: 10,
-      xp: 8500, // XP مناسب للمستوى 10
-      rankTier: 'CAPO',
-      rankRR: 315, // RR مناسب لكابو
-      gamesPlayed: (player.gamesPlayed || 0) + 42,
-      gamesWon: (player.gamesWon || 0) + 27,
-      timesSurvived: (player.timesSurvived || 0) + 18,
+      level: 3, // مستوى مناسب لرتبة جندي
+      xp: 1250, // XP منطقي لمستوى 3
+      rankTier: 'SOLDIER', // جندي
+      rankRR: 50, // 50 نقطة RR
+      gamesPlayed: Math.max(12, (player.gamesPlayed || 0) - 25), // تخفيض الألعاب الملعوبة لتبدو منطقية
+      gamesWon: Math.max(4, (player.gamesWon || 0) - 18),
+      timesSurvived: Math.max(2, (player.timesSurvived || 0) - 10),
     };
 
     console.log(`🚀 Updating player ${player.id} with new stats:`, newStats);
@@ -47,7 +47,7 @@ async function run() {
       .set(newStats as any)
       .where(eq(players.id, player.id));
       
-    console.log('🎉 Update complete! Player is now a CAPO with Level 10.');
+    console.log('🎉 Update complete! Player is now a SOLDIER with 50 RR and Level 3.');
   } else {
     console.log(`❌ Player not found with phone number ${targetPhone}.`);
   }
