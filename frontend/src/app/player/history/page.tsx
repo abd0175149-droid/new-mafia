@@ -115,35 +115,27 @@ export default function MatchHistoryPage() {
   }, [getAuthHeaders]);
 
   useEffect(() => {
-    if (selectedMatch) {
-      // منع السكرول + pull-to-refresh على الخلفية
-      document.body.style.overflow = 'hidden';
-      document.body.style.overscrollBehavior = 'none';
-      document.documentElement.style.overflow = 'hidden';
-      document.documentElement.style.overscrollBehavior = 'none';
+    if (!selectedMatch) return;
 
-      // منع touchmove على الخلفية فقط — السماح بالسكرول داخل المودال
-      const blockTouch = (e: TouchEvent) => {
-        const target = e.target as HTMLElement;
-        // إذا اللمسة داخل المودال (.modal-scroll) → لا نمنعها
-        if (target.closest('.modal-scroll')) return;
-        e.preventDefault();
-      };
-      document.addEventListener('touchmove', blockTouch, { passive: false });
+    // حفظ موقع السكرول الحالي
+    const scrollY = window.scrollY;
 
-      return () => {
-        document.body.style.overflow = '';
-        document.body.style.overscrollBehavior = '';
-        document.documentElement.style.overflow = '';
-        document.documentElement.style.overscrollBehavior = '';
-        document.removeEventListener('touchmove', blockTouch);
-      };
-    } else {
+    // تجميد الصفحة بالكامل — يمنع pull-to-refresh نهائياً
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      // إعادة الوضع الطبيعي واستعادة موقع السكرول
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.left = '';
+      document.body.style.right = '';
       document.body.style.overflow = '';
-      document.body.style.overscrollBehavior = '';
-      document.documentElement.style.overflow = '';
-      document.documentElement.style.overscrollBehavior = '';
-    }
+      window.scrollTo(0, scrollY);
+    };
   }, [selectedMatch]);
 
   if (loading) return (
