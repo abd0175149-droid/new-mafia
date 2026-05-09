@@ -2293,16 +2293,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
               {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex justify-between mb-2">
-                <Link
-                  href="/player/profile"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#C5A059]/20 text-[#C5A059] hover:bg-[#C5A059]/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                <button
+                  onClick={() => setRolesModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 transition-all text-[10px] font-bold tracking-widest"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="12" cy="7" r="4"></circle>
-                  </svg>
-                  PROFILE
-                </Link>
+                  <span className="text-sm">🃏</span>
+                  الأدوار
+                </button>
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all text-[10px] font-mono tracking-widest uppercase"
