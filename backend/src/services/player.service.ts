@@ -79,9 +79,9 @@ export async function updatePlayerStats(playerId: number, won: boolean, survived
   if (!db) return;
 
   await db.update(players).set({
-    totalMatches: sql`${players.totalMatches} + 1`,
-    totalWins: won ? sql`${players.totalWins} + 1` : players.totalWins,
-    totalSurvived: survived ? sql`${players.totalSurvived} + 1` : players.totalSurvived,
+    totalMatches: sql`COALESCE(${players.totalMatches}, 0) + 1`,
+    totalWins: won ? sql`COALESCE(${players.totalWins}, 0) + 1` : players.totalWins,
+    totalSurvived: survived ? sql`COALESCE(${players.totalSurvived}, 0) + 1` : players.totalSurvived,
     lastActiveAt: new Date(),
   } as any).where(eq(players.id, playerId));
 }
