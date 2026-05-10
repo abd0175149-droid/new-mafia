@@ -245,7 +245,12 @@ export default function PlayerPhaseView({
 
     // ── أحداث الصباح ──
     const c8 = on('display:morning-event', (data: any) => {
-      setMorningEvents(prev => [...prev, data]);
+      // منع التكرار عند إعادة العرض من الليدر
+      setMorningEvents(prev => {
+        const exists = prev.some((e: any) => e.targetPhysicalId === data.targetPhysicalId && e.type === data.type);
+        if (exists) return prev;
+        return [...prev, data];
+      });
     });
 
     // ── انتهاء اللعبة — قراءة البيانات ──
@@ -355,7 +360,7 @@ export default function PlayerPhaseView({
         <div className="text-4xl mb-3">⚙️</div>
         <div className="w-10 h-10 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-4" />
         <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>جاري تجهيز الأدوار</h3>
-        <p className="text-[#666] text-xs font-mono mt-2">GENERATING ROLES...</p>
+        <p className="text-[#666] text-xs mt-2">يُرجى الانتظار...</p>
       </motion.div>
     );
   }
@@ -366,7 +371,7 @@ export default function PlayerPhaseView({
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
         <motion.div animate={{ rotateY: [0, 180, 360] }} transition={{ duration: 2, repeat: Infinity }} className="text-4xl mb-3">🎴</motion.div>
         <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>جاري توزيع الأدوار</h3>
-        <p className="text-[#666] text-xs font-mono mt-2">ASSIGNING ROLES...</p>
+        <p className="text-[#666] text-xs mt-2">يُرجى الانتظار...</p>
       </motion.div>
     );
   }
@@ -428,8 +433,8 @@ export default function PlayerPhaseView({
               <span className="text-2xl font-black text-[#C5A059]">#{speakerInfo.physicalId}</span>
             </div>
             <p className="text-white font-bold text-lg">{speakerInfo.name || `لاعب #${speakerInfo.physicalId}`}</p>
-            <p className="text-[#C5A059] text-xs font-mono mt-1 tracking-widest">
-              {timeUp ? 'TIME UP' : isSpeaking ? 'SPEAKING NOW' : 'WAITING'}
+            <p className="text-[#C5A059] text-xs font-bold mt-1">
+              {timeUp ? 'انتهى الوقت' : isSpeaking ? 'يتحدث الآن' : 'بالانتظار'}
             </p>
 
             {/* التايمر الدائري */}
@@ -462,7 +467,7 @@ export default function PlayerPhaseView({
         {/* قائمة ترتيب النقاش */}
         {speakers.length > 0 && (
           <div className="mx-2 space-y-1.5">
-            <p className="text-[#666] text-[10px] font-mono tracking-widest mb-2 text-center">DISCUSSION ORDER</p>
+            <p className="text-[#666] text-[10px] font-bold mb-2 text-center">ترتيب النقاش</p>
             {speakers.map((s: any, i: number) => {
               const isCurrent = s.physicalId === currentSpeaker;
               const isDone = s.status === 'done';
@@ -527,7 +532,7 @@ export default function PlayerPhaseView({
                 <span className="text-2xl font-black text-red-400">#{a.targetPhysicalId}</span>
               </div>
               <p className="text-white font-bold text-lg">{info?.name || a.name || `لاعب #${a.targetPhysicalId}`}</p>
-              <p className="text-red-400 text-xs font-mono mt-1">{topVotes} VOTES AGAINST</p>
+              <p className="text-red-400 text-xs font-bold mt-1">{topVotes} صوت ضده</p>
               {a.canJustify && <p className="text-yellow-500 text-xs mt-2">🎙️ يبرر الآن...</p>}
             </motion.div>
           );
@@ -577,12 +582,12 @@ export default function PlayerPhaseView({
               <div key={c.targetPhysicalId} className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 text-center">
                 <span className="text-yellow-400 font-black text-lg">#{c.targetPhysicalId}</span>
                 <p className="text-white text-xs mt-1">{info?.name || ''}</p>
-                <p className="text-yellow-400 text-xs font-mono">{c.votes} votes</p>
+                <p className="text-yellow-400 text-xs font-bold">{c.votes} صوت</p>
               </div>
             );
           })}
         </div>
-        <p className="text-[#666] text-xs font-mono mt-4 tracking-widest">LEADER DECIDING...</p>
+        <p className="text-[#666] text-xs font-bold mt-4">بانتظار قرار الليدر...</p>
       </motion.div>
     );
   }
@@ -635,7 +640,7 @@ export default function PlayerPhaseView({
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-10">
         <motion.div animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }} transition={{ duration: 3, repeat: Infinity }} className="text-6xl mb-4">🌙</motion.div>
         <h3 className="text-xl font-bold text-indigo-300" style={{ fontFamily: 'Amiri, serif' }}>الليل يسدل ستاره</h3>
-        <p className="text-[#555] text-xs font-mono mt-3 tracking-widest">NIGHT PHASE</p>
+        <p className="text-[#555] text-xs font-bold mt-3">مرحلة الليل</p>
         
         {nightStepInfo && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 inline-block bg-[#111] border border-[#C5A059]/30 rounded-lg px-6 py-3">
@@ -672,10 +677,10 @@ export default function PlayerPhaseView({
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mt-6 mx-4 bg-red-500/20 border border-red-500/40 rounded-2xl p-6">
             <div className="text-4xl mb-3">💀</div>
             <p className="text-red-400 font-bold text-lg">لقد اُغتلت!</p>
-            <p className="text-[#666] text-xs font-mono mt-2">YOU WERE ELIMINATED</p>
+            <p className="text-[#666] text-xs mt-2">تم إخراجك من اللعبة</p>
           </motion.div>
         ) : myEvents.length === 0 ? (
-          <p className="text-[#666] text-sm font-mono mt-6 tracking-widest">بانتظار كشف الأحداث...</p>
+          <p className="text-[#666] text-sm mt-6">بانتظار كشف الأحداث...</p>
         ) : (
           <div className="mt-4 mx-4 space-y-2">
             {myEvents.map((e: any, i: number) => (
@@ -702,8 +707,8 @@ export default function PlayerPhaseView({
           <h3 className="text-2xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>
             {isMafiaWin ? 'انتصار المافيا' : 'تطهير المدينة'}
           </h3>
-          <p className="text-[#666] text-xs font-mono mt-2 tracking-widest">
-            {isMafiaWin ? 'MAFIA WINS' : 'CITIZENS WIN'}
+          <p className="text-[#666] text-xs font-bold mt-2">
+            {isMafiaWin ? 'سيطرة مطلقة' : 'العدالة انتصرت'}
           </p>
         </div>
 

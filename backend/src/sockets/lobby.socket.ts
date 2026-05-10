@@ -1291,6 +1291,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? state.discussionState || null : null,
+        // ── بيانات مرحلة الليل (لاستعادة شاشة الإجراء عند refresh) ──
+        nightState: state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? {
+          nightStep: state.nightStep,
+          autoNightStepRole: state.autoNightStepRole,
+          autoNightPerformerId: state.autoNightPerformerId,
+          config: { autoNightTime: state.config?.autoNightTime || 15 },
+          playerSubmitted: state.playerNightActions?.submitted?.[player.physicalId] || false,
+        } : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
         // نتيجة اللعبة
@@ -1586,6 +1594,19 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       nurseTarget: null,
       lastProtectedTarget: null,
     };
+
+    // ── تصفير حالة الليل الأوتو (إصلاح مشكلة القنص عند بدء لعبة ثانية) ──
+    state.nightStep = null;
+    state.autoNightStepRole = null;
+    state.autoNightPerformerId = null;
+    state.autoNightStepDispatched = false;
+    state.playerNightActions = { submitted: {} };
+    state.nurseActivated = false;
+    state.policewomanState = null;
+    state.pendingResolution = null;
+    state.justificationData = null;
+    state.withdrawalState = null;
+    state.performanceTracking = null;
 
     return state;
   }

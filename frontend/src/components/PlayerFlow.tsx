@@ -692,6 +692,38 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               }
             }
           }
+
+          // ── استعادة حالة الليل الأوتو عند refresh ──
+          if (res.nightState && res.phase === 'NIGHT' && !res.nightState.playerSubmitted) {
+            const ns = res.nightState;
+            const myPhysId = parseInt(physicalId);
+            const isPerformer = myPhysId === ns.autoNightPerformerId;
+            const stepActionType = ns.autoNightStepRole === 'SHERIFF' ? 'INVESTIGATE' :
+              ns.autoNightStepRole === 'DOCTOR' || ns.autoNightStepRole === 'NURSE' ? 'PROTECT' :
+              ns.autoNightStepRole === 'SNIPER' ? 'SNIPE' :
+              ns.autoNightStepRole === 'SILENCER' && !isPerformer ? 'DECOY' : 'KILL';
+
+            setNightActionRequired({
+              actionType: isPerformer ? stepActionType : 'DECOY',
+              availableTargets: ns.nightStep.availableTargets || [],
+              timeoutSeconds: ns.config.autoNightTime || 15,
+              canSkip: ns.nightStep.canSkip || false,
+              stepRole: ns.autoNightStepRole,
+              isDecoy: !isPerformer,
+            });
+            setNightActionSubmitted(false);
+            setSelectedTargetForConfirm(null);
+            // تايمر — نبدأ من الوقت المتبقي (تقريبي)
+            const remaining = Math.max(3, ns.config.autoNightTime || 15);
+            setNightActionCountdown(remaining);
+            if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+            nightCountdownRef.current = setInterval(() => {
+              setNightActionCountdown(prev => {
+                if (prev <= 1) { clearInterval(nightCountdownRef.current!); return 0; }
+                return prev - 1;
+              });
+            }, 1000);
+          }
         }
       } catch { /* ignore */ }
     }, 500);
@@ -2837,7 +2869,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 transition={{ duration: 3, repeat: Infinity }}
                 className="text-4xl mb-2"
               >🌙</motion.div>
-              <p className="text-[9px] font-mono text-[#666] tracking-[0.2em] uppercase mb-1">NIGHT PHASE</p>
+              <p className="text-[9px] font-mono text-[#666] tracking-[0.2em] uppercase mb-1">مرحلة الليل</p>
               <h2 className="text-xl font-black text-[#C5A059]">
                 {nightActionRequired.stepRole === 'MAFIA' ? 'المافيا' :
                   nightActionRequired.stepRole === 'GODFATHER' ? 'العراب' :
