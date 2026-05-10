@@ -5,7 +5,7 @@
 import { Router, type Request, type Response } from 'express';
 import { sql, desc, eq, and, gte, lte, count } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, bookings, costs, foundationalCosts, staff, locations } from '../schemas/admin.schema.js';
+import { activities, bookings, costs, foundationalCosts, staff, locations, auditLog } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { matches, matchPlayers, sessions, surveys } from '../schemas/game.schema.js';
 import { authenticate } from '../middleware/auth.js';
@@ -427,6 +427,174 @@ router.get('/kpi', authenticate, async (req: Request, res: Response) => {
           ? Math.round((activityStats.completed / activityStats.total) * 100) : 0,
       },
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════
+// GET /api/reports/sessions
+// تقرير الجلسات والغرف (#7)
+// ═══════════════════════════════════════════
+router.get('/sessions', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const { from, to } = getDateRange(req.query.period as string || 'all');
+
+  try {
+    const [summary] = await db.select({
+      total: sql<number>`COUNT(*)::int`,
+      active: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'active' THEN 1 ELSE 0 END), 0)::int`,
+      closed: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'closed' THEN 1 ELSE 0 END), 0)::int`,
+      deleted: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'deleted' THEN 1 ELSE 0 END), 0)::int`,
+      avgMaxPlayers: sql<number>`ROUND(AVG(${sessions.maxPlayers}))::int`,
+    }).from(sessions)
+      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to)));
+
+    // متوسط المباريات لكل جلسة
+    const matchesPerSession = await db.select({
+      sessionId: matches.sessionId,
+      matchCount: sql<number>`COUNT(*)::int`,
+    }).from(matches)
+      .where(and(gte(matches.createdAt, from), lte(matches.createdAt, to), sql`${matches.sessionId} IS NOT NULL`))
+      .groupBy(matches.sessionId);
+
+    const avgMatchesPerSession = matchesPerSession.length > 0
+      ? Math.round(matchesPerSession.reduce((a, b) => a + b.matchCount, 0) / matchesPerSession.length)
+      : 0;
+
+    // أكثر الليدرات إدارة للغرف
+    const topLeaders = await db.select({
+      staffId: sessions.createdBy,
+      displayName: staff.displayName,
+      sessionCount: sql<number>`COUNT(${sessions.id})::int`,
+    }).from(sessions)
+      .leftJoin(staff, eq(staff.id, sessions.createdBy))
+      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to), sql`${sessions.createdBy} IS NOT NULL`))
+      .groupBy(sessions.createdBy, staff.displayName)
+      .orderBy(desc(sql`COUNT(${sessions.id})`))
+      .limit(10);
+
+    // الجلسات حسب الشهر
+    const monthly = await db.select({
+      month: sql<string>`TO_CHAR(${sessions.createdAt}, 'YYYY-MM')`,
+      count: sql<number>`COUNT(*)::int`,
+    }).from(sessions)
+      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to)))
+      .groupBy(sql`TO_CHAR(${sessions.createdAt}, 'YYYY-MM')`)
+      .orderBy(sql`TO_CHAR(${sessions.createdAt}, 'YYYY-MM')`);
+
+    res.json({
+      success: true,
+      summary: { ...summary, avgMatchesPerSession },
+      topLeaders,
+      monthly,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════
+// GET /api/reports/partners
+// تقرير الشركاء (#16)
+// ═══════════════════════════════════════════
+router.get('/partners', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  try {
+    // الشركاء
+    const partners = await db.select({
+      id: staff.id,
+      name: staff.displayName,
+      role: staff.role,
+      isActive: staff.isActive,
+    }).from(staff)
+      .where(eq(staff.isPartner, true));
+
+    // إيرادات الحجوزات حسب من أنشأها
+    const revenueByCreator = await db.select({
+      createdBy: bookings.createdBy,
+      revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
+      bookingCount: sql<number>`COUNT(*)::int`,
+    }).from(bookings)
+      .groupBy(bookings.createdBy);
+
+    // تكاليف حسب من دفعها
+    const costsByPayer = await db.select({
+      paidBy: costs.paidBy,
+      total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
+    }).from(costs)
+      .groupBy(costs.paidBy);
+
+    const revenueMap = new Map(revenueByCreator.map(r => [r.createdBy, { revenue: Number(r.revenue), bookings: r.bookingCount }]));
+    const costsMap = new Map(costsByPayer.map(c => [c.paidBy, Number(c.total)]));
+
+    const enriched = partners.map(p => {
+      const rev = revenueMap.get(p.name) || { revenue: 0, bookings: 0 };
+      const cost = costsMap.get(p.name) || 0;
+      return {
+        ...p,
+        revenue: rev.revenue,
+        bookings: rev.bookings,
+        costs: cost,
+        profit: rev.revenue - cost,
+      };
+    });
+
+    res.json({ success: true, partners: enriched });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════
+// GET /api/reports/audit
+// سجل العمليات (#17)
+// ═══════════════════════════════════════════
+router.get('/audit', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const { from, to } = getDateRange(req.query.period as string || 'month');
+
+  try {
+    // آخر 100 عملية
+    const recentLogs = await db.select({
+      id: auditLog.id,
+      userId: auditLog.userId,
+      action: auditLog.action,
+      entity: auditLog.entity,
+      entityId: auditLog.entityId,
+      details: auditLog.details,
+      timestamp: auditLog.timestamp,
+    }).from(auditLog)
+      .where(and(gte(auditLog.timestamp, from), lte(auditLog.timestamp, to)))
+      .orderBy(desc(auditLog.timestamp))
+      .limit(100);
+
+    // أكثر المستخدمين نشاطاً
+    const topUsers = await db.select({
+      userId: auditLog.userId,
+      actionCount: sql<number>`COUNT(*)::int`,
+    }).from(auditLog)
+      .where(and(gte(auditLog.timestamp, from), lte(auditLog.timestamp, to)))
+      .groupBy(auditLog.userId)
+      .orderBy(desc(sql`COUNT(*)`))
+      .limit(10);
+
+    // العمليات حسب النوع
+    const byAction = await db.select({
+      action: auditLog.action,
+      count: sql<number>`COUNT(*)::int`,
+    }).from(auditLog)
+      .where(and(gte(auditLog.timestamp, from), lte(auditLog.timestamp, to)))
+      .groupBy(auditLog.action)
+      .orderBy(desc(sql`COUNT(*)`));
+
+    res.json({ success: true, recentLogs, topUsers, byAction });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

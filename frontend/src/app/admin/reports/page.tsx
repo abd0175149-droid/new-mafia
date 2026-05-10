@@ -91,24 +91,33 @@ export default function ReportsPage() {
   const [games, setGames] = useState<any>(null);
   const [locations, setLocations] = useState<any>(null);
   const [kpi, setKpi] = useState<any>(null);
+  const [sessionsData, setSessionsData] = useState<any>(null);
+  const [partners, setPartners] = useState<any>(null);
+  const [audit, setAudit] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [f, p, g, l, k] = await Promise.all([
+      const [f, p, g, l, k, s, pr, au] = await Promise.all([
         fetch(`${API}/api/reports/financial?period=${period}`, { headers: getHeaders() }).then(r => r.json()),
         fetch(`${API}/api/reports/players?period=${period}`, { headers: getHeaders() }).then(r => r.json()),
         fetch(`${API}/api/reports/games?period=${period}`, { headers: getHeaders() }).then(r => r.json()),
         fetch(`${API}/api/reports/locations?period=${period}`, { headers: getHeaders() }).then(r => r.json()),
         fetch(`${API}/api/reports/kpi`, { headers: getHeaders() }).then(r => r.json()),
+        fetch(`${API}/api/reports/sessions?period=${period}`, { headers: getHeaders() }).then(r => r.json()),
+        fetch(`${API}/api/reports/partners`, { headers: getHeaders() }).then(r => r.json()),
+        fetch(`${API}/api/reports/audit?period=${period}`, { headers: getHeaders() }).then(r => r.json()),
       ]);
       if (f.success) setFinancial(f);
       if (p.success) setPlayers(p);
       if (g.success) setGames(g);
       if (l.success) setLocations(l);
       if (k.success) setKpi(k.kpis);
+      if (s.success) setSessionsData(s);
+      if (pr.success) setPartners(pr.partners);
+      if (au.success) setAudit(au);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -118,11 +127,14 @@ export default function ReportsPage() {
   const handlePrint = () => window.print();
 
   const TABS = [
-    { id: 'kpi', label: 'المؤشرات الرئيسية', icon: '📊' },
+    { id: 'kpi', label: 'المؤشرات', icon: '📊' },
     { id: 'financial', label: 'المالية', icon: '💰' },
     { id: 'players', label: 'اللاعبون', icon: '🎮' },
     { id: 'games', label: 'المباريات', icon: '⚔️' },
+    { id: 'sessions', label: 'الجلسات', icon: '🏠' },
     { id: 'locations', label: 'المواقع', icon: '📍' },
+    { id: 'partners', label: 'الشركاء', icon: '🤝' },
+    { id: 'audit', label: 'سجل العمليات', icon: '📜' },
   ];
 
   return (
@@ -264,6 +276,16 @@ export default function ReportsPage() {
                 ))}
               </div>
 
+              {players.monthlyGrowth?.length > 0 && (
+                <>
+                  <SectionTitle title="نمو قاعدة اللاعبين شهرياً" icon="📈" />
+                  <Table
+                    headers={['الشهر', 'لاعبون جدد']}
+                    rows={players.monthlyGrowth.map((m: any) => [m.month, m.newPlayers])}
+                  />
+                </>
+              )}
+
               <SectionTitle title="أفضل 20 لاعب" icon="⭐" />
               <Table
                 headers={['#', 'اللاعب', 'الرتبة', 'المستوى', 'RR', 'المباريات', 'الانتصارات', 'آخر نشاط']}
@@ -349,6 +371,102 @@ export default function ReportsPage() {
                     <span>{l.occupancyRate}%</span>
                   </div>,
                   l.isTest ? <span key="t" className="text-xs bg-yellow-500/10 text-yellow-400 px-2 py-0.5 rounded">اختباري</span> : '—',
+                ])}
+              />
+            </motion.div>
+          )}
+
+          {/* ══ SESSIONS ══ */}
+          {activeTab === 'sessions' && sessionsData && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <SectionTitle title="تقرير الجلسات والغرف" icon="🏠" />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <StatCard icon="🏠" label="إجمالي الغرف" value={sessionsData.summary.total} color="blue" />
+                <StatCard icon="🟢" label="نشطة" value={sessionsData.summary.active} color="green" />
+                <StatCard icon="🔒" label="مغلقة" value={sessionsData.summary.closed} color="amber" />
+                <StatCard icon="🎮" label="متوسط المباريات/جلسة" value={sessionsData.summary.avgMatchesPerSession} color="purple" />
+              </div>
+
+              {sessionsData.topLeaders?.length > 0 && (
+                <>
+                  <SectionTitle title="أكثر الليدرات إدارة للغرف" icon="👑" />
+                  <Table
+                    headers={['الليدر', 'عدد الغرف']}
+                    rows={sessionsData.topLeaders.map((l: any) => [
+                      l.displayName || `موظف #${l.staffId}`,
+                      l.sessionCount,
+                    ])}
+                  />
+                </>
+              )}
+
+              {sessionsData.monthly?.length > 0 && (
+                <>
+                  <SectionTitle title="الجلسات حسب الشهر" icon="📆" />
+                  <Table
+                    headers={['الشهر', 'عدد الجلسات']}
+                    rows={sessionsData.monthly.map((m: any) => [m.month, m.count])}
+                  />
+                </>
+              )}
+            </motion.div>
+          )}
+
+          {/* ══ PARTNERS ══ */}
+          {activeTab === 'partners' && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <SectionTitle title="تقرير الشركاء" icon="🤝" />
+              {partners && partners.length > 0 ? (
+                <Table
+                  headers={['الشريك', 'الدور', 'الإيرادات', 'التكاليف', 'صافي الربح', 'الحجوزات', 'الحالة']}
+                  rows={partners.map((p: any) => [
+                    p.name,
+                    p.role,
+                    `${Number(p.revenue).toLocaleString()} د.ع`,
+                    `${Number(p.costs).toLocaleString()} د.ع`,
+                    <span key="pr" className={p.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      {Number(p.profit).toLocaleString()} د.ع
+                    </span>,
+                    p.bookings,
+                    p.isActive
+                      ? <span key="a" className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded">نشط</span>
+                      : <span key="i" className="text-xs bg-red-500/10 text-red-400 px-2 py-0.5 rounded">غير نشط</span>,
+                  ])}
+                />
+              ) : (
+                <p className="text-center text-gray-600 py-10 text-sm">لا يوجد شركاء مسجلين حالياً</p>
+              )}
+            </motion.div>
+          )}
+
+          {/* ══ AUDIT ══ */}
+          {activeTab === 'audit' && audit && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <SectionTitle title="سجل العمليات" icon="📜" />
+
+              {audit.byAction?.length > 0 && (
+                <>
+                  <SectionTitle title="العمليات حسب النوع" icon="📊" />
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    {audit.byAction.map((a: any) => (
+                      <div key={a.action} className="bg-gray-800/50 border border-gray-700 rounded-xl p-3 text-center">
+                        <p className="text-xs text-gray-500 mb-1">{a.action}</p>
+                        <p className="text-xl font-black text-amber-400">{a.count}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              <SectionTitle title="آخر 100 عملية" icon="🗓️" />
+              <Table
+                headers={['الوقت', 'الإجراء', 'الكيان', 'ID', 'المستخدم']}
+                rows={audit.recentLogs?.map((l: any) => [
+                  new Date(l.timestamp).toLocaleString('ar-IQ'),
+                  l.action,
+                  l.entity,
+                  l.entityId || '—',
+                  l.userId || '—',
                 ])}
               />
             </motion.div>
