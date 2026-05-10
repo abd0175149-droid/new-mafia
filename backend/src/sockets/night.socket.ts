@@ -533,7 +533,21 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // الانتقال للخطوة التالية
+      // ── في الأوتو: نستخدم prepareAutoQueueStep بدلاً من الإرسال اليدوي ──
+      if (state.config.nightMode === 'auto') {
+        // إلغاء التايمر إن وجد
+        const timer = autoNightTimers.get(data.roomId);
+        if (timer) { clearTimeout(timer); autoNightTimers.delete(data.roomId); }
+
+        const effectiveRole = data.role === Role.NURSE ? Role.DOCTOR : data.role;
+        const currentIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
+        // تجهيز الخطوة التالية (تنتظر الليدر)
+        await prepareAutoQueueStep(io, data.roomId, currentIndex);
+        callback({ success: true });
+        return;
+      }
+
+      // ── Manual Mode ──
       const currentIndex = NIGHT_QUEUE_ORDER.indexOf(data.role);
       const nextStep = getNextQueueStep(state, currentIndex);
 

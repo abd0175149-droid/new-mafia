@@ -683,12 +683,27 @@ export default function PlayerPhaseView({
           <p className="text-[#666] text-sm mt-6">بانتظار كشف الأحداث...</p>
         ) : (
           <div className="mt-4 mx-4 space-y-2">
-            {myEvents.map((e: any, i: number) => (
-              <motion.div key={i} initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.3 }}
-                className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                <p className="text-white text-sm">{e.targetName}: {e.type.includes('SNIPE') ? '🎯 تم قنصك!' : (typeof e.extra === 'string' ? e.extra : e.type)}</p>
-              </motion.div>
-            ))}
+            {myEvents.map((e: any, i: number) => {
+              // ── ترجمة أنواع الأحداث للعربي ──
+              const eventLabels: Record<string, { icon: string; text: string }> = {
+                'ASSASSINATION': { icon: '💀', text: 'تم اغتيالك!' },
+                'ASSASSINATION_BLOCKED': { icon: '🛡️', text: 'تم حمايتك من الاغتيال!' },
+                'SNIPE_MAFIA': { icon: '🎯', text: 'تم قنصك!' },
+                'SNIPE_CITIZEN': { icon: '🎯', text: 'تم قنصك!' },
+                'SILENCED': { icon: '🤫', text: 'تم إسكاتك! لا يمكنك التحدث هذه الجولة.' },
+                'SHERIFF_RESULT': { icon: '🔍', text: `نتيجة التحقيق: ${e.extra?.result === 'MAFIA' ? '🔴 مافيا' : '🟢 مواطن'}` },
+                'PROTECTION_FAILED': { icon: '❌', text: 'فشلت الحماية! الهدف اُغتيل.' },
+                'POLICEWOMAN_REVEAL': { icon: '👮', text: 'الشرطية كشفت هويتك!' },
+              };
+              const label = eventLabels[e.type] || { icon: '📋', text: e.type };
+
+              return (
+                <motion.div key={i} initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.3 }}
+                  className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                  <p className="text-white text-sm">{label.icon} {label.text}</p>
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </motion.div>
