@@ -1,6 +1,6 @@
 'use client';
 import { motion, AnimatePresence } from 'framer-motion';
-import { REPORT_CATEGORIES, type ReportCategory, type ReportDefinition } from '../registry';
+import { REPORT_CATEGORIES, type ReportDefinition } from '../registry';
 
 interface Props {
   selectedCategory: string | null;
@@ -9,20 +9,28 @@ interface Props {
   onSelectReport: (report: ReportDefinition) => void;
   collapsed: boolean;
   onToggle: () => void;
+  onBack: () => void;
 }
 
 export default function ReportSidebar({
-  selectedCategory, selectedReport, onSelectCategory, onSelectReport, collapsed, onToggle,
+  selectedCategory, selectedReport, onSelectCategory, onSelectReport, collapsed, onToggle, onBack,
 }: Props) {
   return (
     <motion.aside
       initial={false}
       animate={{ width: collapsed ? 56 : 280 }}
       transition={{ duration: 0.3, ease: 'easeInOut' }}
-      className="h-full bg-gray-900/60 backdrop-blur-xl border-l border-gray-800/40 flex flex-col overflow-hidden print:hidden"
+      className="h-full bg-gray-900/80 backdrop-blur-xl border-l border-gray-800/40 flex flex-col overflow-hidden print:hidden"
     >
-      {/* Header */}
+      {/* Header with back button */}
       <div className="p-3 flex items-center gap-2 border-b border-gray-800/40 shrink-0">
+        <button
+          onClick={onBack}
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 transition text-sm shrink-0"
+          title="العودة للوحة التحكم"
+        >
+          →
+        </button>
         <button
           onClick={onToggle}
           className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800/60 hover:bg-gray-700 text-gray-400 hover:text-white transition text-sm shrink-0"
@@ -31,12 +39,13 @@ export default function ReportSidebar({
         </button>
         <AnimatePresence>
           {!collapsed && (
-            <motion.span
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="text-sm font-bold text-amber-400 whitespace-nowrap"
+              className="flex items-center gap-2 overflow-hidden"
             >
-              📋 أنواع التقارير
-            </motion.span>
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-xs shrink-0">📋</div>
+              <span className="text-sm font-bold text-white whitespace-nowrap">التقارير</span>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
@@ -52,7 +61,7 @@ export default function ReportSidebar({
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all ${
                   isCatActive
                     ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800/40'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-800/40 border border-transparent'
                 }`}
               >
                 <span className="text-base shrink-0">{cat.icon}</span>
@@ -66,9 +75,12 @@ export default function ReportSidebar({
                     </motion.span>
                   )}
                 </AnimatePresence>
+                {!collapsed && (
+                  <span className="mr-auto text-[10px] text-gray-600">{cat.reports.length}</span>
+                )}
               </button>
 
-              {/* Reports under this category */}
+              {/* Reports list */}
               <AnimatePresence>
                 {isCatActive && !collapsed && (
                   <motion.div
@@ -99,6 +111,23 @@ export default function ReportSidebar({
           );
         })}
       </nav>
+
+      {/* Footer */}
+      <div className="p-3 border-t border-gray-800/40 shrink-0">
+        <button
+          onClick={onBack}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-gray-500 hover:text-amber-400 hover:bg-amber-500/5 transition-all ${collapsed ? 'justify-center' : ''}`}
+        >
+          <span className="text-base shrink-0">🏠</span>
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="whitespace-nowrap text-xs font-medium">
+                العودة للوحة التحكم
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </button>
+      </div>
     </motion.aside>
   );
 }
