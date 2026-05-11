@@ -2611,6 +2611,7 @@ export default function LeaderPage() {
                             className="w-16 bg-[#111] border border-[#333] rounded px-2 py-1 text-white text-center font-mono text-sm focus:border-[#C5A059] focus:outline-none"
                           />
                         </motion.div>
+                      )}
                     </AnimatePresence>
                   </div>
                 </div>
