@@ -43,6 +43,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - BACKEND_URL=http://backend:${BACKEND_PORT}
     restart: always
     environment:
       - PORT=${FRONTEND_PORT}
@@ -52,6 +54,7 @@ services:
       - "${FRONTEND_PORT}:${FRONTEND_PORT}"
     depends_on:
       - backend
+
 
 volumes:
   db_data:

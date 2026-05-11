@@ -11,7 +11,8 @@ RUN npm ci
 COPY . .
 
 # Backend URL for Next.js rewrites (Docker internal network)
-ENV BACKEND_URL=http://backend:4000
+ARG BACKEND_URL=http://backend:4000
+ENV BACKEND_URL=${BACKEND_URL}
 ENV NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_SOCKET_URL=
 
