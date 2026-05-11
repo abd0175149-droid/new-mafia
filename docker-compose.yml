@@ -1,94 +1,53 @@
-# ══════════════════════════════════════════════════════
-# 🎭 Unified Mafia Platform — Production Docker Compose
-# ══════════════════════════════════════════════════════
+version: '3.8'
 
 services:
-  # ── Nginx Reverse Proxy ────────────────────────────
-  nginx:
-    image: nginx:alpine
+  database:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: mafia_user
+      POSTGRES_PASSWORD: mafia_pass
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - "3010:80"
+      - "${DB_PORT}:5432"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - frontend
-      - backend
-    restart: unless-stopped
-    networks:
-      - mafia-net
+      - db_data:/var/lib/postgresql/data
 
-  # ── Backend (Express + Socket.IO) ───────────────────
+  redis:
+    image: redis:alpine
+    restart: always
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+
   backend:
-    build:
+    build: 
       context: ./backend
       dockerfile: Dockerfile
+    restart: always
     environment:
-      - NODE_ENV=production
-      - PORT=4000
-      - DATABASE_URL=postgresql://mafia_user:${DB_PASSWORD:-mafia_pass}@postgres:5432/mafia_db
+      - PORT=${BACKEND_PORT}
+      - DATABASE_URL=postgresql://mafia_user:mafia_pass@database:5432/${DB_NAME}
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRES_IN=7d
-      - FRONTEND_URL=${FRONTEND_URL:-https://mafia.grade.sbs}
-      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
-      - NEXT_PUBLIC_FIREBASE_VAPID_KEY=${VAPID_PUBLIC_KEY:-}
+    ports:
+      - "${BACKEND_PORT}:${BACKEND_PORT}"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    volumes:
-      - uploads_data:/app/uploads
-    restart: unless-stopped
-    networks:
-      - mafia-net
+      - database
+      - redis
 
-  # ── Frontend (Next.js) ─────────────────────────────
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    restart: always
     environment:
-      - BACKEND_URL=http://backend:4000
-      - HOSTNAME=0.0.0.0
+      - PORT=${FRONTEND_PORT}
+    ports:
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
     depends_on:
       - backend
-    restart: unless-stopped
-    networks:
-      - mafia-net
-
-  # ── PostgreSQL (Unified Database) ──────────────────
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=mafia_user
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-mafia_pass}
-      - POSTGRES_DB=mafia_db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mafia_user -d mafia_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
-    networks:
-      - mafia-net
-
-  # ── Redis (Live Game State) ────────────────────────
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    networks:
-      - mafia-net
 
 volumes:
-  postgres_data:
+  db_data:
   redis_data:
-  uploads_data:
-
-networks:
-  mafia-net:
-    driver: bridge
