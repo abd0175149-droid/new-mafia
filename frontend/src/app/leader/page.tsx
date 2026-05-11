@@ -2611,8 +2611,46 @@ export default function LeaderPage() {
                             className="w-16 bg-[#111] border border-[#333] rounded px-2 py-1 text-white text-center font-mono text-sm focus:border-[#C5A059] focus:outline-none"
                           />
                         </motion.div>
-                      )}
                     </AnimatePresence>
+                  </div>
+                </div>
+
+                {/* ⏱️ Game Timer Toggle */}
+                <div className="flex flex-col items-center gap-2 mb-4">
+                  <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">⏱️ GAME TIMER</span>
+                  <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 mx-auto">
+                    {[
+                      { label: 'OFF', value: 0 },
+                      { label: '30 دقيقة', value: 30 },
+                      { label: 'ساعة', value: 60 },
+                      { label: 'ساعة ونصف', value: 90 },
+                    ].map(opt => {
+                      const isActive = opt.value === 0 
+                        ? !(gameState.config as any).gameTimerEnabled
+                        : (gameState.config as any).gameTimerEnabled && (gameState.config as any).gameTimerMinutes === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          onClick={async () => {
+                            const res = await emit('game:set-timer', { 
+                              roomId: gameState.roomId, 
+                              enabled: opt.value > 0,
+                              minutes: opt.value || 30,
+                            });
+                            if (res?.success) setGameState((prev: any) => ({ ...prev, config: { ...prev.config, gameTimerEnabled: opt.value > 0, gameTimerMinutes: opt.value || 30 } }));
+                          }}
+                          className={`py-2.5 px-3 rounded-lg text-[11px] font-mono transition-all ${
+                            isActive
+                              ? opt.value === 0 
+                                ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
+                                : 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
+                              : 'text-[#666] hover:text-[#aaa]'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
