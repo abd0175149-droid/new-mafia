@@ -9,6 +9,7 @@ import * as adminSchema from '../schemas/admin.schema.js';
 import * as gameSchema from '../schemas/game.schema.js';
 import * as playerSchema from '../schemas/player.schema.js';
 import * as notificationSchema from '../schemas/notification.schema.js';
+import * as gameConfigSchema from '../schemas/game-config.schema.js';
 
 const { Pool } = pg;
 
@@ -34,7 +35,7 @@ export async function connectDB(): Promise<Database> {
   client.release();
 
   db = drizzle(pool, {
-    schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema },
+    schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema, ...gameConfigSchema },
   });
 
   return db;

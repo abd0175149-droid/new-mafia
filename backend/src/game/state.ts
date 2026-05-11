@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { Role } from './roles.js';
+import type { DynamicNightState } from './dynamic-night-resolver.js';
 
 // ── الأنواع (Types) ────────────────────────────────
 
@@ -124,6 +125,7 @@ export interface GameConfig {
   nightMode: 'manual' | 'auto'; // نمط الليل — manual: الليدر يتحكم / auto: اللاعبون يرسلون
   gameTimerEnabled: boolean;     // هل مؤقت اللعبة مفعّل
   gameTimerMinutes: number;      // مدة المؤقت بالدقائق (30, 60, 90)
+  useDynamicEngine: boolean;     // 🧩 هل نستخدم المحرك الديناميكي (Data-Driven)
 }
 
 export interface GameState {
@@ -183,6 +185,8 @@ export interface GameState {
     startedAt: number;      // Unix timestamp لبداية المؤقت
     expired: boolean;       // هل انتهى الوقت
   } | null;
+  // 🧩 حالة الليل الديناميكية (Data-Driven engine)
+  dynamicNightState?: DynamicNightState | null;
   createdAt: string;
 }
 
@@ -240,6 +244,7 @@ export async function createRoom(
       nightMode: 'manual',
       gameTimerEnabled: false,
       gameTimerMinutes: 30,
+      useDynamicEngine: false,
     },
     players: [],
     rolesPool: [],

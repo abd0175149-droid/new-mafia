@@ -32,6 +32,7 @@ import staffNotificationRoutes from './routes/staff-notification.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import soundsRoutes from './routes/sounds.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
+import gameConfigRoutes from './routes/game-config.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -95,6 +96,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
 app.use('/api/sounds', soundsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/game-config', gameConfigRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 app.get('/api/push/vapid-public-key', async (_req, res) => {
@@ -528,6 +530,99 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ Sound effects table migration:', err.message);
+  }
+
+  // ── إنشاء جداول نظام Data-Driven (Game Config) ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      // Enums
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE ability_phase AS ENUM ('NIGHT','DAY','BOTH'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE target_type AS ENUM ('ENEMY','ALLY','ANY','SELF','NONE'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE effect_type AS ENUM ('ELIMINATE','BLOCK_ELIMINATE','REVEAL_TEAM','SILENCE','CONDITIONAL_ELIMINATE','PASSIVE'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE team_type AS ENUM ('MAFIA','CITIZEN','NEUTRAL'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE interaction_condition AS ENUM ('SAME_TARGET','ALWAYS','SPECIFIC_TARGET'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE interaction_resolution AS ENUM ('B_CANCELS_A','A_CANCELS_B','BOTH_CANCEL'); EXCEPTION WHEN duplicate_object THEN null; END $$`);
+
+      // Tables
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS ability_definitions (
+          id VARCHAR(50) PRIMARY KEY,
+          name_ar VARCHAR(100) NOT NULL,
+          name_en VARCHAR(100) NOT NULL,
+          phase ability_phase NOT NULL,
+          priority INTEGER NOT NULL,
+          target_type target_type NOT NULL,
+          exclude_self BOOLEAN DEFAULT true,
+          exclude_last_target BOOLEAN DEFAULT false,
+          max_targets INTEGER DEFAULT 1,
+          effect_type effect_type NOT NULL,
+          effect_on_success VARCHAR(100),
+          effect_on_fail VARCHAR(100),
+          can_skip BOOLEAN DEFAULT false,
+          is_inheritable BOOLEAN DEFAULT false,
+          inheritance_order JSONB,
+          deception_rule VARCHAR(200),
+          sound_event VARCHAR(100),
+          animation_type VARCHAR(100),
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS card_templates (
+          id VARCHAR(50) PRIMARY KEY,
+          gradient VARCHAR(200) NOT NULL,
+          border_color VARCHAR(100) NOT NULL,
+          text_color VARCHAR(100) NOT NULL,
+          glow_effect VARCHAR(200),
+          team_badge JSONB NOT NULL,
+          icon JSONB NOT NULL,
+          secret_face JSONB,
+          elements JSONB,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS role_definitions (
+          id VARCHAR(50) PRIMARY KEY,
+          name_ar VARCHAR(100) NOT NULL,
+          name_en VARCHAR(100) NOT NULL,
+          team team_type NOT NULL,
+          abilities JSONB NOT NULL,
+          gen_priority INTEGER NOT NULL,
+          gen_max_count INTEGER DEFAULT 1,
+          gen_min_players INTEGER DEFAULT 6,
+          gen_is_required BOOLEAN DEFAULT false,
+          win_condition_type VARCHAR(50),
+          win_condition_description VARCHAR(255),
+          win_condition_reveal_target BOOLEAN DEFAULT false,
+          card_template_id VARCHAR(50),
+          card_overrides JSONB,
+          description TEXT,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS interaction_rules (
+          id SERIAL PRIMARY KEY,
+          ability_a VARCHAR(50) NOT NULL,
+          ability_b VARCHAR(50) NOT NULL,
+          condition interaction_condition NOT NULL,
+          resolution interaction_resolution NOT NULL,
+          result_event VARCHAR(100) NOT NULL,
+          priority INTEGER DEFAULT 1,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      console.log('✅ Data-Driven game config tables ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Data-Driven tables migration:', err.message);
   }
 
   // ── تهيئة Firebase ──

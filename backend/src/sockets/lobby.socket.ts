@@ -6,6 +6,7 @@
 import { Server, Socket } from 'socket.io';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES } from '../game/roles.js';
+import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
@@ -988,6 +989,28 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── تفعيل/تعطيل المحرك الديناميكي ──────────────────
+  socket.on('room:toggle-dynamic-engine', async (data: {
+    roomId: string;
+    useDynamicEngine: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      state.config.useDynamicEngine = data.useDynamicEngine;
+      await updateRoom(data.roomId, { config: state.config });
+
+      callback({ success: true });
+      console.log(`🧩 Leader toggled dynamic engine: ${data.useDynamicEngine}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── بدء توليد الأدوار ──────────────────────────
   socket.on('room:start-generation', async (data: { roomId: string }, callback) => {
     try {
@@ -1003,19 +1026,54 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'يجب أن يكون هناك 6 لاعبين على الأقل' });
       }
 
-      const generated = generateRoles(playerCount);
-      await setPhase(data.roomId, Phase.ROLE_GENERATION);
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.ROLE_GENERATION });
+      // 🧩 Feature Flag: المحرك الديناميكي أو القديم
+      if (state.config.useDynamicEngine) {
+        try {
+          const dynamicResult = await generateRolesDynamic(playerCount);
+          await setPhase(data.roomId, Phase.ROLE_GENERATION);
+          io.to(data.roomId).emit('game:phase-changed', { phase: Phase.ROLE_GENERATION });
 
-      socket.emit('setup:roles-generated', {
-        mafiaRoles: generated.mafiaRoles,
-        citizenRoles: generated.citizenRoles,
-        totalMafia: generated.totalMafia,
-        totalCitizens: generated.totalCitizens,
-      });
+          socket.emit('setup:roles-generated', {
+            mafiaRoles: dynamicResult.mafiaRoles,
+            citizenRoles: dynamicResult.citizenRoles,
+            neutralRoles: dynamicResult.neutralRoles,
+            totalMafia: dynamicResult.totalMafia,
+            totalCitizens: dynamicResult.totalCitizens,
+            totalNeutral: dynamicResult.totalNeutral,
+            isDynamic: true,
+          });
 
-      callback({ success: true });
-      console.log(`🎲 Roles generated for ${playerCount} players`);
+          callback({ success: true });
+          console.log(`🧩 Dynamic roles generated for ${playerCount} players`);
+        } catch (dynErr: any) {
+          console.warn(`⚠️ Dynamic engine failed, falling back:`, dynErr.message);
+          // Fallback إلى المحرك القديم
+          const generated = generateRoles(playerCount);
+          await setPhase(data.roomId, Phase.ROLE_GENERATION);
+          io.to(data.roomId).emit('game:phase-changed', { phase: Phase.ROLE_GENERATION });
+          socket.emit('setup:roles-generated', {
+            mafiaRoles: generated.mafiaRoles,
+            citizenRoles: generated.citizenRoles,
+            totalMafia: generated.totalMafia,
+            totalCitizens: generated.totalCitizens,
+          });
+          callback({ success: true });
+        }
+      } else {
+        const generated = generateRoles(playerCount);
+        await setPhase(data.roomId, Phase.ROLE_GENERATION);
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.ROLE_GENERATION });
+
+        socket.emit('setup:roles-generated', {
+          mafiaRoles: generated.mafiaRoles,
+          citizenRoles: generated.citizenRoles,
+          totalMafia: generated.totalMafia,
+          totalCitizens: generated.totalCitizens,
+        });
+
+        callback({ success: true });
+        console.log(`🎲 Roles generated for ${playerCount} players`);
+      }
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
