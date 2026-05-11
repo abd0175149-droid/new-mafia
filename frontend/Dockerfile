@@ -11,7 +11,7 @@ RUN npm ci
 COPY . .
 
 # Backend URL for Next.js rewrites (Docker internal network)
-ARG BACKEND_URL=http://backend:4000
+ARG BACKEND_URL=http://backend:4001
 ENV BACKEND_URL=${BACKEND_URL}
 ENV NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_SOCKET_URL=
@@ -33,6 +33,9 @@ ENV NODE_ENV=production
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+
+# Replace broken Next.js server.js with custom proxy server
+COPY --from=builder /app/custom-server.js ./server.js
 
 EXPOSE 3000
 
