@@ -112,6 +112,11 @@ export default function LeaderPage() {
   const [excludedPlayers, setExcludedPlayers] = useState<number[]>([]);
   const [showExcludeUI, setShowExcludeUI] = useState(false);
 
+  // ── مؤقت اللعبة ──
+  const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
+  const [gameTimerRemaining, setGameTimerRemaining] = useState<number>(0);
+  const lastTimerSoundRef = useRef<number>(0);
+
   // Session mode — عرض صفحة الغرفة (Session) بدل اللعبة
   const [inSession, setInSession] = useState(false);
   const [showSessionAddForm, setShowSessionAddForm] = useState(false);
@@ -449,6 +454,10 @@ export default function LeaderPage() {
       if (data.state) {
         // الأولوية لـ data.phase على data.state.phase (حماية من phase قديم)
         setGameState(prev => prev ? { ...prev, ...data.state, phase: data.phase } : { ...data.state, phase: data.phase });
+        // تهيئة مؤقت اللعبة إن وجد
+        if (data.state.gameTimer && !data.state.gameTimer.expired) {
+          setGameTimerData(data.state.gameTimer);
+        }
         return;
       }
 
@@ -706,6 +715,8 @@ export default function LeaderPage() {
     });
 
     const offGameOver = on('game:over', (data: any) => {
+      setGameTimerData(null);
+      setGameTimerRemaining(0);
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -726,6 +737,8 @@ export default function LeaderPage() {
     const offGameRestarted = on('game:restarted', (data: any) => {
       setAutoNightStep(null);
       setAutoNightProgress(null);
+      setGameTimerData(null);
+      setGameTimerRemaining(0);
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -813,6 +826,12 @@ export default function LeaderPage() {
       });
     });
 
+    // ── مؤقت اللعبة: انتهى الوقت ──
+    const offTimerExpired = on('game:timer-expired', (data: any) => {
+      setGameTimerData(prev => prev ? { ...prev, expired: true } : null);
+      setGameTimerRemaining(0);
+    });
+
     return () => {
       offConnect();
       offStateSync();
@@ -845,8 +864,38 @@ export default function LeaderPage() {
       offAdminEliminated();
       offWithdrawalUpdate();
       offWithdrawalResult();
+      offTimerExpired();
     };
   }, [on, emit, gameState?.roomId]);
+
+  // ── ⏱️ عداد تنازلي لمؤقت اللعبة ──
+  useEffect(() => {
+    if (!gameTimerData || gameTimerData.expired) return;
+    const iv = setInterval(() => {
+      const elapsed = (Date.now() - gameTimerData.startedAt) / 1000;
+      const remaining = Math.max(0, gameTimerData.totalSeconds - elapsed);
+      setGameTimerRemaining(remaining);
+
+      const rounded = Math.floor(remaining);
+      if (rounded > 0 && rounded <= 60 && rounded !== lastTimerSoundRef.current) {
+        lastTimerSoundRef.current = rounded;
+        if (rounded <= 10) {
+          playGameSound('timer_heartbeat_fast');
+        } else if (rounded % 5 === 0) {
+          playGameSound('timer_heartbeat_slow');
+        }
+      }
+
+      if (remaining <= 0) {
+        clearInterval(iv);
+        if (lastTimerSoundRef.current !== 0) {
+          playGameSound('timer_buzzer');
+          lastTimerSoundRef.current = 0;
+        }
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [gameTimerData]);
 
   // ── Create Room ──
   const handleCreateRoom = async () => {
@@ -2228,6 +2277,40 @@ export default function LeaderPage() {
           </AnimatePresence>
 
           {/* ── Main Content based on Phase ── */}
+          {/* ⏱️ شريط مؤقت اللعبة */}
+          {gameTimerData && !gameTimerData.expired && gameState.phase !== 'LOBBY' && gameState.phase !== 'GAME_OVER' && (
+            <div className={`mx-4 mt-2 mb-1 px-4 py-2 rounded-xl border flex items-center justify-between font-mono text-sm backdrop-blur-md transition-all ${
+              gameTimerRemaining <= 60 
+                ? 'bg-red-900/40 border-red-500/60 animate-pulse' 
+                : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 
+                  ? 'bg-red-900/20 border-red-500/30' 
+                  : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 
+                    ? 'bg-yellow-900/20 border-yellow-500/30' 
+                    : 'bg-black/40 border-[#2a2a2a]'
+            }`}>
+              <span className="text-[10px] tracking-widest uppercase text-[#808080]">⏱️ مؤقت اللعبة</span>
+              <span className={`font-bold text-lg tabular-nums ${
+                gameTimerRemaining <= 60 ? 'text-red-400' 
+                : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'text-red-300' 
+                : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'text-yellow-400' 
+                : 'text-[#C5A059]'
+              }`}>
+                {Math.floor(gameTimerRemaining / 60).toString().padStart(2, '0')}:{Math.floor(gameTimerRemaining % 60).toString().padStart(2, '0')}
+              </span>
+              {/* شريط التقدم */}
+              <div className="w-32 h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-1000 ${
+                    gameTimerRemaining <= 60 ? 'bg-red-500' 
+                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'bg-red-400' 
+                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'bg-yellow-500' 
+                    : 'bg-[#C5A059]'
+                  }`}
+                  style={{ width: `${Math.min(100, (gameTimerRemaining / gameTimerData.totalSeconds) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto p-4">
           {gameState.phase === 'LOBBY' && (
             <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} />

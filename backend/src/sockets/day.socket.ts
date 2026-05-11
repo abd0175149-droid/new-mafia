@@ -23,6 +23,7 @@ import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
+import { clearGameTimer } from '../game/game-timer.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
 
@@ -1081,6 +1082,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         state.winner = winner;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.GAME_OVER);
+        clearGameTimer(data.roomId);
         io.to(data.roomId).emit('game:over', {
           winner,
           players: state.players,

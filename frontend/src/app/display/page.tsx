@@ -84,6 +84,9 @@ function DisplayPageContent() {
   const [adminReveal, setAdminReveal] = useState<{physicalId: number; playerName: string; role: string} | null>(null);
   const adminRevealTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasAutoRejoined = useRef(false);
+  const lastTimerSoundRef = useRef<number>(0);
+  const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
+  const [gameTimerRemaining, setGameTimerRemaining] = useState<number>(0);
   const searchParams = useSearchParams();
 
   // ══════════════════════════════════════════════════
@@ -143,6 +146,35 @@ function DisplayPageContent() {
     };
   }, []);
 
+  // ── ⏱️ عداد تنازلي لمؤقت اللعبة ──
+  useEffect(() => {
+    if (!gameTimerData || gameTimerData.expired) return;
+    const iv = setInterval(() => {
+      const elapsed = (Date.now() - gameTimerData.startedAt) / 1000;
+      const remaining = Math.max(0, gameTimerData.totalSeconds - elapsed);
+      setGameTimerRemaining(remaining);
+      
+      const rounded = Math.floor(remaining);
+      if (rounded > 0 && rounded <= 60 && rounded !== lastTimerSoundRef.current) {
+        lastTimerSoundRef.current = rounded;
+        if (rounded <= 10) {
+          playGameSound('timer_heartbeat_fast');
+        } else if (rounded % 5 === 0) {
+          playGameSound('timer_heartbeat_slow');
+        }
+      }
+
+      if (remaining <= 0) {
+        clearInterval(iv);
+        if (lastTimerSoundRef.current !== 0) {
+          playGameSound('timer_buzzer');
+          lastTimerSoundRef.current = 0;
+        }
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [gameTimerData]);
+
   // ── تحميل الأصوات المخصصة عند فتح شاشة العرض ──
   useEffect(() => { loadSoundMap(); }, []);
 
@@ -176,6 +208,12 @@ function DisplayPageContent() {
       else if (state.phase) setPhase(state.phase as Phase);
       if (state.teamCounts) setTeamCounts(state.teamCounts);
       if (state.winner) setWinner(state.winner);
+      if (state.gameTimer && !state.gameTimer.expired) {
+        setGameTimerData(state.gameTimer);
+      } else if (!state.gameTimer || state.gameTimer.expired || state.phase === Phase.GAME_OVER || state.phase === Phase.LOBBY) {
+        setGameTimerData(null);
+        setGameTimerRemaining(0);
+      }
     };
 
     // ══════════════════════════════════════════════════
@@ -299,6 +337,8 @@ function DisplayPageContent() {
     };
 
     const onGameOver = (data: any) => {
+      setGameTimerData(null);
+      setGameTimerRemaining(0);
       setWinner(data.winner);
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
@@ -354,6 +394,17 @@ function DisplayPageContent() {
     socket.on('game:started', (data: any) => {
       setPhase(data.phase);
       if (data.teamCounts) setTeamCounts(data.teamCounts);
+      if (data.gameTimer) setGameTimerData(data.gameTimer);
+    });
+
+    socket.on('game:timer-expired', (data: any) => {
+      setGameTimerData(prev => prev ? { ...prev, expired: true } : null);
+      setGameTimerRemaining(0);
+    });
+
+    socket.on('game:restarted', () => {
+      setGameTimerData(null);
+      setGameTimerRemaining(0);
     });
 
     // ── أحداث الإقصاء بالتصويت — تحديث عداد الفرق ──
@@ -598,8 +649,8 @@ function DisplayPageContent() {
               </div>
             </div>
 
-            {/* أعداد الفرق — وسط */}
-            <div className="flex items-center gap-8">
+            {/* أعداد الفرق ومؤقت اللعبة — وسط */}
+            <div className="flex items-center gap-6">
               {/* المواطنون */}
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" />
@@ -609,8 +660,40 @@ function DisplayPageContent() {
                 </div>
               </div>
 
-              {/* الفاصل */}
-              <div className="text-[#2a2a2a] text-2xl font-thin">⚔️</div>
+              {/* الفاصل / أو المؤقت */}
+              {gameTimerData && !gameTimerData.expired && phase !== Phase.GAME_OVER ? (
+                <div className={`flex flex-col items-center px-4 py-1 rounded-xl border backdrop-blur-md transition-all ${
+                  gameTimerRemaining <= 60 
+                    ? 'bg-red-900/40 border-red-500/60 animate-pulse' 
+                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 
+                      ? 'bg-red-900/20 border-red-500/30' 
+                      : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 
+                        ? 'bg-yellow-900/20 border-yellow-500/30' 
+                        : 'bg-black/40 border-[#C5A059]/30'
+                }`}>
+                  <span className={`text-2xl font-black tabular-nums tracking-wider ${
+                    gameTimerRemaining <= 60 ? 'text-red-400' 
+                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'text-red-300' 
+                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'text-yellow-400' 
+                    : 'text-[#C5A059]'
+                  }`}>
+                    {Math.floor(gameTimerRemaining / 60).toString().padStart(2, '0')}:{Math.floor(gameTimerRemaining % 60).toString().padStart(2, '0')}
+                  </span>
+                  <div className="w-24 h-1 bg-[#1a1a1a] rounded-full overflow-hidden mt-1">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-1000 ${
+                        gameTimerRemaining <= 60 ? 'bg-red-500' 
+                        : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'bg-red-400' 
+                        : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'bg-yellow-500' 
+                        : 'bg-[#C5A059]'
+                      }`}
+                      style={{ width: `${Math.min(100, (gameTimerRemaining / gameTimerData.totalSeconds) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[#2a2a2a] text-2xl font-thin mx-4">⚔️</div>
+              )}
 
               {/* المافيا */}
               <div className="flex items-center gap-3">

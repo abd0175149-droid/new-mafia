@@ -122,6 +122,8 @@ export interface GameConfig {
   displayPin: string;
   allowMafiaReveal: boolean; // السماح للمافيا بمعرفة بعضهم
   nightMode: 'manual' | 'auto'; // نمط الليل — manual: الليدر يتحكم / auto: اللاعبون يرسلون
+  gameTimerEnabled: boolean;     // هل مؤقت اللعبة مفعّل
+  gameTimerMinutes: number;      // مدة المؤقت بالدقائق (30, 60, 90)
 }
 
 export interface GameState {
@@ -175,6 +177,12 @@ export interface GameState {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه
     timerHandle?: any;                  // مرجع setInterval/setTimeout للإلغاء
   };
+  // ── مؤقت اللعبة ──
+  gameTimer: {
+    totalSeconds: number;   // المدة الإجمالية بالثواني
+    startedAt: number;      // Unix timestamp لبداية المؤقت
+    expired: boolean;       // هل انتهى الوقت
+  } | null;
   createdAt: string;
 }
 
@@ -230,6 +238,8 @@ export async function createRoom(
       displayPin: displayPin || generateDisplayPin(),
       allowMafiaReveal: true,
       nightMode: 'manual',
+      gameTimerEnabled: false,
+      gameTimerMinutes: 30,
     },
     players: [],
     rolesPool: [],
@@ -256,6 +266,7 @@ export async function createRoom(
     winner: null,
     performanceTracking: { dealOutcomes: [], abilityResults: [], eliminationLog: [] },
     playerNightActions: { submitted: {} },
+    gameTimer: null,
     createdAt: new Date().toISOString(),
   };
 

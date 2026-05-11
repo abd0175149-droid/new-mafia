@@ -9,6 +9,7 @@ import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRo
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
+import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
@@ -1384,6 +1385,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const matchId = await createMatch(state);
       if (matchId) state.matchId = matchId;
 
+      // ── تشغيل مؤقت اللعبة (إن كان مفعّلاً) ──
+      if (state.config.gameTimerEnabled && state.config.gameTimerMinutes > 0) {
+        const totalSeconds = state.config.gameTimerMinutes * 60;
+        state.gameTimer = {
+          totalSeconds,
+          startedAt: Date.now(),
+          expired: false,
+        };
+        startGameTimer(io, data.roomId, totalSeconds);
+      }
+
       // ── تغيير المرحلة قبل الحفظ والبث ──
       state.phase = Phase.DAY_DISCUSSION;
       await setGameState(data.roomId, state);
@@ -1400,6 +1412,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         phase: Phase.DAY_DISCUSSION,
         playerCount: state.players.length,
         teamCounts: getTeamCounts(state.players),
+        gameTimer: state.gameTimer,
       });
 
       callback({ success: true });
@@ -1608,6 +1621,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     state.withdrawalState = null;
     state.performanceTracking = null;
 
+    // ── تصفير مؤقت اللعبة ──
+    clearGameTimer(state.roomId);
+    state.gameTimer = null;
+
     return state;
   }
 
@@ -1757,6 +1774,44 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       
       console.log(`🌙 Night mode set to '${data.mode}' for room ${data.roomId}`);
       if (callback) callback({ success: true, mode: data.mode });
+    } catch (err: any) {
+      if (callback) callback({ success: false, error: err.message });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════
+  // ⏱️ إعداد مؤقت اللعبة (قبل بدء اللعبة)
+  // ══════════════════════════════════════════════════════
+  socket.on('game:set-timer', async (data: {
+    roomId: string;
+    enabled: boolean;
+    minutes?: number; // 30 | 60 | 90
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        if (callback) callback({ success: false, error: 'Only leader' });
+        return;
+      }
+      const state = await getGameState(data.roomId);
+      if (!state) {
+        if (callback) callback({ success: false, error: 'Room not found' });
+        return;
+      }
+
+      // يُسمح بالتغيير في اللوبي أو بعد نهاية اللعبة فقط
+      if (state.phase !== 'LOBBY' && state.phase !== 'GAME_OVER') {
+        if (callback) callback({ success: false, error: 'يمكن تغيير المؤقت فقط بين الألعاب' });
+        return;
+      }
+
+      state.config.gameTimerEnabled = data.enabled;
+      if (data.minutes && [30, 60, 90].includes(data.minutes)) {
+        state.config.gameTimerMinutes = data.minutes;
+      }
+      await setGameState(data.roomId, state);
+
+      console.log(`⏱️ Game timer set: ${data.enabled ? `ON (${state.config.gameTimerMinutes} min)` : 'OFF'} for room ${data.roomId}`);
+      if (callback) callback({ success: true, enabled: state.config.gameTimerEnabled, minutes: state.config.gameTimerMinutes });
     } catch (err: any) {
       if (callback) callback({ success: false, error: err.message });
     }

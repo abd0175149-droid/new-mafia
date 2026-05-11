@@ -12,6 +12,7 @@ import { WinResult, checkWinCondition } from '../game/win-checker.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
+import { clearGameTimer } from '../game/game-timer.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -704,6 +705,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       });
       await setPhase(data.roomId, Phase.GAME_OVER);
       state.phase = Phase.GAME_OVER;
+      clearGameTimer(data.roomId);
 
       // مسح pendingWinner
       state.pendingWinner = null;
