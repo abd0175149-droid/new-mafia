@@ -30,11 +30,14 @@ services:
       - PORT=${BACKEND_PORT}
       - DATABASE_URL=postgresql://mafia_user:mafia_pass@database:5432/${DB_NAME}
       - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-mafia_secret_key_123}
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     depends_on:
       - database
       - redis
+    volumes:
+      - uploads_data:/app/uploads
 
   frontend:
     build:
@@ -43,6 +46,8 @@ services:
     restart: always
     environment:
       - PORT=${FRONTEND_PORT}
+      - BACKEND_URL=http://backend:${BACKEND_PORT}
+      - HOSTNAME=0.0.0.0
     ports:
       - "${FRONTEND_PORT}:${FRONTEND_PORT}"
     depends_on:
@@ -51,3 +56,4 @@ services:
 volumes:
   db_data:
   redis_data:
+  uploads_data:
