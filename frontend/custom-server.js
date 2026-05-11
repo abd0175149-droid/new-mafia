@@ -23,7 +23,7 @@ console.log(`🔌 Proxy: /api/* → ${BACKEND_URL}`);
 console.log(`🔌 Proxy: /socket.io/* → ${BACKEND_URL}`);
 console.log(`🔌 Proxy: /uploads/* → ${BACKEND_URL}`);
 
-// ── Load Next.js ──
+// ── Load Next.js config ──
 const nextConfig = require('./.next/required-server-files.json').config;
 
 // Remove rewrites to avoid double-proxying
@@ -33,8 +33,9 @@ if (nextConfig._originalRewrites) {
 
 process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(nextConfig);
 
-const { createServer: createNextServer } = require('next');
-const next = createNextServer({
+// ── Initialize Next.js ──
+const next = require('next');
+const app = next({
   dev: false,
   dir,
   conf: nextConfig,
@@ -42,7 +43,7 @@ const next = createNextServer({
   port: currentPort,
 });
 
-const nextHandler = next.getRequestHandler();
+const nextHandler = app.getRequestHandler();
 
 // ── Proxy function ──
 function proxyRequest(req, res) {
@@ -74,7 +75,7 @@ function proxyRequest(req, res) {
 }
 
 // ── Start server ──
-next.prepare().then(() => {
+app.prepare().then(() => {
   const server = http.createServer((req, res) => {
     const pathname = url.parse(req.url).pathname;
 
