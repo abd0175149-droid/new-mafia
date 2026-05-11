@@ -11,6 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
+import { playGameSound } from '@/lib/soundManager';
 
 interface ActiveGame {
   roomId: string;
