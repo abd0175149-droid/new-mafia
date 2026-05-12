@@ -26,7 +26,24 @@ export interface CardTemplateDef {
   teamBadge: { text: string; bgColor: string; textColor: string; borderColor: string } | null;
   icon: { type: 'lucide' | 'emoji' | 'image'; value: string } | null;
   secretFace: { type: 'default' | 'custom'; customImageUrl?: string; overlayGradient?: string } | null;
-  elements: { showPlayerNumber: boolean; showClubBranding: boolean; showDescription: boolean; customFooterText?: string } | null;
+  elements: {
+    showPlayerNumber: boolean;
+    showClubBranding: boolean;
+    showDescription: boolean;
+    customFooterText?: string;
+    fontFamily?: string;
+    nameSize?: number;
+    badgeSize?: number;
+    iconSize?: number;
+    positions?: {
+      badge?: { x: number; y: number };
+      icon?: { x: number; y: number };
+      title?: { x: number; y: number };
+      number?: { x: number; y: number };
+      footer?: { x: number; y: number };
+      playerName?: { x: number; y: number };
+    };
+  } | null;
 }
 
 export interface AbilityDef {

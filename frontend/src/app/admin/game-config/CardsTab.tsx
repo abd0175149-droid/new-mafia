@@ -26,6 +26,14 @@ interface CardTemplate {
     showPlayerNumber: boolean; showClubBranding: boolean; showDescription: boolean;
     customFooterText?: string; fontFamily?: string;
     nameSize?: number; iconSize?: number; badgeSize?: number;
+    positions?: {
+      badge?: { x: number; y: number };
+      icon?: { x: number; y: number };
+      title?: { x: number; y: number };
+      number?: { x: number; y: number };
+      footer?: { x: number; y: number };
+      playerName?: { x: number; y: number };
+    };
   } | null;
 }
 

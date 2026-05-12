@@ -43,7 +43,24 @@ export interface CardTemplateDef {
   teamBadge: { text: string; bgColor: string; textColor: string; borderColor: string };
   icon: { type: 'LUCIDE' | 'CUSTOM_IMAGE' | 'EMOJI'; value: string };
   secretFace: { type: 'GENERATED' | 'CUSTOM_IMAGE'; customImageUrl?: string; overlayGradient?: string } | null;
-  elements: { showPlayerNumber: boolean; showClubBranding: boolean; showDescription: boolean; customFooterText?: string } | null;
+  elements: {
+    showPlayerNumber: boolean;
+    showClubBranding: boolean;
+    showDescription: boolean;
+    customFooterText?: string;
+    fontFamily?: string;
+    nameSize?: number;
+    badgeSize?: number;
+    iconSize?: number;
+    positions?: {
+      badge?: { x: number; y: number };
+      icon?: { x: number; y: number };
+      title?: { x: number; y: number };
+      number?: { x: number; y: number };
+      footer?: { x: number; y: number };
+      playerName?: { x: number; y: number };
+    };
+  } | null;
 }
 
 export interface RoleDef {
