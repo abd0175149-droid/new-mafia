@@ -191,9 +191,14 @@ export default function DynamicMafiaCard({
             )}
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
 
+            {/* Shapes on Cover Face */}
+            {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
+              <div key={s.id} className="absolute" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+            ))}
+
             {/* رقم اللاعب */}
             {resolvedAvatarUrl ? (
-              <div className="absolute top-[15%] right-3 z-10">
+              <div className="absolute top-[15%] right-3 z-10" style={cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {}}>
                 <div
                   className={`flex items-center justify-center font-mono font-black rounded-xl ${
                     isFemale ? 'text-purple-200' : 'text-[#C5A059]'
@@ -211,7 +216,7 @@ export default function DynamicMafiaCard({
                 </div>
               </div>
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <span
                   className={`font-mono font-black ${isFemale ? 'text-purple-300' : 'text-[#C5A059]'}`}
                   style={{
@@ -219,6 +224,7 @@ export default function DynamicMafiaCard({
                     opacity: 0.35,
                     textShadow: '0 4px 20px rgba(0,0,0,0.8)',
                     lineHeight: 1,
+                    ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
                   }}
                 >
                   {playerNumber}
@@ -242,7 +248,7 @@ export default function DynamicMafiaCard({
             {showVoting ? (
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
-                <div className="relative z-10 flex items-center justify-center gap-2 w-full">
+                <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
                   <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: 'Amiri, serif' }}>
                     {truncatedName}
                   </h2>
@@ -254,18 +260,18 @@ export default function DynamicMafiaCard({
                 </div>
                 <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
                   isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'
-                }`}>MAFIA CLUB</p>
+                }`} style={cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
-                <h2 className={`${nameSize} font-black text-white text-center leading-tight`} style={{ fontFamily: 'Amiri, serif' }}>
+                <h2 className={`${nameSize} font-black text-white text-center leading-tight`} style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>
                   {truncatedName}
                 </h2>
                 <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
                   isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'
-                }`}>MAFIA CLUB</p>
+                }`} style={cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}}>MAFIA CLUB</p>
                 {flippable && (
-                  <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1">اضغط للكشف</span>
+                  <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>
                 )}
               </>
             )}
@@ -285,10 +291,16 @@ export default function DynamicMafiaCard({
         >
           {/* خلفية متدرجة من DB */}
           <div className={`absolute inset-0 bg-gradient-to-b ${gradient}`} />
-          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
+
+          {/* Shapes on Role Face */}
+          {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
+            <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+          ))}
 
           {/* شارة الفريق */}
-          <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${teamBadge.bgColor} ${teamBadge.textColor} ${teamBadge.borderColor}`}>
+          <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${teamBadge.bgColor} ${teamBadge.textColor} ${teamBadge.borderColor}`}
+               style={cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}}>
             {teamBadge.text}
           </div>
 
@@ -297,7 +309,7 @@ export default function DynamicMafiaCard({
             {/* رقم اللاعب صغير */}
             <div 
               className={`absolute top-3 right-3 w-8 h-8 border ${borderColor} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${textColor}`}
-              style={cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px)` } : {}}
+              style={cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}}
             >
               {playerNumber}
             </div>
@@ -313,7 +325,7 @@ export default function DynamicMafiaCard({
                   : isNeutral
                   ? '0 0 40px rgba(217, 119, 6, 0.15), inset 0 0 20px rgba(0,0,0,0.3)'
                   : '0 0 40px rgba(100, 200, 255, 0.1), inset 0 0 20px rgba(0,0,0,0.3)',
-                ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px)` } : {})
+                ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px) scale(${cardTemplate.elements.positions.icon.s || 1})` } : {})
               }}
             >
               {iconEmoji ? (
@@ -326,7 +338,7 @@ export default function DynamicMafiaCard({
             {/* اسم الدور */}
             <h3 
               className={`${roleNameSize} font-black mb-2 ${textColor}`} 
-              style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px)` } : {}) }}
+              style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px) scale(${cardTemplate.elements.positions.title.s || 1})` } : {}) }}
             >
               {roleName}
             </h3>
@@ -336,7 +348,7 @@ export default function DynamicMafiaCard({
               <p 
                 className="text-white/40 text-sm font-mono tracking-widest" 
                 dir="ltr"
-                style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px)` } : {}}
+                style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}}
               >
                 {playerName}
               </p>
@@ -350,7 +362,7 @@ export default function DynamicMafiaCard({
             {/* نص أسفل */}
             <div 
               className="mt-auto"
-              style={cardTemplate?.elements?.positions?.footer ? { transform: `translate(${cardTemplate.elements.positions.footer.x}px, ${cardTemplate.elements.positions.footer.y}px)` } : {}}
+              style={cardTemplate?.elements?.positions?.footer ? { transform: `translate(${cardTemplate.elements.positions.footer.x}px, ${cardTemplate.elements.positions.footer.y}px) scale(${cardTemplate.elements.positions.footer.s || 1})` } : {}}
             >
               {cardTemplate?.elements?.customFooterText ? (
                 <span className="text-[9px] text-zinc-500 font-mono" style={{ fontFamily: cardTemplate.elements.fontFamily || 'Amiri, serif' }}>

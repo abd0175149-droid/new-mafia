@@ -64,20 +64,40 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
   const el = editing.elements || { showPlayerNumber: true, showClubBranding: true, showDescription: true };
   const setEl = (p: any) => setEditing({ ...editing, elements: { ...el, ...p } });
   const pos = el.positions || {};
-  const setPos = (key: string, deltaX: number, deltaY: number) => {
-    const current = pos[key] || { x: 0, y: 0 };
-    setEl({ positions: { ...pos, [key]: { x: current.x + deltaX, y: current.y + deltaY } } });
+  const setPos = (key: string, deltaX: number, deltaY: number, newScale?: number) => {
+    const current = pos[key] || { x: 0, y: 0, s: 1 };
+    setEl({ positions: { ...pos, [key]: { x: current.x + deltaX, y: current.y + deltaY, s: newScale ?? current.s } } });
   };
+  const onWheelScale = (e: React.WheelEvent, key: string) => {
+    e.stopPropagation();
+    const current = pos[key] || { x: 0, y: 0, s: 1 };
+    const ds = e.deltaY > 0 ? -0.1 : 0.1;
+    const newS = Math.max(0.1, Math.min((current.s || 1) + ds, 5));
+    setPos(key, 0, 0, newS);
+  };
+
+  const addShape = (f: 'role'|'cover') => {
+    const s = { id: Math.random().toString(36).substring(2), face: f, type: 'rect', x: 0, y: 0, w: 100, h: 50, bg: '#ffffff', opacity: 0.5, zIndex: 0, radius: 0 };
+    setEl({ shapes: [...(el.shapes || []), s] });
+  };
+  const updateShape = (id: string, updates: any) => {
+    setEl({ shapes: (el.shapes || []).map((s:any) => s.id === id ? { ...s, ...updates } : s) });
+  };
+  const removeShape = (id: string) => {
+    setEl({ shapes: (el.shapes || []).filter((s:any) => s.id !== id) });
+  };
+
   const font = el.fontFamily || 'Amiri, serif';
   const iconSize = el.iconSize || 48;
   const nameSize = el.nameSize || 20;
   const badgeSize = el.badgeSize || 10;
 
-  const TABS: { k: Tab; l: string; i: string }[] = [
+  const TABS: { k: Tab | 'shapes'; l: string; i: string }[] = [
     { k: 'colors', l: 'الألوان', i: '🎨' },
     { k: 'icon', l: 'الأيقونة', i: '✦' },
     { k: 'typography', l: 'الخطوط', i: '𝐀' },
     { k: 'elements', l: 'العناصر', i: '⚙' },
+    { k: 'shapes', l: 'الأشكال', i: '🔳' },
     { k: 'secret', l: 'تصميم جاهز', i: '📤' },
   ];
 
@@ -265,6 +285,43 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
               )}
             </>}
 
+            {/* Tab: Shapes */}
+            {tab === 'shapes' && <>
+              <div className="flex gap-2 mb-4">
+                <button onClick={() => addShape('role')} className="flex-1 py-2 bg-gray-800/80 border border-gray-700 rounded-xl text-xs hover:border-amber-500/50 text-gray-300">
+                  + شكل للوجه المكشوف
+                </button>
+                <button onClick={() => addShape('cover')} className="flex-1 py-2 bg-gray-800/80 border border-gray-700 rounded-xl text-xs hover:border-amber-500/50 text-gray-300">
+                  + شكل لوجه الغلاف
+                </button>
+              </div>
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                {(el.shapes || []).filter((s:any)=> s.face === face).map((s:any, i:number) => (
+                  <div key={s.id} className="p-3 bg-gray-800/50 border border-gray-700 rounded-xl">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-gray-300">شكل {i+1}</span>
+                      <button onClick={() => removeShape(s.id)} className="text-rose-500 hover:text-rose-400">✕</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                       <label className="text-gray-500">العرض: <input type="number" value={s.w} onChange={e => updateShape(s.id, {w: +e.target.value})} className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 mt-1 text-gray-300" /></label>
+                       <label className="text-gray-500">الطول: <input type="number" value={s.h} onChange={e => updateShape(s.id, {h: +e.target.value})} className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 mt-1 text-gray-300" /></label>
+                       <label className="text-gray-500">اللون: <input type="color" value={s.bg} onChange={e => updateShape(s.id, {bg: e.target.value})} className="w-full h-7 bg-gray-900 border border-gray-700 rounded mt-1" /></label>
+                       <label className="text-gray-500">الطبقة (Z): <input type="number" value={s.zIndex} onChange={e => updateShape(s.id, {zIndex: +e.target.value})} className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 mt-1 text-gray-300" /></label>
+                       <label className="text-gray-500 col-span-2 flex items-center gap-2">الشفافية: 
+                         <input type="range" min="0" max="1" step="0.1" value={s.opacity} onChange={e => updateShape(s.id, {opacity: +e.target.value})} className="flex-1 accent-amber-500" />
+                       </label>
+                       <label className="text-gray-500 col-span-2 flex items-center gap-2">الزوايا (Radius): 
+                         <input type="range" min="0" max="100" value={s.radius} onChange={e => updateShape(s.id, {radius: +e.target.value})} className="flex-1 accent-amber-500" />
+                       </label>
+                    </div>
+                  </div>
+                ))}
+                {(el.shapes || []).filter((s:any)=> s.face === face).length === 0 && (
+                  <p className="text-xs text-gray-600 text-center py-4">لا توجد أشكال مضافة لهذا الوجه</p>
+                )}
+              </div>
+            </>}
+
             {/* Tab: Secret Face -> Custom Design */}
             {tab === 'secret' && <>
               <p className="text-xs text-gray-500 mb-2">رفع تصميم جاهز لوجه الدور (يلغي التصميم التلقائي)</p>
@@ -312,39 +369,60 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
             <div className={`w-56 h-80 rounded-2xl overflow-hidden border-2 ${face === 'secret' ? (editing.borderColor || 'border-gray-500/40') : 'border-[#C5A059]/40'} ${face === 'secret' ? (editing.glowEffect || '') : ''} relative transition-all duration-300`}>
               {face === 'front' ? (
                 /* Cover Face (The 'Front' in CSS, what others see) */
-                <div className="absolute inset-0 bg-black flex flex-col">
+                <div className="absolute inset-0 bg-black flex flex-col overflow-hidden">
+                  {(el.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
+                    <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-white/50" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+                  ))}
                   {/* Top 2/3 */}
                   <div className="relative h-[66.66%] w-full">
-                    {previewHasPhoto ? (
-                       <img src="https://ui-avatars.com/api/?name=Player&background=random" alt="Cover" className="absolute inset-0 w-full h-full object-cover opacity-80" />
-                    ) : (
-                       <div className="absolute inset-0 bg-gradient-to-b from-zinc-700/50 via-zinc-900/80 to-black" />
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
+                    <motion.div 
+                      drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverPhoto')} onDragEnd={(e, info) => setPos('coverPhoto', info.offset.x, info.offset.y)}
+                      animate={{ x: pos.coverPhoto?.x || 0, y: pos.coverPhoto?.y || 0, scale: pos.coverPhoto?.s || 1 }}
+                      className="absolute inset-0 cursor-move hover:ring-2 ring-white/30"
+                    >
+                      {previewHasPhoto ? (
+                         <img src="https://ui-avatars.com/api/?name=Player&background=random" alt="Cover" className="w-full h-full object-cover opacity-80" />
+                      ) : (
+                         <div className="w-full h-full bg-gradient-to-b from-zinc-700/50 via-zinc-900/80 to-black" />
+                      )}
+                    </motion.div>
+                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" />
                     
                     {/* Player Number */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <span className="font-mono font-black text-[#C5A059]" style={{ fontSize: '5.5rem', opacity: previewHasPhoto ? 0.9 : 0.35, textShadow: previewHasPhoto ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)', lineHeight: 1 }}>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <motion.span 
+                        drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverNumber')} onDragEnd={(e, info) => setPos('coverNumber', info.offset.x, info.offset.y)}
+                        animate={{ x: pos.coverNumber?.x || 0, y: pos.coverNumber?.y || 0, scale: pos.coverNumber?.s || 1 }}
+                        className="font-mono font-black text-[#C5A059] cursor-move hover:ring-2 ring-white/30 rounded" style={{ fontSize: '5.5rem', opacity: previewHasPhoto ? 0.9 : 0.35, textShadow: previewHasPhoto ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)', lineHeight: 1 }}>
                         7
-                      </span>
+                      </motion.span>
                     </div>
                   </div>
 
                   {/* Bottom 1/3 */}
                   <div className="relative h-[33.33%] flex flex-col items-center justify-center px-3 bg-black">
                     <div className="absolute top-0 left-[15%] right-[15%] h-[1px] bg-[#C5A059]/30" />
-                    <h2 className="text-xl font-black text-white text-center leading-tight" style={{ fontFamily: 'Amiri, serif' }}>
+                    <motion.h2 
+                      drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverName')} onDragEnd={(e, info) => setPos('coverName', info.offset.x, info.offset.y)}
+                      animate={{ x: pos.coverName?.x || 0, y: pos.coverName?.y || 0, scale: pos.coverName?.s || 1 }}
+                      className="text-xl font-black text-white text-center leading-tight cursor-move hover:ring-2 ring-white/30 rounded px-2" style={{ fontFamily: 'Amiri, serif' }}>
                       اللاعب
-                    </h2>
-                    <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1 text-[#C5A059]/40">
+                    </motion.h2>
+                    <motion.p 
+                      drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverBranding')} onDragEnd={(e, info) => setPos('coverBranding', info.offset.x, info.offset.y)}
+                      animate={{ x: pos.coverBranding?.x || 0, y: pos.coverBranding?.y || 0, scale: pos.coverBranding?.s || 1 }}
+                      className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1 text-[#C5A059]/40 cursor-move hover:ring-2 ring-white/30 rounded px-1">
                       MAFIA CLUB
-                    </p>
-                    <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1">اضغط للكشف</span>
+                    </motion.p>
+                    <motion.span 
+                      drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverFooter')} onDragEnd={(e, info) => setPos('coverFooter', info.offset.x, info.offset.y)}
+                      animate={{ x: pos.coverFooter?.x || 0, y: pos.coverFooter?.y || 0, scale: pos.coverFooter?.s || 1 }}
+                      className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1 cursor-move hover:ring-2 ring-white/30 rounded px-1">اضغط للكشف</motion.span>
                   </div>
                 </div>
               ) : (
                 /* Role Face (The 'Back' in CSS, flipped, what the player sees) */
-                <div className="absolute inset-0 flex flex-col">
+                <div className="absolute inset-0 flex flex-col overflow-hidden">
                   {editing.secretFace?.customImageUrl ? (
                     <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
                   ) : (
@@ -352,31 +430,36 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                       <div className={`absolute inset-0 bg-gradient-to-b ${editing.gradient || 'from-zinc-700 via-zinc-800 to-zinc-900'}`} />
                       <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
                       
+                      {/* Shapes */}
+                      {(el.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
+                        <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-white/50" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+                      ))}
+
                       {/* شارة */}
                       {editing.teamBadge && (
                         <motion.div 
-                          drag dragMomentum={false} dragElastic={0}
+                          drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'badge')}
                           onDragEnd={(e, info) => setPos('badge', info.offset.x, info.offset.y)}
-                          animate={{ x: pos.badge?.x || 0, y: pos.badge?.y || 0 }}
+                          animate={{ x: pos.badge?.x || 0, y: pos.badge?.y || 0, scale: pos.badge?.s || 1 }}
                           className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full border font-mono ${editing.teamBadge.bgColor} ${editing.teamBadge.textColor} ${editing.teamBadge.borderColor} cursor-move hover:ring-2 ring-white/30`}
                           style={{ fontSize: badgeSize }}>
                           {editing.teamBadge.text}
                         </motion.div>
                       )}
 
-                      <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden">
+                      <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12">
                          <motion.div 
-                           drag dragMomentum={false} dragElastic={0}
+                           drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'number')}
                            onDragEnd={(e, info) => setPos('number', info.offset.x, info.offset.y)}
-                           animate={{ x: pos.number?.x || 0, y: pos.number?.y || 0 }}
+                           animate={{ x: pos.number?.x || 0, y: pos.number?.y || 0, scale: pos.number?.s || 1 }}
                            className={`absolute top-3 right-3 w-8 h-8 border ${editing.borderColor || 'border-gray-500/40'} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${editing.textColor || 'text-white'} cursor-move hover:ring-2 ring-white/30`}>
                            7
                          </motion.div>
 
                         <motion.div 
-                          drag dragMomentum={false} dragElastic={0}
+                          drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'icon')}
                           onDragEnd={(e, info) => setPos('icon', info.offset.x, info.offset.y)}
-                          animate={{ x: pos.icon?.x || 0, y: pos.icon?.y || 0 }}
+                          animate={{ x: pos.icon?.x || 0, y: pos.icon?.y || 0, scale: pos.icon?.s || 1 }}
                           className={`rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-5 ${editing.textColor || ''} cursor-move hover:ring-2 ring-white/30`}
                           style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)' }}>
                           {editing.icon?.type?.toLowerCase() === 'emoji' ? (
@@ -387,9 +470,9 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                         </motion.div>
                         
                         <motion.div
-                          drag dragMomentum={false} dragElastic={0}
+                          drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'title')}
                           onDragEnd={(e, info) => setPos('title', info.offset.x, info.offset.y)}
-                          animate={{ x: pos.title?.x || 0, y: pos.title?.y || 0 }}
+                          animate={{ x: pos.title?.x || 0, y: pos.title?.y || 0, scale: pos.title?.s || 1 }}
                           className="cursor-move hover:ring-2 ring-white/30 rounded px-2"
                         >
                           <h3 className={`font-black mb-2 ${editing.textColor || 'text-white'} text-center leading-tight`}
@@ -400,18 +483,18 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                         
                         {el.showPlayerNumber && (
                            <motion.p 
-                             drag dragMomentum={false} dragElastic={0}
+                             drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'playerName')}
                              onDragEnd={(e, info) => setPos('playerName', info.offset.x, info.offset.y)}
-                             animate={{ x: pos.playerName?.x || 0, y: pos.playerName?.y || 0 }}
+                             animate={{ x: pos.playerName?.x || 0, y: pos.playerName?.y || 0, scale: pos.playerName?.s || 1 }}
                              className="text-white/40 text-sm font-mono mt-1 cursor-move hover:ring-2 ring-white/30 px-2 rounded" dir="ltr">اللاعب</motion.p>
                         )}
                         
                         <div className={`w-20 h-[1px] my-4 ${editing.borderColor ? editing.borderColor.replace('border-', 'bg-') : 'bg-white/10'}`} />
                         
                         <motion.div
-                          drag dragMomentum={false} dragElastic={0}
+                          drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'footer')}
                           onDragEnd={(e, info) => setPos('footer', info.offset.x, info.offset.y)}
-                          animate={{ x: pos.footer?.x || 0, y: pos.footer?.y || 0 }}
+                          animate={{ x: pos.footer?.x || 0, y: pos.footer?.y || 0, scale: pos.footer?.s || 1 }}
                           className="mt-auto cursor-move hover:ring-2 ring-white/30 px-2 py-1 rounded"
                         >
                           {el.customFooterText ? (

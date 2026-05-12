@@ -36,13 +36,25 @@ export interface CardTemplateDef {
     badgeSize?: number;
     iconSize?: number;
     positions?: {
-      badge?: { x: number; y: number };
-      icon?: { x: number; y: number };
-      title?: { x: number; y: number };
-      number?: { x: number; y: number };
-      footer?: { x: number; y: number };
-      playerName?: { x: number; y: number };
+      badge?: { x: number; y: number; s?: number };
+      icon?: { x: number; y: number; s?: number };
+      title?: { x: number; y: number; s?: number };
+      number?: { x: number; y: number; s?: number };
+      footer?: { x: number; y: number; s?: number };
+      playerName?: { x: number; y: number; s?: number };
+      coverNumber?: { x: number; y: number; s?: number };
+      coverName?: { x: number; y: number; s?: number };
+      coverFooter?: { x: number; y: number; s?: number };
+      coverPhoto?: { x: number; y: number; s?: number; w?: number; h?: number };
     };
+    shapes?: {
+      id: string;
+      face: 'role' | 'cover';
+      type: 'rect' | 'circle';
+      x: number; y: number; w: number; h: number;
+      bg: string; opacity: number; zIndex: number;
+      radius: number;
+    }[];
   } | null;
 }
 
