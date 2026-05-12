@@ -296,7 +296,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                 </button>
               </div>
               <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                {(el.shapes || []).filter((s:any)=> s.face === face).map((s:any, i:number) => (
+                {(el.shapes || []).filter((s:any)=> s.face === (face === 'front' ? 'cover' : 'role')).map((s:any, i:number) => (
                   <div key={s.id} className="p-3 bg-gray-800/50 border border-gray-700 rounded-xl">
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs text-gray-300">شكل {i+1}</span>
@@ -310,13 +310,13 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                        <label className="text-gray-500 col-span-2 flex items-center gap-2">الشفافية: 
                          <input type="range" min="0" max="1" step="0.1" value={s.opacity} onChange={e => updateShape(s.id, {opacity: +e.target.value})} className="flex-1 accent-amber-500" />
                        </label>
-                       <label className="text-gray-500 col-span-2 flex items-center gap-2">الزوايا (Radius): 
+                       <label className="text-gray-500 col-span-2 flex items-center gap-2">الزوايا: 
                          <input type="range" min="0" max="100" value={s.radius} onChange={e => updateShape(s.id, {radius: +e.target.value})} className="flex-1 accent-amber-500" />
                        </label>
                     </div>
                   </div>
                 ))}
-                {(el.shapes || []).filter((s:any)=> s.face === face).length === 0 && (
+                {(el.shapes || []).filter((s:any)=> s.face === (face === 'front' ? 'cover' : 'role')).length === 0 && (
                   <p className="text-xs text-gray-600 text-center py-4">لا توجد أشكال مضافة لهذا الوجه</p>
                 )}
               </div>
@@ -363,6 +363,12 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
               {face === 'secret' && !editing.secretFace?.customImageUrl && (
                  <p className="text-[9px] text-amber-500/70 text-center">يمكنك سحب العناصر بالماوس لتغيير موقعها 🖐️</p>
               )}
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded p-1.5 mt-2">
+                <p className="text-[9px] text-amber-400 text-center flex items-center justify-center gap-1">
+                  <span>💡</span>
+                  <span>لتكبير أو تصغير أي عنصر، ضع الماوس فوقه واستخدم عجلة التمرير (Scroll)!</span>
+                </p>
+              </div>
             </div>
 
             {/* Card Preview */}
@@ -371,7 +377,12 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                 /* Cover Face (The 'Front' in CSS, what others see) */
                 <div className="absolute inset-0 bg-black flex flex-col overflow-hidden">
                   {(el.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
-                    <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-white/50" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+                    <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-amber-500/80 group" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }}>
+                      <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                      <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                      <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                    </motion.div>
                   ))}
                   {/* Top 2/3 */}
                   <div className="relative h-[66.66%] w-full">
@@ -432,7 +443,12 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                       
                       {/* Shapes */}
                       {(el.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
-                        <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-white/50" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+                        <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-amber-500/80 group" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }}>
+                          <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                          <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                          <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
+                        </motion.div>
                       ))}
 
                       {/* شارة */}
