@@ -17,6 +17,7 @@ import {
   unNarrowVoting,
 } from '../game/vote-engine.js';
 import { checkWinCondition, WinResult } from '../game/win-checker.js';
+import { checkWinConditionDynamic } from '../game/dynamic-win-checker.js';
 import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
@@ -723,7 +724,15 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
 
         // فحص شرط الفوز — حفظ معلق بدل بث فوري
-        const winResult = checkWinCondition(state);
+        let winResult: WinResult;
+        if (state.config.useDynamicEngine) {
+          const dynResult = await checkWinConditionDynamic(state);
+          winResult = dynResult.mainWinner === 'MAFIA' ? WinResult.MAFIA_WIN
+                    : dynResult.mainWinner === 'CITIZEN' ? WinResult.CITIZEN_WIN
+                    : WinResult.GAME_CONTINUES;
+        } else {
+          winResult = checkWinCondition(state);
+        }
         if (winResult !== WinResult.GAME_CONTINUES) {
           state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
           state.pendingWinner = state.winner;
@@ -1076,17 +1085,30 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // ═══ فحص شرط الفوز (فقط بعد اعتماد الأدوار) ═══
       const phase = state.phase;
       const rolesAssigned = phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING;
-      const winResult = rolesAssigned ? checkWinCondition(state) : WinResult.GAME_CONTINUES;
+      let winResult: WinResult;
+      if (rolesAssigned && state.config.useDynamicEngine) {
+        const dynResult = await checkWinConditionDynamic(state);
+        winResult = dynResult.mainWinner === 'MAFIA' ? WinResult.MAFIA_WIN
+                  : dynResult.mainWinner === 'CITIZEN' ? WinResult.CITIZEN_WIN
+                  : WinResult.GAME_CONTINUES;
+      } else {
+        winResult = rolesAssigned ? checkWinCondition(state) : WinResult.GAME_CONTINUES;
+      }
       if (winResult !== WinResult.GAME_CONTINUES) {
         const winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
         state.winner = winner;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.GAME_OVER);
         clearGameTimer(data.roomId);
-        io.to(data.roomId).emit('game:over', {
-          winner,
-          players: state.players,
-        });
+        const gameOverData: any = { winner, players: state.players };
+        // 🧩 نتائج المحايدين (إذا المحرك الديناميكي مفعّل)
+        if (state.config.useDynamicEngine) {
+          try {
+            const dynGameOver = await checkWinConditionDynamic(state);
+            gameOverData.neutralResults = dynGameOver.neutralResults || [];
+          } catch { /* fallback */ }
+        }
+        io.to(data.roomId).emit('game:over', gameOverData);
         // حفظ نتيجة المباراة في PostgreSQL
         await finalizeMatch(state);
         // تنظيف: حذف من activeRooms + إغلاق DB Session

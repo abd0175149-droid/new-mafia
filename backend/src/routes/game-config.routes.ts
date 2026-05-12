@@ -14,6 +14,29 @@ import {
 } from '../schemas/game-config.schema.js';
 import { authenticate } from '../middleware/auth.js';
 import { invalidateCache } from '../game/definition-service.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+// ── Setup multer for card face images ──
+const CARD_FACES_DIR = path.resolve(process.cwd(), 'uploads/card-faces');
+if (!fs.existsSync(CARD_FACES_DIR)) fs.mkdirSync(CARD_FACES_DIR, { recursive: true });
+
+const cardFaceStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, CARD_FACES_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.png';
+    cb(null, `${req.params.id}-${Date.now()}${ext}`);
+  },
+});
+const cardFaceUpload = multer({
+  storage: cardFaceStorage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files allowed'));
+  },
+});
 
 const router = Router();
 
@@ -193,6 +216,52 @@ router.put('/card-templates/:id', authenticate, async (req: Request, res: Respon
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// DELETE /api/game-config/card-templates/:id
+router.delete('/card-templates/:id', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const [row] = await db.delete(cardTemplates)
+      .where(eq(cardTemplates.id, req.params.id))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ success: true, data: row });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/game-config/card-templates/:id/upload-image — رفع صورة الوجه السري
+router.post('/card-templates/:id/upload-image', authenticate, (req: Request, res: Response) => {
+  cardFaceUpload.single('image')(req, res, async (uploadErr: any) => {
+    if (uploadErr) {
+      return res.status(400).json({ error: uploadErr.message });
+    }
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+    try {
+      const imageUrl = `/uploads/card-faces/${file.filename}`;
+      const [row] = await db.update(cardTemplates)
+        .set({
+          secretFace: { type: 'custom', customImageUrl: imageUrl },
+          updatedAt: new Date(),
+        })
+        .where(eq(cardTemplates.id, req.params.id))
+        .returning();
+      if (!row) return res.status(404).json({ error: 'Template not found' });
+      invalidateCache();
+      res.json({ success: true, data: row, imageUrl });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 });
 
 // ══════════════════════════════════════════════

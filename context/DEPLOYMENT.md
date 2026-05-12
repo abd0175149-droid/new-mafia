@@ -489,3 +489,73 @@ cat docker-compose.override.yml
 | ORM | Drizzle ORM | 0.33.x |
 | Containerization | Docker Compose | v2 |
 | Language | TypeScript | 5.5.x |
+
+---
+
+## 🧩 محرك الأدوار الديناميكي (Data-Driven Engine)
+
+> **آخر تحديث:** 2026-05-12
+
+### ما هو؟
+
+نظام جديد يسمح بإدارة الأدوار والقدرات والبطاقات من لوحة التحكم بدون تعديل الكود.
+يعمل جنباً إلى جنب مع النظام القديم عبر **Feature Flag**.
+
+### Feature Flag
+
+| الإعداد | القيمة الافتراضية | الوصف |
+|---------|------------------|-------|
+| `useDynamicEngine` | `false` | يُفعّل من واجهة الليدر عند بدء اللعبة |
+
+**عند التفعيل:**
+- التوليد يقرأ الأدوار من `role_definitions` بدلاً من الـ Enum الثابت
+- الليل يستخدم `dynamic-night-resolver` بدلاً من `night-resolver`
+- فحص الفوز يدعم المحايدين عبر `dynamic-win-checker`
+
+**عند التعطيل (الافتراضي):**
+- كل شيء يعمل كالسابق بدون أي تغيير
+
+### جداول قاعدة البيانات الجديدة
+
+| الجدول | الوصف |
+|--------|-------|
+| `ability_definitions` | تعريف القدرات (اغتيال، حماية، كشف...) |
+| `role_definitions` | تعريف الأدوار مع ربط القدرات |
+| `card_templates` | قوالب تصميم البطاقات |
+| `interaction_rules` | قواعد التفاعل بين القدرات |
+
+### خطوات النشر الأولى (مرة واحدة)
+
+```bash
+# 1. تطبيق Schema الجديد
+cd ~/mafia-staging
+docker compose up -d --build backend
+docker exec -it mafia-staging-backend-1 npm run db:push
+
+# 2. بذر البيانات الأولية (يحوّل الأدوار الثابتة إلى صفوف في DB)
+docker exec -it mafia-staging-backend-1 npx tsx src/scripts/seed-game-config.ts
+
+# 3. التحقق
+docker exec -it mafia-staging-database-1 psql -U mafia_user -d mafia_db_staging \
+  -c "SELECT id, name_ar, team FROM role_definitions;"
+```
+
+### لوحة تحكم الأدوار
+
+**الرابط:** `https://mafia.grade.sbs/admin/game-config`
+**الصلاحية:** `admin` فقط
+
+**التبويبات المتاحة:**
+1. **القدرات** — إضافة/تعديل/حذف القدرات
+2. **الأدوار** — بناء أدوار جديدة مع ربط القدرات
+3. **البطاقات** — تصميم قوالب البطاقات مع معاينة حية
+4. **التفاعلات** — تعريف قواعد التقاطع بين القدرات
+5. **التوليد** — ضبط أولويات التوزيع مع محاكاة
+
+### نمط MafiaCard الذكي
+
+ملف `MafiaCard.tsx` أصبح **Smart Wrapper**:
+- الكود القديم نُقل إلى `MafiaCardLegacy.tsx`
+- كل استيراد قديم يعمل بدون تعديل
+- عند تمرير `useDynamicEngine={true}` → يعرض `DynamicMafiaCard` (يقرأ من DB)
+

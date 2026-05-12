@@ -9,6 +9,14 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { resolveNight, resetNightActions, getAvailableTargets, checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { WinResult, checkWinCondition } from '../game/win-checker.js';
+import { checkWinConditionDynamic } from '../game/dynamic-win-checker.js';
+import {
+  buildNightQueue,
+  getAvailableTargets as getDynamicTargets,
+  resolveNightDynamic,
+  createDynamicNightState,
+  type DynamicNightAction,
+} from '../game/dynamic-night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
@@ -370,6 +378,45 @@ export function registerNightEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.NIGHT, teamCounts: getTeamCounts(state.players) });
       io.to(data.roomId).emit('display:night-started');
 
+      // 🧩 Feature Flag: المحرك الديناميكي أو القديم
+      if (state.config.useDynamicEngine) {
+        try {
+          const dynamicNight = createDynamicNightState(state.dynamicNightState || undefined);
+          state.dynamicNightState = dynamicNight;
+          const queue = await buildNightQueue(state);
+          // حفظ الطابور الديناميكي في state
+          (state as any).dynamicQueue = queue;
+          (state as any).dynamicQueueIndex = 0;
+
+          if (queue.length > 0) {
+            const step = queue[0];
+            const targets = await getDynamicTargets(state, step.abilityId, step.performerPhysicalId, dynamicNight);
+            const performer = state.players.find(p => p.physicalId === step.performerPhysicalId);
+            socket.emit('night:queue-step', {
+              role: step.abilityId,  // نستخدم abilityId كمعرف
+              roleName: step.nameAr,
+              performerPhysicalId: step.performerPhysicalId,
+              performerName: performer?.name || '',
+              availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
+              canSkip: true, // كل القدرات الديناميكية قابلة للتخطي
+              isDynamic: true,
+            });
+            io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+          } else {
+            socket.emit('night:queue-complete');
+          }
+
+          state.round += 1;
+          await setGameState(data.roomId, state);
+          console.log(`🧩 Dynamic night started with ${queue.length} abilities`);
+          return callback({ success: true, round: state.round, nurseAvailable: false, isDynamic: true });
+        } catch (dynErr: any) {
+          console.warn(`⚠️ Dynamic night engine failed, falling back:`, dynErr.message);
+          // Fallback → المحرك القديم
+        }
+      }
+
+      // المحرك القديم (fallback أو الافتراضي)
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
@@ -440,6 +487,74 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
+      // 🧩 المسار الديناميكي
+      if (state.config.useDynamicEngine && state.dynamicNightState && (state as any).dynamicQueue) {
+        const abilityId = data.role as string; // في الوضع الديناميكي، role = abilityId
+        const dynamicNight = state.dynamicNightState;
+        const queue = (state as any).dynamicQueue as {abilityId: string; performerPhysicalId: number; nameAr: string}[];
+        let queueIndex = (state as any).dynamicQueueIndex as number;
+
+        // تسجيل الإجراء
+        dynamicNight.actions[abilityId] = {
+          abilityId,
+          performerPhysicalId: queue[queueIndex]?.performerPhysicalId || 0,
+          targetPhysicalId: data.targetPhysicalId,
+          skipped: false,
+        };
+
+        // إرسال أنيميشن عامة
+        io.to(data.roomId).emit('night:animation', {
+          type: abilityId,
+          targetPhysicalId: data.targetPhysicalId,
+        });
+
+        // معالجة خاصة: نتيجة التحقيق (REVEAL_TEAM) — إرسال فوري لليدر
+        if (abilityId === 'INVESTIGATE') {
+          const { getRoleById } = await import('../game/definition-service.js');
+          const investigated = state.players.find((p: any) => p.physicalId === data.targetPhysicalId);
+          if (investigated) {
+            const targetRole = await getRoleById(investigated.role as string);
+            let sheriffResult = 'CITIZEN';
+            if (investigated.role === 'CHAMELEON') {
+              sheriffResult = 'CITIZEN';
+            } else if (targetRole?.team === 'MAFIA') {
+              sheriffResult = 'MAFIA';
+            }
+            socket.emit('night:sheriff-result', {
+              result: sheriffResult,
+              targetPhysicalId: data.targetPhysicalId,
+              targetName: investigated.name || '',
+            });
+          }
+        }
+
+        // الانتقال للخطوة التالية
+        queueIndex += 1;
+        (state as any).dynamicQueueIndex = queueIndex;
+        await setGameState(data.roomId, state);
+
+        if (queueIndex < queue.length) {
+          const step = queue[queueIndex];
+          const targets = await getDynamicTargets(state, step.abilityId, step.performerPhysicalId, dynamicNight);
+          const performer = state.players.find(p => p.physicalId === step.performerPhysicalId);
+          socket.emit('night:queue-step', {
+            role: step.abilityId,
+            roleName: step.nameAr,
+            performerPhysicalId: step.performerPhysicalId,
+            performerName: performer?.name || '',
+            availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
+            canSkip: true,
+            isDynamic: true,
+          });
+          io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+        } else {
+          socket.emit('night:queue-complete');
+        }
+
+        return callback({ success: true });
+      }
+
+      // ═══ المسار القديم ═══
       // تسجيل الاختيار حسب الدور
       switch (data.role) {
         case Role.GODFATHER:
@@ -548,7 +663,47 @@ export function registerNightEvents(io: Server, socket: Socket) {
         return;
       }
 
-      // ── Manual Mode ──
+      // 🧩 المسار الديناميكي (Manual Mode)
+      if (state.config.useDynamicEngine && state.dynamicNightState && (state as any).dynamicQueue) {
+        const abilityId = data.role as string;
+        const dynamicNight = state.dynamicNightState;
+        const queue = (state as any).dynamicQueue as {abilityId: string; performerPhysicalId: number; nameAr: string}[];
+        let queueIndex = (state as any).dynamicQueueIndex as number;
+
+        // تسجيل التخطي
+        dynamicNight.actions[abilityId] = {
+          abilityId,
+          performerPhysicalId: queue[queueIndex]?.performerPhysicalId || 0,
+          targetPhysicalId: null,
+          skipped: true,
+        };
+
+        queueIndex += 1;
+        (state as any).dynamicQueueIndex = queueIndex;
+        await setGameState(data.roomId, state);
+
+        if (queueIndex < queue.length) {
+          const step = queue[queueIndex];
+          const targets = await getDynamicTargets(state, step.abilityId, step.performerPhysicalId, dynamicNight);
+          const performer = state.players.find(p => p.physicalId === step.performerPhysicalId);
+          socket.emit('night:queue-step', {
+            role: step.abilityId,
+            roleName: step.nameAr,
+            performerPhysicalId: step.performerPhysicalId,
+            performerName: performer?.name || '',
+            availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
+            canSkip: true,
+            isDynamic: true,
+          });
+          io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+        } else {
+          socket.emit('night:queue-complete');
+        }
+
+        return callback({ success: true });
+      }
+
+      // ── Manual Mode (القديم) ──
       const currentIndex = NIGHT_QUEUE_ORDER.indexOf(data.role);
       const nextStep = getNextQueueStep(state, currentIndex);
 
@@ -615,6 +770,52 @@ export function registerNightEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Only leader' });
       }
 
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // 🧩 المسار الديناميكي
+      if (state.config.useDynamicEngine && state.dynamicNightState) {
+        const dynamicNight = state.dynamicNightState;
+        const events = await resolveNightDynamic(state, dynamicNight);
+
+        // حفظ أحداث الصباح
+        state.morningEvents = events;
+
+        // فحص الفوز بالمحرك الديناميكي
+        const winResult = await checkWinConditionDynamic(state);
+        let pendingWinner: string | null = null;
+        if (winResult.mainWinner) {
+          pendingWinner = winResult.mainWinner;
+          state.winner = winResult.mainWinner;
+          state.pendingWinner = pendingWinner;
+        }
+
+        // حفظ الحالة
+        state.dynamicNightState = dynamicNight; // تحديث lastTargets
+        // مسح الطابور المؤقت
+        delete (state as any).dynamicQueue;
+        delete (state as any).dynamicQueueIndex;
+        await setGameState(data.roomId, state);
+
+        await setPhase(data.roomId, Phase.MORNING_RECAP);
+        io.to(data.roomId).emit('game:phase-changed', {
+          phase: Phase.MORNING_RECAP,
+          teamCounts: getTeamCounts(state.players),
+        });
+
+        // إرسال كروت الملخص لليدر
+        socket.emit('night:morning-recap', {
+          events,
+          pendingWinner,
+          players: state.players,
+          neutralResults: winResult.neutralResults, // 🧩 نتائج المحايدين
+        });
+
+        console.log(`🧩 Dynamic night resolved: ${events.length} events`);
+        return callback({ success: true, events });
+      }
+
+      // ═══ المسار القديم ═══
       const resolution = await resolveNight(data.roomId);
       await setPhase(data.roomId, Phase.MORNING_RECAP);
 
@@ -630,10 +831,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (resolution.winResult !== WinResult.GAME_CONTINUES) {
         pendingWinner = resolution.winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
         // حفظ في الـ state للاستخدام لاحقاً عند تأكيد الليدر
-        const state = await getGameState(data.roomId);
-        if (state) {
-          state.pendingWinner = pendingWinner;
-          await setGameState(data.roomId, state);
+        const stFinal = await getGameState(data.roomId);
+        if (stFinal) {
+          stFinal.pendingWinner = pendingWinner;
+          await setGameState(data.roomId, stFinal);
         }
       }
 
@@ -699,10 +900,18 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       // إبلاغ الجميع بنتيجة اللعبة
-      io.to(data.roomId).emit('game:over', {
+      const gameOverPayload: any = {
         winner: winner,
         players: state.players,
-      });
+      };
+      // 🧩 إذا المحرك الديناميكي مفعّل → أرفق نتائج المحايدين
+      if (state.config.useDynamicEngine) {
+        try {
+          const winResult = await checkWinConditionDynamic(state);
+          gameOverPayload.neutralResults = winResult.neutralResults || [];
+        } catch { /* fallback: بدون neutral results */ }
+      }
+      io.to(data.roomId).emit('game:over', gameOverPayload);
       await setPhase(data.roomId, Phase.GAME_OVER);
       state.phase = Phase.GAME_OVER;
       clearGameTimer(data.roomId);
@@ -860,12 +1069,21 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       // فحص الفوز بعد الإقصاء
-      const winResult = checkWinCondition(state);
       let pendingWinner: string | null = null;
-      if (winResult !== WinResult.GAME_CONTINUES) {
-        pendingWinner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
-        state.pendingWinner = pendingWinner;
-        state.winner = pendingWinner as 'MAFIA' | 'CITIZEN';
+      if (state.config.useDynamicEngine) {
+        const dynResult = await checkWinConditionDynamic(state);
+        if (dynResult.mainWinner) {
+          pendingWinner = dynResult.mainWinner;
+          state.pendingWinner = pendingWinner;
+          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN';
+        }
+      } else {
+        const winResult = checkWinCondition(state);
+        if (winResult !== WinResult.GAME_CONTINUES) {
+          pendingWinner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+          state.pendingWinner = pendingWinner;
+          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN';
+        }
       }
 
       await setGameState(data.roomId, state);

@@ -5,11 +5,15 @@ import { motion } from 'framer-motion';
 import AbilitiesTab from './AbilitiesTab';
 import RolesTab from './RolesTab';
 import InteractionsTab from './InteractionsTab';
+import CardsTab from './CardsTab';
+import GenerationTab from './GenerationTab';
 
 const TABS = [
   { id: 'abilities', label: 'القدرات', icon: '⚡' },
   { id: 'roles', label: 'الأدوار', icon: '🎭' },
+  { id: 'cards', label: 'البطاقات', icon: '🎴' },
   { id: 'interactions', label: 'التفاعلات', icon: '⚔️' },
+  { id: 'generation', label: 'التوليد', icon: '🎲' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -26,7 +30,7 @@ export default function GameConfigPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-800/50 p-1 rounded-xl border border-gray-700/40 w-fit">
+      <div className="flex gap-1 bg-gray-800/50 p-1 rounded-xl border border-gray-700/40 w-fit flex-wrap">
         {TABS.map(tab => (
           <button
             key={tab.id}
@@ -47,8 +51,11 @@ export default function GameConfigPage() {
       <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
         {activeTab === 'abilities' && <AbilitiesTab />}
         {activeTab === 'roles' && <RolesTab />}
+        {activeTab === 'cards' && <CardsTab />}
         {activeTab === 'interactions' && <InteractionsTab />}
+        {activeTab === 'generation' && <GenerationTab />}
       </motion.div>
     </div>
   );
 }
+

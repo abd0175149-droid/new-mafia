@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch, TEAM_OPTIONS } from './helpers';
+import MafiaCardLegacy from '@/components/MafiaCardLegacy';
 
 interface Role {
   id: string;
@@ -15,13 +16,19 @@ interface Role {
   genMinPlayers: number;
   genIsRequired: boolean;
   description: string | null;
+  cardTemplateId: string | null;
+  winConditionType: string | null;
+  winConditionDescription: string | null;
+  winConditionRevealTarget: boolean;
 }
 
 interface AbilityOption { id: string; nameAr: string; }
+interface CardTemplateOption { id: string; }
 
 export default function RolesTab() {
   const [items, setItems] = useState<Role[]>([]);
   const [abilities, setAbilities] = useState<AbilityOption[]>([]);
+  const [cardTemplates, setCardTemplates] = useState<CardTemplateOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<Role> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -32,7 +39,8 @@ export default function RolesTab() {
     Promise.all([
       gcFetch('/roles').then(d => d.data || []),
       gcFetch('/abilities').then(d => d.data || []),
-    ]).then(([r, a]) => { setItems(r); setAbilities(a); })
+      gcFetch('/card-templates').then(d => d.data || []).catch(() => []),
+    ]).then(([r, a, c]) => { setItems(r); setAbilities(a); setCardTemplates(c); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   };
@@ -83,7 +91,7 @@ export default function RolesTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">{items.length} دور معرّف</p>
-        <button onClick={() => setEditing({ id: '', nameAr: '', nameEn: '', team: 'CITIZEN', abilities: [], genPriority: 10, genMaxCount: 1, genMinPlayers: 6, genIsRequired: false, description: '' })}
+        <button onClick={() => setEditing({ id: '', nameAr: '', nameEn: '', team: 'CITIZEN', abilities: [], genPriority: 10, genMaxCount: 1, genMinPlayers: 6, genIsRequired: false, description: '', cardTemplateId: null, winConditionType: null, winConditionDescription: null, winConditionRevealTarget: false })}
           className="px-4 py-2 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-xl text-sm hover:bg-amber-500/25 transition">+ دور جديد</button>
       </div>
 
@@ -114,6 +122,7 @@ export default function RolesTab() {
                         return <span key={aId} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700/60 text-gray-300">{ab?.nameAr || aId}</span>;
                       })}
                       {r.genIsRequired && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">إجباري</span>}
+                      {r.cardTemplateId && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20">🎴 {r.cardTemplateId}</span>}
                     </div>
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
@@ -132,7 +141,7 @@ export default function RolesTab() {
         {editing && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-              className="bg-gray-900 border border-gray-700/60 rounded-2xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto" dir="rtl" onClick={e => e.stopPropagation()}>
+              className="bg-gray-900 border border-gray-700/60 rounded-2xl p-6 w-full max-w-2xl max-h-[85vh] overflow-y-auto" dir="rtl" onClick={e => e.stopPropagation()}>
               <h3 className="text-lg font-bold text-white mb-4">{items.find(i => i.id === editing.id) ? 'تعديل الدور' : 'دور جديد'}</h3>
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
@@ -201,11 +210,74 @@ export default function RolesTab() {
                   </div>
                 </div>
 
+                {/* قالب البطاقة */}
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">🎴 قالب البطاقة</label>
+                  <select value={editing.cardTemplateId || ''} onChange={e => setEditing({ ...editing, cardTemplateId: e.target.value || null })}
+                    className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none">
+                    <option value="">بدون قالب (افتراضي)</option>
+                    {cardTemplates.map(ct => <option key={ct.id} value={ct.id}>{ct.id}</option>)}
+                  </select>
+                </div>
+
+                {/* شروط الفوز (للمحايدين فقط) */}
+                {editing.team === 'NEUTRAL' && (
+                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 space-y-3">
+                    <label className="text-xs text-amber-400 font-bold block">🏆 شروط الفوز (محايد)</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">نوع الشرط</label>
+                        <select value={editing.winConditionType || ''} onChange={e => setEditing({ ...editing, winConditionType: e.target.value || null })}
+                          className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none">
+                          <option value="">بدون</option>
+                          <option value="SURVIVE_TILL_END">البقاء حتى النهاية</option>
+                          <option value="ELIMINATE_TARGET">إقصاء هدف محدد</option>
+                          <option value="CUSTOM">مخصص</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer mt-5">
+                          <div className={`w-8 h-5 rounded-full transition ${editing.winConditionRevealTarget ? 'bg-amber-500' : 'bg-gray-700'} relative`}>
+                            <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-all ${editing.winConditionRevealTarget ? 'right-0.5' : 'right-4'}`} />
+                          </div>
+                          <span className="text-xs text-gray-400">كشف الهدف</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">وصف شرط الفوز</label>
+                      <input value={editing.winConditionDescription || ''} onChange={e => setEditing({ ...editing, winConditionDescription: e.target.value || null })}
+                        placeholder="مثلاً: ابقَ حياً حتى نهاية اللعبة"
+                        className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none" />
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">الوصف</label>
                   <textarea value={editing.description || ''} onChange={e => setEditing({ ...editing, description: e.target.value })} rows={2}
                     className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none resize-none" />
                 </div>
+
+                {/* 🃏 معاينة الكارد */}
+                {editing.nameAr && (
+                  <div className="bg-gray-800/30 border border-gray-700/30 rounded-xl p-4">
+                    <label className="text-xs text-gray-500 mb-3 block text-center">🃏 معاينة الكارد</label>
+                    <div className="flex justify-center">
+                      <MafiaCardLegacy
+                        playerNumber={1}
+                        playerName="لاعب تجريبي"
+                        role={editing.id || null}
+                        isFlipped={true}
+                        flippable={false}
+                        size="sm"
+                      />
+                    </div>
+                    {editing.cardTemplateId && (
+                      <p className="text-center text-[10px] text-gray-600 mt-2">قالب: {editing.cardTemplateId}</p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex gap-3 mt-6">
                 <button onClick={save} disabled={saving} className="flex-1 py-2.5 bg-amber-500 text-black font-bold rounded-xl hover:bg-amber-400 transition disabled:opacity-50">

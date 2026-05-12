@@ -40,6 +40,7 @@ interface GameState {
     gameName: string;
     maxPlayers: number;
     displayPin: string;
+    useDynamicEngine?: boolean;
   };
   players: any[];
   rolesPool?: string[];
