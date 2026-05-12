@@ -322,6 +322,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       const state = await resetNightActions(data.roomId);
+      // تصفير خطوة الليل السابقة
+      state.currentNightStep = null;
+      state.nightComplete = false;
 
       // ── فحص: هل الطبيب ميت والممرضة حية؟ ──
       const doctor = state.players.find((p: any) => p.role === Role.DOCTOR);
@@ -402,8 +405,18 @@ export function registerNightEvents(io: Server, socket: Socket) {
               isDynamic: true,
             });
             io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+            state.currentNightStep = {
+              role: step.abilityId,
+              roleName: step.nameAr,
+              performerPhysicalId: step.performerPhysicalId,
+              performerName: performer?.name || '',
+              availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
+              canSkip: true,
+              isDynamic: true,
+            };
           } else {
             socket.emit('night:queue-complete');
+            state.nightComplete = true;
           }
 
           state.round += 1;
@@ -421,8 +434,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
         io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName });
+        state.currentNightStep = firstStep;
       } else {
         socket.emit('night:queue-complete');
+        state.nightComplete = true;
       }
 
       state.round += 1;
@@ -463,9 +478,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
         io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName });
+        state.currentNightStep = firstStep;
       } else {
         socket.emit('night:queue-complete');
+        state.nightComplete = true;
       }
+      await setGameState(data.roomId, state);
 
       callback({ success: true });
     } catch (err: any) {
@@ -537,7 +555,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
           const step = queue[queueIndex];
           const targets = await getDynamicTargets(state, step.abilityId, step.performerPhysicalId, dynamicNight);
           const performer = state.players.find(p => p.physicalId === step.performerPhysicalId);
-          socket.emit('night:queue-step', {
+          const stepData = {
             role: step.abilityId,
             roleName: step.nameAr,
             performerPhysicalId: step.performerPhysicalId,
@@ -545,11 +563,16 @@ export function registerNightEvents(io: Server, socket: Socket) {
             availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
             canSkip: true,
             isDynamic: true,
-          });
+          };
+          socket.emit('night:queue-step', stepData);
           io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+          state.currentNightStep = stepData;
         } else {
           socket.emit('night:queue-complete');
+          state.currentNightStep = null;
+          state.nightComplete = true;
         }
+        await setGameState(data.roomId, state);
 
         return callback({ success: true });
       }
@@ -614,8 +637,6 @@ export function registerNightEvents(io: Server, socket: Socket) {
           break;
       }
 
-      await setGameState(data.roomId, state);
-
       // الانتقال للخطوة التالية
       // الممرضة تأخذ خانة الطبيب في الطابور
       const effectiveRole = data.role === Role.NURSE ? Role.DOCTOR : data.role;
@@ -625,11 +646,15 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (nextStep) {
         socket.emit('night:queue-step', nextStep);
         io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName });
+        state.currentNightStep = nextStep;
       } else {
         // انتهى الطابور → معالجة التقاطعات
         socket.emit('night:queue-complete');
+        state.currentNightStep = null;
+        state.nightComplete = true;
       }
 
+      await setGameState(data.roomId, state);
       callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
@@ -686,7 +711,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
           const step = queue[queueIndex];
           const targets = await getDynamicTargets(state, step.abilityId, step.performerPhysicalId, dynamicNight);
           const performer = state.players.find(p => p.physicalId === step.performerPhysicalId);
-          socket.emit('night:queue-step', {
+          const stepData = {
             role: step.abilityId,
             roleName: step.nameAr,
             performerPhysicalId: step.performerPhysicalId,
@@ -694,11 +719,16 @@ export function registerNightEvents(io: Server, socket: Socket) {
             availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
             canSkip: true,
             isDynamic: true,
-          });
+          };
+          socket.emit('night:queue-step', stepData);
           io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+          state.currentNightStep = stepData;
         } else {
           socket.emit('night:queue-complete');
+          state.currentNightStep = null;
+          state.nightComplete = true;
         }
+        await setGameState(data.roomId, state);
 
         return callback({ success: true });
       }
@@ -710,9 +740,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (nextStep) {
         socket.emit('night:queue-step', nextStep);
         io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName });
+        state.currentNightStep = nextStep;
       } else {
         socket.emit('night:queue-complete');
+        state.currentNightStep = null;
+        state.nightComplete = true;
       }
+      await setGameState(data.roomId, state);
 
       callback({ success: true });
     } catch (err: any) {
@@ -774,6 +808,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (!state) return callback({ success: false, error: 'Room not found' });
 
       // 🧩 المسار الديناميكي
+      // تصفير خطوة الليل عند حل التقاطعات
+      state.currentNightStep = null;
+      state.nightComplete = false;
       if (state.config.useDynamicEngine && state.dynamicNightState) {
         const dynamicNight = state.dynamicNightState;
         const events = await resolveNightDynamic(state, dynamicNight);
@@ -816,6 +853,11 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       // ═══ المسار القديم ═══
+      // تصفير خطوة الليل عند حل التقاطعات
+      state.currentNightStep = null;
+      state.nightComplete = false;
+      await setGameState(data.roomId, state);
+
       const resolution = await resolveNight(data.roomId);
       await setPhase(data.roomId, Phase.MORNING_RECAP);
 
@@ -1180,6 +1222,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
         sheriffResult: null,
         lastProtectedTarget: null,
       };
+      state.currentNightStep = null;
+      state.nightComplete = false;
       state.votingState = {
         totalVotesCast: 0,
         deals: [],

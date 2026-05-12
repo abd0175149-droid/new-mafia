@@ -303,6 +303,9 @@ export default function LeaderPage() {
                     winner: st.winner,
                     sessionId: st.sessionId,
                     activityId: st.activityId || roomData.activityId || undefined,
+                    // استعادة خطوة الليل المحفوظة
+                    nightStep: st.currentNightStep || null,
+                    nightComplete: st.nightComplete || false,
                   });
                   if (st.phase === 'LOBBY' || st.phase === 'GAME_OVER') {
                     setInSession(true);
@@ -416,7 +419,14 @@ export default function LeaderPage() {
         });
         const resData = await res.json();
         if (resData.success) {
-          setGameState(prev => prev ? { ...prev, ...resData.state } : resData.state);
+          const st = resData.state;
+          setGameState(prev => prev ? {
+            ...prev,
+            ...st,
+            // استعادة خطوة الليل المحفوظة في Redis (حل مشكلة AWAITING NIGHT DATA)
+            nightStep: st.currentNightStep || prev.nightStep || null,
+            nightComplete: st.nightComplete || false,
+          } : st);
         }
       } catch {}
     });
@@ -967,6 +977,9 @@ export default function LeaderPage() {
           round: data.state.round,
           winner: data.state.winner,
           sessionId: data.state.sessionId,
+          // استعادة خطوة الليل المحفوظة (حل مشكلة AWAITING NIGHT DATA)
+          nightStep: data.state.currentNightStep || null,
+          nightComplete: data.state.nightComplete || false,
         });
 
         // تحديد الوضع: LOBBY أو GAME_OVER → Session View
