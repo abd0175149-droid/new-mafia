@@ -376,14 +376,6 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
               {face === 'front' ? (
                 /* Cover Face (The 'Front' in CSS, what others see) */
                 <div className="absolute inset-0 bg-black flex flex-col overflow-hidden">
-                  {(el.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
-                    <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-amber-500/80 group" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }}>
-                      <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                      <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                      <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                    </motion.div>
-                  ))}
                   {/* Top 2/3 */}
                   <div className="relative h-[66.66%] w-full">
                     <motion.div 
@@ -430,6 +422,16 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                       animate={{ x: pos.coverFooter?.x || 0, y: pos.coverFooter?.y || 0, scale: pos.coverFooter?.s || 1 }}
                       className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1 cursor-move hover:ring-2 ring-white/30 rounded px-1">اضغط للكشف</motion.span>
                   </div>
+
+                  {/* Shapes on Cover Face (Rendered last so they sit on top and are draggable) */}
+                  {(el.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
+                    <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-amber-500/80 group" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }}>
+                      <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                      <div className="absolute -top-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                      <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                      <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                    </motion.div>
+                  ))}
                 </div>
               ) : (
                 /* Role Face (The 'Back' in CSS, flipped, what the player sees) */
@@ -441,16 +443,6 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                       <div className={`absolute inset-0 bg-gradient-to-b ${editing.gradient || 'from-zinc-700 via-zinc-800 to-zinc-900'}`} />
                       <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
                       
-                      {/* Shapes */}
-                      {(el.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
-                        <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-amber-500/80 group" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }}>
-                          <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                          <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                          <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100" />
-                        </motion.div>
-                      ))}
-
                       {/* شارة */}
                       {editing.teamBadge && (
                         <motion.div 
@@ -520,6 +512,16 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                           )}
                         </motion.div>
                       </div>
+
+                      {/* Shapes on Role Face (Rendered last so they sit on top and are draggable) */}
+                      {(el.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
+                        <motion.div key={s.id} drag dragMomentum={false} dragElastic={0} onDragEnd={(e, info) => updateShape(s.id, { x: s.x + info.offset.x, y: s.y + info.offset.y })} animate={{ x: s.x, y: s.y }} className="absolute cursor-move hover:ring-2 ring-amber-500/80 group" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }}>
+                          <div className="absolute -top-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                          <div className="absolute -top-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                          <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                          <div className="absolute -bottom-1 -right-1 w-2 h-2 bg-white border border-amber-500 rounded-full opacity-0 group-hover:opacity-100 pointer-events-none" />
+                        </motion.div>
+                      ))}
                     </>
                   )}
                 </div>

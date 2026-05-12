@@ -191,11 +191,6 @@ export default function DynamicMafiaCard({
             )}
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
 
-            {/* Shapes on Cover Face */}
-            {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
-              <div key={s.id} className="absolute" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
-            ))}
-
             {/* رقم اللاعب */}
             {resolvedAvatarUrl ? (
               <div className="absolute top-[15%] right-3 z-10" style={cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {}}>
@@ -275,6 +270,11 @@ export default function DynamicMafiaCard({
                 )}
               </>
             )}
+
+            {/* Shapes on Cover Face (Rendered last to sit on top) */}
+            {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
+              <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+            ))}
           </div>
         </div>
 
@@ -292,11 +292,6 @@ export default function DynamicMafiaCard({
           {/* خلفية متدرجة من DB */}
           <div className={`absolute inset-0 bg-gradient-to-b ${gradient}`} />
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
-
-          {/* Shapes on Role Face */}
-          {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
-            <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
-          ))}
 
           {/* شارة الفريق */}
           <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${teamBadge.bgColor} ${teamBadge.textColor} ${teamBadge.borderColor}`}
@@ -375,6 +370,11 @@ export default function DynamicMafiaCard({
               )}
             </div>
           </div>
+
+          {/* Shapes on Role Face (Rendered last to sit on top) */}
+          {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
+            <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+          ))}
         </div>
       </div>
     </div>
