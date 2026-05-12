@@ -261,7 +261,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
 
             {/* Tab: Secret Face */}
             {tab === 'secret' && <>
-              <p className="text-xs text-gray-500 mb-2">الوجه السري يظهر عند قلب البطاقة (وضع الإخفاء)</p>
+              <p className="text-xs text-gray-500 mb-2">وجه الغلاف (الذي يراه الجميع قبل الكشف)</p>
               {editing.secretFace?.customImageUrl && (
                 <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl border border-gray-700/40">
                   <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="" className="w-16 h-16 rounded-lg object-cover border border-gray-700" />
@@ -273,7 +273,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                   <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="sf-upload" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f); }} />
                   <label htmlFor="sf-upload" className="block w-full py-3 text-center bg-gray-800/80 text-gray-300 border border-dashed border-gray-600 rounded-xl text-sm cursor-pointer hover:bg-gray-700/80 hover:text-white hover:border-gray-500 transition">
-                    📤 رفع صورة مخصصة
+                    📤 رفع صورة الغلاف
                   </label>
                   <p className="text-[10px] text-gray-600 mt-1 text-center">PNG, JPG, WEBP, GIF — حد أقصى 5MB</p>
                 </div>
@@ -286,64 +286,91 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
           <div className="w-72 border-r border-gray-800 flex flex-col items-center py-5 px-4 shrink-0 bg-gray-950/50">
             {/* Face Toggle */}
             <div className="flex gap-1 mb-4 bg-gray-800/80 rounded-xl p-1 w-full">
-              <button onClick={() => setFace('front')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${face === 'front' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>الوجه الأمامي</button>
-              <button onClick={() => setFace('secret')} className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition ${face === 'secret' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>الوجه السري</button>
+              <button onClick={() => setFace('front')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition ${face === 'front' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>وجه الغلاف (المخفي)</button>
+              <button onClick={() => setFace('secret')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition ${face === 'secret' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>وجه الدور (المكشوف)</button>
             </div>
 
             {/* Card Preview */}
-            <div className={`w-56 h-80 rounded-2xl overflow-hidden border-2 ${editing.borderColor || 'border-gray-500/40'} ${editing.glowEffect || ''} relative transition-all duration-300`}>
+            <div className={`w-56 h-80 rounded-2xl overflow-hidden border-2 ${face === 'secret' ? (editing.borderColor || 'border-gray-500/40') : 'border-[#C5A059]/40'} ${face === 'secret' ? (editing.glowEffect || '') : ''} relative transition-all duration-300`}>
               {face === 'front' ? (
-                /* Front Face */
-                <>
+                /* Cover Face (The 'Front' in CSS, what others see) */
+                <div className="absolute inset-0 bg-black flex flex-col">
+                  {/* Top 2/3 */}
+                  <div className="relative h-[66.66%] w-full">
+                    {editing.secretFace?.customImageUrl ? (
+                       <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="Cover" className="absolute inset-0 w-full h-full object-cover" />
+                    ) : (
+                       <div className="absolute inset-0 bg-gradient-to-b from-zinc-700/50 via-zinc-900/80 to-black" />
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
+                    
+                    {/* Player Number */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="font-mono font-black text-[#C5A059]" style={{ fontSize: '5.5rem', opacity: 0.35, textShadow: '0 4px 20px rgba(0,0,0,0.8)', lineHeight: 1 }}>
+                        7
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bottom 1/3 */}
+                  <div className="relative h-[33.33%] flex flex-col items-center justify-center px-3 bg-black">
+                    <div className="absolute top-0 left-[15%] right-[15%] h-[1px] bg-[#C5A059]/30" />
+                    <h2 className="text-xl font-black text-white text-center leading-tight" style={{ fontFamily: 'Amiri, serif' }}>
+                      اللاعب
+                    </h2>
+                    <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1 text-[#C5A059]/40">
+                      MAFIA CLUB
+                    </p>
+                    <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1">اضغط للكشف</span>
+                  </div>
+                </div>
+              ) : (
+                /* Role Face (The 'Back' in CSS, flipped, what the player sees) */
+                <div className="absolute inset-0 flex flex-col">
                   <div className={`absolute inset-0 bg-gradient-to-b ${editing.gradient || 'from-zinc-700 via-zinc-800 to-zinc-900'}`} />
                   <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent" />
+                  
+                  {/* شارة */}
                   {editing.teamBadge && (
                     <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full border font-mono ${editing.teamBadge.bgColor} ${editing.teamBadge.textColor} ${editing.teamBadge.borderColor}`}
                       style={{ fontSize: badgeSize }}>
                       {editing.teamBadge.text}
                     </div>
                   )}
+
                   <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12">
-                    <div className={`rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-3 ${editing.textColor || ''}`}
-                      style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)' }}>
+                     <div className={`absolute top-3 right-3 w-8 h-8 border ${editing.borderColor || 'border-gray-500/40'} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${editing.textColor || 'text-white'}`}>
+                       7
+                     </div>
+
+                    <div className={`rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-5 ${editing.textColor || ''}`}
+                      style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)' }}>
                       {editing.icon?.type?.toLowerCase() === 'emoji' ? (
                         <span style={{ fontSize: iconSize * 0.6 }}>{editing.icon.value}</span>
                       ) : editing.icon?.type?.toLowerCase() === 'lucide' ? (
                         <LI name={editing.icon.value} size={iconSize * 0.6} />
                       ) : <span style={{ fontSize: iconSize * 0.6 }}>✦</span>}
                     </div>
-                    <h3 className={`font-black mb-1 ${editing.textColor || 'text-white'} text-center leading-tight`}
+                    <h3 className={`font-black mb-2 ${editing.textColor || 'text-white'} text-center leading-tight`}
                       style={{ fontFamily: font, fontSize: nameSize }}>
                       {linkedRoles[0]?.nameAr || 'اسم الدور'}
                     </h3>
-                    {el.showPlayerNumber && <p className="text-white/40 text-[10px] font-mono mt-1">اسم اللاعب</p>}
-                    <div className="w-12 h-[1px] my-2 bg-white/10" />
+                    
+                    {el.showPlayerNumber && <p className="text-white/40 text-sm font-mono mt-1" dir="ltr">اللاعب</p>}
+                    
+                    <div className={`w-20 h-[1px] my-4 ${editing.borderColor ? editing.borderColor.replace('border-', 'bg-') : 'bg-white/10'}`} />
+                    
                     {el.customFooterText ? (
-                      <span className="text-[8px] text-zinc-500" style={{ fontFamily: font }}>{el.customFooterText}</span>
+                      <span className="text-[9px] text-zinc-500 mt-auto" style={{ fontFamily: font }}>{el.customFooterText}</span>
                     ) : (
-                      <span className="text-[7px] text-zinc-600 font-mono tracking-widest">اضغط للإخفاء</span>
+                      <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase mt-auto">اضغط للإخفاء</span>
                     )}
-                    {el.showClubBranding && <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[6px] text-zinc-700 font-mono">MAFIA CLUB</div>}
                   </div>
-                </>
-              ) : (
-                /* Secret Face */
-                <div className="absolute inset-0 flex items-center justify-center" style={{ background: editing.secretFace?.bgColor || '#0a0a0a' }}>
-                  {editing.secretFace?.customImageUrl ? (
-                    <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                  ) : (
-                    <div className="flex flex-col items-center gap-3 text-center">
-                      <div className="text-5xl opacity-20">🎭</div>
-                      <p className="text-zinc-600 text-xs font-mono">SECRET FACE</p>
-                      <p className="text-zinc-700 text-[10px]">لم يُضف وجه سري</p>
-                    </div>
-                  )}
-                  {editing.secretFace?.overlayGradient && <div className={`absolute inset-0 bg-gradient-to-b ${editing.secretFace.overlayGradient}`} />}
                 </div>
               )}
             </div>
 
-            <p className="text-[10px] text-gray-600 mt-3 font-mono tracking-widest uppercase">{face === 'front' ? 'FRONT' : 'SECRET'} PREVIEW</p>
+            <p className="text-[10px] text-gray-600 mt-3 font-mono tracking-widest uppercase">{face === 'front' ? 'COVER FACE' : 'ROLE FACE'}</p>
           </div>
         </div>
       </motion.div>
