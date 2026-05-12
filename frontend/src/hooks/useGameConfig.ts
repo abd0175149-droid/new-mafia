@@ -93,9 +93,9 @@ export function useGameConfig() {
       _abilityCache = abilitiesData || [];
       _lastFetch = now;
 
-      setRoles(_roleCache);
-      setCards(_cardCache);
-      setAbilities(_abilityCache);
+      setRoles(_roleCache || []);
+      setCards(_cardCache || []);
+      setAbilities(_abilityCache || []);
       setError(null);
     } catch (err: any) {
       setError(err.message);
