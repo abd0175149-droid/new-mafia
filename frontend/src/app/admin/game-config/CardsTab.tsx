@@ -145,9 +145,9 @@ export default function CardsTab() {
                 )}
                 {/* الأيقونة */}
                 <div className="absolute inset-0 flex items-center justify-center pt-4">
-                  {card.icon?.type === 'emoji' ? (
+                  {card.icon?.type?.toLowerCase() === 'emoji' ? (
                     <span className="text-3xl">{card.icon.value}</span>
-                  ) : card.icon?.type === 'lucide' ? (
+                  ) : card.icon?.type?.toLowerCase() === 'lucide' ? (
                     <LucideIcon name={card.icon.value} size={28} className={card.textColor} />
                   ) : (
                     <span className={`text-3xl ${card.textColor}`}>✦</span>
@@ -227,11 +227,11 @@ export default function CardsTab() {
                     <label className="text-xs text-gray-500 mb-1 block">الأيقونة</label>
                     <div className="flex gap-2 mb-2">
                       <button onClick={() => setEditing({ ...editing, icon: { type: 'lucide', value: editing.icon?.value || 'User' } })}
-                        className={`px-3 py-1.5 rounded-lg text-xs border transition ${editing.icon?.type === 'lucide' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>Lucide</button>
+                        className={`px-3 py-1.5 rounded-lg text-xs border transition ${editing.icon?.type?.toLowerCase() === 'lucide' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>Lucide</button>
                       <button onClick={() => setEditing({ ...editing, icon: { type: 'emoji', value: '🎭' } })}
                         className={`px-3 py-1.5 rounded-lg text-xs border transition ${editing.icon?.type === 'emoji' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>Emoji</button>
                     </div>
-                    {editing.icon?.type === 'lucide' && (
+                    {editing.icon?.type?.toLowerCase() === 'lucide' && (
                       <div className="flex flex-wrap gap-1.5">
                         {ICON_OPTIONS.map(ico => (
                           <button key={ico.value} onClick={() => setEditing({ ...editing, icon: { type: 'lucide', value: ico.value } })}
@@ -326,9 +326,9 @@ export default function CardsTab() {
                     {/* أيقونة */}
                     <div className="relative z-10 flex flex-col items-center justify-center h-full p-3 pt-10">
                       <div className={`w-16 h-16 rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-3 ${editing.textColor || ''}`} style={{ background: 'rgba(0,0,0,0.4)' }}>
-                        {editing.icon?.type === 'emoji' ? (
+                        {editing.icon?.type?.toLowerCase() === 'emoji' ? (
                           <span className="text-2xl">{editing.icon.value}</span>
-                        ) : editing.icon?.type === 'lucide' ? (
+                        ) : editing.icon?.type?.toLowerCase() === 'lucide' ? (
                           <LucideIcon name={editing.icon.value} size={28} className="" />
                         ) : (
                           <span className="text-2xl">✦</span>
