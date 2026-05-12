@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   database:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     restart: always
     environment:
       POSTGRES_USER: mafia_user

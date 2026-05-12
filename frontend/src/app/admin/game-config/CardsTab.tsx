@@ -3,6 +3,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch } from './helpers';
+import * as LucideIcons from 'lucide-react';
+
+// Helper: render Lucide icon by name
+function LucideIcon({ name, size = 24, className = '' }: { name: string; size?: number; className?: string }) {
+  const Icon = (LucideIcons as any)[name];
+  if (!Icon) return <span className={className} style={{ fontSize: size }}>✦</span>;
+  return <Icon size={size} className={className} />;
+}
 
 interface CardTemplate {
   id: string;
@@ -83,7 +91,7 @@ export default function CardsTab() {
       if (isNew) {
         await gcFetch('/card-templates', { method: 'POST', body: JSON.stringify(editing) });
       } else {
-        const { id, ...body } = editing;
+        const { id, createdAt, updatedAt, ...body } = editing as any;
         await gcFetch(`/card-templates/${id}`, { method: 'PUT', body: JSON.stringify(body) });
       }
       setEditing(null); load();
@@ -139,6 +147,8 @@ export default function CardsTab() {
                 <div className="absolute inset-0 flex items-center justify-center pt-4">
                   {card.icon?.type === 'emoji' ? (
                     <span className="text-3xl">{card.icon.value}</span>
+                  ) : card.icon?.type === 'lucide' ? (
+                    <LucideIcon name={card.icon.value} size={28} className={card.textColor} />
                   ) : (
                     <span className={`text-3xl ${card.textColor}`}>✦</span>
                   )}
@@ -282,6 +292,7 @@ export default function CardsTab() {
                           📤 رفع صورة
                         </label>
                       </div>
+                      <p className="text-[10px] text-gray-600 mt-1">PNG, JPG, WEBP, GIF — حد أقصى 5MB</p>
                     </div>
                   )}
 
@@ -317,6 +328,8 @@ export default function CardsTab() {
                       <div className={`w-16 h-16 rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-3 ${editing.textColor || ''}`} style={{ background: 'rgba(0,0,0,0.4)' }}>
                         {editing.icon?.type === 'emoji' ? (
                           <span className="text-2xl">{editing.icon.value}</span>
+                        ) : editing.icon?.type === 'lucide' ? (
+                          <LucideIcon name={editing.icon.value} size={28} className="" />
                         ) : (
                           <span className="text-2xl">✦</span>
                         )}

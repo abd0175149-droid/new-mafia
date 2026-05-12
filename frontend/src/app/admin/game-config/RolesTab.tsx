@@ -55,7 +55,7 @@ export default function RolesTab() {
       if (isNew) {
         await gcFetch('/roles', { method: 'POST', body: JSON.stringify(editing) });
       } else {
-        const { id, ...body } = editing;
+        const { id, createdAt, updatedAt, ...body } = editing as any;
         await gcFetch(`/roles/${id}`, { method: 'PUT', body: JSON.stringify(body) });
       }
       setEditing(null); load();

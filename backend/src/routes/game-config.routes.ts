@@ -31,10 +31,11 @@ const cardFaceStorage = multer.diskStorage({
 });
 const cardFaceUpload = multer({
   storage: cardFaceStorage,
-  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) cb(null, true);
-    else cb(new Error('Only image files allowed'));
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif', 'image/svg+xml'];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error(`Unsupported format: ${file.mimetype}. Allowed: PNG, JPG, WEBP, GIF, SVG`));
   },
 });
 
