@@ -41,6 +41,12 @@ const cardFaceUpload = multer({
 
 const router = Router();
 
+// Helper: strip metadata fields from request body before DB update
+function stripMeta(body: any) {
+  const { id, createdAt, updatedAt, created_at, updated_at, ...clean } = body;
+  return clean;
+}
+
 // ══════════════════════════════════════════════
 // 🧩 القدرات (Abilities)
 // ══════════════════════════════════════════════
@@ -146,7 +152,7 @@ router.put('/roles/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
     const [row] = await db.update(roleDefinitions)
-      .set({ ...req.body, updatedAt: new Date() })
+      .set({ ...stripMeta(req.body), updatedAt: new Date() })
       .where(eq(roleDefinitions.id, req.params.id))
       .returning();
     if (!row) return res.status(404).json({ error: 'Not found' });
@@ -208,7 +214,7 @@ router.put('/card-templates/:id', authenticate, async (req: Request, res: Respon
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
     const [row] = await db.update(cardTemplates)
-      .set({ ...req.body, updatedAt: new Date() })
+      .set({ ...stripMeta(req.body), updatedAt: new Date() })
       .where(eq(cardTemplates.id, req.params.id))
       .returning();
     if (!row) return res.status(404).json({ error: 'Not found' });
