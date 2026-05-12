@@ -59,9 +59,15 @@ interface Props {
 export default function CardEditorModal({ editing, setEditing, isNew, linkedRoles, onSave, onClose, saving, error, setError, onLoad }: Props) {
   const [tab, setTab] = useState<Tab>('colors');
   const [face, setFace] = useState<Face>('front');
+  const [previewHasPhoto, setPreviewHasPhoto] = useState(true);
 
   const el = editing.elements || { showPlayerNumber: true, showClubBranding: true, showDescription: true };
   const setEl = (p: any) => setEditing({ ...editing, elements: { ...el, ...p } });
+  const pos = el.positions || {};
+  const setPos = (key: string, deltaX: number, deltaY: number) => {
+    const current = pos[key] || { x: 0, y: 0 };
+    setEl({ positions: { ...pos, [key]: { x: current.x + deltaX, y: current.y + deltaY } } });
+  };
   const font = el.fontFamily || 'Amiri, serif';
   const iconSize = el.iconSize || 48;
   const nameSize = el.nameSize || 20;
@@ -72,7 +78,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
     { k: 'icon', l: 'الأيقونة', i: '✦' },
     { k: 'typography', l: 'الخطوط', i: '𝐀' },
     { k: 'elements', l: 'العناصر', i: '⚙' },
-    { k: 'secret', l: 'الوجه السري', i: '🔒' },
+    { k: 'secret', l: 'تصميم جاهز', i: '📤' },
   ];
 
   const uploadImage = async (file: File) => {
@@ -259,23 +265,24 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
               )}
             </>}
 
-            {/* Tab: Secret Face */}
+            {/* Tab: Secret Face -> Custom Design */}
             {tab === 'secret' && <>
-              <p className="text-xs text-gray-500 mb-2">وجه الغلاف (الذي يراه الجميع قبل الكشف)</p>
+              <p className="text-xs text-gray-500 mb-2">رفع تصميم جاهز لوجه الدور (يلغي التصميم التلقائي)</p>
               {editing.secretFace?.customImageUrl && (
                 <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl border border-gray-700/40">
                   <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="" className="w-16 h-16 rounded-lg object-cover border border-gray-700" />
                   <span className="text-[10px] text-gray-500 truncate flex-1">{editing.secretFace.customImageUrl}</span>
+                  <button onClick={() => setEditing({ ...editing, secretFace: null })} className="p-1.5 text-rose-400 hover:bg-rose-500/20 rounded-lg">✕</button>
                 </div>
               )}
               {editing.id && !isNew && (
                 <div>
                   <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="sf-upload" className="hidden"
                     onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f); }} />
-                  <label htmlFor="sf-upload" className="block w-full py-3 text-center bg-gray-800/80 text-gray-300 border border-dashed border-gray-600 rounded-xl text-sm cursor-pointer hover:bg-gray-700/80 hover:text-white hover:border-gray-500 transition">
-                    📤 رفع صورة الغلاف
+                  <label htmlFor="sf-upload" className="block w-full py-3 text-center bg-gray-800/80 text-amber-400 border border-dashed border-amber-600/50 rounded-xl text-sm cursor-pointer hover:bg-amber-500/10 transition">
+                    📤 رفع تصميم مخصص
                   </label>
-                  <p className="text-[10px] text-gray-600 mt-1 text-center">PNG, JPG, WEBP, GIF — حد أقصى 5MB</p>
+                  <p className="text-[10px] text-gray-600 mt-1 text-center">يُفضل أبعاد 2:3 (مثال 400x600 بكسل)</p>
                 </div>
               )}
               {isNew && <p className="text-xs text-amber-400/70 text-center p-4 bg-amber-500/5 rounded-xl border border-amber-500/10">احفظ القالب أولاً ثم ارفع الصورة</p>}
@@ -285,9 +292,20 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
           {/* Preview Panel */}
           <div className="w-72 border-r border-gray-800 flex flex-col items-center py-5 px-4 shrink-0 bg-gray-950/50">
             {/* Face Toggle */}
-            <div className="flex gap-1 mb-4 bg-gray-800/80 rounded-xl p-1 w-full">
-              <button onClick={() => setFace('front')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition ${face === 'front' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>وجه الغلاف (المخفي)</button>
-              <button onClick={() => setFace('secret')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition ${face === 'secret' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>وجه الدور (المكشوف)</button>
+            <div className="flex flex-col gap-2 w-full mb-4">
+              <div className="flex gap-1 bg-gray-800/80 rounded-xl p-1 w-full">
+                <button onClick={() => setFace('front')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition ${face === 'front' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>وجه الغلاف</button>
+                <button onClick={() => setFace('secret')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-medium transition ${face === 'secret' ? 'bg-amber-500/20 text-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>وجه الدور</button>
+              </div>
+              {face === 'front' && (
+                <label className="flex items-center justify-center gap-2 text-[10px] text-gray-400 cursor-pointer">
+                  <input type="checkbox" checked={previewHasPhoto} onChange={e => setPreviewHasPhoto(e.target.checked)} className="accent-amber-500" />
+                  مع صورة اللاعب
+                </label>
+              )}
+              {face === 'secret' && !editing.secretFace?.customImageUrl && (
+                 <p className="text-[9px] text-amber-500/70 text-center">يمكنك سحب العناصر بالماوس لتغيير موقعها 🖐️</p>
+              )}
             </div>
 
             {/* Card Preview */}
@@ -297,16 +315,16 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                 <div className="absolute inset-0 bg-black flex flex-col">
                   {/* Top 2/3 */}
                   <div className="relative h-[66.66%] w-full">
-                    {editing.secretFace?.customImageUrl ? (
-                       <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="Cover" className="absolute inset-0 w-full h-full object-cover" />
+                    {previewHasPhoto ? (
+                       <img src="https://ui-avatars.com/api/?name=Player&background=random" alt="Cover" className="absolute inset-0 w-full h-full object-cover opacity-80" />
                     ) : (
                        <div className="absolute inset-0 bg-gradient-to-b from-zinc-700/50 via-zinc-900/80 to-black" />
                     )}
                     <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
                     
                     {/* Player Number */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="font-mono font-black text-[#C5A059]" style={{ fontSize: '5.5rem', opacity: 0.35, textShadow: '0 4px 20px rgba(0,0,0,0.8)', lineHeight: 1 }}>
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <span className="font-mono font-black text-[#C5A059]" style={{ fontSize: '5.5rem', opacity: previewHasPhoto ? 0.9 : 0.35, textShadow: previewHasPhoto ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)', lineHeight: 1 }}>
                         7
                       </span>
                     </div>
@@ -327,45 +345,84 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
               ) : (
                 /* Role Face (The 'Back' in CSS, flipped, what the player sees) */
                 <div className="absolute inset-0 flex flex-col">
-                  <div className={`absolute inset-0 bg-gradient-to-b ${editing.gradient || 'from-zinc-700 via-zinc-800 to-zinc-900'}`} />
-                  <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent" />
-                  
-                  {/* شارة */}
-                  {editing.teamBadge && (
-                    <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full border font-mono ${editing.teamBadge.bgColor} ${editing.teamBadge.textColor} ${editing.teamBadge.borderColor}`}
-                      style={{ fontSize: badgeSize }}>
-                      {editing.teamBadge.text}
-                    </div>
+                  {editing.secretFace?.customImageUrl ? (
+                    <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                  ) : (
+                    <>
+                      <div className={`absolute inset-0 bg-gradient-to-b ${editing.gradient || 'from-zinc-700 via-zinc-800 to-zinc-900'}`} />
+                      <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
+                      
+                      {/* شارة */}
+                      {editing.teamBadge && (
+                        <motion.div 
+                          drag dragMomentum={false} dragElastic={0}
+                          onDragEnd={(e, info) => setPos('badge', info.offset.x, info.offset.y)}
+                          animate={{ x: pos.badge?.x || 0, y: pos.badge?.y || 0 }}
+                          className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full border font-mono ${editing.teamBadge.bgColor} ${editing.teamBadge.textColor} ${editing.teamBadge.borderColor} cursor-move hover:ring-2 ring-white/30`}
+                          style={{ fontSize: badgeSize }}>
+                          {editing.teamBadge.text}
+                        </motion.div>
+                      )}
+
+                      <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden">
+                         <motion.div 
+                           drag dragMomentum={false} dragElastic={0}
+                           onDragEnd={(e, info) => setPos('number', info.offset.x, info.offset.y)}
+                           animate={{ x: pos.number?.x || 0, y: pos.number?.y || 0 }}
+                           className={`absolute top-3 right-3 w-8 h-8 border ${editing.borderColor || 'border-gray-500/40'} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${editing.textColor || 'text-white'} cursor-move hover:ring-2 ring-white/30`}>
+                           7
+                         </motion.div>
+
+                        <motion.div 
+                          drag dragMomentum={false} dragElastic={0}
+                          onDragEnd={(e, info) => setPos('icon', info.offset.x, info.offset.y)}
+                          animate={{ x: pos.icon?.x || 0, y: pos.icon?.y || 0 }}
+                          className={`rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-5 ${editing.textColor || ''} cursor-move hover:ring-2 ring-white/30`}
+                          style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)' }}>
+                          {editing.icon?.type?.toLowerCase() === 'emoji' ? (
+                            <span style={{ fontSize: iconSize * 0.6 }}>{editing.icon.value}</span>
+                          ) : editing.icon?.type?.toLowerCase() === 'lucide' ? (
+                            <LI name={editing.icon.value} size={iconSize * 0.6} />
+                          ) : <span style={{ fontSize: iconSize * 0.6 }}>✦</span>}
+                        </motion.div>
+                        
+                        <motion.div
+                          drag dragMomentum={false} dragElastic={0}
+                          onDragEnd={(e, info) => setPos('title', info.offset.x, info.offset.y)}
+                          animate={{ x: pos.title?.x || 0, y: pos.title?.y || 0 }}
+                          className="cursor-move hover:ring-2 ring-white/30 rounded px-2"
+                        >
+                          <h3 className={`font-black mb-2 ${editing.textColor || 'text-white'} text-center leading-tight`}
+                            style={{ fontFamily: font, fontSize: nameSize }}>
+                            {linkedRoles[0]?.nameAr || 'اسم الدور'}
+                          </h3>
+                        </motion.div>
+                        
+                        {el.showPlayerNumber && (
+                           <motion.p 
+                             drag dragMomentum={false} dragElastic={0}
+                             onDragEnd={(e, info) => setPos('playerName', info.offset.x, info.offset.y)}
+                             animate={{ x: pos.playerName?.x || 0, y: pos.playerName?.y || 0 }}
+                             className="text-white/40 text-sm font-mono mt-1 cursor-move hover:ring-2 ring-white/30 px-2 rounded" dir="ltr">اللاعب</motion.p>
+                        )}
+                        
+                        <div className={`w-20 h-[1px] my-4 ${editing.borderColor ? editing.borderColor.replace('border-', 'bg-') : 'bg-white/10'}`} />
+                        
+                        <motion.div
+                          drag dragMomentum={false} dragElastic={0}
+                          onDragEnd={(e, info) => setPos('footer', info.offset.x, info.offset.y)}
+                          animate={{ x: pos.footer?.x || 0, y: pos.footer?.y || 0 }}
+                          className="mt-auto cursor-move hover:ring-2 ring-white/30 px-2 py-1 rounded"
+                        >
+                          {el.customFooterText ? (
+                            <span className="text-[9px] text-zinc-500" style={{ fontFamily: font }}>{el.customFooterText}</span>
+                          ) : (
+                            <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase">اضغط للإخفاء</span>
+                          )}
+                        </motion.div>
+                      </div>
+                    </>
                   )}
-
-                  <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12">
-                     <div className={`absolute top-3 right-3 w-8 h-8 border ${editing.borderColor || 'border-gray-500/40'} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${editing.textColor || 'text-white'}`}>
-                       7
-                     </div>
-
-                    <div className={`rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-5 ${editing.textColor || ''}`}
-                      style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)' }}>
-                      {editing.icon?.type?.toLowerCase() === 'emoji' ? (
-                        <span style={{ fontSize: iconSize * 0.6 }}>{editing.icon.value}</span>
-                      ) : editing.icon?.type?.toLowerCase() === 'lucide' ? (
-                        <LI name={editing.icon.value} size={iconSize * 0.6} />
-                      ) : <span style={{ fontSize: iconSize * 0.6 }}>✦</span>}
-                    </div>
-                    <h3 className={`font-black mb-2 ${editing.textColor || 'text-white'} text-center leading-tight`}
-                      style={{ fontFamily: font, fontSize: nameSize }}>
-                      {linkedRoles[0]?.nameAr || 'اسم الدور'}
-                    </h3>
-                    
-                    {el.showPlayerNumber && <p className="text-white/40 text-sm font-mono mt-1" dir="ltr">اللاعب</p>}
-                    
-                    <div className={`w-20 h-[1px] my-4 ${editing.borderColor ? editing.borderColor.replace('border-', 'bg-') : 'bg-white/10'}`} />
-                    
-                    {el.customFooterText ? (
-                      <span className="text-[9px] text-zinc-500 mt-auto" style={{ fontFamily: font }}>{el.customFooterText}</span>
-                    ) : (
-                      <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase mt-auto">اضغط للإخفاء</span>
-                    )}
-                  </div>
                 </div>
               )}
             </div>

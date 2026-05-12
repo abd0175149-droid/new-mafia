@@ -293,9 +293,12 @@ export default function DynamicMafiaCard({
           </div>
 
           {/* المحتوى */}
-          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12" dir="rtl" style={{ textAlign: 'center' }}>
+          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden" dir="rtl" style={{ textAlign: 'center' }}>
             {/* رقم اللاعب صغير */}
-            <div className={`absolute top-3 right-3 w-8 h-8 border ${borderColor} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${textColor}`}>
+            <div 
+              className={`absolute top-3 right-3 w-8 h-8 border ${borderColor} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${textColor}`}
+              style={cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px)` } : {}}
+            >
               {playerNumber}
             </div>
 
@@ -310,6 +313,7 @@ export default function DynamicMafiaCard({
                   : isNeutral
                   ? '0 0 40px rgba(217, 119, 6, 0.15), inset 0 0 20px rgba(0,0,0,0.3)'
                   : '0 0 40px rgba(100, 200, 255, 0.1), inset 0 0 20px rgba(0,0,0,0.3)',
+                ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px)` } : {})
               }}
             >
               {iconEmoji ? (
@@ -320,14 +324,23 @@ export default function DynamicMafiaCard({
             </div>
 
             {/* اسم الدور */}
-            <h3 className={`${roleNameSize} font-black mb-2 ${textColor}`} style={{ fontFamily: 'Amiri, serif' }}>
+            <h3 
+              className={`${roleNameSize} font-black mb-2 ${textColor}`} 
+              style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px)` } : {}) }}
+            >
               {roleName}
             </h3>
 
             {/* اسم اللاعب */}
-            <p className="text-white/40 text-sm font-mono tracking-widest" dir="ltr">
-              {playerName}
-            </p>
+            {cardTemplate?.elements?.showPlayerNumber !== false && (
+              <p 
+                className="text-white/40 text-sm font-mono tracking-widest" 
+                dir="ltr"
+                style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px)` } : {}}
+              >
+                {playerName}
+              </p>
+            )}
 
             {/* الخط الفاصل */}
             <div className={`w-20 h-[1px] my-4 ${
@@ -335,11 +348,20 @@ export default function DynamicMafiaCard({
             }`} />
 
             {/* نص أسفل */}
-            {flippable && (
-              <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase mt-auto" dir="ltr">
-                اضغط للإخفاء
-              </span>
-            )}
+            <div 
+              className="mt-auto"
+              style={cardTemplate?.elements?.positions?.footer ? { transform: `translate(${cardTemplate.elements.positions.footer.x}px, ${cardTemplate.elements.positions.footer.y}px)` } : {}}
+            >
+              {cardTemplate?.elements?.customFooterText ? (
+                <span className="text-[9px] text-zinc-500 font-mono" style={{ fontFamily: cardTemplate.elements.fontFamily || 'Amiri, serif' }}>
+                  {cardTemplate.elements.customFooterText}
+                </span>
+              ) : (
+                flippable && <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase" dir="ltr">
+                  اضغط للإخفاء
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </div>
