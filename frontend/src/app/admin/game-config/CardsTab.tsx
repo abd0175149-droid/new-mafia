@@ -35,6 +35,7 @@ interface CardTemplate {
       playerName?: { x: number; y: number; s?: number };
       coverNumber?: { x: number; y: number; s?: number };
       coverName?: { x: number; y: number; s?: number };
+      coverBranding?: { x: number; y: number; s?: number };
       coverFooter?: { x: number; y: number; s?: number };
       coverPhoto?: { x: number; y: number; s?: number; w?: number; h?: number };
     };

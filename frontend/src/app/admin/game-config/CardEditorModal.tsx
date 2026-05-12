@@ -40,7 +40,7 @@ const GLOWS = [
   { l: 'أحمر', v: 'shadow-[0_0_40px_rgba(239,68,68,0.25)]' },{ l: 'أزرق', v: 'shadow-[0_0_40px_rgba(59,130,246,0.25)]' },
 ];
 
-type Tab = 'colors' | 'icon' | 'typography' | 'elements' | 'secret';
+type Tab = 'colors' | 'icon' | 'typography' | 'elements' | 'shapes' | 'secret';
 type Face = 'front' | 'secret';
 
 interface Props {
