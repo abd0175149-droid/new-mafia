@@ -242,7 +242,6 @@ export default function DynamicMafiaCard({
             <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex || 3, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2, transform: `translate(${s.x || 0}px, ${s.y || 0}px)` }} />
           ))}
         </div>
-        </div>
 
         {/* ══════════════════════════════════ */}
         {/* 🂡 الوجه الخلفي — الكشف (ديناميكي) */}
