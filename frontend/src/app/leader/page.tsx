@@ -207,6 +207,9 @@ export default function LeaderPage() {
             round: data.state.round,
             winner: data.state.winner,
             sessionId: data.state.sessionId,
+            // استعادة خطوة الليل المحفوظة في Redis (حل مشكلة AWAITING NIGHT DATA عند reload)
+            nightStep: data.state.currentNightStep || null,
+            nightComplete: data.state.nightComplete || false,
           });
 
           if (phase === 'LOBBY' || phase === 'GAME_OVER') {
