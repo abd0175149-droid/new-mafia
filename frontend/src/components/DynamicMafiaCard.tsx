@@ -214,7 +214,7 @@ export default function DynamicMafiaCard({
 
           {/* القسم السفلي (1/3): الاسم + الشعار */}
           <div className="relative flex flex-col items-center justify-center bg-black px-3" style={{ height: '33.33%', zIndex: 5 }}>
-            <div className="absolute top-0 left-[15%] right-[15%] h-[1px]" style={{ backgroundColor: isFemale ? 'rgba(192,132,252,0.3)' : (borderColor ? `${borderColor}66` : 'rgba(197,160,89,0.3)') }} />
+            <div className="absolute top-0 left-[15%] right-[15%] h-[1px]" style={{ backgroundColor: isFemale ? 'rgba(192,132,252,0.3)' : 'rgba(197,160,89,0.3)' }} />
 
             {showVoting ? (
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
@@ -223,12 +223,12 @@ export default function DynamicMafiaCard({
                   <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font }}>{truncatedName}</h2>
                   <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
-                <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : (textColor ? `${textColor}66` : 'rgba(197,160,89,0.4)'), ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
+                <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
                 <h2 className={`${nameSize} font-black text-white text-center leading-tight`} style={{ fontFamily: font, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
-                <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : (textColor ? `${textColor}66` : 'rgba(197,160,89,0.4)'), ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
+                <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
                 {flippable && (
                   <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>
                 )}
