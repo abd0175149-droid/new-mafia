@@ -178,12 +178,12 @@ export default function DynamicMafiaCard({
         >
           {/* القسم العلوي (2/3): صورة اللاعب */}
           <div className="relative" style={{ height: '66.66%' }}>
-            {/* الخلفية: صورة أو تدرج */}
+            {/* z-1: الخلفية: صورة اللاعب أو أفاتار حسب الجنس */}
             <div className="absolute inset-0" style={{ zIndex: 1, ...(cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}) }}>
               {resolvedAvatarUrl ? (
                 <img src={resolvedAvatarUrl} alt={playerName} className="w-full h-full object-cover" style={{ opacity: 0.8 }} onError={() => setAvatarError(true)} />
               ) : (
-                <div className="w-full h-full" style={{ background: isFemale ? 'linear-gradient(to bottom, rgba(88,28,135,0.6), rgba(59,7,100,0.8), black)' : 'linear-gradient(to bottom, rgba(63,63,70,0.5), rgba(24,24,27,0.8), black)' }} />
+                <img src={isFemale ? '/avatars/female.png' : '/avatars/male.png'} alt="avatar" className="w-full h-full object-cover" style={{ opacity: 0.7 }} />
               )}
             </div>
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" style={{ zIndex: 2 }} />
