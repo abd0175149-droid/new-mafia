@@ -179,17 +179,17 @@ export default function DynamicMafiaCard({
           {/* القسم العلوي (2/3): صورة اللاعب */}
           <div className="relative" style={{ height: '66.66%' }}>
             {/* الخلفية: صورة أو تدرج */}
-            <div className="absolute inset-0" style={cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}}>
+            <div className="absolute inset-0" style={{ zIndex: 1, ...(cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}) }}>
               {resolvedAvatarUrl ? (
                 <img src={resolvedAvatarUrl} alt={playerName} className="w-full h-full object-cover" style={{ opacity: 0.8 }} onError={() => setAvatarError(true)} />
               ) : (
                 <div className="w-full h-full" style={{ background: isFemale ? 'linear-gradient(to bottom, rgba(88,28,135,0.6), rgba(59,7,100,0.8), black)' : 'linear-gradient(to bottom, rgba(63,63,70,0.5), rgba(24,24,27,0.8), black)' }} />
               )}
             </div>
-            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" />
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" style={{ zIndex: 2 }} />
 
             {/* رقم اللاعب — دائماً watermark كبير (مثل المحرر بالضبط) */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 5 }}>
               <span
                 className="font-mono font-black"
                 style={{
@@ -206,14 +206,14 @@ export default function DynamicMafiaCard({
             </div>
 
             {isSilenced && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-900/80 border border-rose-500/40 px-2 py-0.5 rounded-full z-20">
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-900/80 border border-rose-500/40 px-2 py-0.5 rounded-full" style={{ zIndex: 20 }}>
                 <span className="text-[10px] text-rose-300 font-mono tracking-widest">🔇 MUTED</span>
               </div>
             )}
           </div>
 
           {/* القسم السفلي (1/3): الاسم + الشعار */}
-          <div className="relative flex flex-col items-center justify-center bg-black px-3" style={{ height: '33.33%' }}>
+          <div className="relative flex flex-col items-center justify-center bg-black px-3" style={{ height: '33.33%', zIndex: 5 }}>
             <div className="absolute top-0 left-[15%] right-[15%] h-[1px]" style={{ backgroundColor: isFemale ? 'rgba(192,132,252,0.3)' : (borderColor ? `${borderColor}66` : 'rgba(197,160,89,0.3)') }} />
 
             {showVoting ? (
@@ -235,10 +235,12 @@ export default function DynamicMafiaCard({
               </>
             )}
 
-            {/* Shapes on Cover Face */}
-            {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
-              <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
-            ))}
+          </div>
+
+          {/* Shapes on Cover Face — على مستوى الكارد كامل (مثل المحرر) */}
+          {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
+            <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex || 3, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2, transform: `translate(${s.x || 0}px, ${s.y || 0}px)` }} />
+          ))
           </div>
         </div>
 
