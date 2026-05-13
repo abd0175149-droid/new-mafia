@@ -445,7 +445,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                     <motion.div 
                       drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverPhoto')} onDragEnd={(e, info) => setPos('coverPhoto', info.offset.x, info.offset.y)}
                       animate={{ x: pos.coverPhoto?.x || 0, y: pos.coverPhoto?.y || 0, scale: pos.coverPhoto?.s || 1 }}
-                      className="absolute inset-0 cursor-move hover:ring-2 ring-white/30"
+                      className="absolute inset-0 cursor-move hover:ring-2 ring-white/30" style={{ zIndex: 1 }}
                     >
                       {previewHasPhoto ? (
                          <img src="https://ui-avatars.com/api/?name=Player&background=random" alt="Cover" className="w-full h-full object-cover opacity-80" />
@@ -453,10 +453,10 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                          <div className="w-full h-full bg-gradient-to-b from-zinc-700/50 via-zinc-900/80 to-black" />
                       )}
                     </motion.div>
-                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" />
+                    <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" style={{ zIndex: 2 }} />
                     
                     {/* Player Number */}
-                    <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: 5 }}>
                       <motion.span 
                         drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverNumber')} onDragEnd={(e, info) => setPos('coverNumber', info.offset.x, info.offset.y)}
                         animate={{ x: pos.coverNumber?.x || 0, y: pos.coverNumber?.y || 0, scale: pos.coverNumber?.s || 1 }}
@@ -467,7 +467,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                   </div>
 
                   {/* Bottom 1/3 */}
-                  <div className="relative h-[33.33%] flex flex-col items-center justify-center px-3 bg-black">
+                  <div className="relative h-[33.33%] flex flex-col items-center justify-center px-3 bg-black" style={{ zIndex: 5 }}>
                     <div className="absolute top-0 left-[15%] right-[15%] h-[1px] bg-[#C5A059]/30" />
                     <motion.h2 
                       drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'coverName')} onDragEnd={(e, info) => setPos('coverName', info.offset.x, info.offset.y)}
