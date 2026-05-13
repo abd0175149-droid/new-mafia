@@ -10,20 +10,52 @@ function LI({ name, size = 24, className = '' }: { name: string; size?: number; 
   return <Icon size={size} className={className} />;
 }
 
-const GRADIENTS = [
-  { l: 'أحمر', v: 'from-red-800 via-red-900 to-red-950' },
-  { l: 'ذهبي', v: 'from-amber-800 via-amber-900 to-yellow-950' },
-  { l: 'أزرق', v: 'from-blue-800 via-blue-900 to-blue-950' },
-  { l: 'أخضر', v: 'from-emerald-800 via-emerald-900 to-green-950' },
-  { l: 'بنفسجي', v: 'from-fuchsia-800 via-fuchsia-900 to-fuchsia-950' },
-  { l: 'نيلي', v: 'from-indigo-800 via-indigo-900 to-indigo-950' },
-  { l: 'وردي', v: 'from-rose-800 via-rose-900 to-rose-950' },
-  { l: 'سماوي', v: 'from-cyan-800 via-cyan-900 to-cyan-950' },
-  { l: 'رمادي', v: 'from-zinc-700 via-zinc-800 to-zinc-900' },
-  { l: 'زيتي', v: 'from-teal-800 via-teal-900 to-teal-950' },
+// ── CSS Gradient Helpers ──
+const DIRECTIONS = [
+  { l: '↓ للأسفل', v: 'to bottom', deg: '180deg' },
+  { l: '↑ للأعلى', v: 'to top', deg: '0deg' },
+  { l: '← لليسار', v: 'to left', deg: '270deg' },
+  { l: '→ لليمين', v: 'to right', deg: '90deg' },
+  { l: '↘ قطري', v: 'to bottom right', deg: '135deg' },
+  { l: '↗ قطري عكسي', v: 'to top right', deg: '45deg' },
 ];
-const BORDERS = ['border-red-500/60','border-amber-400/60','border-blue-500/60','border-emerald-500/60','border-fuchsia-500/60','border-indigo-500/60','border-rose-500/60','border-cyan-500/60','border-zinc-500/60','border-teal-500/60'];
-const TEXTS = ['text-red-300','text-amber-300','text-blue-300','text-emerald-300','text-fuchsia-300','text-indigo-300','text-rose-300','text-cyan-300','text-zinc-300','text-teal-300'];
+
+function parseGradient(g: string): { color1: string; color2: string; direction: string } {
+  // parse CSS: linear-gradient(to bottom, #c1, #c2)
+  const m = g?.match(/linear-gradient\(([^,]+),\s*([^,]+),\s*([^)]+)\)/);
+  if (m) return { direction: m[1].trim(), color1: m[2].trim(), color2: m[3].trim() };
+  return { color1: '#991b1b', color2: '#1a0000', direction: 'to bottom' };
+}
+function buildGradient(color1: string, color2: string, direction: string): string {
+  return `linear-gradient(${direction}, ${color1}, ${color2})`;
+}
+function parseRgba(s: string): { color: string; opacity: number } {
+  const m = s?.match(/rgba\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/);
+  if (m) {
+    const hex = '#' + [m[1],m[2],m[3]].map(c => parseInt(c.trim()).toString(16).padStart(2,'0')).join('');
+    return { color: hex, opacity: parseFloat(m[4]) };
+  }
+  if (s?.startsWith('#')) return { color: s.slice(0,7), opacity: 1 };
+  return { color: '#ef4444', opacity: 0.6 };
+}
+function hexToRgba(hex: string, opacity: number): string {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+function parseGlow(s: string): { color: string; size: number; opacity: number } {
+  const m = s?.match(/0\s+0\s+(\d+)px\s+rgba\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)/);
+  if (m) {
+    const hex = '#' + [m[2],m[3],m[4]].map(c => parseInt(c.trim()).toString(16).padStart(2,'0')).join('');
+    return { size: parseInt(m[1]), color: hex, opacity: parseFloat(m[5]) };
+  }
+  return { color: '#fbbf24', size: 40, opacity: 0 };
+}
+function buildGlow(color: string, size: number, opacity: number): string {
+  if (opacity <= 0) return '';
+  const r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b = parseInt(color.slice(5,7),16);
+  return `0 0 ${size}px rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+
 const ICONS = [
   { l: 'مستخدم', v: 'User' },{ l: 'قلب', v: 'HeartPulse' },{ l: 'درع', v: 'Shield' },{ l: 'حقنة', v: 'Syringe' },
   { l: 'نيشان', v: 'Crosshair' },{ l: 'شارة', v: 'BadgeAlert' },{ l: 'جمجمة', v: 'Skull' },{ l: 'تاج', v: 'Crown' },
@@ -34,10 +66,6 @@ const FONTS = [
   { l: 'أميري (كلاسيكي)', v: 'Amiri, serif' },{ l: 'القاهرة', v: 'Cairo, sans-serif' },
   { l: 'تجوال', v: 'Tajawal, sans-serif' },{ l: 'نوتو كوفي', v: 'Noto Kufi Arabic, sans-serif' },
   { l: 'ريم كوفي', v: 'Reem Kufi, sans-serif' },{ l: 'Inter', v: 'Inter, sans-serif' },
-];
-const GLOWS = [
-  { l: 'بدون', v: '' },{ l: 'ذهبي', v: 'shadow-[0_0_40px_rgba(251,191,36,0.25)]' },
-  { l: 'أحمر', v: 'shadow-[0_0_40px_rgba(239,68,68,0.25)]' },{ l: 'أزرق', v: 'shadow-[0_0_40px_rgba(59,130,246,0.25)]' },
 ];
 
 type Tab = 'colors' | 'icon' | 'typography' | 'elements' | 'shapes' | 'secret';
@@ -155,49 +183,85 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
             </div>
 
             {/* Tab: Colors */}
-            {tab === 'colors' && <>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">التدرج اللوني</label>
-                <div className="flex flex-wrap gap-2">
-                  {GRADIENTS.map(p => (
-                    <button key={p.v} onClick={() => setEditing({ ...editing, gradient: p.v })}
-                      className={`w-10 h-10 rounded-xl bg-gradient-to-b ${p.v} border-2 transition ${editing.gradient === p.v ? 'border-white ring-2 ring-amber-500/30' : 'border-gray-700/50 hover:border-gray-500'}`} title={p.l} />
-                  ))}
+            {tab === 'colors' && (() => {
+              const grad = parseGradient(editing.gradient || '');
+              const border = parseRgba(editing.borderColor || '');
+              const text = parseRgba(editing.textColor || '');
+              const glow = parseGlow(editing.glowEffect || '');
+              return <>
+              {/* التدرج اللوني */}
+              <div className="p-3 bg-gray-800/30 rounded-xl border border-gray-700/30 space-y-3">
+                <label className="text-xs text-gray-400 font-bold block">🎨 التدرج اللوني</label>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <span className="text-[10px] text-gray-500 block mb-1">اللون الأول</span>
+                    <input type="color" value={grad.color1} onChange={e => setEditing({ ...editing, gradient: buildGradient(e.target.value, grad.color2, grad.direction) })}
+                      className="w-full h-10 rounded-lg border border-gray-700 cursor-pointer bg-transparent" />
+                  </div>
+                  <button onClick={() => setEditing({ ...editing, gradient: buildGradient(grad.color2, grad.color1, grad.direction) })}
+                    className="mt-4 p-2 text-gray-400 hover:text-amber-400 transition" title="عكس الترتيب">⇄</button>
+                  <div className="flex-1">
+                    <span className="text-[10px] text-gray-500 block mb-1">اللون الثاني</span>
+                    <input type="color" value={grad.color2} onChange={e => setEditing({ ...editing, gradient: buildGradient(grad.color1, e.target.value, grad.direction) })}
+                      className="w-full h-10 rounded-lg border border-gray-700 cursor-pointer bg-transparent" />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] text-gray-500 block mb-1">اتجاه التدرج</span>
+                  <div className="flex flex-wrap gap-1">
+                    {DIRECTIONS.map(d => (
+                      <button key={d.v} onClick={() => setEditing({ ...editing, gradient: buildGradient(grad.color1, grad.color2, d.v) })}
+                        className={`px-2.5 py-1.5 rounded-lg text-[10px] border transition ${grad.direction === d.v ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-500 border-gray-700/40 hover:text-gray-300'}`}>{d.l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="h-6 rounded-lg" style={{ background: editing.gradient || 'linear-gradient(to bottom, #991b1b, #1a0000)' }} />
+              </div>
+              {/* لون الحدود */}
+              <div className="p-3 bg-gray-800/30 rounded-xl border border-gray-700/30 space-y-2">
+                <label className="text-xs text-gray-400 font-bold block">🔲 لون الحدود</label>
+                <div className="flex items-center gap-3">
+                  <input type="color" value={border.color} onChange={e => setEditing({ ...editing, borderColor: hexToRgba(e.target.value, border.opacity) })}
+                    className="w-12 h-10 rounded-lg border border-gray-700 cursor-pointer bg-transparent" />
+                  <div className="flex-1">
+                    <span className="text-[10px] text-gray-500">الشفافية: {Math.round(border.opacity*100)}%</span>
+                    <input type="range" min="0" max="1" step="0.05" value={border.opacity} onChange={e => setEditing({ ...editing, borderColor: hexToRgba(border.color, +e.target.value) })}
+                      className="w-full accent-amber-500" />
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">لون الحدود</label>
-                <div className="flex flex-wrap gap-2">
-                  {BORDERS.map(b => (
-                    <button key={b} onClick={() => setEditing({ ...editing, borderColor: b })}
-                      className={`w-8 h-8 rounded-lg border-2 ${b} bg-gray-800 transition ${editing.borderColor === b ? 'ring-2 ring-amber-500/30' : 'hover:opacity-80'}`} />
-                  ))}
+              {/* لون النص */}
+              <div className="p-3 bg-gray-800/30 rounded-xl border border-gray-700/30 space-y-2">
+                <label className="text-xs text-gray-400 font-bold block">✏️ لون النص</label>
+                <div className="flex items-center gap-3">
+                  <input type="color" value={text.color} onChange={e => setEditing({ ...editing, textColor: e.target.value })}
+                    className="w-12 h-10 rounded-lg border border-gray-700 cursor-pointer bg-transparent" />
+                  <span className="text-sm font-bold" style={{ color: editing.textColor || '#fca5a5' }}>معاينة النص</span>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">لون النص</label>
-                <div className="flex flex-wrap gap-2">
-                  {TEXTS.map(t => (
-                    <button key={t} onClick={() => setEditing({ ...editing, textColor: t })}
-                      className={`px-3 py-1.5 rounded-lg text-xs bg-gray-800 border border-gray-700/50 ${t} transition ${editing.textColor === t ? 'ring-2 ring-amber-500/30' : ''}`}>Aa</button>
-                  ))}
+              {/* التوهج */}
+              <div className="p-3 bg-gray-800/30 rounded-xl border border-gray-700/30 space-y-2">
+                <label className="text-xs text-gray-400 font-bold block">✨ التوهج</label>
+                <div className="flex items-center gap-3">
+                  <input type="color" value={glow.color} onChange={e => setEditing({ ...editing, glowEffect: buildGlow(e.target.value, glow.size, glow.opacity) })}
+                    className="w-12 h-10 rounded-lg border border-gray-700 cursor-pointer bg-transparent" />
+                  <div className="flex-1 space-y-1">
+                    <div><span className="text-[10px] text-gray-500">الحجم: {glow.size}px</span>
+                    <input type="range" min="10" max="100" value={glow.size} onChange={e => setEditing({ ...editing, glowEffect: buildGlow(glow.color, +e.target.value, glow.opacity) })}
+                      className="w-full accent-amber-500" /></div>
+                    <div><span className="text-[10px] text-gray-500">القوة: {Math.round(glow.opacity*100)}%</span>
+                    <input type="range" min="0" max="0.8" step="0.05" value={glow.opacity} onChange={e => setEditing({ ...editing, glowEffect: buildGlow(glow.color, glow.size, +e.target.value) })}
+                      className="w-full accent-amber-500" /></div>
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">التوهج</label>
-                <div className="flex flex-wrap gap-2">
-                  {GLOWS.map(g => (
-                    <button key={g.l} onClick={() => setEditing({ ...editing, glowEffect: g.v })}
-                      className={`px-3 py-1.5 rounded-lg text-xs border transition ${editing.glowEffect === g.v ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>{g.l}</button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">نص شارة الفريق</label>
-                <input value={editing.teamBadge?.text || ''} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || { bgColor: 'bg-blue-900/60', textColor: 'text-blue-300', borderColor: 'border-blue-500/30' }), text: e.target.value } })}
+              {/* شارة الفريق */}
+              <div className="p-3 bg-gray-800/30 rounded-xl border border-gray-700/30 space-y-2">
+                <label className="text-xs text-gray-400 font-bold block">🏷️ نص شارة الفريق</label>
+                <input value={editing.teamBadge?.text || ''} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || { bgColor: 'rgba(30,58,138,0.6)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }), text: e.target.value } })}
                   className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none" />
               </div>
-            </>}
+            </>; })()}
 
             {/* Tab: Icon */}
             {tab === 'icon' && <>
@@ -372,7 +436,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
             </div>
 
             {/* Card Preview */}
-            <div className={`w-56 h-80 rounded-2xl overflow-hidden border-2 ${face === 'secret' ? (editing.borderColor || 'border-gray-500/40') : 'border-[#C5A059]/40'} ${face === 'secret' ? (editing.glowEffect || '') : ''} relative transition-all duration-300`}>
+            <div className="w-56 h-80 rounded-2xl overflow-hidden relative transition-all duration-300" style={{ border: face === 'secret' ? `2px solid ${editing.borderColor || 'rgba(107,114,128,0.4)'}` : '2px solid rgba(197,160,89,0.4)', boxShadow: face === 'secret' ? (editing.glowEffect || 'none') : 'none' }}>
               {face === 'front' ? (
                 /* Cover Face (The 'Front' in CSS, what others see) */
                 <div className="absolute inset-0 bg-black flex flex-col overflow-hidden">
@@ -440,8 +504,8 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                     <img src={`${process.env.NEXT_PUBLIC_API_URL || ''}${editing.secretFace.customImageUrl}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
                   ) : (
                     <>
-                      <div className={`absolute inset-0 bg-gradient-to-b ${editing.gradient || 'from-zinc-700 via-zinc-800 to-zinc-900'}`} />
-                      <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
+                      <div className="absolute inset-0" style={{ background: editing.gradient || 'linear-gradient(to bottom, #3f3f46, #18181b)' }} />
+                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
                       
                       {/* شارة */}
                       {editing.teamBadge && (
@@ -449,8 +513,8 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                           drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'badge')}
                           onDragEnd={(e, info) => setPos('badge', info.offset.x, info.offset.y)}
                           animate={{ x: pos.badge?.x || 0, y: pos.badge?.y || 0, scale: pos.badge?.s || 1 }}
-                          className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full border font-mono ${editing.teamBadge.bgColor} ${editing.teamBadge.textColor} ${editing.teamBadge.borderColor} cursor-move hover:ring-2 ring-white/30`}
-                          style={{ fontSize: badgeSize }}>
+                          className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full font-mono cursor-move hover:ring-2 ring-white/30"
+                          style={{ fontSize: badgeSize, backgroundColor: editing.teamBadge.bgColor || 'rgba(30,58,138,0.6)', color: editing.teamBadge.textColor || '#93c5fd', border: `1px solid ${editing.teamBadge.borderColor || 'rgba(59,130,246,0.3)'}` }}>
                           {editing.teamBadge.text}
                         </motion.div>
                       )}
@@ -460,7 +524,8 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                            drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'number')}
                            onDragEnd={(e, info) => setPos('number', info.offset.x, info.offset.y)}
                            animate={{ x: pos.number?.x || 0, y: pos.number?.y || 0, scale: pos.number?.s || 1 }}
-                           className={`absolute top-3 right-3 w-8 h-8 border ${editing.borderColor || 'border-gray-500/40'} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${editing.textColor || 'text-white'} cursor-move hover:ring-2 ring-white/30`}>
+                           className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 cursor-move hover:ring-2 ring-white/30"
+                           style={{ border: `1px solid ${editing.borderColor || 'rgba(107,114,128,0.4)'}`, color: editing.textColor || '#d4d4d8' }}>
                            7
                          </motion.div>
 
@@ -468,8 +533,8 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                           drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'icon')}
                           onDragEnd={(e, info) => setPos('icon', info.offset.x, info.offset.y)}
                           animate={{ x: pos.icon?.x || 0, y: pos.icon?.y || 0, scale: pos.icon?.s || 1 }}
-                          className={`rounded-full border-2 ${editing.borderColor || ''} flex items-center justify-center mb-5 ${editing.textColor || ''} cursor-move hover:ring-2 ring-white/30`}
-                          style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)' }}>
+                          className="rounded-full flex items-center justify-center mb-5 cursor-move hover:ring-2 ring-white/30"
+                          style={{ width: iconSize + 20, height: iconSize + 20, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)', border: `2px solid ${editing.borderColor || 'rgba(107,114,128,0.4)'}`, color: editing.textColor || '#d4d4d8' }}>
                           {editing.icon?.type?.toLowerCase() === 'emoji' ? (
                             <span style={{ fontSize: iconSize * 0.6 }}>{editing.icon.value}</span>
                           ) : editing.icon?.type?.toLowerCase() === 'lucide' ? (
@@ -483,8 +548,8 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                           animate={{ x: pos.title?.x || 0, y: pos.title?.y || 0, scale: pos.title?.s || 1 }}
                           className="cursor-move hover:ring-2 ring-white/30 rounded px-2"
                         >
-                          <h3 className={`font-black mb-2 ${editing.textColor || 'text-white'} text-center leading-tight`}
-                            style={{ fontFamily: font, fontSize: nameSize }}>
+                          <h3 className="font-black mb-2 text-center leading-tight"
+                            style={{ fontFamily: font, fontSize: nameSize, color: editing.textColor || '#d4d4d8' }}>
                             {linkedRoles[0]?.nameAr || 'اسم الدور'}
                           </h3>
                         </motion.div>
@@ -497,7 +562,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                              className="text-white/40 text-sm font-mono mt-1 cursor-move hover:ring-2 ring-white/30 px-2 rounded" dir="ltr">اللاعب</motion.p>
                         )}
                         
-                        <div className={`w-20 h-[1px] my-4 ${editing.borderColor ? editing.borderColor.replace('border-', 'bg-') : 'bg-white/10'}`} />
+                        <div className="w-20 h-[1px] my-4" style={{ backgroundColor: editing.borderColor || 'rgba(255,255,255,0.1)' }} />
                         
                         <motion.div
                           drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'footer')}

@@ -89,11 +89,10 @@ export default function DynamicMafiaCard({
   const isNeutral = roleDef ? roleDef.team === 'NEUTRAL' : false;
   const isFemale = gender === 'FEMALE';
 
-  // ── تحديد الألوان ──
-  // إذا فيه قالب من DB → نستخدمه، وإلا → ألوان افتراضية
-  const gradient = cardTemplate?.gradient || (isMafia ? 'from-red-800 via-red-900 to-red-950' : isNeutral ? 'from-amber-800 via-amber-900 to-amber-950' : 'from-zinc-700 via-zinc-800 to-zinc-900');
-  const borderColor = cardTemplate?.borderColor || (isMafia ? 'border-red-500/60' : isNeutral ? 'border-amber-500/60' : 'border-zinc-500/60');
-  const textColor = cardTemplate?.textColor || (isMafia ? 'text-red-300' : isNeutral ? 'text-amber-300' : 'text-zinc-300');
+  // ── تحديد الألوان (CSS values مباشرة) ──
+  const gradient = cardTemplate?.gradient || 'linear-gradient(to bottom, #3f3f46, #18181b)';
+  const borderColor = cardTemplate?.borderColor || 'rgba(161,161,170,0.6)';
+  const textColor = cardTemplate?.textColor || '#d4d4d8';
   const glowEffect = cardTemplate?.glowEffect || '';
 
   // ── شارة الفريق ──
@@ -105,8 +104,9 @@ export default function DynamicMafiaCard({
       : { text: 'فريق المدينة 🔵', bgColor: 'bg-blue-900/60', textColor: 'text-blue-300', borderColor: 'border-blue-500/30' }
   );
 
-  // ── الأيقونة ──
-  const iconConfig = cardTemplate?.icon;
+  // ── الأيقونة (role-specific override أو من القالب) ──
+  const roleOverrides = roleDef?.cardOverrides as any;
+  const iconConfig = roleOverrides?.icon || cardTemplate?.icon;
   let RoleIcon: LucideIcon = User;
   let iconEmoji: string | null = null;
 
@@ -282,20 +282,22 @@ export default function DynamicMafiaCard({
         {/* 🂡 الوجه الخلفي — الكشف (ديناميكي) */}
         {/* ══════════════════════════════════ */}
         <div
-          className={`absolute inset-0 rounded-2xl overflow-hidden bg-black border-2 ${borderColor} ${glowEffect}`}
+          className={`absolute inset-0 rounded-2xl overflow-hidden bg-black`}
           style={{
+            border: `2px solid ${borderColor}`,
+            boxShadow: glowEffect || 'none',
             backfaceVisibility: 'hidden',
             WebkitBackfaceVisibility: 'hidden' as any,
             transform: 'rotateY(180deg) translateZ(0)',
           }}
         >
-          {/* خلفية متدرجة من DB */}
-          <div className={`absolute inset-0 bg-gradient-to-b ${gradient}`} />
-          <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
+          {/* خلفية متدرجة من DB — CSS */}
+          <div className="absolute inset-0" style={{ background: gradient }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
 
           {/* شارة الفريق */}
-          <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${teamBadge.bgColor} ${teamBadge.textColor} ${teamBadge.borderColor}`}
-               style={cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}}>
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full text-[10px] font-mono tracking-widest"
+               style={{ backgroundColor: teamBadge.bgColor || 'rgba(30,58,138,0.6)', color: teamBadge.textColor || '#93c5fd', border: `1px solid ${teamBadge.borderColor || 'rgba(59,130,246,0.3)'}`, ...(cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}) }}>
             {teamBadge.text}
           </div>
 
@@ -303,23 +305,21 @@ export default function DynamicMafiaCard({
           <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden" dir="rtl" style={{ textAlign: 'center' }}>
             {/* رقم اللاعب صغير */}
             <div 
-              className={`absolute top-3 right-3 w-8 h-8 border ${borderColor} flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40 ${textColor}`}
-              style={cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}}
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40"
+              style={{ border: `1px solid ${borderColor}`, color: textColor, ...(cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}) }}
             >
               {playerNumber}
             </div>
 
             {/* دائرة الأيقونة */}
             <div
-              className={`w-24 h-24 rounded-full border-2 ${borderColor} flex items-center justify-center mb-5 ${textColor}`}
+              className="w-24 h-24 rounded-full flex items-center justify-center mb-5"
               style={{
+                border: `2px solid ${borderColor}`,
+                color: textColor,
                 background: 'rgba(0,0,0,0.4)',
                 backdropFilter: 'blur(12px)',
-                boxShadow: isMafia
-                  ? '0 0 40px rgba(220, 38, 38, 0.15), inset 0 0 20px rgba(0,0,0,0.3)'
-                  : isNeutral
-                  ? '0 0 40px rgba(217, 119, 6, 0.15), inset 0 0 20px rgba(0,0,0,0.3)'
-                  : '0 0 40px rgba(100, 200, 255, 0.1), inset 0 0 20px rgba(0,0,0,0.3)',
+                boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)',
                 ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px) scale(${cardTemplate.elements.positions.icon.s || 1})` } : {})
               }}
             >
@@ -332,8 +332,8 @@ export default function DynamicMafiaCard({
 
             {/* اسم الدور */}
             <h3 
-              className={`${roleNameSize} font-black mb-2 ${textColor}`} 
-              style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px) scale(${cardTemplate.elements.positions.title.s || 1})` } : {}) }}
+              className={`${roleNameSize} font-black mb-2`} 
+              style={{ fontFamily: 'Amiri, serif', color: textColor, ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px) scale(${cardTemplate.elements.positions.title.s || 1})` } : {}) }}
             >
               {roleName}
             </h3>
@@ -350,9 +350,7 @@ export default function DynamicMafiaCard({
             )}
 
             {/* الخط الفاصل */}
-            <div className={`w-20 h-[1px] my-4 ${
-              isMafia ? 'bg-red-500/30' : isNeutral ? 'bg-amber-500/30' : 'bg-blue-500/30'
-            }`} />
+            <div className="w-20 h-[1px] my-4" style={{ backgroundColor: borderColor }} />
 
             {/* نص أسفل */}
             <div 

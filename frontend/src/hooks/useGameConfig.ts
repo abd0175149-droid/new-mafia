@@ -156,8 +156,13 @@ export function useGameConfig() {
   const getCardForRole = useCallback((roleId: string | null): CardTemplateDef | null => {
     if (!roleId) return null;
     const role = roles.find(r => r.id === roleId);
-    if (!role?.cardTemplateId) return null;
-    return cards.find(c => c.id === role.cardTemplateId) || null;
+    // إذا الدور مرتبط بقالب محدد → نستخدمه
+    if (role?.cardTemplateId) {
+      const found = cards.find(c => c.id === role.cardTemplateId);
+      if (found) return found;
+    }
+    // fallback → القالب الرئيسي (master)
+    return cards.find(c => c.id === 'master') || cards[0] || null;
   }, [roles, cards]);
 
   // ── Helper: هل الدور مافيا ──
