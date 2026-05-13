@@ -98,10 +98,10 @@ export default function DynamicMafiaCard({
   // ── شارة الفريق ──
   const teamBadge = cardTemplate?.teamBadge || (
     isMafia
-      ? { text: 'فريق المافيا 🔴', bgColor: 'bg-red-900/60', textColor: 'text-red-300', borderColor: 'border-red-500/30' }
+      ? { text: 'فريق المافيا 🔴', bgColor: 'rgba(127,29,29,0.6)', textColor: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)' }
       : isNeutral
-      ? { text: 'محايد ⚪', bgColor: 'bg-amber-900/60', textColor: 'text-amber-300', borderColor: 'border-amber-500/30' }
-      : { text: 'فريق المدينة 🔵', bgColor: 'bg-blue-900/60', textColor: 'text-blue-300', borderColor: 'border-blue-500/30' }
+      ? { text: 'محايد ⚪', bgColor: 'rgba(120,53,15,0.6)', textColor: '#fcd34d', borderColor: 'rgba(245,158,11,0.3)' }
+      : { text: 'فريق المدينة 🔵', bgColor: 'rgba(30,58,138,0.6)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }
   );
 
   // ── الأيقونة (role-specific override أو من القالب) ──

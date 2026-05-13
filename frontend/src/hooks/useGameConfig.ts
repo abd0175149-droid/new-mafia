@@ -81,11 +81,9 @@ function getToken() {
 
 async function fetchFromAPI(path: string) {
   const token = getToken();
-  const res = await fetch(`${API_URL}/api/game-config${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_URL}/api/game-config${path}`, { headers });
   if (!res.ok) return null;
   const data = await res.json();
   return data.data || data;

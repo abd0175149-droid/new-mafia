@@ -52,7 +52,7 @@ function stripMeta(body: any) {
 // ══════════════════════════════════════════════
 
 // GET /api/game-config/abilities
-router.get('/abilities', authenticate, async (_req: Request, res: Response) => {
+router.get('/abilities', async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
@@ -122,7 +122,7 @@ router.delete('/abilities/:id', authenticate, async (req: Request, res: Response
 // ══════════════════════════════════════════════
 
 // GET /api/game-config/roles
-router.get('/roles', authenticate, async (_req: Request, res: Response) => {
+router.get('/roles', async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
@@ -184,7 +184,7 @@ router.delete('/roles/:id', authenticate, async (req: Request, res: Response) =>
 // ══════════════════════════════════════════════
 
 // GET /api/game-config/card-templates
-router.get('/card-templates', authenticate, async (_req: Request, res: Response) => {
+router.get('/card-templates', async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   try {
