@@ -33,9 +33,11 @@ export default function MafiaCard({
   ...props
 }: SmartMafiaCardProps) {
   if (useDynamicEngine) {
+    console.log('🎴 MafiaCard: using DYNAMIC engine for role:', props.role);
     return <DynamicMafiaCard {...props} />;
   }
 
+  console.log('🎴 MafiaCard: using LEGACY engine for role:', props.role);
   // المحرك القديم
   return <MafiaCardLegacy {...(props as MafiaCardProps)} />;
 }

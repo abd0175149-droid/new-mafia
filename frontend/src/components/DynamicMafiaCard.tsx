@@ -95,6 +95,8 @@ export default function DynamicMafiaCard({
   const textColor = cardTemplate?.textColor || '#d4d4d8';
   const glowEffect = cardTemplate?.glowEffect || '';
 
+  console.log(`🎴 DynamicCard [${role}]: template=${cardTemplate?.id || 'NULL'}, gradient=${gradient?.slice(0,40)}, roles=${!!roleDef}, loading=${loading}`);
+
   // ── شارة الفريق ──
   const teamBadge = cardTemplate?.teamBadge || (
     isMafia

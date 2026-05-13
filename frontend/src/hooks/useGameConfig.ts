@@ -121,6 +121,10 @@ export function useGameConfig() {
       _abilityCache = abilitiesData || [];
       _lastFetch = now;
 
+      console.log(`🔧 useGameConfig: loaded ${_roleCache.length} roles, ${_cardCache.length} cards, ${_abilityCache.length} abilities`);
+      if (_cardCache.length > 0) console.log('🔧 useGameConfig: first card =', JSON.stringify(_cardCache[0]?.id), 'gradient=', _cardCache[0]?.gradient?.slice(0,40));
+      if (_cardCache.length === 0) console.warn('⚠️ useGameConfig: NO card templates loaded!');
+
       setRoles(_roleCache || []);
       setCards(_cardCache || []);
       setAbilities(_abilityCache || []);
