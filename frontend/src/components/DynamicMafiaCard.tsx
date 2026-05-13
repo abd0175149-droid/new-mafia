@@ -96,7 +96,7 @@ export default function DynamicMafiaCard({
   const glowEffect = cardTemplate?.glowEffect || '';
 
   // ── شارة الفريق (النص والألوان من القالب مع تبديل النص حسب الفريق) ──
-  const tb = cardTemplate?.teamBadge || {};
+  const tb = (cardTemplate?.teamBadge || {}) as any;
   const teamText = isMafia
     ? (tb.mafiaText || 'فريق المافيا 🔴')
     : isNeutral
