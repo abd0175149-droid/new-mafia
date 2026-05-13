@@ -303,7 +303,10 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                     {linkedRoles.map(r => {
                       const rIcon = r.cardOverrides?.icon;
                       return (
-                        <button key={r.id} onClick={() => setSelectedRoleId(selectedRoleId === r.id ? null : r.id)}
+                        <button key={r.id} onClick={() => {
+                          if (selectedRoleId === r.id) { setSelectedRoleId(null); setEditingRoleIcon(null); }
+                          else { setSelectedRoleId(r.id); setEditingRoleIcon(rIcon || { type: 'lucide', value: 'User' }); }
+                        }}
                           className={`flex items-center gap-1.5 text-[10px] px-2 py-1.5 rounded-lg border transition ${selectedRoleId === r.id ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : r.team === 'MAFIA' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : r.team === 'NEUTRAL' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
                           {rIcon?.type === 'lucide' ? <LI name={rIcon.value} size={14} /> : rIcon?.type === 'emoji' ? <span>{rIcon.value}</span> : <LI name="User" size={14} />}
                           {r.nameAr}
