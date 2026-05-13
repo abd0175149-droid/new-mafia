@@ -29,7 +29,7 @@ interface SmartMafiaCardProps extends Omit<MafiaCardProps, 'role'> {
 }
 
 export default function MafiaCard({
-  useDynamicEngine = false,
+  useDynamicEngine = true,
   ...props
 }: SmartMafiaCardProps) {
   if (useDynamicEngine) {
