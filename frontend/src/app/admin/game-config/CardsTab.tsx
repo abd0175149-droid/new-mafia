@@ -132,12 +132,14 @@ export default function CardsTab() {
     if (!editing) return;
     setSaving(true); setError('');
     try {
-      const isNew = !items.find(i => i.id === editing.id);
+      const editId = editing.id;
+      const isNew = !editId || !items.find(i => i.id === editId);
       if (isNew) {
+        if (!editId) { setError('يجب تعيين معرّف (ID) للقالب'); setSaving(false); return; }
         await gcFetch('/card-templates', { method: 'POST', body: JSON.stringify(editing) });
       } else {
-        const { id, createdAt, updatedAt, ...body } = editing as any;
-        await gcFetch(`/card-templates/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+        const { id: _id, createdAt, updatedAt, created_at, updated_at, ...body } = editing as any;
+        await gcFetch(`/card-templates/${encodeURIComponent(editId)}`, { method: 'PUT', body: JSON.stringify(body) });
       }
       setEditing(null); load();
     } catch (e: any) { setError(e.message); }
