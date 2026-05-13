@@ -95,16 +95,21 @@ export default function DynamicMafiaCard({
   const textColor = cardTemplate?.textColor || '#d4d4d8';
   const glowEffect = cardTemplate?.glowEffect || '';
 
-  // ── شارة الفريق (النص يتغير حسب الفريق، الألوان من القالب أو defaults) ──
-  const teamDefaults = isMafia
-    ? { text: 'فريق المافيا 🔴', bgColor: 'rgba(127,29,29,0.6)', textColor: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)' }
+  // ── شارة الفريق (النص والألوان من القالب مع تبديل النص حسب الفريق) ──
+  const tb = cardTemplate?.teamBadge || {};
+  const teamText = isMafia
+    ? (tb.mafiaText || 'فريق المافيا 🔴')
     : isNeutral
-    ? { text: 'محايد ⚪', bgColor: 'rgba(120,53,15,0.6)', textColor: '#fcd34d', borderColor: 'rgba(245,158,11,0.3)' }
-    : { text: 'فريق المدينة 🔵', bgColor: 'rgba(30,58,138,0.6)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' };
+    ? (tb.neutralText || 'محايد ⚪')
+    : (tb.citizenText || 'فريق المدينة 🔵');
   const teamBadge = {
-    ...teamDefaults,
-    ...(cardTemplate?.teamBadge || {}),
-    text: teamDefaults.text, // النص دائماً من الفريق وليس القالب
+    visible: tb.visible !== false,
+    text: teamText,
+    bgColor: tb.bgColor || (isMafia ? 'rgba(127,29,29,0.6)' : isNeutral ? 'rgba(120,53,15,0.6)' : 'rgba(30,58,138,0.6)'),
+    textColor: tb.textColor || (isMafia ? '#fca5a5' : isNeutral ? '#fcd34d' : '#93c5fd'),
+    borderColor: tb.borderColor || (isMafia ? 'rgba(239,68,68,0.3)' : isNeutral ? 'rgba(245,158,11,0.3)' : 'rgba(59,130,246,0.3)'),
+    fontSize: tb.fontSize || 10,
+    borderRadius: tb.borderRadius != null ? `${tb.borderRadius}px` : '9999px',
   };
 
   // ── الأيقونة (role-specific override أو من القالب) ──
@@ -261,10 +266,12 @@ export default function DynamicMafiaCard({
           <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
 
           {/* شارة الفريق */}
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 rounded-full text-[10px] font-mono tracking-widest"
-               style={{ backgroundColor: teamBadge.bgColor || 'rgba(30,58,138,0.6)', color: teamBadge.textColor || '#93c5fd', border: `1px solid ${teamBadge.borderColor || 'rgba(59,130,246,0.3)'}`, ...(cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}) }}>
-            {teamBadge.text}
-          </div>
+          {teamBadge.visible && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 font-mono tracking-widest whitespace-nowrap"
+                 style={{ fontSize: `${teamBadge.fontSize}px`, borderRadius: teamBadge.borderRadius, backgroundColor: teamBadge.bgColor, color: teamBadge.textColor, border: `1px solid ${teamBadge.borderColor}`, ...(cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}) }}>
+              {teamBadge.text}
+            </div>
+          )}
 
           {/* المحتوى */}
           <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden" dir="rtl" style={{ textAlign: 'center' }}>

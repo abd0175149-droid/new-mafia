@@ -332,6 +332,58 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                     className="w-5 h-5 accent-amber-500 rounded" />
                 </label>
               ))}
+
+              {/* ── شارة الفريق ── */}
+              <div className="p-3 bg-gray-800/50 rounded-xl border border-gray-700/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-300 font-bold">🏷️ شارة الفريق</span>
+                  <input type="checkbox" checked={editing.teamBadge?.visible !== false} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), visible: e.target.checked } })}
+                    className="w-5 h-5 accent-amber-500 rounded" />
+                </div>
+                {editing.teamBadge?.visible !== false && (<>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-1">نص المافيا</label>
+                    <input value={editing.teamBadge?.mafiaText ?? 'فريق المافيا 🔴'} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), mafiaText: e.target.value } })}
+                      className="w-full px-2 py-1.5 bg-gray-900/80 border border-gray-700/50 rounded-lg text-white text-xs focus:border-amber-500/50 focus:outline-none" dir="rtl" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-1">نص المواطنين</label>
+                    <input value={editing.teamBadge?.citizenText ?? 'فريق المدينة 🔵'} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), citizenText: e.target.value } })}
+                      className="w-full px-2 py-1.5 bg-gray-900/80 border border-gray-700/50 rounded-lg text-white text-xs focus:border-amber-500/50 focus:outline-none" dir="rtl" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-500 block mb-1">نص المحايد</label>
+                    <input value={editing.teamBadge?.neutralText ?? 'محايد ⚪'} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), neutralText: e.target.value } })}
+                      className="w-full px-2 py-1.5 bg-gray-900/80 border border-gray-700/50 rounded-lg text-white text-xs focus:border-amber-500/50 focus:outline-none" dir="rtl" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className="text-[10px] text-gray-500">الخلفية
+                      <input type="color" value={parseRgba(editing.teamBadge?.bgColor || 'rgba(127,29,29,0.6)').color} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), bgColor: hexToRgba(e.target.value, 0.6) } })}
+                        className="w-full h-7 bg-gray-900 border border-gray-700 rounded mt-1 cursor-pointer" />
+                    </label>
+                    <label className="text-[10px] text-gray-500">النص
+                      <input type="color" value={editing.teamBadge?.textColor || '#fca5a5'} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), textColor: e.target.value } })}
+                        className="w-full h-7 bg-gray-900 border border-gray-700 rounded mt-1 cursor-pointer" />
+                    </label>
+                    <label className="text-[10px] text-gray-500">الحد
+                      <input type="color" value={parseRgba(editing.teamBadge?.borderColor || 'rgba(239,68,68,0.3)').color} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), borderColor: hexToRgba(e.target.value, 0.3) } })}
+                        className="w-full h-7 bg-gray-900 border border-gray-700 rounded mt-1 cursor-pointer" />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-[10px] text-gray-500">حجم الخط
+                      <input type="number" min={6} max={20} value={editing.teamBadge?.fontSize ?? 10} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), fontSize: +e.target.value } })}
+                        className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 mt-1 text-gray-300 text-xs" />
+                    </label>
+                    <label className="text-[10px] text-gray-500">الزوايا
+                      <input type="range" min={0} max={20} value={editing.teamBadge?.borderRadius ?? 9999} onChange={e => setEditing({ ...editing, teamBadge: { ...(editing.teamBadge || {}), borderRadius: +e.target.value } })}
+                        className="w-full accent-amber-500 mt-2" />
+                    </label>
+                  </div>
+                  <p className="text-[9px] text-gray-600 text-center">💡 اسحب الشارة في معاينة وجه الدور لتغيير موقعها</p>
+                </>)}
+              </div>
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">نص مخصص في الأسفل</label>
                 <input value={el.customFooterText || ''} onChange={e => setEl({ customFooterText: e.target.value })}
@@ -507,15 +559,15 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                       <div className="absolute inset-0" style={{ background: editing.gradient || 'linear-gradient(to bottom, #3f3f46, #18181b)' }} />
                       <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
                       
-                      {/* شارة */}
-                      {editing.teamBadge && (
+                      {/* شارة الفريق */}
+                      {editing.teamBadge?.visible !== false && (
                         <motion.div 
                           drag dragMomentum={false} dragElastic={0} onWheel={e => onWheelScale(e, 'badge')}
                           onDragEnd={(e, info) => setPos('badge', info.offset.x, info.offset.y)}
                           animate={{ x: pos.badge?.x || 0, y: pos.badge?.y || 0, scale: pos.badge?.s || 1 }}
-                          className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 rounded-full font-mono cursor-move hover:ring-2 ring-white/30"
-                          style={{ fontSize: badgeSize, backgroundColor: editing.teamBadge.bgColor || 'rgba(30,58,138,0.6)', color: editing.teamBadge.textColor || '#93c5fd', border: `1px solid ${editing.teamBadge.borderColor || 'rgba(59,130,246,0.3)'}` }}>
-                          {editing.teamBadge.text}
+                          className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-2.5 py-0.5 font-mono cursor-move hover:ring-2 ring-white/30 tracking-widest whitespace-nowrap"
+                          style={{ fontSize: editing.teamBadge?.fontSize || badgeSize, borderRadius: editing.teamBadge?.borderRadius != null ? `${editing.teamBadge.borderRadius}px` : '9999px', backgroundColor: editing.teamBadge?.bgColor || 'rgba(127,29,29,0.6)', color: editing.teamBadge?.textColor || '#fca5a5', border: `1px solid ${editing.teamBadge?.borderColor || 'rgba(239,68,68,0.3)'}` }}>
+                          {editing.teamBadge?.mafiaText || 'فريق المافيا 🔴'}
                         </motion.div>
                       )}
 
