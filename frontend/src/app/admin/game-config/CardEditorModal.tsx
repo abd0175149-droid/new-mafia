@@ -75,7 +75,7 @@ interface Props {
   editing: any;
   setEditing: (v: any) => void;
   isNew: boolean;
-  linkedRoles: { id: string; nameAr: string; team: string }[];
+  linkedRoles: { id: string; nameAr: string; team: string; cardOverrides?: any }[];
   onSave: () => void;
   onClose: () => void;
   saving: boolean;
@@ -88,6 +88,8 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
   const [tab, setTab] = useState<Tab>('colors');
   const [face, setFace] = useState<Face>('front');
   const [previewHasPhoto, setPreviewHasPhoto] = useState(true);
+  const [selectedRoleId, setSelectedRoleId] = useState<string|null>(null);
+  const [roleIconSaving, setRoleIconSaving] = useState(false);
 
   const el = editing.elements || { showPlayerNumber: true, showClubBranding: true, showDescription: true };
   const setEl = (p: any) => setEditing({ ...editing, elements: { ...el, ...p } });
@@ -291,6 +293,66 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                 <input type="range" min={24} max={80} value={iconSize} onChange={e => setEl({ iconSize: +e.target.value })}
                   className="w-full accent-amber-500" />
               </div>
+
+              {/* ── أيقونات الأدوار المرتبطة ── */}
+              {linkedRoles.length > 0 && (
+                <div className="p-3 bg-gray-800/50 rounded-xl border border-gray-700/40 space-y-3 mt-3">
+                  <label className="text-xs text-gray-400 font-bold block">🎭 أيقونة لكل دور</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {linkedRoles.map(r => {
+                      const rIcon = r.cardOverrides?.icon;
+                      return (
+                        <button key={r.id} onClick={() => setSelectedRoleId(selectedRoleId === r.id ? null : r.id)}
+                          className={`flex items-center gap-1.5 text-[10px] px-2 py-1.5 rounded-lg border transition ${selectedRoleId === r.id ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : r.team === 'MAFIA' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : r.team === 'NEUTRAL' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+                          {rIcon?.type === 'lucide' ? <LI name={rIcon.value} size={14} /> : rIcon?.type === 'emoji' ? <span>{rIcon.value}</span> : <LI name="User" size={14} />}
+                          {r.nameAr}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedRoleId && (() => {
+                    const sr = linkedRoles.find(r => r.id === selectedRoleId);
+                    if (!sr) return null;
+                    const curIcon = sr.cardOverrides?.icon || { type: 'lucide', value: 'User' };
+                    const saveRoleIcon = async (icon: any) => {
+                      setRoleIconSaving(true);
+                      try {
+                        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+                        await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/game-config/roles/${sr.id}`, {
+                          method: 'PUT', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+                          body: JSON.stringify({ cardOverrides: { ...(sr.cardOverrides || {}), icon } }),
+                        });
+                        onLoad();
+                      } catch {} finally { setRoleIconSaving(false); }
+                    };
+                    return (
+                      <div className="space-y-2 pt-2 border-t border-gray-700/30">
+                        <p className="text-[10px] text-gray-500">أيقونة: <strong className="text-amber-400">{sr.nameAr}</strong> {roleIconSaving && <span className="text-amber-500">⏳</span>}</p>
+                        <div className="flex gap-2 mb-2">
+                          <button onClick={() => saveRoleIcon({ type: 'lucide', value: curIcon.value || 'User' })}
+                            className={`px-3 py-1 rounded-lg text-[10px] border transition ${curIcon.type === 'lucide' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>🎯 Lucide</button>
+                          <button onClick={() => saveRoleIcon({ type: 'emoji', value: '🎭' })}
+                            className={`px-3 py-1 rounded-lg text-[10px] border transition ${curIcon.type === 'emoji' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>😀 Emoji</button>
+                        </div>
+                        {curIcon.type === 'lucide' ? (
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {ICONS.map(ico => (
+                              <button key={ico.v} onClick={() => saveRoleIcon({ type: 'lucide', value: ico.v })}
+                                className={`flex flex-col items-center gap-0.5 p-2 rounded-lg border transition text-[8px] ${curIcon.value === ico.v ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' : 'bg-gray-800/50 border-gray-700/40 text-gray-400 hover:border-gray-600'}`}>
+                                <LI name={ico.v} size={18} />
+                                <span>{ico.l}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <input value={curIcon.value || ''} onChange={e => saveRoleIcon({ type: 'emoji', value: e.target.value })}
+                            className="w-full px-3 py-3 bg-gray-800/80 border border-gray-700/50 rounded-xl text-white text-2xl text-center focus:border-amber-500/50 focus:outline-none" />
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </>}
 
             {/* Tab: Typography */}
