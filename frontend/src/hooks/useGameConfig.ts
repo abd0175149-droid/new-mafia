@@ -121,10 +121,6 @@ export function useGameConfig() {
       _abilityCache = abilitiesData || [];
       _lastFetch = now;
 
-      console.log(`🔧 useGameConfig: loaded ${(_roleCache||[]).length} roles, ${(_cardCache||[]).length} cards, ${(_abilityCache||[]).length} abilities`);
-      if ((_cardCache||[]).length > 0) console.log('🔧 useGameConfig: first card =', _cardCache![0]?.id, 'gradient=', _cardCache![0]?.gradient?.slice(0,40));
-      if ((_cardCache||[]).length === 0) console.warn('⚠️ useGameConfig: NO card templates loaded!');
-
       setRoles(_roleCache || []);
       setCards(_cardCache || []);
       setAbilities(_abilityCache || []);
@@ -154,16 +150,17 @@ export function useGameConfig() {
     return role?.nameAr || roleId;
   }, [roles]);
 
-  // ── Helper: جلب card template لدور معين ──
+  // ── Helper: جلب card template لدور معين (يرجع master دائماً كـ fallback) ──
   const getCardForRole = useCallback((roleId: string | null): CardTemplateDef | null => {
-    if (!roleId) return null;
-    const role = roles.find(r => r.id === roleId);
     // إذا الدور مرتبط بقالب محدد → نستخدمه
-    if (role?.cardTemplateId) {
-      const found = cards.find(c => c.id === role.cardTemplateId);
-      if (found) return found;
+    if (roleId) {
+      const role = roles.find(r => r.id === roleId);
+      if (role?.cardTemplateId) {
+        const found = cards.find(c => c.id === role.cardTemplateId);
+        if (found) return found;
+      }
     }
-    // fallback → القالب الرئيسي (master)
+    // fallback → القالب الرئيسي (master) — حتى لو الدور فارغ
     return cards.find(c => c.id === 'master') || cards[0] || null;
   }, [roles, cards]);
 
