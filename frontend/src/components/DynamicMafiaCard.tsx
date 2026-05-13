@@ -95,14 +95,17 @@ export default function DynamicMafiaCard({
   const textColor = cardTemplate?.textColor || '#d4d4d8';
   const glowEffect = cardTemplate?.glowEffect || '';
 
-  // ── شارة الفريق ──
-  const teamBadge = cardTemplate?.teamBadge || (
-    isMafia
-      ? { text: 'فريق المافيا 🔴', bgColor: 'rgba(127,29,29,0.6)', textColor: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)' }
-      : isNeutral
-      ? { text: 'محايد ⚪', bgColor: 'rgba(120,53,15,0.6)', textColor: '#fcd34d', borderColor: 'rgba(245,158,11,0.3)' }
-      : { text: 'فريق المدينة 🔵', bgColor: 'rgba(30,58,138,0.6)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' }
-  );
+  // ── شارة الفريق (النص يتغير حسب الفريق، الألوان من القالب أو defaults) ──
+  const teamDefaults = isMafia
+    ? { text: 'فريق المافيا 🔴', bgColor: 'rgba(127,29,29,0.6)', textColor: '#fca5a5', borderColor: 'rgba(239,68,68,0.3)' }
+    : isNeutral
+    ? { text: 'محايد ⚪', bgColor: 'rgba(120,53,15,0.6)', textColor: '#fcd34d', borderColor: 'rgba(245,158,11,0.3)' }
+    : { text: 'فريق المدينة 🔵', bgColor: 'rgba(30,58,138,0.6)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' };
+  const teamBadge = {
+    ...teamDefaults,
+    ...(cardTemplate?.teamBadge || {}),
+    text: teamDefaults.text, // النص دائماً من الفريق وليس القالب
+  };
 
   // ── الأيقونة (role-specific override أو من القالب) ──
   const roleOverrides = roleDef?.cardOverrides as any;
@@ -128,6 +131,7 @@ export default function DynamicMafiaCard({
 
   // ── الأحجام ──
   const sizeClasses = { sm: 'w-44 h-[15rem]', md: 'w-56 h-[20rem]', lg: 'w-64 h-[22rem]', fluid: 'w-full h-full' }[size];
+  const font = (cardTemplate?.elements as any)?.fontFamily || 'Amiri, serif';
   const iconSize = { sm: 32, md: 44, lg: 52, fluid: 48 }[size];
   const nameSize = { sm: 'text-base', md: 'text-xl', lg: 'text-2xl', fluid: 'text-xl md:text-2xl lg:text-3xl' }[size];
   const roleNameSize = { sm: 'text-lg', md: 'text-2xl', lg: 'text-3xl', fluid: 'text-2xl md:text-3xl lg:text-4xl' }[size];
@@ -164,68 +168,42 @@ export default function DynamicMafiaCard({
         {/* 🂠 الوجه الأمامي — الشكل السري    */}
         {/* ══════════════════════════════════ */}
         <div
-          className={`absolute inset-0 rounded-2xl overflow-hidden bg-black border-2 ${
-            isFemale ? 'border-purple-500/40' : 'border-[#C5A059]/40'
-          } ${isSilenced ? 'border-rose-600/60' : ''}`}
+          className={`absolute inset-0 rounded-2xl overflow-hidden bg-black ${isSilenced ? 'ring-2 ring-rose-600/60' : ''}`}
           style={{
             backfaceVisibility: 'hidden',
             WebkitBackfaceVisibility: 'hidden' as any,
             transform: 'translateZ(0)',
+            border: `2px solid ${borderColor || (isFemale ? 'rgba(168,85,247,0.4)' : 'rgba(197,160,89,0.4)')}`,
           }}
         >
           {/* القسم العلوي (2/3): صورة اللاعب */}
           <div className="relative" style={{ height: '66.66%' }}>
-            {resolvedAvatarUrl ? (
-              <img
-                src={resolvedAvatarUrl}
-                alt={playerName}
-                className="absolute inset-0 w-full h-full object-cover"
-                onError={() => setAvatarError(true)}
-              />
-            ) : (
-              <div className={`absolute inset-0 bg-gradient-to-b ${
-                isFemale
-                  ? 'from-purple-900/60 via-purple-950/80 to-black'
-                  : 'from-zinc-700/50 via-zinc-900/80 to-black'
-              }`} />
-            )}
-            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent" />
+            {/* الخلفية: صورة أو تدرج */}
+            <div className="absolute inset-0" style={cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}}>
+              {resolvedAvatarUrl ? (
+                <img src={resolvedAvatarUrl} alt={playerName} className="w-full h-full object-cover" style={{ opacity: 0.8 }} onError={() => setAvatarError(true)} />
+              ) : (
+                <div className="w-full h-full" style={{ background: isFemale ? 'linear-gradient(to bottom, rgba(88,28,135,0.6), rgba(59,7,100,0.8), black)' : 'linear-gradient(to bottom, rgba(63,63,70,0.5), rgba(24,24,27,0.8), black)' }} />
+              )}
+            </div>
+            <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" />
 
-            {/* رقم اللاعب */}
-            {resolvedAvatarUrl ? (
-              <div className="absolute top-[15%] right-3 z-10" style={cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {}}>
-                <div
-                  className={`flex items-center justify-center font-mono font-black rounded-xl ${
-                    isFemale ? 'text-purple-200' : 'text-[#C5A059]'
-                  }`}
-                  style={{
-                    width: size === 'sm' ? 54 : size === 'md' ? 66 : size === 'lg' ? 78 : 66,
-                    height: size === 'sm' ? 54 : size === 'md' ? 66 : size === 'lg' ? 78 : 66,
-                    fontSize: size === 'sm' ? '1.9rem' : size === 'md' ? '2.25rem' : size === 'lg' ? '3rem' : '2.25rem',
-                    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-                    backdropFilter: 'blur(4px)',
-                    border: isFemale ? '1px solid rgba(168,85,247,0.3)' : '1px solid rgba(197,160,89,0.3)',
-                  }}
-                >
-                  {playerNumber}
-                </div>
-              </div>
-            ) : (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span
-                  className={`font-mono font-black ${isFemale ? 'text-purple-300' : 'text-[#C5A059]'}`}
-                  style={{
-                    fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
-                    opacity: 0.35,
-                    textShadow: '0 4px 20px rgba(0,0,0,0.8)',
-                    lineHeight: 1,
-                    ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
-                  }}
-                >
-                  {playerNumber}
-                </span>
-              </div>
-            )}
+            {/* رقم اللاعب — دائماً watermark كبير (مثل المحرر بالضبط) */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span
+                className="font-mono font-black"
+                style={{
+                  color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
+                  fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
+                  opacity: resolvedAvatarUrl ? 0.9 : 0.35,
+                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                  lineHeight: 1,
+                  ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
+                }}
+              >
+                {playerNumber}
+              </span>
+            </div>
 
             {isSilenced && (
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-900/80 border border-rose-500/40 px-2 py-0.5 rounded-full z-20">
@@ -236,42 +214,28 @@ export default function DynamicMafiaCard({
 
           {/* القسم السفلي (1/3): الاسم + الشعار */}
           <div className="relative flex flex-col items-center justify-center bg-black px-3" style={{ height: '33.33%' }}>
-            <div className={`absolute top-0 left-[15%] right-[15%] h-[1px] ${
-              isFemale ? 'bg-purple-400/30' : 'bg-[#C5A059]/30'
-            }`} />
+            <div className="absolute top-0 left-[15%] right-[15%] h-[1px]" style={{ backgroundColor: isFemale ? 'rgba(192,132,252,0.3)' : (borderColor ? `${borderColor}66` : 'rgba(197,160,89,0.3)') }} />
 
             {showVoting ? (
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
-                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: 'Amiri, serif' }}>
-                    {truncatedName}
-                  </h2>
-                  <span className={`font-mono font-black transition-all duration-300 ${
-                    { sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]
-                  } ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>
-                    {votes}
-                  </span>
+                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font }}>{truncatedName}</h2>
+                  <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
-                <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
-                  isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'
-                }`} style={cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}}>MAFIA CLUB</p>
+                <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : (textColor ? `${textColor}66` : 'rgba(197,160,89,0.4)'), ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
-                <h2 className={`${nameSize} font-black text-white text-center leading-tight`} style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>
-                  {truncatedName}
-                </h2>
-                <p className={`text-[8px] font-mono tracking-[0.25em] uppercase mt-1 ${
-                  isFemale ? 'text-purple-400/40' : 'text-[#C5A059]/40'
-                }`} style={cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}}>MAFIA CLUB</p>
+                <h2 className={`${nameSize} font-black text-white text-center leading-tight`} style={{ fontFamily: font, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
+                <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : (textColor ? `${textColor}66` : 'rgba(197,160,89,0.4)'), ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
                 {flippable && (
                   <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>
                 )}
               </>
             )}
 
-            {/* Shapes on Cover Face (Rendered last to sit on top) */}
+            {/* Shapes on Cover Face */}
             {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
               <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
             ))}
