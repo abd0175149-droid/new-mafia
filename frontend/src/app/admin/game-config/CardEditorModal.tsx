@@ -90,6 +90,7 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
   const [previewHasPhoto, setPreviewHasPhoto] = useState(true);
   const [selectedRoleId, setSelectedRoleId] = useState<string|null>(null);
   const [roleIconSaving, setRoleIconSaving] = useState(false);
+  const [editingRoleIcon, setEditingRoleIcon] = useState<any>(null);
 
   const el = editing.elements || { showPlayerNumber: true, showClubBranding: true, showDescription: true };
   const setEl = (p: any) => setEditing({ ...editing, elements: { ...el, ...p } });
@@ -310,44 +311,47 @@ export default function CardEditorModal({ editing, setEditing, isNew, linkedRole
                       );
                     })}
                   </div>
-                  {selectedRoleId && (() => {
+                  {selectedRoleId && editingRoleIcon && (() => {
                     const sr = linkedRoles.find(r => r.id === selectedRoleId);
                     if (!sr) return null;
-                    const curIcon = sr.cardOverrides?.icon || { type: 'lucide', value: 'User' };
-                    const saveRoleIcon = async (icon: any) => {
+                    const saveRoleIcon = async () => {
                       setRoleIconSaving(true);
                       try {
                         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
                         await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/game-config/roles/${sr.id}`, {
                           method: 'PUT', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-                          body: JSON.stringify({ cardOverrides: { ...(sr.cardOverrides || {}), icon } }),
+                          body: JSON.stringify({ cardOverrides: { ...(sr.cardOverrides || {}), icon: editingRoleIcon } }),
                         });
                         onLoad();
                       } catch {} finally { setRoleIconSaving(false); }
                     };
                     return (
                       <div className="space-y-2 pt-2 border-t border-gray-700/30">
-                        <p className="text-[10px] text-gray-500">أيقونة: <strong className="text-amber-400">{sr.nameAr}</strong> {roleIconSaving && <span className="text-amber-500">⏳</span>}</p>
+                        <p className="text-[10px] text-gray-500">أيقونة: <strong className="text-amber-400">{sr.nameAr}</strong></p>
                         <div className="flex gap-2 mb-2">
-                          <button onClick={() => saveRoleIcon({ type: 'lucide', value: curIcon.value || 'User' })}
-                            className={`px-3 py-1 rounded-lg text-[10px] border transition ${curIcon.type === 'lucide' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>🎯 Lucide</button>
-                          <button onClick={() => saveRoleIcon({ type: 'emoji', value: '🎭' })}
-                            className={`px-3 py-1 rounded-lg text-[10px] border transition ${curIcon.type === 'emoji' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>😀 Emoji</button>
+                          <button onClick={() => setEditingRoleIcon({ type: 'lucide', value: editingRoleIcon.value || 'User' })}
+                            className={`px-3 py-1 rounded-lg text-[10px] border transition ${editingRoleIcon.type === 'lucide' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>🎯 Lucide</button>
+                          <button onClick={() => setEditingRoleIcon({ type: 'emoji', value: '🎭' })}
+                            className={`px-3 py-1 rounded-lg text-[10px] border transition ${editingRoleIcon.type === 'emoji' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800 text-gray-400 border-gray-700/40'}`}>😀 Emoji</button>
                         </div>
-                        {curIcon.type === 'lucide' ? (
+                        {editingRoleIcon.type === 'lucide' ? (
                           <div className="grid grid-cols-4 gap-1.5">
                             {ICONS.map(ico => (
-                              <button key={ico.v} onClick={() => saveRoleIcon({ type: 'lucide', value: ico.v })}
-                                className={`flex flex-col items-center gap-0.5 p-2 rounded-lg border transition text-[8px] ${curIcon.value === ico.v ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' : 'bg-gray-800/50 border-gray-700/40 text-gray-400 hover:border-gray-600'}`}>
+                              <button key={ico.v} onClick={() => setEditingRoleIcon({ type: 'lucide', value: ico.v })}
+                                className={`flex flex-col items-center gap-0.5 p-2 rounded-lg border transition text-[8px] ${editingRoleIcon.value === ico.v ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' : 'bg-gray-800/50 border-gray-700/40 text-gray-400 hover:border-gray-600'}`}>
                                 <LI name={ico.v} size={18} />
                                 <span>{ico.l}</span>
                               </button>
                             ))}
                           </div>
                         ) : (
-                          <input value={curIcon.value || ''} onChange={e => saveRoleIcon({ type: 'emoji', value: e.target.value })}
+                          <input value={editingRoleIcon.value || ''} onChange={e => setEditingRoleIcon({ type: 'emoji', value: e.target.value })}
                             className="w-full px-3 py-3 bg-gray-800/80 border border-gray-700/50 rounded-xl text-white text-2xl text-center focus:border-amber-500/50 focus:outline-none" />
                         )}
+                        <button onClick={saveRoleIcon} disabled={roleIconSaving}
+                          className="w-full py-2 mt-2 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-400 text-xs font-bold hover:bg-amber-500/30 transition disabled:opacity-50">
+                          {roleIconSaving ? '⏳ جاري الحفظ...' : '💾 حفظ أيقونة الدور'}
+                        </button>
                       </div>
                     );
                   })()}
