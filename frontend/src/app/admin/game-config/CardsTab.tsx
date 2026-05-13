@@ -61,39 +61,7 @@ const FONT_OPTIONS = [
   { label: 'Inter (لاتيني)', value: 'Inter, sans-serif' },
 ];
 
-const GLOW_PRESETS = [
-  { label: 'بدون', value: '' },
-  { label: 'ذهبي', value: 'shadow-[0_0_40px_rgba(251,191,36,0.25)]' },
-  { label: 'أحمر', value: 'shadow-[0_0_40px_rgba(239,68,68,0.25)]' },
-  { label: 'أزرق', value: 'shadow-[0_0_40px_rgba(59,130,246,0.25)]' },
-  { label: 'بنفسجي', value: 'shadow-[0_0_40px_rgba(168,85,247,0.25)]' },
-];
 
-// ── Tailwind gradient presets ──
-const GRADIENT_PRESETS = [
-  { label: 'أحمر داكن', value: 'from-red-800 via-red-900 to-red-950' },
-  { label: 'ذهبي', value: 'from-amber-800 via-amber-900 to-yellow-950' },
-  { label: 'أزرق', value: 'from-blue-800 via-blue-900 to-blue-950' },
-  { label: 'أخضر', value: 'from-emerald-800 via-emerald-900 to-green-950' },
-  { label: 'بنفسجي', value: 'from-fuchsia-800 via-fuchsia-900 to-fuchsia-950' },
-  { label: 'نيلي', value: 'from-indigo-800 via-indigo-900 to-indigo-950' },
-  { label: 'وردي', value: 'from-rose-800 via-rose-900 to-rose-950' },
-  { label: 'سماوي', value: 'from-cyan-800 via-cyan-900 to-cyan-950' },
-  { label: 'رمادي', value: 'from-zinc-700 via-zinc-800 to-zinc-900' },
-  { label: 'زيتي', value: 'from-teal-800 via-teal-900 to-teal-950' },
-];
-
-const BORDER_PRESETS = [
-  'border-red-500/60', 'border-amber-400/60', 'border-blue-500/60',
-  'border-emerald-500/60', 'border-fuchsia-500/60', 'border-indigo-500/60',
-  'border-rose-500/60', 'border-cyan-500/60', 'border-zinc-500/60', 'border-teal-500/60',
-];
-
-const TEXT_PRESETS = [
-  'text-red-300', 'text-amber-300', 'text-blue-300', 'text-emerald-300',
-  'text-fuchsia-300', 'text-indigo-300', 'text-rose-300', 'text-cyan-300',
-  'text-zinc-300', 'text-teal-300',
-];
 
 const ICON_OPTIONS = [
   { label: 'مستخدم', value: 'User' }, { label: 'قلب', value: 'HeartPulse' },
@@ -159,9 +127,9 @@ export default function CardsTab() {
   const setEl = (patch: any) => setEditing({ ...editing, elements: { ...el, ...patch } });
 
   const newTemplate = (): Partial<CardTemplate> => ({
-    id: '', gradient: GRADIENT_PRESETS[0].value, borderColor: BORDER_PRESETS[0],
-    textColor: TEXT_PRESETS[0], glowEffect: '',
-    teamBadge: { text: 'فريق المدينة 🔵', bgColor: 'bg-blue-900/60', textColor: 'text-blue-300', borderColor: 'border-blue-500/30' },
+    id: '', gradient: 'linear-gradient(to bottom, #991b1b, #1a0000)', borderColor: 'rgba(239, 68, 68, 0.6)',
+    textColor: '#fca5a5', glowEffect: '',
+    teamBadge: { text: 'فريق المدينة 🔵', bgColor: 'rgba(30,58,138,0.6)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)' },
     icon: { type: 'lucide', value: 'User', size: 48 },
     secretFace: { type: 'GENERATED', bgColor: '#000' },
     elements: { showPlayerNumber: true, showClubBranding: true, showDescription: true, fontFamily: 'Amiri, serif', nameSize: 20, iconSize: 48, badgeSize: 10 },
@@ -189,11 +157,12 @@ export default function CardsTab() {
               onClick={() => openEditor({ ...card })}
             >
               {/* Card Preview */}
-              <div className={`h-28 bg-gradient-to-b ${card.gradient} relative overflow-hidden`}>
-                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent" />
+              <div className="h-28 relative overflow-hidden" style={{ background: card.gradient || 'linear-gradient(to bottom, #3f3f46, #18181b)' }}>
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
                 {/* شارة الفريق */}
                 {card.teamBadge && (
-                  <div className={`absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full border text-[8px] font-mono ${card.teamBadge.bgColor} ${card.teamBadge.textColor} ${card.teamBadge.borderColor}`}>
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[8px] font-mono"
+                    style={{ backgroundColor: card.teamBadge.bgColor || 'rgba(30,58,138,0.6)', color: card.teamBadge.textColor || '#93c5fd', border: `1px solid ${card.teamBadge.borderColor || 'rgba(59,130,246,0.3)'}` }}>
                     {card.teamBadge.text}
                   </div>
                 )}
@@ -202,9 +171,9 @@ export default function CardsTab() {
                   {card.icon?.type?.toLowerCase() === 'emoji' ? (
                     <span className="text-3xl">{card.icon.value}</span>
                   ) : card.icon?.type?.toLowerCase() === 'lucide' ? (
-                    <LucideIcon name={card.icon.value} size={28} className={card.textColor} />
+                    <LucideIcon name={card.icon.value} size={28} className="" />
                   ) : (
-                    <span className={`text-3xl ${card.textColor}`}>✦</span>
+                    <span className="text-3xl">✦</span>
                   )}
                 </div>
               </div>
@@ -228,6 +197,7 @@ export default function CardsTab() {
       <AnimatePresence>
         {editing && (
           <CardEditorModal
+            key="card-editor"
             editing={editing}
             setEditing={setEditing}
             isNew={!items.find(i => i.id === editing.id)}
