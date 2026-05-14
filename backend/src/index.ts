@@ -39,6 +39,7 @@ import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sock
 import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
+import { isMafiaRole } from './game/roles.js';
 
 // ── Game API Routes ─────────────────────────────────
 import { getFinishedMatches, getMatchDetails, getMatchesBySession } from './services/match.service.js';
@@ -331,14 +332,20 @@ app.post('/api/game/verify-pin', async (req, res) => {
       state: state ? {
         phase: state.phase,
         players: state.players.map(p => ({
-          physicalId: p.physicalId,
-          name: p.name,
-          isAlive: p.isAlive,
-          gender: p.gender,
-          role: p.role,
+          physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
+          gender: p.gender, role: p.role, avatarUrl: (p as any).avatarUrl || null,
+          rankTier: p.rankTier || 'INFORMANT',
         })),
         winner: (state as any).winner || null,
         discussionState: (state as any).discussionState || null,
+        teamCounts: (() => {
+          const alive = state.players.filter(p => p.isAlive);
+          return {
+            mafiaAlive: alive.filter(p => p.role && isMafiaRole(p.role as any)).length,
+            citizenAlive: alive.filter(p => p.role && !isMafiaRole(p.role as any)).length,
+          };
+        })(),
+        gameTimer: (state as any).gameTimer || null,
       } : null,
     });
   } catch (err: any) {
@@ -354,8 +361,17 @@ app.post('/api/game/verify-pin-by-code', async (req, res) => {
       return res.json({ success: false, error: 'sessionCode and pin are required' });
     }
 
-    // البحث عن الغرفة النشطة بـ sessionCode (= roomCode في activeRooms)
-    const room = Array.from(activeRooms.values()).find(r => r.roomCode === sessionCode);
+    // البحث عن الغرفة النشطة: أولاً بـ roomCode، ثم بقراءة state.sessionCode من Redis
+    let room = Array.from(activeRooms.values()).find(r => r.roomCode === sessionCode);
+    if (!room) {
+      // sessionCode من DB مختلف عن roomCode — نبحث في Redis
+      const { getAllGameStates } = await import('./config/redis.js');
+      const allStates = await getAllGameStates();
+      const matchingState = allStates.find((s: any) => s.sessionCode === sessionCode || s.roomCode === sessionCode);
+      if (matchingState) {
+        room = activeRooms.get(matchingState.roomId) || undefined;
+      }
+    }
     if (!room) {
       return res.json({ success: false, error: 'الغرفة غير نشطة — تأكد أن القائد دخلها' });
     }
@@ -383,10 +399,9 @@ app.post('/api/game/verify-pin-by-code', async (req, res) => {
         discussionState: state.discussionState || null,
         teamCounts: (() => {
           const alive = state.players.filter(p => p.isAlive);
-          const { isMafiaRole } = require('./game/roles.js');
           return {
-            mafiaAlive: alive.filter(p => p.role && isMafiaRole(p.role)).length,
-            citizenAlive: alive.filter(p => p.role && !isMafiaRole(p.role)).length,
+            mafiaAlive: alive.filter(p => p.role && isMafiaRole(p.role as any)).length,
+            citizenAlive: alive.filter(p => p.role && !isMafiaRole(p.role as any)).length,
           };
         })(),
         gameTimer: state.gameTimer || null,
