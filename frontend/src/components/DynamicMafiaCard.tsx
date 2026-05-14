@@ -189,7 +189,7 @@ export default function DynamicMafiaCard({
         {/* 🂠 الوجه الأمامي — الشكل السري    */}
         {/* ══════════════════════════════════ */}
         <div
-          className={`absolute inset-0 rounded-2xl overflow-visible bg-black rank-card-wrapper ${hasRankEffects ? `rank-${tier}` : ''} ${isSilenced ? 'ring-2 ring-rose-600/60' : ''}`}
+          className={`absolute inset-0 rounded-2xl overflow-hidden bg-black ${isSilenced ? 'ring-2 ring-rose-600/60' : ''}`}
           style={{
             backfaceVisibility: 'hidden',
             WebkitBackfaceVisibility: 'hidden' as any,
@@ -197,34 +197,6 @@ export default function DynamicMafiaCard({
             border: `2px solid ${borderColor || (isFemale ? 'rgba(168,85,247,0.4)' : 'rgba(197,160,89,0.4)')}`,
           }}
         >
-          {/* ── Rank Visual Effects Layer ── */}
-          {hasRankEffects && (<>
-            <div className="rank-border-effect" style={{ borderRadius: 'inherit' }} />
-            {rankBadge && (
-              <div className={`rank-badge rank-badge-${tier}`}>
-                <span>{rankBadge.emoji}</span>
-                <span>{rankBadge.label}</span>
-              </div>
-            )}
-            {(tier === 'CAPO') && (<>
-              <div className="rank-corner rank-corner-tl" />
-              <div className="rank-corner rank-corner-tr" />
-              <div className="rank-corner rank-corner-bl" />
-              <div className="rank-corner rank-corner-br" />
-            </>)}
-            {(tier === 'CAPO' || tier === 'UNDERBOSS' || tier === 'GODFATHER') && (
-              <div className="rank-gradient-overlay" style={{ borderRadius: 'inherit' }} />
-            )}
-            {(tier === 'UNDERBOSS' || tier === 'GODFATHER') && (<>
-              <div className="rank-shimmer" style={{ borderRadius: 'inherit' }} />
-              {[0,1,2,3].map(i => (
-                <div key={i} className="rank-particle" style={{ '--duration': `${3 + i * 0.8}s`, '--delay': `${i * 0.7}s` } as React.CSSProperties} />
-              ))}
-            </>)}
-            {tier === 'GODFATHER' && (
-              <div className="rank-crown">👑</div>
-            )}
-          </>)}
           {/* القسم العلوي (2/3): صورة اللاعب */}
           <div className="relative overflow-hidden" style={{ height: '66.66%' }}>
             {/* z-1: الخلفية: صورة اللاعب أو أفاتار حسب الجنس */}
@@ -291,6 +263,45 @@ export default function DynamicMafiaCard({
             <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex || 3, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2, transform: `translate(${s.x || 0}px, ${s.y || 0}px)` }} />
           ))}
         </div>
+
+        {/* ── 🎖️ Rank Effects Overlay — طبقة منفصلة فوق الكارد ── */}
+        {hasRankEffects && (
+          <div
+            className={`absolute inset-0 rounded-2xl overflow-visible pointer-events-none rank-card-wrapper rank-${tier}`}
+            style={{
+              backfaceVisibility: 'hidden',
+              WebkitBackfaceVisibility: 'hidden' as any,
+              transform: 'translateZ(1px)',
+              zIndex: 60,
+            }}
+          >
+            <div className="rank-border-effect" style={{ borderRadius: '1rem' }} />
+            {rankBadge && (
+              <div className={`rank-badge rank-badge-${tier}`}>
+                <span>{rankBadge.emoji}</span>
+                <span>{rankBadge.label}</span>
+              </div>
+            )}
+            {(tier === 'CAPO') && (<>
+              <div className="rank-corner rank-corner-tl" />
+              <div className="rank-corner rank-corner-tr" />
+              <div className="rank-corner rank-corner-bl" />
+              <div className="rank-corner rank-corner-br" />
+            </>)}
+            {(tier === 'CAPO' || tier === 'UNDERBOSS' || tier === 'GODFATHER') && (
+              <div className="rank-gradient-overlay" style={{ borderRadius: '1rem' }} />
+            )}
+            {(tier === 'UNDERBOSS' || tier === 'GODFATHER') && (<>
+              <div className="rank-shimmer" style={{ borderRadius: '1rem' }} />
+              {[0,1,2,3].map(i => (
+                <div key={i} className="rank-particle" style={{ '--duration': `${3 + i * 0.8}s`, '--delay': `${i * 0.7}s` } as React.CSSProperties} />
+              ))}
+            </>)}
+            {tier === 'GODFATHER' && (
+              <div className="rank-crown">👑</div>
+            )}
+          </div>
+        )}
 
         {/* ══════════════════════════════════ */}
         {/* 🂡 الوجه الخلفي — الكشف (ديناميكي) */}
