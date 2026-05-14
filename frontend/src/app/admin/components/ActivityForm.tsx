@@ -314,6 +314,17 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
           </div>
         </div>
 
+          {requireTicket && (
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 space-y-2">
+              <p className="text-xs text-purple-400">
+                💡 التذاكر تُدار من <strong>صفحة التذاكر المركزية</strong> — كل نشاط يتطلب تذكرة سيتحقق من نفس قاعدة التذاكر العامة.
+              </p>
+              <a href="/admin/tickets" target="_blank" className="inline-flex items-center gap-2 text-xs px-4 py-2 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/30 transition font-bold">
+                🎫 إدارة التذاكر المركزية ←
+              </a>
+            </div>
+          )}
+
         {/* أزرار */}
         <div className="flex items-center gap-3 pt-2">
           <button

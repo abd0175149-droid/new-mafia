@@ -443,8 +443,13 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
           </div>
 
           {requireTicket && (
-            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-xs text-purple-400">
-              💡 لرفع أرقام التذاكر: اذهب لصفحة تفاصيل النشاط → قسم التذاكر → رفع ملف Excel
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 space-y-2">
+              <p className="text-xs text-purple-400">
+                💡 التذاكر تُدار من <strong>صفحة التذاكر المركزية</strong> — كل نشاط يتطلب تذكرة سيتحقق من نفس قاعدة التذاكر العامة.
+              </p>
+              <a href="/admin/tickets" className="inline-flex items-center gap-2 text-xs px-4 py-2 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/30 transition font-bold">
+                🎫 إدارة التذاكر المركزية ←
+              </a>
             </div>
           )}
         </Section>
