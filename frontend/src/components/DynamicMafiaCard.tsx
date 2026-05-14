@@ -215,19 +215,37 @@ export default function DynamicMafiaCard({
 
             {/* رقم اللاعب — دائماً watermark كبير (مثل المحرر بالضبط) */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 5 }}>
-              <span
-                className="font-mono font-black"
-                style={{
-                  color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
-                  fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
-                  opacity: resolvedAvatarUrl ? 0.9 : 0.35,
-                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
-                  lineHeight: 1,
-                  ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
-                }}
-              >
-                {playerNumber}
-              </span>
+              {playerNumber >= 10 ? (
+                <div
+                  className="font-mono font-black flex flex-col items-center leading-none"
+                  style={{
+                    color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
+                    fontSize: size === 'sm' ? '3.2rem' : size === 'md' ? '4.5rem' : size === 'lg' ? '5.5rem' : '4.5rem',
+                    opacity: resolvedAvatarUrl ? 0.9 : 0.35,
+                    textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                    lineHeight: 0.85,
+                    ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
+                  }}
+                >
+                  {String(playerNumber).split('').map((digit, i) => (
+                    <span key={i}>{digit}</span>
+                  ))}
+                </div>
+              ) : (
+                <span
+                  className="font-mono font-black"
+                  style={{
+                    color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
+                    fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
+                    opacity: resolvedAvatarUrl ? 0.9 : 0.35,
+                    textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                    lineHeight: 1,
+                    ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
+                  }}
+                >
+                  {playerNumber}
+                </span>
+              )}
             </div>
 
             {isSilenced && (
