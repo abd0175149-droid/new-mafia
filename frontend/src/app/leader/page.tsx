@@ -210,6 +210,8 @@ export default function LeaderPage() {
             // استعادة خطوة الليل المحفوظة في Redis (حل مشكلة AWAITING NIGHT DATA عند reload)
             nightStep: data.state.currentNightStep || null,
             nightComplete: data.state.nightComplete || false,
+            morningEvents: data.state.morningEvents || [],
+            pendingWinner: data.state.pendingWinner || null,
           });
 
           if (phase === 'LOBBY' || phase === 'GAME_OVER') {
@@ -999,6 +1001,8 @@ export default function LeaderPage() {
           // استعادة خطوة الليل المحفوظة (حل مشكلة AWAITING NIGHT DATA)
           nightStep: data.state.currentNightStep || null,
           nightComplete: data.state.nightComplete || false,
+          morningEvents: data.state.morningEvents || [],
+          pendingWinner: data.state.pendingWinner || null,
         });
 
         // تحديد الوضع: LOBBY أو GAME_OVER → Session View

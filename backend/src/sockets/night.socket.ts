@@ -139,9 +139,9 @@ async function resolveAutoNight(io: Server, roomId: string) {
     if (state) { state.pendingWinner = pendingWinner; await setGameState(roomId, state); }
   }
 
-  // إرسال ملخص الصباح للليدر
-  const leaderSock = findLeaderSocket(io, roomId);
-  leaderSock?.emit('night:morning-recap', {
+  // إرسال ملخص الصباح للليدر — بث للغرفة بالكامل لضمان الوصول
+  // (findLeaderSocket قد يفشل عند الاستدعاء من setTimeout في auto mode)
+  io.to(roomId).emit('night:morning-recap', {
     events: resolution.events,
     pendingWinner,
     players: stateAfter?.players || [],
@@ -1416,8 +1416,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('display:night-started');
 
       const alivePlayers = state.players.filter((p: any) => p.isAlive);
-      const leaderSock = findLeaderSocket(io, data.roomId);
-      leaderSock?.emit('night:auto-started', {
+      io.to(data.roomId).emit('night:auto-started', {
         totalAlive: alivePlayers.length,
       });
 
