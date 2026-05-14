@@ -1179,9 +1179,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setRoomId(res.roomId);
       setGameName(res.gameName);
       setMaxPlayers(res.maxPlayers || 10);
-      if (res.requireTicket !== undefined) {
-        setRequireTicket(res.requireTicket);
-      }
+      const needsTicket = res.requireTicket ?? false;
+      setRequireTicket(needsTicket);
 
       // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
       // نقرأ من localStorage كـ fallback لأن الـ state ممكن ما اتحدث بعد
@@ -1210,7 +1209,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         }
         if (playerPhone) setPhone(playerPhone);
         setPlayerToken(savedToken);
-        await tryRejoinCurrentRoom(savedPlayerId, savedToken, playerPhone);
+        await tryRejoinCurrentRoom(savedPlayerId, savedToken, playerPhone, needsTicket);
         return;
       }
 
@@ -1235,7 +1234,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setStep('change_password');
       } else {
         // تحقق إذا اللاعب أصلاً جوا اللعبة
-        await tryRejoinCurrentRoom(savedPid, savedToken);
+        await tryRejoinCurrentRoom(savedPid, savedToken, undefined, requireTicket);
       }
       return;
     }
@@ -1298,7 +1297,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setStep('change_password');
         } else {
           // ── تحقق إذا اللاعب أصلاً جوا اللعبة الحالية ──
-          await tryRejoinCurrentRoom(data.player.id, data.token);
+          await tryRejoinCurrentRoom(data.player.id, data.token, undefined, requireTicket);
         }
       } else {
         setApiError(data.error || 'خطأ في تسجيل الدخول');
@@ -1309,7 +1308,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   // ── محاولة الانضمام التلقائي للغرفة (بعد login/register) ──
-  const tryRejoinCurrentRoom = async (pid: number, token: string, phoneOverride?: string) => {
+  const tryRejoinCurrentRoom = async (pid: number, token: string, phoneOverride?: string, ticketRequired?: boolean) => {
     const playerPhone = phoneOverride || phone;
     // 1. جرّب rejoin عبر WebSocket إذا عنا roomId
     if (emit && roomId && playerPhone) {
@@ -1384,8 +1383,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     } catch {}
 
     // 3. لا لعبة نشطة → انضمام تلقائي
-    setStep(requireTicket ? 'ticket' : 'auto_joining');
-    if (!requireTicket) {
+    const needTicket = ticketRequired ?? requireTicket;
+    setStep(needTicket ? 'ticket' : 'auto_joining');
+    if (!needTicket) {
       setTimeout(() => handleAutoJoin(false), 100);
     }
   };
