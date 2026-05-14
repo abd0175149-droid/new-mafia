@@ -238,52 +238,58 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
       const submitted = latestState.playerNightActions?.submitted?.[performerId];
       
       if (!submitted) {
-        console.log(`🎲 Auto random selection for ${nextStep.role} in room ${roomId}`);
-        const targets = latestState.nightStep.availableTargets;
-        if (targets && targets.length > 0) {
-          const randomTarget = targets[Math.floor(Math.random() * targets.length)];
-          const tId = randomTarget.physicalId;
-          
-          switch (latestState.autoNightStepRole) {
-            case Role.GODFATHER:
-            case Role.CHAMELEON:
-            case Role.MAFIA_REGULAR:
-              latestState.nightActions.godfatherTarget = tId;
-              break;
-            case Role.SILENCER:
-              latestState.nightActions.silencerTarget = tId;
-              break;
-            case Role.SHERIFF: {
-              latestState.nightActions.sheriffTarget = tId;
-              const investigated = latestState.players.find((p: any) => p.physicalId === tId);
-              let sheriffResult = 'CITIZEN';
-              if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
-              else if (investigated?.role && [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(investigated.role)) sheriffResult = 'MAFIA';
-              latestState.nightActions.sheriffResult = sheriffResult;
-              const performerSock = findPlayerSocket(io, roomId, performerId);
-              if (performerSock) {
-                performerSock.emit('night:sheriff-result', {
-                  result: sheriffResult,
-                  targetPhysicalId: tId,
-                  targetName: investigated?.name || '',
-                });
-              }
-              break;
-            }
-            case Role.DOCTOR:
-              latestState.nightActions.doctorTarget = tId;
-              break;
-            case Role.NURSE:
-              latestState.nightActions.nurseTarget = tId;
-              break;
-            case Role.SNIPER:
-              latestState.nightActions.sniperTarget = tId;
-              break;
-          }
-          
+        // القناص: تخطي بدل الاختيار العشوائي (لأن قنص مواطن = موت القناص + الهدف)
+        if (latestState.autoNightStepRole === Role.SNIPER) {
+          console.log(`⏭️ Auto SKIP for SNIPER in room ${roomId} (too risky for random)`);
+          latestState.nightActions.sniperTarget = null;
           if (!latestState.playerNightActions) latestState.playerNightActions = { submitted: {} };
           latestState.playerNightActions.submitted[performerId] = true;
           await setGameState(roomId, latestState);
+        } else {
+          console.log(`🎲 Auto random selection for ${nextStep.role} in room ${roomId}`);
+          const targets = latestState.nightStep.availableTargets;
+          if (targets && targets.length > 0) {
+            const randomTarget = targets[Math.floor(Math.random() * targets.length)];
+            const tId = randomTarget.physicalId;
+          
+            switch (latestState.autoNightStepRole) {
+              case Role.GODFATHER:
+              case Role.CHAMELEON:
+              case Role.MAFIA_REGULAR:
+                latestState.nightActions.godfatherTarget = tId;
+                break;
+              case Role.SILENCER:
+                latestState.nightActions.silencerTarget = tId;
+                break;
+              case Role.SHERIFF: {
+                latestState.nightActions.sheriffTarget = tId;
+                const investigated = latestState.players.find((p: any) => p.physicalId === tId);
+                let sheriffResult = 'CITIZEN';
+                if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
+                else if (investigated?.role && [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(investigated.role)) sheriffResult = 'MAFIA';
+                latestState.nightActions.sheriffResult = sheriffResult;
+                const performerSock = findPlayerSocket(io, roomId, performerId);
+                if (performerSock) {
+                  performerSock.emit('night:sheriff-result', {
+                    result: sheriffResult,
+                    targetPhysicalId: tId,
+                    targetName: investigated?.name || '',
+                  });
+                }
+                break;
+              }
+              case Role.DOCTOR:
+                latestState.nightActions.doctorTarget = tId;
+                break;
+              case Role.NURSE:
+                latestState.nightActions.nurseTarget = tId;
+                break;
+            }
+          
+            if (!latestState.playerNightActions) latestState.playerNightActions = { submitted: {} };
+            latestState.playerNightActions.submitted[performerId] = true;
+            await setGameState(roomId, latestState);
+          }
         }
       }
     }
