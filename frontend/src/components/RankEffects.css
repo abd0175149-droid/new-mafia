@@ -1,0 +1,315 @@
+/* ══════════════════════════════════════════════════════
+   🎖️ Rank Visual Effects — CSS Animations & Styles
+   5 Tiers: INFORMANT → SOLDIER → CAPO → UNDERBOSS → GODFATHER
+   ══════════════════════════════════════════════════════ */
+
+/* ── Keyframes ───────────────────────────────────── */
+
+@keyframes rank-pulse {
+  0%, 100% { box-shadow: var(--rank-glow); }
+  50% { box-shadow: var(--rank-glow-strong); }
+}
+
+@keyframes rank-shimmer {
+  0% { transform: translateX(-100%) rotate(25deg); }
+  100% { transform: translateX(200%) rotate(25deg); }
+}
+
+@keyframes crown-float {
+  0%, 100% { transform: translateY(0px) translateX(-50%); }
+  50% { transform: translateY(-3px) translateX(-50%); }
+}
+
+@keyframes particle-orbit {
+  0% { transform: rotate(0deg) translateX(var(--orbit-radius)) rotate(0deg); opacity: 0; }
+  20% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { transform: rotate(360deg) translateX(var(--orbit-radius)) rotate(-360deg); opacity: 0; }
+}
+
+@keyframes corner-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes border-travel {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* ── Base Rank Wrapper ───────────────────────────── */
+
+.rank-card-wrapper {
+  position: relative;
+  transition: all 0.4s ease;
+}
+
+/* ── SOLDIER (Tier 2) ────────────────────────────── */
+
+.rank-SOLDIER {
+  --rank-color: #10b981;
+  --rank-glow: 0 0 8px rgba(16, 185, 129, 0.3), inset 0 0 2px rgba(16, 185, 129, 0.05);
+  --rank-glow-strong: 0 0 14px rgba(16, 185, 129, 0.5), inset 0 0 4px rgba(16, 185, 129, 0.1);
+}
+
+.rank-SOLDIER .rank-border-effect {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: var(--rank-glow);
+  pointer-events: none;
+  z-index: 50;
+}
+
+.rank-SOLDIER .rank-accent-line {
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.5), transparent);
+  z-index: 51;
+}
+
+/* ── CAPO (Tier 3) ───────────────────────────────── */
+
+.rank-CAPO {
+  --rank-color: #3b82f6;
+  --rank-glow: 0 0 12px rgba(59, 130, 246, 0.4), inset 0 0 4px rgba(59, 130, 246, 0.08);
+  --rank-glow-strong: 0 0 20px rgba(59, 130, 246, 0.6), inset 0 0 6px rgba(59, 130, 246, 0.12);
+}
+
+.rank-CAPO .rank-border-effect {
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 1.5px solid rgba(59, 130, 246, 0.45);
+  box-shadow: var(--rank-glow);
+  animation: rank-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* Corner ornaments */
+.rank-CAPO .rank-corner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: rgba(59, 130, 246, 0.6);
+  border-style: solid;
+  border-width: 0;
+  z-index: 51;
+  animation: corner-pulse 2.5s ease-in-out infinite;
+}
+.rank-CAPO .rank-corner-tl { top: 2px; left: 2px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 4px; }
+.rank-CAPO .rank-corner-tr { top: 2px; right: 2px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 4px; }
+.rank-CAPO .rank-corner-bl { bottom: 2px; left: 2px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 4px; }
+.rank-CAPO .rank-corner-br { bottom: 2px; right: 2px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 4px; }
+
+.rank-CAPO .rank-gradient-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to top, rgba(59, 130, 246, 0.06), transparent 40%);
+  pointer-events: none;
+  z-index: 49;
+}
+
+/* ── UNDERBOSS (Tier 4) ──────────────────────────── */
+
+.rank-UNDERBOSS {
+  --rank-color: #8b5cf6;
+  --rank-glow: 0 0 18px rgba(139, 92, 246, 0.45), 0 0 4px rgba(245, 158, 11, 0.15);
+  --rank-glow-strong: 0 0 28px rgba(139, 92, 246, 0.65), 0 0 8px rgba(245, 158, 11, 0.25);
+}
+
+.rank-UNDERBOSS .rank-border-effect {
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid;
+  border-image: linear-gradient(135deg, rgba(139, 92, 246, 0.6), rgba(245, 158, 11, 0.4), rgba(139, 92, 246, 0.6)) 1;
+  box-shadow: var(--rank-glow);
+  animation: rank-pulse 2.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.rank-UNDERBOSS .rank-gradient-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to top, rgba(139, 92, 246, 0.08), transparent 50%);
+  pointer-events: none;
+  z-index: 49;
+}
+
+/* Shimmer */
+.rank-UNDERBOSS .rank-shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 52;
+}
+.rank-UNDERBOSS .rank-shimmer::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.08), rgba(255, 255, 255, 0.04), transparent);
+  animation: rank-shimmer 5s ease-in-out infinite;
+}
+
+/* Particles */
+.rank-UNDERBOSS .rank-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(139, 92, 246, 0.7);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  z-index: 53;
+  --orbit-radius: 52%;
+  animation: particle-orbit var(--duration) linear infinite;
+  animation-delay: var(--delay);
+}
+
+/* ── GODFATHER (Tier 5) ──────────────────────────── */
+
+.rank-GODFATHER {
+  --rank-color: #f59e0b;
+  --rank-glow: 0 0 25px rgba(245, 158, 11, 0.5), 0 0 6px rgba(245, 158, 11, 0.3);
+  --rank-glow-strong: 0 0 40px rgba(245, 158, 11, 0.7), 0 0 10px rgba(245, 158, 11, 0.5), 0 0 80px rgba(245, 158, 11, 0.15);
+}
+
+.rank-GODFATHER .rank-border-effect {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.8), rgba(234, 179, 8, 0.4), rgba(245, 158, 11, 0.8), rgba(252, 211, 77, 0.6));
+  background-size: 200% 200%;
+  animation: border-travel 3s linear infinite, rank-pulse 2s ease-in-out infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.rank-GODFATHER .rank-gradient-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to top, rgba(245, 158, 11, 0.1), transparent 50%),
+              linear-gradient(135deg, rgba(245, 158, 11, 0.03), transparent);
+  pointer-events: none;
+  z-index: 49;
+}
+
+/* Crown */
+.rank-GODFATHER .rank-crown {
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 18px;
+  z-index: 55;
+  animation: crown-float 2.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.6));
+  line-height: 1;
+}
+
+/* Shimmer */
+.rank-GODFATHER .rank-shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 52;
+}
+.rank-GODFATHER .rank-shimmer::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 40%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.1), rgba(255, 255, 255, 0.06), transparent);
+  animation: rank-shimmer 4s ease-in-out infinite;
+}
+
+/* Particles */
+.rank-GODFATHER .rank-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: rgba(245, 158, 11, 0.8);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  z-index: 53;
+  --orbit-radius: 54%;
+  animation: particle-orbit var(--duration) linear infinite;
+  animation-delay: var(--delay);
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.5);
+}
+
+/* Godfather name styling override */
+.rank-GODFATHER .rank-name-glow {
+  color: #fcd34d !important;
+  text-shadow: 0 0 8px rgba(245, 158, 11, 0.4), 0 0 20px rgba(245, 158, 11, 0.15);
+}
+
+/* ── Rank Badge (shared) ─────────────────────────── */
+
+.rank-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border-radius: 6px;
+  font-size: 8px;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.05em;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+
+.rank-badge-SOLDIER {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.rank-badge-CAPO {
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.rank-badge-UNDERBOSS {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.rank-badge-GODFATHER {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.2);
+}

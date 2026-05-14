@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import './RankEffects.css';
 import { useGameConfig, type CardTemplateDef, type RoleDef } from '@/hooks/useGameConfig';
 import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
 import {
@@ -31,6 +32,16 @@ function getLucideIcon(name: string): LucideIcon {
 
 // ── Props ──────────────────────────────────────
 
+// ── Rank Visual Config ─────────────────────────
+type RankTier = 'INFORMANT' | 'SOLDIER' | 'CAPO' | 'UNDERBOSS' | 'GODFATHER';
+const RANK_BADGE_CONFIG: Record<RankTier, { emoji: string; label: string } | null> = {
+  INFORMANT: null,
+  SOLDIER: { emoji: '⚔️', label: 'جندي' },
+  CAPO: { emoji: '🎖️', label: 'كابو' },
+  UNDERBOSS: { emoji: '👑', label: 'نائب' },
+  GODFATHER: { emoji: '👑', label: 'العراب' },
+};
+
 export interface DynamicMafiaCardProps {
   playerNumber: number;
   playerName: string;
@@ -47,6 +58,7 @@ export interface DynamicMafiaCardProps {
   flippable?: boolean;
   className?: string;
   avatarUrl?: string | null;
+  rankTier?: string;
   /** تجاوز: استخدم القالب القديم (MafiaCard) بدلاً من DB */
   forceClassic?: boolean;
 }
@@ -69,8 +81,12 @@ export default function DynamicMafiaCard({
   flippable = true,
   className = '',
   avatarUrl = null,
+  rankTier = 'INFORMANT',
   forceClassic = false,
 }: DynamicMafiaCardProps) {
+  const tier = (rankTier || 'INFORMANT') as RankTier;
+  const rankBadge = RANK_BADGE_CONFIG[tier];
+  const hasRankEffects = tier !== 'INFORMANT';
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, loading } = useGameConfig();
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -173,7 +189,7 @@ export default function DynamicMafiaCard({
         {/* 🂠 الوجه الأمامي — الشكل السري    */}
         {/* ══════════════════════════════════ */}
         <div
-          className={`absolute inset-0 rounded-2xl overflow-hidden bg-black ${isSilenced ? 'ring-2 ring-rose-600/60' : ''}`}
+          className={`absolute inset-0 rounded-2xl overflow-visible bg-black rank-card-wrapper ${hasRankEffects ? `rank-${tier}` : ''} ${isSilenced ? 'ring-2 ring-rose-600/60' : ''}`}
           style={{
             backfaceVisibility: 'hidden',
             WebkitBackfaceVisibility: 'hidden' as any,
@@ -181,8 +197,36 @@ export default function DynamicMafiaCard({
             border: `2px solid ${borderColor || (isFemale ? 'rgba(168,85,247,0.4)' : 'rgba(197,160,89,0.4)')}`,
           }}
         >
+          {/* ── Rank Visual Effects Layer ── */}
+          {hasRankEffects && (<>
+            <div className="rank-border-effect" style={{ borderRadius: 'inherit' }} />
+            {rankBadge && (
+              <div className={`rank-badge rank-badge-${tier}`}>
+                <span>{rankBadge.emoji}</span>
+                <span>{rankBadge.label}</span>
+              </div>
+            )}
+            {(tier === 'CAPO') && (<>
+              <div className="rank-corner rank-corner-tl" />
+              <div className="rank-corner rank-corner-tr" />
+              <div className="rank-corner rank-corner-bl" />
+              <div className="rank-corner rank-corner-br" />
+            </>)}
+            {(tier === 'CAPO' || tier === 'UNDERBOSS' || tier === 'GODFATHER') && (
+              <div className="rank-gradient-overlay" style={{ borderRadius: 'inherit' }} />
+            )}
+            {(tier === 'UNDERBOSS' || tier === 'GODFATHER') && (<>
+              <div className="rank-shimmer" style={{ borderRadius: 'inherit' }} />
+              {[0,1,2,3].map(i => (
+                <div key={i} className="rank-particle" style={{ '--duration': `${3 + i * 0.8}s`, '--delay': `${i * 0.7}s` } as React.CSSProperties} />
+              ))}
+            </>)}
+            {tier === 'GODFATHER' && (
+              <div className="rank-crown">👑</div>
+            )}
+          </>)}
           {/* القسم العلوي (2/3): صورة اللاعب */}
-          <div className="relative" style={{ height: '66.66%' }}>
+          <div className="relative overflow-hidden" style={{ height: '66.66%' }}>
             {/* z-1: الخلفية: صورة اللاعب أو أفاتار حسب الجنس */}
             <div className="absolute inset-0" style={{ zIndex: 1, ...(cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}) }}>
               {resolvedAvatarUrl ? (
@@ -225,14 +269,14 @@ export default function DynamicMafiaCard({
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
-                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font }}>{truncatedName}</h2>
+                  <h2 className={`${nameSize} font-black text-white leading-tight ${tier === 'GODFATHER' ? 'rank-name-glow' : ''}`} style={{ fontFamily: font }}>{truncatedName}</h2>
                   <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
-                <h2 className={`${nameSize} font-black text-white text-center leading-tight`} style={{ fontFamily: font, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
+                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
                 {flippable && (
                   <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>

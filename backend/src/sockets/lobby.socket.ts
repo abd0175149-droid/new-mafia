@@ -473,10 +473,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           const { eq } = await import('drizzle-orm');
           const db = getDB();
           if (db) {
-            const [dbPlayer] = await db.select({ avatarUrl: players.avatarUrl })
+            const [dbPlayer] = await db.select({ avatarUrl: players.avatarUrl, rankTier: players.rankTier })
               .from(players).where(eq(players.id, data.playerId)).limit(1);
-            if (dbPlayer?.avatarUrl) {
-              await updatePlayer(data.roomId, actualPhysicalId, { avatarUrl: dbPlayer.avatarUrl });
+            if (dbPlayer?.avatarUrl || dbPlayer?.rankTier) {
+              await updatePlayer(data.roomId, actualPhysicalId, {
+                ...(dbPlayer.avatarUrl ? { avatarUrl: dbPlayer.avatarUrl } : {}),
+                ...(dbPlayer.rankTier ? { rankTier: dbPlayer.rankTier } : {}),
+              });
             }
           }
         } catch (e) { /* DB might be unavailable */ }

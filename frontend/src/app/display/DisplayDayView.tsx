@@ -574,6 +574,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             size={discussionCardSize}
                             isAlive={p.isAlive}
                             avatarUrl={p.avatarUrl}
+                          rankTier={p.rankTier}
                             className={isSpeaker ? 'shadow-[0_0_50px_rgba(197,160,89,0.4)] border-2 border-[#C5A059]' : ''}
                           />
                           
@@ -710,6 +711,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         size={votingCardSize}
                         isAlive={true}
                         avatarUrl={targetPlayer?.avatarUrl}
+                        rankTier={targetPlayer?.rankTier}
                       />
                     </div>
 
@@ -802,6 +804,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         size="lg"
                         isAlive={true}
                         avatarUrl={p?.avatarUrl}
+                        rankTier={p?.rankTier}
                       />
                       {acc.type === 'DEAL' && (
                         <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-4 py-0.5 tracking-widest rounded-full z-30">DEAL</div>
@@ -1212,6 +1215,7 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
                     size="fluid"
                     className="w-56 h-[19rem] md:w-64 md:h-[22rem]"
                     avatarUrl={p?.avatarUrl}
+                    rankTier={p?.rankTier}
                   />
                 </div>
               </div>

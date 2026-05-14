@@ -377,9 +377,19 @@ app.post('/api/game/verify-pin-by-code', async (req, res) => {
         players: state.players.map(p => ({
           physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
           gender: p.gender, role: p.role, avatarUrl: (p as any).avatarUrl || null,
+          rankTier: p.rankTier || 'INFORMANT',
         })),
         winner: state.winner || null,
         discussionState: state.discussionState || null,
+        teamCounts: (() => {
+          const alive = state.players.filter(p => p.isAlive);
+          const { isMafiaRole } = require('./game/roles.js');
+          return {
+            mafiaAlive: alive.filter(p => p.role && isMafiaRole(p.role)).length,
+            citizenAlive: alive.filter(p => p.role && !isMafiaRole(p.role)).length,
+          };
+        })(),
+        gameTimer: state.gameTimer || null,
       } : null,
     });
   } catch (err: any) {

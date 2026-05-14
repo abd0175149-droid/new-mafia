@@ -26,6 +26,7 @@ interface SmartMafiaCardProps extends Omit<MafiaCardProps, 'role'> {
   role: string | null;
   /** هل المحرك الديناميكي مفعّل — يُمرر اختيارياً */
   useDynamicEngine?: boolean;
+  rankTier?: string;
 }
 
 export default function MafiaCard({

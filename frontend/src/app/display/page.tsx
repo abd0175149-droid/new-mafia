@@ -49,6 +49,7 @@ interface PlayerInfo {
   role?: string;
   gender?: string;
   avatarUrl?: string | null;
+  rankTier?: string;
 }
 
 // مؤثرات الفوز أصبحت مُدارة من soundManager
@@ -200,6 +201,7 @@ function DisplayPageContent() {
           gender: p.gender,
           role: effectivePhase === 'LOBBY' ? null : (p.role || null),
           avatarUrl: p.avatarUrl || null,
+          rankTier: p.rankTier || 'INFORMANT',
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
       }
@@ -548,6 +550,10 @@ function DisplayPageContent() {
         if (data.state.winner) {
           setWinner(data.state.winner);
         }
+        if (data.state.teamCounts) setTeamCounts(data.state.teamCounts);
+        if (data.state.gameTimer && !data.state.gameTimer.expired) {
+          setGameTimerData(data.state.gameTimer);
+        }
         if (data.state.players) {
           const activePlayers = data.state.players.filter((p: any) => !p.frozen);
           setPlayers(activePlayers.map((p: any) => ({
@@ -557,6 +563,7 @@ function DisplayPageContent() {
             gender: p.gender,
             role: p.role,
             avatarUrl: p.avatarUrl || null,
+            rankTier: p.rankTier || 'INFORMANT',
           })));
         }
       }
@@ -965,6 +972,7 @@ function DisplayPageContent() {
                             isAlive={p.isAlive !== false}
                             size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
                             avatarUrl={p.avatarUrl}
+                            rankTier={p.rankTier}
                           />
                         </motion.div>
                       ))}
@@ -1027,6 +1035,7 @@ function DisplayPageContent() {
                           isAlive={p.isAlive !== false}
                           size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
                           avatarUrl={p.avatarUrl}
+                          rankTier={p.rankTier}
                         />
                       </motion.div>
                    ))}
@@ -1193,6 +1202,7 @@ function DisplayPageContent() {
                         size="fluid"
                         className="w-40 h-[14rem] md:w-52 md:h-[18rem] lg:w-60 lg:h-[20rem]"
                         avatarUrl={p.avatarUrl}
+                        rankTier={p.rankTier}
                       />
                     </motion.div>
                   ))}
@@ -1313,6 +1323,7 @@ function DisplayPageContent() {
                 size="fluid"
                 className="w-52 h-[18rem] md:w-72 md:h-[24rem] lg:w-80 lg:h-[28rem]"
                 avatarUrl={players.find(p => p.physicalId === adminReveal.physicalId)?.avatarUrl}
+                rankTier={players.find(p => p.physicalId === adminReveal.physicalId)?.rankTier}
               />
             </motion.div>
 
@@ -1374,6 +1385,7 @@ function GameOverCard({ player, role, isMafia, flipDelay, isAlive }: {
         size="fluid"
         className="w-40 h-[14rem] md:w-52 md:h-[18rem] lg:w-60 lg:h-[20rem]"
         avatarUrl={player.avatarUrl}
+        rankTier={player.rankTier}
       />
     </motion.div>
   );
