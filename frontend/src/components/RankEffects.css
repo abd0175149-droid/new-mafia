@@ -37,6 +37,45 @@
   100% { background-position: 200% 50%; }
 }
 
+@keyframes particle-burst {
+  0% {
+    transform: translate(0, 0) scale(0.3);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  80% {
+    opacity: 0.6;
+    transform:
+      translate(
+        calc(cos(var(--angle)) * var(--burst-distance)),
+        calc(sin(var(--angle)) * var(--burst-distance))
+      )
+      scale(0.5);
+  }
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(cos(var(--angle)) * var(--burst-distance) * 1.2),
+        calc(sin(var(--angle)) * var(--burst-distance) * 1.2)
+      )
+      scale(0);
+  }
+}
+
+/* fallback burst for older browsers */
+@keyframes particle-burst-0 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(80px,-60px) scale(.5)} 100%{opacity:0;transform:translate(96px,-72px) scale(0)} }
+@keyframes particle-burst-1 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(-70px,-50px) scale(.5)} 100%{opacity:0;transform:translate(-84px,-60px) scale(0)} }
+@keyframes particle-burst-2 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(60px,70px) scale(.5)} 100%{opacity:0;transform:translate(72px,84px) scale(0)} }
+@keyframes particle-burst-3 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(-80px,40px) scale(.5)} 100%{opacity:0;transform:translate(-96px,48px) scale(0)} }
+@keyframes particle-burst-4 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(20px,-80px) scale(.5)} 100%{opacity:0;transform:translate(24px,-96px) scale(0)} }
+@keyframes particle-burst-5 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(-30px,75px) scale(.5)} 100%{opacity:0;transform:translate(-36px,90px) scale(0)} }
+@keyframes particle-burst-6 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(75px,30px) scale(.5)} 100%{opacity:0;transform:translate(90px,36px) scale(0)} }
+@keyframes particle-burst-7 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(-50px,-70px) scale(.5)} 100%{opacity:0;transform:translate(-60px,-84px) scale(0)} }
+
 /* ── Base Rank Wrapper ───────────────────────────── */
 
 .rank-card-wrapper {

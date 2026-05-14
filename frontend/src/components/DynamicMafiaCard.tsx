@@ -311,6 +311,7 @@ export default function DynamicMafiaCard({
                 cursor: rankEditable ? 'grab' : undefined,
                 background: fx.badge.bgColor, color: fx.badge.textColor,
                 border: `1px solid ${fx.badge.borderColor}`,
+                transform: `scale(${fx.badge.scale || 1})`, transformOrigin: 'top left',
               }}>
                 <span>{fx.badge.emoji}</span>
                 <span>{fx.badge.label}</span>
@@ -339,24 +340,36 @@ export default function DynamicMafiaCard({
               </div>
             )}
             {/* Particles */}
-            {fx.particles.enabled && Array.from({ length: fx.particles.count }).map((_, i) => (
-              <div key={i} style={{
-                position: 'absolute', width: fx.particles.size, height: fx.particles.size,
-                background: hexToRgba(fx.particles.color, 0.7), borderRadius: '50%',
-                top: '50%', left: '50%', zIndex: 53,
-                '--orbit-radius': fx.particles.orbitRadius,
-                '--duration': `${fx.particles.baseDuration + i * 0.8}s`,
-                '--delay': `${i * 0.7}s`,
-                animation: `particle-orbit var(--duration) linear infinite`, animationDelay: `var(--delay)`,
-              } as React.CSSProperties} />
-            ))}
+            {fx.particles.enabled && Array.from({ length: fx.particles.count }).map((_, i) => {
+              const isBurst = fx.particles.animationType === 'burst';
+              const originX = fx.particles.originX ?? 50;
+              const originY = fx.particles.originY ?? 50;
+              return (
+                <div key={i} data-rank-el="particle" style={{
+                  position: 'absolute', width: fx.particles.size, height: fx.particles.size,
+                  background: hexToRgba(fx.particles.color, 0.8), borderRadius: '50%',
+                  top: `${originY}%`, left: `${originX}%`, zIndex: 53,
+                  boxShadow: `0 0 ${fx.particles.size * 2}px ${hexToRgba(fx.particles.color, 0.4)}`,
+                  ...(isBurst ? {
+                    animation: `particle-burst-${i % 8} ${fx.particles.baseDuration + i * 0.3}s ease-out infinite`,
+                    animationDelay: `${i * (fx.particles.baseDuration / fx.particles.count)}s`,
+                  } : {
+                    '--orbit-radius': fx.particles.orbitRadius,
+                    '--duration': `${fx.particles.baseDuration + i * 0.8}s`,
+                    '--delay': `${i * 0.7}s`,
+                    animation: `particle-orbit var(--duration) linear infinite`,
+                    animationDelay: `var(--delay)`,
+                  }),
+                } as React.CSSProperties} />
+              );
+            })}
             {/* Floating element */}
             {fx.floating.enabled && (
               <div data-rank-el="floating" style={{
                 position: 'absolute',
                 top: (fx.floating.offsetY !== undefined ? fx.floating.offsetY : (fx.floating.position === 'top' ? -14 : undefined)),
                 bottom: (fx.floating.offsetY === undefined && fx.floating.position === 'bottom') ? -14 : undefined,
-                left: `calc(50% + ${fx.floating.offsetX || 0}px)`, transform: 'translateX(-50%)', fontSize: fx.floating.size, zIndex: 55, lineHeight: 1,
+                left: `calc(50% + ${fx.floating.offsetX || 0}px)`, transform: `translateX(-50%) scale(${fx.floating.scale || 1})`, fontSize: fx.floating.size, zIndex: 55, lineHeight: 1,
                 animation: rankEditable ? 'none' : (fx.floating.animation === 'float' ? 'crown-float 2.5s ease-in-out infinite' : fx.floating.animation === 'spin' ? 'particle-orbit 4s linear infinite' : 'crown-float 1.5s ease-in-out infinite'),
                 filter: `drop-shadow(0 0 6px ${hexToRgba(fx.floating.glowColor, 0.6)})`,
                 pointerEvents: rankEditable ? 'auto' : 'none',

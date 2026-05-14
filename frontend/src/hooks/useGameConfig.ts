@@ -75,11 +75,11 @@ export interface RankEffectsDef {
     border: { enabled: boolean; color: string; width: number; inset: number; style: 'solid' | 'gradient' | 'traveling'; gradientColors: string[]; travelSpeed: number };
     glow: { enabled: boolean; color: string; size: number; opacity: number; pulseEnabled: boolean; pulseDuration: number };
     shimmer: { enabled: boolean; color: string; opacity: number; duration: number };
-    particles: { enabled: boolean; count: number; color: string; size: number; orbitRadius: string; baseDuration: number };
+    particles: { enabled: boolean; count: number; color: string; size: number; orbitRadius: string; baseDuration: number; originX?: number; originY?: number; animationType?: 'orbit' | 'burst'; burstDistance?: number };
     corners: { enabled: boolean; color: string; size: number; width: number; pulseEnabled: boolean };
     gradientOverlay: { enabled: boolean; color: string; opacity: number; direction: string };
-    floating: { enabled: boolean; content: string; position: 'top' | 'bottom'; size: number; animation: 'float' | 'bounce' | 'spin'; glowColor: string; offsetX?: number; offsetY?: number };
-    badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string; offsetX?: number; offsetY?: number };
+    floating: { enabled: boolean; content: string; position: 'top' | 'bottom'; size: number; animation: 'float' | 'bounce' | 'spin'; glowColor: string; offsetX?: number; offsetY?: number; scale?: number };
+    badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string; offsetX?: number; offsetY?: number; scale?: number };
     nameEffect: { enabled: boolean; color: string; glowColor: string; glowSize: number };
   };
 }

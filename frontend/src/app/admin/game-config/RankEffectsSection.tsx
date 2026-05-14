@@ -267,10 +267,22 @@ export default function RankEffectsSection() {
 
             {/* 3. Particles */}
             <Section title="الجزيئات" icon="🟡" enabled={fx.particles.enabled} onToggle={v => setFx('particles', { enabled: v })}>
-              <Slider val={fx.particles.count} set={v => setFx('particles', { count: v })} label="العدد" min={0} max={8} />
+              <div className="flex gap-1 mb-1">
+                {(['orbit','burst'] as const).map(t => (
+                  <button key={t} onClick={() => setFx('particles', { animationType: t })}
+                    className={`text-[10px] px-2 py-0.5 rounded ${(fx.particles.animationType || 'orbit') === t ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500 hover:text-gray-300'}`}>
+                    {t === 'orbit' ? '🔄 دوران' : '💥 انفجار'}
+                  </button>
+                ))}
+              </div>
+              <Slider val={fx.particles.count} set={v => setFx('particles', { count: v })} label="العدد" min={1} max={8} />
               <ColorInput val={fx.particles.color} set={v => setFx('particles', { color: v })} label="اللون" />
-              <Slider val={fx.particles.size} set={v => setFx('particles', { size: v })} label="الحجم" min={1} max={6} unit="px" />
-              <Slider val={fx.particles.baseDuration} set={v => setFx('particles', { baseDuration: v })} label="سرعة الدوران" min={2} max={8} step={0.5} unit="s" />
+              <Slider val={fx.particles.size} set={v => setFx('particles', { size: v })} label="الحجم" min={1} max={8} unit="px" />
+              <Slider val={fx.particles.baseDuration} set={v => setFx('particles', { baseDuration: v })} label="السرعة" min={1} max={8} step={0.5} unit="s" />
+              <hr className="border-gray-700/30 my-1" />
+              <span className="text-[10px] text-gray-500">نقطة الانطلاق (%)</span>
+              <Slider val={fx.particles.originX ?? 50} set={v => setFx('particles', { originX: v })} label="أفقي X" min={0} max={100} unit="%" />
+              <Slider val={fx.particles.originY ?? 50} set={v => setFx('particles', { originY: v })} label="عمودي Y" min={0} max={100} unit="%" />
             </Section>
 
             {/* 4. Corners */}
@@ -308,6 +320,7 @@ export default function RankEffectsSection() {
                 ))}
               </div>
               <ColorInput val={fx.floating.glowColor} set={v => setFx('floating', { glowColor: v })} label="لون التوهج" />
+              <Slider val={fx.floating.scale ?? 1} set={v => setFx('floating', { scale: v })} label="الحجم" min={0.5} max={3} step={0.1} unit="x" />
             </Section>
 
             {/* 7. Badge */}
@@ -324,6 +337,7 @@ export default function RankEffectsSection() {
               </div>
               <ColorInput val={fx.badge.textColor} set={v => setFx('badge', { textColor: v })} label="لون النص" />
               <ColorInput val={fx.badge.borderColor.startsWith('rgba') ? '#6b7280' : fx.badge.borderColor} set={v => setFx('badge', { borderColor: v, bgColor: hexToRgba(v, 0.15) })} label="لون الإطار" />
+              <Slider val={fx.badge.scale ?? 1} set={v => setFx('badge', { scale: v })} label="الحجم" min={0.5} max={3} step={0.1} unit="x" />
             </Section>
 
             {/* 8. Name Effect */}
