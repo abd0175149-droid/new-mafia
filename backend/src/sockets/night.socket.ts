@@ -151,7 +151,7 @@ async function resolveAutoNight(io: Server, roomId: string) {
 }
 
 // ── تجهيز الخطوة التالية (بدون إرسال للاعبين — ينتظر الليدر) ──
-async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: number, callerSocket?: any) {
+async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: number) {
   const state = await getGameState(roomId);
   if (!state) return;
 
@@ -180,13 +180,8 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
     timeoutSeconds: state.config.autoNightTime || 15,
   };
 
-  // بث للغرفة بالكامل — يضمن وصول الحدث للليدر حتى لو findLeaderSocket يجد سوكت قديم
+  // بث للغرفة بالكامل — يضمن وصول الحدث للليدر
   io.to(roomId).emit('night:auto-step-ready', stepPayload);
-
-  // إرسال مباشر للسوكت المُمرر (إن وجد) كضمان إضافي
-  if (callerSocket) {
-    callerSocket.emit('night:auto-step-ready', stepPayload);
-  }
 
   console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId}`);
 }
@@ -369,7 +364,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         });
 
         // ── تجهيز أول خطوة (تنتظر الليدر) ──
-        prepareAutoQueueStep(io, data.roomId, -1, socket);
+        prepareAutoQueueStep(io, data.roomId, -1);
 
         return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
       }
