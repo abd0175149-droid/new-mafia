@@ -6,7 +6,7 @@
 
 import {
   pgTable, pgEnum, serial, text, timestamp, integer,
-  boolean, varchar, decimal, jsonb, date,
+  boolean, varchar, decimal, jsonb, date, numeric,
 } from 'drizzle-orm/pg-core';
 
 // ── Enums ─────────────────────────────────────────────
