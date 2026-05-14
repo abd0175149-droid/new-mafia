@@ -440,7 +440,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (state.activityId) {
         try {
           const { getDB } = await import('../config/db.js');
-          const { activities, activityTickets } = await import('../schemas/admin.schema.js');
+          const { activities, tickets: globalTickets } = await import('../schemas/admin.schema.js');
           const { eq, and } = await import('drizzle-orm');
           const db = getDB();
           if (db) {
@@ -448,6 +448,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               maxCapacity: activities.maxCapacity,
               requireTicket: activities.requireTicket,
               seatConstraints: activities.seatConstraints,
+              basePrice: activities.basePrice,
             }).from(activities).where(eq(activities.id, state.activityId)).limit(1);
 
             if (act) {
@@ -460,37 +461,36 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               }
             }
 
-            // ── 2. التحقق من التذكرة (إن مطلوب) ──
+            // ── 2. التحقق من التذكرة (من الجدول المركزي) ──
             if (requireTicket) {
               if (!data.ticketNumber || !data.ticketNumber.trim()) {
                 return callback({ success: false, error: 'يرجى إدخال رقم التذكرة' });
               }
               const [ticket] = await db.select()
-                .from(activityTickets)
-                .where(and(
-                  eq(activityTickets.activityId, state.activityId!),
-                  eq(activityTickets.ticketNumber, data.ticketNumber.trim()),
-                ))
+                .from(globalTickets)
+                .where(eq(globalTickets.ticketNumber, data.ticketNumber.trim()))
                 .limit(1);
 
               if (!ticket) {
                 return callback({ success: false, error: 'رقم التذكرة غير صالح' });
               }
               if (ticket.isUsed) {
-                return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً' });
+                return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً — يرجى إدخال رقم تذكرة فعّال' });
               }
 
-              // تعليم التذكرة كمستخدمة
-              await db.update(activityTickets)
+              // تعليم التذكرة كمستخدمة مع ربطها بالنشاط
+              await db.update(globalTickets)
                 .set({
                   isUsed: true,
                   usedByPhone: data.phone || null,
                   usedByName: data.name || null,
+                  usedByPlayerId: data.playerId || null,
+                  usedInActivityId: state.activityId,
                   usedAt: new Date(),
                 } as any)
-                .where(eq(activityTickets.id, ticket.id));
+                .where(eq(globalTickets.id, ticket.id));
 
-              console.log(`🎫 Ticket ${data.ticketNumber} validated & marked as used by ${data.name}`);
+              console.log(`🎫 Global Ticket ${data.ticketNumber} validated & used by ${data.name} in activity #${state.activityId}`);
             }
           }
         } catch (e: any) {

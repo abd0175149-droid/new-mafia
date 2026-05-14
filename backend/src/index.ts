@@ -33,6 +33,7 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 import soundsRoutes from './routes/sounds.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import gameConfigRoutes from './routes/game-config.routes.js';
+import ticketsRoutes from './routes/tickets.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -98,6 +99,7 @@ app.use('/api/staff-notifications', staffNotificationRoutes);
 app.use('/api/sounds', soundsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/game-config', gameConfigRoutes);
+app.use('/api/tickets', ticketsRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 app.get('/api/push/vapid-public-key', async (_req, res) => {

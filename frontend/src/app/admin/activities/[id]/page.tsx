@@ -420,198 +420,78 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
 }
 
 // ══════════════════════════════════════════════════════
-// 🎫 قسم إدارة التذاكر — Tickets Management
+// 🎫 التذاكر المستخدمة مع هذا النشاط (من النظام المركزي)
 // ══════════════════════════════════════════════════════
 function TicketsSection({ activityId }: { activityId: number }) {
-  const [tickets, setTickets] = useState<any[]>([]);
-  const [summary, setSummary] = useState({ total: 0, used: 0, available: 0 });
+  const [usedTickets, setUsedTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [uploadResult, setUploadResult] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
 
-  const fetchTickets = async () => {
-    try {
-      const res = await apiFetch(`/api/activities/${activityId}/tickets`);
-      setTickets(res.tickets || []);
-      setSummary(res.summary || { total: 0, used: 0, available: 0 });
-    } catch (err) {
-      console.error('Failed to fetch tickets:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchTickets(); }, [activityId]);
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setUploadResult(null);
-
-    try {
-      const text = await file.text();
-      let ticketNumbers: string[] = [];
-
-      if (file.name.endsWith('.csv') || file.name.endsWith('.txt')) {
-        // CSV/TXT: كل سطر = رقم تذكرة
-        ticketNumbers = text.split(/[\r\n,;]+/).map(t => t.trim()).filter(Boolean);
-      } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-        // Excel: نحاول قراءته كـ CSV fallback (أو ننبه المستخدم)
-        // xlsx library ليست مثبتة على الفرونت — نستخدم CSV
-        setUploadResult('⚠️ يرجى تصدير الملف كـ CSV أولاً. حالياً يدعم ملفات CSV و TXT فقط.');
-        setUploading(false);
-        return;
-      } else {
-        ticketNumbers = text.split(/[\r\n,;]+/).map(t => t.trim()).filter(Boolean);
+  useEffect(() => {
+    (async () => {
+      try {
+        // جلب التذاكر من النظام المركزي المفلترة حسب هذا النشاط
+        const all = await apiFetch(`/api/tickets?limit=500`);
+        const forActivity = (all || []).filter((t: any) => t.isUsed && t.usedInActivityId === activityId);
+        setUsedTickets(forActivity);
+      } catch (err) {
+        console.error('Failed to fetch used tickets:', err);
+      } finally {
+        setLoading(false);
       }
-
-      if (ticketNumbers.length === 0) {
-        setUploadResult('⚠️ لم يتم العثور على أرقام تذاكر في الملف');
-        setUploading(false);
-        return;
-      }
-
-      const res = await apiFetch(`/api/activities/${activityId}/upload-tickets`, {
-        method: 'POST',
-        body: JSON.stringify({ tickets: ticketNumbers }),
-      });
-
-      setUploadResult(`✅ تم رفع ${res.uploaded} تذكرة جديدة${res.duplicates > 0 ? ` (${res.duplicates} مكررة تم تجاهلها)` : ''} — المجموع: ${res.total}`);
-      fetchTickets();
-    } catch (err: any) {
-      setUploadResult('❌ فشل الرفع: ' + err.message);
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
-  };
-
-  const handleDeleteAll = async () => {
-    if (!confirm('⚠️ هل تريد حذف جميع التذاكر لهذا النشاط؟ لا يمكن التراجع!')) return;
-    try {
-      await apiFetch(`/api/activities/${activityId}/tickets`, { method: 'DELETE' });
-      setTickets([]);
-      setSummary({ total: 0, used: 0, available: 0 });
-      setUploadResult('🗑️ تم حذف جميع التذاكر');
-    } catch (err: any) {
-      alert('فشل الحذف: ' + err.message);
-    }
-  };
-
-  const filtered = search
-    ? tickets.filter(t => t.ticketNumber.toLowerCase().includes(search.toLowerCase()))
-    : tickets;
+    })();
+  }, [activityId]);
 
   return (
     <div className="bg-gray-800/50 border border-purple-500/20 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          🎫 إدارة التذاكر
+          🎫 التذاكر المستخدمة في هذا النشاط
           <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/20">
-            {summary.available} متاحة / {summary.total} إجمالي
+            {usedTickets.length} تذكرة
           </span>
-          {summary.used > 0 && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
-              {summary.used} مستخدمة
-            </span>
-          )}
         </h3>
-        <div className="flex gap-2">
-          <label className="text-xs px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition cursor-pointer">
-            {uploading ? '⏳ جارٍ الرفع...' : '📂 رفع ملف CSV'}
-            <input
-              type="file"
-              accept=".csv,.txt,.xlsx,.xls"
-              onChange={handleFileUpload}
-              disabled={uploading}
-              className="hidden"
-            />
-          </label>
-          {tickets.length > 0 && (
-            <button
-              onClick={handleDeleteAll}
-              className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition"
-            >
-              🗑️ حذف الكل
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* نتيجة الرفع */}
-      {uploadResult && (
-        <div className={`mb-4 p-3 rounded-xl text-xs ${
-          uploadResult.startsWith('✅') ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' :
-          uploadResult.startsWith('❌') ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400' :
-          'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-        }`}>
-          {uploadResult}
-        </div>
-      )}
-
-      {/* تعليمات */}
-      <div className="mb-4 p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl text-xs text-purple-400/70">
-        💡 ارفع ملف CSV يحتوي على رقم تذكرة واحد في كل سطر. كل تذكرة تُستخدم مرة واحدة فقط عند دخول اللاعب.
+        <a href="/admin/tickets" className="text-xs px-3 py-1.5 rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition">
+          📂 إدارة التذاكر المركزية ←
+        </a>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-6">
           <div className="animate-spin h-6 w-6 border-2 border-purple-500 border-t-transparent rounded-full" />
         </div>
-      ) : tickets.length > 0 ? (
-        <>
-          {/* بحث */}
-          <div className="mb-3">
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="🔍 بحث عن رقم تذكرة..."
-              dir="ltr"
-              className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm font-mono"
-            />
-          </div>
-
-          {/* قائمة التذاكر */}
-          <div className="max-h-64 overflow-y-auto border border-gray-700/30 rounded-xl">
-            <table className="w-full text-sm" dir="rtl">
-              <thead>
-                <tr className="bg-gray-900/50 text-gray-500 text-xs sticky top-0">
-                  <th className="text-right px-3 py-2 font-medium">#</th>
-                  <th className="text-right px-3 py-2 font-medium">رقم التذكرة</th>
-                  <th className="text-center px-3 py-2 font-medium">الحالة</th>
+      ) : usedTickets.length > 0 ? (
+        <div className="max-h-64 overflow-y-auto border border-gray-700/30 rounded-xl">
+          <table className="w-full text-sm" dir="rtl">
+            <thead>
+              <tr className="bg-gray-900/50 text-gray-500 text-xs sticky top-0">
+                <th className="text-right px-3 py-2 font-medium">#</th>
+                <th className="text-right px-3 py-2 font-medium">رقم التذكرة</th>
+                <th className="text-right px-3 py-2 font-medium">اللاعب</th>
+                <th className="text-right px-3 py-2 font-medium">الهاتف</th>
+                <th className="text-right px-3 py-2 font-medium">البائع</th>
+                <th className="text-right px-3 py-2 font-medium">تاريخ الاستخدام</th>
+              </tr>
+            </thead>
+            <tbody>
+              {usedTickets.map((t: any, i: number) => (
+                <tr key={t.id} className="border-t border-gray-700/20 hover:bg-gray-700/10">
+                  <td className="px-3 py-2 text-gray-600 text-xs">{i + 1}</td>
+                  <td className="px-3 py-2 text-white font-mono text-xs" dir="ltr">{t.ticketNumber}</td>
+                  <td className="px-3 py-2 text-white text-xs">{t.usedByName || '—'}</td>
+                  <td className="px-3 py-2 text-gray-400 font-mono text-[10px]" dir="ltr">{t.usedByPhone || '—'}</td>
+                  <td className="px-3 py-2 text-gray-400 text-xs">{t.sellerName || '—'}</td>
+                  <td className="px-3 py-2 text-gray-500 text-[10px]">
+                    {t.usedAt ? new Date(t.usedAt).toLocaleString('ar-JO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtered.map((t: any, i: number) => (
-                  <tr key={t.id} className="border-t border-gray-700/20 hover:bg-gray-700/10">
-                    <td className="px-3 py-2 text-gray-600 text-xs">{i + 1}</td>
-                    <td className="px-3 py-2 text-white font-mono text-xs" dir="ltr">{t.ticketNumber}</td>
-                    <td className="px-3 py-2 text-center">
-                      {t.isUsed ? (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-400 border border-rose-500/20">
-                          ✓ مستخدمة
-                        </span>
-                      ) : (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-                          متاحة
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {search && <p className="text-xs text-gray-500 mt-2">عرض {filtered.length} من {tickets.length}</p>}
-        </>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
-        <div className="text-center py-8 text-gray-600 text-sm">
-          <span className="text-3xl block mb-2 opacity-30">🎫</span>
-          لم يتم رفع أي تذاكر بعد
+        <div className="text-center py-6 text-gray-600 text-sm">
+          <span className="text-2xl block mb-2 opacity-30">🎫</span>
+          لم يتم استخدام أي تذاكر مع هذا النشاط بعد
         </div>
       )}
     </div>

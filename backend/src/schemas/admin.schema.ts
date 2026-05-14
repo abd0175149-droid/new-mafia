@@ -167,7 +167,31 @@ export const soundEffects = pgTable('sound_effects', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
-// ── Activity Tickets (أرقام التذاكر المعتمدة لكل نشاط) ──
+// ── Tickets (نظام التذاكر المركزي — مستقل عن الأنشطة) ──
+
+export const tickets = pgTable('tickets', {
+  id: serial('id').primaryKey(),
+  ticketNumber: varchar('ticket_number', { length: 50 }).notNull().unique(),
+  batchName: varchar('batch_name', { length: 100 }),
+  ticketType: varchar('ticket_type', { length: 30 }).default('regular'),  // regular | vip | free
+  price: numeric('price', { precision: 10, scale: 2 }),
+  details: text('details'),                                                // تفاصيل إضافية حرة
+  sellerName: varchar('seller_name', { length: 100 }),
+  sellerPhone: varchar('seller_phone', { length: 20 }),
+  notes: text('notes'),
+  // ── حالة الاستخدام ──
+  isUsed: boolean('is_used').default(false),
+  usedAt: timestamp('used_at'),
+  usedByPlayerId: integer('used_by_player_id'),
+  usedByName: varchar('used_by_name', { length: 100 }),
+  usedByPhone: varchar('used_by_phone', { length: 20 }),
+  usedInActivityId: integer('used_in_activity_id'),
+  // ── metadata ──
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: varchar('created_by', { length: 100 }),
+});
+
+// ── Activity Tickets (قديم — للتوافق فقط) ──
 
 export const activityTickets = pgTable('activity_tickets', {
   id: serial('id').primaryKey(),
