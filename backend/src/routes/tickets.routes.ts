@@ -90,16 +90,51 @@ router.get('/stats', authenticate, async (req: Request, res: Response) => {
   res.json({ total, used, available, bySeller, byBatch, byType });
 });
 
-// ── POST /api/tickets/upload — رفع دفعة تذاكر ──
+// ── POST /api/tickets/upload — رفع تذاكر (كائنات كاملة أو أرقام فقط) ──
 router.post('/upload', authenticate, async (req: Request, res: Response) => {
   if (!canManageTickets(req, res)) return;
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { ticketNumbers, batchName, ticketType, price, sellerName, sellerPhone, details } = req.body;
+  const { tickets: inputTickets, ticketNumbers, batchName, ticketType, price, sellerName, sellerPhone, details } = req.body;
 
-  if (!Array.isArray(ticketNumbers) || ticketNumbers.length === 0) {
-    return res.status(400).json({ error: 'يرجى إرسال مصفوفة أرقام التذاكر' });
+  // دعم الصيغتين:
+  // 1) tickets: [{ticketNumber, ticketType, price, sellerName, ...}] — من CSV
+  // 2) ticketNumbers: ["TKT-001", "TKT-002"] — القديمة (أرقام فقط + metadata مشتركة)
+  let ticketRows: any[] = [];
+
+  if (Array.isArray(inputTickets) && inputTickets.length > 0) {
+    // صيغة CSV: كل تذكرة ببياناتها
+    ticketRows = inputTickets
+      .filter((t: any) => t.ticketNumber && String(t.ticketNumber).trim())
+      .map((t: any) => ({
+        ticketNumber: String(t.ticketNumber).trim(),
+        batchName: t.batchName || null,
+        ticketType: t.ticketType || 'regular',
+        price: t.price ? String(t.price) : null,
+        details: t.details || null,
+        notes: t.notes || null,
+        sellerName: t.sellerName || null,
+        sellerPhone: t.sellerPhone || null,
+      }));
+  } else if (Array.isArray(ticketNumbers) && ticketNumbers.length > 0) {
+    // صيغة قديمة: أرقام + metadata مشتركة
+    ticketRows = ticketNumbers
+      .map((t: string) => String(t).trim())
+      .filter(Boolean)
+      .map(t => ({
+        ticketNumber: t,
+        batchName: batchName || null,
+        ticketType: ticketType || 'regular',
+        price: price ? String(price) : null,
+        details: details || null,
+        sellerName: sellerName || null,
+        sellerPhone: sellerPhone || null,
+      }));
+  }
+
+  if (ticketRows.length === 0) {
+    return res.status(400).json({ error: 'يرجى إرسال بيانات التذاكر' });
   }
 
   // جلب الأرقام الموجودة
@@ -107,33 +142,30 @@ router.post('/upload', authenticate, async (req: Request, res: Response) => {
   const existingSet = new Set(existing.map(t => t.ticketNumber));
 
   // فلترة المكررات
-  const unique = [...new Set(ticketNumbers.map((t: string) => String(t).trim()).filter(Boolean))];
-  const newTickets = unique.filter(t => !existingSet.has(t));
-  const duplicates = unique.length - newTickets.length;
+  const seen = new Set<string>();
+  const newTickets = ticketRows.filter(t => {
+    if (existingSet.has(t.ticketNumber) || seen.has(t.ticketNumber)) return false;
+    seen.add(t.ticketNumber);
+    return true;
+  });
+  const duplicates = ticketRows.length - newTickets.length;
 
   const createdBy = req.user?.displayName || req.user?.username || '';
 
   if (newTickets.length > 0) {
-    // إدخال بدفعات (batches of 100)
     const batchSize = 100;
     for (let i = 0; i < newTickets.length; i += batchSize) {
       const chunk = newTickets.slice(i, i + batchSize);
       await db.insert(tickets).values(
         chunk.map(t => ({
-          ticketNumber: t,
-          batchName: batchName || null,
-          ticketType: ticketType || 'regular',
-          price: price ? String(price) : null,
-          details: details || null,
-          sellerName: sellerName || null,
-          sellerPhone: sellerPhone || null,
+          ...t,
           createdBy,
         } as any))
       );
     }
   }
 
-  console.log(`🎫 Uploaded ${newTickets.length} global tickets (${duplicates} duplicates skipped) by ${createdBy}`);
+  console.log(`🎫 Uploaded ${newTickets.length} tickets (${duplicates} duplicates skipped) by ${createdBy}`);
   res.json({
     success: true,
     uploaded: newTickets.length,

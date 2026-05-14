@@ -23,6 +23,43 @@ const TYPE_MAP: Record<string, { label: string; color: string; icon: string }> =
   free:    { label: 'مجانية', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20', icon: '🎁' },
 };
 
+// ── CSV Header Mapping ──
+const CSV_HEADERS = ['رقم التذكرة','النوع','السعر','اسم البائع','هاتف البائع','اسم الدفعة','التفاصيل','ملاحظات'];
+const CSV_KEYS    = ['ticketNumber','ticketType','price','sellerName','sellerPhone','batchName','details','notes'];
+
+function parseCSV(text: string): any[] {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  // تجاهل السطر الأول (العناوين)
+  const dataLines = lines.slice(1);
+  return dataLines.map(line => {
+    const cols = line.split(',').map(c => c.trim());
+    const obj: any = {};
+    CSV_KEYS.forEach((key, i) => {
+      if (cols[i] && cols[i] !== '') obj[key] = cols[i];
+    });
+    return obj;
+  }).filter(obj => obj.ticketNumber); // فقط الصفوف التي فيها رقم تذكرة
+}
+
+function downloadTemplate() {
+  const rows = [
+    CSV_HEADERS.join(','),
+    ['TKT-2026-0001','regular','5.00','أحمد محمد','0791234567','دفعة مايو 2026','تذكرة عادية',''].join(','),
+    ['TKT-2026-0002','vip','10.00','أحمد محمد','0791234567','دفعة مايو 2026','تذكرة VIP مميزة',''].join(','),
+    ['TKT-2026-0003','free','0','سارة خالد','0799876543','دفعة مايو 2026','تذكرة مجانية','دعوة خاصة'].join(','),
+  ];
+  const csv = rows.join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'ticket_template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function TicketsPage() {
   const [tickets, setTickets] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({ total: 0, used: 0, available: 0, bySeller: {}, byBatch: {}, byType: {} });
@@ -31,17 +68,12 @@ export default function TicketsPage() {
   const [filter, setFilter] = useState<'all' | 'available' | 'used'>('all');
   const [batchFilter, setBatchFilter] = useState('');
 
-  // Upload form
+  // Upload
   const [showUpload, setShowUpload] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadBatch, setUploadBatch] = useState('');
-  const [uploadType, setUploadType] = useState('regular');
-  const [uploadPrice, setUploadPrice] = useState('');
-  const [uploadSeller, setUploadSeller] = useState('');
-  const [uploadSellerPhone, setUploadSellerPhone] = useState('');
-  const [uploadDetails, setUploadDetails] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
+  const [previewRows, setPreviewRows] = useState<any[]>([]);
 
   const fetchAll = async () => {
     try {
@@ -75,45 +107,39 @@ export default function TicketsPage() {
     return Array.from(set) as string[];
   }, [tickets]);
 
-  // رفع ملف
+  // معاينة الملف عند اختياره
+  const handleFileSelect = async (file: File | null) => {
+    setUploadFile(file);
+    setPreviewRows([]);
+    setUploadResult(null);
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseCSV(text);
+      setPreviewRows(parsed);
+      if (parsed.length === 0) {
+        setUploadResult('⚠️ لم يتم العثور على بيانات صالحة — تأكد من صيغة القالب');
+      }
+    } catch {
+      setUploadResult('⚠️ فشل قراءة الملف');
+    }
+  };
+
+  // رفع
   const handleUpload = async () => {
-    if (!uploadFile) return;
+    if (previewRows.length === 0) return;
     setUploading(true);
     setUploadResult(null);
 
     try {
-      const text = await uploadFile.text();
-      let ticketNumbers: string[];
-
-      if (uploadFile.name.endsWith('.xlsx') || uploadFile.name.endsWith('.xls')) {
-        setUploadResult('⚠️ يرجى تصدير الملف كـ CSV أولاً');
-        setUploading(false);
-        return;
-      }
-
-      ticketNumbers = text.split(/[\r\n,;]+/).map(t => t.trim()).filter(Boolean);
-
-      if (ticketNumbers.length === 0) {
-        setUploadResult('⚠️ لم يتم العثور على أرقام تذاكر');
-        setUploading(false);
-        return;
-      }
-
       const res = await apiFetch('/api/tickets/upload', {
         method: 'POST',
-        body: JSON.stringify({
-          ticketNumbers,
-          batchName: uploadBatch || undefined,
-          ticketType: uploadType,
-          price: uploadPrice || undefined,
-          sellerName: uploadSeller || undefined,
-          sellerPhone: uploadSellerPhone || undefined,
-          details: uploadDetails || undefined,
-        }),
+        body: JSON.stringify({ tickets: previewRows }),
       });
 
       setUploadResult(`✅ تم رفع ${res.uploaded} تذكرة${res.duplicates > 0 ? ` (${res.duplicates} مكررة)` : ''}`);
       setUploadFile(null);
+      setPreviewRows([]);
       fetchAll();
     } catch (err: any) {
       setUploadResult('❌ فشل: ' + err.message);
@@ -161,26 +187,8 @@ export default function TicketsPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">إدارة جميع تذاكر الأنشطة من مكان واحد</p>
         </div>
-      <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              const header = 'رقم التذكرة';
-              const examples = [
-                'TKT-2026-0001',
-                'TKT-2026-0002',
-                'TKT-2026-0003',
-                'TKT-2026-0004',
-                'TKT-2026-0005',
-              ];
-              const csv = [header, ...examples].join('\n');
-              const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'ticket_template.csv';
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
+        <div className="flex items-center gap-2">
+          <button onClick={downloadTemplate}
             className="px-4 py-2.5 rounded-xl border border-gray-600/40 text-gray-400 hover:text-white hover:border-gray-500 font-bold text-sm transition flex items-center gap-2"
           >
             📥 تحميل القالب
@@ -214,7 +222,7 @@ export default function TicketsPage() {
         ))}
       </div>
 
-      {/* ══ Upload Form ══ */}
+      {/* ══ Upload Section ══ */}
       <AnimatePresence>
         {showUpload && (
           <motion.div
@@ -222,85 +230,63 @@ export default function TicketsPage() {
             className="overflow-hidden"
           >
             <div className="bg-gray-800/50 border border-purple-500/20 rounded-2xl p-5 space-y-4">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">📂 رفع دفعة تذاكر جديدة</h3>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">📂 رفع ملف تذاكر</h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* ملف */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">ملف التذاكر (CSV / TXT)</label>
-                  <input type="file" accept=".csv,.txt"
-                    onChange={e => setUploadFile(e.target.files?.[0] || null)}
-                    className="w-full text-sm text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-500/20 file:text-purple-400 file:text-xs file:font-bold hover:file:bg-purple-500/30 file:cursor-pointer"
-                  />
-                </div>
-
-                {/* اسم الدفعة */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">اسم الدفعة</label>
-                  <input type="text" value={uploadBatch} onChange={e => setUploadBatch(e.target.value)}
-                    placeholder="مثال: دفعة مايو 2026"
-                    className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
-                  />
-                </div>
-
-                {/* نوع التذكرة */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">نوع التذكرة</label>
-                  <select value={uploadType} onChange={e => setUploadType(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
-                  >
-                    <option value="regular">🎫 عادية</option>
-                    <option value="vip">⭐ VIP</option>
-                    <option value="free">🎁 مجانية</option>
-                  </select>
-                </div>
-
-                {/* السعر */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">سعر التذكرة (د.أ)</label>
-                  <input type="number" value={uploadPrice} onChange={e => setUploadPrice(e.target.value)}
-                    placeholder="0.00" dir="ltr"
-                    className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm font-mono"
-                  />
-                </div>
-
-                {/* اسم البائع */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">اسم البائع / الموزع</label>
-                  <input type="text" value={uploadSeller} onChange={e => setUploadSeller(e.target.value)}
-                    placeholder="اسم الشخص الذي يبيع هذه التذاكر"
-                    className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
-                  />
-                </div>
-
-                {/* هاتف البائع */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">هاتف البائع</label>
-                  <input type="text" value={uploadSellerPhone} onChange={e => setUploadSellerPhone(e.target.value)}
-                    placeholder="07xxxxxxxxx" dir="ltr"
-                    className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm font-mono"
-                  />
-                </div>
+              {/* تعليمات */}
+              <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl text-xs text-purple-400/70 space-y-1">
+                <p>💡 <strong className="text-purple-400">الخطوات:</strong> حمّل القالب ← عبّئ البيانات في Excel ← احفظ كـ CSV ← ارفعه هنا</p>
+                <p>📋 <strong className="text-purple-400">الأعمدة:</strong> رقم التذكرة, النوع (regular/vip/free), السعر, اسم البائع, هاتف البائع, اسم الدفعة, التفاصيل, ملاحظات</p>
+                <p>⚠️ العمود الإلزامي الوحيد: <strong className="text-white">رقم التذكرة</strong> — الباقي اختياري</p>
               </div>
 
-              {/* تفاصيل إضافية */}
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">تفاصيل إضافية</label>
-                <textarea value={uploadDetails} onChange={e => setUploadDetails(e.target.value)}
-                  placeholder="أي ملاحظات أو تفاصيل..."
-                  rows={2}
-                  className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm resize-none"
-                />
-              </div>
+              {/* اختيار ملف */}
+              <input type="file" accept=".csv,.txt"
+                onChange={e => handleFileSelect(e.target.files?.[0] || null)}
+                className="w-full text-sm text-gray-400 file:mr-3 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:bg-purple-500/20 file:text-purple-400 file:text-xs file:font-bold hover:file:bg-purple-500/30 file:cursor-pointer"
+              />
+
+              {/* معاينة البيانات */}
+              {previewRows.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-400">📋 معاينة — {previewRows.length} تذكرة تم قراءتها:</p>
+                  <div className="max-h-48 overflow-auto border border-gray-700/30 rounded-xl">
+                    <table className="w-full text-xs" dir="rtl">
+                      <thead>
+                        <tr className="bg-gray-900/60 text-gray-500 sticky top-0">
+                          <th className="px-2 py-1.5 text-right">#</th>
+                          <th className="px-2 py-1.5 text-right">رقم التذكرة</th>
+                          <th className="px-2 py-1.5 text-center">النوع</th>
+                          <th className="px-2 py-1.5 text-center">السعر</th>
+                          <th className="px-2 py-1.5 text-right">البائع</th>
+                          <th className="px-2 py-1.5 text-right">الدفعة</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewRows.slice(0, 10).map((r, i) => (
+                          <tr key={i} className="border-t border-gray-700/20">
+                            <td className="px-2 py-1 text-gray-600">{i + 1}</td>
+                            <td className="px-2 py-1 text-white font-mono" dir="ltr">{r.ticketNumber}</td>
+                            <td className="px-2 py-1 text-center text-gray-400">{r.ticketType || 'regular'}</td>
+                            <td className="px-2 py-1 text-center text-gray-400 font-mono">{r.price || '—'}</td>
+                            <td className="px-2 py-1 text-gray-400">{r.sellerName || '—'}</td>
+                            <td className="px-2 py-1 text-gray-400">{r.batchName || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {previewRows.length > 10 && <p className="text-[10px] text-gray-600">... و {previewRows.length - 10} تذكرة أخرى</p>}
+                </div>
+              )}
 
               {/* زر الرفع */}
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleUpload}
-                  disabled={!uploadFile || uploading}
+                  disabled={previewRows.length === 0 || uploading}
                   className="px-6 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold text-sm rounded-xl hover:opacity-90 transition disabled:opacity-50"
                 >
-                  {uploading ? '⏳ جارٍ الرفع...' : `📤 رفع ${uploadFile ? uploadFile.name : ''}`}
+                  {uploading ? '⏳ جارٍ الرفع...' : `📤 رفع ${previewRows.length} تذكرة`}
                 </button>
                 {uploadResult && (
                   <span className={`text-xs ${uploadResult.startsWith('✅') ? 'text-emerald-400' : uploadResult.startsWith('❌') ? 'text-rose-400' : 'text-amber-400'}`}>
