@@ -847,6 +847,17 @@ export default function LeaderPage() {
       setGameTimerRemaining(0);
     });
 
+    // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──
+    const offStateUpdated = on('game:state-updated', (state: any) => {
+      if (!state) return;
+      setGameState(prev => prev ? {
+        ...prev,
+        nightActions: state.nightActions || prev.nightActions,
+        nightStep: state.nightStep || prev.nightStep,
+        playerNightActions: state.playerNightActions || (prev as any).playerNightActions,
+      } : prev);
+    });
+
     return () => {
       offConnect();
       offStateSync();
@@ -880,6 +891,7 @@ export default function LeaderPage() {
       offWithdrawalUpdate();
       offWithdrawalResult();
       offTimerExpired();
+      offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);
 
@@ -2514,7 +2526,10 @@ export default function LeaderPage() {
                   </div>
                 </div>
               )}
-              <LeaderNightView gameState={gameState} emit={emit} setError={setError} />
+              {/* المانوال فقط — أو MORNING_RECAP (لعرض أحداث الصباح + زر معالجة التقاطعات) */}
+              {((gameState.config as any).nightMode !== 'auto' || gameState.phase === 'MORNING_RECAP') && (
+                <LeaderNightView gameState={gameState} emit={emit} setError={setError} />
+              )}
             </>
           )}
 

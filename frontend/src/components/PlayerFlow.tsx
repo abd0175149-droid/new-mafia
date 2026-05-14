@@ -1145,6 +1145,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setNightActionCountdown(prev => {
           if (prev <= 1) {
             clearInterval(nightCountdownRef.current!);
+            // السيرفر يختار عشوائياً — نغلق الشاشة بعد ثانيتين
+            setTimeout(() => {
+              setNightActionSubmitted(true);
+              setTimeout(() => setNightActionRequired(null), 1500);
+            }, 2000);
             return 0;
           }
           return prev - 1;

@@ -290,7 +290,9 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
     const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
     // تجهيز الخطوة التالية (تنتظر الليدر)
-    prepareAutoQueueStep(io, roomId, newIndex);
+    prepareAutoQueueStep(io, roomId, newIndex).catch(err => {
+      console.error(`❌ Failed to prepare next auto step for room ${roomId}:`, err);
+    });
   }, timeoutSeconds * 1000);
 
   autoNightTimers.set(roomId, timerId as any);
