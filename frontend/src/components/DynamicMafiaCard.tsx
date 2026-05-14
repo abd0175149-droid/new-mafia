@@ -91,7 +91,7 @@ export default function DynamicMafiaCard({
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
   const rankDef = getRankEffectsForTier(tier);
   const fx = rankEffectsOverride || rankDef?.effects;
-  const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.corners?.enabled || fx.frame?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
+  const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.frame?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const isFlipped = controlledFlip !== undefined ? controlledFlip : internalFlip;
@@ -318,18 +318,6 @@ export default function DynamicMafiaCard({
                 <span>{fx.badge.label}</span>
               </div>
             )}
-            {/* Corners */}
-            {fx.corners.enabled && ['tl','tr','bl','br'].map(pos => (
-              <div key={pos} style={{
-                position: 'absolute', width: fx.corners.size, height: fx.corners.size,
-                borderColor: hexToRgba(fx.corners.color, 0.6), borderStyle: 'solid', borderWidth: 0, zIndex: 51,
-                ...(fx.corners.pulseEnabled ? { animation: 'corner-pulse 2.5s ease-in-out infinite' } : {}),
-                ...(pos === 'tl' ? { top: 2, left: 2, borderTopWidth: fx.corners.width, borderLeftWidth: fx.corners.width, borderTopLeftRadius: 4 } : {}),
-                ...(pos === 'tr' ? { top: 2, right: 2, borderTopWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderTopRightRadius: 4 } : {}),
-                ...(pos === 'bl' ? { bottom: 2, left: 2, borderBottomWidth: fx.corners.width, borderLeftWidth: fx.corners.width, borderBottomLeftRadius: 4 } : {}),
-                ...(pos === 'br' ? { bottom: 2, right: 2, borderBottomWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderBottomRightRadius: 4 } : {}),
-              }} />
-            ))}
             {/* SVG Decorative Frame */}
             {fx.frame?.enabled && fx.frame.type !== 'none' && (
               <RankFrame
