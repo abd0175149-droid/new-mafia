@@ -10,7 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import { loadSoundMap, playGameSound, playAmbientSound, stopAmbientSound } from '@/lib/soundManager';
+import { loadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -288,6 +288,7 @@ function DisplayPageContent() {
         setWinner(null);
         setTeamCounts({ citizenAlive: 0, mafiaAlive: 0 });
         stopAmbientSound();
+        playAmbientSound('ambient_lobby');
       }
 
       // صوت خلفي حسب المرحلة
@@ -302,13 +303,17 @@ function DisplayPageContent() {
         stopAmbientSound();
         playAmbientSound('ambient_voting');
         playGameSound('phase_voting_start');
-      } else if (data.phase === 'DAY_JUSTIFICATION' || data.phase === 'DAY_TIEBREAKER' || data.phase === 'DAY_REVEALED') {
+      } else if (data.phase === 'DAY_JUSTIFICATION') {
         stopAmbientSound();
-        playAmbientSound('ambient_voting');
+        playAmbientSound('ambient_justification');
+      } else if (data.phase === 'DAY_TIEBREAKER' || data.phase === 'DAY_REVEALED') {
+        stopAmbientSound();
       } else if (data.phase === 'DAY_ELIMINATION') {
         stopAmbientSound();
-        playAmbientSound('ambient_voting');
         playGameSound('phase_elimination');
+      } else if (data.phase === 'MORNING_RECAP') {
+        stopAmbientSound();
+        playAmbientSound('ambient_morning');
       } else if (data.phase === Phase.GAME_OVER) {
         stopAmbientSound();
       }
@@ -338,6 +343,13 @@ function DisplayPageContent() {
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(data);
       animTimerRef.current = setTimeout(() => setAnimation(null), 5000);
+    };
+
+    // ── صوت خلفي مميز لكل خطوة ليلية ──
+    const onNightStepInfo = (data: any) => {
+      if (data.stepType) {
+        playNightStepAmbient(data.stepType);
+      }
     };
 
     const onGameOver = (data: any) => {
@@ -390,6 +402,7 @@ function DisplayPageContent() {
     socket.on('room:player-updated', onPlayerUpdated);
     socket.on('game:phase-changed', onPhaseChanged);
     socket.on('night:animation', onNightAnimation);
+    socket.on('night:step-info', onNightStepInfo);
     socket.on('display:morning-event', onMorningEvent);
     socket.on('display:night-started', onNightStarted);
     socket.on('game:over', onGameOver);
@@ -453,6 +466,7 @@ function DisplayPageContent() {
       socket.off('room:player-updated', onPlayerUpdated);
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
+      socket.off('night:step-info', onNightStepInfo);
       socket.off('display:morning-event', onMorningEvent);
       socket.off('display:night-started', onNightStarted);
       socket.off('game:over', onGameOver);

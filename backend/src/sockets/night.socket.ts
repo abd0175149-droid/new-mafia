@@ -404,7 +404,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
               canSkip: true, // كل القدرات الديناميكية قابلة للتخطي
               isDynamic: true,
             });
-            io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+            io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr, stepType: step.abilityId });
             state.currentNightStep = {
               role: step.abilityId,
               roleName: step.nameAr,
@@ -433,7 +433,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
-        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName });
+        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName, stepType: firstStep.role });
         state.currentNightStep = firstStep;
       } else {
         socket.emit('night:queue-complete');
@@ -477,7 +477,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
-        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName });
+        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName, stepType: firstStep.role });
         state.currentNightStep = firstStep;
       } else {
         socket.emit('night:queue-complete');
@@ -565,7 +565,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
             isDynamic: true,
           };
           socket.emit('night:queue-step', stepData);
-          io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+          io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr, stepType: step.abilityId });
           state.currentNightStep = stepData;
         } else {
           socket.emit('night:queue-complete');
@@ -645,7 +645,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       if (nextStep) {
         socket.emit('night:queue-step', nextStep);
-        io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName });
+        io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName, stepType: nextStep.role });
         state.currentNightStep = nextStep;
       } else {
         // انتهى الطابور → معالجة التقاطعات
@@ -721,7 +721,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
             isDynamic: true,
           };
           socket.emit('night:queue-step', stepData);
-          io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr });
+          io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr, stepType: step.abilityId });
           state.currentNightStep = stepData;
         } else {
           socket.emit('night:queue-complete');
@@ -739,7 +739,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       if (nextStep) {
         socket.emit('night:queue-step', nextStep);
-        io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName });
+        io.to(data.roomId).emit('night:step-info', { roleName: nextStep.roleName, stepType: nextStep.role });
         state.currentNightStep = nextStep;
       } else {
         socket.emit('night:queue-complete');
@@ -789,7 +789,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         canSkip: false,
       };
       socket.emit('night:queue-step', nurseStep);
-      io.to(data.roomId).emit('night:step-info', { roleName: nurseStep.roleName });
+      io.to(data.roomId).emit('night:step-info', { roleName: nurseStep.roleName, stepType: 'NURSE' });
 
       callback({ success: true });
     } catch (err: any) {

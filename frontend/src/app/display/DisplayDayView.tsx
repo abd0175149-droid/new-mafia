@@ -6,7 +6,7 @@ import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
 import CircularTimer from '@/components/CircularTimer';
 import Image from 'next/image';
-import { playGameSound } from '@/lib/soundManager';
+import { playGameSound, playEliminationSound } from '@/lib/soundManager';
 
 // ── مؤثرات صوتية — يستخدم soundManager المركزي ──
 const playAudioBeep = (type: 'tick' | 'buzzer') => {
@@ -1056,7 +1056,8 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
       timers.push(setTimeout(() => {
         const isMafia = MAFIA_ROLES.includes(roleInfo.role);
         if (!soundPlayedRef.current.has(`reveal-${i}`)) {
-          if (isMafia) playRevealMafia(); else playRevealCitizen();
+          // صوت الإقصاء حسب الدور (مع fallback للفريق)
+          playEliminationSound(roleInfo.role);
           soundPlayedRef.current.add(`reveal-${i}`);
         }
         setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'revealed' }));

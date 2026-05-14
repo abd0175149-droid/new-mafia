@@ -8,29 +8,64 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 // ── تعريف جميع الأحداث الصوتية ──
 const EVENT_GROUPS = [
   {
-    label: '🌙 مرحلة الليل (خلفية)',
+    label: '🏠 اللوبي',
     events: [
-      { key: 'ambient_night', label: '🌙 صوت خلفي لليل', desc: 'يعمل طوال مرحلة الليل ويتكرر' },
+      { key: 'ambient_lobby', label: '🏠 صوت خلفي للوبي', desc: 'يعمل أثناء انتظار اللاعبين في اللوبي ويتكرر (اختياري)' },
     ],
   },
   {
-    label: '🔪 أحداث الليل',
+    label: '☀️ مراحل النهار (خلفية)',
     events: [
-      { key: 'night_assassination', label: '🔪 اغتيال', desc: 'عند تفعيل حدث الاغتيال' },
-      { key: 'night_investigation', label: '👁️ تحقيق', desc: 'عند تحقيق الشريف' },
-      { key: 'night_protection', label: '🛡️ حماية', desc: 'عند تفعيل الحماية الطبية' },
-      { key: 'night_snipe', label: '🎯 قنص', desc: 'عند تصويب القناص' },
-      { key: 'night_silence', label: '🤐 إسكات', desc: 'عند تفعيل الإسكات' },
+      { key: 'ambient_day', label: '☀️ صوت خلفي للنقاش', desc: 'يعمل أثناء مرحلة النقاش ويتكرر' },
+      { key: 'ambient_voting', label: '🗳️ صوت خلفي للتصويت', desc: 'يعمل فقط أثناء مرحلة التصويت المفتوح ويتكرر' },
+      { key: 'ambient_justification', label: '⚖️ صوت خلفي للتبرير', desc: 'يعمل أثناء مرحلة التبرير ويتكرر' },
+    ],
+  },
+  {
+    label: '🌙 مراحل الليل (خلفية)',
+    events: [
+      { key: 'ambient_night', label: '🌙 صوت خلفي لليل', desc: 'يعمل كخلفية افتراضية طوال مرحلة الليل ويتكرر' },
+      { key: 'ambient_night_kill', label: '🔪 خلفية الاغتيال', desc: 'يعمل أثناء انتظار اختيار هدف الاغتيال' },
+      { key: 'ambient_night_silence', label: '🤐 خلفية الإسكات', desc: 'يعمل أثناء انتظار اختيار هدف الإسكات' },
+      { key: 'ambient_night_investigate', label: '👁️ خلفية التحقيق', desc: 'يعمل أثناء انتظار اختيار هدف التحقيق' },
+      { key: 'ambient_night_protect', label: '🛡️ خلفية الحماية', desc: 'يعمل أثناء انتظار اختيار هدف الحماية' },
+      { key: 'ambient_night_snipe', label: '🎯 خلفية القنص', desc: 'يعمل أثناء انتظار اختيار هدف القنص' },
+    ],
+  },
+  {
+    label: '🔪 أحداث الليل (تنفيذ)',
+    events: [
+      { key: 'night_assassination', label: '🔪 تنفيذ اغتيال', desc: 'عند تنفيذ حدث الاغتيال' },
+      { key: 'night_investigation', label: '👁️ تنفيذ تحقيق', desc: 'عند تنفيذ تحقيق الشريف' },
+      { key: 'night_protection', label: '🛡️ تنفيذ حماية', desc: 'عند تنفيذ الحماية الطبية' },
+      { key: 'night_snipe', label: '🎯 تنفيذ قنص', desc: 'عند تنفيذ تصويب القناص' },
+      { key: 'night_silence', label: '🤐 تنفيذ إسكات', desc: 'عند تنفيذ الإسكات' },
     ],
   },
   {
     label: '☀️ ملخص الصباح',
     events: [
+      { key: 'ambient_morning', label: '☀️ صوت خلفي للصباح', desc: 'يعمل أثناء عرض ملخص الصباح ويتكرر (اختياري)' },
       { key: 'morning_assassination_success', label: '🩸 اغتيال ناجح', desc: 'عند كشف نجاح الاغتيال' },
       { key: 'morning_protection_success', label: '🛡️ نجاة بالحماية', desc: 'عند نجاح الحماية' },
       { key: 'morning_snipe_mafia', label: '🎯 قنص ناجح', desc: 'القناص أصاب مافيا' },
       { key: 'morning_snipe_citizen', label: '💀 قنص فاشل', desc: 'القناص أصاب مواطن' },
       { key: 'morning_silenced', label: '🤐 إسكات لاعب', desc: 'تم إسكات لاعب' },
+    ],
+  },
+  {
+    label: '💀 أصوات الإقصاء',
+    events: [
+      { key: 'elimination_godfather', label: '👑 إقصاء شيخ المافيا', desc: 'صوت خاص عند إقصاء شيخ المافيا (اختياري — يستخدم صوت المافيا كبديل)' },
+      { key: 'elimination_silencer', label: '🤐 إقصاء قص المافيا', desc: 'صوت خاص عند إقصاء القص (اختياري — يستخدم صوت المافيا كبديل)' },
+      { key: 'elimination_chameleon', label: '🦎 إقصاء الحرباية', desc: 'صوت خاص عند إقصاء الحرباية (اختياري — يستخدم صوت المافيا كبديل)' },
+      { key: 'elimination_mafia', label: '🔴 إقصاء مافيا (افتراضي)', desc: 'صوت افتراضي لإقصاء أي عضو مافيا ليس له صوت خاص' },
+      { key: 'elimination_sheriff', label: '🔍 إقصاء الشريف', desc: 'صوت خاص عند إقصاء الشريف (اختياري — يستخدم صوت المواطن كبديل)' },
+      { key: 'elimination_doctor', label: '💉 إقصاء الطبيب', desc: 'صوت خاص عند إقصاء الطبيب (اختياري — يستخدم صوت المواطن كبديل)' },
+      { key: 'elimination_sniper', label: '🎯 إقصاء القناص', desc: 'صوت خاص عند إقصاء القناص (اختياري — يستخدم صوت المواطن كبديل)' },
+      { key: 'elimination_policewoman', label: '👮 إقصاء الشرطية', desc: 'صوت خاص عند إقصاء الشرطية (اختياري — يستخدم صوت المواطن كبديل)' },
+      { key: 'elimination_nurse', label: '🏥 إقصاء الممرضة', desc: 'صوت خاص عند إقصاء الممرضة (اختياري — يستخدم صوت المواطن كبديل)' },
+      { key: 'elimination_citizen', label: '👤 إقصاء مواطن (افتراضي)', desc: 'صوت افتراضي لإقصاء أي مواطن ليس له صوت خاص' },
     ],
   },
   {
@@ -61,7 +96,6 @@ const EVENT_GROUPS = [
   {
     label: '🗳️ التصويت',
     events: [
-      { key: 'ambient_voting', label: '🗳️ صوت خلفي للتصويت', desc: 'يعمل أثناء التصويت، التبرير، الحصر، والإقصاء ويتكرر' },
       { key: 'vote_cast', label: '🗳️ إضافة صوت', desc: 'عند التصويت' },
       { key: 'vote_shift', label: '🔄 تبديل مرشح', desc: 'عند تغيير المرشح المعروض' },
     ],
@@ -69,7 +103,6 @@ const EVENT_GROUPS = [
   {
     label: '🔄 انتقال المراحل',
     events: [
-      { key: 'ambient_day', label: '☀️ صوت خلفي للنقاش', desc: 'يعمل فقط أثناء مرحلة النقاش ويتوقف عند بدء التصويت' },
       { key: 'phase_day_start', label: '☀️ بداية النهار', desc: 'صوت انتقال للنهار' },
       { key: 'phase_night_start', label: '🌙 بداية الليل', desc: 'صوت انتقال لليل' },
       { key: 'phase_voting_start', label: '🗳️ بداية التصويت', desc: 'صوت بدء التصويت' },

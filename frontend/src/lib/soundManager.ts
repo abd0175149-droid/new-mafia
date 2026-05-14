@@ -150,6 +150,59 @@ export function playEventSound(eventKey: string, durationMs: number = 3000): voi
 }
 
 // ══════════════════════════════════════════════════════
+// 💀 تشغيل صوت الإقصاء حسب الدور (مع Fallback للفريق)
+// ══════════════════════════════════════════════════════
+const MAFIA_ROLE_KEYS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+
+export function playEliminationSound(role: string | null): void {
+  if (!role) {
+    playGameSound('elimination_citizen');
+    return;
+  }
+
+  const roleUpper = role.toUpperCase();
+
+  // 1. محاولة صوت الدور المحدد
+  const roleKey = `elimination_${roleUpper.toLowerCase()}`;
+  if (customSoundMap[roleKey]) {
+    playEventSound(roleKey, 5000);
+    return;
+  }
+
+  // 2. Fallback لصوت الفريق
+  const isMafia = MAFIA_ROLE_KEYS.includes(roleUpper);
+  playEventSound(isMafia ? 'elimination_mafia' : 'elimination_citizen', 5000);
+}
+
+// ══════════════════════════════════════════════════════
+// 🌙 تشغيل صوت خلفي لخطوة ليلية (مع Fallback لـ ambient_night)
+// ══════════════════════════════════════════════════════
+const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
+  'GODFATHER': 'ambient_night_kill',
+  'CHAMELEON': 'ambient_night_kill',
+  'MAFIA_REGULAR': 'ambient_night_kill',
+  'SILENCER': 'ambient_night_silence',
+  'SHERIFF': 'ambient_night_investigate',
+  'DOCTOR': 'ambient_night_protect',
+  'NURSE': 'ambient_night_protect',
+  'SNIPER': 'ambient_night_snipe',
+  // Dynamic engine ability IDs
+  'KILL': 'ambient_night_kill',
+  'SILENCE': 'ambient_night_silence',
+  'INVESTIGATE': 'ambient_night_investigate',
+  'PROTECT': 'ambient_night_protect',
+  'SNIPE': 'ambient_night_snipe',
+};
+
+export function playNightStepAmbient(stepType: string): void {
+  const ambientKey = NIGHT_STEP_AMBIENT_MAP[stepType.toUpperCase()];
+  if (ambientKey && customSoundMap[ambientKey]) {
+    playAmbientSound(ambientKey);
+  }
+  // إذا لا يوجد صوت مخصص للخطوة → يبقى ambient_night الحالي يعمل
+}
+
+// ══════════════════════════════════════════════════════
 // 🔊 الأصوات الافتراضية (Web Audio API Fallback)
 // ══════════════════════════════════════════════════════
 function playDefaultSound(eventKey: string): void {
