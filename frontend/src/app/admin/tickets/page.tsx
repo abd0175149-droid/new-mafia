@@ -161,12 +161,37 @@ export default function TicketsPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">إدارة جميع تذاكر الأنشطة من مكان واحد</p>
         </div>
-        <button
-          onClick={() => setShowUpload(!showUpload)}
-          className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold text-sm hover:opacity-90 transition flex items-center gap-2"
-        >
-          {showUpload ? '✕ إغلاق' : '📂 رفع تذاكر جديدة'}
-        </button>
+      <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              const header = 'رقم التذكرة';
+              const examples = [
+                'TKT-2026-0001',
+                'TKT-2026-0002',
+                'TKT-2026-0003',
+                'TKT-2026-0004',
+                'TKT-2026-0005',
+              ];
+              const csv = [header, ...examples].join('\n');
+              const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'ticket_template.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="px-4 py-2.5 rounded-xl border border-gray-600/40 text-gray-400 hover:text-white hover:border-gray-500 font-bold text-sm transition flex items-center gap-2"
+          >
+            📥 تحميل القالب
+          </button>
+          <button
+            onClick={() => setShowUpload(!showUpload)}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold text-sm hover:opacity-90 transition flex items-center gap-2"
+          >
+            {showUpload ? '✕ إغلاق' : '📂 رفع تذاكر جديدة'}
+          </button>
+        </div>
       </div>
 
       {/* ══ Stats Cards ══ */}
