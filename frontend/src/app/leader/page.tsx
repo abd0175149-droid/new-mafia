@@ -852,10 +852,10 @@ export default function LeaderPage() {
       if (!state) return;
       setGameState(prev => prev ? {
         ...prev,
-        nightActions: state.nightActions || prev.nightActions,
+        nightActions: state.nightActions || (prev as any).nightActions,
         nightStep: state.nightStep || prev.nightStep,
         playerNightActions: state.playerNightActions || (prev as any).playerNightActions,
-      } : prev);
+      } as any : prev);
     });
 
     return () => {
