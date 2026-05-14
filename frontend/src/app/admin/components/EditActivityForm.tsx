@@ -413,7 +413,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         {/* ══════════════════════════════════════════ */}
         <Section id="tickets" title="نظام التذاكر" icon="🎫" activeSection={activeSection} setActiveSection={setActiveSection}>
           <div
-            onClick={() => setRequireTicket(v => !v)}
+            onClick={() => setRequireTicket((v: boolean) => !v)}
             className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${
               requireTicket
                 ? 'bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/15'
