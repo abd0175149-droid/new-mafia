@@ -202,7 +202,7 @@ export default function DynamicMafiaCard({
           }}
         >
           {/* القسم العلوي (2/3): صورة اللاعب */}
-          <div className="relative overflow-hidden" style={{ height: '66.66%', zIndex: 6 }}>
+          <div className="relative overflow-hidden" style={{ height: '66.66%' }}>
             {/* z-1: الخلفية: صورة اللاعب أو أفاتار حسب الجنس */}
             <div className="absolute inset-0" style={{ zIndex: 1, ...(cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}) }}>
               {resolvedAvatarUrl ? (
@@ -212,41 +212,6 @@ export default function DynamicMafiaCard({
               )}
             </div>
             <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black to-transparent pointer-events-none" style={{ zIndex: 2 }} />
-
-            {/* رقم اللاعب — دائماً watermark كبير (مثل المحرر بالضبط) */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 5 }}>
-              {playerNumber >= 10 ? (
-                <div
-                  className="font-mono font-black flex flex-col items-center leading-none"
-                  style={{
-                    color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
-                    fontSize: size === 'sm' ? '3.2rem' : size === 'md' ? '4.5rem' : size === 'lg' ? '5.5rem' : '4.5rem',
-                    opacity: resolvedAvatarUrl ? 0.9 : 0.35,
-                    textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
-                    lineHeight: 0.85,
-                    ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
-                  }}
-                >
-                  {String(playerNumber).split('').map((digit, i) => (
-                    <span key={i}>{digit}</span>
-                  ))}
-                </div>
-              ) : (
-                <span
-                  className="font-mono font-black"
-                  style={{
-                    color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
-                    fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
-                    opacity: resolvedAvatarUrl ? 0.9 : 0.35,
-                    textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
-                    lineHeight: 1,
-                    ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
-                  }}
-                >
-                  {playerNumber}
-                </span>
-              )}
-            </div>
 
             {isSilenced && (
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-900/80 border border-rose-500/40 px-2 py-0.5 rounded-full" style={{ zIndex: 20 }}>
@@ -284,6 +249,41 @@ export default function DynamicMafiaCard({
           {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'cover').map((s:any) => (
             <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex || 3, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2, transform: `translate(${s.x || 0}px, ${s.y || 0}px)` }} />
           ))}
+
+          {/* رقم اللاعب — خارج overflow-hidden ليكون دائماً فوق الأشكال */}
+          <div className="absolute pointer-events-none flex items-center justify-center" style={{ top: 0, left: 0, right: 0, height: '66.66%', zIndex: 15 }}>
+            {playerNumber >= 10 ? (
+              <div
+                className="font-mono font-black flex flex-col items-center leading-none"
+                style={{
+                  color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
+                  fontSize: size === 'sm' ? '3.2rem' : size === 'md' ? '4.5rem' : size === 'lg' ? '5.5rem' : '4.5rem',
+                  opacity: resolvedAvatarUrl ? 0.9 : 0.35,
+                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                  lineHeight: 0.85,
+                  ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
+                }}
+              >
+                {String(playerNumber).split('').map((digit, i) => (
+                  <span key={i}>{digit}</span>
+                ))}
+              </div>
+            ) : (
+              <span
+                className="font-mono font-black"
+                style={{
+                  color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
+                  fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
+                  opacity: resolvedAvatarUrl ? 0.9 : 0.35,
+                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                  lineHeight: 1,
+                  ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
+                }}
+              >
+                {playerNumber}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* ── 🎖️ Rank Effects Overlay — طبقة منفصلة فوق الكارد ── */}
