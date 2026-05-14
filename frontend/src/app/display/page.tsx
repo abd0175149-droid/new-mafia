@@ -593,6 +593,8 @@ function DisplayPageContent() {
       try { sessionStorage.setItem('display_session', JSON.stringify({ pin: currentPin, roomId })); } catch (_) {}
 
       setStep('lobby');
+      // 🔊 تشغيل صوت اللوبي عند الدخول الأول
+      playAmbientSound('ambient_lobby');
     } catch (err: any) {
       setPinError('خطأ في الاتصال');
       console.error('Verify error:', err);
@@ -643,6 +645,15 @@ function DisplayPageContent() {
       }
       try { sessionStorage.setItem('display_session', JSON.stringify({ pin: currentPin, roomId: data.roomId })); } catch (_) {}
       setStep('lobby');
+      // 🔊 تشغيل صوت المرحلة الحالية عند الاستعادة
+      const restoredPhase = data.state?.phase || 'LOBBY';
+      stopAmbientSound();
+      if (restoredPhase === 'LOBBY' || restoredPhase === Phase.LOBBY) playAmbientSound('ambient_lobby');
+      else if (restoredPhase === Phase.NIGHT) playAmbientSound('ambient_night');
+      else if (restoredPhase === 'DAY_DISCUSSION') playAmbientSound('ambient_day');
+      else if (restoredPhase === 'DAY_VOTING') playAmbientSound('ambient_voting');
+      else if (restoredPhase === 'DAY_JUSTIFICATION') playAmbientSound('ambient_justification');
+      else if (restoredPhase === 'MORNING_RECAP') playAmbientSound('ambient_morning');
     } catch (err: any) {
       setPinError('الغرفة غير نشطة — تأكد أن القائد دخلها');
       setStep('select-activity');
