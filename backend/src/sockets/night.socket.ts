@@ -151,7 +151,7 @@ async function resolveAutoNight(io: Server, roomId: string) {
 }
 
 // ── تجهيز الخطوة التالية (بدون إرسال للاعبين — ينتظر الليدر) ──
-async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: number) {
+async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: number, callerSocket?: any) {
   const state = await getGameState(roomId);
   if (!state) return;
 
@@ -171,7 +171,6 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
   await setGameState(roomId, state);
 
   // إعلام الليدر بالخطوة الجاهزة (ينتظر زره لبدئها)
-  const leaderSock = findLeaderSocket(io, roomId);
   const stepPayload = {
     roleName: nextStep.roleName,
     role: nextStep.role,
@@ -180,16 +179,16 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
     canSkip: nextStep.canSkip,
     timeoutSeconds: state.config.autoNightTime || 15,
   };
-  if (leaderSock) {
-    leaderSock.emit('game:state-updated', state);
-    leaderSock.emit('night:auto-step-ready', stepPayload);
-  } else {
-    // Fallback: بث للغرفة بالكامل (الليدر سيستقبلها)
-    console.warn(`⚠️ Leader socket not found for room ${roomId} — broadcasting to room`);
-    io.to(roomId).emit('game:state-updated', state);
-    io.to(roomId).emit('night:auto-step-ready', stepPayload);
+
+  // بث للغرفة بالكامل — يضمن وصول الحدث للليدر حتى لو findLeaderSocket يجد سوكت قديم
+  io.to(roomId).emit('night:auto-step-ready', stepPayload);
+
+  // إرسال مباشر للسوكت المُمرر (إن وجد) كضمان إضافي
+  if (callerSocket) {
+    callerSocket.emit('night:auto-step-ready', stepPayload);
   }
-  console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId} (leaderFound: ${!!leaderSock})`);
+
+  console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId}`);
 }
 
 // ── الليدر يبدأ الخطوة: إرسال للاعبين + بدء المؤقت ──
@@ -370,7 +369,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         });
 
         // ── تجهيز أول خطوة (تنتظر الليدر) ──
-        prepareAutoQueueStep(io, data.roomId, -1);
+        prepareAutoQueueStep(io, data.roomId, -1, socket);
 
         return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
       }
