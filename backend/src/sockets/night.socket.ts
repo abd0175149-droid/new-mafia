@@ -479,19 +479,29 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       await setGameState(data.roomId, state);
 
-      // تحديد أول دور نشط حي
-      const firstStep = getNextQueueStep(state, -1);
-      if (firstStep) {
-        socket.emit('night:queue-step', firstStep);
-        io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName, stepType: firstStep.role });
-        state.currentNightStep = firstStep;
+      // ═══ فحص النمط: Auto أم Manual ═══
+      if (state.config.nightMode === 'auto') {
+        // ── Auto Mode: تجهيز أول خطوة تنتظر الليدر ──
+        const alivePlayers = state.players.filter((p: any) => p.isAlive);
+        io.to(data.roomId).emit('night:auto-started', {
+          totalAlive: alivePlayers.length,
+        });
+        prepareAutoQueueStep(io, data.roomId, -1);
+        callback({ success: true, mode: 'auto' });
       } else {
-        socket.emit('night:queue-complete');
-        state.nightComplete = true;
+        // ── Manual Mode: بدء طابور الليل اليدوي ──
+        const firstStep = getNextQueueStep(state, -1);
+        if (firstStep) {
+          socket.emit('night:queue-step', firstStep);
+          io.to(data.roomId).emit('night:step-info', { roleName: firstStep.roleName, stepType: firstStep.role });
+          state.currentNightStep = firstStep;
+        } else {
+          socket.emit('night:queue-complete');
+          state.nightComplete = true;
+        }
+        await setGameState(data.roomId, state);
+        callback({ success: true, mode: 'manual' });
       }
-      await setGameState(data.roomId, state);
-
-      callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
