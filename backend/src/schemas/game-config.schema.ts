@@ -126,6 +126,17 @@ export const roleDefinitions = pgTable('role_definitions', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ── Rank Effects (تأثيرات الرتب البصرية) ──────────────
+
+export const rankEffects = pgTable('rank_effects', {
+  id: varchar('id', { length: 50 }).primaryKey(),             // "INFORMANT", "SOLDIER", "CAPO", "UNDERBOSS", "GODFATHER"
+  nameAr: varchar('name_ar', { length: 100 }).notNull(),
+  sortOrder: integer('sort_order').default(0).notNull(),       // ترتيب العرض
+  effects: jsonb('effects').notNull(),                         // RankEffectsConfig — كل التأثيرات البصرية
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ── Interaction Rules (قواعد التفاعل) ─────────────────
 
 export const interactionRules = pgTable('interaction_rules', {

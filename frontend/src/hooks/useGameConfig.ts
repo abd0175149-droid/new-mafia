@@ -67,11 +67,29 @@ export interface AbilityDef {
   effectType: string;
 }
 
+export interface RankEffectsDef {
+  id: string;
+  nameAr: string;
+  sortOrder: number;
+  effects: {
+    border: { enabled: boolean; color: string; width: number; inset: number; style: 'solid' | 'gradient' | 'traveling'; gradientColors: string[]; travelSpeed: number };
+    glow: { enabled: boolean; color: string; size: number; opacity: number; pulseEnabled: boolean; pulseDuration: number };
+    shimmer: { enabled: boolean; color: string; opacity: number; duration: number };
+    particles: { enabled: boolean; count: number; color: string; size: number; orbitRadius: string; baseDuration: number };
+    corners: { enabled: boolean; color: string; size: number; width: number; pulseEnabled: boolean };
+    gradientOverlay: { enabled: boolean; color: string; opacity: number; direction: string };
+    floating: { enabled: boolean; content: string; position: 'top' | 'bottom'; size: number; animation: 'float' | 'bounce' | 'spin'; glowColor: string };
+    badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string };
+    nameEffect: { enabled: boolean; color: string; glowColor: string; glowSize: number };
+  };
+}
+
 // ── Cache عالمي (يُشارك بين كل الـ instances) ──
 
 let _roleCache: RoleDef[] | null = null;
 let _cardCache: CardTemplateDef[] | null = null;
 let _abilityCache: AbilityDef[] | null = null;
+let _rankCache: RankEffectsDef[] | null = null;
 let _lastFetch = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 دقائق
 
@@ -95,6 +113,7 @@ export function useGameConfig() {
   const [roles, setRoles] = useState<RoleDef[]>(_roleCache || []);
   const [cards, setCards] = useState<CardTemplateDef[]>(_cardCache || []);
   const [abilities, setAbilities] = useState<AbilityDef[]>(_abilityCache || []);
+  const [rankEffects, setRankEffects] = useState<RankEffectsDef[]>(_rankCache || []);
   const [loading, setLoading] = useState(!_roleCache);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,20 +129,23 @@ export function useGameConfig() {
 
     setLoading(true);
     try {
-      const [rolesData, cardsData, abilitiesData] = await Promise.all([
+      const [rolesData, cardsData, abilitiesData, rankData] = await Promise.all([
         fetchFromAPI('/roles'),
         fetchFromAPI('/card-templates'),
         fetchFromAPI('/abilities'),
+        fetchFromAPI('/rank-effects'),
       ]);
 
       _roleCache = rolesData || [];
       _cardCache = cardsData || [];
       _abilityCache = abilitiesData || [];
+      _rankCache = rankData || [];
       _lastFetch = now;
 
       setRoles(_roleCache || []);
       setCards(_cardCache || []);
       setAbilities(_abilityCache || []);
+      setRankEffects(_rankCache || []);
       setError(null);
     } catch (err: any) {
       setError(err.message);
@@ -192,10 +214,17 @@ export function useGameConfig() {
     return role?.team || null;
   }, [roles]);
 
+  // ── Helper: جلب تأثيرات الرتبة ──
+  const getRankEffectsForTier = useCallback((tier: string): RankEffectsDef | null => {
+    if (!tier) return null;
+    return rankEffects.find(r => r.id === tier) || null;
+  }, [rankEffects]);
+
   return {
     roles,
     cards,
     abilities,
+    rankEffects,
     loading,
     error,
     reload: () => loadAll(true),
@@ -206,6 +235,7 @@ export function useGameConfig() {
     getTeamForRole,
     isDynamicMafia,
     isDynamicNeutral,
+    getRankEffectsForTier,
   };
 }
 
@@ -214,5 +244,6 @@ export function invalidateGameConfigCache() {
   _roleCache = null;
   _cardCache = null;
   _abilityCache = null;
+  _rankCache = null;
   _lastFetch = 0;
 }

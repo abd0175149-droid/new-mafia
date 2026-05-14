@@ -11,6 +11,7 @@ import {
   cardTemplates,
   roleDefinitions,
   interactionRules,
+  rankEffects,
 } from '../schemas/game-config.schema.js';
 import { authenticate } from '../middleware/auth.js';
 import { invalidateCache } from '../game/definition-service.js';
@@ -334,3 +335,135 @@ router.delete('/interactions/:id', authenticate, async (req: Request, res: Respo
 });
 
 export default router;
+
+// ══════════════════════════════════════════════
+// 🎖️ RANK EFFECTS — تأثيرات الرتب البصرية
+// ══════════════════════════════════════════════
+
+// GET /api/game-config/rank-effects
+router.get('/rank-effects', async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const rows = await db.select().from(rankEffects);
+    // ترتيب حسب sortOrder
+    rows.sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    res.json({ success: true, data: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/game-config/rank-effects/:id
+router.put('/rank-effects/:id', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const [row] = await db.update(rankEffects)
+      .set({ ...stripMeta(req.body), updatedAt: new Date() })
+      .where(eq(rankEffects.id, req.params.id))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ success: true, data: row });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/game-config/rank-effects — إنشاء رتبة جديدة
+router.post('/rank-effects', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const [row] = await db.insert(rankEffects).values(req.body).returning();
+    invalidateCache();
+    res.json({ success: true, data: row });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/game-config/rank-effects/:id
+router.delete('/rank-effects/:id', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    // منع حذف INFORMANT (الرتبة الافتراضية)
+    if (req.params.id === 'INFORMANT') return res.status(400).json({ error: 'Cannot delete the default rank' });
+    const [row] = await db.delete(rankEffects)
+      .where(eq(rankEffects.id, req.params.id))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    invalidateCache();
+    res.json({ success: true, data: row });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/game-config/rank-effects/seed — بذر البيانات الافتراضية
+router.post('/rank-effects/seed', authenticate, async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const existing = await db.select().from(rankEffects);
+    if (existing.length > 0) return res.json({ success: true, message: 'Already seeded', data: existing });
+
+    const noEffects = {
+      border: { enabled: false, color: '#6b7280', width: 1, inset: -1, style: 'solid' as const, gradientColors: [], travelSpeed: 3 },
+      glow: { enabled: false, color: '#6b7280', size: 0, opacity: 0, pulseEnabled: false, pulseDuration: 3 },
+      shimmer: { enabled: false, color: '#ffffff', opacity: 0.06, duration: 5 },
+      particles: { enabled: false, count: 0, color: '#ffffff', size: 3, orbitRadius: '52%', baseDuration: 3 },
+      corners: { enabled: false, color: '#6b7280', size: 12, width: 2, pulseEnabled: false },
+      gradientOverlay: { enabled: false, color: '#6b7280', opacity: 0.06, direction: 'to top' },
+      floating: { enabled: false, content: '👑', position: 'top' as const, size: 18, animation: 'float' as const, glowColor: '#f59e0b' },
+      badge: { enabled: false, emoji: '', label: '', bgColor: 'rgba(107,114,128,0.15)', textColor: '#9ca3af', borderColor: 'rgba(107,114,128,0.3)', position: 'top-left' },
+      nameEffect: { enabled: false, color: '#ffffff', glowColor: '#ffffff', glowSize: 0 },
+    };
+
+    const defaults = [
+      { id: 'INFORMANT', nameAr: 'مُخبر', sortOrder: 0, effects: { ...noEffects } },
+      { id: 'SOLDIER', nameAr: 'جندي', sortOrder: 1, effects: {
+        ...noEffects,
+        border: { enabled: true, color: '#10b981', width: 1, inset: -1, style: 'solid' as const, gradientColors: [], travelSpeed: 3 },
+        glow: { enabled: true, color: '#10b981', size: 8, opacity: 0.3, pulseEnabled: false, pulseDuration: 3 },
+        badge: { enabled: true, emoji: '⚔️', label: 'جندي', bgColor: 'rgba(16,185,129,0.15)', textColor: '#6ee7b7', borderColor: 'rgba(16,185,129,0.3)', position: 'top-left' },
+      }},
+      { id: 'CAPO', nameAr: 'كابو', sortOrder: 2, effects: {
+        ...noEffects,
+        border: { enabled: true, color: '#3b82f6', width: 1.5, inset: -2, style: 'solid' as const, gradientColors: [], travelSpeed: 3 },
+        glow: { enabled: true, color: '#3b82f6', size: 12, opacity: 0.4, pulseEnabled: true, pulseDuration: 3 },
+        corners: { enabled: true, color: '#3b82f6', size: 12, width: 2, pulseEnabled: true },
+        gradientOverlay: { enabled: true, color: '#3b82f6', opacity: 0.06, direction: 'to top' },
+        badge: { enabled: true, emoji: '🎖️', label: 'كابو', bgColor: 'rgba(59,130,246,0.15)', textColor: '#93c5fd', borderColor: 'rgba(59,130,246,0.3)', position: 'top-left' },
+      }},
+      { id: 'UNDERBOSS', nameAr: 'نائب العراب', sortOrder: 3, effects: {
+        ...noEffects,
+        border: { enabled: true, color: '#8b5cf6', width: 2, inset: -2, style: 'gradient' as const, gradientColors: ['#8b5cf6', '#f59e0b', '#8b5cf6'], travelSpeed: 3 },
+        glow: { enabled: true, color: '#8b5cf6', size: 18, opacity: 0.45, pulseEnabled: true, pulseDuration: 2.5 },
+        shimmer: { enabled: true, color: '#8b5cf6', opacity: 0.08, duration: 5 },
+        particles: { enabled: true, count: 4, color: '#8b5cf6', size: 3, orbitRadius: '52%', baseDuration: 3 },
+        gradientOverlay: { enabled: true, color: '#8b5cf6', opacity: 0.08, direction: 'to top' },
+        badge: { enabled: true, emoji: '👑', label: 'نائب', bgColor: 'rgba(139,92,246,0.2)', textColor: '#c4b5fd', borderColor: 'rgba(139,92,246,0.35)', position: 'top-left' },
+      }},
+      { id: 'GODFATHER', nameAr: 'العراب', sortOrder: 4, effects: {
+        ...noEffects,
+        border: { enabled: true, color: '#f59e0b', width: 2, inset: -3, style: 'traveling' as const, gradientColors: ['#f59e0b', '#eab308', '#f59e0b', '#fcd34d'], travelSpeed: 3 },
+        glow: { enabled: true, color: '#f59e0b', size: 25, opacity: 0.5, pulseEnabled: true, pulseDuration: 2 },
+        shimmer: { enabled: true, color: '#f59e0b', opacity: 0.1, duration: 4 },
+        particles: { enabled: true, count: 4, color: '#f59e0b', size: 3, orbitRadius: '54%', baseDuration: 3 },
+        gradientOverlay: { enabled: true, color: '#f59e0b', opacity: 0.1, direction: 'to top' },
+        floating: { enabled: true, content: '👑', position: 'top' as const, size: 18, animation: 'float' as const, glowColor: '#f59e0b' },
+        badge: { enabled: true, emoji: '👑', label: 'العراب', bgColor: 'rgba(245,158,11,0.2)', textColor: '#fcd34d', borderColor: 'rgba(245,158,11,0.4)', position: 'top-left' },
+        nameEffect: { enabled: true, color: '#fcd34d', glowColor: '#f59e0b', glowSize: 8 },
+      }},
+    ];
+
+    const rows = await db.insert(rankEffects).values(defaults).returning();
+    invalidateCache();
+    res.json({ success: true, data: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});

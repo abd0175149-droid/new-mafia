@@ -32,15 +32,11 @@ function getLucideIcon(name: string): LucideIcon {
 
 // ── Props ──────────────────────────────────────
 
-// ── Rank Visual Config ─────────────────────────
-type RankTier = 'INFORMANT' | 'SOLDIER' | 'CAPO' | 'UNDERBOSS' | 'GODFATHER';
-const RANK_BADGE_CONFIG: Record<RankTier, { emoji: string; label: string } | null> = {
-  INFORMANT: null,
-  SOLDIER: { emoji: '⚔️', label: 'جندي' },
-  CAPO: { emoji: '🎖️', label: 'كابو' },
-  UNDERBOSS: { emoji: '👑', label: 'نائب' },
-  GODFATHER: { emoji: '👑', label: 'العراب' },
-};
+// ── Rank Helper ─────────────────────────────────
+function hexToRgba(hex: string, a: number) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
 
 export interface DynamicMafiaCardProps {
   playerNumber: number;
@@ -84,10 +80,11 @@ export default function DynamicMafiaCard({
   rankTier = 'INFORMANT',
   forceClassic = false,
 }: DynamicMafiaCardProps) {
-  const tier = (rankTier || 'INFORMANT') as RankTier;
-  const rankBadge = RANK_BADGE_CONFIG[tier];
-  const hasRankEffects = tier !== 'INFORMANT';
-  const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, loading } = useGameConfig();
+  const tier = (rankTier || 'INFORMANT');
+  const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
+  const rankDef = getRankEffectsForTier(tier);
+  const fx = rankDef?.effects;
+  const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.corners?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const isFlipped = controlledFlip !== undefined ? controlledFlip : internalFlip;
@@ -241,7 +238,7 @@ export default function DynamicMafiaCard({
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
-                  <h2 className={`${nameSize} font-black text-white leading-tight ${tier === 'GODFATHER' ? 'rank-name-glow' : ''}`} style={{ fontFamily: font }}>{truncatedName}</h2>
+                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font, ...(fx?.nameEffect?.enabled ? { color: fx.nameEffect.color, textShadow: `0 0 ${fx.nameEffect.glowSize}px ${hexToRgba(fx.nameEffect.glowColor, 0.4)}, 0 0 ${fx.nameEffect.glowSize * 2.5}px ${hexToRgba(fx.nameEffect.glowColor, 0.15)}` } : {}) }}>{truncatedName}</h2>
                   <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
@@ -265,9 +262,9 @@ export default function DynamicMafiaCard({
         </div>
 
         {/* ── 🎖️ Rank Effects Overlay — طبقة منفصلة فوق الكارد ── */}
-        {hasRankEffects && (
+        {hasRankEffects && fx && (
           <div
-            className={`absolute inset-0 rounded-2xl overflow-visible pointer-events-none rank-card-wrapper rank-${tier}`}
+            className="absolute inset-0 rounded-2xl overflow-visible pointer-events-none"
             style={{
               backfaceVisibility: 'hidden',
               WebkitBackfaceVisibility: 'hidden' as any,
@@ -275,30 +272,85 @@ export default function DynamicMafiaCard({
               zIndex: 60,
             }}
           >
-            <div className="rank-border-effect" style={{ borderRadius: '1rem' }} />
-            {rankBadge && (
-              <div className={`rank-badge rank-badge-${tier}`}>
-                <span>{rankBadge.emoji}</span>
-                <span>{rankBadge.label}</span>
+            {/* Border */}
+            {fx.border.enabled && (
+              <div style={{
+                position: 'absolute', inset: `${fx.border.inset}px`, borderRadius: '1rem', pointerEvents: 'none', zIndex: 50,
+                border: fx.border.style === 'solid' ? `${fx.border.width}px solid ${hexToRgba(fx.border.color, 0.5)}` : 'none',
+                ...(fx.border.style !== 'solid' ? {
+                  padding: `${fx.border.width}px`,
+                  background: `linear-gradient(135deg, ${(fx.border.gradientColors || [fx.border.color]).join(', ')})`,
+                  backgroundSize: fx.border.style === 'traveling' ? '200% 200%' : undefined,
+                  animation: [
+                    fx.border.style === 'traveling' ? `border-travel ${fx.border.travelSpeed}s linear infinite` : '',
+                    fx.glow.pulseEnabled ? `rank-pulse ${fx.glow.pulseDuration}s ease-in-out infinite` : '',
+                  ].filter(Boolean).join(', ') || undefined,
+                  WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  WebkitMaskComposite: 'xor',
+                  mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                  maskComposite: 'exclude' as any,
+                } : {}),
+                boxShadow: fx.glow.enabled ? `0 0 ${fx.glow.size}px ${hexToRgba(fx.glow.color, fx.glow.opacity)}` : undefined,
+                ...(fx.glow.pulseEnabled && fx.border.style === 'solid' ? { animation: `rank-pulse ${fx.glow.pulseDuration}s ease-in-out infinite`, '--rank-glow': `0 0 ${fx.glow.size}px ${hexToRgba(fx.glow.color, fx.glow.opacity)}`, '--rank-glow-strong': `0 0 ${fx.glow.size * 1.6}px ${hexToRgba(fx.glow.color, Math.min(1, fx.glow.opacity * 1.5))}` } as any : {}),
+              }} />
+            )}
+            {/* Badge */}
+            {fx.badge.enabled && (
+              <div style={{
+                position: 'absolute', top: 4, left: 4, zIndex: 55,
+                display: 'flex', alignItems: 'center', gap: 2,
+                padding: '2px 5px', borderRadius: 6,
+                fontSize: 8, fontWeight: 700, fontFamily: 'Inter, sans-serif', letterSpacing: '0.05em',
+                backdropFilter: 'blur(4px)', pointerEvents: 'none',
+                background: fx.badge.bgColor, color: fx.badge.textColor,
+                border: `1px solid ${fx.badge.borderColor}`,
+              }}>
+                <span>{fx.badge.emoji}</span>
+                <span>{fx.badge.label}</span>
               </div>
             )}
-            {(tier === 'CAPO') && (<>
-              <div className="rank-corner rank-corner-tl" />
-              <div className="rank-corner rank-corner-tr" />
-              <div className="rank-corner rank-corner-bl" />
-              <div className="rank-corner rank-corner-br" />
-            </>)}
-            {(tier === 'CAPO' || tier === 'UNDERBOSS' || tier === 'GODFATHER') && (
-              <div className="rank-gradient-overlay" style={{ borderRadius: '1rem' }} />
+            {/* Corners */}
+            {fx.corners.enabled && ['tl','tr','bl','br'].map(pos => (
+              <div key={pos} style={{
+                position: 'absolute', width: fx.corners.size, height: fx.corners.size,
+                borderColor: hexToRgba(fx.corners.color, 0.6), borderStyle: 'solid', borderWidth: 0, zIndex: 51,
+                ...(fx.corners.pulseEnabled ? { animation: 'corner-pulse 2.5s ease-in-out infinite' } : {}),
+                ...(pos === 'tl' ? { top: 2, left: 2, borderTopWidth: fx.corners.width, borderLeftWidth: fx.corners.width, borderTopLeftRadius: 4 } : {}),
+                ...(pos === 'tr' ? { top: 2, right: 2, borderTopWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderTopRightRadius: 4 } : {}),
+                ...(pos === 'bl' ? { bottom: 2, left: 2, borderBottomWidth: fx.corners.width, borderLeftWidth: fx.corners.width, borderBottomLeftRadius: 4 } : {}),
+                ...(pos === 'br' ? { bottom: 2, right: 2, borderBottomWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderBottomRightRadius: 4 } : {}),
+              }} />
+            ))}
+            {/* Gradient overlay */}
+            {fx.gradientOverlay.enabled && (
+              <div style={{ position: 'absolute', inset: 0, borderRadius: '1rem', pointerEvents: 'none', zIndex: 49, background: `linear-gradient(${fx.gradientOverlay.direction}, ${hexToRgba(fx.gradientOverlay.color, fx.gradientOverlay.opacity)}, transparent 50%)` }} />
             )}
-            {(tier === 'UNDERBOSS' || tier === 'GODFATHER') && (<>
-              <div className="rank-shimmer" style={{ borderRadius: '1rem' }} />
-              {[0,1,2,3].map(i => (
-                <div key={i} className="rank-particle" style={{ '--duration': `${3 + i * 0.8}s`, '--delay': `${i * 0.7}s` } as React.CSSProperties} />
-              ))}
-            </>)}
-            {tier === 'GODFATHER' && (
-              <div className="rank-crown">👑</div>
+            {/* Shimmer */}
+            {fx.shimmer.enabled && (
+              <div style={{ position: 'absolute', inset: 0, borderRadius: '1rem', overflow: 'hidden', pointerEvents: 'none', zIndex: 52 }}>
+                <div style={{ position: 'absolute', top: '-50%', left: '-50%', width: '40%', height: '200%', background: `linear-gradient(90deg, transparent, ${hexToRgba(fx.shimmer.color, fx.shimmer.opacity)}, ${hexToRgba('#ffffff', 0.04)}, transparent)`, animation: `rank-shimmer ${fx.shimmer.duration}s ease-in-out infinite`, transform: 'rotate(25deg)' }} />
+              </div>
+            )}
+            {/* Particles */}
+            {fx.particles.enabled && Array.from({ length: fx.particles.count }).map((_, i) => (
+              <div key={i} style={{
+                position: 'absolute', width: fx.particles.size, height: fx.particles.size,
+                background: hexToRgba(fx.particles.color, 0.7), borderRadius: '50%',
+                top: '50%', left: '50%', zIndex: 53,
+                '--orbit-radius': fx.particles.orbitRadius,
+                '--duration': `${fx.particles.baseDuration + i * 0.8}s`,
+                '--delay': `${i * 0.7}s`,
+                animation: `particle-orbit var(--duration) linear infinite`, animationDelay: `var(--delay)`,
+              } as React.CSSProperties} />
+            ))}
+            {/* Floating element */}
+            {fx.floating.enabled && (
+              <div style={{
+                position: 'absolute', top: fx.floating.position === 'top' ? -14 : undefined, bottom: fx.floating.position === 'bottom' ? -14 : undefined,
+                left: '50%', transform: 'translateX(-50%)', fontSize: fx.floating.size, zIndex: 55, lineHeight: 1,
+                animation: fx.floating.animation === 'float' ? 'crown-float 2.5s ease-in-out infinite' : fx.floating.animation === 'spin' ? 'particle-orbit 4s linear infinite' : 'crown-float 1.5s ease-in-out infinite',
+                filter: `drop-shadow(0 0 6px ${hexToRgba(fx.floating.glowColor, 0.6)})`,
+              }}>{fx.floating.content}</div>
             )}
           </div>
         )}

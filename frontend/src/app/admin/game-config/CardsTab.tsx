@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch } from './helpers';
 import * as LucideIcons from 'lucide-react';
 import CardEditorModal from './CardEditorModal';
+import RankEffectsSection from './RankEffectsSection';
 
 // Helper: render Lucide icon by name
 function LucideIcon({ name, size = 24, className = '' }: { name: string; size?: number; className?: string }) {
@@ -138,7 +139,9 @@ export default function CardsTab() {
   if (loading) return <div className="flex justify-center py-20"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* ── قسم قوالب البطاقات ── */}
+      <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">{items.length} قالب بطاقة</p>
         <button onClick={() => openEditor(newTemplate())}
@@ -211,6 +214,17 @@ export default function CardsTab() {
           />
         )}
       </AnimatePresence>
+      </div>
+
+      {/* ── قسم تأثيرات الرتب ── */}
+      <div className="border-t border-gray-700/30 pt-6">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-lg">🎖️</span>
+          <h3 className="text-white font-semibold">تأثيرات الرتب البصرية</h3>
+          <span className="text-gray-500 text-xs">— طبقة تصميم فوق البطاقة حسب رتبة اللاعب</span>
+        </div>
+        <RankEffectsSection />
+      </div>
     </div>
   );
 }
