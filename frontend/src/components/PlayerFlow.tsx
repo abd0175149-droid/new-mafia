@@ -1554,13 +1554,15 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setJoinConfirmation(null);
       setStep('done');
     } catch (err: any) {
+      const errMsg = err.message || err.response?.error || '';
+      // إذا الخطأ متعلق بالتذكرة → نعرض شاشة إدخال التذكرة مباشرة
+      const isTicketError = errMsg.includes('التذكرة') || errMsg.includes('ticket');
       if (err.response?.requiresConfirmation) {
         setJoinConfirmation({ message: err.response.error });
-        // نعود لخطوة التذكرة أو الانتظار
-        setStep(requireTicket ? 'ticket' : 'auto_joining');
+        setStep(isTicketError || requireTicket ? 'ticket' : 'auto_joining');
       } else {
-        setApiError(err.message || 'حدث خطأ في الانضمام');
-        setStep(requireTicket ? 'ticket' : 'auto_joining');
+        setApiError(errMsg || 'حدث خطأ في الانضمام');
+        setStep(isTicketError || requireTicket ? 'ticket' : 'auto_joining');
       }
     }
   };
