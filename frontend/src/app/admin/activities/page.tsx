@@ -169,7 +169,17 @@ export default function ActivitiesPage() {
 
   // ── Handlers ──
   async function handleCreateActivity(data: any) {
-    await apiFetch('/api/activities', { method: 'POST', body: JSON.stringify(data) });
+    const { selectedTicketIds, ...activityData } = data;
+    const result = await apiFetch('/api/activities', { method: 'POST', body: JSON.stringify(activityData) });
+    // ربط التذاكر بالنشاط الجديد
+    if (selectedTicketIds?.length > 0 && result?.id) {
+      try {
+        await apiFetch('/api/tickets/assign', {
+          method: 'POST',
+          body: JSON.stringify({ ticketIds: selectedTicketIds, activityId: result.id }),
+        });
+      } catch (err) { console.error('Failed to assign tickets:', err); }
+    }
     setShowActivityForm(false);
     await fetchAll();
   }
