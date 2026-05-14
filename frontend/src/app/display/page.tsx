@@ -10,7 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import { loadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient } from '@/lib/soundManager';
+import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -408,6 +408,10 @@ function DisplayPageContent() {
     socket.on('game:over', onGameOver);
     socket.on('room:config-updated', onConfigUpdated);
     socket.on('admin:player-eliminated', onAdminEliminated);
+    socket.on('admin:sounds-updated', () => {
+      console.log('🔄 Sounds updated from admin, reloading map...');
+      reloadSoundMap();
+    });
     socket.on('game:started', (data: any) => {
       setPhase(data.phase);
       if (data.teamCounts) setTeamCounts(data.teamCounts);
@@ -477,6 +481,7 @@ function DisplayPageContent() {
       socket.off('display:replay-hidden', onReplayHidden);
       socket.off('admin:show-reveal', onShowReveal);
       socket.off('admin:hide-reveal', onHideReveal);
+      socket.off('admin:sounds-updated');
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
     };
   }, [step, currentRoomId]);

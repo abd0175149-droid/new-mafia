@@ -161,6 +161,8 @@ router.post('/upload', authenticate, (req: Request, res: Response) => {
       } as any).returning();
 
       console.log(`🔊 Sound uploaded: "${soundName}" → ${file.filename} (${eventKeys.join(', ')})`);
+      const io = req.app.get('io');
+      if (io) io.emit('admin:sounds-updated');
       res.json({ success: true, sound: newSound });
     } catch (err: any) {
       // حذف الملف المرفوع في حال فشل الحفظ في DB
@@ -211,6 +213,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
 
     await db.update(soundEffects).set(updates).where(eq(soundEffects.id, id));
     const [updated] = await db.select().from(soundEffects).where(eq(soundEffects.id, id)).limit(1);
+    const io = req.app.get('io');
+    if (io) io.emit('admin:sounds-updated');
     res.json({ success: true, sound: updated });
   } catch (err: any) {
     console.error('❌ Failed to update sound:', err.message);
@@ -253,6 +257,8 @@ router.put('/:id/toggle', authenticate, async (req: Request, res: Response) => {
     }
 
     await db.update(soundEffects).set({ isActive: newActive } as any).where(eq(soundEffects.id, id));
+    const io = req.app.get('io');
+    if (io) io.emit('admin:sounds-updated');
     res.json({ success: true, isActive: newActive });
   } catch (err: any) {
     console.error('❌ Failed to toggle sound:', err.message);
@@ -286,6 +292,8 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
     // حذف السجل من DB
     await db.delete(soundEffects).where(eq(soundEffects.id, id));
     console.log(`🗑️ Sound #${id} "${sound.name}" deleted`);
+    const io = req.app.get('io');
+    if (io) io.emit('admin:sounds-updated');
     res.json({ success: true });
   } catch (err: any) {
     console.error('❌ Failed to delete sound:', err.message);
