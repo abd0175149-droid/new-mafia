@@ -463,6 +463,13 @@ function DisplayPageContent() {
     socket.on('day:elimination-revealed', onDayTeamUpdate);
     socket.on('day:voting-started', onDayTeamUpdate);
 
+    // 🔊 إيقاف صوت التصويت فوراً عند استلام أحداث ما بعد التصويت
+    // (احتياط إضافي — game:phase-changed قد يتأخر أو يأتي بعد هذه الأحداث)
+    const onStopVotingSound = () => { stopAmbientSound(); };
+    socket.on('day:justification-started', onStopVotingSound);
+    socket.on('day:elimination-pending', onStopVotingSound);
+    socket.on('day:tie', onStopVotingSound);
+
     // إعادة عرض نتيجة لعبة سابقة
     const onReplayResult = (data: any) => { setReplayData(data); };
     const onReplayHidden = () => { setReplayData(null); };
@@ -503,6 +510,9 @@ function DisplayPageContent() {
       socket.off('admin:show-reveal', onShowReveal);
       socket.off('admin:hide-reveal', onHideReveal);
       socket.off('admin:sounds-updated');
+      socket.off('day:justification-started', onStopVotingSound);
+      socket.off('day:elimination-pending', onStopVotingSound);
+      socket.off('day:tie', onStopVotingSound);
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
     };
   }, [step, currentRoomId]);
