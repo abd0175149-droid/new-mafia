@@ -228,6 +228,7 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
 
   // مؤقت — عند الانتهاء يجهّز الخطوة التالية وينتظر الليدر
   const timerId = setTimeout(async () => {
+    try {
     console.log(`⏰ Auto step ${nextStep.role} timeout in room ${roomId}`);
     
     // ── تعيين اختيار عشوائي إذا لم يقم اللاعب باختيار قبل انتهاء الوقت ──
@@ -290,27 +291,24 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
     const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
     // تجهيز الخطوة التالية (تنتظر الليدر)
-    prepareAutoQueueStep(io, roomId, newIndex).catch(err => {
-      console.error(`❌ Failed to prepare next auto step for room ${roomId}:`, err);
-    });
+    await prepareAutoQueueStep(io, roomId, newIndex);
+    } catch (err) {
+      console.error(`❌ Auto night timer error for room ${roomId}:`, err);
+    }
   }, timeoutSeconds * 1000);
 
   autoNightTimers.set(roomId, timerId as any);
 
-  // إعلام الليدر أن الخطوة بدأت
-  const leaderSock = findLeaderSocket(io, roomId);
-  if (leaderSock) {
-    leaderSock.emit('game:state-updated', state);
-    leaderSock.emit('night:auto-step-started', {
-      roleName: nextStep.roleName,
-      timeoutSeconds,
-    });
-    leaderSock.emit('night:auto-progress', {
-      total: alivePlayers.length,
-      submitted: 0,
-      missingPlayers: alivePlayers.map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
-    });
-  }
+  // إعلام الليدر أن الخطوة بدأت — بث للغرفة (findLeaderSocket قد يجد سوكت قديم)
+  io.to(roomId).emit('night:auto-step-started', {
+    roleName: nextStep.roleName,
+    timeoutSeconds,
+  });
+  io.to(roomId).emit('night:auto-progress', {
+    total: alivePlayers.length,
+    submitted: 0,
+    missingPlayers: alivePlayers.map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
+  });
   console.log(`▶️ Auto step dispatched: ${nextStep.roleName} in room ${roomId}`);
 }
 
@@ -1337,15 +1335,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
         .filter((p: any) => !state.playerNightActions.submitted[p.physicalId])
         .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
 
-      const leaderSock = findLeaderSocket(io, data.roomId);
-      if (leaderSock) {
-        leaderSock.emit('game:state-updated', state);
-        leaderSock.emit('night:auto-progress', {
-          total: alivePlayers.length,
-          submitted: submittedCount,
-          missingPlayers,
-        });
-      }
+      // بث للغرفة بدلاً من findLeaderSocket (قد يجد سوكت قديم)
+      io.to(data.roomId).emit('night:auto-progress', {
+        total: alivePlayers.length,
+        submitted: submittedCount,
+        missingPlayers,
+      });
 
       callback?.({ success: true });
 

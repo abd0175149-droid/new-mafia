@@ -2454,13 +2454,22 @@ export default function LeaderPage() {
                         {!autoNightStep.dispatched ? (
                           <button
                             onClick={async () => {
+                              // تعيين فوري لمنع الضغط المزدوج
+                              setAutoNightStep(prev => prev ? { ...prev, dispatched: true } : null);
                               try {
                                 const res = await emit('night:auto-advance-step', { 
                                   roomId: gameState.roomId,
                                   durationSeconds: customNightTimer || autoNightStep.timeoutSeconds
                                 });
-                                if (!res?.success) setError(res?.error || 'فشل بدء الخطوة');
-                              } catch (err: any) { setError(err.message); }
+                                if (!res?.success) {
+                                  setError(res?.error || 'فشل بدء الخطوة');
+                                  // استعادة الحالة إذا فشل
+                                  setAutoNightStep(prev => prev ? { ...prev, dispatched: false } : null);
+                                }
+                              } catch (err: any) {
+                                setError(err.message);
+                                setAutoNightStep(prev => prev ? { ...prev, dispatched: false } : null);
+                              }
                             }}
                             className="w-full py-3.5 bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black text-sm rounded-xl hover:from-[#d4af63] hover:to-[#c49b52] transition-all"
                             style={{ boxShadow: '0 0 20px rgba(197,160,89,0.3)' }}
