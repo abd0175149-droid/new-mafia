@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import './RankEffects.css';
+import { RankFrame } from './RankFrames';
 import { useGameConfig, type CardTemplateDef, type RoleDef } from '@/hooks/useGameConfig';
 import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
 import {
@@ -90,7 +91,7 @@ export default function DynamicMafiaCard({
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
   const rankDef = getRankEffectsForTier(tier);
   const fx = rankEffectsOverride || rankDef?.effects;
-  const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.corners?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
+  const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.corners?.enabled || fx.frame?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const isFlipped = controlledFlip !== undefined ? controlledFlip : internalFlip;
@@ -329,6 +330,16 @@ export default function DynamicMafiaCard({
                 ...(pos === 'br' ? { bottom: 2, right: 2, borderBottomWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderBottomRightRadius: 4 } : {}),
               }} />
             ))}
+            {/* SVG Decorative Frame */}
+            {fx.frame?.enabled && fx.frame.type !== 'none' && (
+              <RankFrame
+                type={fx.frame.type}
+                color={fx.frame.color}
+                opacity={fx.frame.opacity}
+                strokeWidth={fx.frame.strokeWidth}
+                animate={fx.frame.animate}
+              />
+            )}
             {/* Gradient overlay */}
             {fx.gradientOverlay.enabled && (
               <div style={{ position: 'absolute', inset: 0, borderRadius: '1rem', pointerEvents: 'none', zIndex: 49, background: `linear-gradient(${fx.gradientOverlay.direction}, ${hexToRgba(fx.gradientOverlay.color, fx.gradientOverlay.opacity)}, transparent 50%)` }} />

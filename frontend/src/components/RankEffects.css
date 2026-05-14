@@ -76,6 +76,23 @@
 @keyframes particle-burst-6 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(75px,30px) scale(.5)} 100%{opacity:0;transform:translate(90px,36px) scale(0)} }
 @keyframes particle-burst-7 { 0%,10%{opacity:1;transform:translate(0,0) scale(1)} 80%{opacity:.5;transform:translate(-50px,-70px) scale(.5)} 100%{opacity:0;transform:translate(-60px,-84px) scale(0)} }
 
+/* ── Frame Animations ────────────────────────────── */
+
+@keyframes greek-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(10px); }
+}
+
+@keyframes deco-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes frame-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 /* ── Base Rank Wrapper ───────────────────────────── */
 
 .rank-card-wrapper {

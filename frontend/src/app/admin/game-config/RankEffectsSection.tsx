@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch } from './helpers';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 
+import { FRAME_OPTIONS, type FrameType } from '@/components/RankFrames';
+
 // ── Types ──
 interface RankFx {
   border: { enabled: boolean; color: string; width: number; inset: number; style: 'solid'|'gradient'|'traveling'; gradientColors: string[]; travelSpeed: number };
@@ -12,6 +14,7 @@ interface RankFx {
   shimmer: { enabled: boolean; color: string; opacity: number; duration: number };
   particles: { enabled: boolean; count: number; color: string; size: number; orbitRadius: string; baseDuration: number; originX?: number; originY?: number; animationType?: 'orbit'|'burst'; burstDistance?: number };
   corners: { enabled: boolean; color: string; size: number; width: number; pulseEnabled: boolean };
+  frame: { enabled: boolean; type: FrameType; color: string; opacity: number; strokeWidth: number; animate: boolean };
   gradientOverlay: { enabled: boolean; color: string; opacity: number; direction: string };
   floating: { enabled: boolean; content: string; position: 'top'|'bottom'; size: number; animation: 'float'|'bounce'|'spin'; glowColor: string; offsetX?: number; offsetY?: number; scale?: number };
   badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string; offsetX?: number; offsetY?: number; scale?: number };
@@ -285,12 +288,21 @@ export default function RankEffectsSection() {
               <Slider val={fx.particles.originY ?? 50} set={v => setFx('particles', { originY: v })} label="عمودي Y" min={0} max={100} unit="%" />
             </Section>
 
-            {/* 4. Corners */}
-            <Section title="الزوايا المزخرفة" icon="🔳" enabled={fx.corners.enabled} onToggle={v => setFx('corners', { enabled: v })}>
-              <ColorInput val={fx.corners.color} set={v => setFx('corners', { color: v })} label="اللون" />
-              <Slider val={fx.corners.size} set={v => setFx('corners', { size: v })} label="الحجم" min={6} max={24} unit="px" />
-              <Slider val={fx.corners.width} set={v => setFx('corners', { width: v })} label="السمك" min={1} max={4} unit="px" />
-              <Toggle val={fx.corners.pulseEnabled} set={v => setFx('corners', { pulseEnabled: v })} label="نبض" />
+            {/* 4. Decorative Frame */}
+            <Section title="الإطار الزخرفي" icon="🏛️" enabled={fx.frame?.enabled || false} onToggle={v => setFx('frame', { enabled: v, type: fx.frame?.type || 'greek', color: fx.frame?.color || '#d4af37', opacity: fx.frame?.opacity ?? 0.8, strokeWidth: fx.frame?.strokeWidth ?? 1.5, animate: fx.frame?.animate ?? false })}>
+              <div className="grid grid-cols-3 gap-1.5 mb-2">
+                {FRAME_OPTIONS.filter(f => f.id !== 'none').map(f => (
+                  <button key={f.id} onClick={() => setFx('frame', { type: f.id })}
+                    className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg border text-[10px] transition-all ${(fx.frame?.type || 'simple') === f.id ? 'bg-amber-500/15 border-amber-500/40 text-amber-300' : 'bg-gray-800/30 border-gray-700/30 text-gray-500 hover:border-gray-600'}`}>
+                    <span className="text-base">{f.icon}</span>
+                    <span>{f.label}</span>
+                  </button>
+                ))}
+              </div>
+              <ColorInput val={fx.frame?.color || '#d4af37'} set={v => setFx('frame', { color: v })} label="اللون" />
+              <Slider val={fx.frame?.opacity ?? 0.8} set={v => setFx('frame', { opacity: v })} label="الشفافية" min={0.1} max={1} step={0.05} />
+              <Slider val={fx.frame?.strokeWidth ?? 1.5} set={v => setFx('frame', { strokeWidth: v })} label="السمك" min={0.5} max={4} step={0.5} unit="px" />
+              <Toggle val={fx.frame?.animate ?? false} set={v => setFx('frame', { animate: v })} label="تحريك" />
             </Section>
 
             {/* 5. Gradient Overlay */}

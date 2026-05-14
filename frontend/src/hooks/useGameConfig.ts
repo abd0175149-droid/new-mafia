@@ -77,6 +77,7 @@ export interface RankEffectsDef {
     shimmer: { enabled: boolean; color: string; opacity: number; duration: number };
     particles: { enabled: boolean; count: number; color: string; size: number; orbitRadius: string; baseDuration: number; originX?: number; originY?: number; animationType?: 'orbit' | 'burst'; burstDistance?: number };
     corners: { enabled: boolean; color: string; size: number; width: number; pulseEnabled: boolean };
+    frame: { enabled: boolean; type: 'none' | 'simple' | 'greek' | 'islamic' | 'deco' | 'royal'; color: string; opacity: number; strokeWidth: number; animate: boolean };
     gradientOverlay: { enabled: boolean; color: string; opacity: number; direction: string };
     floating: { enabled: boolean; content: string; position: 'top' | 'bottom'; size: number; animation: 'float' | 'bounce' | 'spin'; glowColor: string; offsetX?: number; offsetY?: number; scale?: number };
     badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string; offsetX?: number; offsetY?: number; scale?: number };
