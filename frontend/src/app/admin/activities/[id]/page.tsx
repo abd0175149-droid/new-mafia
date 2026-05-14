@@ -429,10 +429,17 @@ function TicketsSection({ activityId }: { activityId: number }) {
   useEffect(() => {
     (async () => {
       try {
-        // جلب التذاكر من النظام المركزي المفلترة حسب هذا النشاط
+        // 1. التذاكر المربوطة بهذا النشاط (assigned)
+        const assigned = await apiFetch(`/api/tickets/by-activity/${activityId}`);
+        // 2. أيضاً التذاكر المستخدمة فعلياً في هذا النشاط (قد لا تكون مربوطة مسبقاً)
         const all = await apiFetch(`/api/tickets?limit=500`);
-        const forActivity = (all || []).filter((t: any) => t.isUsed && t.usedInActivityId === activityId);
-        setUsedTickets(forActivity);
+        const usedHere = (all || []).filter((t: any) => t.isUsed && Number(t.usedInActivityId) === activityId);
+        // دمج بدون تكرار
+        const merged = new Map<number, any>();
+        for (const t of [...(assigned || []), ...usedHere]) {
+          if (t.isUsed) merged.set(t.id, t);
+        }
+        setUsedTickets(Array.from(merged.values()));
       } catch (err) {
         console.error('Failed to fetch used tickets:', err);
       } finally {

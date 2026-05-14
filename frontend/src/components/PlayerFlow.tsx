@@ -1960,37 +1960,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
               {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mb-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
-              {/* اختيار رقم المقعد */}
-              <div className="mb-6">
-                <p className="text-[#808080] text-xs mb-2 text-center" style={{ fontFamily: 'Amiri, serif' }}>اختر رقم مقعدك</p>
-                <input
-                  type="number"
-                  value={physicalId}
-                  onChange={e => setPhysicalId(e.target.value)}
-                  placeholder="رقم المقعد"
-                  min="1"
-                  max={maxPlayers}
-                  className="w-full px-5 py-3 bg-black/40 border border-[#2a2a2a] rounded-xl text-center text-white text-xl font-mono placeholder-[#333] focus:outline-none focus:border-[#C5A059]/50 transition-all"
-                />
-              </div>
-
               <button
-                onClick={() => {
-                  // حفظ المقعد المختار في localStorage ليُرسل مع joinRoom
-                  if (physicalId) {
-                    localStorage.setItem('mafia_session', JSON.stringify({ roomId, physicalId: Number(physicalId), phone, displayName, roomCode, playerId }));
-                  }
-                  handleAutoJoin(false, ticketNumber);
-                }}
-                disabled={!ticketNumber.trim() || !physicalId || loading}
+                onClick={() => handleAutoJoin(false, ticketNumber)}
+                disabled={!ticketNumber.trim() || loading}
                 className="w-full py-4 text-lg font-black rounded-lg border-2 transition-all disabled:opacity-50"
                 style={{
                   fontFamily: 'Amiri, serif',
-                  background: !ticketNumber.trim() || !physicalId || loading ? '#222' : 'linear-gradient(135deg, #166534, #15803d)',
-                  borderColor: !ticketNumber.trim() || !physicalId || loading ? '#333' : '#22c55e',
-                  color: !ticketNumber.trim() || !physicalId || loading ? '#666' : '#fff',
-                  boxShadow: !ticketNumber.trim() || !physicalId || loading ? 'none' : '0 0 25px rgba(34,197,94,0.4), 0 0 50px rgba(34,197,94,0.15)',
-                  textShadow: !ticketNumber.trim() || !physicalId || loading ? 'none' : '0 0 10px rgba(34,197,94,0.5)',
+                  background: !ticketNumber.trim() || loading ? '#222' : 'linear-gradient(135deg, #166534, #15803d)',
+                  borderColor: !ticketNumber.trim() || loading ? '#333' : '#22c55e',
+                  color: !ticketNumber.trim() || loading ? '#666' : '#fff',
+                  boxShadow: !ticketNumber.trim() || loading ? 'none' : '0 0 25px rgba(34,197,94,0.4), 0 0 50px rgba(34,197,94,0.15)',
+                  textShadow: !ticketNumber.trim() || loading ? 'none' : '0 0 10px rgba(34,197,94,0.5)',
                 }}
               >
                 {loading ? 'جارٍ التحقق...' : '🎫 تحقق وادخل'}
