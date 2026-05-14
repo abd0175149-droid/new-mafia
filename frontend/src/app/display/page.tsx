@@ -181,6 +181,27 @@ function DisplayPageContent() {
   // ── تحميل الأصوات المخصصة عند فتح شاشة العرض ──
   useEffect(() => { loadSoundMap(); }, []);
 
+  // ── 🔊 فتح قفل الصوت عند أول تفاعل (Autoplay Policy) ──
+  // المتصفحات تمنع الصوت بدون تفاعل المستخدم — هذا يشغله عند أول نقرة/لمسة
+  const pendingAmbientRef = useRef<string | null>(null);
+  useEffect(() => {
+    const unlockAudio = () => {
+      // تشغيل الصوت المعلق
+      if (pendingAmbientRef.current) {
+        playAmbientSound(pendingAmbientRef.current);
+        pendingAmbientRef.current = null;
+      }
+      document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
+    };
+    document.addEventListener('click', unlockAudio, { once: true });
+    document.addEventListener('touchstart', unlockAudio, { once: true });
+    return () => {
+      document.removeEventListener('click', unlockAudio);
+      document.removeEventListener('touchstart', unlockAudio);
+    };
+  }, []);
+
   // ── Socket Events (بعد الدخول للوبي) ──
   useEffect(() => {
     if (step !== 'lobby' || !currentRoomId) return;
@@ -595,6 +616,7 @@ function DisplayPageContent() {
       setStep('lobby');
       // 🔊 تشغيل صوت اللوبي عند الدخول الأول
       playAmbientSound('ambient_lobby');
+      pendingAmbientRef.current = 'ambient_lobby';
     } catch (err: any) {
       setPinError('خطأ في الاتصال');
       console.error('Verify error:', err);
@@ -648,12 +670,18 @@ function DisplayPageContent() {
       // 🔊 تشغيل صوت المرحلة الحالية عند الاستعادة
       const restoredPhase = data.state?.phase || 'LOBBY';
       stopAmbientSound();
-      if (restoredPhase === 'LOBBY' || restoredPhase === Phase.LOBBY) playAmbientSound('ambient_lobby');
-      else if (restoredPhase === Phase.NIGHT) playAmbientSound('ambient_night');
-      else if (restoredPhase === 'DAY_DISCUSSION') playAmbientSound('ambient_day');
-      else if (restoredPhase === 'DAY_VOTING') playAmbientSound('ambient_voting');
-      else if (restoredPhase === 'DAY_JUSTIFICATION') playAmbientSound('ambient_justification');
-      else if (restoredPhase === 'MORNING_RECAP') playAmbientSound('ambient_morning');
+      const ambientForPhase =
+        (restoredPhase === 'LOBBY' || restoredPhase === Phase.LOBBY) ? 'ambient_lobby' :
+        restoredPhase === Phase.NIGHT ? 'ambient_night' :
+        restoredPhase === 'DAY_DISCUSSION' ? 'ambient_day' :
+        restoredPhase === 'DAY_VOTING' ? 'ambient_voting' :
+        restoredPhase === 'DAY_JUSTIFICATION' ? 'ambient_justification' :
+        restoredPhase === 'MORNING_RECAP' ? 'ambient_morning' : null;
+      if (ambientForPhase) {
+        playAmbientSound(ambientForPhase);
+        // Fallback: حفظ الصوت للتشغيل عند أول تفاعل (Autoplay Policy)
+        pendingAmbientRef.current = ambientForPhase;
+      }
     } catch (err: any) {
       setPinError('الغرفة غير نشطة — تأكد أن القائد دخلها');
       setStep('select-activity');
