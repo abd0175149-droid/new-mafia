@@ -377,7 +377,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
   useEffect(() => {
-    if (initialRoomCode && isConnected && !roomId && tokenChecked && !userExited) {
+    if (initialRoomCode && isConnected && !roomId && tokenChecked) {
+      // اللاعب فتح رابط غرفة جديد → يعني يريد الدخول — مسح علامة الخروج
+      if (userExited) {
+        setUserExited(false);
+        localStorage.removeItem('mafia_user_exited');
+      }
       handleFindRoom(initialRoomCode);
     }
   }, [initialRoomCode, isConnected, tokenChecked]);
@@ -1512,19 +1517,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         : undefined;
       const genderUpper = gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined;
       
-      // قراءة المقعد السابق من localStorage (للعودة)
-      let preferredSeat: number | undefined;
-      try {
-        const saved = localStorage.getItem('mafia_session');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.roomId === roomId && parsed.physicalId) {
-            preferredSeat = Number(parsed.physicalId);
-          }
-        }
-      } catch {}
-      
-      const res = await joinRoom(roomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, preferredSeat);
+      // ⚠️ لا نرسل preferredSeat — الباكإند يوزع عشوائياً دائماً عند auto-join
+      // العودة لنفس الرقم تُعالج عبر 'room:rejoin-player' وليس 'room:auto-join'
+      const res = await joinRoom(roomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined);
 
       const assignedSeat = res?.assignedSeat;
       if (assignedSeat) {
