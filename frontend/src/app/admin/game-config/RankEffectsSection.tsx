@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch } from './helpers';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
@@ -13,8 +13,8 @@ interface RankFx {
   particles: { enabled: boolean; count: number; color: string; size: number; orbitRadius: string; baseDuration: number };
   corners: { enabled: boolean; color: string; size: number; width: number; pulseEnabled: boolean };
   gradientOverlay: { enabled: boolean; color: string; opacity: number; direction: string };
-  floating: { enabled: boolean; content: string; position: 'top'|'bottom'; size: number; animation: 'float'|'bounce'|'spin'; glowColor: string };
-  badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string };
+  floating: { enabled: boolean; content: string; position: 'top'|'bottom'; size: number; animation: 'float'|'bounce'|'spin'; glowColor: string; offsetX?: number; offsetY?: number };
+  badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; position: string; offsetX?: number; offsetY?: number };
   nameEffect: { enabled: boolean; color: string; glowColor: string; glowSize: number };
 }
 
@@ -85,6 +85,9 @@ export default function RankEffectsSection() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [previewFace, setPreviewFace] = useState<'cover'|'role'>('cover');
+  const [dragMode, setDragMode] = useState(false);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ el: 'badge'|'floating'|null; startX: number; startY: number; origX: number; origY: number }>({ el: null, startX: 0, startY: 0, origX: 0, origY: 0 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,12 +158,44 @@ export default function RankEffectsSection() {
         <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
           {/* Preview */}
           <div className="flex flex-col items-center gap-3 p-4 bg-gray-900/50 border border-gray-700/30 rounded-2xl">
-            <div className="flex gap-2 mb-2">
+            <div className="flex gap-2 mb-1">
               <button onClick={() => setPreviewFace('cover')} className={`text-[10px] px-2 py-0.5 rounded ${previewFace === 'cover' ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500'}`}>الغلاف</button>
               <button onClick={() => setPreviewFace('role')} className={`text-[10px] px-2 py-0.5 rounded ${previewFace === 'role' ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500'}`}>الدور</button>
+              <button onClick={() => setDragMode(!dragMode)} className={`text-[10px] px-2 py-0.5 rounded ${dragMode ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'text-gray-500 border border-gray-700/30'}`}>
+                {dragMode ? '✋ وضع السحب' : '🖱️ تحريك'}
+              </button>
             </div>
+            <div
+              ref={previewRef}
+              className={`relative ${dragMode ? 'cursor-grab' : ''}`}
+              onMouseDown={e => {
+                if (!dragMode || !fx) return;
+                const rect = previewRef.current?.getBoundingClientRect();
+                if (!rect) return;
+                const target = e.target as HTMLElement;
+                const el = target.closest('[data-rank-el]') as HTMLElement;
+                if (!el) return;
+                const elType = el.dataset.rankEl as 'badge'|'floating';
+                const section = elType === 'badge' ? fx.badge : fx.floating;
+                dragRef.current = { el: elType, startX: e.clientX, startY: e.clientY, origX: section.offsetX || 0, origY: section.offsetY || 0 };
+                e.preventDefault();
+                const onMove = (ev: MouseEvent) => {
+                  const d = dragRef.current;
+                  if (!d.el) return;
+                  const dx = ev.clientX - d.startX;
+                  const dy = ev.clientY - d.startY;
+                  setFx(d.el, { offsetX: Math.round(d.origX + dx), offsetY: Math.round(d.origY + dy) });
+                };
+                const onUp = () => {
+                  dragRef.current.el = null;
+                  window.removeEventListener('mousemove', onMove);
+                  window.removeEventListener('mouseup', onUp);
+                };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+              }}
+            >
             <DynamicMafiaCard
-              key={JSON.stringify(fx).slice(0,100)}
               playerNumber={7}
               playerName="لاعب تجريبي"
               role={previewFace === 'role' ? 'GODFATHER' : null}
@@ -168,8 +203,14 @@ export default function RankEffectsSection() {
               flippable={false}
               size="md"
               rankTier={active.id}
+              rankEffectsOverride={fx}
+              rankEditable={dragMode}
               gender="MALE"
             />
+            {dragMode && (
+              <div className="absolute inset-0 rounded-2xl border-2 border-dashed border-green-500/30 pointer-events-none" />
+            )}
+            </div>
             <div className="flex gap-2 mt-2">
               <button onClick={save} disabled={saving} className="px-4 py-1.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-lg text-xs hover:bg-amber-500/25 transition disabled:opacity-50">
                 {saving ? '...' : '💾 حفظ'}

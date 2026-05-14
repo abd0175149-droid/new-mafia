@@ -55,6 +55,10 @@ export interface DynamicMafiaCardProps {
   className?: string;
   avatarUrl?: string | null;
   rankTier?: string;
+  /** تمرير تأثيرات الرتبة مباشرة (للمعاينة الحية في المحرر) */
+  rankEffectsOverride?: any;
+  /** وضع السحب — يسمح بتحريك العناصر */
+  rankEditable?: boolean;
   /** تجاوز: استخدم القالب القديم (MafiaCard) بدلاً من DB */
   forceClassic?: boolean;
 }
@@ -78,12 +82,14 @@ export default function DynamicMafiaCard({
   className = '',
   avatarUrl = null,
   rankTier = 'INFORMANT',
+  rankEffectsOverride,
+  rankEditable = false,
   forceClassic = false,
 }: DynamicMafiaCardProps) {
   const tier = (rankTier || 'INFORMANT');
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
   const rankDef = getRankEffectsForTier(tier);
-  const fx = rankDef?.effects;
+  const fx = rankEffectsOverride || rankDef?.effects;
   const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.corners?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -264,7 +270,7 @@ export default function DynamicMafiaCard({
         {/* ── 🎖️ Rank Effects Overlay — طبقة منفصلة فوق الكارد ── */}
         {hasRankEffects && fx && (
           <div
-            className="absolute inset-0 rounded-2xl overflow-visible pointer-events-none"
+            className={`absolute inset-0 rounded-2xl overflow-visible ${rankEditable ? '' : 'pointer-events-none'}`}
             style={{
               backfaceVisibility: 'hidden',
               WebkitBackfaceVisibility: 'hidden' as any,
@@ -296,12 +302,13 @@ export default function DynamicMafiaCard({
             )}
             {/* Badge */}
             {fx.badge.enabled && (
-              <div style={{
-                position: 'absolute', top: 4, left: 4, zIndex: 55,
+              <div data-rank-el="badge" style={{
+                position: 'absolute', top: 4 + (fx.badge.offsetY || 0), left: 4 + (fx.badge.offsetX || 0), zIndex: 55,
                 display: 'flex', alignItems: 'center', gap: 2,
                 padding: '2px 5px', borderRadius: 6,
                 fontSize: 8, fontWeight: 700, fontFamily: 'Inter, sans-serif', letterSpacing: '0.05em',
-                backdropFilter: 'blur(4px)', pointerEvents: 'none',
+                backdropFilter: 'blur(4px)', pointerEvents: rankEditable ? 'auto' : 'none',
+                cursor: rankEditable ? 'grab' : undefined,
                 background: fx.badge.bgColor, color: fx.badge.textColor,
                 border: `1px solid ${fx.badge.borderColor}`,
               }}>
@@ -345,11 +352,15 @@ export default function DynamicMafiaCard({
             ))}
             {/* Floating element */}
             {fx.floating.enabled && (
-              <div style={{
-                position: 'absolute', top: fx.floating.position === 'top' ? -14 : undefined, bottom: fx.floating.position === 'bottom' ? -14 : undefined,
-                left: '50%', transform: 'translateX(-50%)', fontSize: fx.floating.size, zIndex: 55, lineHeight: 1,
-                animation: fx.floating.animation === 'float' ? 'crown-float 2.5s ease-in-out infinite' : fx.floating.animation === 'spin' ? 'particle-orbit 4s linear infinite' : 'crown-float 1.5s ease-in-out infinite',
+              <div data-rank-el="floating" style={{
+                position: 'absolute',
+                top: (fx.floating.offsetY !== undefined ? fx.floating.offsetY : (fx.floating.position === 'top' ? -14 : undefined)),
+                bottom: (fx.floating.offsetY === undefined && fx.floating.position === 'bottom') ? -14 : undefined,
+                left: `calc(50% + ${fx.floating.offsetX || 0}px)`, transform: 'translateX(-50%)', fontSize: fx.floating.size, zIndex: 55, lineHeight: 1,
+                animation: rankEditable ? 'none' : (fx.floating.animation === 'float' ? 'crown-float 2.5s ease-in-out infinite' : fx.floating.animation === 'spin' ? 'particle-orbit 4s linear infinite' : 'crown-float 1.5s ease-in-out infinite'),
                 filter: `drop-shadow(0 0 6px ${hexToRgba(fx.floating.glowColor, 0.6)})`,
+                pointerEvents: rankEditable ? 'auto' : 'none',
+                cursor: rankEditable ? 'grab' : undefined,
               }}>{fx.floating.content}</div>
             )}
           </div>
