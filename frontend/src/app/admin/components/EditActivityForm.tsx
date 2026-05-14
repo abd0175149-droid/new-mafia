@@ -93,6 +93,9 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   // ── روابط ──
   const [driveLink, setDriveLink] = useState(activity.driveLink || '');
 
+  // ── نظام التذاكر ──
+  const [requireTicket, setRequireTicket] = useState(activity.requireTicket || false);
+
   // ── UI ──
   const [submitting, setSubmitting] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>('basic');
@@ -140,6 +143,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     if (difficulty !== (activity.difficulty || 'medium')) return true;
     if (driveLink !== (activity.driveLink || '')) return true;
     if (JSON.stringify(enabledOfferIds) !== JSON.stringify(activity.enabledOfferIds || [])) return true;
+    if (requireTicket !== (activity.requireTicket || false)) return true;
     return false;
   })();
 
@@ -158,6 +162,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         maxCapacity: Number(maxCapacity) || 20,
         difficulty,
         driveLink,
+        requireTicket,
       });
     } finally {
       setSubmitting(false);
@@ -400,6 +405,47 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
             >
               📂 فتح المجلد في Drive ←
             </a>
+          )}
+        </Section>
+
+        {/* ══════════════════════════════════════════ */}
+        {/* القسم 5: نظام التذاكر                    */}
+        {/* ══════════════════════════════════════════ */}
+        <Section id="tickets" title="نظام التذاكر" icon="🎫" activeSection={activeSection} setActiveSection={setActiveSection}>
+          <div
+            onClick={() => setRequireTicket(v => !v)}
+            className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${
+              requireTicket
+                ? 'bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/15'
+                : 'bg-gray-900/40 border-gray-700/30 hover:border-gray-600/50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">{requireTicket ? '🎫' : '🔓'}</span>
+              <div>
+                <p className="text-sm font-medium text-white">
+                  {requireTicket ? 'يتطلب رقم تذكرة للدخول' : 'دخول بدون تذكرة'}
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {requireTicket
+                    ? 'اللاعب يجب أن يدخل رقم تذكرة صالح عند الانضمام'
+                    : 'اللاعب يدخل الغرفة مباشرة بدون الحاجة لتذكرة'}
+                </p>
+              </div>
+            </div>
+            <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+              requireTicket ? 'bg-purple-500' : 'bg-gray-600'
+            }`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                requireTicket ? 'translate-x-5' : 'translate-x-0.5'
+              }`} />
+            </div>
+          </div>
+
+          {requireTicket && (
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-xs text-purple-400">
+              💡 لرفع أرقام التذاكر: اذهب لصفحة تفاصيل النشاط → قسم التذاكر → رفع ملف Excel
+            </div>
           )}
         </Section>
 

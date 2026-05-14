@@ -5,6 +5,8 @@
 
 import { Server, Socket } from 'socket.io';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
+import { allocateSeat } from '../game/seat-allocator.js';
+import type { SeatConstraints } from '../game/seat-allocator.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
@@ -375,6 +377,33 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'لم يتم العثور على لعبة بهذا الكود' });
       }
 
+      // ── جلب أحدث maxPlayers + requireTicket من DB ──
+      let requireTicket = false;
+      let latestMaxPlayers = state.config.maxPlayers;
+      if (state.activityId) {
+        try {
+          const { getDB } = await import('../config/db.js');
+          const { activities } = await import('../schemas/admin.schema.js');
+          const { eq } = await import('drizzle-orm');
+          const db = getDB();
+          if (db) {
+            const [act] = await db.select({
+              requireTicket: activities.requireTicket,
+              maxCapacity: activities.maxCapacity,
+            }).from(activities).where(eq(activities.id, state.activityId)).limit(1);
+            if (act) {
+              requireTicket = act.requireTicket ?? false;
+              latestMaxPlayers = act.maxCapacity ?? state.config.maxPlayers;
+            }
+          }
+        } catch (e) { /* DB unavailable */ }
+      }
+      // تحديث maxPlayers في Redis إن تغير
+      if (latestMaxPlayers !== state.config.maxPlayers) {
+        state.config.maxPlayers = latestMaxPlayers;
+        await updateRoom(state.roomId, { config: state.config });
+      }
+
       callback({
         success: true,
         roomId: state.roomId,
@@ -382,28 +411,94 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         gameName: state.config.gameName,
         playerCount: state.players.length,
         maxPlayers: state.config.maxPlayers,
-        occupiedSeats: state.players.map(p => p.physicalId),
-        // أسماء اللاعبين في كل مقعد — لعرضها في واجهة اختيار المقعد
-        seatMap: state.players.map(p => ({ seat: p.physicalId, name: p.name })),
+        requireTicket,
       });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
   });
 
-  // ── انضمام لاعب ──────────────────────────────
-  socket.on('room:join', async (data: {
+  // ── انضمام لاعب — توزيع تلقائي للمقعد ──────────────────
+  socket.on('room:auto-join', async (data: {
     roomId: string;
-    physicalId: number;
     name: string;
     phone?: string;
     playerId?: number;
     gender?: string;
     dob?: string;
+    ticketNumber?: string;
     forceJoin?: boolean;
+    preferredSeat?: number;
   }, callback) => {
     try {
-      // ── حماية: فحص هل اللاعب في غرفة أخرى نشطة ──
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'الغرفة غير موجودة' });
+
+      // ── 1. جلب أحدث maxPlayers + constraints + requireTicket من DB ──
+      let constraints: SeatConstraints | null = null;
+      let requireTicket = false;
+      if (state.activityId) {
+        try {
+          const { getDB } = await import('../config/db.js');
+          const { activities, activityTickets } = await import('../schemas/admin.schema.js');
+          const { eq, and } = await import('drizzle-orm');
+          const db = getDB();
+          if (db) {
+            const [act] = await db.select({
+              maxCapacity: activities.maxCapacity,
+              requireTicket: activities.requireTicket,
+              seatConstraints: activities.seatConstraints,
+            }).from(activities).where(eq(activities.id, state.activityId)).limit(1);
+
+            if (act) {
+              requireTicket = act.requireTicket ?? false;
+              constraints = act.seatConstraints as SeatConstraints | null;
+              const latestMax = act.maxCapacity ?? state.config.maxPlayers;
+              if (latestMax !== state.config.maxPlayers) {
+                state.config.maxPlayers = latestMax;
+                await updateRoom(data.roomId, { config: state.config });
+              }
+            }
+
+            // ── 2. التحقق من التذكرة (إن مطلوب) ──
+            if (requireTicket) {
+              if (!data.ticketNumber || !data.ticketNumber.trim()) {
+                return callback({ success: false, error: 'يرجى إدخال رقم التذكرة' });
+              }
+              const [ticket] = await db.select()
+                .from(activityTickets)
+                .where(and(
+                  eq(activityTickets.activityId, state.activityId!),
+                  eq(activityTickets.ticketNumber, data.ticketNumber.trim()),
+                ))
+                .limit(1);
+
+              if (!ticket) {
+                return callback({ success: false, error: 'رقم التذكرة غير صالح' });
+              }
+              if (ticket.isUsed) {
+                return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً' });
+              }
+
+              // تعليم التذكرة كمستخدمة
+              await db.update(activityTickets)
+                .set({
+                  isUsed: true,
+                  usedByPhone: data.phone || null,
+                  usedByName: data.name || null,
+                  usedAt: new Date(),
+                } as any)
+                .where(eq(activityTickets.id, ticket.id));
+
+              console.log(`🎫 Ticket ${data.ticketNumber} validated & marked as used by ${data.name}`);
+            }
+          }
+        } catch (e: any) {
+          console.error('⚠️ Failed to fetch activity data:', e.message);
+        }
+      }
+
+      // ── 3. حماية: فحص هل اللاعب في غرفة أخرى نشطة ──
       if (data.playerId) {
         const { getAllGameStates } = await import('../config/redis.js');
         const allStates = await getAllGameStates();
@@ -411,40 +506,58 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           if (!otherState || otherState.roomId === data.roomId) continue;
           const existing = otherState.players?.find((p: any) => p.playerId === data.playerId);
           if (existing) {
-            if (otherState.phase === 'GAME_OVER') {
-              // اللعبة انتهت أو مغلقة → نتجاهل هذا التواجد، اللاعب حر في الانضمام لغرفة جديدة
-              continue;
-            } else if (!existing.isAlive) {
+            if (otherState.phase === 'GAME_OVER') continue;
+            if (!existing.isAlive) {
               return callback({ success: false, error: 'أنت في غرفة أخرى نشطة (كلاعب مُقصى)، يرجى الدخول إليها ومغادرتها أولاً' });
-            } else {
-              // لا يزال حي في لعبة نشطة
-              if (!data.forceJoin) {
-                return callback({ 
-                  success: false, 
-                  requiresConfirmation: true, 
-                  error: 'أنت متواجد بالفعل في غرفة أخرى نشطة، هل تريد مغادرتها والانضمام إلى هذه الغرفة؟'
-                });
-              } else {
-                // إزالة اللاعب من الغرفة السابقة
-                const oldState = await getGameState(otherState.roomId);
-                if (oldState) {
-                  const pIndex = oldState.players.findIndex((p: any) => p.playerId === data.playerId);
-                  if (pIndex !== -1) {
-                    oldState.players.splice(pIndex, 1);
-                    await setGameState(otherState.roomId, oldState);
-                    io.to(otherState.roomId).emit('game:state-sync', oldState);
-                    console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId} to join ${data.roomId}`);
-                  }
-                }
+            }
+            if (!data.forceJoin) {
+              return callback({
+                success: false,
+                requiresConfirmation: true,
+                error: 'أنت متواجد بالفعل في غرفة أخرى نشطة، هل تريد مغادرتها والانضمام إلى هذه الغرفة؟'
+              });
+            }
+            // إزالة اللاعب من الغرفة السابقة
+            const oldState = await getGameState(otherState.roomId);
+            if (oldState) {
+              const pIndex = oldState.players.findIndex((p: any) => p.playerId === data.playerId);
+              if (pIndex !== -1) {
+                oldState.players.splice(pIndex, 1);
+                await setGameState(otherState.roomId, oldState);
+                io.to(otherState.roomId).emit('game:state-sync', oldState);
+                console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId}`);
               }
             }
           }
         }
       }
 
-      const state = await addPlayer(
+      // ── 4. تخصيص المقعد تلقائياً ──
+      const seatPlayers = state.players.map(p => ({
+        physicalId: p.physicalId,
+        phone: p.phone,
+        gender: p.gender || null,
+      }));
+
+      const { seat: assignedSeat, constraintViolation } = allocateSeat({
+        maxPlayers: state.config.maxPlayers,
+        players: seatPlayers,
+        constraints,
+        newPlayer: {
+          phone: data.phone || '',
+          gender: data.gender || 'MALE',
+        },
+        preferredSeat: data.preferredSeat,
+      });
+
+      if (constraintViolation) {
+        console.warn(`⚠️ Seat constraints violated for player ${data.name} — assigned seat #${assignedSeat} anyway`);
+      }
+
+      // ── 5. إضافة اللاعب ──
+      const addedState = await addPlayer(
         data.roomId,
-        data.physicalId,
+        assignedSeat,
         data.name,
         data.phone || null,
         data.playerId || null,
@@ -452,12 +565,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // البحث عن اللاعب الفعلي (قد يكون تم ربطه بمقعد ليدر موجود)
       const actualPlayer = data.phone
-        ? state.players.find(p => p.phone === data.phone) || state.players.find(p => p.physicalId === data.physicalId)
-        : state.players.find(p => p.physicalId === data.physicalId);
+        ? addedState.players.find(p => p.phone === data.phone) || addedState.players.find(p => p.physicalId === assignedSeat)
+        : addedState.players.find(p => p.physicalId === assignedSeat);
 
-      const actualPhysicalId = actualPlayer?.physicalId ?? data.physicalId;
+      const actualPhysicalId = actualPlayer?.physicalId ?? assignedSeat;
 
-      // تحديث الجنس وتاريخ الميلاد إذا تم إرسالها
+      // تحديث الجنس وتاريخ الميلاد
       if (data.gender || data.dob) {
         await updatePlayer(data.roomId, actualPhysicalId, {
           gender: data.gender || 'MALE',
@@ -486,16 +599,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // ── حفظ اللاعب في قاعدة البيانات (Session Players) ──
-      if (state.sessionId) {
+      if (addedState.sessionId) {
         try {
           const finalName = data.name || actualPlayer?.name || 'غير معروف';
           await addPlayerToSession(
-            state.sessionId, 
-            actualPhysicalId, 
-            finalName, 
-            data.phone || undefined, 
-            data.gender || undefined, 
-            data.dob || undefined, 
+            addedState.sessionId,
+            actualPhysicalId,
+            finalName,
+            data.phone || undefined,
+            data.gender || undefined,
+            data.dob || undefined,
             data.playerId || undefined
           );
         } catch (e: any) {
@@ -511,7 +624,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = state.players.length;
+        room.playerCount = addedState.players.length;
       }
 
       // جلب الحالة المحدثة بعد كل التعديلات
@@ -522,14 +635,19 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('room:player-joined', {
         physicalId: actualPhysicalId,
         name: finalPlayer?.name || actualPlayer?.name || data.name,
-        totalPlayers: state.players.length,
-        maxPlayers: state.config.maxPlayers,
+        totalPlayers: addedState.players.length,
+        maxPlayers: addedState.config.maxPlayers,
         gender: data.gender || 'MALE',
         avatarUrl: finalPlayer?.avatarUrl || null,
       });
 
-      callback({ success: true, linkedSeat: actualPhysicalId !== data.physicalId ? actualPhysicalId : undefined });
-      console.log(`👤 Player joined: #${actualPhysicalId} - ${actualPlayer?.name || data.name} (${data.gender || 'MALE'})${actualPhysicalId !== data.physicalId ? ' [LINKED to leader seat]' : ''}`);
+      callback({
+        success: true,
+        assignedSeat: actualPhysicalId,
+        gameName: addedState.config.gameName,
+        constraintViolation,
+      });
+      console.log(`🪑 Player auto-joined: #${actualPhysicalId} - ${data.name} (${data.gender || 'MALE'})${constraintViolation ? ' [CONSTRAINT VIOLATED]' : ''}`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

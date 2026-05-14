@@ -25,6 +25,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [difficulty, setDifficulty] = useState('medium');
   const [submitting, setSubmitting] = useState(false);
   const [sendNotification, setSendNotification] = useState(true);
+  const [requireTicket, setRequireTicket] = useState(false);
 
   // عروض المكان المختار
   const selectedLocation = locations.find(l => l.id === Number(locationId));
@@ -95,6 +96,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         difficulty,
         driveLink,
         sendNotification,
+        requireTicket,
       });
     } finally {
       setSubmitting(false);
@@ -276,6 +278,38 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
           }`}>
             <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
               sendNotification ? 'translate-x-5' : 'translate-x-0.5'
+            }`} />
+          </div>
+        </div>
+
+        {/* ── خيار طلب رقم التذكرة ── */}
+        <div
+          onClick={() => setRequireTicket(v => !v)}
+          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${
+            requireTicket
+              ? 'bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/15'
+              : 'bg-gray-900/40 border-gray-700/30 hover:border-gray-600/50'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{requireTicket ? '🎫' : '🔓'}</span>
+            <div>
+              <p className="text-sm font-medium text-white">
+                {requireTicket ? 'يتطلب رقم تذكرة للدخول' : 'دخول بدون تذكرة'}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {requireTicket
+                  ? 'اللاعب يجب أن يدخل رقم تذكرة صالح عند الانضمام'
+                  : 'اللاعب يدخل الغرفة مباشرة بدون الحاجة لتذكرة'}
+              </p>
+            </div>
+          </div>
+          {/* Toggle Switch */}
+          <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+            requireTicket ? 'bg-purple-500' : 'bg-gray-600'
+          }`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+              requireTicket ? 'translate-x-5' : 'translate-x-0.5'
             }`} />
           </div>
         </div>

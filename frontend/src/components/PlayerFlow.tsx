@@ -12,7 +12,7 @@ import { ROLE_NAMES } from '@/lib/constants';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import PlayerNotepad from './PlayerNotepad';
-type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'number' | 'done' | 'rejoined';
+type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
@@ -109,8 +109,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [physicalId, setPhysicalId] = useState('');
   const [playerId, setPlayerId] = useState<number | null>(null);
   const [apiError, setApiError] = useState('');
-  const [occupiedSeats, setOccupiedSeats] = useState<number[]>([]);
-  const [seatMap, setSeatMap] = useState<{seat: number; name: string}[]>([]);
+  const [requireTicket, setRequireTicket] = useState(false);
+  const [ticketNumber, setTicketNumber] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [userExited, setUserExited] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -1179,11 +1179,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setRoomId(res.roomId);
       setGameName(res.gameName);
       setMaxPlayers(res.maxPlayers || 10);
-      if (res.occupiedSeats && Array.isArray(res.occupiedSeats)) {
-        setOccupiedSeats(res.occupiedSeats);
-      }
-      if (res.seatMap && Array.isArray(res.seatMap)) {
-        setSeatMap(res.seatMap);
+      if (res.requireTicket !== undefined) {
+        setRequireTicket(res.requireTicket);
       }
 
       // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
@@ -1386,8 +1383,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }
     } catch {}
 
-    // 3. لا لعبة نشطة → اختيار مقعد عادي
-    setStep('number');
+    // 3. لا لعبة نشطة → انضمام تلقائي
+    setStep(requireTicket ? 'ticket' : 'auto_joining');
+    if (!requireTicket) {
+      setTimeout(() => handleAutoJoin(false), 100);
+    }
   };
 
   // ── تنفيذ التبديل بين الغرف ──
@@ -1413,7 +1413,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setIsPlayerDead(false);
       setPhysicalId('');
       setSwitchConfirm(null);
-      setStep('number');
+    setStep(requireTicket ? 'ticket' : 'auto_joining');
+    // إذا لا تذكرة مطلوبة → بدء الانضمام التلقائي مباشرة
+    if (!requireTicket) {
+      setTimeout(() => handleAutoJoin(false), 100);
+    }
     } catch (err: any) {
       setApiError(err.message || 'فشل في التبديل');
     } finally {
@@ -1453,7 +1457,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         setPlayerId(data.player.id);
         localStorage.setItem('mafia_playerId', String(data.player.id));
         // لاعب جديد — مستحيل يكون جوا لعبة، يروح على اختيار مقعد
-        setStep('number');
+        setStep(requireTicket ? 'ticket' : 'auto_joining');
+        if (!requireTicket) {
+          setTimeout(() => handleAutoJoin(false), 100);
+        }
       } else {
         setApiError(data.error);
       }
@@ -1494,28 +1501,40 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   };
 
-  // ── الخطوة 4: الانضمام للعبة ──
-  const handleJoinGame = async (forceJoin: boolean = false) => {
-    if (!physicalId || !displayName) return;
+  // ── الخطوة 4: الانضمام التلقائي للعبة ──
+  const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string) => {
+    if (!displayName) return;
     setApiError('');
+    setStep('auto_joining');
     try {
       const dateOfBirth = dobYear && dobMonth && dobDay
         ? `${dobYear}-${dobMonth.padStart(2, '0')}-${dobDay.padStart(2, '0')}`
         : undefined;
       const genderUpper = gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined;
-      const res = await joinRoom(roomId, parseInt(physicalId), displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin);
+      
+      // قراءة المقعد السابق من localStorage (للعودة)
+      let preferredSeat: number | undefined;
+      try {
+        const saved = localStorage.getItem('mafia_session');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.roomId === roomId && parsed.physicalId) {
+            preferredSeat = Number(parsed.physicalId);
+          }
+        }
+      } catch {}
+      
+      const res = await joinRoom(roomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, preferredSeat);
 
-      // إذا تم ربط اللاعب بمقعد ليدر → تحديث الرقم الفيزيائي
-      const actualPhysicalId = res?.linkedSeat || parseInt(physicalId);
-      if (res?.linkedSeat) {
-        setPhysicalId(String(res.linkedSeat));
-        console.log(`🔗 Linked to leader seat #${res.linkedSeat}`);
+      const assignedSeat = res?.assignedSeat;
+      if (assignedSeat) {
+        setPhysicalId(String(assignedSeat));
       }
 
       // حفظ الجلسة في localStorage
       localStorage.setItem('mafia_session', JSON.stringify({
         roomId,
-        physicalId: actualPhysicalId,
+        physicalId: assignedSeat || 0,
         phone,
         displayName,
         roomCode,
@@ -1529,16 +1548,19 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     } catch (err: any) {
       if (err.response?.requiresConfirmation) {
         setJoinConfirmation({ message: err.response.error });
+        // نعود لخطوة التذكرة أو الانتظار
+        setStep(requireTicket ? 'ticket' : 'auto_joining');
       } else {
-        setApiError(err.message);
+        setApiError(err.message || 'حدث خطأ في الانضمام');
+        setStep(requireTicket ? 'ticket' : 'auto_joining');
       }
     }
   };
 
-  const allSeats = Array.from({ length: maxPlayers }, (_, i) => i + 1);
-  const availableSeats = allSeats.filter(
-    num => !occupiedSeats.includes(num)
-  );
+  // ── دالة الانضمام القديمة (للتوافق مع confirmation dialog) ──
+  const handleJoinGame = async (forceJoin: boolean = false) => {
+    await handleAutoJoin(forceJoin);
+  };
 
   return (
     <div className="display-bg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white">
@@ -1909,74 +1931,62 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           )}
 
           {/* ── خطوة 4: المقاعد المتاحة ── */}
-          {step === 'number' && (
-            <motion.div key="number" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          {/* ── خطوة: إدخال رقم التذكرة ── */}
+          {step === 'ticket' && (
+            <motion.div key="ticket" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-8 border-b border-[#2a2a2a]/40 pb-6">
-                <div className="mb-4 text-[#C5A059] flex justify-center"><SeatIcon /></div>
+                <div className="mb-4 text-[#C5A059] flex justify-center">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-80">
+                    <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"></path>
+                    <path d="M13 5v2"></path>
+                    <path d="M13 17v2"></path>
+                    <path d="M13 11v2"></path>
+                  </svg>
+                </div>
                 <h2 className="text-2xl font-black mb-2 text-white truncate" style={{ fontFamily: 'Amiri, serif' }}>مرحباً {displayName}</h2>
-                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>اختر رقم مقعدك</p>
+                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>أدخل رقم التذكرة للدخول</p>
               </div>
 
-              {availableSeats.length === 0 ? (
-                <div className="text-center p-6 bg-[#8A0303]/10 border border-[#8A0303]/30 rounded-lg mb-6">
-                  <p className="text-[#ff4444] text-sm" style={{ fontFamily: 'Amiri, serif' }}>جميع المقاعد مشغولة</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-4 sm:grid-cols-5 gap-3 mb-6">
-                  {allSeats.map(num => {
-                    const isOccupied = occupiedSeats.includes(num);
-                    const isSelected = physicalId === String(num);
-                    const occupant = seatMap.find(s => s.seat === num);
-                    return (
-                      <button
-                        key={num}
-                        onClick={() => !isOccupied && setPhysicalId(String(num))}
-                        disabled={isOccupied}
-                        className={`relative p-3 font-mono font-black text-xl rounded-lg border transition-all ${
-                          isOccupied
-                            ? 'bg-[#1a1a1a] text-[#555] border-[#222] cursor-not-allowed opacity-60'
-                            : isSelected
-                              ? 'bg-[#C5A059] text-black border-[#C5A059] shadow-[0_0_20px_rgba(197,160,89,0.3)] scale-105'
-                              : 'bg-black/40 text-white border-[#2a2a2a] hover:border-[#C5A059]/50 hover:bg-[#0a0a0a]'
-                        }`}
-                      >
-                        {num}
-                        {isOccupied && occupant && (
-                          <span className="absolute -bottom-1 left-0 right-0 text-[8px] text-[#666] truncate px-1" style={{ fontFamily: 'Amiri, serif' }}>
-                            {occupant.name.split(' ')[0]}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {physicalId && (
-                <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="bg-black/40 border border-[#C5A059]/30 rounded-lg p-3 text-center mb-6">
-                  <p className="text-[#C5A059] text-sm" style={{ fontFamily: 'Amiri, serif' }}>
-                    ✓ تم اختيار المقعد رقم {physicalId}
-                  </p>
-                </motion.div>
-              )}
+              <div className="mb-6">
+                <input
+                  type="text"
+                  value={ticketNumber}
+                  onChange={e => setTicketNumber(e.target.value)}
+                  placeholder="رقم التذكرة"
+                  dir="ltr"
+                  className="w-full px-5 py-4 bg-black/40 border border-[#2a2a2a] rounded-xl text-center text-white text-2xl font-mono tracking-[0.3em] placeholder-[#333] focus:outline-none focus:border-[#C5A059]/50 focus:shadow-[0_0_15px_rgba(197,160,89,0.15)] transition-all"
+                />
+              </div>
 
               {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mb-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <button
-                onClick={() => handleJoinGame(false)}
-                disabled={!physicalId || loading}
+                onClick={() => handleAutoJoin(false, ticketNumber)}
+                disabled={!ticketNumber.trim() || loading}
                 className="w-full py-4 text-lg font-black rounded-lg border-2 transition-all disabled:opacity-50"
                 style={{
                   fontFamily: 'Amiri, serif',
-                  background: !physicalId || loading ? '#222' : 'linear-gradient(135deg, #166534, #15803d)',
-                  borderColor: !physicalId || loading ? '#333' : '#22c55e',
-                  color: !physicalId || loading ? '#666' : '#fff',
-                  boxShadow: !physicalId || loading ? 'none' : '0 0 25px rgba(34,197,94,0.4), 0 0 50px rgba(34,197,94,0.15)',
-                  textShadow: !physicalId || loading ? 'none' : '0 0 10px rgba(34,197,94,0.5)',
+                  background: !ticketNumber.trim() || loading ? '#222' : 'linear-gradient(135deg, #166534, #15803d)',
+                  borderColor: !ticketNumber.trim() || loading ? '#333' : '#22c55e',
+                  color: !ticketNumber.trim() || loading ? '#666' : '#fff',
+                  boxShadow: !ticketNumber.trim() || loading ? 'none' : '0 0 25px rgba(34,197,94,0.4), 0 0 50px rgba(34,197,94,0.15)',
+                  textShadow: !ticketNumber.trim() || loading ? 'none' : '0 0 10px rgba(34,197,94,0.5)',
                 }}
               >
-                {loading ? 'جارٍ التحميل...' : 'اختر مقعدك'}
+                {loading ? 'جارٍ التحقق...' : '🎫 تحقق وادخل'}
               </button>
+            </motion.div>
+          )}
+
+          {/* ── خطوة: جاري تخصيص المقعد ── */}
+          {step === 'auto_joining' && (
+            <motion.div key="auto_joining" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-10">
+              <div className="mb-6">
+                <div className="w-16 h-16 border-3 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-4" />
+              </div>
+              <h2 className="text-xl font-black text-white mb-2" style={{ fontFamily: 'Amiri, serif' }}>جاري تخصيص مقعدك...</h2>
+              <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>يتم اختيار أفضل مقعد لك</p>
+              {apiError && <p className="text-[#8A0303] text-xs font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
             </motion.div>
           )}
 
@@ -1984,7 +1994,24 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
-              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
+              {/* ── بانر المقعد المخصص ── */}
+              {physicalId && (
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+                  className="mb-4 rounded-2xl p-5 relative overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(197,160,89,0.15), rgba(197,160,89,0.03))',
+                    border: '2px solid rgba(197,160,89,0.4)',
+                    boxShadow: '0 0 30px rgba(197,160,89,0.1), inset 0 0 30px rgba(197,160,89,0.05)',
+                  }}
+                >
+                  <p className="text-[#808080] text-xs mb-1" style={{ fontFamily: 'Amiri, serif' }}>🪑 مقعدك رقم</p>
+                  <p className="text-5xl font-black text-[#C5A059] mb-2" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(197,160,89,0.4)' }}>{physicalId}</p>
+                  <p className="text-[#C5A059]/70 text-xs" style={{ fontFamily: 'Amiri, serif' }}>يرجى الجلوس في مقعدك</p>
+                </motion.div>
+              )}              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex justify-between mb-2">
                 <button
                   onClick={() => setRolesModalOpen(true)}

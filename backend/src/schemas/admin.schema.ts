@@ -63,6 +63,9 @@ export const activities = pgTable('activities', {
   isLocked: boolean('is_locked').default(false),
   maxCapacity: integer('max_capacity').default(20),
   difficulty: varchar('difficulty', { length: 20 }).default('medium'),
+  // ── نظام التذاكر والمقاعد ──
+  requireTicket: boolean('require_ticket').default(false),
+  seatConstraints: jsonb('seat_constraints').default(null),
   // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -85,6 +88,7 @@ export const bookings = pgTable('bookings', {
   createdBy: varchar('created_by', { length: 100 }).default(''),
   // 🔗 ربط الحجز بلاعب في الغرفة (FK → session_players.id — logical)
   playerId: integer('player_id'),
+  ticketNumber: varchar('ticket_number', { length: 50 }),
   checkedIn: boolean('checked_in').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
@@ -160,5 +164,18 @@ export const soundEffects = pgTable('sound_effects', {
   eventKeys: jsonb('event_keys').default([]),           // ["night_assassination", "phase_night_start"]
   isActive: boolean('is_active').default(true),
   uploadedBy: varchar('uploaded_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── Activity Tickets (أرقام التذاكر المعتمدة لكل نشاط) ──
+
+export const activityTickets = pgTable('activity_tickets', {
+  id: serial('id').primaryKey(),
+  activityId: integer('activity_id').references(() => activities.id, { onDelete: 'cascade' }).notNull(),
+  ticketNumber: varchar('ticket_number', { length: 50 }).notNull(),
+  isUsed: boolean('is_used').default(false),
+  usedByPhone: varchar('used_by_phone', { length: 20 }),
+  usedByName: varchar('used_by_name', { length: 100 }),
+  usedAt: timestamp('used_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

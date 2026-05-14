@@ -179,22 +179,23 @@ export function useGameState() {
     }
   }, [emit]);
 
-  // ── الانضمام لغرفة ──────────────────────────
+  // ── الانضمام لغرفة (تلقائي — السيرفر يختار المقعد) ──────────────────────────
   const joinRoom = useCallback(async (
     roomId: string,
-    physicalId: number,
     name: string,
     phone?: string,
     playerId?: number,
     gender?: string,
     dob?: string,
     forceJoin?: boolean,
+    ticketNumber?: string,
+    preferredSeat?: number,
   ) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await emit('room:join', { roomId, physicalId, name, phone, playerId, gender, dob, forceJoin });
-      return res; // يحتوي على linkedSeat إذا تم الربط بمقعد ليدر
+      const res = await emit('room:auto-join', { roomId, name, phone, playerId, gender, dob, forceJoin, ticketNumber, preferredSeat });
+      return res; // يحتوي على assignedSeat, gameName, constraintViolation
     } catch (err: any) {
       setError(err.message);
       throw err;

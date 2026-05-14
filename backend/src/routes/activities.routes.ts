@@ -6,7 +6,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, desc, sql, or, and, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, notifications, staff } from '../schemas/admin.schema.js';
+import { activities, notifications, staff, activityTickets } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
@@ -514,7 +514,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
 
   const result = await db.insert(activities).values({
@@ -528,6 +528,8 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     enabledOfferIds: Array.isArray(enabledOfferIds) ? enabledOfferIds : [],
     isLocked: isLocked || false,
     maxCapacity: maxCapacity ? Number(maxCapacity) : 20,
+    requireTicket: requireTicket ?? false,
+    seatConstraints: seatConstraints || null,
   } as any).returning();
 
   const activity = result[0];
@@ -654,7 +656,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints } = req.body;
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
@@ -669,6 +671,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (sessionId !== undefined) updates.sessionId = sessionId;
   if (maxCapacity !== undefined) updates.maxCapacity = maxCapacity;
   if (difficulty !== undefined) updates.difficulty = difficulty;
+  if (requireTicket !== undefined) updates.requireTicket = requireTicket;
+  if (seatConstraints !== undefined) updates.seatConstraints = seatConstraints;
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });
@@ -723,6 +727,77 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   }
 
   await db.delete(activities).where(eq(activities.id, id));
+  res.json({ success: true });
+});
+
+// ══════════════════════════════════════════════════════
+// 🎫 إدارة التذاكر (Activity Tickets)
+// ══════════════════════════════════════════════════════
+
+// POST /api/activities/:id/upload-tickets — رفع ملف Excel/CSV بأرقام التذاكر
+router.post('/:id/upload-tickets', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const activityId = parseInt(req.params.id);
+  const { tickets } = req.body; // مصفوفة من أرقام التذاكر (parsed by frontend)
+
+  if (!Array.isArray(tickets) || tickets.length === 0) {
+    return res.status(400).json({ error: 'يرجى إرسال مصفوفة أرقام التذاكر' });
+  }
+
+  // التحقق من وجود النشاط
+  const [activity] = await db.select().from(activities).where(eq(activities.id, activityId)).limit(1);
+  if (!activity) return res.status(404).json({ error: 'النشاط غير موجود' });
+
+  // جلب التذاكر الموجودة
+  const existing = await db.select({ ticketNumber: activityTickets.ticketNumber })
+    .from(activityTickets)
+    .where(eq(activityTickets.activityId, activityId));
+  const existingSet = new Set(existing.map(t => t.ticketNumber));
+
+  // فلترة المكررات
+  const uniqueTickets = [...new Set(tickets.map((t: string) => String(t).trim()).filter(Boolean))];
+  const newTickets = uniqueTickets.filter(t => !existingSet.has(t));
+  const duplicates = uniqueTickets.length - newTickets.length;
+
+  if (newTickets.length > 0) {
+    await db.insert(activityTickets).values(
+      newTickets.map(t => ({
+        activityId,
+        ticketNumber: t,
+      } as any))
+    );
+  }
+
+  console.log(`🎫 Uploaded ${newTickets.length} tickets for Activity #${activityId} (${duplicates} duplicates skipped)`);
+  res.json({ success: true, uploaded: newTickets.length, duplicates, total: existingSet.size + newTickets.length });
+});
+
+// GET /api/activities/:id/tickets — جلب قائمة التذاكر مع حالة الاستخدام
+router.get('/:id/tickets', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const activityId = parseInt(req.params.id);
+  const ticketsList = await db.select().from(activityTickets)
+    .where(eq(activityTickets.activityId, activityId));
+
+  const used = ticketsList.filter(t => t.isUsed).length;
+  res.json({
+    success: true,
+    tickets: ticketsList,
+    summary: { total: ticketsList.length, used, available: ticketsList.length - used },
+  });
+});
+
+// DELETE /api/activities/:id/tickets — حذف كل التذاكر لنشاط معين
+router.delete('/:id/tickets', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const activityId = parseInt(req.params.id);
+  await db.delete(activityTickets).where(eq(activityTickets.activityId, activityId));
   res.json({ success: true });
 });
 
