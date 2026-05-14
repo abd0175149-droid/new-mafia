@@ -51,6 +51,7 @@ interface GameState {
   morningEvents?: any[];
   sheriffResult?: any;
   winner?: string;
+  pendingWinner?: string | null;
   round?: number;
   // Day phase
   justificationData?: any;
