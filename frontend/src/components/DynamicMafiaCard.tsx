@@ -258,8 +258,8 @@ export default function DynamicMafiaCard({
                 style={{
                   color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
                   fontSize: size === 'sm' ? '3.2rem' : size === 'md' ? '4.5rem' : size === 'lg' ? '5.5rem' : '4.5rem',
-                  opacity: resolvedAvatarUrl ? 0.9 : 0.35,
-                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                  opacity: resolvedAvatarUrl ? 0.9 : 0.55,
+                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 2px 12px rgba(0,0,0,0.95), 0 0 30px rgba(197,160,89,0.15)',
                   lineHeight: 0.85,
                   ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
                 }}
@@ -274,8 +274,8 @@ export default function DynamicMafiaCard({
                 style={{
                   color: isFemale ? 'rgba(216,180,254,1)' : 'rgba(197,160,89,1)',
                   fontSize: size === 'sm' ? '4rem' : size === 'md' ? '5.5rem' : size === 'lg' ? '7rem' : '5.5rem',
-                  opacity: resolvedAvatarUrl ? 0.9 : 0.35,
-                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 4px 20px rgba(0,0,0,0.8)',
+                  opacity: resolvedAvatarUrl ? 0.9 : 0.55,
+                  textShadow: resolvedAvatarUrl ? '0 2px 10px rgba(0,0,0,0.9)' : '0 2px 12px rgba(0,0,0,0.95), 0 0 30px rgba(197,160,89,0.15)',
                   lineHeight: 1,
                   ...(cardTemplate?.elements?.positions?.coverNumber ? { transform: `translate(${cardTemplate.elements.positions.coverNumber.x}px, ${cardTemplate.elements.positions.coverNumber.y}px) scale(${cardTemplate.elements.positions.coverNumber.s || 1})` } : {})
                 }}
