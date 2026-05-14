@@ -705,16 +705,19 @@ export default function LeaderPage() {
       setAutoNightProgress(data);
     });
     const offAutoStarted = on('night:auto-started', (data: { totalAlive: number }) => {
+      console.log('🌙 [Leader] night:auto-started received', data);
       setAutoNightProgress({ total: data.totalAlive, submitted: 0 });
       setAutoNightStep(null);
     });
     // الخطوة جاهزة — تنتظر الليدر
     const offAutoStepReady = on('night:auto-step-ready', (data: any) => {
+      console.log('🌙 [Leader] night:auto-step-ready received', data);
       setAutoNightStep({ ...data, dispatched: false });
       setAutoNightProgress(prev => prev ? { ...prev, submitted: 0 } : null);
     });
     // الخطوة أُرسلت للاعبين
     const offAutoStepStarted = on('night:auto-step-started', (data: any) => {
+      console.log('🌙 [Leader] night:auto-step-started received', data);
       setAutoNightStep(prev => prev ? { ...prev, dispatched: true } : null);
     });
 
