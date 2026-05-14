@@ -91,43 +91,45 @@ function DisplayPageContent() {
   const searchParams = useSearchParams();
 
   // ══════════════════════════════════════════════════
-  // 🔄 Auto-Login via Query Parameters
+  // 🔄 Auto-Login via Query Parameters OR Session Restore
   // ══════════════════════════════════════════════════
   useEffect(() => {
+    if (hasAutoRejoined.current) return;
+
     const queryRoomId = searchParams.get('roomId');
     const queryPin = searchParams.get('pin');
     const querySessionCode = searchParams.get('sessionCode');
 
-    if (queryRoomId && queryPin && !hasAutoRejoined.current) {
+    // أولوية 1: query params (من صفحة النشاط أو رابط مباشر)
+    if (queryRoomId && queryPin) {
       hasAutoRejoined.current = true;
       setPin(queryPin);
       setSelectedRoomId(queryRoomId);
       verifyPinAndJoin(queryRoomId, queryPin);
-    } else if (querySessionCode && queryPin && !hasAutoRejoined.current) {
+      return;
+    }
+    if (querySessionCode && queryPin) {
       hasAutoRejoined.current = true;
       setPin(queryPin);
       verifyPinBySessionCode(querySessionCode, queryPin);
+      return;
     }
-  }, [searchParams]);
 
-  // ══════════════════════════════════════════════════
-  // 🔄 استعادة الجلسة عند تحديث الصفحة
-  // ══════════════════════════════════════════════════
-  useEffect(() => {
-    if (hasAutoRejoined.current) return;
-    hasAutoRejoined.current = true;
+    // أولوية 2: استعادة من sessionStorage (عند F5)
     try {
       const saved = sessionStorage.getItem('display_session');
       if (saved) {
         const { pin: savedPin, roomId: savedRoomId } = JSON.parse(saved);
         if (savedPin && savedRoomId) {
+          hasAutoRejoined.current = true;
           console.log('🔄 Display: Restoring session from storage...');
           setPin(savedPin);
           verifyPinAndJoin(savedRoomId, savedPin);
+          return;
         }
       }
     } catch (_) {}
-  }, []);
+  }, [searchParams]);
 
   // ── Socket Init ──
   useEffect(() => {
@@ -607,11 +609,16 @@ function DisplayPageContent() {
         setPhase(data.state.phase || 'LOBBY');
         setDiscussionState(data.state.discussionState || null);
         if (data.state.winner) setWinner(data.state.winner);
+        if (data.state.teamCounts) setTeamCounts(data.state.teamCounts);
+        if (data.state.gameTimer && !data.state.gameTimer.expired) {
+          setGameTimerData(data.state.gameTimer);
+        }
         if (data.state.players) {
           const activePlayers = data.state.players.filter((p: any) => !p.frozen);
           setPlayers(activePlayers.map((p: any) => ({
             physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
             gender: p.gender, role: p.role, avatarUrl: p.avatarUrl || null,
+            rankTier: p.rankTier || 'INFORMANT',
           })));
         }
       }
