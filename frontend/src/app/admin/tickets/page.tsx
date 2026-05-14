@@ -68,12 +68,25 @@ export default function TicketsPage() {
   const [filter, setFilter] = useState<'all' | 'available' | 'used'>('all');
   const [batchFilter, setBatchFilter] = useState('');
 
-  // Upload
+  // Upload & Manual
   const [showUpload, setShowUpload] = useState(false);
+  const [addMode, setAddMode] = useState<'csv' | 'manual'>('csv');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
   const [previewRows, setPreviewRows] = useState<any[]>([]);
+
+  // Manual form
+  const [manualNumber, setManualNumber] = useState('');
+  const [manualType, setManualType] = useState('regular');
+  const [manualPrice, setManualPrice] = useState('');
+  const [manualSeller, setManualSeller] = useState('');
+  const [manualSellerPhone, setManualSellerPhone] = useState('');
+  const [manualBatch, setManualBatch] = useState('');
+  const [manualDetails, setManualDetails] = useState('');
+  const [manualNotes, setManualNotes] = useState('');
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualResult, setManualResult] = useState<string | null>(null);
 
   const fetchAll = async () => {
     try {
@@ -148,6 +161,41 @@ export default function TicketsPage() {
     }
   };
 
+  // إضافة تذكرة يدوية
+  const handleManualAdd = async () => {
+    if (!manualNumber.trim()) return;
+    setManualSaving(true);
+    setManualResult(null);
+    try {
+      const res = await apiFetch('/api/tickets/upload', {
+        method: 'POST',
+        body: JSON.stringify({
+          tickets: [{
+            ticketNumber: manualNumber.trim(),
+            ticketType: manualType,
+            price: manualPrice || undefined,
+            sellerName: manualSeller || undefined,
+            sellerPhone: manualSellerPhone || undefined,
+            batchName: manualBatch || undefined,
+            details: manualDetails || undefined,
+            notes: manualNotes || undefined,
+          }],
+        }),
+      });
+      if (res.uploaded > 0) {
+        setManualResult('✅ تمت إضافة التذكرة بنجاح');
+        setManualNumber('');
+        fetchAll();
+      } else {
+        setManualResult('⚠️ التذكرة مكررة — موجودة مسبقاً');
+      }
+    } catch (err: any) {
+      setManualResult('❌ فشل: ' + err.message);
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
   // حذف دفعة
   const handleDeleteBatch = async (batchName: string) => {
     if (!confirm(`⚠️ حذف كل تذاكر دفعة "${batchName}"؟`)) return;
@@ -197,7 +245,7 @@ export default function TicketsPage() {
             onClick={() => setShowUpload(!showUpload)}
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold text-sm hover:opacity-90 transition flex items-center gap-2"
           >
-            {showUpload ? '✕ إغلاق' : '📂 رفع تذاكر جديدة'}
+            {showUpload ? '✕ إغلاق' : '➕ إضافة تذاكر'}
           </button>
         </div>
       </div>
@@ -222,7 +270,7 @@ export default function TicketsPage() {
         ))}
       </div>
 
-      {/* ══ Upload Section ══ */}
+      {/* ══ Add Tickets Section ══ */}
       <AnimatePresence>
         {showUpload && (
           <motion.div
@@ -230,70 +278,164 @@ export default function TicketsPage() {
             className="overflow-hidden"
           >
             <div className="bg-gray-800/50 border border-purple-500/20 rounded-2xl p-5 space-y-4">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">📂 رفع ملف تذاكر</h3>
-
-              {/* تعليمات */}
-              <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl text-xs text-purple-400/70 space-y-1">
-                <p>💡 <strong className="text-purple-400">الخطوات:</strong> حمّل القالب ← عبّئ البيانات في Excel ← احفظ كـ CSV ← ارفعه هنا</p>
-                <p>📋 <strong className="text-purple-400">الأعمدة:</strong> رقم التذكرة, النوع (regular/vip/free), السعر, اسم البائع, هاتف البائع, اسم الدفعة, التفاصيل, ملاحظات</p>
-                <p>⚠️ العمود الإلزامي الوحيد: <strong className="text-white">رقم التذكرة</strong> — الباقي اختياري</p>
+              {/* تبويبات */}
+              <div className="flex gap-1 bg-gray-900/50 rounded-xl p-1">
+                <button onClick={() => setAddMode('manual')}
+                  className={`flex-1 text-sm py-2 rounded-lg font-bold transition ${addMode === 'manual' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  ✏️ إضافة يدوية
+                </button>
+                <button onClick={() => setAddMode('csv')}
+                  className={`flex-1 text-sm py-2 rounded-lg font-bold transition ${addMode === 'csv' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-500 hover:text-gray-300'}`}
+                >
+                  📂 رفع ملف CSV
+                </button>
               </div>
 
-              {/* اختيار ملف */}
-              <input type="file" accept=".csv,.txt"
-                onChange={e => handleFileSelect(e.target.files?.[0] || null)}
-                className="w-full text-sm text-gray-400 file:mr-3 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:bg-purple-500/20 file:text-purple-400 file:text-xs file:font-bold hover:file:bg-purple-500/30 file:cursor-pointer"
-              />
-
-              {/* معاينة البيانات */}
-              {previewRows.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-400">📋 معاينة — {previewRows.length} تذكرة تم قراءتها:</p>
-                  <div className="max-h-48 overflow-auto border border-gray-700/30 rounded-xl">
-                    <table className="w-full text-xs" dir="rtl">
-                      <thead>
-                        <tr className="bg-gray-900/60 text-gray-500 sticky top-0">
-                          <th className="px-2 py-1.5 text-right">#</th>
-                          <th className="px-2 py-1.5 text-right">رقم التذكرة</th>
-                          <th className="px-2 py-1.5 text-center">النوع</th>
-                          <th className="px-2 py-1.5 text-center">السعر</th>
-                          <th className="px-2 py-1.5 text-right">البائع</th>
-                          <th className="px-2 py-1.5 text-right">الدفعة</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewRows.slice(0, 10).map((r, i) => (
-                          <tr key={i} className="border-t border-gray-700/20">
-                            <td className="px-2 py-1 text-gray-600">{i + 1}</td>
-                            <td className="px-2 py-1 text-white font-mono" dir="ltr">{r.ticketNumber}</td>
-                            <td className="px-2 py-1 text-center text-gray-400">{r.ticketType || 'regular'}</td>
-                            <td className="px-2 py-1 text-center text-gray-400 font-mono">{r.price || '—'}</td>
-                            <td className="px-2 py-1 text-gray-400">{r.sellerName || '—'}</td>
-                            <td className="px-2 py-1 text-gray-400">{r.batchName || '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              {/* ── الطريقة 1: إضافة يدوية ── */}
+              {addMode === 'manual' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">رقم التذكرة *</label>
+                      <input type="text" value={manualNumber} onChange={e => setManualNumber(e.target.value)}
+                        placeholder="TKT-2026-0001" dir="ltr"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">النوع</label>
+                      <select value={manualType} onChange={e => setManualType(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
+                      >
+                        <option value="regular">🎫 عادية</option>
+                        <option value="vip">⭐ VIP</option>
+                        <option value="free">🎁 مجانية</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">السعر</label>
+                      <input type="number" value={manualPrice} onChange={e => setManualPrice(e.target.value)}
+                        placeholder="0.00" dir="ltr"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">اسم الدفعة</label>
+                      <input type="text" value={manualBatch} onChange={e => setManualBatch(e.target.value)}
+                        placeholder="دفعة مايو 2026"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">اسم البائع</label>
+                      <input type="text" value={manualSeller} onChange={e => setManualSeller(e.target.value)}
+                        placeholder="اسم البائع"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">هاتف البائع</label>
+                      <input type="text" value={manualSellerPhone} onChange={e => setManualSellerPhone(e.target.value)}
+                        placeholder="07xxxxxxxxx" dir="ltr"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">التفاصيل</label>
+                      <input type="text" value={manualDetails} onChange={e => setManualDetails(e.target.value)}
+                        placeholder="تفاصيل اختيارية"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 mb-1 block">ملاحظات</label>
+                      <input type="text" value={manualNotes} onChange={e => setManualNotes(e.target.value)}
+                        placeholder="ملاحظات"
+                        className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/30 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm"
+                      />
+                    </div>
                   </div>
-                  {previewRows.length > 10 && <p className="text-[10px] text-gray-600">... و {previewRows.length - 10} تذكرة أخرى</p>}
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleManualAdd}
+                      disabled={!manualNumber.trim() || manualSaving}
+                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 text-white font-bold text-sm rounded-xl hover:opacity-90 transition disabled:opacity-50"
+                    >
+                      {manualSaving ? '⏳ جارٍ الإضافة...' : '➕ إضافة التذكرة'}
+                    </button>
+                    {manualResult && (
+                      <span className={`text-xs ${manualResult.startsWith('✅') ? 'text-emerald-400' : manualResult.startsWith('❌') ? 'text-rose-400' : 'text-amber-400'}`}>
+                        {manualResult}
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* زر الرفع */}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleUpload}
-                  disabled={previewRows.length === 0 || uploading}
-                  className="px-6 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold text-sm rounded-xl hover:opacity-90 transition disabled:opacity-50"
-                >
-                  {uploading ? '⏳ جارٍ الرفع...' : `📤 رفع ${previewRows.length} تذكرة`}
-                </button>
-                {uploadResult && (
-                  <span className={`text-xs ${uploadResult.startsWith('✅') ? 'text-emerald-400' : uploadResult.startsWith('❌') ? 'text-rose-400' : 'text-amber-400'}`}>
-                    {uploadResult}
-                  </span>
-                )}
-              </div>
+              {/* ── الطريقة 2: رفع ملف CSV ── */}
+              {addMode === 'csv' && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl text-xs text-purple-400/70 space-y-1">
+                    <p>💡 <strong className="text-purple-400">الخطوات:</strong> حمّل القالب ← عبّئ البيانات في Excel ← احفظ كـ CSV ← ارفعه هنا</p>
+                    <p>📋 <strong className="text-purple-400">الأعمدة:</strong> رقم التذكرة, النوع, السعر, اسم البائع, هاتف البائع, اسم الدفعة, التفاصيل, ملاحظات</p>
+                    <p>⚠️ العمود الإلزامي الوحيد: <strong className="text-white">رقم التذكرة</strong> — الباقي اختياري</p>
+                  </div>
+
+                  <input type="file" accept=".csv,.txt"
+                    onChange={e => handleFileSelect(e.target.files?.[0] || null)}
+                    className="w-full text-sm text-gray-400 file:mr-3 file:py-2.5 file:px-5 file:rounded-lg file:border-0 file:bg-purple-500/20 file:text-purple-400 file:text-xs file:font-bold hover:file:bg-purple-500/30 file:cursor-pointer"
+                  />
+
+                  {previewRows.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-400">📋 معاينة — {previewRows.length} تذكرة:</p>
+                      <div className="max-h-48 overflow-auto border border-gray-700/30 rounded-xl">
+                        <table className="w-full text-xs" dir="rtl">
+                          <thead>
+                            <tr className="bg-gray-900/60 text-gray-500 sticky top-0">
+                              <th className="px-2 py-1.5 text-right">#</th>
+                              <th className="px-2 py-1.5 text-right">رقم التذكرة</th>
+                              <th className="px-2 py-1.5 text-center">النوع</th>
+                              <th className="px-2 py-1.5 text-center">السعر</th>
+                              <th className="px-2 py-1.5 text-right">البائع</th>
+                              <th className="px-2 py-1.5 text-right">الدفعة</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {previewRows.slice(0, 10).map((r, i) => (
+                              <tr key={i} className="border-t border-gray-700/20">
+                                <td className="px-2 py-1 text-gray-600">{i + 1}</td>
+                                <td className="px-2 py-1 text-white font-mono" dir="ltr">{r.ticketNumber}</td>
+                                <td className="px-2 py-1 text-center text-gray-400">{r.ticketType || 'regular'}</td>
+                                <td className="px-2 py-1 text-center text-gray-400 font-mono">{r.price || '—'}</td>
+                                <td className="px-2 py-1 text-gray-400">{r.sellerName || '—'}</td>
+                                <td className="px-2 py-1 text-gray-400">{r.batchName || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {previewRows.length > 10 && <p className="text-[10px] text-gray-600">... و {previewRows.length - 10} تذكرة أخرى</p>}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleUpload}
+                      disabled={previewRows.length === 0 || uploading}
+                      className="px-6 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold text-sm rounded-xl hover:opacity-90 transition disabled:opacity-50"
+                    >
+                      {uploading ? '⏳ جارٍ الرفع...' : `📤 رفع ${previewRows.length} تذكرة`}
+                    </button>
+                    {uploadResult && (
+                      <span className={`text-xs ${uploadResult.startsWith('✅') ? 'text-emerald-400' : uploadResult.startsWith('❌') ? 'text-rose-400' : 'text-amber-400'}`}>
+                        {uploadResult}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
