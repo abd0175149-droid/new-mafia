@@ -1163,7 +1163,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       const state = await getGameState(data.roomId);
-      if (state?.policewomanState) {
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // حماية: لا نقفز للنهار إذا كنا في مرحلة الليل
+      if (state.phase === Phase.NIGHT) {
+        return callback({ success: false, error: 'Cannot skip policewoman during night phase' });
+      }
+
+      if (state.policewomanState) {
         state.policewomanState.isUsed = true; // تعليم كمستخدمة لمنع التكرار
         await setGameState(data.roomId, state);
       }

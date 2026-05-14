@@ -461,6 +461,7 @@ export default function LeaderPage() {
           pendingResolution: undefined,
           revealedData: undefined,
           nightComplete: false,
+          policewomanChoice: undefined, // تصفير عند كل ليل جديد — تمنع ظهور الشرطية أثناء الليل
         } : prev);
         return;
       }

@@ -289,7 +289,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
   // ══════════════════════════════════════════════════
   // RENDER: 👮‍♀️ اختيار الشرطية (بعد ملخص الليل)
   // ══════════════════════════════════════════════════
-  if (gameState.policewomanChoice && !policewomanResult) {
+  if (gameState.phase === 'MORNING_RECAP' && gameState.policewomanChoice && !policewomanResult) {
     const pwData = gameState.policewomanChoice;
     const handlePolicewomanExecute = async () => {
       if (policewomanTarget === null) return;
