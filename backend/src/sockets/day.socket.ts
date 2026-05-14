@@ -362,6 +362,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       state.justificationData = justificationData;
       await setGameState(data.roomId, state);
 
+      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_JUSTIFICATION });
       io.to(data.roomId).emit('day:justification-started', justificationData);
       callback({ success: true, result: sortResult });
     } catch (err: any) {
@@ -606,6 +607,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       if (result.type === 'TIE') {
         await setPhase(data.roomId, Phase.DAY_TIEBREAKER);
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_TIEBREAKER });
         io.to(data.roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
       } else {
         // حفظ نتيجة الإقصاء + تغيير المرحلة
