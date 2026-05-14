@@ -1443,6 +1443,41 @@ export function registerNightEvents(io: Server, socket: Socket) {
       callback?.({ success: false, error: err.message });
     }
   });
+
+  // ══════════════════════════════════════════════════════
+  // 🔄 night:retry-auto — إعادة تشغيل الليل الأوتو عند العلق
+  // ══════════════════════════════════════════════════════
+  socket.on('night:retry-auto', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback?.({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback?.({ success: false, error: 'Room not found' });
+
+      // التأكد أننا في مرحلة الليل
+      if (state.phase !== Phase.NIGHT) {
+        return callback?.({ success: false, error: 'Not in night phase' });
+      }
+
+      console.log(`🔄 Leader retry-auto for room ${data.roomId}`);
+
+      // إلغاء أي تايمر قديم
+      const oldTimer = autoNightTimers.get(data.roomId);
+      if (oldTimer) { clearTimeout(oldTimer); autoNightTimers.delete(data.roomId); }
+
+      // إعادة تجهيز الطابور من البداية
+      state.playerNightActions = { submitted: {} };
+      await setGameState(data.roomId, state);
+
+      prepareAutoQueueStep(io, data.roomId, -1);
+
+      callback?.({ success: true });
+    } catch (err: any) {
+      callback?.({ success: false, error: err.message });
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════

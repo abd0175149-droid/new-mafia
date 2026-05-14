@@ -2539,6 +2539,16 @@ export default function LeaderPage() {
                         <p className="text-[10px] text-[#555] font-mono tracking-widest">
                           جارٍ تحضير الخطوة التالية...
                         </p>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await emit('night:retry-auto', { roomId: gameState.roomId });
+                            } catch {}
+                          }}
+                          className="mt-3 px-4 py-1 text-[10px] text-[#C5A059] border border-[#C5A059]/30 rounded hover:bg-[#C5A059]/10 font-mono transition-colors"
+                        >
+                          🔄 إعادة تشغيل الخطوة
+                        </button>
                       </div>
                     )}
                   </div>
