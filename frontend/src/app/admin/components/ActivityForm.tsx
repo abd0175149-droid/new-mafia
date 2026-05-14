@@ -12,9 +12,10 @@ interface ActivityFormProps {
 const CURRENCY = 'د.أ';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
+const EN_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
-const EN_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
 
 export default function ActivityForm({ locations, onSubmit, onCancel }: ActivityFormProps) {
   const [date, setDate] = useState('');
@@ -28,11 +29,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [sendNotification, setSendNotification] = useState(true);
   const [requireTicket, setRequireTicket] = useState(false);
 
-  // Tickets
-  const [availableTickets, setAvailableTickets] = useState<any[]>([]);
-  const [selectedTicketIds, setSelectedTicketIds] = useState<number[]>([]);
-  const [ticketSearch, setTicketSearch] = useState('');
-  const [ticketsLoading, setTicketsLoading] = useState(false);
+
 
   const selectedLocation = locations.find(l => l.id === Number(locationId));
   const locationOffers: any[] = selectedLocation?.offers || [];
@@ -40,19 +37,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
 
   useEffect(() => { setEnabledOfferIds([]); }, [locationId]);
 
-  // جلب التذاكر عند تفعيل requireTicket
-  useEffect(() => {
-    if (!requireTicket) { setAvailableTickets([]); setSelectedTicketIds([]); return; }
-    setTicketsLoading(true);
-    const token = getToken();
-    fetch(`${API_URL}/api/tickets/available`, {
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    })
-      .then(r => r.json())
-      .then(data => setAvailableTickets(Array.isArray(data) ? data : []))
-      .catch(() => setAvailableTickets([]))
-      .finally(() => setTicketsLoading(false));
-  }, [requireTicket]);
+
 
   function generateName(): string {
     if (!date) return '';
@@ -67,11 +52,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
     );
   }
 
-  function toggleTicket(id: number) {
-    setSelectedTicketIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-  }
+
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -101,14 +82,11 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         status: 'planned',
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, sendNotification, requireTicket,
-        selectedTicketIds: requireTicket ? selectedTicketIds : [],
       });
     } finally { setSubmitting(false); }
   }
 
-  const filteredTickets = availableTickets.filter(t =>
-    !ticketSearch || t.ticketNumber.toLowerCase().includes(ticketSearch.toLowerCase())
-  );
+
 
   return (
     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
@@ -211,64 +189,11 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
           </div>
         </div>
 
-        {/* ── Ticket Picker ── */}
-        <AnimatePresence>
-          {requireTicket && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-              <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-purple-400">🎫 اختر التذاكر لهذا النشاط ({selectedTicketIds.length} مختارة)</span>
-                  {filteredTickets.length > 0 && (
-                    <button type="button" onClick={() => setSelectedTicketIds(filteredTickets.map(t => t.id))}
-                      className="text-[10px] px-2 py-1 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/30 transition">
-                      اختيار الكل ({filteredTickets.length})
-                    </button>
-                  )}
-                </div>
-
-                <input type="text" value={ticketSearch} onChange={e => setTicketSearch(e.target.value)}
-                  placeholder="🔍 بحث برقم التذكرة..." dir="ltr"
-                  className="w-full px-3 py-1.5 bg-gray-900/60 border border-gray-600/20 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/30 text-xs font-mono" />
-
-                {ticketsLoading ? (
-                  <p className="text-xs text-gray-500 text-center py-2">⏳ جارٍ التحميل...</p>
-                ) : availableTickets.length === 0 ? (
-                  <div className="text-center py-3">
-                    <p className="text-xs text-gray-500">لا توجد تذاكر متاحة</p>
-                    <a href="/admin/tickets" target="_blank" className="text-[10px] text-purple-400 hover:underline">← أضف تذاكر أولاً</a>
-                  </div>
-                ) : (
-                  <div className="max-h-40 overflow-y-auto space-y-1">
-                    {filteredTickets.slice(0, 50).map(t => {
-                      const sel = selectedTicketIds.includes(t.id);
-                      return (
-                        <div key={t.id} onClick={() => toggleTicket(t.id)}
-                          className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg cursor-pointer transition text-xs ${sel ? 'bg-purple-500/15 border border-purple-500/30' : 'bg-gray-800/30 hover:bg-gray-700/30 border border-transparent'}`}>
-                          <div className="flex items-center gap-2">
-                            <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${sel ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-600'}`}>
-                              {sel && '✓'}
-                            </span>
-                            <span className="font-mono text-white">{t.ticketNumber}</span>
-                            {t.batchName && <span className="text-gray-600">{t.batchName}</span>}
-                          </div>
-                          {t.price && <span className="text-gray-500 font-mono">{t.price} {CURRENCY}</span>}
-                        </div>
-                      );
-                    })}
-                    {filteredTickets.length > 50 && <p className="text-[10px] text-gray-600 text-center">... و {filteredTickets.length - 50} أخرى</p>}
-                  </div>
-                )}
-
-                {selectedTicketIds.length > 0 && (
-                  <div className="flex items-center justify-between pt-1 border-t border-purple-500/10">
-                    <span className="text-[11px] text-emerald-400">✅ {selectedTicketIds.length} تذكرة سيتم ربطها بالنشاط عند الإنشاء</span>
-                    <button type="button" onClick={() => setSelectedTicketIds([])} className="text-[10px] text-rose-400/60 hover:text-rose-400">مسح الكل</button>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {requireTicket && (
+          <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 text-xs text-purple-400">
+            💡 عند دخول اللاعب سيُطلب منه رقم تذكرة — النظام يبحث تلقائياً في كل التذاكر المتاحة
+          </div>
+        )}
 
         {/* Buttons */}
         <div className="flex items-center gap-3 pt-2">
