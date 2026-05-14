@@ -202,7 +202,7 @@ export default function DynamicMafiaCard({
           }}
         >
           {/* القسم العلوي (2/3): صورة اللاعب */}
-          <div className="relative overflow-hidden" style={{ height: '66.66%' }}>
+          <div className="relative overflow-hidden" style={{ height: '66.66%', zIndex: 6 }}>
             {/* z-1: الخلفية: صورة اللاعب أو أفاتار حسب الجنس */}
             <div className="absolute inset-0" style={{ zIndex: 1, ...(cardTemplate?.elements?.positions?.coverPhoto ? { transform: `translate(${cardTemplate.elements.positions.coverPhoto.x}px, ${cardTemplate.elements.positions.coverPhoto.y}px) scale(${cardTemplate.elements.positions.coverPhoto.s || 1})` } : {}) }}>
               {resolvedAvatarUrl ? (
