@@ -74,6 +74,153 @@ function Section({
   );
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
+async function ticketApiFetch(path: string, opts?: RequestInit) {
+  const token = getToken();
+  const res = await fetch(`${API_URL}${path}`, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
+  });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
+  return res.json();
+}
+
+// ── مكون ربط التذاكر بالنشاط ──
+function TicketAssignment({ activityId }: { activityId: number }) {
+  const [available, setAvailable] = useState<any[]>([]);
+  const [assigned, setAssigned] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [assigning, setAssigning] = useState(false);
+
+  const fetchTickets = async () => {
+    try {
+      const [avail, linked] = await Promise.all([
+        ticketApiFetch(`/api/tickets/available?activityId=${activityId}`),
+        ticketApiFetch(`/api/tickets/by-activity/${activityId}`),
+      ]);
+      // available = غير مربوطة فقط (نستثني المربوطة لهذا النشاط لأنها بالفعل في assigned)
+      setAvailable(avail.filter((t: any) => !t.assignedActivityId));
+      setAssigned(linked);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchTickets(); }, [activityId]);
+
+  const handleAssign = async (ticketIds: number[]) => {
+    setAssigning(true);
+    try {
+      await ticketApiFetch('/api/tickets/assign', {
+        method: 'POST',
+        body: JSON.stringify({ ticketIds, activityId }),
+      });
+      await fetchTickets();
+    } catch (err: any) {
+      alert('فشل: ' + err.message);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const handleUnassign = async (ticketIds: number[]) => {
+    try {
+      await ticketApiFetch('/api/tickets/unassign', {
+        method: 'POST',
+        body: JSON.stringify({ ticketIds, activityId }),
+      });
+      await fetchTickets();
+    } catch (err: any) {
+      alert('فشل: ' + err.message);
+    }
+  };
+
+  const filtered = available.filter(t =>
+    !search || t.ticketNumber.toLowerCase().includes(search.toLowerCase())
+  );
+
+  if (loading) return <div className="text-center py-3"><span className="text-xs text-gray-500">⏳ جارٍ تحميل التذاكر...</span></div>;
+
+  return (
+    <div className="space-y-3">
+      {/* التذاكر المربوطة حالياً */}
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-bold text-emerald-400">✅ التذاكر المربوطة بهذا النشاط ({assigned.length})</span>
+          {assigned.length > 0 && (
+            <button onClick={() => handleUnassign(assigned.map(t => t.id))}
+              className="text-[10px] text-rose-400/60 hover:text-rose-400 transition">
+              فك ربط الكل
+            </button>
+          )}
+        </div>
+        {assigned.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+            {assigned.map(t => (
+              <span key={t.id} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 font-mono">
+                {t.ticketNumber}
+                <button onClick={() => handleUnassign([t.id])} className="text-rose-400/50 hover:text-rose-400 mr-1">✕</button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-gray-600">لم يتم ربط أي تذاكر — اختر من القائمة أدناه</p>
+        )}
+      </div>
+
+      {/* إضافة تذاكر */}
+      <div className="bg-gray-900/40 border border-gray-700/30 rounded-xl p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-gray-400">📋 التذاكر المتاحة ({available.length})</span>
+          {filtered.length > 0 && (
+            <button onClick={() => handleAssign(filtered.map(t => t.id))} disabled={assigning}
+              className="text-[10px] px-2 py-1 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/30 transition">
+              {assigning ? '⏳' : `ربط الكل (${filtered.length})`}
+            </button>
+          )}
+        </div>
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 بحث برقم التذكرة..." dir="ltr"
+          className="w-full px-3 py-1.5 bg-gray-800/60 border border-gray-600/20 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/30 text-xs font-mono"
+        />
+        {available.length === 0 ? (
+          <div className="text-center py-2">
+            <p className="text-[11px] text-gray-600">لا توجد تذاكر متاحة</p>
+            <a href="/admin/tickets" target="_blank" className="text-[10px] text-purple-400 hover:underline">
+              ← إضافة تذاكر جديدة
+            </a>
+          </div>
+        ) : (
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {filtered.slice(0, 50).map(t => (
+              <div key={t.id}
+                className="flex items-center justify-between px-2 py-1.5 bg-gray-800/30 hover:bg-gray-700/30 rounded-lg transition cursor-pointer group"
+                onClick={() => handleAssign([t.id])}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-white">{t.ticketNumber}</span>
+                  {t.batchName && <span className="text-[10px] text-gray-600">{t.batchName}</span>}
+                  {t.price && <span className="text-[10px] text-gray-600">{t.price} د.أ</span>}
+                </div>
+                <span className="text-[10px] text-purple-400 opacity-0 group-hover:opacity-100 transition">+ ربط</span>
+              </div>
+            ))}
+            {filtered.length > 50 && <p className="text-[10px] text-gray-600 text-center">... و {filtered.length - 50} أخرى</p>}
+          </div>
+        )}
+      </div>
+
+      <a href="/admin/tickets" target="_blank" className="inline-flex items-center gap-2 text-xs text-purple-400/60 hover:text-purple-400 transition">
+        🎫 إدارة التذاكر المركزية ←
+      </a>
+    </div>
+  );
+}
+
 export default function EditActivityForm({ activity, locations, onSubmit, onCancel }: EditActivityFormProps) {
   // ── الحقول الأساسية ──
   const [name, setName] = useState(activity.name || '');
@@ -443,14 +590,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
           </div>
 
           {requireTicket && (
-            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 space-y-2">
-              <p className="text-xs text-purple-400">
-                💡 التذاكر تُدار من <strong>صفحة التذاكر المركزية</strong> — كل نشاط يتطلب تذكرة سيتحقق من نفس قاعدة التذاكر العامة.
-              </p>
-              <a href="/admin/tickets" className="inline-flex items-center gap-2 text-xs px-4 py-2 bg-purple-500/20 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/30 transition font-bold">
-                🎫 إدارة التذاكر المركزية ←
-              </a>
-            </div>
+            <TicketAssignment activityId={activity.id} />
           )}
         </Section>
 

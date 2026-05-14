@@ -477,6 +477,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               if (ticket.isUsed) {
                 return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً — يرجى إدخال رقم تذكرة فعّال' });
               }
+              // التحقق من الربط: إذا التذكرة مربوطة بنشاط آخر ← رفض
+              if (ticket.assignedActivityId && ticket.assignedActivityId !== state.activityId) {
+                return callback({ success: false, error: 'هذه التذكرة مخصصة لنشاط آخر' });
+              }
 
               // تعليم التذكرة كمستخدمة مع ربطها بالنشاط
               await db.update(globalTickets)

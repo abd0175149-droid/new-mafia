@@ -186,6 +186,8 @@ export const tickets = pgTable('tickets', {
   usedByName: varchar('used_by_name', { length: 100 }),
   usedByPhone: varchar('used_by_phone', { length: 20 }),
   usedInActivityId: integer('used_in_activity_id'),
+  // ── ربط مسبق بنشاط ──
+  assignedActivityId: integer('assigned_activity_id'),
   // ── metadata ──
   createdAt: timestamp('created_at').defaultNow().notNull(),
   createdBy: varchar('created_by', { length: 100 }),

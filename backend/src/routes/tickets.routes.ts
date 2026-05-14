@@ -211,4 +211,91 @@ router.get('/batches', authenticate, async (req: Request, res: Response) => {
   res.json(result);
 });
 
+// ── GET /api/tickets/available — التذاكر المتاحة (غير مستخدمة وغير مربوطة) ──
+router.get('/available', authenticate, async (req: Request, res: Response) => {
+  if (!canManageTickets(req, res)) return;
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const activityId = req.query.activityId ? Number(req.query.activityId) : null;
+
+  // جلب التذاكر: غير مستخدمة AND (غير مربوطة أو مربوطة لنفس النشاط)
+  const conditions = [eq(tickets.isUsed, false)];
+
+  const result = await db.select().from(tickets)
+    .where(and(...conditions))
+    .orderBy(desc(tickets.createdAt));
+
+  // فلترة: متاحة = غير مربوطة أو مربوطة لهذا النشاط
+  const filtered = result.filter(t => {
+    if (!t.assignedActivityId) return true;           // غير مربوطة → متاحة
+    if (activityId && t.assignedActivityId === activityId) return true;  // مربوطة لنفس النشاط
+    return false;
+  });
+
+  res.json(filtered);
+});
+
+// ── GET /api/tickets/by-activity/:activityId — التذاكر المربوطة بنشاط ──
+router.get('/by-activity/:activityId', authenticate, async (req: Request, res: Response) => {
+  if (!canManageTickets(req, res)) return;
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const activityId = parseInt(req.params.activityId);
+  const result = await db.select().from(tickets)
+    .where(eq(tickets.assignedActivityId, activityId))
+    .orderBy(desc(tickets.createdAt));
+
+  res.json(result);
+});
+
+// ── POST /api/tickets/assign — ربط تذاكر بنشاط ──
+router.post('/assign', authenticate, async (req: Request, res: Response) => {
+  if (!canManageTickets(req, res)) return;
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const { ticketIds, activityId } = req.body;
+  if (!activityId || !Array.isArray(ticketIds) || ticketIds.length === 0) {
+    return res.status(400).json({ error: 'يرجى تحديد التذاكر والنشاط' });
+  }
+
+  let assigned = 0;
+  for (const id of ticketIds) {
+    const result = await db.update(tickets)
+      .set({ assignedActivityId: activityId } as any)
+      .where(and(eq(tickets.id, id), eq(tickets.isUsed, false)))
+      .returning();
+    assigned += result.length;
+  }
+
+  console.log(`🔗 Assigned ${assigned} tickets to activity #${activityId}`);
+  res.json({ success: true, assigned });
+});
+
+// ── POST /api/tickets/unassign — فك ربط تذاكر من نشاط ──
+router.post('/unassign', authenticate, async (req: Request, res: Response) => {
+  if (!canManageTickets(req, res)) return;
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const { ticketIds, activityId } = req.body;
+  if (!activityId || !Array.isArray(ticketIds)) {
+    return res.status(400).json({ error: 'بيانات ناقصة' });
+  }
+
+  let unassigned = 0;
+  for (const id of ticketIds) {
+    const result = await db.update(tickets)
+      .set({ assignedActivityId: null } as any)
+      .where(and(eq(tickets.id, id), eq(tickets.assignedActivityId, activityId)))
+      .returning();
+    unassigned += result.length;
+  }
+
+  console.log(`🔓 Unassigned ${unassigned} tickets from activity #${activityId}`);
+  res.json({ success: true, unassigned });
+});
+
 export default router;
