@@ -1214,7 +1214,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         }
         if (playerPhone) setPhone(playerPhone);
         setPlayerToken(savedToken);
-        await tryRejoinCurrentRoom(savedPlayerId, savedToken, playerPhone, needsTicket);
+        await tryRejoinCurrentRoom(savedPlayerId, savedToken, playerPhone, needsTicket, res.roomId);
         return;
       }
 
@@ -1313,14 +1313,15 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   // ── محاولة الانضمام التلقائي للغرفة (بعد login/register) ──
-  const tryRejoinCurrentRoom = async (pid: number, token: string, phoneOverride?: string, ticketRequired?: boolean) => {
+  const tryRejoinCurrentRoom = async (pid: number, token: string, phoneOverride?: string, ticketRequired?: boolean, roomIdOverride?: string) => {
     const playerPhone = phoneOverride || phone;
+    const effectiveRoomId = roomIdOverride || roomId;
     // 1. جرّب rejoin عبر WebSocket إذا عنا roomId
-    if (emit && roomId && playerPhone) {
+    if (emit && effectiveRoomId && playerPhone) {
       try {
         const normalized = playerPhone.startsWith('0') ? playerPhone : '0' + playerPhone;
         const res: any = await emit('room:rejoin-player', {
-          roomId,
+          roomId: effectiveRoomId,
           physicalId: 0, // نبحث بالهاتف
           phone: normalized,
         });
@@ -1337,7 +1338,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           }
           // حفظ الجلسة
           localStorage.setItem('mafia_session', JSON.stringify({
-            roomId, physicalId: res.player.physicalId, phone: normalized,
+            roomId: effectiveRoomId, physicalId: res.player.physicalId, phone: normalized,
             displayName: res.player.name, roomCode, playerId: pid,
           }));
           setStep('rejoined');
@@ -1355,7 +1356,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (meData.success && meData.activeGame && meData.activeGame.roomId) {
         const ag = meData.activeGame;
         // إذا الغرفة النشطة هي نفس الغرفة الحالية → دخول مباشر
-        if (!roomId || ag.roomId === roomId) {
+        if (!effectiveRoomId || ag.roomId === effectiveRoomId) {
           setRoomId(ag.roomId);
           setRoomCode(ag.roomCode || roomCode);
           setPhysicalId(String(ag.physicalId));
@@ -1375,11 +1376,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         }
 
         // ── الغرفة النشطة مختلفة عن الهدف → عرض تأكيد التبديل ──
-        if (roomId && ag.roomId !== roomId) {
+        if (effectiveRoomId && ag.roomId !== effectiveRoomId) {
           setSwitchConfirm({
             currentRoomId: ag.roomId,
             currentGameName: ag.gameName || 'غرفة نشطة',
-            targetRoomId: roomId,
+            targetRoomId: effectiveRoomId,
             targetGameName: gameName || 'غرفة جديدة',
           });
           return;
@@ -1391,7 +1392,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const needTicket = ticketRequired ?? requireTicket;
     setStep(needTicket ? 'ticket' : 'auto_joining');
     if (!needTicket) {
-      setTimeout(() => handleAutoJoin(false), 100);
+      setTimeout(() => handleAutoJoin(false, undefined, effectiveRoomId), 100);
     }
   };
 
@@ -1507,8 +1508,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   // ── الخطوة 4: الانضمام التلقائي للعبة ──
-  const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string) => {
+  const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string, roomIdOverride?: string) => {
     if (!displayName) return;
+    const effectiveRoomId = roomIdOverride || roomId;
+    if (!effectiveRoomId) {
+      setApiError('لم يتم تحديد الغرفة');
+      return;
+    }
     setApiError('');
     setStep('auto_joining');
     try {
@@ -1519,7 +1525,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       
       // ⚠️ لا نرسل preferredSeat — الباكإند يوزع عشوائياً دائماً عند auto-join
       // العودة لنفس الرقم تُعالج عبر 'room:rejoin-player' وليس 'room:auto-join'
-      const res = await joinRoom(roomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined);
+      const res = await joinRoom(effectiveRoomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined);
 
       const assignedSeat = res?.assignedSeat;
       if (assignedSeat) {
@@ -1528,7 +1534,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
       // حفظ الجلسة في localStorage
       localStorage.setItem('mafia_session', JSON.stringify({
-        roomId,
+        roomId: effectiveRoomId,
         physicalId: assignedSeat || 0,
         phone,
         displayName,
