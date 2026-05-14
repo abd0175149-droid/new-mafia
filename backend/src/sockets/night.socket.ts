@@ -172,18 +172,24 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
 
   // إعلام الليدر بالخطوة الجاهزة (ينتظر زره لبدئها)
   const leaderSock = findLeaderSocket(io, roomId);
+  const stepPayload = {
+    roleName: nextStep.roleName,
+    role: nextStep.role,
+    performerName: nextStep.performerName,
+    performerPhysicalId: nextStep.performerPhysicalId,
+    canSkip: nextStep.canSkip,
+    timeoutSeconds: state.config.autoNightTime || 15,
+  };
   if (leaderSock) {
     leaderSock.emit('game:state-updated', state);
-    leaderSock.emit('night:auto-step-ready', {
-      roleName: nextStep.roleName,
-      role: nextStep.role,
-      performerName: nextStep.performerName,
-      performerPhysicalId: nextStep.performerPhysicalId,
-      canSkip: nextStep.canSkip,
-      timeoutSeconds: state.config.autoNightTime || 15,
-    });
+    leaderSock.emit('night:auto-step-ready', stepPayload);
+  } else {
+    // Fallback: بث للغرفة بالكامل (الليدر سيستقبلها)
+    console.warn(`⚠️ Leader socket not found for room ${roomId} — broadcasting to room`);
+    io.to(roomId).emit('game:state-updated', state);
+    io.to(roomId).emit('night:auto-step-ready', stepPayload);
   }
-  console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId}`);
+  console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId} (leaderFound: ${!!leaderSock})`);
 }
 
 // ── الليدر يبدأ الخطوة: إرسال للاعبين + بدء المؤقت ──
