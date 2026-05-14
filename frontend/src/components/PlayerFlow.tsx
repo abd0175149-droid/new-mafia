@@ -1390,8 +1390,15 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // 3. لا لعبة نشطة → انضمام تلقائي
     const needTicket = ticketRequired ?? requireTicket;
-    setStep(needTicket ? 'ticket' : 'auto_joining');
-    if (!needTicket) {
+    // إذا اللاعب مسجل (عنده playerId) → نرسل auto-join مباشرة
+    // الباكإند يفحص إذا عنده تذكرة مسبقة لنفس النشاط ويتخطى السؤال
+    if (needTicket && pid) {
+      setStep('auto_joining');
+      setTimeout(() => handleAutoJoin(false, undefined, effectiveRoomId), 100);
+    } else if (needTicket) {
+      setStep('ticket');
+    } else {
+      setStep('auto_joining');
       setTimeout(() => handleAutoJoin(false, undefined, effectiveRoomId), 100);
     }
   };

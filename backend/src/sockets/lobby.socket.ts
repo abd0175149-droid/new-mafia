@@ -463,34 +463,61 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
             // ── 2. التحقق من التذكرة (من الجدول المركزي) ──
             if (requireTicket) {
-              if (!data.ticketNumber || !data.ticketNumber.trim()) {
-                return callback({ success: false, error: 'يرجى إدخال رقم التذكرة' });
+              // ── 2أ. فحص: هل اللاعب استخدم تذكرة مسبقاً لنفس النشاط؟ ──
+              let alreadyHasTicket = false;
+              if (data.playerId || data.phone) {
+                const { or } = await import('drizzle-orm');
+                const conditions: any[] = [];
+                if (data.playerId) conditions.push(eq(globalTickets.usedByPlayerId, data.playerId));
+                if (data.phone) {
+                  const normalizedPhone = data.phone.startsWith('0') ? data.phone : '0' + data.phone;
+                  conditions.push(eq(globalTickets.usedByPhone, normalizedPhone));
+                }
+                const existingTickets = await db.select({ id: globalTickets.id })
+                  .from(globalTickets)
+                  .where(and(
+                    eq(globalTickets.isUsed, true),
+                    eq(globalTickets.usedInActivityId, state.activityId!),
+                    or(...conditions),
+                  ))
+                  .limit(1);
+                if (existingTickets.length > 0) {
+                  alreadyHasTicket = true;
+                  console.log(`🎫 Player ${data.name} already has a ticket for activity #${state.activityId} — skipping ticket check`);
+                }
               }
-              const [ticket] = await db.select()
-                .from(globalTickets)
-                .where(eq(globalTickets.ticketNumber, data.ticketNumber.trim()))
-                .limit(1);
 
-              if (!ticket) {
-                return callback({ success: false, error: 'رقم التذكرة غير صالح' });
+              // ── 2ب. إذا ما عنده تذكرة مسبقة → يطلب رقم تذكرة جديد ──
+              if (!alreadyHasTicket) {
+                if (!data.ticketNumber || !data.ticketNumber.trim()) {
+                  return callback({ success: false, error: 'يرجى إدخال رقم التذكرة' });
+                }
+                const [ticket] = await db.select()
+                  .from(globalTickets)
+                  .where(eq(globalTickets.ticketNumber, data.ticketNumber.trim()))
+                  .limit(1);
+
+                if (!ticket) {
+                  return callback({ success: false, error: 'رقم التذكرة غير صالح' });
+                }
+                if (ticket.isUsed) {
+                  return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً — يرجى إدخال رقم تذكرة فعّال' });
+                }
+
+                // تعليم التذكرة كمستخدمة مع ربطها بالنشاط
+                await db.update(globalTickets)
+                  .set({
+                    isUsed: true,
+                    usedByPhone: data.phone || null,
+                    usedByName: data.name || null,
+                    usedByPlayerId: data.playerId || null,
+                    usedInActivityId: state.activityId,
+                    usedAt: new Date(),
+                  } as any)
+                  .where(eq(globalTickets.id, ticket.id));
+
+                console.log(`🎫 Global Ticket ${data.ticketNumber} validated & used by ${data.name} in activity #${state.activityId}`);
               }
-              if (ticket.isUsed) {
-                return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً — يرجى إدخال رقم تذكرة فعّال' });
-              }
-
-              // تعليم التذكرة كمستخدمة مع ربطها بالنشاط
-              await db.update(globalTickets)
-                .set({
-                  isUsed: true,
-                  usedByPhone: data.phone || null,
-                  usedByName: data.name || null,
-                  usedByPlayerId: data.playerId || null,
-                  usedInActivityId: state.activityId,
-                  usedAt: new Date(),
-                } as any)
-                .where(eq(globalTickets.id, ticket.id));
-
-              console.log(`🎫 Global Ticket ${data.ticketNumber} validated & used by ${data.name} in activity #${state.activityId}`);
             }
           }
         } catch (e: any) {
