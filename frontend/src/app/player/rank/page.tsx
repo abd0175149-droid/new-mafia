@@ -334,47 +334,82 @@ export default function RankPage() {
           <motion.div key="howto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-4">
             {progressionConfig ? (
               <>
-                <div className="rounded-xl p-3" style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)' }}>
-                  <p className="text-amber-400 text-xs font-bold mb-2">⭐ نقاط الخبرة (XP) — ترفع مستواك</p>
-                  {[
-                    { icon: '🎮', label: 'مشاركة في مباراة', val: progressionConfig.xp?.participation },
-                    { icon: '🏆', label: 'فوز الفريق', val: progressionConfig.xp?.teamWin },
-                    { icon: '💪', label: 'نجاة لكل جولة', val: progressionConfig.xp?.survivalPerRound },
-                    { icon: '✅', label: 'قدرة صحيحة', val: progressionConfig.xp?.abilityCorrect },
-                    { icon: '❌', label: 'قدرة خاطئة', val: progressionConfig.xp?.abilityIncorrect },
-                    { icon: '🤝', label: 'ديل ناجح (مواطن أخرج مافيا)', val: progressionConfig.xp?.citizenDealOnMafia },
-                    { icon: '💔', label: 'ديل فاشل', val: progressionConfig.xp?.failedDeal },
-                    { icon: '🔴', label: 'ديل مافيا على مافيا', val: progressionConfig.xp?.mafiaDealOnMafia },
-                    { icon: '⚔️', label: 'إقصاء خصم', val: progressionConfig.xp?.teamEliminationBonus },
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
-                      <span className="text-gray-300 text-[11px]">{item.icon} {item.label}</span>
-                      <span className={`text-xs font-bold ${(item.val ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {(item.val ?? 0) > 0 ? '+' : ''}{item.val ?? 0}
-                      </span>
-                    </div>
-                  ))}
+                <div className="bg-gray-900/50 rounded-2xl border border-gray-800/50 p-4 mb-4">
+                  <p className="text-gray-300 text-xs leading-relaxed mb-2">
+                    نظام التقدم مقسوم إلى قسمين:
+                  </p>
+                  <ul className="text-[10px] text-gray-500 list-disc list-inside space-y-1">
+                    <li><strong className="text-amber-400">نقاط الخبرة (XP):</strong> ترفع مستواك (Level)، ولا يمكن أن تقل عن الصفر.</li>
+                    <li><strong className="text-blue-400">نقاط الرانك (RR):</strong> تحدد رتبتك التنافسية، يمكن أن تكون بالسالب في حال الخسارة أو العقوبات (مثل ديل مافيا على مافيا).</li>
+                  </ul>
                 </div>
-                <div className="rounded-xl p-3" style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)' }}>
-                  <p className="text-blue-400 text-xs font-bold mb-2">🎖️ نقاط الرانك (RR) — ترفع رتبتك</p>
-                  {[
-                    { icon: '🏆', label: 'فوز', val: progressionConfig.rr?.teamWin },
-                    { icon: '💀', label: 'خسارة', val: progressionConfig.rr?.teamLoss },
-                    { icon: '🤝', label: 'ديل ناجح (مواطن)', val: progressionConfig.rr?.citizenDealOnMafia },
-                    { icon: '💔', label: 'ديل فاشل', val: progressionConfig.rr?.failedDeal },
-                    { icon: '🔴', label: 'ديل مافيا على مافيا', val: progressionConfig.rr?.mafiaDealOnMafia },
-                    { icon: '💪', label: 'نجاة للنهاية', val: progressionConfig.rr?.survivedToEnd },
-                    { icon: '✅', label: 'قدرة صحيحة', val: progressionConfig.rr?.abilityCorrect },
-                    { icon: '❌', label: 'قدرة خاطئة', val: progressionConfig.rr?.abilityIncorrect },
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
-                      <span className="text-gray-300 text-[11px]">{item.icon} {item.label}</span>
-                      <span className={`text-xs font-bold ${(item.val ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {(item.val ?? 0) > 0 ? '+' : ''}{item.val ?? 0}
-                      </span>
+
+                {[
+                  {
+                    id: 'basics', label: '🔰 أساسيات المباراة',
+                    actions: [
+                      { key: 'participation', label: 'مشاركة في مباراة', icon: '🎮', desc: 'نقطة دخول لكل لاعب' },
+                      { key: 'teamWin', label: 'فوز الفريق', icon: '🏆', desc: 'مكافأة الفوز لفريق اللاعب' },
+                      { key: 'teamLoss', label: 'خسارة الفريق', icon: '💀', desc: 'خصم الخسارة (سالب عادة)' },
+                      { key: 'survivalPerRound', label: 'نجاة لكل جولة', icon: '⏳', desc: 'لكل جولة يظل فيها حياً' },
+                      { key: 'survivedToEnd', label: 'نجاة حتى النهاية', icon: '🎖️', desc: 'نجا حتى نهاية المباراة' },
+                      { key: 'teamEliminationBonus', label: 'مكافأة إقصاء خصم', icon: '⚔️', desc: 'تمنح للفريق لكل خصم يُقصى' }
+                    ]
+                  },
+                  {
+                    id: 'deals', label: '🤝 الديلات والاتفاقات',
+                    actions: [
+                      { key: 'citizenDealOnMafia', label: 'ديل مواطن ناجح', icon: '✨', desc: 'مواطن أخرج عنصر مافيا' },
+                      { key: 'failedDeal', label: 'ديل فاشل (غلط)', icon: '💔', desc: 'مواطن أخرج مواطناً (عقوبة)' },
+                      { key: 'mafiaDealOnMafia', label: 'ديل مافيا على مافيا', icon: '🔴', desc: 'غدر بالزميل (عقوبة مغلظة)' },
+                    ]
+                  },
+                  {
+                    id: 'roles', label: '🎯 قدرات الأدوار',
+                    actions: [
+                      { key: 'abilityCorrect', label: 'استخدام قدرة صحيحة', icon: '✅', desc: 'إصابة صحيحة لشريف/قناص/طبيب' },
+                      { key: 'abilityIncorrect', label: 'استخدام قدرة خاطئة', icon: '❌', desc: 'إصابة خاطئة (عقوبة)' },
+                    ]
+                  }
+                ].map(category => (
+                  <div key={category.id} className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="bg-white/5 px-3 py-2 border-b border-white/5">
+                      <h4 className="text-xs font-bold text-gray-200">{category.label}</h4>
                     </div>
-                  ))}
-                </div>
+                    <div className="divide-y divide-white/5">
+                      {category.actions.map(action => {
+                        const xpVal = progressionConfig.xp?.[action.key];
+                        const rrVal = progressionConfig.rr?.[action.key];
+                        if (xpVal === undefined && rrVal === undefined) return null;
+                        
+                        return (
+                          <div key={action.key} className="p-3 flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span>{action.icon}</span>
+                                <span className="text-[11px] font-bold text-gray-300">{action.label}</span>
+                              </div>
+                              <p className="text-[9px] text-gray-500 mt-0.5">{action.desc}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              {xpVal !== undefined && xpVal !== 0 && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${xpVal > 0 ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                                  {xpVal > 0 ? '+' : ''}{xpVal} XP
+                                </span>
+                              )}
+                              {rrVal !== undefined && rrVal !== 0 && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${rrVal > 0 ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                                  {rrVal > 0 ? '+' : ''}{rrVal} RR
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
                 <div className="rounded-xl p-3" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.15)' }}>
                   <p className="text-purple-400 text-xs font-bold mb-2">👑 الرتب — RR المطلوب للترقية</p>
                   {[
