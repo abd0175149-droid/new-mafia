@@ -396,7 +396,7 @@ export default function ProgressionPage() {
                           {/* Participation & Win/Loss */}
                           <div className="flex justify-between text-gray-300">
                             <span>🎮 مشاركة:</span>
-                            <span className="text-amber-400">+{config?.xp?.participation || 0} XP</span>
+                            <span className="text-amber-400" dir="ltr">+{config?.xp?.participation || 0} XP</span>
                           </div>
                           {(() => {
                             const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(selMatch.role || '');
@@ -405,8 +405,8 @@ export default function ProgressionPage() {
                               <div className="flex justify-between text-gray-300">
                                 <span>{won ? '🏆 فوز:' : '💀 خسارة:'}</span>
                                 <div>
-                                  {won ? <span className="text-amber-400 ml-2">+{config?.xp?.teamWin || 0} XP</span> : null}
-                                  <span className={won ? 'text-blue-400' : 'text-rose-400'}>{won ? `+${config?.rr?.teamWin || 0}` : (config?.rr?.teamLoss || 0)} RR</span>
+                                  {won ? <span className="text-amber-400 ml-2" dir="ltr">+{config?.xp?.teamWin || 0} XP</span> : null}
+                                  <span className={won ? 'text-blue-400' : 'text-rose-400'} dir="ltr">{won ? `+${config?.rr?.teamWin || 0}` : (config?.rr?.teamLoss || 0)} RR</span>
                                 </div>
                               </div>
                             );
@@ -414,32 +414,62 @@ export default function ProgressionPage() {
                           {/* Survival */}
                           <div className="flex justify-between text-gray-300">
                             <span>⏳ النجاة ({selMatch.roundsSurvived || 0} جولات):</span>
-                            <span className="text-amber-400">+{(selMatch.roundsSurvived || 0) * (config?.xp?.survivalPerRound || 0)} XP</span>
+                            <span className="text-amber-400" dir="ltr">+{(selMatch.roundsSurvived || 0) * (config?.xp?.survivalPerRound || 0)} XP</span>
                           </div>
                           {selMatch.survivedToEnd && (
                             <div className="flex justify-between text-gray-300">
                               <span>🎖️ النجاة للنهاية:</span>
-                              <span className="text-blue-400">+{config?.rr?.survivedToEnd || 0} RR</span>
+                              <span className="text-blue-400" dir="ltr">+{config?.rr?.survivedToEnd || 0} RR</span>
                             </div>
                           )}
                           {/* Deals */}
-                          {selMatch.dealInitiated && (
-                            <div className="flex justify-between text-gray-300">
-                              <span>🤝 الديل (نتيجة):</span>
-                              <span className={selMatch.dealSuccess ? 'text-emerald-400' : 'text-rose-400'}>
-                                {selMatch.dealSuccess ? 'نجاح' : 'فشل/غدر'}
-                              </span>
-                            </div>
-                          )}
+                          {selMatch.dealInitiated && (() => {
+                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(selMatch.role || '');
+                            let xp = 0; let rr = 0;
+                            if (isMafia) {
+                              if (!selMatch.dealSuccess) { xp = config?.xp?.mafiaDealOnMafia || 0; rr = config?.rr?.mafiaDealOnMafia || 0; }
+                            } else {
+                              if (selMatch.dealSuccess) { xp = config?.xp?.citizenDealOnMafia || 0; rr = config?.rr?.citizenDealOnMafia || 0; }
+                              else { xp = config?.xp?.failedDeal || 0; rr = config?.rr?.failedDeal || 0; }
+                            }
+                            return (
+                              <div className="flex justify-between text-gray-300">
+                                <span>🤝 الديل (نتيجة):</span>
+                                <div className="text-right">
+                                  <span className={selMatch.dealSuccess ? 'text-emerald-400 block mb-0.5' : 'text-rose-400 block mb-0.5'}>
+                                    {selMatch.dealSuccess ? 'نجاح' : 'فشل/غدر'}
+                                  </span>
+                                  {(xp !== 0 || rr !== 0) && (
+                                    <div>
+                                      {xp !== 0 && <span className={xp > 0 ? 'text-amber-400 ml-2' : 'text-rose-400 ml-2'} dir="ltr">{xp > 0 ? '+' : ''}{xp} XP</span>}
+                                      {rr !== 0 && <span className={rr > 0 ? 'text-blue-400' : 'text-rose-400'} dir="ltr">{rr > 0 ? '+' : ''}{rr} RR</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {/* Abilities */}
-                          {selMatch.abilityUsed && (
-                            <div className="flex justify-between text-gray-300">
-                              <span>🎯 القدرة (نتيجة):</span>
-                              <span className={selMatch.abilityCorrect ? 'text-emerald-400' : 'text-rose-400'}>
-                                {selMatch.abilityCorrect ? 'أصاب الهدف' : 'أخطأ الهدف'}
-                              </span>
-                            </div>
-                          )}
+                          {selMatch.abilityUsed && (() => {
+                            const xp = selMatch.abilityCorrect ? (config?.xp?.abilityCorrect || 0) : (config?.xp?.abilityIncorrect || 0);
+                            const rr = selMatch.abilityCorrect ? (config?.rr?.abilityCorrect || 0) : (config?.rr?.abilityIncorrect || 0);
+                            return (
+                              <div className="flex justify-between text-gray-300">
+                                <span>🎯 القدرة (نتيجة):</span>
+                                <div className="text-right">
+                                  <span className={selMatch.abilityCorrect ? 'text-emerald-400 block mb-0.5' : 'text-rose-400 block mb-0.5'}>
+                                    {selMatch.abilityCorrect ? 'أصاب الهدف' : 'أخطأ الهدف'}
+                                  </span>
+                                  {(xp !== 0 || rr !== 0) && (
+                                    <div>
+                                      {xp !== 0 && <span className={xp > 0 ? 'text-amber-400 ml-2' : 'text-rose-400 ml-2'} dir="ltr">{xp > 0 ? '+' : ''}{xp} XP</span>}
+                                      {rr !== 0 && <span className={rr > 0 ? 'text-blue-400' : 'text-rose-400'} dir="ltr">{rr > 0 ? '+' : ''}{rr} RR</span>}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
 
