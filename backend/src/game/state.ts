@@ -39,6 +39,9 @@ export interface Player {
   frozen?: boolean; // مجمد — انتقل لغرفة أخرى مؤقتاً (بياناته محفوظة)
   avatarUrl?: string | null; // رابط صورة اللاعب الشخصية
   rankTier?: string | null; // رتبة اللاعب (INFORMANT→SOLDIER→CAPO→UNDERBOSS→GODFATHER)
+  seatHeld?: boolean; // المقعد محجوز (اللاعب خرج لكن مقعده محفوظ لمدة 10 دقائق)
+  heldUntil?: number; // timestamp لانتهاء الحجز
+  isConnected?: boolean; // هل اللاعب متصل حالياً
 }
 
 export enum CandidateType {

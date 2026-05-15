@@ -39,7 +39,7 @@ export async function rehydrateActiveRooms(): Promise<void> {
         roomId: state.roomId,
         roomCode: state.roomCode || '',
         gameName: state.config?.gameName || 'Unknown',
-        playerCount: state.players?.length || 0,
+        playerCount: state.players?.filter((p: any) => !p.seatHeld).length || 0,
         maxPlayers: state.config?.maxPlayers || 10,
         displayPin: state.config?.displayPin || '',
         activityId: state.activityId || undefined,
@@ -588,11 +588,53 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
-      // ── 4. تخصيص المقعد تلقائياً ──
+
+      // ═══ 4. فحص المقعد المحجوز (Seat Hold) ═══
+      const normalizedJoinPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+      const heldPlayer = state.players.find((p: any) =>
+        p.seatHeld === true && (
+          (data.playerId && p.playerId === data.playerId) ||
+          (normalizedJoinPhone && p.phone === normalizedJoinPhone)
+        )
+      );
+
+      if (heldPlayer) {
+        // ── اللاعب عنده مقعد محجوز → إعادته لنفس المقعد ──
+        heldPlayer.seatHeld = false;
+        heldPlayer.heldUntil = undefined;
+        heldPlayer.isConnected = true;
+        heldPlayer.name = data.name || heldPlayer.name;
+        await setGameState(data.roomId, state);
+
+        socket.join(data.roomId);
+        socket.data.role = 'player';
+        socket.data.roomId = data.roomId;
+        socket.data.physicalId = heldPlayer.physicalId;
+
+        // تحديث العداد
+        const room = activeRooms.get(data.roomId);
+        if (room) {
+          room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+        }
+
+        io.to(data.roomId).emit('game:state-sync', state);
+
+        console.log(`♻️ Player ${data.name} returned to held seat #${heldPlayer.physicalId} in room ${data.roomId}`);
+        return callback({
+          success: true,
+          assignedSeat: heldPlayer.physicalId,
+          gameName: state.config.gameName,
+          constraintViolation: false,
+          restoredSeat: true,
+        });
+      }
+
+      // ── 5. تخصيص مقعد جديد (لا يوجد مقعد محجوز) ──
       const seatPlayers = state.players.map(p => ({
         physicalId: p.physicalId,
         phone: p.phone,
         gender: p.gender || null,
+        seatHeld: p.seatHeld || false,
       }));
 
       const { seat: assignedSeat, constraintViolation } = allocateSeat({
@@ -680,7 +722,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
       if (room) {
-        room.playerCount = addedState.players.length;
+        room.playerCount = addedState.players.filter((p: any) => !p.seatHeld).length;
       }
 
       // جلب الحالة المحدثة بعد كل التعديلات
@@ -1709,15 +1751,61 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const playerName = player.name;
       const playerPhysId = player.physicalId;
 
-      // حذف اللاعب من المصفوفة
-      state.players.splice(playerIndex, 1);
-      await setGameState(data.roomId, state);
+      // ═══ Seat Hold: حجز المقعد لمدة 10 دقائق بدل الحذف الفوري ═══
+      const HOLD_DURATION_MS = 10 * 60 * 1000; // 10 دقائق
+
+      // إذا اللعبة في مرحلة LOBBY فقط → نحجز المقعد
+      // في مراحل أخرى (أثناء اللعبة) → نحذف فوراً
+      if (state.phase === 'LOBBY') {
+        player.seatHeld = true;
+        player.heldUntil = Date.now() + HOLD_DURATION_MS;
+        player.isConnected = false;
+        await setGameState(data.roomId, state);
+
+        // تايمر لتحرير المقعد بعد 10 دقائق
+        setTimeout(async () => {
+          try {
+            const freshState = await getRoom(data.roomId);
+            if (!freshState) return;
+            const heldPlayer = freshState.players.find((p: any) =>
+              p.physicalId === playerPhysId && p.seatHeld === true
+            );
+            if (heldPlayer) {
+              // لا زال محجوز → حذف فعلي
+              const idx = freshState.players.findIndex((p: any) => p.physicalId === playerPhysId);
+              if (idx !== -1) {
+                freshState.players.splice(idx, 1);
+                await setGameState(data.roomId, freshState);
+                io.to(data.roomId).emit('game:state-sync', freshState);
+                // تحديث العداد
+                const room = activeRooms.get(data.roomId);
+                if (room) room.playerCount = freshState.players.length;
+                console.log(`⏰ Seat hold expired: #${playerPhysId} (${playerName}) removed from room ${data.roomId}`);
+              }
+            }
+          } catch (e: any) {
+            console.warn(`⚠️ Seat hold cleanup error:`, e.message);
+          }
+        }, HOLD_DURATION_MS);
+
+        console.log(`🔒 Seat #${playerPhysId} held for ${playerName} (10 min) in room ${data.roomId}`);
+      } else {
+        // أثناء اللعبة → حذف فوري (كالسابق)
+        state.players.splice(playerIndex, 1);
+        await setGameState(data.roomId, state);
+        console.log(`🚪 Player #${playerPhysId} (${playerName}) exited room ${data.roomId} (in-game)`);
+      }
 
       // إبلاغ الليدر والشاشات
       io.to(data.roomId).emit('game:state-sync', state);
       socket.leave(data.roomId);
 
-      console.log(`🚪 Player #${playerPhysId} (${playerName}) exited room ${data.roomId}`);
+      // تحديث العداد (اللاعبين الفعليين بدون المحجوزين)
+      const room = activeRooms.get(data.roomId);
+      if (room) {
+        room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+      }
+
       callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });

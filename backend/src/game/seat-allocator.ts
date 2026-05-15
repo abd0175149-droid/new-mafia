@@ -17,6 +17,7 @@ export interface SeatPlayer {
   physicalId: number;
   phone: string | null;
   gender: string | null;
+  seatHeld?: boolean; // المقعد محجوز (اللاعب خرج ولكن مقعده محفوظ)
 }
 
 export interface AllocateParams {
@@ -56,10 +57,10 @@ function shuffle<T>(arr: T[]): T[] {
 export function allocateSeat(params: AllocateParams): { seat: number; constraintViolation: boolean } {
   const { maxPlayers, players, constraints, newPlayer, preferredSeat } = params;
 
-  // حساب المقاعد المشغولة
+  // حساب المقاعد المشغولة (تشمل المقاعد المحجوزة — seatHeld)
   const occupiedSet = new Set(players.map(p => p.physicalId));
 
-  // حساب كل المقاعد الفارغة
+  // حساب كل المقاعد الفارغة (المحجوزة تُعتبر مشغولة)
   const allEmpty: number[] = [];
   for (let i = 1; i <= maxPlayers; i++) {
     if (!occupiedSet.has(i)) allEmpty.push(i);
