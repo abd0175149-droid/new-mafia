@@ -144,9 +144,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (overrideCode) {
         const existingState = await getRoomByCode(overrideCode);
         
-        // التحقق من أن الغرفة ليست منتهية، وأنها تنتمي بالفعل لنفس الـ SessionId الخاص بالنشاط
-        // (لمنع تداخل الغرف في حال تشابه كود الـ 4 أرقام بالصدفة مع غرفة قديمة)
-        if (existingState && existingState.phase !== 'GAME_OVER' && existingState.sessionId === data.existingSessionId) {
+        // التحقق أن الغرفة تنتمي لنفس الـ SessionId (لمنع تداخل الغرف)
+        if (existingState && existingState.sessionId === data.existingSessionId) {
           console.log(`♻️ Leader re-entered existing active room ${existingState.roomId} for session ${data.existingSessionId}`);
           
           socket.join(existingState.roomId);
