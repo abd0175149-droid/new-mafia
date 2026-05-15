@@ -22,8 +22,6 @@ import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
-import { markRoomAsFinished } from './lobby.socket.js';
-import { closeSession } from '../services/session.service.js';
 import { clearGameTimer } from '../game/game-timer.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
@@ -1113,9 +1111,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         io.to(data.roomId).emit('game:over', gameOverData);
         // حفظ نتيجة المباراة في PostgreSQL
         await finalizeMatch(state);
-        // تنظيف: حذف من activeRooms + إغلاق DB Session
-        markRoomAsFinished(data.roomId);
-        if (state.sessionId) closeSession(state.sessionId).catch(() => {});
+        // الغرفة تبقى مفتوحة — الليدر يقرر متى يغلقها أو يبدأ لعبة جديدة
+        console.log(`✅ Match finalized via admin-eliminate for room ${data.roomId} — Room stays OPEN`);
       }
 
       console.log(`⚠️ Admin eliminated player #${data.physicalId} (${player.name})`);

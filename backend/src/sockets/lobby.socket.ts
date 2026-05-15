@@ -32,8 +32,8 @@ export async function rehydrateActiveRooms(): Promise<void> {
     const allStates = await getAllGameStates();
 
     for (const state of allStates) {
-      // تخطي الألعاب المنتهية أو البيانات التالفة
-      if (!state || !state.roomId || state.phase === 'GAME_OVER') continue;
+      // تخطي البيانات التالفة فقط — GAME_OVER تبقى لأن الليدر قد يريد بدء لعبة جديدة
+      if (!state || !state.roomId) continue;
 
       activeRooms.set(state.roomId, {
         roomId: state.roomId,
