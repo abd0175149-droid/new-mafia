@@ -1146,7 +1146,7 @@ export default function LeaderPage() {
                   <p className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">
                     CODE: <span className="text-[#C5A059]">{gameState.roomCode}</span>
                     {' | '}PIN: <span className="text-[#8A0303]">{gameState.config.displayPin}</span>
-                    {' | '}AGENTS: <span className="text-white">{gameState.players.length}</span>/{gameState.config.maxPlayers}
+                    {' | '}AGENTS: <span className="text-white">{gameState.players.filter((p: any) => !p.seatHeld).length}</span>/{gameState.config.maxPlayers}
                   </p>
                 </div>
                 <div className={`flex items-center gap-2`}>
@@ -1367,7 +1367,7 @@ export default function LeaderPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                  {gameState.players.map((p: any) => {
+                  {gameState.players.filter((p: any) => !p.seatHeld).map((p: any) => {
                     const isSessionEditing = sessionEditingId === p.physicalId;
                     return (
                     <div key={p.physicalId} className="relative group">
@@ -1482,6 +1482,53 @@ export default function LeaderPage() {
                   })}
                 </div>
               )}
+
+              {/* ═══ المقاعد المحجوزة (Session View) ═══ */}
+              {(() => {
+                const heldPlayers = gameState.players.filter((p: any) => p.seatHeld === true);
+                if (heldPlayers.length === 0) return null;
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-6 bg-black/40 border border-amber-500/20 rounded-xl p-4 relative overflow-hidden"
+                  >
+                    <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-400">🔒</span>
+                        <span className="text-white text-xs font-bold" style={{ fontFamily: 'Amiri, serif' }}>مقاعد محجوزة ({heldPlayers.length})</span>
+                      </div>
+                      <span className="text-[#808080] text-[8px] font-mono tracking-widest uppercase">HELD 10 MIN</span>
+                    </div>
+                    <div className="space-y-2">
+                      {heldPlayers.map((hp: any) => {
+                        const remainMs = (hp.heldUntil || 0) - Date.now();
+                        const remainMin = Math.max(0, Math.ceil(remainMs / 60000));
+                        return (
+                          <div key={hp.physicalId} className="flex items-center justify-between bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center font-mono font-bold text-amber-400 text-sm">{hp.physicalId}</div>
+                              <div>
+                                <p className="text-white text-xs font-medium">{hp.name}</p>
+                                <p className="text-[#808080] text-[9px] font-mono">متبقي ~{remainMin} د</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await emit('room:release-held-seat', { roomId: gameState.roomId, physicalId: hp.physicalId });
+                                } catch (err: any) { setError(err.message); }
+                              }}
+                              className="px-3 py-1.5 bg-red-900/30 border border-red-500/40 text-red-400 rounded-lg text-[9px] font-mono uppercase tracking-widest hover:bg-red-900/50 transition-colors"
+                            >🔓 فك</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                );
+              })()}
             </div>
 
             {/* ══════ مودال تعديل الأرقام ══════ */}

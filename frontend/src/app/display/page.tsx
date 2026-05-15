@@ -216,7 +216,7 @@ function DisplayPageContent() {
       if (!state) return;
       if (state.players) {
         const effectivePhase = phaseOverride || state.phase;
-        const activePlayers = state.players.filter((p: any) => !p.frozen);
+        const activePlayers = state.players.filter((p: any) => !p.frozen && !p.seatHeld);
         setPlayers(activePlayers.map((p: any) => ({
           physicalId: p.physicalId,
           name: p.name,
@@ -607,7 +607,7 @@ function DisplayPageContent() {
           setGameTimerData(data.state.gameTimer);
         }
         if (data.state.players) {
-          const activePlayers = data.state.players.filter((p: any) => !p.frozen);
+          const activePlayers = data.state.players.filter((p: any) => !p.frozen && !p.seatHeld);
           setPlayers(activePlayers.map((p: any) => ({
             physicalId: p.physicalId,
             name: p.name,
@@ -667,7 +667,7 @@ function DisplayPageContent() {
           setGameTimerData(data.state.gameTimer);
         }
         if (data.state.players) {
-          const activePlayers = data.state.players.filter((p: any) => !p.frozen);
+          const activePlayers = data.state.players.filter((p: any) => !p.frozen && !p.seatHeld);
           setPlayers(activePlayers.map((p: any) => ({
             physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
             gender: p.gender, role: p.role, avatarUrl: p.avatarUrl || null,
