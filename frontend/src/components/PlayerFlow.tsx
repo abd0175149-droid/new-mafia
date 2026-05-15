@@ -496,6 +496,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     const cleanupKick = on('player:kicked-self', () => {
       localStorage.removeItem('mafia_session');
+      localStorage.removeItem('mafia_held_seat'); // لا يحتاج العودة بعد الطرد
       setAssignedRole(null);
       setPhysicalId('');
       setRoomId('');
@@ -508,8 +509,47 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     return () => { cleanupSeat(); cleanupKick(); };
   }, [on, initialRoomCode]);
 
+  // ═══ فحص المقعد المحجوز — إعادة الدخول التلقائي ═══
+  useEffect(() => {
+    if (step !== 'code' || initialRoomCode) return; // فقط في خطوة إدخال الكود
+    try {
+      const held = localStorage.getItem('mafia_held_seat');
+      if (!held) return;
+      const data = JSON.parse(held);
+      const elapsed = Date.now() - (data.exitedAt || 0);
+      const TEN_MIN = 10 * 60 * 1000;
+      if (elapsed > TEN_MIN) {
+        // انتهت مدة الحجز
+        localStorage.removeItem('mafia_held_seat');
+        return;
+      }
+      // ← المقعد لا زال محجوز — تعبئة الكود تلقائياً والدخول
+      if (data.roomCode) {
+        setRoomCode(data.roomCode);
+        // بدء البحث التلقائي بعد لحظة
+        setTimeout(() => {
+          handleFindRoom(data.roomCode);
+        }, 300);
+      }
+    } catch { /* ignore parse errors */ }
+  }, [step, initialRoomCode]);
+
   // ── تسجيل خروج اللاعب (مسح كل البيانات المحفوظة) ──
   const handleLogout = useCallback(() => {
+    // ═══ حفظ بيانات الغرفة الأخيرة قبل المسح (للعودة للمقعد المحجوز) ═══
+    const savedRoomCode = roomCode;
+    const savedRoomId = roomId;
+    if (savedRoomCode && savedRoomId) {
+      localStorage.setItem('mafia_held_seat', JSON.stringify({
+        roomCode: savedRoomCode,
+        roomId: savedRoomId,
+        phone,
+        playerId: playerId || null,
+        displayName,
+        exitedAt: Date.now(),
+      }));
+    }
+
     // إرسال حدث الخروج للسيرفر أولاً (لإزالة اللاعب من واجهة الليدر)
     if (emit && roomId) {
       const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
@@ -554,7 +594,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     setStep('code');
     setUserExited(true);
     localStorage.setItem('mafia_user_exited', 'true');
-  }, [initialRoomCode, emit, roomId, phone, playerId]);
+  }, [initialRoomCode, emit, roomId, phone, playerId, roomCode, displayName]);
 
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
@@ -1551,6 +1591,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
       // مسح علامة الخروج — اللاعب انضم بنجاح
       localStorage.removeItem('mafia_user_exited');
+      localStorage.removeItem('mafia_held_seat'); // تنظيف بيانات المقعد المحجوز
       setJoinConfirmation(null);
       setStep('done');
     } catch (err: any) {
