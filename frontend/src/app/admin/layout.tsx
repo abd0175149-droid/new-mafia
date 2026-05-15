@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },
   { href: '/admin/tickets', icon: '🎫', label: 'التذاكر', roles: ['admin', 'accountant'] },
   { href: '/admin/game-config', icon: '🧩', label: 'الأدوار والشخصيات', roles: ['admin'] },
+  { href: '/admin/progression', icon: '🏆', label: 'نظام التقدم', roles: ['admin'] },
   { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
   // ── فاصل ──
   { href: '/__separator__', icon: '', label: '' },

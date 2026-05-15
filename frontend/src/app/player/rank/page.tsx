@@ -6,7 +6,7 @@ import { usePlayer } from '@/context/PlayerContext';
 import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS, RANK_RR_REQUIRED } from '@/lib/ranks';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
-type Tab = 'leaderboard' | 'myrank' | 'coplayers';
+type Tab = 'leaderboard' | 'coplayers' | 'howto';
 
 export default function RankPage() {
   const { player } = usePlayer();
@@ -19,6 +19,7 @@ export default function RankPage() {
   const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
   const [selectedProfile, setSelectedProfile] = useState<any>(null);
   const [glowing, setGlowing] = useState(true);
+  const [progressionConfig, setProgressionConfig] = useState<any>(null);
   const myCardRef = useRef<HTMLDivElement>(null);
 
   // ── منع السكرول + swipe-to-close ──
@@ -33,10 +34,12 @@ export default function RankPage() {
       fetch('/api/player-app/leaderboard').then(r => r.json()),
       fetch(`/api/player-app/${player.playerId}/co-players`).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
-    ]).then(([lbData, cpData, profData]) => {
+      fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
+    ]).then(([lbData, cpData, profData, progCfg]) => {
       if (lbData.success) setLeaderboard(lbData.leaderboard || []);
       if (cpData.success) setCoPlayers(cpData.coPlayers || []);
       if (profData.success) setMyProfile(profData);
+      if (progCfg?.success) setProgressionConfig(progCfg.config);
     }).finally(() => setLoading(false));
   }, [player]);
 
@@ -216,11 +219,11 @@ export default function RankPage() {
         </motion.div>
       )}
 
-      {/* Tabs */}
       <div className="flex gap-2 mb-4">
         {[
           { key: 'leaderboard', label: '🏅 الترتيب' },
           { key: 'coplayers', label: '👥 لعبت معهم' },
+          { key: 'howto', label: '📖 النقاط' },
         ].map(t => (
           <button
             key={t.key}
@@ -323,6 +326,76 @@ export default function RankPage() {
                 </button>
               </div>
             ))}
+          </motion.div>
+        )}
+
+        {/* ── How To Earn Points ── */}
+        {tab === 'howto' && (
+          <motion.div key="howto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4 pb-4">
+            {progressionConfig ? (
+              <>
+                <div className="rounded-xl p-3" style={{ background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)' }}>
+                  <p className="text-amber-400 text-xs font-bold mb-2">⭐ نقاط الخبرة (XP) — ترفع مستواك</p>
+                  {[
+                    { icon: '🎮', label: 'مشاركة في مباراة', val: progressionConfig.xp?.participation },
+                    { icon: '🏆', label: 'فوز الفريق', val: progressionConfig.xp?.teamWin },
+                    { icon: '💪', label: 'نجاة لكل جولة', val: progressionConfig.xp?.survivalPerRound },
+                    { icon: '✅', label: 'قدرة صحيحة', val: progressionConfig.xp?.abilityCorrect },
+                    { icon: '❌', label: 'قدرة خاطئة', val: progressionConfig.xp?.abilityIncorrect },
+                    { icon: '🤝', label: 'ديل ناجح (مواطن أخرج مافيا)', val: progressionConfig.xp?.citizenDealOnMafia },
+                    { icon: '💔', label: 'ديل فاشل', val: progressionConfig.xp?.failedDeal },
+                    { icon: '🔴', label: 'ديل مافيا على مافيا', val: progressionConfig.xp?.mafiaDealOnMafia },
+                    { icon: '⚔️', label: 'إقصاء خصم', val: progressionConfig.xp?.teamEliminationBonus },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+                      <span className="text-gray-300 text-[11px]">{item.icon} {item.label}</span>
+                      <span className={`text-xs font-bold ${(item.val ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {(item.val ?? 0) > 0 ? '+' : ''}{item.val ?? 0}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-xl p-3" style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)' }}>
+                  <p className="text-blue-400 text-xs font-bold mb-2">🎖️ نقاط الرانك (RR) — ترفع رتبتك</p>
+                  {[
+                    { icon: '🏆', label: 'فوز', val: progressionConfig.rr?.teamWin },
+                    { icon: '💀', label: 'خسارة', val: progressionConfig.rr?.teamLoss },
+                    { icon: '🤝', label: 'ديل ناجح (مواطن)', val: progressionConfig.rr?.citizenDealOnMafia },
+                    { icon: '💔', label: 'ديل فاشل', val: progressionConfig.rr?.failedDeal },
+                    { icon: '🔴', label: 'ديل مافيا على مافيا', val: progressionConfig.rr?.mafiaDealOnMafia },
+                    { icon: '💪', label: 'نجاة للنهاية', val: progressionConfig.rr?.survivedToEnd },
+                    { icon: '✅', label: 'قدرة صحيحة', val: progressionConfig.rr?.abilityCorrect },
+                    { icon: '❌', label: 'قدرة خاطئة', val: progressionConfig.rr?.abilityIncorrect },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+                      <span className="text-gray-300 text-[11px]">{item.icon} {item.label}</span>
+                      <span className={`text-xs font-bold ${(item.val ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {(item.val ?? 0) > 0 ? '+' : ''}{item.val ?? 0}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-xl p-3" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.15)' }}>
+                  <p className="text-purple-400 text-xs font-bold mb-2">👑 الرتب — RR المطلوب للترقية</p>
+                  {[
+                    { tier: 'INFORMANT', label: 'المُخبر', badge: '⭐' },
+                    { tier: 'SOLDIER', label: 'الجندي', badge: '⭐⭐' },
+                    { tier: 'CAPO', label: 'الكابو', badge: '🌟' },
+                    { tier: 'UNDERBOSS', label: 'الأندربوس', badge: '🌟🌟' },
+                    { tier: 'GODFATHER', label: 'الأب الروحي', badge: '👑' },
+                  ].map((r, i) => (
+                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+                      <span className="text-gray-300 text-[11px]">{r.badge} {r.label}</span>
+                      <span className="text-purple-400 text-xs font-bold">
+                        {progressionConfig.ranks?.[r.tier]?.rrRequired ?? '?'} RR
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-gray-600 text-sm text-center py-8">جاري تحميل البيانات...</p>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

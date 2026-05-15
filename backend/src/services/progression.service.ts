@@ -9,6 +9,7 @@ import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import type { GameState } from '../game/state.js';
+import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 
 // ── أسماء الرتب (مستوحاة من عالم المافيا) ──────────
 export const RANK_TIERS = ['INFORMANT', 'SOLDIER', 'CAPO', 'UNDERBOSS', 'GODFATHER'] as const;
@@ -26,13 +27,13 @@ export const RANK_ORDER: Record<RankTier, number> = {
   INFORMANT: 0, SOLDIER: 1, CAPO: 2, UNDERBOSS: 3, GODFATHER: 4,
 };
 
-// ── RR المطلوب للترقية من كل رتبة (متصاعد بزيادة 100) ──
-export const RANK_RR_REQUIRED: Record<RankTier, number> = {
-  INFORMANT: 100,   // مُخبر → جندي
-  SOLDIER: 200,     // جندي → كابو
-  CAPO: 300,        // كابو → أندربوس
-  UNDERBOSS: 400,   // أندربوس → الأب الروحي
-  GODFATHER: 9999,  // أعلى رتبة — لا ترقية
+// ── RR المطلوب للترقية — يُجلب ديناميكياً ──
+export let RANK_RR_REQUIRED: Record<RankTier, number> = {
+  INFORMANT: 100,
+  SOLDIER: 200,
+  CAPO: 300,
+  UNDERBOSS: 400,
+  GODFATHER: 9999,
 };
 
 // ── دالة مساعدة: RR المطلوب لرتبة معينة ──
@@ -45,7 +46,7 @@ export function xpForNextLevel(level: number): number {
   return Math.floor(500 * Math.pow(level, 1.2));
 }
 
-// ── حساب XP المكتسب من مباراة واحدة ─────────────────
+// ── حساب XP المكتسب من مباراة واحدة (ديناميكي) ────
 export function calculateMatchXP(params: {
   participated: boolean;
   teamWon: boolean;
@@ -54,41 +55,45 @@ export function calculateMatchXP(params: {
   abilityIncorrectCount: number;
   successfulDealsCount: number;
   failedDealsCount: number;
-  teamEliminationBonus: number; // عدد مرات إقصاء الخصم × 15
-}): number {
+  mafiaDealOnMafiaCount: number;
+  teamEliminationBonus: number;
+}, cfg?: any): number {
+  const c = cfg?.xp || DEFAULT_CONFIG.xp;
   let xp = 0;
 
-  if (params.participated) xp += 20;          // مشاركة
-  if (params.teamWon) xp += 50;               // فوز الفريق
-  xp += params.roundsSurvived * 5;            // نجاة لكل جولة
-  xp += params.abilityCorrectCount * 10;      // قدرة صحيحة
-  xp -= params.abilityIncorrectCount * 5;     // قدرة خاطئة (عقوبة)
-  xp += params.successfulDealsCount * 50;     // اتفاقية ناجحة
-  xp -= params.failedDealsCount * 10;         // اتفاقية فاشلة (عقوبة)
-  xp += params.teamEliminationBonus;          // مكافأة إقصاء الخصم
+  if (params.participated) xp += c.participation;
+  if (params.teamWon) xp += c.teamWin;
+  xp += params.roundsSurvived * c.survivalPerRound;
+  xp += params.abilityCorrectCount * c.abilityCorrect;
+  xp += params.abilityIncorrectCount * c.abilityIncorrect;
+  xp += params.successfulDealsCount * c.citizenDealOnMafia;
+  xp += params.failedDealsCount * c.failedDeal;
+  xp += params.mafiaDealOnMafiaCount * (c.mafiaDealOnMafia || c.failedDeal);
+  xp += params.teamEliminationBonus;
 
-  return Math.max(0, xp); // لا يمكن أن يكون XP بالسالب
+  return Math.max(0, xp);
 }
 
-// ── حساب RR المتغير من مباراة واحدة ─────────────────
+// ── حساب RR المتغير من مباراة واحدة (ديناميكي) ────
 export function calculateMatchRR(params: {
   teamWon: boolean;
   successfulDealsCount: number;
   failedDealsCount: number;
-  survivedToEnd: boolean;        // نجاة حتى النهاية
-  abilityCorrectCount: number;   // عدد القدرات الصحيحة
-  abilityIncorrectCount: number; // عدد القدرات الخاطئة
-}): number {
+  mafiaDealOnMafiaCount: number;
+  survivedToEnd: boolean;
+  abilityCorrectCount: number;
+  abilityIncorrectCount: number;
+}, cfg?: any): number {
+  const c = cfg?.rr || DEFAULT_CONFIG.rr;
   let rr = 0;
 
-  rr += params.teamWon ? 20 : -20;           // فوز/خسارة
-
-  rr += params.successfulDealsCount * 20;  // اتفاقية ناجحة
-  rr -= params.failedDealsCount * 30; // اتفاقية فاشلة (عقوبة)
-
-  if (params.survivedToEnd) rr += 5;          // نجاة للنهاية
-  rr += params.abilityCorrectCount * 5;       // قدرة صحيحة
-  rr -= params.abilityIncorrectCount * 5;     // قدرة خاطئة (عقوبة)
+  rr += params.teamWon ? c.teamWin : c.teamLoss;
+  rr += params.successfulDealsCount * c.citizenDealOnMafia;
+  rr += params.failedDealsCount * c.failedDeal;
+  rr += params.mafiaDealOnMafiaCount * (c.mafiaDealOnMafia || c.failedDeal);
+  if (params.survivedToEnd) rr += c.survivedToEnd;
+  rr += params.abilityCorrectCount * c.abilityCorrect;
+  rr += params.abilityIncorrectCount * c.abilityIncorrect;
 
   return rr;
 }
@@ -175,6 +180,19 @@ export async function processMatchRewards(state: GameState): Promise<void> {
   const db = getDB();
   if (!db) return;
 
+  // ── 0. تحميل الإعدادات الديناميكية ──
+  let cfg: any;
+  try { cfg = await getProgressionConfig(); } catch { cfg = DEFAULT_CONFIG; }
+
+  // تحديث RANK_RR_REQUIRED من الإعدادات
+  if (cfg.ranks) {
+    for (const tier of RANK_TIERS) {
+      if (cfg.ranks[tier]?.rrRequired) {
+        RANK_RR_REQUIRED[tier] = cfg.ranks[tier].rrRequired;
+      }
+    }
+  }
+
   // ── 1. فحص هل النشاط في Test Location؟ ──
   if (state.activityId) {
     const activityInfo = await db.select({ isTest: locations.isTestLocation })
@@ -185,16 +203,15 @@ export async function processMatchRewards(state: GameState): Promise<void> {
 
     if (activityInfo[0]?.isTest) {
       console.log(`[Progression] Skipping match rewards (XP/RR) because activity #${state.activityId} is at a Test Location.`);
-      return; // تجاهل توزيع النقاط والرانك لهذه الجلسة بالكامل
+      return;
     }
   }
 
   const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
   const totalRounds = state.round || 1;
+  const elimBonus = cfg?.xp?.teamEliminationBonus || 15;
 
   // ── حساب مكافأة إقصاء الخصم لكل لاعب ──
-  // كل إقصاء مافيا → +15 XP لكل مواطن حي وقتها
-  // كل إقصاء مواطن → +15 XP لكل مافيا حي وقتها
   const teamElimBonusMap: Record<number, number> = {};
   for (const p of state.players) {
     teamElimBonusMap[p.physicalId] = 0;
@@ -202,16 +219,14 @@ export async function processMatchRewards(state: GameState): Promise<void> {
 
   for (const elim of tracking.eliminationLog) {
     for (const p of state.players) {
-      if (p.physicalId === elim.physicalId) continue; // المُقصى ما يحصل نقاط
+      if (p.physicalId === elim.physicalId) continue;
       const pIsMafia = isMafiaRole(p.role as any);
 
-      // إقصاء مافيا → مواطنين يحصلون نقاط
       if (elim.team === 'MAFIA' && !pIsMafia) {
-        teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + 15;
+        teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + elimBonus;
       }
-      // إقصاء مواطن → مافيا يحصلون نقاط
       if (elim.team === 'CITIZEN' && pIsMafia) {
-        teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + 15;
+        teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + elimBonus;
       }
     }
   }
@@ -223,21 +238,22 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     const playerIsMafia = isMafiaRole(p.role as any);
     const teamWon = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
 
-    // حساب الجولات اللي عاشها
     const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
     const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
 
-    // هل بادر باتفاقية؟
+    // تصنيف الديلات: ديل مواطن ناجح / ديل فاشل / ديل مافيا على مافيا
     const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
     const successfulDealsCount = playerDeals.filter(d => d.success).length;
-    const failedDealsCount = playerDeals.filter(d => !d.success).length;
+    // ديل فاشل (مواطن أخرج مواطن)
+    const regularFailedDeals = playerDeals.filter(d => !d.success && !playerIsMafia).length;
+    // ديل مافيا على مافيا (أضر بفريقه)
+    const mafiaDealOnMafiaCount = playerDeals.filter(d => !d.success && playerIsMafia).length;
+    const failedDealsCount = regularFailedDeals;
 
-    // القدرات الصحيحة والخاطئة
     const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
     const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
     const abilityIncorrectCount = abilityResults.filter(a => !a.correct).length;
 
-    // حساب XP
     const xpEarned = calculateMatchXP({
       participated: true,
       teamWon,
@@ -246,18 +262,19 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       abilityIncorrectCount,
       successfulDealsCount,
       failedDealsCount,
+      mafiaDealOnMafiaCount,
       teamEliminationBonus: teamElimBonusMap[p.physicalId] || 0,
-    });
+    }, cfg);
 
-    // حساب RR (مع المصادر الجديدة)
     const rrChange = calculateMatchRR({
       teamWon,
       successfulDealsCount,
       failedDealsCount,
+      mafiaDealOnMafiaCount,
       survivedToEnd: p.isAlive,
       abilityCorrectCount,
       abilityIncorrectCount,
-    });
+    }, cfg);
 
     // تطبيق التقدم
     try {

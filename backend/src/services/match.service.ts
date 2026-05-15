@@ -102,7 +102,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
 
       const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
       const successfulDealsCount = playerDeals.filter(d => d.success).length;
-      const failedDealsCount = playerDeals.filter(d => !d.success).length;
+      const regularFailedDeals = playerDeals.filter(d => !d.success && !playerIsMafia).length;
+      const mafiaDealOnMafiaCount = playerDeals.filter(d => !d.success && playerIsMafia).length;
+      const failedDealsCount = regularFailedDeals;
 
       const xpEarned = p.playerId ? (!isTestGame ? calculateMatchXP({
         participated: true,
@@ -112,6 +114,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         abilityIncorrectCount,
         successfulDealsCount,
         failedDealsCount,
+        mafiaDealOnMafiaCount,
         teamEliminationBonus: teamElimBonus,
       }) : 0) : 0;
 
@@ -119,6 +122,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         teamWon,
         successfulDealsCount,
         failedDealsCount,
+        mafiaDealOnMafiaCount,
         survivedToEnd: !elimEntry, // نجا إذا لم يُقصى
         abilityCorrectCount,
         abilityIncorrectCount,

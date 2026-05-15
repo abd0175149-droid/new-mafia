@@ -205,3 +205,12 @@ export const activityTickets = pgTable('activity_tickets', {
   usedAt: timestamp('used_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ── Progression Config (إعدادات نظام التقدم) ────────
+
+export const progressionConfig = pgTable('progression_config', {
+  id: serial('id').primaryKey(),
+  key: varchar('key', { length: 50 }).unique().notNull(),
+  value: jsonb('value').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
