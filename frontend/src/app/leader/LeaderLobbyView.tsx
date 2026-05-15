@@ -243,7 +243,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
               className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed text-lg"
             >−</button>
             <div>
-              <span className="text-[#C5A059] font-black">{gameState.players.length}</span>
+              <span className="text-[#C5A059] font-black">{gameState.players.filter((p: any) => !p.seatHeld).length}</span>
               <span className="text-[#333] mx-1">/</span>
               <span className="text-[#666]">{gameState.config.maxPlayers}</span>
             </div>
@@ -461,7 +461,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(176px,1fr))] gap-6 justify-items-center">
-          {gameState.players.map((player: any, i: number) => {
+          {gameState.players.filter((p: any) => !p.seatHeld).map((player: any, i: number) => {
             const isKicking = kickingId === player.physicalId;
             const isEditing = editingId === player.physicalId;
 
@@ -573,6 +573,75 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
           })}
         </div>
       )}
+
+      {/* ═══ المقاعد المحجوزة (Held Seats) ═══ */}
+      {(() => {
+        const heldPlayers = gameState.players.filter((p: any) => p.seatHeld === true);
+        if (heldPlayers.length === 0) return null;
+
+        return (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-8 bg-black/40 border border-amber-500/20 rounded-xl p-5 backdrop-blur-md relative overflow-hidden"
+          >
+            <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
+
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 text-lg">🔒</span>
+                <h3 className="text-white text-sm font-bold" style={{ fontFamily: 'Amiri, serif' }}>
+                  مقاعد محجوزة ({heldPlayers.length})
+                </h3>
+              </div>
+              <span className="text-[#808080] text-[9px] font-mono tracking-widest uppercase">
+                HELD FOR 10 MIN
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {heldPlayers.map((player: any) => {
+                const remainingMs = (player.heldUntil || 0) - Date.now();
+                const remainingMin = Math.max(0, Math.ceil(remainingMs / 60000));
+
+                return (
+                  <div
+                    key={player.physicalId}
+                    className="flex items-center justify-between bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-4 py-3"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center font-mono font-bold text-amber-400 text-lg">
+                        {player.physicalId}
+                      </div>
+                      <div>
+                        <p className="text-white text-sm font-medium">{player.name}</p>
+                        <p className="text-[#808080] text-[10px] font-mono">
+                          {player.phone || 'بدون رقم'} • متبقي ~{remainingMin} دقيقة
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await emit('room:release-held-seat', {
+                            roomId: gameState.roomId,
+                            physicalId: player.physicalId,
+                          });
+                        } catch (err: any) {
+                          setError(err.message);
+                        }
+                      }}
+                      className="px-4 py-2 bg-red-900/30 border border-red-500/40 text-red-400 rounded-lg text-[10px] font-mono uppercase tracking-widest hover:bg-red-900/50 transition-colors"
+                    >
+                      🔓 فك الحجز
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        );
+      })()}
 
       {/* ── إعدادات اللعبة (تظهر دائمًا) ── */}
       <div className="flex flex-col items-center justify-center gap-6 mt-12 mb-8">

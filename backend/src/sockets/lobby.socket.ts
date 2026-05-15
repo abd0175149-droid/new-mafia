@@ -1811,6 +1811,49 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       callback({ success: false, error: err.message });
     }
   });
+  // ── فك حجز مقعد (بواسطة الليدر) ─────────────────────
+  socket.on('room:release-held-seat', async (data: {
+    roomId: string;
+    physicalId: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader can release held seats' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      const playerIndex = state.players.findIndex((p: any) =>
+        p.physicalId === data.physicalId && p.seatHeld === true
+      );
+
+      if (playerIndex === -1) {
+        return callback({ success: false, error: 'لا يوجد حجز على هذا المقعد' });
+      }
+
+      const player = state.players[playerIndex];
+      const playerName = player.name;
+
+      // حذف اللاعب فعلياً وتحرير المقعد
+      state.players.splice(playerIndex, 1);
+      await setGameState(data.roomId, state);
+
+      // تحديث العداد
+      const room = activeRooms.get(data.roomId);
+      if (room) {
+        room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+      }
+
+      // إبلاغ الجميع
+      io.to(data.roomId).emit('game:state-sync', state);
+
+      console.log(`🔓 Leader released held seat #${data.physicalId} (${playerName}) in room ${data.roomId}`);
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
 
   // ── إغلاق الغرفة (Soft Close — للوبي فقط) ────────────────
   socket.on('room:close', async (data: { roomId: string }, callback) => {
