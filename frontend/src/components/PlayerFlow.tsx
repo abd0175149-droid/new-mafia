@@ -510,8 +510,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   }, [on, initialRoomCode]);
 
   // ═══ فحص المقعد المحجوز — إعادة الدخول التلقائي ═══
+  // يعمل فقط عند فتح الصفحة من جديد (مثلاً من زر "العودة" في الصفحة الرئيسية)
+  // لا يعمل مباشرة بعد الخروج (userExited = true)
   useEffect(() => {
-    if (step !== 'code' || initialRoomCode) return; // فقط في خطوة إدخال الكود
+    if (step !== 'code' || initialRoomCode) return;
+    // إذا اللاعب لسى طالع → لا نعيد دخوله تلقائياً
+    if (userExited || localStorage.getItem('mafia_user_exited')) return;
     try {
       const held = localStorage.getItem('mafia_held_seat');
       if (!held) return;
@@ -519,14 +523,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       const elapsed = Date.now() - (data.exitedAt || 0);
       const TEN_MIN = 10 * 60 * 1000;
       if (elapsed > TEN_MIN) {
-        // انتهت مدة الحجز
         localStorage.removeItem('mafia_held_seat');
         return;
       }
-      // ← المقعد لا زال محجوز — تعبئة الكود تلقائياً والدخول
       if (data.roomCode) {
         setRoomCode(data.roomCode);
-        // بدء البحث التلقائي بعد لحظة
         setTimeout(() => {
           handleFindRoom(data.roomCode);
         }, 300);

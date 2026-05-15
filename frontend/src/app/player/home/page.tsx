@@ -213,9 +213,13 @@ export default function HomePage() {
                     🚪 مغادرة
                   </button>
                 )}
-                <Link href="/player/join">
-                  <span className={`text-xs ${canLeave ? 'text-gray-500' : 'text-green-400'}`}>العودة ←</span>
-                </Link>
+                <button
+                    onClick={() => {
+                      localStorage.removeItem('mafia_user_exited');
+                      router.push('/player/join');
+                    }}
+                    className={`text-xs ${canLeave ? 'text-gray-500' : 'text-green-400'} bg-transparent border-none cursor-pointer`}
+                  >العودة ←</button>
               </div>
             </div>
           </motion.div>
