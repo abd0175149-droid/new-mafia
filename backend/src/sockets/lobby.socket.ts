@@ -463,6 +463,46 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'الغرفة غير موجودة' });
 
+      // ══ حماية حرجة: منع انضمام لاعبين جدد بعد بدء اللعبة ══
+      const gameStartedPhases = [
+        Phase.ROLE_BINDING, 'NIGHT', 'MORNING_REVEAL', 'DAY_DISCUSSION',
+        'DAY_VOTING', 'JUSTIFICATION', 'FINAL_VOTE', 'TIE_BREAKER',
+      ];
+      const isGameStarted = gameStartedPhases.includes(state.phase as any);
+
+      if (isGameStarted) {
+        // ── فحص: هل هذا لاعب كان في اللعبة ويحاول العودة؟ ──
+        const normalizedPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+        const existingPlayer = state.players.find((p: any) =>
+          (data.playerId && p.playerId === data.playerId) ||
+          (normalizedPhone && p.phone === normalizedPhone)
+        );
+
+        if (existingPlayer) {
+          // ── لاعب موجود → إعادة توجيه للـ rejoin بدلاً من إنشاء مقعد جديد ──
+          socket.join(data.roomId);
+          socket.data.role = 'player';
+          socket.data.roomId = data.roomId;
+          socket.data.physicalId = existingPlayer.physicalId;
+
+          console.log(`🛡️ Blocked auto-join for existing player ${data.name} during active game — redirecting to seat #${existingPlayer.physicalId}`);
+          return callback({
+            success: true,
+            assignedSeat: existingPlayer.physicalId,
+            gameName: state.config.gameName,
+            constraintViolation: false,
+            restoredSeat: true,
+          });
+        }
+
+        // ── لاعب جديد تماماً → رفض الانضمام ──
+        console.log(`🛡️ Blocked new player ${data.name} from joining room ${data.roomId} — game already started (phase: ${state.phase})`);
+        return callback({
+          success: false,
+          error: 'اللعبة بدأت بالفعل، لا يمكن الانضمام الآن. انتظر حتى تنتهي اللعبة الحالية.',
+        });
+      }
+
       // ── 1. جلب أحدث maxPlayers + constraints + requireTicket من DB ──
       let constraints: SeatConstraints | null = null;
       let requireTicket = false;
@@ -1966,10 +2006,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
         console.log(`🔒 Seat #${playerPhysId} held for ${playerName} (10 min) in room ${data.roomId}`);
       } else {
-        // أثناء اللعبة → حذف فوري (كالسابق)
-        state.players.splice(playerIndex, 1);
+        // أثناء اللعبة → تجميد اللاعب (بدلاً من الحذف الفوري)
+        // اللاعب يبقى في المصفوفة حتى يتمكن من العودة بنفس الدور
+        const exitingPlayer = state.players[playerIndex];
+        exitingPlayer.frozen = true;
+        exitingPlayer.isConnected = false;
         await setGameState(data.roomId, state);
-        console.log(`🚪 Player #${playerPhysId} (${playerName}) exited room ${data.roomId} (in-game)`);
+        console.log(`🚪 Player #${playerPhysId} (${playerName}) froze & exited room ${data.roomId} (in-game, role preserved: ${exitingPlayer.role})`);
       }
 
       // إبلاغ الليدر والشاشات
