@@ -774,10 +774,29 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // ── فك التجميد عند العودة ──
+      let stateChanged = false;
       if (player.frozen) {
         player.frozen = false;
+        stateChanged = true;
+      }
+
+      // ── فك حجز المقعد عند العودة ──
+      if (player.seatHeld) {
+        player.seatHeld = false;
+        player.heldUntil = undefined;
+        player.isConnected = true;
+        stateChanged = true;
+        console.log(`♻️ Held seat #${player.physicalId} restored for returning player in room ${data.roomId}`);
+      }
+
+      if (stateChanged) {
         await setGameState(data.roomId, state);
-        console.log(`🔓 Player #${player.physicalId} unfrozen in room ${data.roomId}`);
+        // تحديث العداد
+        const room = activeRooms.get(data.roomId);
+        if (room) {
+          room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
+        }
+        io.to(data.roomId).emit('game:state-sync', state);
       }
 
       // ربط الـ socket بالغرفة
