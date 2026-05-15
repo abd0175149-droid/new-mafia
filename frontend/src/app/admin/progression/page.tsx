@@ -384,9 +384,63 @@ export default function ProgressionPage() {
                       className="p-5 border-t border-gray-700/50 bg-gray-900 shadow-[0_-10px_30px_rgba(0,0,0,0.3)] z-10 relative">
                       <div className="flex justify-between items-center mb-4">
                         <h4 className="font-bold text-indigo-400 flex items-center gap-2">
-                          <span className="text-xl">🛠️</span> لوحة التعديل — مباراة #{selMatch.matchRoomCode}
+                          <span className="text-xl">🛠️</span> لوحة التعديل والتفاصيل — مباراة #{selMatch.matchRoomCode}
                         </h4>
                         <button onClick={() => setSelMatch(null)} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
+                      </div>
+
+                      {/* ── Match Breakdown ── */}
+                      <div className="mb-6 bg-gray-950/50 border border-gray-800 rounded-xl p-4">
+                        <h5 className="text-xs font-bold text-gray-400 mb-3 border-b border-gray-800 pb-2">تفاصيل النقاط المكتسبة (تقديرية بناءً على الإعدادات الحالية):</h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+                          {/* Participation & Win/Loss */}
+                          <div className="flex justify-between text-gray-300">
+                            <span>🎮 مشاركة:</span>
+                            <span className="text-amber-400">+{config?.xp?.participation || 0} XP</span>
+                          </div>
+                          {(() => {
+                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(selMatch.role || '');
+                            const won = (isMafia && selMatch.matchWinner === 'MAFIA') || (!isMafia && selMatch.matchWinner === 'CITIZEN');
+                            return (
+                              <div className="flex justify-between text-gray-300">
+                                <span>{won ? '🏆 فوز:' : '💀 خسارة:'}</span>
+                                <div>
+                                  {won ? <span className="text-amber-400 ml-2">+{config?.xp?.teamWin || 0} XP</span> : null}
+                                  <span className={won ? 'text-blue-400' : 'text-rose-400'}>{won ? `+${config?.rr?.teamWin || 0}` : (config?.rr?.teamLoss || 0)} RR</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          {/* Survival */}
+                          <div className="flex justify-between text-gray-300">
+                            <span>⏳ النجاة ({selMatch.roundsSurvived || 0} جولات):</span>
+                            <span className="text-amber-400">+{(selMatch.roundsSurvived || 0) * (config?.xp?.survivalPerRound || 0)} XP</span>
+                          </div>
+                          {selMatch.survivedToEnd && (
+                            <div className="flex justify-between text-gray-300">
+                              <span>🎖️ النجاة للنهاية:</span>
+                              <span className="text-blue-400">+{config?.rr?.survivedToEnd || 0} RR</span>
+                            </div>
+                          )}
+                          {/* Deals */}
+                          {selMatch.dealInitiated && (
+                            <div className="flex justify-between text-gray-300">
+                              <span>🤝 الديل (نتيجة):</span>
+                              <span className={selMatch.dealSuccess ? 'text-emerald-400' : 'text-rose-400'}>
+                                {selMatch.dealSuccess ? 'نجاح' : 'فشل/غدر'}
+                              </span>
+                            </div>
+                          )}
+                          {/* Abilities */}
+                          {selMatch.abilityUsed && (
+                            <div className="flex justify-between text-gray-300">
+                              <span>🎯 القدرة (نتيجة):</span>
+                              <span className={selMatch.abilityCorrect ? 'text-emerald-400' : 'text-rose-400'}>
+                                {selMatch.abilityCorrect ? 'أصاب الهدف' : 'أخطأ الهدف'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Quick Macros */}
