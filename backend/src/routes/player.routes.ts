@@ -44,6 +44,7 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       mustChangePassword: playersTable.mustChangePassword,
       email: playersTable.email,
       isTestAccount: playersTable.isTestAccount,
+      isFreeAccount: playersTable.isFreeAccount,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
     return res.json({ success: true, players: rows });
@@ -112,6 +113,35 @@ router.post('/:id/toggle-test', authenticate, adminOnly, async (req: Request, re
     return res.json({ success: true, isTestAccount: newValue });
   } catch (err: any) {
     console.error('❌ toggle-test error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /api/player/:id/toggle-free — تبديل حالة الحساب المجاني (Admin only) ──
+router.post('/:id/toggle-free', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const [player] = await db.select({ id: playersTable.id, isFreeAccount: playersTable.isFreeAccount })
+      .from(playersTable).where(eq(playersTable.id, playerId)).limit(1);
+
+    if (!player) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+    const newValue = !player.isFreeAccount;
+    await db.update(playersTable)
+      .set({ isFreeAccount: newValue } as any)
+      .where(eq(playersTable.id, playerId));
+
+    console.log(`🏷️ Player #${playerId} isFreeAccount → ${newValue}`);
+    return res.json({ success: true, isFreeAccount: newValue });
+  } catch (err: any) {
+    console.error('❌ toggle-free error:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });

@@ -52,6 +52,7 @@ export default function PlayersManagementPage() {
   const [search, setSearch] = useState('');
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [togglingTestId, setTogglingTestId] = useState<number | null>(null);
+  const [togglingFreeId, setTogglingFreeId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // ── Load Players ──
@@ -117,6 +118,20 @@ export default function PlayersManagementPage() {
       showToast(err.message || 'فشل', 'error');
     } finally {
       setTogglingTestId(null);
+    }
+  }
+
+  // ── Toggle Free Account ──
+  async function handleToggleFreeAccount(player: any) {
+    setTogglingFreeId(player.id);
+    try {
+      await apiFetch(`/api/player/${player.id}/toggle-free`, { method: 'POST' });
+      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, isFreeAccount: !p.isFreeAccount } : p));
+      showToast(`${player.name}: ${player.isFreeAccount ? 'تم إلغاء الحساب المجاني' : 'تم تفعيل الحساب المجاني'}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل', 'error');
+    } finally {
+      setTogglingFreeId(null);
     }
   }
 
@@ -265,6 +280,9 @@ export default function PlayersManagementPage() {
                           {p.isTestAccount && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full border bg-purple-500/10 text-purple-400 border-purple-500/20">🧪 اختبار</span>
                           )}
+                          {p.isFreeAccount && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border bg-teal-500/10 text-teal-400 border-teal-500/20">🏷️ مجاني</span>
+                          )}
                         </div>
                       </td>
                       {/* Actions */}
@@ -294,6 +312,14 @@ export default function PlayersManagementPage() {
                             title={p.isTestAccount ? 'إلغاء حساب اختبار' : 'تفعيل حساب اختبار'}
                           >
                             {togglingTestId === p.id ? '⏳' : '🧪'}
+                          </button>
+                          <button
+                            onClick={() => handleToggleFreeAccount(p)}
+                            disabled={togglingFreeId === p.id}
+                            className={`p-1.5 rounded-lg transition ${p.isFreeAccount ? 'text-teal-400 hover:bg-teal-500/10' : 'text-gray-500/50 hover:text-teal-400 hover:bg-teal-500/10'}`}
+                            title={p.isFreeAccount ? 'إلغاء حساب مجاني' : 'تفعيل حساب مجاني'}
+                          >
+                            {togglingFreeId === p.id ? '⏳' : '🏷️'}
                           </button>
                           <button
                             onClick={() => handleDeletePlayer(p)}

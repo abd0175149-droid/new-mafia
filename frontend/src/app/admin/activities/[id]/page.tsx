@@ -924,13 +924,18 @@ export default function ActivityDetailPage() {
                             <span className="bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded text-xs font-bold">{b.count || 1}</span>
                           </td>
                           <td className="px-3 py-2.5 text-center">
+                            <div className="flex flex-col items-center gap-1">
                             {b.isFree ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/20">مجاني</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/15 text-teal-400 border border-teal-500/20">🏷️ مجاني</span>
                             ) : b.isPaid ? (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">✅ مدفوع</span>
                             ) : (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20 animate-pulse">⏳ غير مدفوع</span>
                             )}
+                            {b.ticketNumber && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 font-mono" dir="ltr">🎫 {b.ticketNumber}</span>
+                            )}
+                            </div>
                           </td>
                           <td className="px-3 py-2.5 text-center font-medium">
                             {b.isFree ? <span className="text-gray-600">—</span> : (

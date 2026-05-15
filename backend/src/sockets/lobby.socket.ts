@@ -490,9 +490,66 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               }
             }
 
-            // ── 2. التحقق من التذكرة (من الجدول المركزي) ──
-            if (requireTicket) {
-              // ── 2أ. فحص: هل اللاعب استخدم تذكرة مسبقاً لنفس النشاط؟ ──
+            // ── 2. فحص الحساب المجاني ──
+            let isFreeAccount = false;
+            if (data.playerId || data.phone) {
+              try {
+                const { players: playersTable } = await import('../schemas/player.schema.js');
+                const normalizedLookup = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+                const playerConditions: any[] = [];
+                if (data.playerId) playerConditions.push(eq(playersTable.id, data.playerId));
+                if (normalizedLookup) playerConditions.push(eq(playersTable.phone, normalizedLookup));
+                
+                if (playerConditions.length > 0) {
+                  const { or: orOp } = await import('drizzle-orm');
+                  const [playerRow] = await db.select({ isFreeAccount: playersTable.isFreeAccount })
+                    .from(playersTable)
+                    .where(orOp(...playerConditions))
+                    .limit(1);
+                  if (playerRow?.isFreeAccount) {
+                    isFreeAccount = true;
+                    console.log(`🏷️ Free account detected: ${data.name} — skipping ticket requirement`);
+                  }
+                }
+              } catch (e: any) {
+                console.warn('⚠️ Free account check failed:', e.message);
+              }
+            }
+
+            // ── 3. إذا حساب مجاني → تخطي التذكرة + تعليم الحجز كمجاني ──
+            if (isFreeAccount) {
+              try {
+                const { bookings } = await import('../schemas/admin.schema.js');
+                const { or: orOp } = await import('drizzle-orm');
+                const normalizedPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+                const bookingConditions: any[] = [];
+                if (normalizedPhone) bookingConditions.push(eq(bookings.phone, normalizedPhone));
+                if (data.playerId) bookingConditions.push(eq(bookings.playerId, data.playerId));
+
+                if (bookingConditions.length > 0) {
+                  const [existingBooking] = await db.select({ id: bookings.id })
+                    .from(bookings)
+                    .where(and(
+                      eq(bookings.activityId, state.activityId!),
+                      orOp(...bookingConditions),
+                    ))
+                    .limit(1);
+
+                  if (existingBooking) {
+                    await db.update(bookings)
+                      .set({ isFree: true, isPaid: false, paidAmount: '0' } as any)
+                      .where(eq(bookings.id, existingBooking.id));
+                    console.log(`🏷️ Booking #${existingBooking.id} marked as FREE for ${data.name}`);
+                  }
+                }
+              } catch (e: any) {
+                console.warn('⚠️ Free booking update failed:', e.message);
+              }
+            }
+
+            // ── 4. التحقق من التذكرة (فقط إذا ليس حساب مجاني) ──
+            if (requireTicket && !isFreeAccount) {
+              // ── 4أ. فحص: هل اللاعب استخدم تذكرة مسبقاً لنفس النشاط؟ ──
               let alreadyHasTicket = false;
               if (data.playerId || data.phone) {
                 const { or } = await import('drizzle-orm');
@@ -516,7 +573,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 }
               }
 
-              // ── 2ب. إذا ما عنده تذكرة مسبقة → يطلب رقم تذكرة جديد ──
+              // ── 4ب. إذا ما عنده تذكرة مسبقة → يطلب رقم تذكرة جديد ──
               if (!alreadyHasTicket) {
                 if (!data.ticketNumber || !data.ticketNumber.trim()) {
                   return callback({ success: false, error: 'يرجى إدخال رقم التذكرة' });
@@ -533,6 +590,70 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                   return callback({ success: false, error: 'هذه التذكرة مستخدمة مسبقاً — يرجى إدخال رقم تذكرة فعّال' });
                 }
 
+                // ── 4ج. فحص تطابق سعر التذكرة مع العرض/السعر المتوقع ──
+                const ticketPrice = parseFloat(ticket.price || '0');
+                let expectedPrice = parseFloat(act.basePrice || '0');
+                let selectedOfferName = '';
+
+                // البحث عن حجز اللاعب لمعرفة العرض المختار
+                try {
+                  const { bookings } = await import('../schemas/admin.schema.js');
+                  const { locations } = await import('../schemas/admin.schema.js');
+                  const { or: orOp } = await import('drizzle-orm');
+                  const normalizedPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+                  const bConditions: any[] = [];
+                  if (normalizedPhone) bConditions.push(eq(bookings.phone, normalizedPhone));
+                  if (data.playerId) bConditions.push(eq(bookings.playerId, data.playerId));
+
+                  if (bConditions.length > 0) {
+                    const [playerBooking] = await db.select({
+                      id: bookings.id,
+                      offerItems: bookings.offerItems,
+                    })
+                      .from(bookings)
+                      .where(and(
+                        eq(bookings.activityId, state.activityId!),
+                        orOp(...bConditions),
+                      ))
+                      .limit(1);
+
+                    if (playerBooking?.offerItems && (playerBooking.offerItems as any[]).length > 0) {
+                      // اللاعب اختار عرض → نجلب سعره
+                      const [actFull] = await db.select({
+                        locationId: activities.locationId,
+                        enabledOfferIds: activities.enabledOfferIds,
+                      }).from(activities).where(eq(activities.id, state.activityId!)).limit(1);
+
+                      if (actFull?.locationId) {
+                        const [loc] = await db.select({ offers: locations.offers })
+                          .from(locations).where(eq(locations.id, actFull.locationId)).limit(1);
+
+                        const allOffers: any[] = Array.isArray(loc?.offers) ? loc.offers : [];
+                        const selectedOfferId = (playerBooking.offerItems as any[])[0];
+                        const selectedOffer = allOffers[selectedOfferId];
+                        if (selectedOffer) {
+                          expectedPrice = parseFloat(selectedOffer.price || '0');
+                          selectedOfferName = selectedOffer.name || '';
+                        }
+                      }
+                    }
+                  }
+                } catch (e: any) {
+                  console.warn('⚠️ Offer price lookup failed:', e.message);
+                }
+
+                // ── 4د. مقارنة الأسعار — إذا غير مطابق → منع الدخول ──
+                if (expectedPrice > 0 && ticketPrice < expectedPrice) {
+                  return callback({
+                    success: false,
+                    error: `سعر التذكرة (${ticketPrice}) غير مطابق للعرض المطلوب (${expectedPrice})${selectedOfferName ? ' — ' + selectedOfferName : ''}. استخدم تذكرة أخرى أو اختر عرضاً مناسباً.`,
+                    priceMismatch: true,
+                    ticketPrice,
+                    expectedPrice,
+                    selectedOfferName,
+                  });
+                }
+
                 // تعليم التذكرة كمستخدمة مع ربطها بالنشاط
                 await db.update(globalTickets)
                   .set({
@@ -546,6 +667,42 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                   .where(eq(globalTickets.id, ticket.id));
 
                 console.log(`🎫 Global Ticket ${data.ticketNumber} validated & used by ${data.name} in activity #${state.activityId}`);
+
+                // ── 4هـ. ربط التذكرة بالدفع التلقائي في الحجز ──
+                try {
+                  const { bookings } = await import('../schemas/admin.schema.js');
+                  const { or: orOp } = await import('drizzle-orm');
+                  const normalizedPhone = data.phone?.startsWith('0') ? data.phone : (data.phone ? '0' + data.phone : '');
+                  const bConditions: any[] = [];
+                  if (normalizedPhone) bConditions.push(eq(bookings.phone, normalizedPhone));
+                  if (data.playerId) bConditions.push(eq(bookings.playerId, data.playerId));
+
+                  if (bConditions.length > 0) {
+                    const [playerBooking] = await db.select({ id: bookings.id })
+                      .from(bookings)
+                      .where(and(
+                        eq(bookings.activityId, state.activityId!),
+                        orOp(...bConditions),
+                      ))
+                      .limit(1);
+
+                    if (playerBooking) {
+                      await db.update(bookings)
+                        .set({
+                          isPaid: true,
+                          paidAmount: String(ticketPrice),
+                          receivedBy: ticket.sellerName || 'بائع التذكرة',
+                          ticketNumber: ticket.ticketNumber,
+                          isFree: false,
+                        } as any)
+                        .where(eq(bookings.id, playerBooking.id));
+
+                      console.log(`💰 Booking #${playerBooking.id} auto-paid: ${ticketPrice} via ticket ${ticket.ticketNumber} (seller: ${ticket.sellerName})`);
+                    }
+                  }
+                } catch (e: any) {
+                  console.warn('⚠️ Auto-payment update failed:', e.message);
+                }
               }
             }
           }
