@@ -411,12 +411,12 @@ export default function ProgressionPage() {
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                         <div className="md:col-span-3">
                           <label className="text-[11px] text-gray-400 block mb-1">XP (+ أو -)</label>
-                          <input type="number" value={xpDelta} onChange={e => setXpDelta(e.target.value)} placeholder="0"
+                          <input type="number" value={xpDelta} onChange={e => setXpDelta(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
                             className="w-full px-3 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-amber-400 font-bold text-center focus:outline-none focus:border-amber-500" />
                         </div>
                         <div className="md:col-span-3">
                           <label className="text-[11px] text-gray-400 block mb-1">RR (+ أو -)</label>
-                          <input type="number" value={rrDelta} onChange={e => setRrDelta(e.target.value)} placeholder="0"
+                          <input type="number" value={rrDelta} onChange={e => setRrDelta(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
                             className="w-full px-3 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-blue-400 font-bold text-center focus:outline-none focus:border-blue-500" />
                         </div>
                         <div className="md:col-span-4">
