@@ -79,6 +79,36 @@ export async function rehydrateActiveRooms(): Promise<void> {
       } catch (err: any) {
         console.warn('⚠️ Failed to load activity names:', err.message);
       }
+
+      // ── إعادة فتح Sessions المغلقة في DB إذا الغرفة لا زالت في Redis ──
+      try {
+        const { getDB } = await import('../config/db.js');
+        const { eq } = await import('drizzle-orm');
+        const { sessions } = await import('../schemas/game.schema.js');
+        const db = getDB();
+        if (db) {
+          for (const state of allStates) {
+            if (!state || !state.sessionId) continue;
+            const [session] = await db.select({ id: sessions.id, isActive: sessions.isActive })
+              .from(sessions)
+              .where(eq(sessions.id, state.sessionId))
+              .limit(1);
+            if (session && !session.isActive) {
+              const updateData: any = { isActive: true, status: 'active' };
+              // إعادة ربط activity_id من Redis إذا كان مفقوداً في DB
+              if (state.activityId) {
+                updateData.activityId = state.activityId;
+              }
+              await db.update(sessions)
+                .set(updateData)
+                .where(eq(sessions.id, state.sessionId));
+              console.log(`♻️ Reopened closed DB session #${state.sessionId} (room still in Redis, activityId=${state.activityId || 'none'})`);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('⚠️ Failed to reopen sessions:', err.message);
+      }
     } else {
       console.log(`ℹ️  No active rooms found in Redis to rehydrate`);
     }
