@@ -94,10 +94,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         initial={false}
         animate={{ width: sidebarOpen ? 260 : 72 }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
-        className="fixed top-0 right-0 h-screen bg-gray-900/80 backdrop-blur-xl border-l border-gray-800/50 z-50 flex flex-col overflow-hidden"
+        className="fixed top-0 right-0 h-[100dvh] bg-gray-900/80 backdrop-blur-xl border-l border-gray-800/50 z-50 flex flex-col overflow-hidden"
       >
         {/* Header */}
-        <div className="p-4 flex items-center gap-3 border-b border-gray-800/50">
+        <div className="p-4 flex items-center gap-3 border-b border-gray-800/50 shrink-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-lg shrink-0"
@@ -125,7 +125,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </div>
 
         {/* Nav Items */}
-        <nav className="flex-1 p-2 space-y-1 overflow-hidden">
+        <nav className="flex-1 min-h-0 p-2 space-y-1 overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.1) transparent' }}>
           {NAV_ITEMS.filter((item) => {
             // إذا العنصر محدد لأدوار معينة فقط
             if ((item as any).roles && user) {
