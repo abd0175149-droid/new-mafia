@@ -902,7 +902,10 @@ export default function ActivityDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {actBookings.map((b: any, i: number) => (
+                      {[...actBookings].sort((a: any, b: any) => {
+                        const priority = (bk: any) => bk.isFree ? 2 : bk.isPaid ? 0 : 1;
+                        return priority(a) - priority(b);
+                      }).map((b: any, i: number) => (
                         <tr key={b.id} className={`border-t border-gray-700/20 transition ${!b.isPaid && !b.isFree ? 'bg-amber-500/[0.03] hover:bg-amber-500/[0.06]' : 'hover:bg-gray-700/10'}`}>
                           <td className="px-3 py-2.5">
                             {!b.isPaid && !b.isFree && (
