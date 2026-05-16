@@ -35,6 +35,7 @@ import reportsRoutes from './routes/reports.routes.js';
 import gameConfigRoutes from './routes/game-config.routes.js';
 import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
+import whatsappRoutes from './routes/whatsapp.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -102,6 +103,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/game-config', gameConfigRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 app.get('/api/push/vapid-public-key', async (_req, res) => {
@@ -652,6 +654,42 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ Data-Driven tables migration:', err.message);
+  }
+
+  // ── إنشاء جداول WhatsApp (سجلات الإرسال + القوالب) ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS whatsapp_send_logs (
+          id SERIAL PRIMARY KEY,
+          activity_id INTEGER REFERENCES activities(id) ON DELETE SET NULL,
+          message_template TEXT NOT NULL,
+          total_sent INTEGER DEFAULT 0,
+          total_failed INTEGER DEFAULT 0,
+          recipients JSONB NOT NULL DEFAULT '[]',
+          sent_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS whatsapp_templates (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          category VARCHAR(50) DEFAULT 'general',
+          template TEXT NOT NULL,
+          variables JSONB DEFAULT '[]',
+          created_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      console.log('✅ WhatsApp tables ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ WhatsApp tables migration:', err.message);
   }
 
   // ── تهيئة Firebase ──

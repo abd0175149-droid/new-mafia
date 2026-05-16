@@ -214,3 +214,31 @@ export const progressionConfig = pgTable('progression_config', {
   value: jsonb('value').notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+// ══════════════════════════════════════════════════════
+// 📲 WhatsApp — سجلات الإرسال وقوالب الرسائل
+// ══════════════════════════════════════════════════════
+
+// ── سجلات الإرسال ────────────────────────────────────
+export const whatsappSendLogs = pgTable('whatsapp_send_logs', {
+  id: serial('id').primaryKey(),
+  activityId: integer('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  messageTemplate: text('message_template').notNull(),
+  totalSent: integer('total_sent').default(0),
+  totalFailed: integer('total_failed').default(0),
+  recipients: jsonb('recipients').notNull(),
+  sentBy: varchar('sent_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── قوالب الرسائل ────────────────────────────────────
+export const whatsappTemplates = pgTable('whatsapp_templates', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  category: varchar('category', { length: 50 }).default('general'),
+  template: text('template').notNull(),
+  variables: jsonb('variables').default([]),
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
