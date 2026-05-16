@@ -692,6 +692,32 @@ async function main() {
     console.warn('⚠️ WhatsApp tables migration:', err.message);
   }
 
+  // ── إنشاء جدول سجل رسائل تغيير الرتبة ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS whatsapp_rank_notifications (
+          id SERIAL PRIMARY KEY,
+          player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+          rank_tier VARCHAR(20) NOT NULL,
+          notification_type VARCHAR(20) DEFAULT 'promotion',
+          sent_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          UNIQUE(player_id, rank_tier)
+        )
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS idx_rank_notif_player
+        ON whatsapp_rank_notifications(player_id)
+      `);
+      console.log('✅ WhatsApp rank notifications table ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ WhatsApp rank notifications migration:', err.message);
+  }
+
   // ── تهيئة Firebase ──
   try {
     const { initFirebase } = await import('./config/firebase.js');

@@ -3,9 +3,9 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and, or, isNull, ne } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, bookings, locations, whatsappSendLogs, whatsappTemplates } from '../schemas/admin.schema.js';
+import { activities, bookings, locations, whatsappSendLogs, whatsappTemplates, whatsappRankNotifications } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { authenticate } from '../middleware/auth.js';
@@ -323,6 +323,147 @@ router.delete('/templates/:id', authenticate, async (req: Request, res: Response
     res.json({ success: true, message: 'تم حذف القالب' });
   } catch (err: any) {
     console.error('❌ whatsapp/templates DELETE error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/promoted-players
+// جلب اللاعبين الذين تغيرت رتبتهم ولم يُرسل لهم بعد
+// ══════════════════════════════════════════════════════
+
+router.get('/promoted-players', authenticate, async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+    const RANK_ORDER: Record<string, number> = {
+      INFORMANT: 0, SOLDIER: 1, CAPO: 2, UNDERBOSS: 3, GODFATHER: 4,
+    };
+    const RANK_NAMES_AR: Record<string, string> = {
+      INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو',
+      UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي',
+    };
+
+    // 1. جلب كل اللاعبين مع آخر رتبة تم إرسالها
+    //    نستخدم subquery لجلب آخر سجل لكل لاعب
+    const result = await db.execute(sql`
+      SELECT
+        p.id,
+        p.name,
+        p.phone,
+        p.rank_tier AS "rankTier",
+        p.rank_rr AS "rankRR",
+        p.level,
+        p.xp,
+        p.total_matches AS "totalMatches",
+        p.total_wins AS "totalWins",
+        p.total_survived AS "totalSurvived",
+        p.last_active_at AS "lastActiveAt",
+        latest_notif.rank_tier AS "lastNotifiedRank",
+        latest_notif.sent_at AS "lastNotifiedAt"
+      FROM players p
+      LEFT JOIN LATERAL (
+        SELECT rank_tier, sent_at
+        FROM whatsapp_rank_notifications wrn
+        WHERE wrn.player_id = p.id
+        ORDER BY wrn.sent_at DESC
+        LIMIT 1
+      ) latest_notif ON true
+      WHERE
+        -- لم يُرسل له أبداً ورتبته ليست INFORMANT (المبتدئ)
+        (latest_notif.rank_tier IS NULL AND p.rank_tier != 'INFORMANT')
+        OR
+        -- أو رتبته الحالية مختلفة عن آخر رتبة أُرسلت
+        (p.rank_tier IS DISTINCT FROM latest_notif.rank_tier)
+      ORDER BY
+        CASE p.rank_tier
+          WHEN 'GODFATHER' THEN 1 WHEN 'UNDERBOSS' THEN 2
+          WHEN 'CAPO' THEN 3 WHEN 'SOLDIER' THEN 4
+          ELSE 5
+        END
+    `);
+
+    // 2. تحديد نوع التغيير لكل لاعب
+    const rows = (result as any).rows || result;
+    const promotedPlayers = rows.map((p: any) => {
+      const currentOrder = RANK_ORDER[p.rankTier || 'INFORMANT'] || 0;
+      const lastOrder = p.lastNotifiedRank ? (RANK_ORDER[p.lastNotifiedRank] || 0) : -1;
+      const changeType = lastOrder === -1 ? 'new' :
+                         currentOrder > lastOrder ? 'promoted' : 'demoted';
+
+      return {
+        id: p.id,
+        name: p.name,
+        phone: p.phone || '',
+        rankTier: p.rankTier || 'INFORMANT',
+        rankAr: RANK_NAMES_AR[p.rankTier || 'INFORMANT'],
+        rankRR: p.rankRR || 0,
+        level: p.level || 1,
+        totalMatches: p.totalMatches || 0,
+        totalWins: p.totalWins || 0,
+        winRate: (p.totalMatches || 0) > 0
+          ? Math.round(((p.totalWins || 0) / (p.totalMatches || 0)) * 100)
+          : 0,
+        changeType,
+        previousRank: p.lastNotifiedRank || null,
+        previousRankAr: p.lastNotifiedRank ? RANK_NAMES_AR[p.lastNotifiedRank] : null,
+        lastNotifiedAt: p.lastNotifiedAt || null,
+      };
+    });
+
+    res.json({
+      success: true,
+      players: promotedPlayers,
+      summary: {
+        total: promotedPlayers.length,
+        promoted: promotedPlayers.filter((p: any) => p.changeType === 'promoted').length,
+        demoted: promotedPlayers.filter((p: any) => p.changeType === 'demoted').length,
+        new: promotedPlayers.filter((p: any) => p.changeType === 'new').length,
+      },
+    });
+  } catch (err: any) {
+    console.error('❌ whatsapp/promoted-players error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/mark-rank-notified
+// تسجيل أن رسالة الرتبة أُرسلت للاعب
+// ══════════════════════════════════════════════════════
+
+router.post('/mark-rank-notified', authenticate, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+    const { playerIds } = req.body; // [{ playerId: 5, rankTier: 'CAPO', changeType: 'promoted' }, ...]
+
+    if (!Array.isArray(playerIds) || playerIds.length === 0) {
+      return res.status(400).json({ error: 'playerIds مطلوب' });
+    }
+
+    for (const entry of playerIds) {
+      await db
+        .insert(whatsappRankNotifications)
+        .values({
+          playerId: entry.playerId,
+          rankTier: entry.rankTier,
+          notificationType: entry.changeType || 'promotion',
+        })
+        .onConflictDoUpdate({
+          target: [whatsappRankNotifications.playerId, whatsappRankNotifications.rankTier],
+          set: {
+            sentAt: new Date(),
+            notificationType: entry.changeType || 'promotion',
+          },
+        });
+    }
+
+    res.json({ success: true, marked: playerIds.length });
+  } catch (err: any) {
+    console.error('❌ whatsapp/mark-rank-notified error:', err);
     res.status(500).json({ error: err.message });
   }
 });

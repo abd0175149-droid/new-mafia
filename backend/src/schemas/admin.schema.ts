@@ -6,8 +6,9 @@
 
 import {
   pgTable, pgEnum, serial, text, timestamp, integer,
-  boolean, varchar, decimal, jsonb, date, numeric,
+  boolean, varchar, decimal, jsonb, date, numeric, unique,
 } from 'drizzle-orm/pg-core';
+import { players } from './player.schema.js';
 
 // ── Enums ─────────────────────────────────────────────
 
@@ -242,3 +243,14 @@ export const whatsappTemplates = pgTable('whatsapp_templates', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+// ── سجل رسائل تغيير الرتبة ────────────────────────
+export const whatsappRankNotifications = pgTable('whatsapp_rank_notifications', {
+  id: serial('id').primaryKey(),
+  playerId: integer('player_id').references(() => players.id, { onDelete: 'cascade' }).notNull(),
+  rankTier: varchar('rank_tier', { length: 20 }).notNull(),
+  notificationType: varchar('notification_type', { length: 20 }).default('promotion'),
+  sentAt: timestamp('sent_at').defaultNow().notNull(),
+}, (table) => ({
+  uniquePlayerRank: unique().on(table.playerId, table.rankTier),
+}));
