@@ -26,6 +26,9 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
+    const { sql } = await import('drizzle-orm');
+    const { bookings, activities } = await import('../schemas/admin.schema.js');
+
     const rows = await db.select({
       id: playersTable.id,
       phone: playersTable.phone,
@@ -47,7 +50,32 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       isFreeAccount: playersTable.isFreeAccount,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
-    return res.json({ success: true, players: rows });
+    // ── حساب lastMatchAt لكل اللاعبين (batch واحد بدل N+1) ──
+    const lastMatchRows = await db.execute(sql`
+      SELECT
+        b.player_id AS "playerId",
+        MAX(a.date) AS "lastMatchAt"
+      FROM bookings b
+      INNER JOIN activities a ON b.activity_id = a.id AND a.status = 'completed'
+      WHERE b.player_id IS NOT NULL
+      GROUP BY b.player_id
+    `);
+
+    // بناء Map للوصول السريع
+    const lastMatchMap = new Map<number, string>();
+    for (const row of (lastMatchRows as any).rows || lastMatchRows) {
+      if (row.playerId && row.lastMatchAt) {
+        lastMatchMap.set(Number(row.playerId), row.lastMatchAt);
+      }
+    }
+
+    // دمج lastMatchAt مع بيانات اللاعبين
+    const enrichedPlayers = rows.map(p => ({
+      ...p,
+      lastMatchAt: lastMatchMap.get(p.id) || null,
+    }));
+
+    return res.json({ success: true, players: enrichedPlayers });
   } catch (err: any) {
     console.error('❌ Fetch all players error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في جلب اللاعبين' });
