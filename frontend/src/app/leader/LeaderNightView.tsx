@@ -520,24 +520,67 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                     >
                       <div className={`absolute top-0 left-0 w-1 h-full ${evMeta.color.replace('text-', 'bg-')}`} />
 
-                      <div className="flex items-center gap-3 pl-2">
+                      <div className="flex items-start gap-3 pl-2">
                         <div className="text-2xl shrink-0">{evMeta.icon}</div>
                         <div className="flex-1 min-w-0">
-                          <h3 className={`font-bold text-sm ${evMeta.color}`} style={{ fontFamily: 'Amiri, serif' }}>
-                            {evMeta.title}
-                          </h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className={`font-bold text-sm ${evMeta.color}`} style={{ fontFamily: 'Amiri, serif' }}>
+                              {evMeta.title}
+                            </h3>
+                            {event.wasRandom && (
+                              <span className="px-1.5 py-0.5 bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#C5A059] text-[7px] font-mono tracking-widest rounded-sm">
+                                🎲 AUTO
+                              </span>
+                            )}
+                          </div>
+
+                          {/* بيانات المنفذ (لكل الأحداث) */}
+                          {event.performerPhysicalId && (
+                            <p className="text-[#555] text-[9px] font-mono mt-0.5 tracking-wider">
+                              ← #{event.performerPhysicalId} {event.performerName}
+                            </p>
+                          )}
 
                           {event.type === 'ASSASSINATION' && (
-                            <p className="text-white text-xs font-mono mt-1">#{event.targetPhysicalId} — {event.targetName}</p>
+                            <p className="text-white text-xs font-mono mt-1">
+                              #{event.targetPhysicalId} — {event.targetName}
+                              {event.extra?.targetRole && (
+                                <span className="text-[#555] text-[9px] ml-2">({event.extra.targetRole})</span>
+                              )}
+                            </p>
                           )}
                           {isBlocked && (
-                            <p className="text-[#2E5C31] text-xs font-mono mt-1">تم إنقاذ أحد اللاعبين</p>
+                            <div className="mt-1">
+                              <p className="text-[#2E5C31] text-xs font-mono">
+                                🛡️ #{event.targetPhysicalId} — {event.targetName} — تم إنقاذه
+                              </p>
+                              {event.extra?.assassinName && (
+                                <p className="text-[#8A0303]/60 text-[9px] font-mono mt-0.5">
+                                  🔪 المغتال: #{event.extra.assassinId} {event.extra.assassinName}
+                                  {event.extra.wasAssassinRandom && <span className="text-[#C5A059]"> 🎲</span>}
+                                </p>
+                              )}
+                            </div>
                           )}
                           {event.type === 'SNIPE_MAFIA' && (
-                            <p className="text-[#C5A059] text-xs font-mono mt-1">خرج عضو مافيا</p>
+                            <p className="text-[#C5A059] text-xs font-mono mt-1">
+                              🎯 #{event.targetPhysicalId} — {event.targetName}
+                              {event.extra?.targetRole && (
+                                <span className="text-[#555] text-[9px] ml-2">({event.extra.targetRole})</span>
+                              )}
+                            </p>
                           )}
                           {event.type === 'SNIPE_CITIZEN' && (
-                            <p className="text-[#8A0303] text-xs font-mono mt-1">خرج لاعبان (القناص + الهدف)</p>
+                            <div className="mt-1">
+                              <p className="text-[#8A0303] text-xs font-mono">
+                                💀 الهدف: #{event.targetPhysicalId} — {event.targetName}
+                              </p>
+                              {event.extra?.sniperName && (
+                                <p className="text-[#8A0303]/60 text-[9px] font-mono mt-0.5">
+                                  💀 القناص: #{event.extra.sniperPhysicalId} {event.extra.sniperName} (ميت أيضاً)
+                                </p>
+                              )}
+                            </div>
                           )}
                           {event.type === 'SILENCED' && (
                             <p className="text-[#888] text-xs font-mono mt-1">#{event.targetPhysicalId} — {event.targetName}</p>

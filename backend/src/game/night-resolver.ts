@@ -48,14 +48,14 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
       if (sniperTarget.role && isMafiaRole(sniperTarget.role)) {
         // قنص مافيا → تموت المافيا فقط
         sniperTarget.isAlive = false;
-        events.push({ type: 'SNIPE_MAFIA', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, extra: { sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
+        events.push({ type: 'SNIPE_MAFIA', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, performerPhysicalId: sniper.physicalId, performerName: sniper.name, wasRandom: !!nightActions.randomSelections?.['SNIPER'], extra: { sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
         pt.abilityResults.push({ physicalId: sniper.physicalId, role: 'SNIPER', correct: true });
         pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: 'MAFIA' });
       } else {
         // قنص مواطن → يموت المواطن + القناص معاً
         sniperTarget.isAlive = false;
         sniper.isAlive = false;
-        events.push({ type: 'SNIPE_CITIZEN', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, extra: { sniperPhysicalId: sniper.physicalId, sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
+        events.push({ type: 'SNIPE_CITIZEN', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, performerPhysicalId: sniper.physicalId, performerName: sniper.name, wasRandom: !!nightActions.randomSelections?.['SNIPER'], extra: { sniperPhysicalId: sniper.physicalId, sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
         pt.abilityResults.push({ physicalId: sniper.physicalId, role: 'SNIPER', correct: false });
         pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: 'CITIZEN' });
         pt.eliminationLog.push({ physicalId: sniper.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: 'CITIZEN' });
@@ -71,7 +71,9 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     if (assassinTarget && assassinTarget.isAlive) {
       if (nightActions.godfatherTarget === protectedId) {
         // الحماية نجحت → الهدف يبقى حياً
-        events.push({ type: 'ASSASSINATION_BLOCKED', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, revealed: false });
+        const assassinatorBlocked = state.players.find(p => (p.role === Role.GODFATHER || p.role === Role.CHAMELEON || p.role === Role.SILENCER || p.role === Role.MAFIA_REGULAR) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
+        const protectorBlocked = state.players.find(p => (p.role === Role.DOCTOR || p.role === Role.NURSE) && p.isAlive);
+        events.push({ type: 'ASSASSINATION_BLOCKED', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, performerPhysicalId: protectorBlocked?.physicalId, performerName: protectorBlocked?.name, wasRandom: !!nightActions.randomSelections?.['DOCTOR'] || !!nightActions.randomSelections?.['NURSE'], extra: { assassinId: assassinatorBlocked?.physicalId, assassinName: assassinatorBlocked?.name, wasAssassinRandom: !!nightActions.randomSelections?.['GODFATHER'] }, revealed: false });
         // الطبيب/الممرضة أصاب
         const doctorPlayer = state.players.find(p => (p.role === Role.DOCTOR || p.role === Role.NURSE) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
         if (doctorPlayer) {
@@ -80,7 +82,8 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
       } else {
         // الاغتيال نجح
         assassinTarget.isAlive = false;
-        events.push({ type: 'ASSASSINATION', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, extra: { targetRole: assassinTarget.role }, revealed: false });
+        const assassinator = state.players.find(p => (p.role === Role.GODFATHER || p.role === Role.CHAMELEON || p.role === Role.SILENCER || p.role === Role.MAFIA_REGULAR) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
+        events.push({ type: 'ASSASSINATION', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, performerPhysicalId: assassinator?.physicalId, performerName: assassinator?.name, wasRandom: !!nightActions.randomSelections?.['GODFATHER'], extra: { targetRole: assassinTarget.role }, revealed: false });
         pt.eliminationLog.push({
           physicalId: assassinTarget.physicalId,
           eliminatedBy: 'NIGHT_KILL',
@@ -108,7 +111,8 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     const silenced = state.players.find(p => p.physicalId === nightActions.silencerTarget);
     if (silenced && silenced.isAlive) {
       silenced.isSilenced = true;
-      events.push({ type: 'SILENCED', targetPhysicalId: silenced.physicalId, targetName: silenced.name, revealed: false });
+      const silencer = state.players.find(p => p.role === Role.SILENCER && p.isAlive);
+      events.push({ type: 'SILENCED', targetPhysicalId: silenced.physicalId, targetName: silenced.name, performerPhysicalId: silencer?.physicalId, performerName: silencer?.name, wasRandom: !!nightActions.randomSelections?.['SILENCER'], revealed: false });
     }
   }
 
@@ -126,7 +130,8 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
       }
 
       state.nightActions.sheriffResult = result;
-      events.push({ type: 'SHERIFF_RESULT', targetPhysicalId: investigated.physicalId, targetName: investigated.name, extra: { result }, revealed: false });
+      const sheriffPlayer = state.players.find(p => p.role === Role.SHERIFF && p.isAlive);
+      events.push({ type: 'SHERIFF_RESULT', targetPhysicalId: investigated.physicalId, targetName: investigated.name, performerPhysicalId: sheriffPlayer?.physicalId, performerName: sheriffPlayer?.name, wasRandom: !!nightActions.randomSelections?.['SHERIFF'], extra: { result }, revealed: false });
 
       // تتبع دقة الشريف (هل أصاب مافيا فعلاً؟)
       const sheriff = state.players.find(p => p.role === Role.SHERIFF && p.isAlive);

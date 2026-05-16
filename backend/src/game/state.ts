@@ -109,12 +109,16 @@ export interface NightActions {
   sniperTarget: number | null;
   nurseTarget: number | null;
   lastProtectedTarget: number | null;
+  randomSelections?: Record<string, boolean>;  // تتبع الاختيارات العشوائية (Auto Mode)
 }
 
 export interface MorningEvent {
   type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT';
   targetPhysicalId: number;
   targetName: string;
+  performerPhysicalId?: number;  // من نفذ هذا الإجراء
+  performerName?: string;        // اسم المنفذ
+  wasRandom?: boolean;           // هل تم الاختيار عشوائياً (Auto Mode timeout)
   extra?: Record<string, unknown>;
   revealed: boolean;
 }

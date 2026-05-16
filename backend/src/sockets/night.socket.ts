@@ -251,18 +251,24 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
           if (targets && targets.length > 0) {
             const randomTarget = targets[Math.floor(Math.random() * targets.length)];
             const tId = randomTarget.physicalId;
+
+            // تعليم الاختيار كعشوائي
+            if (!latestState.nightActions.randomSelections) latestState.nightActions.randomSelections = {};
           
             switch (latestState.autoNightStepRole) {
               case Role.GODFATHER:
               case Role.CHAMELEON:
               case Role.MAFIA_REGULAR:
                 latestState.nightActions.godfatherTarget = tId;
+                latestState.nightActions.randomSelections['GODFATHER'] = true;
                 break;
               case Role.SILENCER:
                 latestState.nightActions.silencerTarget = tId;
+                latestState.nightActions.randomSelections['SILENCER'] = true;
                 break;
               case Role.SHERIFF: {
                 latestState.nightActions.sheriffTarget = tId;
+                latestState.nightActions.randomSelections['SHERIFF'] = true;
                 const investigated = latestState.players.find((p: any) => p.physicalId === tId);
                 let sheriffResult = 'CITIZEN';
                 if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
@@ -280,9 +286,11 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
               }
               case Role.DOCTOR:
                 latestState.nightActions.doctorTarget = tId;
+                latestState.nightActions.randomSelections['DOCTOR'] = true;
                 break;
               case Role.NURSE:
                 latestState.nightActions.nurseTarget = tId;
+                latestState.nightActions.randomSelections['NURSE'] = true;
                 break;
             }
           

@@ -1379,7 +1379,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </div>
         </div>
 
-        {/* ═══ Resolve Button + Un-Narrow ═══ */}
+        {/* ═══ Resolve Button + Timeout + Un-Narrow ═══ */}
         <div className="text-center py-4 border-t border-[#2a2a2a] bg-[#050505]/80 backdrop-blur-sm space-y-3">
           <button
             onClick={handleResolveVoting}
@@ -1388,6 +1388,25 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           >
             <span className="text-white tracking-widest font-mono uppercase text-sm">RESOLVE SELECTION</span>
           </button>
+
+          {/* زر فرض انتهاء التصويت — يصوّت للاعبين المتغيبين على أنفسهم */}
+          {!isComplete && (
+            <button
+              onClick={async () => {
+                try {
+                  const res = await emit('day:voting-timeout', { roomId: gameState.roomId });
+                  if (res?.autoVotedCount) {
+                    console.log(`⏰ Auto-voted ${res.autoVotedCount} player(s)`);
+                  }
+                } catch (err: any) {
+                  setError(err.message);
+                }
+              }}
+              className="w-full bg-[#1a0a0a] border border-[#8A0303]/50 text-[#ff6666] py-3 font-mono uppercase tracking-widest text-xs hover:bg-[#8A0303]/10 transition-colors rounded-lg"
+            >
+              ⏰ فرض انتهاء التصويت (تصويت تلقائي على النفس للمتغيبين)
+            </button>
+          )}
 
           {/* زر العودة للتصويت العادي — يظهر عند الحصر أو إعادة التصويت */}
           {votingLabel !== 'LIVE' && (

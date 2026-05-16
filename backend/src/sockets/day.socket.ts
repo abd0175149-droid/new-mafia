@@ -69,7 +69,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
     }
   });
 
-  // ── تصويت اللاعب من جهازه ──────────────────────
+  // ── تسجيل صوت اللاعب من جهازه ──────────────────────
   socket.on('player:cast-vote', async (data: {
     roomId: string;
     physicalId: number;
@@ -149,6 +149,74 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       console.log(`🗳️ Player #${data.physicalId} voted for candidate[${data.candidateIndex}]`);
       callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── انتهاء مؤقت التصويت — تصويت تلقائي للجميع ──────
+  socket.on('day:voting-timeout', async (data: {
+    roomId: string;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      if (state.phase !== Phase.DAY_VOTING) {
+        return callback({ success: false, error: 'ليست مرحلة تصويت' });
+      }
+
+      // جمع كل اللاعبين الأحياء الذين لم يصوتوا
+      const alivePlayers = state.players.filter((p: any) => p.isAlive);
+      let autoVotedCount = 0;
+
+      for (const player of alivePlayers) {
+        // هل صوّت بالفعل؟
+        if (state.votingState.playerVotes[player.physicalId] !== undefined) continue;
+
+        // إيجاد المرشح الذي يمثل هذا اللاعب (التصويت على النفس كعقوبة)
+        const selfCandidateIndex = state.votingState.candidates.findIndex(
+          (c: any) => c.type === 'PLAYER' && c.targetPhysicalId === player.physicalId
+        );
+
+        if (selfCandidateIndex !== -1) {
+          const candidate = state.votingState.candidates[selfCandidateIndex];
+          candidate.votes += 1;
+          state.votingState.totalVotesCast += 1;
+          state.votingState.playerVotes[player.physicalId] = selfCandidateIndex;
+          autoVotedCount++;
+          console.log(`⏰ Auto self-vote: #${player.physicalId} (${player.name}) → voted for self`);
+        }
+      }
+
+      if (autoVotedCount > 0) {
+        await setGameState(data.roomId, state);
+
+        // بث تحديث الأصوات
+        io.to(data.roomId).emit('day:vote-update', {
+          candidates: state.votingState.candidates,
+          totalVotesCast: state.votingState.totalVotesCast,
+          tieBreakerLevel: state.votingState.tieBreakerLevel,
+          playerVotes: state.votingState.playerVotes,
+          leaderProxyVotes: state.votingState.leaderProxyVotes || {},
+        });
+
+        console.log(`⏰ Voting timeout: ${autoVotedCount} player(s) auto-voted for self in room ${data.roomId}`);
+      }
+
+      // فحص اكتمال التصويت
+      if (isVotingComplete(state)) {
+        io.to(data.roomId).emit('day:voting-complete', {
+          candidates: state.votingState.candidates,
+          totalVotesCast: state.votingState.totalVotesCast,
+        });
+      }
+
+      callback({ success: true, autoVotedCount });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

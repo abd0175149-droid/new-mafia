@@ -464,11 +464,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (!state) return callback({ success: false, error: 'الغرفة غير موجودة' });
 
       // ══ حماية حرجة: منع انضمام لاعبين جدد بعد بدء اللعبة ══
-      const gameStartedPhases = [
-        Phase.ROLE_BINDING, 'NIGHT', 'MORNING_REVEAL', 'DAY_DISCUSSION',
-        'DAY_VOTING', 'JUSTIFICATION', 'FINAL_VOTE', 'TIE_BREAKER',
-      ];
-      const isGameStarted = gameStartedPhases.includes(state.phase as any);
+      const isGameStarted = state.phase !== 'LOBBY' && state.phase !== 'ROLE_GENERATION';
 
       if (isGameStarted) {
         // ── فحص: هل هذا لاعب كان في اللعبة ويحاول العودة؟ ──
@@ -479,13 +475,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         );
 
         if (existingPlayer) {
-          // ── لاعب موجود → إعادة توجيه للـ rejoin بدلاً من إنشاء مقعد جديد ──
+          // ── فك التجميد والحجز عند العودة ──
+          let stateChanged = false;
+          if (existingPlayer.frozen) {
+            existingPlayer.frozen = false;
+            existingPlayer.isConnected = true;
+            stateChanged = true;
+          }
+          if (existingPlayer.seatHeld) {
+            existingPlayer.seatHeld = false;
+            existingPlayer.heldUntil = undefined;
+            existingPlayer.isConnected = true;
+            stateChanged = true;
+          }
+          if (stateChanged) {
+            await setGameState(data.roomId, state);
+            io.to(data.roomId).emit('game:state-sync', state);
+          }
+
           socket.join(data.roomId);
           socket.data.role = 'player';
           socket.data.roomId = data.roomId;
           socket.data.physicalId = existingPlayer.physicalId;
 
-          console.log(`🛡️ Blocked auto-join for existing player ${data.name} during active game — redirecting to seat #${existingPlayer.physicalId}`);
+          console.log(`🛡️ Redirected existing player ${data.name} to seat #${existingPlayer.physicalId} during active game (phase: ${state.phase}, role: ${existingPlayer.role})`);
           return callback({
             success: true,
             assignedSeat: existingPlayer.physicalId,
@@ -1987,16 +2000,25 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               p.physicalId === playerPhysId && p.seatHeld === true
             );
             if (heldPlayer) {
-              // لا زال محجوز → حذف فعلي
+              // فحص: هل اللعبة لا زالت في اللوبي؟
+              const gameActive = freshState.phase !== 'LOBBY' && freshState.phase !== 'ROLE_GENERATION';
               const idx = freshState.players.findIndex((p: any) => p.physicalId === playerPhysId);
               if (idx !== -1) {
-                freshState.players.splice(idx, 1);
+                if (gameActive) {
+                  // اللعبة بدأت → تجميد بدل حذف (حفظ الدور)
+                  freshState.players[idx].seatHeld = false;
+                  freshState.players[idx].frozen = true;
+                  freshState.players[idx].isConnected = false;
+                  console.log(`⏰ Seat hold expired during game: #${playerPhysId} (${playerName}) frozen (role preserved: ${freshState.players[idx].role})`);
+                } else {
+                  // لا زال في اللوبي → حذف فعلي
+                  freshState.players.splice(idx, 1);
+                  console.log(`⏰ Seat hold expired: #${playerPhysId} (${playerName}) removed from room ${data.roomId}`);
+                }
                 await setGameState(data.roomId, freshState);
                 io.to(data.roomId).emit('game:state-sync', freshState);
-                // تحديث العداد
                 const room = activeRooms.get(data.roomId);
-                if (room) room.playerCount = freshState.players.length;
-                console.log(`⏰ Seat hold expired: #${playerPhysId} (${playerName}) removed from room ${data.roomId}`);
+                if (room) room.playerCount = freshState.players.filter((p: any) => !p.seatHeld).length;
               }
             }
           } catch (e: any) {
