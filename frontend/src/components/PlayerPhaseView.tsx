@@ -65,6 +65,77 @@ export default function PlayerPhaseView({
   const prevSpeakerRef = useRef<number | null>(null);
   const myId = parseInt(physicalId);
 
+  // ── مزامنة pollData لتجنب Closure Trap ──
+  const pollDataRef = useRef<any>(pollData);
+  useEffect(() => {
+    pollDataRef.current = pollData;
+  }, [pollData]);
+
+  // ── جلب الحالة الكاملة لحظياً لتفادي الـ Race Condition ──
+  const fetchLatestState = async () => {
+    if (!emit || !roomId) return;
+    try {
+      let savedPlayerId: number | undefined = undefined;
+      const pidStr = localStorage.getItem('mafia_playerId');
+      if (pidStr && parseInt(pidStr)) savedPlayerId = parseInt(pidStr);
+
+      let savedPhone: string | undefined = undefined;
+      try {
+        const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
+        if (info.phone) savedPhone = info.phone;
+      } catch {}
+      if (!savedPhone) {
+        try {
+          const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
+          if (auth.phone) savedPhone = auth.phone;
+        } catch {}
+      }
+      if (!savedPhone) {
+        try {
+          const session = JSON.parse(localStorage.getItem('mafia_session') || '{}');
+          if (session.phone) savedPhone = session.phone;
+        } catch {}
+      }
+
+      const normalizedPhone = savedPhone ? (savedPhone.startsWith('0') ? savedPhone : '0' + savedPhone) : undefined;
+
+      const res = await emit('room:get-my-state', {
+        roomId,
+        playerId: savedPlayerId,
+        phone: normalizedPhone,
+      });
+
+      if (res?.success) {
+        if (res.justificationData) {
+          setJustificationData(res.justificationData);
+        }
+        if (res.withdrawalState) {
+          setWithdrawalActive(true);
+          setWithdrawalCount(res.withdrawalState.count || 0);
+          setWithdrawalNeeded(res.withdrawalState.needed || 0);
+          if (res.withdrawalState.withdrawn?.some((id: any) => String(id) === String(myId))) {
+            setHasWithdrawn(true);
+          } else {
+            setHasWithdrawn(false);
+          }
+        }
+        if (res.discussionState) {
+          setDiscussionState(res.discussionState);
+          if (res.discussionState.deals) {
+            setDeals(res.discussionState.deals);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching latest state in PlayerPhaseView:', err);
+    }
+  };
+
+  // جلب فوري عند تحميل المكون
+  useEffect(() => {
+    fetchLatestState();
+  }, []);
+
   // ── استعادة البيانات من الـ polling عند reconnect ──
   useEffect(() => {
     if (!pollData) return;
@@ -213,6 +284,7 @@ export default function PlayerPhaseView({
         setWithdrawalCount(0);
         setWithdrawalNeeded(0);
       }
+      fetchLatestState();
     });
 
     // ── تايمر التبرير ──
@@ -223,7 +295,7 @@ export default function PlayerPhaseView({
       const remaining = Math.max(0, limit - elapsed);
       setJustTimer(remaining);
       setJustificationData((prev: any) => {
-        const current = prev || pollData?.justificationData || {};
+        const current = prev || pollDataRef.current?.justificationData || {};
         return { ...current, timerFinished: false };
       });
       
@@ -232,7 +304,7 @@ export default function PlayerPhaseView({
           if (prev === null || prev <= 1) {
             clearInterval(justTimerRef.current);
             setJustificationData((p: any) => {
-              const current = p || pollData?.justificationData || {};
+              const current = p || pollDataRef.current?.justificationData || {};
               return { ...current, timerFinished: true };
             });
             return 0;
@@ -246,7 +318,7 @@ export default function PlayerPhaseView({
       if (justTimerRef.current) clearInterval(justTimerRef.current);
       setJustTimer(null);
       setJustificationData((prev: any) => {
-        const current = prev || pollData?.justificationData || {};
+        const current = prev || pollDataRef.current?.justificationData || {};
         return { ...current, timerFinished: true };
       });
     });
@@ -300,6 +372,7 @@ export default function PlayerPhaseView({
       setWithdrawalCount(0);
       setWithdrawalNeeded(data?.needed || 0);
       setHasWithdrawn(false);
+      fetchLatestState();
     });
 
     const c11 = on('day:withdrawal-update', (data: any) => {
