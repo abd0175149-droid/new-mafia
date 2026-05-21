@@ -95,8 +95,8 @@ export default function PlayerPhaseView({
         }
       }
     }
-    // استعادة حالة السحب — فقط عند الـ reconnect الأول (إذا ما عندنا بيانات تبرير حية بعد)
-    if (pollData.withdrawalState && !justificationData) {
+    // استعادة حالة السحب عند وجود بيانات سحب نشطة من البولينج
+    if (pollData.withdrawalState) {
       setWithdrawalActive(true);
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
