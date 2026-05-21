@@ -1829,6 +1829,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           physicalId: p.physicalId,
           name: p.name,
         })),
+        round: state.round || 1,
       });
     } catch (err: any) {
       callback({ success: false, error: err.message });

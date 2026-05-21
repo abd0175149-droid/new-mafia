@@ -21,6 +21,7 @@ interface PlayerPhaseViewProps {
     allPlayers?: any[];
     pendingResolution?: any;
     deals?: any[];
+    round?: number;
   } | null;
   roomId?: string;
 }
@@ -532,8 +533,15 @@ export default function PlayerPhaseView({
               </span>
             </div>
 
-            {/* حالة اللاعب الخاصة بالاتفاقية */}
-            {(() => {
+            {pollData?.round === 1 ? (
+              <div className="p-3.5 rounded-xl bg-black/20 border border-[#C5A059]/10 text-center">
+                <p className="text-[#C5A059] text-xs font-bold">🤝 ميزة الديل (Deals)</p>
+                <p className="text-[#666] text-[10px] mt-1.5 leading-relaxed">
+                  🔒 الاتفاقيات غير متاحة في الجولة الأولى.<br />
+                  سيبدأ تفعيل ميزة الديل تلقائياً بدءاً من الجولة الثانية.
+                </p>
+              </div>
+            ) : (() => {
               const myDeal = deals.find(d => d.initiatorPhysicalId === myId);
               if (myDeal) {
                 const targetPlayer = votingPlayersInfo.find(p => p.physicalId === myDeal.targetPhysicalId);

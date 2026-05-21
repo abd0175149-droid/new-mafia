@@ -1125,11 +1125,20 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             winner: res.winner || null,
             allPlayers: res.allPlayers || null,
             pendingResolution: res.pendingResolution || null,
+            round: res.round || 1,
           });
 
-          // تحديث أسماء اللاعبين (مهم لعرض أسماء المتهمين في مرحلة التبرير)
-          if (res.playersInfo && votingPlayersInfo.length === 0) {
-            setVotingPlayersInfo(res.playersInfo);
+          // تحديث أسماء اللاعبين (مهم لعرض أسماء المتهمين والاتفاقيات)
+          if (res.playersInfo) {
+            const isDiff = votingPlayersInfo.length !== res.playersInfo.length ||
+              res.playersInfo.some((p: any, idx: number) => 
+                !votingPlayersInfo[idx] || 
+                votingPlayersInfo[idx].physicalId !== p.physicalId || 
+                votingPlayersInfo[idx].name !== p.name
+              );
+            if (isDiff) {
+              setVotingPlayersInfo(res.playersInfo);
+            }
           }
         }
       } catch (e) { /* ignore polling errors */ }
@@ -1140,7 +1149,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const interval = setInterval(pollState, 3000);
 
     return () => clearInterval(interval);
-  }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead]);
+  }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead, votingPlayersInfo]);
 
   // ── Auto-Vote on Self ──
   useEffect(() => {
