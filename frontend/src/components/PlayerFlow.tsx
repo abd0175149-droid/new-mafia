@@ -3019,17 +3019,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             <div className="flex-1 overflow-y-auto px-4 pb-2">
               <div className="space-y-2">
                 {nightActionRequired.availableTargets.map(target => {
-                  const isSelected = selectedTargetForConfirm === target.physicalId && !nightActionRequired.isDecoy;
                   return (
                     <motion.button
                       key={target.physicalId}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       onClick={async () => {
-                        if (!nightActionRequired.isDecoy && selectedTargetForConfirm !== target.physicalId) {
-                          setSelectedTargetForConfirm(target.physicalId);
-                          return;
-                        }
                         if (!emit || nightActionSubmitted) return;
                         setNightActionSubmitted(true);
                         if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
@@ -3041,25 +3036,20 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         setTimeout(() => setNightActionRequired(null), 1500);
                       }}
                       className={`w-full flex items-center gap-3 px-4 py-3 border rounded-2xl transition-all text-right ${
-                        isSelected
-                          ? 'bg-gradient-to-r from-[#8A0303]/20 to-[#8A0303]/10 border-[#8A0303]/60'
-                          : 'bg-gradient-to-r from-white/[0.03] to-transparent border-[#2a2a2a] hover:border-[#C5A059]/40 hover:bg-[#C5A059]/5'
+                        'bg-gradient-to-r from-white/[0.03] to-transparent border-[#2a2a2a] hover:border-[#C5A059]/40 hover:bg-[#C5A059]/5 active:bg-[#8A0303]/20 active:border-[#8A0303]/60'
                       }`}
-                      style={isSelected ? { boxShadow: '0 0 15px rgba(138,3,3,0.2)' } : {}}
                     >
-                      <div className={`relative w-11 h-11 rounded-full border-2 flex items-center justify-center shrink-0 overflow-hidden ${
-                        isSelected ? 'border-[#8A0303]' : 'border-[#C5A059]/30'
-                      }`}>
+                      <div className={`relative w-11 h-11 rounded-full border-2 flex items-center justify-center shrink-0 overflow-hidden border-[#C5A059]/30`}>
                         {(target as any).avatarUrl ? (
                           <>
                             <img src={(target as any).avatarUrl} alt="" className="w-full h-full object-cover grayscale opacity-80" />
                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                              <span className={`text-sm font-black drop-shadow-md ${isSelected ? 'text-red-400' : 'text-white'}`}>#{target.physicalId}</span>
+                              <span className="text-sm font-black drop-shadow-md text-white">#{target.physicalId}</span>
                             </div>
                           </>
                         ) : (
-                          <div className={`w-full h-full flex items-center justify-center ${isSelected ? 'bg-[#8A0303]/20' : 'bg-[#C5A059]/10'}`}>
-                            <span className={`text-sm font-black ${isSelected ? 'text-red-400' : 'text-[#C5A059]'}`}>#{target.physicalId}</span>
+                          <div className="w-full h-full flex items-center justify-center bg-[#C5A059]/10">
+                            <span className="text-sm font-black text-[#C5A059]">#{target.physicalId}</span>
                           </div>
                         )}
                       </div>
@@ -3067,23 +3057,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         <p className="text-white font-bold text-sm truncate">
                           {target.name || `لاعب #${target.physicalId}`}
                         </p>
-                        {isSelected && (
-                          <motion.p
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="text-[#8A0303] text-[11px] font-mono mt-0.5"
-                          >
-                            اضغط مرة أخرى للتأكيد ⚠️
-                          </motion.p>
-                        )}
                       </div>
-                      {isSelected && (
-                        <motion.div
-                          animate={{ scale: [1, 1.3, 1] }}
-                          transition={{ duration: 1.5, repeat: Infinity }}
-                          className="text-[#8A0303] text-lg shrink-0"
-                        >●</motion.div>
-                      )}
                     </motion.button>
                   );
                 })}
