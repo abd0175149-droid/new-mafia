@@ -58,6 +58,8 @@ export default function PlayerPhaseView({
   const [hasWithdrawn, setHasWithdrawn] = useState(false);
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [withdrawalNeeded, setWithdrawalNeeded] = useState(0);
+  // Ref لحماية حالة السحب من التصفير بواسطة الـ polling أو fetchLatestState
+  const withdrawalActiveRef = useRef(false);
 
   // ── تايمر النقاش (يجب أن يكون هنا قبل أي return مشروط) ──
   const [discCountdown, setDiscCountdown] = useState<number | null>(null);
@@ -162,9 +164,15 @@ export default function PlayerPhaseView({
 
       if (res?.success) {
         if (res.justificationData) {
-          setJustificationData(res.justificationData);
+          // دمج بدلاً من استبدال: للحفاظ على timerFinished المحلي
+          setJustificationData((prev: any) => ({
+            ...prev,
+            ...res.justificationData,
+            timerFinished: prev?.timerFinished || res.justificationData.timerFinished
+          }));
         }
         if (res.withdrawalState) {
+          withdrawalActiveRef.current = true;
           setWithdrawalActive(true);
           setWithdrawalCount(res.withdrawalState.count || 0);
           setWithdrawalNeeded(res.withdrawalState.needed || 0);
@@ -174,6 +182,7 @@ export default function PlayerPhaseView({
             setHasWithdrawn(false);
           }
         }
+        // لا تصفير هنا — دع فقط الـ socket events أو pollData تتعامل مع التصفير
         if (res.discussionState) {
           setDiscussionState(res.discussionState);
           if (res.discussionState.deals) {
@@ -229,6 +238,7 @@ export default function PlayerPhaseView({
     }
     // استعادة حالة السحب عند وجود بيانات سحب نشطة من البولينج
     if (pollData.withdrawalState) {
+      withdrawalActiveRef.current = true;
       setWithdrawalActive(true);
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
@@ -239,9 +249,10 @@ export default function PlayerPhaseView({
         setHasWithdrawn(false);
       }
     } else {
-      // لمنع البولينج من تصفير وإخفاء حالة السحب الحية التي تصل عبر السوكيت
-      // نقوم بالتصفير فقط إذا لم نعد في مرحلة التبرير
-      if (gamePhase !== 'DAY_JUSTIFICATION') {
+      // لمنع البولينج من تصفير حالة السحب الحية:
+      // لا نصفّر إلا إذا خرجنا من مرحلة التبرير أو لم يكن السوكيت قد فعّل السحب
+      if (gamePhase !== 'DAY_JUSTIFICATION' || !withdrawalActiveRef.current) {
+        withdrawalActiveRef.current = false;
         setWithdrawalActive(false);
         setHasWithdrawn(false);
         setWithdrawalCount(0);
@@ -348,6 +359,7 @@ export default function PlayerPhaseView({
       if (data && data.accused) {
         setJustificationData(data);
         // تصفير كامل لحالة السحب عند بدء تبرير جديد
+        withdrawalActiveRef.current = false;
         setWithdrawalActive(false);
         setHasWithdrawn(false);
         setWithdrawalCount(0);
@@ -441,11 +453,13 @@ export default function PlayerPhaseView({
 
     // ── سحب الأصوات ──
     const c10 = on('day:withdrawal-period', (data: any) => {
+      console.log('🗳️ [Socket] day:withdrawal-period received:', data);
+      withdrawalActiveRef.current = true;
       setWithdrawalActive(true);
       setWithdrawalCount(0);
       setWithdrawalNeeded(data?.needed || 0);
       setHasWithdrawn(false);
-      fetchLatestState();
+      // لا نستدعي fetchLatestState هنا لتجنب أي سباق زمني
     });
 
     const c11 = on('day:withdrawal-update', (data: any) => {
@@ -461,6 +475,7 @@ export default function PlayerPhaseView({
     });
 
     const c12 = on('day:withdrawal-result', (data: any) => {
+      withdrawalActiveRef.current = false;
       setWithdrawalActive(false);
     });
 
@@ -485,6 +500,7 @@ export default function PlayerPhaseView({
         setJustificationData(null);
         setEliminationData(null);
         setTiedCandidates([]);
+        withdrawalActiveRef.current = false;
         setWithdrawalActive(false);
         setHasWithdrawn(false);
         setWithdrawalCount(0);
@@ -500,6 +516,7 @@ export default function PlayerPhaseView({
         setJustificationData(null);
         setEliminationData(null);
         setTiedCandidates([]);
+        withdrawalActiveRef.current = false;
         setWithdrawalActive(false);
         setHasWithdrawn(false);
         setWithdrawalCount(0);
@@ -510,6 +527,7 @@ export default function PlayerPhaseView({
         setJustificationData(null);
         setEliminationData(null);
         setMorningEvents([]);
+        withdrawalActiveRef.current = false;
         setWithdrawalActive(false);
         setDeals([]);
         setSelectedTargetId('');
