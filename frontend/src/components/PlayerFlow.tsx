@@ -2103,6 +2103,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   votingCandidates={votingCandidates}
                   votingPlayersInfo={votingPlayersInfo}
                   pollData={phasePollData}
+                  roomId={roomId}
                 />
               )}
 
@@ -2447,6 +2448,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   votingCandidates={votingCandidates}
                   votingPlayersInfo={votingPlayersInfo}
                   pollData={phasePollData}
+                  roomId={roomId}
                 />
               )}
 

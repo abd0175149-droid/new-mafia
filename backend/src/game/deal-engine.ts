@@ -27,10 +27,23 @@ export async function createDeal(
   if (!initiator) throw new Error(`Initiator #${initiatorPhysicalId} is not alive`);
   if (!target) throw new Error(`Target #${targetPhysicalId} is not alive`);
 
-  // التحقق: المستهدف ليس مستهدفاً في اتفاقية أخرى
+  // ── قواعد جديدة للحد من الاتفاقيات ──
+  
+  // 1. الحد الأقصى 3 اتفاقيات في الجولة
+  if (state.votingState.deals.length >= 3) {
+    throw new Error('تم الوصول للحد الأقصى للاتفاقيات في هذه الجولة (3 اتفاقيات كحد أقصى)');
+  }
+
+  // 2. لا يمكن لنفس اللاعب بدء أكثر من اتفاقية واحدة
+  const hasAlreadyInitiated = state.votingState.deals.some(d => d.initiatorPhysicalId === initiatorPhysicalId);
+  if (hasAlreadyInitiated) {
+    throw new Error('لا يمكنك إنشاء أكثر من اتفاقية واحدة في هذه الجولة');
+  }
+
+  // 3. التحقق: المستهدف ليس مستهدفاً في اتفاقية أخرى (القبول للأسرع)
   const isAlreadyTargeted = state.votingState.deals.some(d => d.targetPhysicalId === targetPhysicalId);
   if (isAlreadyTargeted) {
-    throw new Error(`Player #${targetPhysicalId} is already targeted in another deal`);
+    throw new Error(`اللاعب #${targetPhysicalId} مستهدف بالفعل في اتفاقية أخرى`);
   }
 
   // إنشاء الاتفاقية المُجهزة

@@ -20,15 +20,22 @@ interface PlayerPhaseViewProps {
     winner?: string | null;
     allPlayers?: any[];
     pendingResolution?: any;
+    deals?: any[];
   } | null;
+  roomId?: string;
 }
 
 export default function PlayerPhaseView({
   gamePhase, physicalId, assignedRole, isPlayerDead, on, emit,
-  myVote, votingCandidates, votingPlayersInfo, pollData
+  myVote, votingCandidates, votingPlayersInfo, pollData, roomId
 }: PlayerPhaseViewProps) {
   // ── حالة النقاش ──
   const [discussionState, setDiscussionState] = useState<any>(null);
+  // ── حالة الاتفاقيات (Deals) ──
+  const [deals, setDeals] = useState<any[]>([]);
+  const [selectedTargetId, setSelectedTargetId] = useState<number | ''>('');
+  const [dealError, setDealError] = useState('');
+  const [dealSubmitting, setDealSubmitting] = useState(false);
   // ── حالة التبرير ──
   const [justificationData, setJustificationData] = useState<any>(null);
   const [justTimer, setJustTimer] = useState<number | null>(null);
@@ -101,6 +108,14 @@ export default function PlayerPhaseView({
     }
     if (pollData.discussionState && !discussionState) {
       setDiscussionState(pollData.discussionState);
+      if (pollData.discussionState.deals) {
+        setDeals(pollData.discussionState.deals);
+      }
+    } else if (pollData.discussionState && pollData.discussionState.deals) {
+      setDeals(pollData.discussionState.deals);
+    }
+    if (pollData.deals) {
+      setDeals(pollData.deals);
     }
     if (pollData.winner && !gameWinner) {
       setGameWinner(pollData.winner);
@@ -288,6 +303,15 @@ export default function PlayerPhaseView({
       setNightStepInfo(data.roleName || null);
     });
 
+    // ── أحداث الاتفاقيات (Deals) ──
+    const cDealsCreated = on('day:deal-created', (data: { deals: any[] }) => {
+      setDeals(data.deals || []);
+    });
+
+    const cDealsRemoved = on('day:deal-removed', (data: { deals: any[] }) => {
+      setDeals(data.deals || []);
+    });
+
     // ── مسح عند تغيير المرحلة ──
     const c13 = on('game:phase-changed', (data: any) => {
       const p = data?.phase;
@@ -299,6 +323,11 @@ export default function PlayerPhaseView({
         setHasWithdrawn(false);
         setWithdrawalCount(0);
         setWithdrawalNeeded(0);
+        // تصفير واجهة الاتفاقيات للجولة الجديدة
+        setSelectedTargetId('');
+        setDealError('');
+        setDealSubmitting(false);
+        setDeals([]);
       }
       if (p === 'DAY_VOTING') {
         // تصفير كل شيء عند إعادة التصويت
@@ -316,6 +345,9 @@ export default function PlayerPhaseView({
         setEliminationData(null);
         setMorningEvents([]);
         setWithdrawalActive(false);
+        setDeals([]);
+        setSelectedTargetId('');
+        setDealError('');
       } else {
         setNightStepInfo(null);
       }
@@ -326,11 +358,14 @@ export default function PlayerPhaseView({
         setGameWinner(null);
         setAllPlayers([]);
         setDiscussionState(null);
+        setDeals([]);
+        setSelectedTargetId('');
+        setDealError('');
       }
     });
 
     return () => {
-      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14].forEach(c => c?.());
+      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,cDealsCreated,cDealsRemoved].forEach(c => c?.());
       if (justTimerRef.current) clearInterval(justTimerRef.current);
     };
   }, [on, physicalId]);
@@ -346,6 +381,29 @@ export default function PlayerPhaseView({
         if (res.needed !== undefined) setWithdrawalNeeded(res.needed);
       }
     } catch {}
+  };
+
+  // ── دالة إبرام الاتفاقية آلياً ──
+  const handleCreateDeal = async () => {
+    if (!selectedTargetId || !roomId || dealSubmitting) return;
+    setDealSubmitting(true);
+    setDealError('');
+    try {
+      const res = await emit('day:create-deal', {
+        roomId,
+        initiatorPhysicalId: myId,
+        targetPhysicalId: Number(selectedTargetId),
+      });
+      if (!res.success) {
+        setDealError(res.error || 'فشل إبرام الاتفاقية');
+      } else {
+        setSelectedTargetId('');
+      }
+    } catch (err: any) {
+      setDealError(err.message || 'خطأ في الاتصال بالخادم');
+    } finally {
+      setDealSubmitting(false);
+    }
   };
 
 
@@ -462,6 +520,106 @@ export default function PlayerPhaseView({
           </motion.div>
         ) : (
           <div className="text-center text-[#666] text-sm py-4 font-mono">بانتظار بدء النقاش...</div>
+        )}
+
+        {/* ── قسم الاتفاقيات التلقائية (Deals Section) ── */}
+        {!isPlayerDead && (
+          <div className="mx-2 mb-4 p-4 rounded-2xl bg-black/40 border border-[#C5A059]/20">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-[#C5A059] font-bold">🤝 الاتفاقيات الثنائية</span>
+              <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
+                {deals.length} / 3
+              </span>
+            </div>
+
+            {/* حالة اللاعب الخاصة بالاتفاقية */}
+            {(() => {
+              const myDeal = deals.find(d => d.initiatorPhysicalId === myId);
+              if (myDeal) {
+                const targetPlayer = votingPlayersInfo.find(p => p.physicalId === myDeal.targetPhysicalId);
+                return (
+                  <div className="space-y-3">
+                    <div className="p-3.5 rounded-xl bg-green-500/10 border border-green-500/30 text-center">
+                      <p className="text-green-400 text-sm font-bold">🤝 تم إبرام اتفاقيتك بنجاح!</p>
+                      <p className="text-[#999] text-xs mt-1">
+                        أنت شريك الآن مع: <strong className="text-white">
+                          {targetPlayer?.name || `لاعب #${myDeal.targetPhysicalId}`}
+                        </strong>
+                      </p>
+                    </div>
+                    {/* تحذير المخاطرة */}
+                    <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center text-red-400 text-[11px] font-bold leading-relaxed">
+                      ⚠️ مخاطرة: في حال تم إقصاء شريكك في الاتفاقية وكان مواطناً، فسيتم إقصاؤك معه تلقائياً!
+                    </div>
+                  </div>
+                );
+              }
+
+              // إذا تم الوصول للحد الأقصى
+              if (deals.length >= 3) {
+                return (
+                  <div className="p-4 rounded-xl bg-[#C5A059]/5 border border-[#C5A059]/10 text-center">
+                    <p className="text-[#C5A059] text-xs font-bold">
+                      🔒 تم الوصول للحد الأقصى للاتفاقيات في هذه الجولة (3/3)
+                    </p>
+                    <p className="text-[#666] text-[10px] mt-1">لا يمكن إرسال اتفاقيات جديدة حالياً</p>
+                  </div>
+                );
+              }
+
+              // نموذج إرسال اتفاقية جديدة
+              const eligibleTargets = votingPlayersInfo.filter(p => p.physicalId !== myId);
+              
+              return (
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedTargetId}
+                      onChange={(e) => {
+                        setSelectedTargetId(e.target.value ? Number(e.target.value) : '');
+                        setDealError('');
+                      }}
+                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#C5A059] transition-colors"
+                      disabled={dealSubmitting}
+                    >
+                      <option value="" className="bg-[#111] text-[#666]">-- اختر لاعباً لإبرام اتفاقية معه --</option>
+                      {eligibleTargets.map(p => {
+                        const isTargeted = deals.some(d => d.targetPhysicalId === p.physicalId);
+                        return (
+                          <option
+                            key={p.physicalId}
+                            value={p.physicalId}
+                            disabled={isTargeted}
+                            className="bg-[#111] text-white disabled:text-[#444]"
+                          >
+                            لاعب #{p.physicalId} - {p.name} {isTargeted ? ' (مستهدف 🔒)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    <button
+                      onClick={handleCreateDeal}
+                      disabled={!selectedTargetId || dealSubmitting}
+                      className="bg-gradient-to-r from-[#C5A059] to-[#b38e4b] hover:from-[#d6ae61] hover:to-[#c5a059] text-black font-bold px-4 py-2.5 rounded-xl text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[#C5A059]/10 flex items-center justify-center gap-1.5"
+                    >
+                      {dealSubmitting ? (
+                        <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                      ) : (
+                        'إبرام ديل 🤝'
+                      )}
+                    </button>
+                  </div>
+
+                  {dealError && (
+                    <p className="text-red-400 text-xs text-center font-bold bg-red-500/10 border border-red-500/20 py-2 rounded-xl">
+                      ❌ {dealError}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         )}
 
         {/* قائمة ترتيب النقاش */}

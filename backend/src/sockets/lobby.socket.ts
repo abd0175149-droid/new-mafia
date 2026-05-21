@@ -1797,7 +1797,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // حالة سحب الأصوات
         withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
         // حالة النقاش
-        discussionState: state.phase === 'DAY_DISCUSSION' ? state.discussionState || null : null,
+        discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [] } : null,
         // ── بيانات مرحلة الليل (لاستعادة شاشة الإجراء عند refresh) ──
         nightState: state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? {
           nightStep: state.nightStep,

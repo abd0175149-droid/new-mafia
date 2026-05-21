@@ -229,8 +229,27 @@ export function registerDayEvents(io: Server, socket: Socket) {
     targetPhysicalId: number;
   }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader' });
+      const isLeader = socket.data.role === 'leader';
+      const isPlayer = socket.data.role === 'player';
+
+      if (!isLeader && !isPlayer) {
+        return callback({ success: false, error: 'غير مصرح لك بإجراء هذه العملية' });
+      }
+
+      // إذا كان لاعباً، يجب التحقق من شروط مرحلة النقاش وصلاحية الهوية
+      if (isPlayer) {
+        const state = await getRoom(data.roomId);
+        if (!state) {
+          return callback({ success: false, error: 'لم يتم العثور على الغرفة' });
+        }
+
+        if (state.phase !== Phase.DAY_DISCUSSION) {
+          return callback({ success: false, error: 'يمكن إبرام الاتفاقيات أثناء مرحلة النقاش فقط' });
+        }
+
+        if (socket.data.physicalId !== data.initiatorPhysicalId) {
+          return callback({ success: false, error: 'لا يمكنك إبرام اتفاقية بالنيابة عن لاعب آخر' });
+        }
       }
 
       const state = await createDeal(data.roomId, data.initiatorPhysicalId, data.targetPhysicalId);

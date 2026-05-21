@@ -130,6 +130,32 @@ export function useGameState() {
           } as any;
         });
       }),
+
+      on('day:deal-created', (data: { deals: any[] }) => {
+        setGameState(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            votingState: {
+              ...prev.votingState,
+              deals: data.deals,
+            },
+          };
+        });
+      }),
+
+      on('day:deal-removed', (data: { deals: any[] }) => {
+        setGameState(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            votingState: {
+              ...prev.votingState,
+              deals: data.deals,
+            },
+          };
+        });
+      }),
     ];
 
     return () => {
