@@ -38,7 +38,7 @@ export default function PlayerPhaseView({
   const [dealError, setDealError] = useState('');
   const [dealSubmitting, setDealSubmitting] = useState(false);
   // ── حالة التبرير ──
-  const [justificationData, setJustificationData] = useState<any>(null);
+  const [justificationData, setJustificationData] = useState<any>(pollData?.justificationData || null);
   const [justTimer, setJustTimer] = useState<number | null>(null);
   const justTimerRef = useRef<any>(null);
   // ── حالة الإقصاء ──
@@ -222,13 +222,19 @@ export default function PlayerPhaseView({
       const elapsed = Math.floor((Date.now() - (data.startTime || Date.now())) / 1000);
       const remaining = Math.max(0, limit - elapsed);
       setJustTimer(remaining);
-      setJustificationData((prev: any) => prev ? { ...prev, timerFinished: false } : { timerFinished: false });
+      setJustificationData((prev: any) => {
+        const current = prev || pollData?.justificationData || {};
+        return { ...current, timerFinished: false };
+      });
       
       justTimerRef.current = setInterval(() => {
         setJustTimer(prev => {
           if (prev === null || prev <= 1) {
             clearInterval(justTimerRef.current);
-            setJustificationData((p: any) => p ? { ...p, timerFinished: true } : { timerFinished: true });
+            setJustificationData((p: any) => {
+              const current = p || pollData?.justificationData || {};
+              return { ...current, timerFinished: true };
+            });
             return 0;
           }
           return prev - 1;
@@ -239,7 +245,10 @@ export default function PlayerPhaseView({
     const c4 = on('day:justification-timer-stopped', () => {
       if (justTimerRef.current) clearInterval(justTimerRef.current);
       setJustTimer(null);
-      setJustificationData((prev: any) => prev ? { ...prev, timerFinished: true } : { timerFinished: true });
+      setJustificationData((prev: any) => {
+        const current = prev || pollData?.justificationData || {};
+        return { ...current, timerFinished: true };
+      });
     });
 
     // ── التعادل ──
