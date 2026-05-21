@@ -63,7 +63,46 @@ export default function PlayerPhaseView({
   const [discCountdown, setDiscCountdown] = useState<number | null>(null);
   const discTimerRef = useRef<any>(null);
   const prevSpeakerRef = useRef<number | null>(null);
-  const myId = parseInt(physicalId);
+
+  // ── مرونة كاملة في جلب وتحديث physicalId لتجنب الـ Closure Trap والـ NaN ──
+  const physicalIdRef = useRef(physicalId);
+  const roomIdRef = useRef(roomId);
+  const emitRef = useRef(emit);
+
+  useEffect(() => {
+    physicalIdRef.current = physicalId;
+  }, [physicalId]);
+
+  useEffect(() => {
+    roomIdRef.current = roomId;
+  }, [roomId]);
+
+  useEffect(() => {
+    emitRef.current = emit;
+  }, [emit]);
+
+  const getLatestMyId = () => {
+    let pid = physicalId;
+    if (!pid || isNaN(parseInt(pid))) {
+      pid = physicalIdRef.current;
+    }
+    if (!pid || isNaN(parseInt(pid))) {
+      try {
+        const session = JSON.parse(localStorage.getItem('mafia_session') || '{}');
+        if (session.physicalId) pid = String(session.physicalId);
+      } catch {}
+    }
+    if (!pid || isNaN(parseInt(pid))) {
+      try {
+        const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
+        if (info.physicalId) pid = String(info.physicalId);
+      } catch {}
+    }
+    const parsed = parseInt(pid);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const myId = getLatestMyId();
 
   // ── مزامنة pollData لتجنب Closure Trap ──
   const pollDataRef = useRef<any>(pollData);
@@ -73,34 +112,50 @@ export default function PlayerPhaseView({
 
   // ── جلب الحالة الكاملة لحظياً لتفادي الـ Race Condition ──
   const fetchLatestState = async () => {
-    if (!emit || !roomId) return;
+    const activeEmit = emit || emitRef.current;
+    const activeRoomId = roomId || roomIdRef.current;
+    if (!activeEmit || !activeRoomId) return;
     try {
       let savedPlayerId: number | undefined = undefined;
       const pidStr = localStorage.getItem('mafia_playerId');
-      if (pidStr && parseInt(pidStr)) savedPlayerId = parseInt(pidStr);
+      if (pidStr && parseInt(pidStr)) {
+        savedPlayerId = parseInt(pidStr);
+      } else {
+        try {
+          const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
+          if (auth.playerId) savedPlayerId = Number(auth.playerId);
+        } catch {}
+        if (!savedPlayerId) {
+          try {
+            const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
+            if (info.playerId) savedPlayerId = Number(info.playerId);
+          } catch {}
+        }
+      }
 
       let savedPhone: string | undefined = undefined;
       try {
         const info = JSON.parse(localStorage.getItem('mafia_player_info') || '{}');
-        if (info.phone) savedPhone = info.phone;
+        if (info.phone) savedPhone = String(info.phone);
       } catch {}
       if (!savedPhone) {
         try {
           const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
-          if (auth.phone) savedPhone = auth.phone;
+          if (auth.phone) savedPhone = String(auth.phone);
         } catch {}
       }
       if (!savedPhone) {
         try {
           const session = JSON.parse(localStorage.getItem('mafia_session') || '{}');
-          if (session.phone) savedPhone = session.phone;
+          if (session.phone) savedPhone = String(session.phone);
         } catch {}
       }
 
       const normalizedPhone = savedPhone ? (savedPhone.startsWith('0') ? savedPhone : '0' + savedPhone) : undefined;
+      const currentMyId = getLatestMyId();
 
-      const res = await emit('room:get-my-state', {
-        roomId,
+      const res = await activeEmit('room:get-my-state', {
+        roomId: activeRoomId,
         playerId: savedPlayerId,
         phone: normalizedPhone,
       });
@@ -113,7 +168,7 @@ export default function PlayerPhaseView({
           setWithdrawalActive(true);
           setWithdrawalCount(res.withdrawalState.count || 0);
           setWithdrawalNeeded(res.withdrawalState.needed || 0);
-          if (res.withdrawalState.withdrawn?.some((id: any) => String(id) === String(myId))) {
+          if (res.withdrawalState.withdrawn?.some((id: any) => String(id) === String(currentMyId))) {
             setHasWithdrawn(true);
           } else {
             setHasWithdrawn(false);
@@ -131,16 +186,22 @@ export default function PlayerPhaseView({
     }
   };
 
-  // جلب فوري عند تحميل المكون
+  // جلب فوري عند تحميل المكون أو توفر المعرفات
   useEffect(() => {
-    fetchLatestState();
-  }, []);
+    if (roomId && emit) {
+      fetchLatestState();
+    }
+  }, [roomId, emit]);
 
   // ── استعادة البيانات من الـ polling عند reconnect ──
   useEffect(() => {
     if (!pollData) return;
     if (pollData.justificationData) {
-      setJustificationData(pollData.justificationData);
+      setJustificationData((prev: any) => ({
+        ...prev,
+        ...pollData.justificationData,
+        timerFinished: prev?.timerFinished || pollData.justificationData.timerFinished
+      }));
       
       // استعادة تايمر التبرير إذا كان يعمل
       if (pollData.justificationData.timer && justTimer === null) {
@@ -171,17 +232,21 @@ export default function PlayerPhaseView({
       setWithdrawalActive(true);
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
-      const myId = parseInt(physicalId);
+      const myId = getLatestMyId();
       if (pollData.withdrawalState.withdrawn?.some((id: any) => String(id) === String(myId))) {
         setHasWithdrawn(true);
       } else {
         setHasWithdrawn(false);
       }
     } else {
-      setWithdrawalActive(false);
-      setHasWithdrawn(false);
-      setWithdrawalCount(0);
-      setWithdrawalNeeded(0);
+      // لمنع البولينج من تصفير وإخفاء حالة السحب الحية التي تصل عبر السوكيت
+      // نقوم بالتصفير فقط إذا لم نعد في مرحلة التبرير
+      if (gamePhase !== 'DAY_JUSTIFICATION') {
+        setWithdrawalActive(false);
+        setHasWithdrawn(false);
+        setWithdrawalCount(0);
+        setWithdrawalNeeded(0);
+      }
     }
     if (pollData.discussionState && !discussionState) {
       setDiscussionState(pollData.discussionState);
@@ -234,9 +299,13 @@ export default function PlayerPhaseView({
   useEffect(() => {
     const currentSpeakerId = discussionState?.currentSpeakerId;
     if (currentSpeakerId === myId && prevSpeakerRef.current !== myId) {
-      // محاولة الاهتزاز (أندرويد فقط — iOS لا يدعم vibrate)
-      if (navigator.vibrate) {
-        navigator.vibrate([200, 100, 200, 100, 300]);
+      // محاولة الاهتزاز مع تفادي حظر المتصفح (try/catch)
+      try {
+        if (navigator.vibrate) {
+          navigator.vibrate([200, 100, 200, 100, 300]);
+        }
+      } catch (e) {
+        console.warn('Vibration blocked by browser policies:', e);
       }
       // تنبيه صوتي قصير (يعمل على iOS + أندرويد)
       try {
@@ -341,9 +410,13 @@ export default function PlayerPhaseView({
         setEliminationData(data);
         setEliminationRevealed(true);
         // تحقق هل أنا المُقصى
-        const myId = parseInt(physicalId);
+        const myId = getLatestMyId();
         if (data.eliminated?.includes(myId)) {
-          if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          try {
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+          } catch (e) {
+            console.warn('Vibration blocked by browser policies:', e);
+          }
         }
       }
     });
@@ -379,9 +452,11 @@ export default function PlayerPhaseView({
       setWithdrawalCount(data?.count || 0);
       setWithdrawalNeeded(data?.needed || 0);
       // تحقق هل أنا ضمن الذين سحبوا
-      const myId = parseInt(physicalId);
+      const myId = getLatestMyId();
       if (data?.withdrawn?.some((id: any) => String(id) === String(myId))) {
         setHasWithdrawn(true);
+      } else {
+        setHasWithdrawn(false);
       }
     });
 
@@ -459,13 +534,13 @@ export default function PlayerPhaseView({
       [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,cDealsCreated,cDealsRemoved].forEach(c => c?.());
       if (justTimerRef.current) clearInterval(justTimerRef.current);
     };
-  }, [on, physicalId]);
+  }, [on, physicalId, roomId, emit]);
 
   // ── دالة سحب الصوت ──
   const handleWithdraw = async () => {
     if (!emit || hasWithdrawn) return;
     try {
-      const res = await emit('player:withdraw-vote', { physicalId: parseInt(physicalId) });
+      const res = await emit('player:withdraw-vote', { physicalId: getLatestMyId() });
       if (res?.success) {
         setHasWithdrawn(true);
         if (res.count !== undefined) setWithdrawalCount(res.count);
