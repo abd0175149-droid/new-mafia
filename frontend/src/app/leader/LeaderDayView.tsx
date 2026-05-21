@@ -1208,7 +1208,34 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           </div>
         </div>
 
-        <div className="text-center mt-12 flex flex-col items-center">
+        <div className="text-center mt-12 flex flex-col items-center gap-6">
+          {/* اختيار مدة التصويت */}
+          <div className="flex gap-2 items-center">
+            <p className="text-sm text-[#808080] font-mono mr-2">VOTING TIME:</p>
+            <button
+              onClick={() => setVotingDuration(null)}
+              className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
+                votingDuration === null
+                  ? 'bg-[#C5A059] text-black'
+                  : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
+              }`}
+            >
+              بدون
+            </button>
+            {[10, 20, 30].map(d => (
+              <button
+                key={d}
+                onClick={() => setVotingDuration(d)}
+                className={`px-4 py-2 rounded-sm text-sm font-bold font-mono transition-colors ${
+                  votingDuration === d
+                    ? 'bg-[#C5A059] text-black'
+                    : 'bg-[#111] border border-[#2a2a2a] text-[#808080] hover:border-[#C5A059]'
+                }`}
+              >
+                {d}s
+              </button>
+            ))}
+          </div>
           <button onClick={handleStartVoting} className="btn-premium px-12 py-4 w-full max-w-md">
             <span className="text-white">LOCK DEALS & COMMENCE VOTING</span>
           </button>
