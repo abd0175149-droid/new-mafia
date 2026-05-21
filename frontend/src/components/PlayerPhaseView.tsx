@@ -68,7 +68,7 @@ export default function PlayerPhaseView({
   // ── استعادة البيانات من الـ polling عند reconnect ──
   useEffect(() => {
     if (!pollData) return;
-    if (pollData.justificationData && !justificationData) {
+    if (pollData.justificationData) {
       setJustificationData(pollData.justificationData);
       
       // استعادة تايمر التبرير إذا كان يعمل
@@ -101,11 +101,16 @@ export default function PlayerPhaseView({
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
       const myId = parseInt(physicalId);
-      if (pollData.withdrawalState.withdrawn?.includes(myId)) {
+      if (pollData.withdrawalState.withdrawn?.some((id: any) => String(id) === String(myId))) {
         setHasWithdrawn(true);
       } else {
         setHasWithdrawn(false);
       }
+    } else {
+      setWithdrawalActive(false);
+      setHasWithdrawn(false);
+      setWithdrawalCount(0);
+      setWithdrawalNeeded(0);
     }
     if (pollData.discussionState && !discussionState) {
       setDiscussionState(pollData.discussionState);
@@ -217,11 +222,13 @@ export default function PlayerPhaseView({
       const elapsed = Math.floor((Date.now() - (data.startTime || Date.now())) / 1000);
       const remaining = Math.max(0, limit - elapsed);
       setJustTimer(remaining);
+      setJustificationData((prev: any) => prev ? { ...prev, timerFinished: false } : { timerFinished: false });
       
       justTimerRef.current = setInterval(() => {
         setJustTimer(prev => {
           if (prev === null || prev <= 1) {
             clearInterval(justTimerRef.current);
+            setJustificationData((p: any) => p ? { ...p, timerFinished: true } : { timerFinished: true });
             return 0;
           }
           return prev - 1;
@@ -232,6 +239,7 @@ export default function PlayerPhaseView({
     const c4 = on('day:justification-timer-stopped', () => {
       if (justTimerRef.current) clearInterval(justTimerRef.current);
       setJustTimer(null);
+      setJustificationData((prev: any) => prev ? { ...prev, timerFinished: true } : { timerFinished: true });
     });
 
     // ── التعادل ──
@@ -290,7 +298,7 @@ export default function PlayerPhaseView({
       setWithdrawalNeeded(data?.needed || 0);
       // تحقق هل أنا ضمن الذين سحبوا
       const myId = parseInt(physicalId);
-      if (data?.withdrawn?.includes(myId)) {
+      if (data?.withdrawn?.some((id: any) => String(id) === String(myId))) {
         setHasWithdrawn(true);
       }
     });
@@ -670,8 +678,8 @@ export default function PlayerPhaseView({
   if (gamePhase === 'DAY_JUSTIFICATION') {
     const accused = justificationData?.accused || [];
     const topVotes = justificationData?.topVotes || 0;
-    // هل أنا صوّتت على أحد المتهمين؟ (نستخدم votersForAccused من الباك مباشرة)
-    const iVotedForAccused = justificationData?.votersForAccused?.includes(myId) || false;
+    // هل أنا صوّتت على أحد المتهمين؟ (نستخدم votersForAccused من الباك مباشرة مع حماية من تباين الأنواع)
+    const iVotedForAccused = justificationData?.votersForAccused?.some((id: any) => String(id) === String(myId)) || false;
     // حساب العداد الفعلي — من الباك إن وُجد، وإلا من votersForAccused
     const totalVoters = justificationData?.votersForAccused?.length || 0;
     const effectiveNeeded = withdrawalNeeded || Math.ceil(totalVoters / 2);
