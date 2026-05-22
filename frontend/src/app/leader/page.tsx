@@ -870,11 +870,28 @@ export default function LeaderPage() {
       setGameTimerData(data.gameTimer);
     });
 
+    // ── تحديث العقوبات فوراً عند تسجيلها ──
+    const offPenaltyRecorded = on('game:penalty-recorded', (data: any) => {
+      if (!data?.physicalId) return;
+      setGameState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          players: prev.players.map((p: any) =>
+            p.physicalId === data.physicalId
+              ? { ...p, penalties: data.penalties, isAlive: data.isKicked ? false : p.isAlive, penaltyKicked: data.isKicked || false }
+              : p
+          ),
+        } as any;
+      });
+    });
+
     // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──
     const offStateUpdated = on('game:state-updated', (state: any) => {
       if (!state) return;
       setGameState(prev => prev ? {
         ...prev,
+        players: state.players || prev.players,
         nightActions: state.nightActions || (prev as any).nightActions,
         nightStep: state.nightStep || prev.nightStep,
         playerNightActions: state.playerNightActions || (prev as any).playerNightActions,
@@ -915,6 +932,7 @@ export default function LeaderPage() {
       offWithdrawalResult();
       offTimerExpired();
       offTimerAdjusted();
+      offPenaltyRecorded();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);
