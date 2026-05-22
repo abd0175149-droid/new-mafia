@@ -3417,7 +3417,12 @@ export default function LeaderPage() {
         </AnimatePresence>
 
         {/* ── مودال تصفير/إبقاء العقوبات عند بدء لعبة جديدة ── */}
-        {pendingNewGameAction && gameState && (
+        {(() => {
+          if (!pendingNewGameAction || !gameState) return null;
+          const gs = gameState;
+          const penalizedPlayers = gs.players.filter((p: any) => (p.penalties || 0) > 0 && !(pendingNewGameAction.excludePlayerIds || []).includes(p.physicalId));
+          const maxPen = (gs.config as any).maxPenalties || 3;
+          return (
           <div className="fixed inset-0 z-[999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#0a0a0a] border border-[#C5A059]/30 rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl relative overflow-hidden">
               {/* Top accent */}
@@ -3433,13 +3438,11 @@ export default function LeaderPage() {
               
               {/* العقوبات الحالية — عرض سريع */}
               <div className="bg-[#111] border border-[#1a1a1a] rounded-xl p-3 mb-6">
-                {gameState.players
-                  .filter((p: any) => (p.penalties || 0) > 0 && !(pendingNewGameAction.excludePlayerIds || []).includes(p.physicalId))
-                  .map((p: any) => (
+                {penalizedPlayers.map((p: any) => (
                     <div key={p.physicalId} className="flex items-center justify-between py-1.5 border-b border-[#1a1a1a] last:border-0">
                       <span className="text-white text-xs font-mono">#{p.physicalId} {p.name}</span>
                       <div className="flex gap-1">
-                        {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_: any, i: number) => (
+                        {Array.from({ length: maxPen }).map((_: any, i: number) => (
                           <span key={i} className={`w-2 h-2 rounded-full ${i < (p.penalties || 0) ? 'bg-red-600 shadow-[0_0_4px_#dc2626]' : 'bg-neutral-800'}`} />
                         ))}
                       </div>
@@ -3456,17 +3459,17 @@ export default function LeaderPage() {
                     try {
                       if (action.type === 'new-game-start') {
                         if (action.excludePlayerIds && action.excludePlayerIds.length > 0) {
-                          const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: false });
+                          const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: false });
                           if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                         }
-                        await emit('room:start-generation', { roomId: gameState.roomId });
+                        await emit('room:start-generation', { roomId: gs.roomId });
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
                       } else if (action.type === 'new-game-return') {
-                        const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: false });
+                        const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: false });
                         if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
                       } else {
-                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties: false });
+                        const res = await emit('room:reset-to-lobby', { roomId: gs.roomId, resetPenalties: false });
                         if (res.success) setGameState((prev: any) => prev ? { ...prev, phase: 'LOBBY', winner: undefined, rolesPool: [], votingState: undefined, discussionState: undefined, players: (res.players || prev.players).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })) } : prev);
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
                       }
@@ -3486,17 +3489,17 @@ export default function LeaderPage() {
                     try {
                       if (action.type === 'new-game-start') {
                         if (action.excludePlayerIds && action.excludePlayerIds.length > 0) {
-                          const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: true });
+                          const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: true });
                           if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                         }
-                        await emit('room:start-generation', { roomId: gameState.roomId });
+                        await emit('room:start-generation', { roomId: gs.roomId });
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
                       } else if (action.type === 'new-game-return') {
-                        const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: true });
+                        const res = await emit('room:new-game', { roomId: gs.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: true });
                         if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
                       } else {
-                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties: true });
+                        const res = await emit('room:reset-to-lobby', { roomId: gs.roomId, resetPenalties: true });
                         if (res.success) setGameState((prev: any) => prev ? { ...prev, phase: 'LOBBY', winner: undefined, rolesPool: [], votingState: undefined, discussionState: undefined, players: (res.players || prev.players).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })) } : prev);
                         setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
                       }
@@ -3518,7 +3521,8 @@ export default function LeaderPage() {
               </div>
             </div>
           </div>
-        )}
+        );
+        })()}
 
         {/* أزرار التنقل */}
         <div className="flex items-center justify-center gap-6 mt-12 mb-8">
