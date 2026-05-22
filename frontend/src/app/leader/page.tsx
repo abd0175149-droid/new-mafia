@@ -1824,20 +1824,24 @@ export default function LeaderPage() {
                     setError('يجب إضافة 6 لاعبين على الأقل');
                     return;
                   }
-                  // التحقق من وجود عقوبات فعلية — فقط في وضع الروم يسأل المستخدم
-                  const currentScope = (gameState.config as any)?.penaltyScope || 'room';
-                  const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
-                  if (hasActivePenalties && currentScope === 'room') {
-                    setPendingNewGameAction({ type: 'new-game-start', excludePlayerIds: excludedPlayers.length > 0 ? [...excludedPlayers] : undefined });
-                    return;
-                  }
                   try {
-                    // إذا عندنا مستبعدين → نعمل new-game لحذفهم أولاً
+                    const currentScope = (gameState.config as any)?.penaltyScope || 'room';
+                    const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
+                    
+                    let resetPenalties = true;
+                    if (hasActivePenalties && currentScope === 'room') {
+                      resetPenalties = window.confirm(
+                        '⚖️ يوجد لاعبون عليهم عقوبات من الجيم السابق.\n\n' +
+                        '✅ موافق = تصفير العقوبات (بداية جديدة)\n' +
+                        '❌ إلغاء = إبقاء العقوبات (مستوى الروم)'
+                      );
+                    }
+
                     if (excludedPlayers.length > 0) {
                       const res = await emit('room:new-game', {
                         roomId: gameState.roomId,
                         excludePlayerIds: excludedPlayers,
-                        resetPenalties: true,
+                        resetPenalties,
                       });
                       if (res.success) {
                         setGameState((prev: any) => prev ? {
@@ -1850,13 +1854,13 @@ export default function LeaderPage() {
                         } : prev);
                       }
                     }
-                    // بدء توزيع الأدوار مباشرة
                     await emit('room:start-generation', { roomId: gameState.roomId });
                     setExcludedPlayers([]);
                     setShowExcludeUI(false);
                     setInSession(false);
                   } catch (err: any) {
-                    setError(err.message);
+                    console.error('❌ Start game error:', err);
+                    alert('خطأ: ' + (err.message || 'فشل بدء اللعبة'));
                   }
                 }}
                 disabled={gameState.players.length - excludedPlayers.length < 6}
@@ -2988,24 +2992,26 @@ export default function LeaderPage() {
                 {/* زر بدء لعبة جديدة (مع استبعاد) */}
                 <button
                   onClick={async () => {
-                    // التحقق من وجود عقوبات فعلية على اللاعبين (المستمرين) — فقط في وضع الروم
-                    const currentScope2 = (gameState.config as any)?.penaltyScope || 'room';
-                    const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
-                    if (hasActivePenalties && currentScope2 === 'room') {
-                      if (excludedPlayers.length > 0) {
-                        setPendingNewGameAction({ type: 'new-game-return', excludePlayerIds: [...excludedPlayers] });
-                      } else {
-                        setPendingNewGameAction({ type: 'reset-to-lobby' });
-                      }
-                      return;
-                    }
                     try {
-                      // إذا عندنا مستبعدين → نعمل new-game لحذفهم
+                      const currentScope2 = (gameState.config as any)?.penaltyScope || 'room';
+                      const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
+                      
+                      // تحديد هل نصفّر العقوبات
+                      let resetPenalties = true;
+                      if (hasActivePenalties && currentScope2 === 'room') {
+                        // سؤال الليدر: تصفير أو إبقاء؟
+                        resetPenalties = window.confirm(
+                          '⚖️ يوجد لاعبون عليهم عقوبات من الجيم السابق.\n\n' +
+                          '✅ موافق = تصفير العقوبات (بداية جديدة)\n' +
+                          '❌ إلغاء = إبقاء العقوبات (مستوى الروم)'
+                        );
+                      }
+
                       if (excludedPlayers.length > 0) {
                         const res = await emit('room:new-game', {
                           roomId: gameState.roomId,
                           excludePlayerIds: excludedPlayers,
-                          resetPenalties: true,
+                          resetPenalties,
                         });
                         if (res.success) {
                           setGameState((prev: any) => prev ? {
@@ -3018,8 +3024,7 @@ export default function LeaderPage() {
                           } : prev);
                         }
                       } else {
-                        // بدون استبعاد → العودة للوبي فقط
-                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties: true });
+                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties });
                         if (res.success) {
                           setGameState((prev: any) => prev ? {
                             ...prev,
@@ -3036,9 +3041,10 @@ export default function LeaderPage() {
                       }
                       setExcludedPlayers([]);
                       setShowExcludeUI(false);
-                      setInSession(true); // ← العودة لـ Session View (اللوبي الأصلي)
+                      setInSession(true);
                     } catch (err: any) {
-                      setError(err.message);
+                      console.error('❌ Return to room error:', err);
+                      alert('خطأ: ' + (err.message || 'فشل العودة للغرفة'));
                     }
                   }}
                   className="btn-premium !px-10 !py-4 !text-base tracking-widest uppercase"
