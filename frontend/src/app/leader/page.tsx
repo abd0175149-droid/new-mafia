@@ -119,6 +119,7 @@ export default function LeaderPage() {
   const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
   const [gameTimerRemaining, setGameTimerRemaining] = useState<number>(0);
   const lastTimerSoundRef = useRef<number>(0);
+  const [showTimerAdjust, setShowTimerAdjust] = useState(false);
 
   // Session mode — عرض صفحة الغرفة (Session) بدل اللعبة
   const [inSession, setInSession] = useState(false);
@@ -854,6 +855,11 @@ export default function LeaderPage() {
       setGameTimerRemaining(0);
     });
 
+    // ── مؤقت اللعبة: تم تعديل المدة ──
+    const offTimerAdjusted = on('game:timer-adjusted', (data: { gameTimer: any }) => {
+      setGameTimerData(data.gameTimer);
+    });
+
     // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──
     const offStateUpdated = on('game:state-updated', (state: any) => {
       if (!state) return;
@@ -898,6 +904,7 @@ export default function LeaderPage() {
       offWithdrawalUpdate();
       offWithdrawalResult();
       offTimerExpired();
+      offTimerAdjusted();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);
@@ -2404,38 +2411,97 @@ export default function LeaderPage() {
           {/* ── Main Content based on Phase ── */}
           {/* ⏱️ شريط مؤقت اللعبة */}
           {gameTimerData && !gameTimerData.expired && gameState.phase !== 'LOBBY' && gameState.phase !== 'GAME_OVER' && (
-            <div className={`mx-4 mt-2 mb-1 px-4 py-2 rounded-xl border flex items-center justify-between font-mono text-sm backdrop-blur-md transition-all ${
-              gameTimerRemaining <= 60 
-                ? 'bg-red-900/40 border-red-500/60 animate-pulse' 
-                : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 
-                  ? 'bg-red-900/20 border-red-500/30' 
-                  : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 
-                    ? 'bg-yellow-900/20 border-yellow-500/30' 
-                    : 'bg-black/40 border-[#2a2a2a]'
-            }`}>
-              <span className="text-[10px] tracking-widest uppercase text-[#808080]">⏱️ مؤقت اللعبة</span>
-              <span className={`font-bold text-lg tabular-nums ${
-                gameTimerRemaining <= 60 ? 'text-red-400' 
-                : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'text-red-300' 
-                : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'text-yellow-400' 
-                : 'text-[#C5A059]'
+            <div className="mx-4 mt-2 mb-1 relative">
+              <div className={`px-4 py-2 rounded-xl border flex items-center justify-between font-mono text-sm backdrop-blur-md transition-all ${
+                gameTimerRemaining <= 60 
+                  ? 'bg-red-900/40 border-red-500/60 animate-pulse' 
+                  : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 
+                    ? 'bg-red-900/20 border-red-500/30' 
+                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 
+                      ? 'bg-yellow-900/20 border-yellow-500/30' 
+                      : 'bg-black/40 border-[#2a2a2a]'
               }`}>
-                {Math.floor(gameTimerRemaining / 60).toString().padStart(2, '0')}:{Math.floor(gameTimerRemaining % 60).toString().padStart(2, '0')}
-              </span>
-              {/* شريط التقدم */}
-              <div className="w-32 h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all duration-1000 ${
-                    gameTimerRemaining <= 60 ? 'bg-red-500' 
-                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'bg-red-400' 
-                    : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'bg-yellow-500' 
-                    : 'bg-[#C5A059]'
-                  }`}
-                  style={{ width: `${Math.min(100, (gameTimerRemaining / gameTimerData.totalSeconds) * 100)}%` }}
-                />
+                <span className="text-[10px] tracking-widest uppercase text-[#808080]">⏱️ مؤقت اللعبة</span>
+                <span className={`font-bold text-lg tabular-nums ${
+                  gameTimerRemaining <= 60 ? 'text-red-400' 
+                  : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'text-red-300' 
+                  : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'text-yellow-400' 
+                  : 'text-[#C5A059]'
+                }`}>
+                  {Math.floor(gameTimerRemaining / 60).toString().padStart(2, '0')}:{Math.floor(gameTimerRemaining % 60).toString().padStart(2, '0')}
+                </span>
+                <div className="flex items-center gap-3">
+                  {/* شريط التقدم */}
+                  <div className="w-24 h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-1000 ${
+                        gameTimerRemaining <= 60 ? 'bg-red-500' 
+                        : gameTimerRemaining <= gameTimerData.totalSeconds * 0.25 ? 'bg-red-400' 
+                        : gameTimerRemaining <= gameTimerData.totalSeconds * 0.5 ? 'bg-yellow-500' 
+                        : 'bg-[#C5A059]'
+                      }`}
+                      style={{ width: `${Math.min(100, (gameTimerRemaining / gameTimerData.totalSeconds) * 100)}%` }}
+                    />
+                  </div>
+                  {/* زر الإعدادات */}
+                  <button
+                    onClick={() => setShowTimerAdjust(!showTimerAdjust)}
+                    className={`w-7 h-7 flex items-center justify-center rounded-lg border transition-all text-xs ${
+                      showTimerAdjust 
+                        ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059]' 
+                        : 'bg-[#111] border-[#333] text-[#808080] hover:border-[#C5A059] hover:text-[#C5A059]'
+                    }`}
+                  >
+                    ⚙️
+                  </button>
+                </div>
               </div>
+
+              {/* قائمة تعديل المدة */}
+              <AnimatePresence>
+                {showTimerAdjust && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scaleY: 0.8 }}
+                    animate={{ opacity: 1, y: 0, scaleY: 1 }}
+                    exit={{ opacity: 0, y: -8, scaleY: 0.8 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute top-full left-0 right-0 mt-1 z-40 bg-[#0a0a0a] border border-[#2a2a2a] rounded-xl p-3 backdrop-blur-xl shadow-2xl"
+                    style={{ transformOrigin: 'top center' }}
+                  >
+                    <p className="text-[9px] font-mono text-[#808080] tracking-widest uppercase text-center mb-2">تعديل مدة اللعبة</p>
+                    <div className="flex items-center justify-center gap-2">
+                      {[
+                        { label: '-10', delta: -10, color: 'text-red-400 border-red-500/40 hover:bg-red-500/10' },
+                        { label: '-5', delta: -5, color: 'text-red-300 border-red-400/30 hover:bg-red-400/10' },
+                        { label: '+5', delta: 5, color: 'text-green-400 border-green-500/30 hover:bg-green-500/10' },
+                        { label: '+10', delta: 10, color: 'text-green-300 border-green-400/30 hover:bg-green-400/10' },
+                      ].map(opt => (
+                        <button
+                          key={opt.delta}
+                          onClick={async () => {
+                            try {
+                              const res = await emit('game:adjust-game-timer', {
+                                roomId: gameState.roomId,
+                                deltaMinutes: opt.delta,
+                              });
+                              if (!res?.success) setError(res?.error || 'فشل تعديل المدة');
+                              setShowTimerAdjust(false);
+                            } catch (err: any) {
+                              setError(err.message);
+                            }
+                          }}
+                          className={`px-4 py-2 rounded-lg border font-mono text-sm font-bold transition-all ${opt.color}`}
+                        >
+                          {opt.label} د
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
+
           <div className="flex-1 overflow-y-auto p-4">
           {gameState.phase === 'LOBBY' && (
             <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} />

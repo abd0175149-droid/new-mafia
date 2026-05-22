@@ -122,3 +122,55 @@ export function restoreGameTimer(io: Server, roomId: string, gameTimer: { totalS
   gameTimerHandles.set(roomId, handle);
   console.log(`⏱️ Game timer restored for room ${roomId}: ${Math.round(remaining)}s remaining`);
 }
+
+/**
+ * يعدّل مدة اللعبة أثناء اللعب — يضيف أو يخصم دقائق
+ * يعيد ضبط setTimeout بالمدة الجديدة
+ * إذا المتبقي ≤ 0 → انتهاء فوري (فوز مافيا)
+ */
+export async function adjustGameTimer(
+  io: Server,
+  roomId: string,
+  deltaMinutes: number
+): Promise<{ success: boolean; newRemaining: number; error?: string }> {
+  const state = await getGameState(roomId);
+  if (!state) return { success: false, newRemaining: 0, error: 'Room not found' };
+  if (!state.gameTimer || state.gameTimer.expired) {
+    return { success: false, newRemaining: 0, error: 'No active game timer' };
+  }
+
+  // حساب المتبقي الفعلي
+  const currentRemaining = getRemainingSeconds(state.gameTimer);
+  const deltaSeconds = deltaMinutes * 60;
+  const newRemaining = Math.max(0, currentRemaining + deltaSeconds);
+
+  // تحديث بيانات المؤقت — إعادة ضبط نقطة الأصل
+  state.gameTimer.totalSeconds = newRemaining;
+  state.gameTimer.startedAt = Date.now();
+  await setGameState(roomId, state);
+
+  // إلغاء setTimeout القديم
+  clearGameTimer(roomId);
+
+  if (newRemaining <= 0) {
+    // الوقت انتهى فوراً
+    await expireGameByTimeout(io, roomId);
+    return { success: true, newRemaining: 0 };
+  }
+
+  // إنشاء setTimeout جديد بالمدة المتبقية الجديدة
+  const handle = setTimeout(async () => {
+    await expireGameByTimeout(io, roomId);
+  }, newRemaining * 1000);
+  gameTimerHandles.set(roomId, handle);
+
+  // بث التحديث لجميع العملاء
+  io.to(roomId).emit('game:timer-adjusted', {
+    gameTimer: state.gameTimer,
+    deltaMinutes,
+    newRemainingSeconds: newRemaining,
+  });
+
+  console.log(`⏱️ Game timer adjusted for room ${roomId}: ${deltaMinutes > 0 ? '+' : ''}${deltaMinutes} min → ${Math.round(newRemaining)}s remaining`);
+  return { success: true, newRemaining };
+}

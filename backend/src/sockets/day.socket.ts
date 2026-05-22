@@ -22,7 +22,7 @@ import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
-import { clearGameTimer } from '../game/game-timer.js';
+import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
 
@@ -530,6 +530,21 @@ export function registerDayEvents(io: Server, socket: Socket) {
       io.to(data.roomId).emit('day:justification-timer-started', timerData);
 
       callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── تعديل مؤقت اللعبة الكلي أثناء اللعب (Game Timer) ──────
+  socket.on('game:adjust-game-timer', async (data: {
+    roomId: string;
+    deltaMinutes: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+      
+      const result = await adjustGameTimer(io, data.roomId, data.deltaMinutes);
+      callback(result);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

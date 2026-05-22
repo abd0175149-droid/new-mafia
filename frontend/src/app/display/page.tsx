@@ -444,6 +444,10 @@ function DisplayPageContent() {
       setGameTimerRemaining(0);
     });
 
+    socket.on('game:timer-adjusted', (data: { gameTimer: any }) => {
+      setGameTimerData(data.gameTimer);
+    });
+
     socket.on('game:restarted', () => {
       setGameTimerData(null);
       setGameTimerRemaining(0);
@@ -513,6 +517,9 @@ function DisplayPageContent() {
       socket.off('day:justification-started', onStopVotingSound);
       socket.off('day:elimination-pending', onStopVotingSound);
       socket.off('day:tie', onStopVotingSound);
+      socket.off('game:timer-expired');
+      socket.off('game:timer-adjusted');
+      socket.off('game:restarted');
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
     };
   }, [step, currentRoomId]);
