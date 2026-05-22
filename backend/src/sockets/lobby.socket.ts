@@ -208,6 +208,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         data.displayPin,
         overrideCode,
         data.maxPenalties ?? 3,
+        data.penaltyScope || 'room',
       );
 
       let sessionId: number | null = null;
@@ -1542,6 +1543,47 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── تحديث إعدادات العقوبات ──────────────────
+  socket.on('room:update-penalty-settings', async (data: {
+    roomId: string;
+    maxPenalties?: number;
+    penaltyScope?: 'game' | 'room';
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER) {
+        return callback({ success: false, error: 'يمكن التعديل في اللوبي أو بعد انتهاء اللعبة فقط' });
+      }
+
+      if (data.maxPenalties !== undefined) {
+        state.config.maxPenalties = Math.min(Math.max(data.maxPenalties, 1), 10);
+      }
+      if (data.penaltyScope !== undefined) {
+        state.config.penaltyScope = data.penaltyScope;
+      }
+
+      await updateRoom(data.roomId, { config: state.config });
+
+      io.to(data.roomId).emit('room:config-updated', {
+        maxPenalties: state.config.maxPenalties,
+        penaltyScope: state.config.penaltyScope,
+      });
+
+      io.to(data.roomId).emit('game:state-updated', state);
+
+      callback({ success: true, maxPenalties: state.config.maxPenalties, penaltyScope: state.config.penaltyScope });
+      console.log(`⚖️ Leader updated penalty settings: maxPenalties=${state.config.maxPenalties}, scope=${state.config.penaltyScope}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── تحديث خيار تعارف المافيا ────────────────────────
   socket.on('room:update-mafia-reveal', async (data: {
     roomId: string;
@@ -2302,7 +2344,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── دالة مشتركة: إعادة تعيين حالة الغرفة للوبي ──
-  function resetRoomState(state: any, excludeIds: number[] = [], resetPenalties: boolean = true): any {
+  function resetRoomState(state: any, excludeIds: number[] = [], resetPenalties?: boolean): any {
+    // تحديد سلوك العقوبات: إذا لم يُحدد صراحة → يعتمد على penaltyScope
+    const shouldResetPenalties = resetPenalties !== undefined 
+      ? resetPenalties 
+      : (state.config?.penaltyScope === 'game'); // game = تصفير تلقائي / room = إبقاء
+
     // فلترة المستبعدين وإعادة تعيين الباقين
     const activePlayers = excludeIds.length > 0
       ? state.players.filter((p: any) => !excludeIds.includes(p.physicalId))
@@ -2314,7 +2361,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       isSilenced: false,
       role: null,
       justificationCount: 0,
-      penalties: resetPenalties ? 0 : (p.penalties || 0),
+      penalties: shouldResetPenalties ? 0 : (p.penalties || 0),
     }));
 
     state.phase = Phase.LOBBY;

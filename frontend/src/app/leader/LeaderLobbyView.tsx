@@ -821,6 +821,64 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
             })}
           </div>
         </div>
+
+        {/* ⚖️ Penalty Settings */}
+        <div className="flex flex-col items-center gap-2">
+          <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">⚖️ PENALTY SYSTEM</span>
+          
+          {/* Max Penalties */}
+          <div className="flex items-center gap-3 bg-[#050505] rounded-xl border border-[#2a2a2a] p-2 px-4">
+            <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">MAX</span>
+            <button
+              onClick={async () => {
+                const newVal = Math.max(1, (gameState.config.maxPenalties || 3) - 1);
+                await emit('room:update-penalty-settings', { roomId: gameState.roomId, maxPenalties: newVal });
+              }}
+              className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded font-mono text-lg"
+            >−</button>
+            <span className="text-xl font-mono text-[#C5A059] w-8 text-center font-bold">{gameState.config.maxPenalties || 3}</span>
+            <button
+              onClick={async () => {
+                const newVal = Math.min(10, (gameState.config.maxPenalties || 3) + 1);
+                await emit('room:update-penalty-settings', { roomId: gameState.roomId, maxPenalties: newVal });
+              }}
+              className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded font-mono text-lg"
+            >+</button>
+          </div>
+
+          {/* Penalty Scope Toggle */}
+          <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-64 mx-auto">
+            <button
+              onClick={async () => {
+                await emit('room:update-penalty-settings', { roomId: gameState.roomId, penaltyScope: 'room' });
+              }}
+              className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                (gameState.config as any).penaltyScope !== 'game'
+                  ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
+                  : 'text-[#666] hover:text-[#aaa]'
+              }`}
+            >
+              كامل الغرفة
+            </button>
+            <button
+              onClick={async () => {
+                await emit('room:update-penalty-settings', { roomId: gameState.roomId, penaltyScope: 'game' });
+              }}
+              className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                (gameState.config as any).penaltyScope === 'game'
+                  ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
+                  : 'text-[#666] hover:text-[#aaa]'
+              }`}
+            >
+              كل لعبة
+            </button>
+          </div>
+          <p className="text-[#555] text-[9px] font-mono text-center max-w-xs">
+            {(gameState.config as any).penaltyScope === 'game' 
+              ? 'العقوبات تُصفّر تلقائياً عند بدء لعبة جديدة'
+              : 'العقوبات تستمر طوال جلسة الغرفة (مع خيار التصفير)'}
+          </p>
+        </div>
       </div>
 
       {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة) ── */}

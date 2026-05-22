@@ -50,6 +50,7 @@ interface PlayerInfo {
   gender?: string;
   avatarUrl?: string | null;
   rankTier?: string;
+  penalties?: number;
 }
 
 // مؤثرات الفوز أصبحت مُدارة من soundManager
@@ -75,6 +76,7 @@ function DisplayPageContent() {
   const [playerCount, setPlayerCount] = useState(0);
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
+  const [displayMaxPenalties, setDisplayMaxPenalties] = useState(3);
   const [phase, setPhase] = useState<Phase>(Phase.LOBBY);
   const [winner, setWinner] = useState<string | null>(null);
   const [animation, setAnimation] = useState<any>(null);
@@ -225,9 +227,11 @@ function DisplayPageContent() {
           role: effectivePhase === 'LOBBY' ? null : (p.role || null),
           avatarUrl: p.avatarUrl || null,
           rankTier: p.rankTier || 'INFORMANT',
+          penalties: p.penalties || 0,
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
       }
+      if (state.config?.maxPenalties) setDisplayMaxPenalties(state.config.maxPenalties);
       // phaseOverride يتجاوز phase القديم في state
       if (phaseOverride) setPhase(phaseOverride as Phase);
       else if (state.phase) setPhase(state.phase as Phase);
@@ -407,6 +411,17 @@ function DisplayPageContent() {
 
     const onConfigUpdated = (data: any) => {
       if (data.maxPlayers) setMaxPlayers(data.maxPlayers);
+      if (data.maxPenalties) setDisplayMaxPenalties(data.maxPenalties);
+    };
+
+    // ── تحديث العقوبات في الوقت الفعلي ──
+    const onPenaltyRecorded = (data: any) => {
+      if (data.physicalId !== undefined && data.penalties !== undefined) {
+        setPlayers(prev => prev.map(p =>
+          p.physicalId === data.physicalId ? { ...p, penalties: data.penalties } : p
+        ));
+        if (data.maxPenalties) setDisplayMaxPenalties(data.maxPenalties);
+      }
     };
 
     const onAdminEliminated = (data: any) => {
@@ -492,6 +507,7 @@ function DisplayPageContent() {
     };
     socket.on('admin:show-reveal', onShowReveal);
     socket.on('admin:hide-reveal', onHideReveal);
+    socket.on('game:penalty-recorded', onPenaltyRecorded);
 
     // ── تنظيف ──
     return () => {
@@ -513,6 +529,7 @@ function DisplayPageContent() {
       socket.off('display:replay-hidden', onReplayHidden);
       socket.off('admin:show-reveal', onShowReveal);
       socket.off('admin:hide-reveal', onHideReveal);
+      socket.off('game:penalty-recorded', onPenaltyRecorded);
       socket.off('admin:sounds-updated');
       socket.off('day:justification-started', onStopVotingSound);
       socket.off('day:elimination-pending', onStopVotingSound);
@@ -1042,6 +1059,7 @@ function DisplayPageContent() {
                           initial={{ opacity: 0, scale: 0.9, y: 10 }}
                           animate={{ opacity: 1, scale: 1, y: 0 }}
                           transition={{ delay: i * 0.05 }}
+                          className="relative"
                         >
                           <MafiaCard
                             playerNumber={p.physicalId}
@@ -1056,6 +1074,19 @@ function DisplayPageContent() {
                             avatarUrl={p.avatarUrl}
                             rankTier={p.rankTier}
                           />
+                          {/* نقاط العقوبات */}
+                          {(p.penalties || 0) > 0 && (
+                            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm">
+                              {Array.from({ length: displayMaxPenalties }).map((_, idx) => (
+                                <span
+                                  key={idx}
+                                  className={`w-2 h-2 rounded-full ${
+                                    idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444] animate-pulse' : 'bg-zinc-700'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          )}
                         </motion.div>
                       ))}
                     </AnimatePresence>

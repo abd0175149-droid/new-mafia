@@ -200,9 +200,11 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                     </div>
 
                     <p className="text-zinc-400 text-xs leading-relaxed mb-6">
-                      سيتم خصم رتبة وتوجيه إنذار رسمي للاعب.
+                      هذه ستكون <span className="text-amber-400 font-bold">العقوبة رقم {currentPenalties + 1}</span> من أصل {maxPenalties}.
                       <br/>
-                      العقوبات الحالية بعد هذا الإجراء: <span className="text-red-400 font-bold">{currentPenalties + 1} من {maxPenalties}</span>.
+                      {currentPenalties + 1 < maxPenalties ? (
+                        <span>باقي <span className="text-amber-400 font-bold">{maxPenalties - currentPenalties - 1}</span> عقوبة للإقصاء.</span>
+                      ) : null}
                       {willBeKicked && (
                         <span className="block text-red-500 font-black text-sm mt-3 animate-pulse">
                           🚨 تحذير: سيتم طرد هذا اللاعب فوراً لتجاوزه الحد الأقصى للعقوبات!

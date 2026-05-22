@@ -81,6 +81,7 @@ export default function LeaderPage() {
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [maxJustifications, setMaxJustifications] = useState(2);
   const [maxPenalties, setMaxPenalties] = useState(3);
+  const [penaltyScope, setPenaltyScope] = useState<'game' | 'room'>('room');
   const [displayPin, setDisplayPin] = useState('');
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const [availableActivities, setAvailableActivities] = useState<any[]>([]);
@@ -288,7 +289,8 @@ export default function LeaderPage() {
                   gameName: roomData.sessionName,
                   maxPlayers: roomData.maxPlayers || 10,
                   maxJustifications: 2,
-                  maxPenalties: 3,
+                  maxPenalties: roomData.maxPenalties || 3,
+                  penaltyScope: roomData.penaltyScope || 'room',
                   displayPin: roomData.displayPin || undefined,
                   activityId: roomData.activityId || undefined,
                   existingSessionId: roomData.sessionId || undefined,
@@ -958,6 +960,7 @@ export default function LeaderPage() {
         maxPlayers,
         maxJustifications,
         maxPenalties,
+        penaltyScope,
         displayPin: displayPin || undefined,
         activityId: selectedActivityId || undefined,
         nightMode,
@@ -1821,9 +1824,10 @@ export default function LeaderPage() {
                     setError('يجب إضافة 6 لاعبين على الأقل');
                     return;
                   }
-                  // التحقق من وجود عقوبات فعلية
+                  // التحقق من وجود عقوبات فعلية — فقط في وضع الروم يسأل المستخدم
+                  const currentScope = (gameState.config as any)?.penaltyScope || 'room';
                   const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
-                  if (hasActivePenalties) {
+                  if (hasActivePenalties && currentScope === 'room') {
                     setPendingNewGameAction({ type: 'new-game-start', excludePlayerIds: excludedPlayers.length > 0 ? [...excludedPlayers] : undefined });
                     return;
                   }
@@ -2886,9 +2890,10 @@ export default function LeaderPage() {
                 {/* زر بدء لعبة جديدة (مع استبعاد) */}
                 <button
                   onClick={async () => {
-                    // التحقق من وجود عقوبات فعلية على اللاعبين (المستمرين)
+                    // التحقق من وجود عقوبات فعلية على اللاعبين (المستمرين) — فقط في وضع الروم
+                    const currentScope2 = (gameState.config as any)?.penaltyScope || 'room';
                     const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
-                    if (hasActivePenalties) {
+                    if (hasActivePenalties && currentScope2 === 'room') {
                       if (excludedPlayers.length > 0) {
                         setPendingNewGameAction({ type: 'new-game-return', excludePlayerIds: [...excludedPlayers] });
                       } else {
@@ -3108,6 +3113,33 @@ export default function LeaderPage() {
                 <button onClick={() => setMaxPenalties(Math.max(1, maxPenalties - 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">−</button>
                 <span className="text-xl font-mono text-white w-16 text-center border-b border-[#2a2a2a] pb-1">{maxPenalties}</span>
                 <button onClick={() => setMaxPenalties(Math.min(5, maxPenalties + 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">+</button>
+              </div>
+            </div>
+
+            {/* مستوى العقوبات */}
+            <div>
+              <label className="block text-[10px] font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Penalty Scope</label>
+              <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1 mx-auto max-w-xs">
+                <button
+                  onClick={() => setPenaltyScope('room')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${
+                    penaltyScope === 'room'
+                      ? 'bg-[#1a1a1a] text-[#C5A059] shadow-md border border-[#C5A059]/40'
+                      : 'text-[#666] hover:text-[#aaa]'
+                  }`}
+                >
+                  كامل الغرفة
+                </button>
+                <button
+                  onClick={() => setPenaltyScope('game')}
+                  className={`flex-1 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${
+                    penaltyScope === 'game'
+                      ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
+                      : 'text-[#666] hover:text-[#aaa]'
+                  }`}
+                >
+                  كل لعبة
+                </button>
               </div>
             </div>
           </div>

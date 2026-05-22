@@ -136,6 +136,7 @@ export interface GameConfig {
   gameTimerMinutes: number;      // مدة المؤقت بالدقائق (30, 60, 90)
   useDynamicEngine: boolean;     // 🧩 هل نستخدم المحرك الديناميكي (Data-Driven)
   maxPenalties?: number;         // أقصى عدد عقوبات مسموح به (الافتراضي 3)
+  penaltyScope?: 'game' | 'room'; // مستوى العقوبات: 'game' = تصفير كل لعبة / 'room' = تستمر طول الغرفة (الافتراضي 'room')
 }
 
 export interface GameState {
@@ -236,6 +237,7 @@ export async function createRoom(
   displayPin?: string,
   overrideCode?: string, // كود خارجي (من DB session) — لتوحيد الكود بين Redis و PostgreSQL
   maxPenalties: number = 3,
+  penaltyScope: 'game' | 'room' = 'room',
 ): Promise<GameState> {
   const roomId = uuidv4().substring(0, 8);
   const roomCode = overrideCode || generateRoomCode();
@@ -257,6 +259,7 @@ export async function createRoom(
       gameTimerMinutes: 30,
       useDynamicEngine: false,
       maxPenalties,
+      penaltyScope,
     },
     players: [],
     rolesPool: [],
