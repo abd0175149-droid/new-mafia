@@ -763,44 +763,44 @@ export default function PlayerPhaseView({
               
               return (
                 <div className="space-y-3">
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedTargetId}
-                      onChange={(e) => {
-                        setSelectedTargetId(e.target.value ? Number(e.target.value) : '');
-                        setDealError('');
-                      }}
-                      className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#C5A059] transition-colors"
-                      disabled={dealSubmitting}
-                    >
-                      <option value="" className="bg-[#111] text-[#666]">-- اختر لاعباً لإبرام اتفاقية معه --</option>
-                      {eligibleTargets.map(p => {
-                        const isTargeted = deals.some(d => d.targetPhysicalId === p.physicalId);
-                        return (
-                          <option
-                            key={p.physicalId}
-                            value={p.physicalId}
-                            disabled={isTargeted}
-                            className="bg-[#111] text-white disabled:text-[#444]"
-                          >
-                            لاعب #{p.physicalId} - {p.name} {isTargeted ? ' (مستهدف 🔒)' : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
+                  {/* اختيار اللاعب */}
+                  <select
+                    value={selectedTargetId}
+                    onChange={(e) => {
+                      setSelectedTargetId(e.target.value ? Number(e.target.value) : '');
+                      setDealError('');
+                    }}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-[#C5A059] transition-colors"
+                    disabled={dealSubmitting}
+                  >
+                    <option value="" className="bg-[#111] text-[#666]">-- اختر لاعباً لإبرام اتفاقية معه --</option>
+                    {eligibleTargets.map(p => {
+                      const isTargeted = deals.some(d => d.targetPhysicalId === p.physicalId);
+                      return (
+                        <option
+                          key={p.physicalId}
+                          value={p.physicalId}
+                          disabled={isTargeted}
+                          className="bg-[#111] text-white disabled:text-[#444]"
+                        >
+                          لاعب #{p.physicalId} - {p.name} {isTargeted ? ' (مستهدف 🔒)' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
 
-                    <button
-                      onClick={handleCreateDeal}
-                      disabled={!selectedTargetId || dealSubmitting}
-                      className="bg-gradient-to-r from-[#C5A059] to-[#b38e4b] hover:from-[#d6ae61] hover:to-[#c5a059] text-black font-bold px-4 py-2.5 rounded-xl text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[#C5A059]/10 flex items-center justify-center gap-1.5"
-                    >
-                      {dealSubmitting ? (
-                        <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                      ) : (
-                        'إبرام ديل 🤝'
-                      )}
-                    </button>
-                  </div>
+                  {/* زر التأكيد — عرض كامل */}
+                  <button
+                    onClick={handleCreateDeal}
+                    disabled={!selectedTargetId || dealSubmitting}
+                    className="w-full bg-gradient-to-r from-[#C5A059] to-[#b38e4b] hover:from-[#d6ae61] hover:to-[#c5a059] text-black font-bold px-4 py-3.5 rounded-xl text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-[#C5A059]/10 flex items-center justify-center gap-2"
+                  >
+                    {dealSubmitting ? (
+                      <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                    ) : (
+                      '🤝 إبرام اتفاقية'
+                    )}
+                  </button>
 
                   {dealError && (
                     <p className="text-red-400 text-xs text-center font-bold bg-red-500/10 border border-red-500/20 py-2 rounded-xl">
