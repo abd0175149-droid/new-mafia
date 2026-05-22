@@ -210,9 +210,6 @@ function DisplayPageContent() {
     const socket = socketRef.current;
     if (!socket) return;
 
-    // ── الانضمام لغرفة السوكت ──
-    socket.emit('display:join-room', { roomId: currentRoomId });
-
     // ── دالة مساعدة: مزامنة الحالة من الكائن ──
     const syncStateFromData = (state: any, phaseOverride?: string) => {
       if (!state) return;
@@ -244,6 +241,14 @@ function DisplayPageContent() {
         setGameTimerRemaining(0);
       }
     };
+
+    // ── الانضمام لغرفة السوكت — مع callback لمزامنة الحالة الأولية ──
+    socket.emit('display:join-room', { roomId: currentRoomId }, (res: any) => {
+      if (res?.state) {
+        console.log('✅ Display: Initial state synced on join');
+        syncStateFromData(res.state);
+      }
+    });
 
     // ══════════════════════════════════════════════════
     // 🔄 RECONNECT HANDLER — إعادة الانضمام عند قطع الاتصال
