@@ -485,6 +485,38 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   <p className="text-[#C5A059] font-mono text-sm uppercase tracking-widest mb-2">DEFENSE ACTIVE</p>
                   <p className="text-[#808080] font-mono text-xs">Timer running on display screen</p>
                 </div>
+
+                {/* Dynamic Time Adjustments for Defense */}
+                <div className="w-full mt-2 flex flex-col gap-2">
+                  <p className="text-[10px] font-mono text-[#808080] tracking-widest uppercase text-center">Adjust Defense Time (تعديل وقت الدفاع)</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    <button
+                      onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'JUSTIFICATION', delta: 30 })}
+                      className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2.5 font-mono text-xs font-bold hover:bg-[#C5A059]/20 transition-all hover:scale-105"
+                    >
+                      +30s
+                    </button>
+                    <button
+                      onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'JUSTIFICATION', delta: 10 })}
+                      className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2.5 font-mono text-xs font-bold hover:bg-[#C5A059]/20 transition-all hover:scale-105"
+                    >
+                      +10s
+                    </button>
+                    <button
+                      onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'JUSTIFICATION', delta: -10 })}
+                      className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#8A0303] py-2.5 font-mono text-xs font-bold hover:bg-[#8A0303]/20 transition-all hover:scale-105"
+                    >
+                      -10s
+                    </button>
+                    <button
+                      onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'JUSTIFICATION', delta: -30 })}
+                      className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#8A0303] py-2.5 font-mono text-xs font-bold hover:bg-[#8A0303]/20 transition-all hover:scale-105"
+                    >
+                      -30s
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => handleResetJustificationTimer(currentAccused.targetPhysicalId)}
@@ -1070,6 +1102,39 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 ⏭ NEXT
               </button>
             </div>
+
+            {/* Dynamic Time Adjustments */}
+            {!isCurrentSilenced && (
+              <div className="w-full mt-4 flex flex-col gap-2">
+                <p className="text-[10px] font-mono text-[#808080] tracking-widest uppercase text-center">Adjust Floor Time (تعديل وقت المناقشة)</p>
+                <div className="grid grid-cols-4 gap-2">
+                  <button
+                    onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'DISCUSSION', delta: 30 })}
+                    className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2.5 font-mono text-xs font-bold hover:bg-[#C5A059]/20 transition-all hover:scale-105"
+                  >
+                    +30s
+                  </button>
+                  <button
+                    onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'DISCUSSION', delta: 10 })}
+                    className="bg-[#C5A059]/10 border border-[#C5A059]/40 text-[#C5A059] py-2.5 font-mono text-xs font-bold hover:bg-[#C5A059]/20 transition-all hover:scale-105"
+                  >
+                    +10s
+                  </button>
+                  <button
+                    onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'DISCUSSION', delta: -10 })}
+                    className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#8A0303] py-2.5 font-mono text-xs font-bold hover:bg-[#8A0303]/20 transition-all hover:scale-105"
+                  >
+                    -10s
+                  </button>
+                  <button
+                    onClick={async () => await emit('day:adjust-timer', { roomId: gameState.roomId, phase: 'DISCUSSION', delta: -30 })}
+                    className="bg-[#8A0303]/10 border border-[#8A0303]/40 text-[#8A0303] py-2.5 font-mono text-xs font-bold hover:bg-[#8A0303]/20 transition-all hover:scale-105"
+                  >
+                    -30s
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );

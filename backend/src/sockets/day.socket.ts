@@ -535,6 +535,71 @@ export function registerDayEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── تعديل المؤقت أثناء اللعب ──────────────────────────
+  socket.on('day:adjust-timer', async (data: {
+    roomId: string;
+    phase: 'DISCUSSION' | 'JUSTIFICATION';
+    delta: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback({ success: false, error: 'Only leader' });
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      if (data.phase === 'DISCUSSION') {
+        const { getRoom, updateRoom, SpeakerStatus } = await import('../game/state.js');
+        const rState = await getRoom(data.roomId);
+        if (!rState || !rState.discussionState) {
+          return callback({ success: false, error: 'No active discussion' });
+        }
+
+        const ds = rState.discussionState;
+        if (ds.isFinished) return callback({ success: false, error: 'Discussion is finished' });
+
+        if (ds.status === SpeakerStatus.SPEAKING && ds.startTime) {
+          const elapsed = Math.floor((Date.now() - ds.startTime) / 1000);
+          const currentRemaining = Math.max(0, ds.timeRemaining - elapsed);
+          ds.timeRemaining = Math.max(0, currentRemaining + data.delta);
+          ds.startTime = Date.now();
+        } else {
+          ds.timeRemaining = Math.max(0, ds.timeRemaining + data.delta);
+        }
+
+        await updateRoom(data.roomId, { discussionState: ds });
+        io.to(data.roomId).emit('day:discussion-updated', { discussionState: ds, adjustment: data.delta });
+      } else if (data.phase === 'JUSTIFICATION') {
+        const timer = state.justificationData?.timer;
+        if (!timer) {
+          return callback({ success: false, error: 'No active justification timer' });
+        }
+
+        // حساب الوقت المتبقي الفعلي
+        const elapsed = Math.floor((Date.now() - timer.startTime) / 1000);
+        const currentRemaining = Math.max(0, timer.timeLimitSeconds - elapsed);
+        const newRemaining = Math.max(0, currentRemaining + data.delta);
+
+        // تحديث التايمر بالقيم الجديدة
+        timer.timeLimitSeconds = newRemaining;
+        timer.startTime = Date.now();
+
+        await setGameState(data.roomId, state);
+
+        // بث تحديث التايمر النشط مع قيمة التعديل
+        io.to(data.roomId).emit('day:justification-timer-started', {
+          physicalId: timer.physicalId,
+          timeLimitSeconds: newRemaining,
+          startTime: timer.startTime,
+          adjustment: data.delta,
+        });
+      }
+
+      callback({ success: true });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── بدء فترة سحب الأصوات (بعد التبرير) ──────────────
   socket.on('day:start-withdrawal', async (data: { roomId: string }, callback) => {
     try {
