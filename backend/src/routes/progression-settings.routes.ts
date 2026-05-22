@@ -35,6 +35,8 @@ const DEFAULT_CONFIG = {
     survivedToEnd: 5,
     abilityCorrect: 5,
     abilityIncorrect: -5,
+    penaltyDeduction: -10,
+    penaltyKickDeduction: -30,
   },
   ranks: {
     INFORMANT: { rrRequired: 100 },
@@ -75,7 +77,19 @@ async function getConfig() {
   }
 
   const row = rows.find(r => r.key === 'progression');
-  configCache = (row?.value as any) || DEFAULT_CONFIG;
+  const dbConfig = row?.value as any;
+  if (!dbConfig) {
+    configCache = DEFAULT_CONFIG;
+  } else {
+    configCache = {
+      ...DEFAULT_CONFIG,
+      ...dbConfig,
+      xp: { ...DEFAULT_CONFIG.xp, ...(dbConfig.xp || {}) },
+      rr: { ...DEFAULT_CONFIG.rr, ...(dbConfig.rr || {}) },
+      ranks: { ...DEFAULT_CONFIG.ranks, ...(dbConfig.ranks || {}) },
+      level: { ...DEFAULT_CONFIG.level, ...(dbConfig.level || {}) },
+    };
+  }
   cacheTimestamp = Date.now();
   return configCache;
 }

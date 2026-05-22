@@ -42,6 +42,7 @@ export interface Player {
   seatHeld?: boolean; // المقعد محجوز (اللاعب خرج لكن مقعده محفوظ لمدة 10 دقائق)
   heldUntil?: number; // timestamp لانتهاء الحجز
   isConnected?: boolean; // هل اللاعب متصل حالياً
+  penalties?: number; // عدد العقوبات المسجلة على اللاعب (على مستوى الروم — قابل للإبقاء أو التصفير عند كل جيم جديد)
 }
 
 export enum CandidateType {
@@ -134,6 +135,7 @@ export interface GameConfig {
   gameTimerEnabled: boolean;     // هل مؤقت اللعبة مفعّل
   gameTimerMinutes: number;      // مدة المؤقت بالدقائق (30, 60, 90)
   useDynamicEngine: boolean;     // 🧩 هل نستخدم المحرك الديناميكي (Data-Driven)
+  maxPenalties?: number;         // أقصى عدد عقوبات مسموح به (الافتراضي 3)
 }
 
 export interface GameState {
@@ -233,6 +235,7 @@ export async function createRoom(
   maxJustifications: number = 2,
   displayPin?: string,
   overrideCode?: string, // كود خارجي (من DB session) — لتوحيد الكود بين Redis و PostgreSQL
+  maxPenalties: number = 3,
 ): Promise<GameState> {
   const roomId = uuidv4().substring(0, 8);
   const roomCode = overrideCode || generateRoomCode();
@@ -253,6 +256,7 @@ export async function createRoom(
       gameTimerEnabled: false,
       gameTimerMinutes: 30,
       useDynamicEngine: false,
+      maxPenalties,
     },
     players: [],
     rolesPool: [],

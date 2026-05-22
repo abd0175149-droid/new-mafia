@@ -13,6 +13,8 @@ interface LeaderLobbyViewProps {
 export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLobbyViewProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [kickingId, setKickingId] = useState<number | null>(null);
+  const [penalizingId, setPenalizingId] = useState<number | null>(null);
+  const [penalizingLoading, setPenalizingLoading] = useState(false);
   const [localError, setLocalError] = useState('');
 
   // ── حالات نموذج الإضافة (Multi-step) ──
@@ -179,6 +181,18 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
       setKickingId(null);
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  const handleRecordPenalty = async (physicalId: number) => {
+    setPenalizingLoading(true);
+    try {
+      await emit('leader:record-penalty', { roomId: gameState.roomId, targetPhysicalId: physicalId });
+      setPenalizingId(null);
+    } catch (err: any) {
+      setError(err.message || 'فشل تسجيل العقوبة');
+    } finally {
+      setPenalizingLoading(false);
     }
   };
 
@@ -484,6 +498,20 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                   size="sm"
                 />
 
+                {/* مؤشر العقوبات (نقاط حمراء ورمادية) */}
+                {player.penalties > 0 && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 border border-amber-500/40 px-2 py-0.5 rounded-full flex gap-1 z-10">
+                    {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_, idx) => (
+                      <span
+                        key={idx}
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          idx < (player.penalties || 0) ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-600'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                )}
+
                 {/* زر الحذف يظهر فقط عند التمرير Hover */}
                 {!isKicking && !isEditing && (
                   <button
@@ -503,6 +531,17 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                     title="تعديل الاسم"
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  </button>
+                )}
+
+                {/* ⚠️ زر تسجيل عقوبة — يظهر عند Hover */}
+                {!isKicking && !isEditing && (
+                  <button
+                    onClick={() => setPenalizingId(player.physicalId)}
+                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    title="تسجيل عقوبة"
+                  >
+                    ⚠️
                   </button>
                 )}
 
@@ -563,6 +602,44 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                           className="flex-1 bg-zinc-800 border border-zinc-600 text-zinc-300 py-1.5 rounded text-[10px] font-mono hover:bg-zinc-700"
                         >
                           ✕
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* ⚠️ Overlay تأكيد تسجيل عقوبة (فوق الكارد) */}
+                <AnimatePresence>
+                  {penalizingId === player.physicalId && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 bg-black/90 backdrop-blur-sm rounded-2xl border-2 border-amber-500/50 flex flex-col items-center justify-center p-4 z-30"
+                    >
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-2 animate-bounce"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      <span className="text-amber-400 text-[10px] font-mono uppercase tracking-widest mb-1 font-bold text-center leading-tight">
+                        RECORD PENALTY
+                        <br/>AGENT_{player.physicalId}
+                      </span>
+                      <p className="text-[9px] text-[#808080] text-center mb-3">
+                        سيتم خصم رتبة وتوجيه إنذار
+                        <br/>
+                        ({player.penalties || 0} / {gameState.config.maxPenalties || 3})
+                      </p>
+                      <div className="flex gap-2 w-full">
+                        <button
+                          onClick={() => handleRecordPenalty(player.physicalId)}
+                          disabled={penalizingLoading}
+                          className="flex-1 bg-amber-900/50 border border-amber-500 text-amber-200 py-1.5 rounded text-[10px] font-mono hover:bg-amber-800 disabled:opacity-50"
+                        >
+                          {penalizingLoading ? '...' : 'YES'}
+                        </button>
+                        <button
+                          onClick={() => setPenalizingId(null)}
+                          className="flex-1 bg-zinc-800 border border-zinc-600 text-zinc-300 py-1.5 rounded text-[10px] font-mono hover:bg-zinc-700"
+                        >
+                          NO
                         </button>
                       </div>
                     </motion.div>

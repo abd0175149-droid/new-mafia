@@ -128,6 +128,19 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [playerToken, setPlayerToken] = useState<string | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
+  const [isExpelled, setIsExpelled] = useState(false);
+  const [expulsionReason, setExpulsionReason] = useState('');
+  const [penalties, setPenalties] = useState<number>(0);
+  const [maxPenalties, setMaxPenalties] = useState<number>(3);
+  const [penaltyAlert, setPenaltyAlert] = useState<{
+    message: string;
+    penalties: number;
+    maxPenalties: number;
+  } | null>(null);
+  const [activeToast, setActiveToast] = useState<{
+    message: string;
+    type: 'warning' | 'penalty' | 'success' | 'info';
+  } | null>(null);
   const [roleAlert, setRoleAlert] = useState(false);
   const [mafiaTeam, setMafiaTeamRaw] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null}[]>(() => {
     if (typeof window === 'undefined') return [];
@@ -478,7 +491,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     return () => cleanupReconnect();
   }, [on, emit, step, roomId, phone, physicalId]);
 
-  // ── استقبال تغيير رقم المقعد من الليدر (حل المشكلة الأساسية) ──
+  // ── استقبال تغيير رقم المقعد والعقوبات والطرد من الليدر ──
   useEffect(() => {
     if (!on) return;
 
@@ -489,12 +502,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       saved.physicalId = data.newPhysicalId;
       localStorage.setItem('mafia_session', JSON.stringify(saved));
       // تنبيه بصري
-      setSeatChangeAlert(`تم تغيير رقمك: ${data.oldPhysicalId} ← ${data.newPhysicalId}`);
-      setTimeout(() => setSeatChangeAlert(null), 5000);
+      const msg = `تم تغيير رقمك: ${data.oldPhysicalId} ← ${data.newPhysicalId}`;
+      setActiveToast({
+        message: msg,
+        type: 'success'
+      });
+      setTimeout(() => {
+        setActiveToast(prev => prev && prev.message === msg ? null : prev);
+      }, 5000);
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
     });
 
-    const cleanupKick = on('player:kicked-self', () => {
+    const cleanupKick = on('player:kicked-self', (data?: { reason?: string }) => {
       localStorage.removeItem('mafia_session');
       localStorage.removeItem('mafia_held_seat'); // لا يحتاج العودة بعد الطرد
       setAssignedRole(null);
@@ -502,12 +521,64 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setRoomId('');
       setUserExited(true);
       localStorage.setItem('mafia_user_exited', 'true');
-      setStep(initialRoomCode ? 'phone' : 'code');
-      setApiError('تم إزالتك من اللعبة من قبل الليدر');
+
+      // مسح كافة مفاتيح الجلسة للتصفير الكامل
+      localStorage.removeItem('mafia_gamePhase');
+      localStorage.removeItem('mafia_votingCandidates');
+      localStorage.removeItem('mafia_votingPlayersInfo');
+      localStorage.removeItem('mafia_myVote');
+      localStorage.removeItem('mafia_playerVotes');
+      localStorage.removeItem('mafia_lastVoteTime');
+      localStorage.removeItem('mafia_mafiaTeam');
+
+      if (data?.reason) {
+        setIsExpelled(true);
+        setExpulsionReason(data.reason);
+      } else {
+        setStep(initialRoomCode ? 'phone' : 'code');
+        setApiError('تم إزالتك من اللعبة من قبل الليدر');
+      }
     });
 
-    return () => { cleanupSeat(); cleanupKick(); };
-  }, [on, initialRoomCode]);
+    const cleanupPenalty = on('game:penalty-recorded', (data: { physicalId: number; penalties: number; maxPenalties: number; message: string; isKicked: boolean }) => {
+      const myPhysId = parseInt(physicalId);
+      if (data.physicalId === myPhysId) {
+        setPenalties(data.penalties);
+        setMaxPenalties(data.maxPenalties);
+        setPenaltyAlert({
+          message: data.message,
+          penalties: data.penalties,
+          maxPenalties: data.maxPenalties
+        });
+        setActiveToast({
+          message: data.message,
+          type: 'penalty'
+        });
+        if (navigator.vibrate) {
+          navigator.vibrate([300, 100, 300, 100, 500]);
+        }
+      } else {
+        setActiveToast({
+          message: data.message,
+          type: 'warning'
+        });
+        if (navigator.vibrate) {
+          navigator.vibrate([100, 100]);
+        }
+      }
+      
+      // إخفاء التوست تلقائياً بعد 6 ثوانٍ
+      setTimeout(() => {
+        setActiveToast(prev => prev && prev.message === data.message ? null : prev);
+      }, 6000);
+    });
+
+    return () => {
+      cleanupSeat();
+      cleanupKick();
+      cleanupPenalty();
+    };
+  }, [on, initialRoomCode, physicalId]);
 
   // ═══ فحص المقعد المحجوز — إعادة الدخول التلقائي ═══
   // يعمل فقط عند فتح الصفحة من جديد (مثلاً من زر "العودة" في الصفحة الرئيسية)
@@ -674,6 +745,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setIsPlayerDead(false);
           setCardFlipped(false);
         }
+
+        // تحديث العقوبات والحد الأقصى
+        const mePenalties = me.penalties || 0;
+        if (mePenalties !== penalties) {
+          setPenalties(mePenalties);
+        }
+        const stateMaxPenalties = state.config?.maxPenalties || 3;
+        if (stateMaxPenalties !== maxPenalties) {
+          setMaxPenalties(stateMaxPenalties);
+        }
       } else {
         // اللاعب مش موجود بالـ state → ممكن اتطرد
         // بس ما نمسح الجلسة هون عشان ممكن يكون state-sync لغرفة ثانية
@@ -685,7 +766,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       cleanup();
       cleanupSync();
     };
-  }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead]);
+  }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead, penalties, maxPenalties]);
 
   // ── استعادة حالة التصويت فور اكتمال الـ rejoin (safety net شامل) ──
   // هذا يشتغل مرة واحدة بعد step = 'rejoined' ويجلب بيانات التصويت مباشرة
@@ -1625,6 +1706,104 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
   return (
     <div className="display-bg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white">
+      {/* ── Dynamic Toast Notification Overlay ── */}
+      <AnimatePresence>
+        {activeToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.9 }}
+            transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+            className="fixed top-6 left-4 right-4 sm:left-auto sm:right-6 z-50 w-auto sm:max-w-md"
+          >
+            <div
+              className={`p-4 rounded-xl border backdrop-blur-md shadow-2xl flex items-center gap-3 ${
+                activeToast.type === 'penalty'
+                  ? 'bg-red-950/90 border-red-500/40 text-red-200 shadow-red-950/20'
+                  : activeToast.type === 'warning'
+                  ? 'bg-amber-950/90 border-amber-500/40 text-amber-200 shadow-amber-950/20'
+                  : activeToast.type === 'success'
+                  ? 'bg-green-950/90 border-green-500/40 text-green-200 shadow-green-950/20'
+                  : 'bg-neutral-900/90 border-[#C5A059]/40 text-gray-200'
+              }`}
+            >
+              <div className="text-xl shrink-0">
+                {activeToast.type === 'penalty' && '🔴'}
+                {activeToast.type === 'warning' && '⚠️'}
+                {activeToast.type === 'success' && '✅'}
+                {activeToast.type === 'info' && 'ℹ️'}
+              </div>
+              <div className="flex-1 font-bold text-sm text-right" style={{ fontFamily: 'Amiri, serif' }}>
+                {activeToast.message}
+              </div>
+              <button
+                onClick={() => setActiveToast(null)}
+                className="text-gray-400 hover:text-white shrink-0 text-xs font-mono ml-2 p-1"
+              >
+                ✕
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Penalty Alert Modal Prompt ── */}
+      <AnimatePresence>
+        {penaltyAlert && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-[#111] border border-red-500/30 rounded-2xl p-6 w-full max-w-sm shadow-2xl relative overflow-hidden text-center"
+            >
+              {/* Top accent glow */}
+              <div className="absolute top-0 left-0 w-full h-[3px] bg-red-600 animate-pulse" />
+              
+              <div className="mb-4 text-red-500 flex justify-center text-4xl animate-bounce">
+                ⚠️
+              </div>
+              
+              <h3 className="text-red-500 text-xl font-bold mb-3" style={{ fontFamily: 'Amiri, serif' }}>تنبيه مخالفة القوانين!</h3>
+              
+              <p className="text-white mb-5 text-sm leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
+                {penaltyAlert.message}
+              </p>
+              
+              {/* Warning dots in modal */}
+              <div className="flex justify-center gap-2 mb-6">
+                {Array.from({ length: penaltyAlert.maxPenalties }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`w-4 h-4 rounded-full ${
+                      i < penaltyAlert.penalties
+                        ? 'bg-red-600 shadow-[0_0_8px_#dc2626]'
+                        : 'bg-neutral-800 border border-neutral-700'
+                    }`}
+                  />
+                ))}
+              </div>
+              
+              <p className="text-[#888] text-xs mb-6 font-mono">
+                PENALTIES: {penaltyAlert.penalties} / {penaltyAlert.maxPenalties}
+              </p>
+              
+              <button
+                onClick={() => setPenaltyAlert(null)}
+                className="w-full py-3 rounded-xl bg-red-900 hover:bg-red-800 text-white font-mono text-sm shadow-[0_0_15px_rgba(138,3,3,0.4)] transition-all font-bold"
+              >
+                فهمت وتعهدت بالالتزام
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {joinConfirmation && (
           <motion.div
@@ -1660,61 +1839,112 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         )}
       </AnimatePresence>
 
-      {/* ── Title: MAFIA CLUB + Logo ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-        className="flex items-center justify-center gap-4 md:gap-6 mb-8 relative z-10 w-full max-w-md"
-      >
-        {/* النصوص */}
-        <h1 className="text-center md:text-right">
-          <span
-            className="block text-4xl md:text-5xl font-black tracking-tight text-[#C5A059]"
-            style={{
-              fontFamily: 'Amiri, serif',
-              textShadow: '0 0 30px rgba(138,3,3,0.4)',
-            }}
-          >
-            MAFIA
-          </span>
-          <span
-            dir="ltr"
-            className="flex justify-between text-xl md:text-2xl font-light text-[#8A0303] mt-1 w-full"
-            style={{
-              fontFamily: 'Amiri, serif',
-              textShadow: '0 0 20px rgba(138,3,3,0.3)',
-            }}
-          >
-            {'CLUB'.split('').map((letter, i) => (
-              <span key={i}>{letter}</span>
-            ))}
-          </span>
-        </h1>
-
-        {/* اللوجو */}
+      {isExpelled ? (
         <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
+          initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 1, delay: 0.3 }}
-          className="shrink-0"
+          className="w-full max-w-md p-8 sm:p-10 rounded-2xl bg-[#1a0505]/85 backdrop-blur-md border border-red-800/40 shadow-[0_0_50px_rgba(138,3,3,0.3)] text-center relative z-10 overflow-hidden font-sans"
         >
-          <Image
-            src="/mafia_logo.png"
-            alt="Mafia Club Logo"
-            width={80}
-            height={80}
-            className="select-none w-[60px] h-[60px] md:w-[80px] md:h-[80px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]"
-            priority
-          />
+          {/* Glowing pulse effect */}
+          <div className="absolute -top-12 -left-12 w-24 h-24 bg-red-600/20 rounded-full blur-2xl animate-pulse" />
+          <div className="absolute -bottom-12 -right-12 w-24 h-24 bg-red-600/20 rounded-full blur-2xl animate-pulse" />
+          <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-red-600 to-transparent" />
+          
+          <div className="mb-6 flex justify-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-red-600/30 rounded-full blur-md animate-ping" />
+              <div className="w-20 h-20 bg-red-950/80 border border-red-500/50 rounded-full flex items-center justify-center text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.2)]">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+            </div>
+          </div>
+          
+          <h2 className="text-3xl font-black text-red-500 mb-4" style={{ fontFamily: 'Amiri, serif' }}>
+            تم استبعادك من اللعبة!
+          </h2>
+          
+          <div className="bg-black/40 border border-red-950 rounded-xl p-4 mb-6">
+            <p className="text-gray-400 text-xs font-mono uppercase tracking-widest mb-2">REASON FOR EXPULSION</p>
+            <p className="text-white text-base leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
+              {expulsionReason || 'لقد تم استبعادك بسبب انتهاك قواعد اللعب وتجاوز الحد الأقصى للعقوبات.'}
+            </p>
+          </div>
+          
+          <p className="text-red-400/80 text-xs leading-relaxed mb-8" style={{ fontFamily: 'Amiri, serif' }}>
+            لقد تم مسح جلستك الحالية وخصم نقاط من رتبتك (RR) كعقوبة تنظيمية. الرجاء الالتزام بقواعد اللعب النظيف في المرات القادمة.
+          </p>
+          
+          <button
+            onClick={() => {
+              setIsExpelled(false);
+              setStep(initialRoomCode ? 'phone' : 'code');
+            }}
+            className="w-full py-4 rounded-xl bg-gradient-to-r from-red-950 to-red-800 border border-red-700/50 text-white font-mono text-sm tracking-widest font-black shadow-[0_0_20px_rgba(138,3,3,0.4)] hover:from-red-900 hover:to-red-750 transition-all active:scale-98"
+          >
+            العودة للشاشة الرئيسية
+          </button>
         </motion.div>
-      </motion.div>
+      ) : (
+        <>
+          {/* ── Title: MAFIA CLUB + Logo ── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+            className="flex items-center justify-center gap-4 md:gap-6 mb-8 relative z-10 w-full max-w-md"
+          >
+            {/* النصوص */}
+            <h1 className="text-center md:text-right">
+              <span
+                className="block text-4xl md:text-5xl font-black tracking-tight text-[#C5A059]"
+                style={{
+                  fontFamily: 'Amiri, serif',
+                  textShadow: '0 0 30px rgba(138,3,3,0.4)',
+                }}
+              >
+                MAFIA
+              </span>
+              <span
+                dir="ltr"
+                className="flex justify-between text-xl md:text-2xl font-light text-[#8A0303] mt-1 w-full"
+                style={{
+                  fontFamily: 'Amiri, serif',
+                  textShadow: '0 0 20px rgba(138,3,3,0.3)',
+                }}
+              >
+                {'CLUB'.split('').map((letter, i) => (
+                  <span key={i}>{letter}</span>
+                ))}
+              </span>
+            </h1>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md p-8 sm:p-10 rounded-xl bg-black/60 backdrop-blur-md border border-[#2a2a2a] shadow-[0_0_40px_rgba(0,0,0,0.8)] relative z-10"
-      >
+            {/* اللوجو */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 1, delay: 0.3 }}
+              className="shrink-0"
+            >
+              <Image
+                src="/mafia_logo.png"
+                alt="Mafia Club Logo"
+                width={80}
+                height={80}
+                className="select-none w-[60px] h-[60px] md:w-[80px] md:h-[80px] drop-shadow-[0_0_20px_rgba(138,3,3,0.3)]"
+                priority
+              />
+            </motion.div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-md p-8 sm:p-10 rounded-xl bg-black/60 backdrop-blur-md border border-[#2a2a2a] shadow-[0_0_40px_rgba(0,0,0,0.8)] relative z-10"
+          >
         <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#8A0303]/60 to-transparent opacity-80 rounded-t-xl" />
         
         <AnimatePresence mode="wait">
@@ -2318,6 +2548,26 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 assignedRole === null ? (
                   /* ── حالة الانتظار (لم يُوزَّع الدور بعد) ── */
                   <>
+                    {penalties > 0 && (
+                      <div className="flex flex-col items-center gap-1.5 mb-6 bg-red-950/20 border border-red-900/30 rounded-xl p-3 shadow-[0_0_15px_rgba(220,38,38,0.05)] w-full">
+                        <span className="text-red-400 text-[10px] font-mono tracking-widest uppercase">ACTIVE RULE VIOLATIONS</span>
+                        <div className="flex gap-2.5">
+                          {Array.from({ length: maxPenalties }).map((_, i) => (
+                            <span
+                              key={i}
+                              className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                                i < penalties
+                                  ? 'bg-red-600 shadow-[0_0_8px_#dc2626]'
+                                  : 'bg-neutral-800 border border-neutral-700'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-[10px] text-red-300/70" style={{ fontFamily: 'Amiri, serif' }}>
+                          تحذير: ({penalties}/{maxPenalties}) عقوبات. سيتم طردك عند تجاوز الحد.
+                        </span>
+                      </div>
+                    )}
                     <motion.div
                       className="text-[#C5A059] flex justify-center mb-6"
                       animate={{ opacity: [0.5, 1, 0.5] }}
@@ -2699,6 +2949,26 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 ) : (
                   /* ── حالة حي بدون دور (في الانتظار) ── */
                   <>
+                    {penalties > 0 && (
+                      <div className="flex flex-col items-center gap-1.5 mb-6 bg-red-950/20 border border-red-900/30 rounded-xl p-3 shadow-[0_0_15px_rgba(220,38,38,0.05)] w-full">
+                        <span className="text-red-400 text-[10px] font-mono tracking-widest uppercase">ACTIVE RULE VIOLATIONS</span>
+                        <div className="flex gap-2.5">
+                          {Array.from({ length: maxPenalties }).map((_, i) => (
+                            <span
+                              key={i}
+                              className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                                i < penalties
+                                  ? 'bg-red-600 shadow-[0_0_8px_#dc2626]'
+                                  : 'bg-neutral-800 border border-neutral-700'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <span className="text-[10px] text-red-300/70" style={{ fontFamily: 'Amiri, serif' }}>
+                          تحذير: ({penalties}/{maxPenalties}) عقوبات. سيتم طردك عند تجاوز الحد.
+                        </span>
+                      </div>
+                    )}
                     <motion.div className="text-[#C5A059] flex justify-center mb-6"
                       animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
                       <ShieldCheckIcon />
@@ -2730,6 +3000,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
         </AnimatePresence>
       </motion.div>
+        </>
+      )}
 
       {/* ── شاشة التحميل أثناء محاولة الـ Rejoin ── */}
       {rejoinLoading && (

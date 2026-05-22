@@ -40,6 +40,13 @@ const ACTION_CATEGORIES = [
       // مساحة مستقبلية:
       // { key: 'sniperHitMafia', label: 'قناص أصاب مافيا', icon: '🔫', type: 'BOTH', desc: 'مخصصة للقناص فقط' }
     ]
+  },
+  {
+    id: 'penalties', label: '⚖️ نظام العقوبات',
+    actions: [
+      { key: 'penaltyDeduction', label: 'عقوبة عادية', icon: '⚠️', type: 'RR', desc: 'خصم نقاط رتبة عند تلقي عقوبة (سالب عادة)' },
+      { key: 'penaltyKickDeduction', label: 'عقوبة الإقصاء', icon: '🚫', type: 'RR', desc: 'خصم إضافي عند طرد اللاعب لتجاوزه حد العقوبات' }
+    ]
   }
 ];
 

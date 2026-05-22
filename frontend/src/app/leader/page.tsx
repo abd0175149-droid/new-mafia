@@ -80,6 +80,7 @@ export default function LeaderPage() {
   const [gameName, setGameName] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [maxJustifications, setMaxJustifications] = useState(2);
+  const [maxPenalties, setMaxPenalties] = useState(3);
   const [displayPin, setDisplayPin] = useState('');
   const [selectedActivityId, setSelectedActivityId] = useState<number | null>(null);
   const [availableActivities, setAvailableActivities] = useState<any[]>([]);
@@ -114,6 +115,12 @@ export default function LeaderPage() {
   // New game exclude UI
   const [excludedPlayers, setExcludedPlayers] = useState<number[]>([]);
   const [showExcludeUI, setShowExcludeUI] = useState(false);
+
+  // ── مودال تصفير/إبقاء العقوبات عند بدء لعبة جديدة ──
+  const [pendingNewGameAction, setPendingNewGameAction] = useState<{
+    type: 'new-game-start' | 'new-game-return' | 'reset-to-lobby';
+    excludePlayerIds?: number[];
+  } | null>(null);
 
   // ── مؤقت اللعبة ──
   const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
@@ -281,6 +288,7 @@ export default function LeaderPage() {
                   gameName: roomData.sessionName,
                   maxPlayers: roomData.maxPlayers || 10,
                   maxJustifications: 2,
+                  maxPenalties: 3,
                   displayPin: roomData.displayPin || undefined,
                   activityId: roomData.activityId || undefined,
                   existingSessionId: roomData.sessionId || undefined,
@@ -949,6 +957,7 @@ export default function LeaderPage() {
         gameName: gameName.trim(),
         maxPlayers,
         maxJustifications,
+        maxPenalties,
         displayPin: displayPin || undefined,
         activityId: selectedActivityId || undefined,
         nightMode,
@@ -1812,12 +1821,19 @@ export default function LeaderPage() {
                     setError('يجب إضافة 6 لاعبين على الأقل');
                     return;
                   }
+                  // التحقق من وجود عقوبات فعلية
+                  const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
+                  if (hasActivePenalties) {
+                    setPendingNewGameAction({ type: 'new-game-start', excludePlayerIds: excludedPlayers.length > 0 ? [...excludedPlayers] : undefined });
+                    return;
+                  }
                   try {
                     // إذا عندنا مستبعدين → نعمل new-game لحذفهم أولاً
                     if (excludedPlayers.length > 0) {
                       const res = await emit('room:new-game', {
                         roomId: gameState.roomId,
                         excludePlayerIds: excludedPlayers,
+                        resetPenalties: true,
                       });
                       if (res.success) {
                         setGameState((prev: any) => prev ? {
@@ -2870,12 +2886,23 @@ export default function LeaderPage() {
                 {/* زر بدء لعبة جديدة (مع استبعاد) */}
                 <button
                   onClick={async () => {
+                    // التحقق من وجود عقوبات فعلية على اللاعبين (المستمرين)
+                    const hasActivePenalties = gameState.players.some((p: any) => (p.penalties || 0) > 0 && !excludedPlayers.includes(p.physicalId));
+                    if (hasActivePenalties) {
+                      if (excludedPlayers.length > 0) {
+                        setPendingNewGameAction({ type: 'new-game-return', excludePlayerIds: [...excludedPlayers] });
+                      } else {
+                        setPendingNewGameAction({ type: 'reset-to-lobby' });
+                      }
+                      return;
+                    }
                     try {
                       // إذا عندنا مستبعدين → نعمل new-game لحذفهم
                       if (excludedPlayers.length > 0) {
                         const res = await emit('room:new-game', {
                           roomId: gameState.roomId,
                           excludePlayerIds: excludedPlayers,
+                          resetPenalties: true,
                         });
                         if (res.success) {
                           setGameState((prev: any) => prev ? {
@@ -2889,7 +2916,7 @@ export default function LeaderPage() {
                         }
                       } else {
                         // بدون استبعاد → العودة للوبي فقط
-                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId });
+                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties: true });
                         if (res.success) {
                           setGameState((prev: any) => prev ? {
                             ...prev,
@@ -3046,10 +3073,10 @@ export default function LeaderPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-3 gap-4 mb-8">
             {/* عدد اللاعبين */}
             <div>
-              <label className="block text-xs font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Max Agents</label>
+              <label className="block text-[10px] font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Max Agents</label>
               <div className="flex items-center justify-center gap-2">
                 <button onClick={() => setMaxPlayers(Math.max(6, maxPlayers - 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">−</button>
                 <input
@@ -3066,11 +3093,21 @@ export default function LeaderPage() {
 
             {/* عدد التبريرات */}
             <div>
-              <label className="block text-xs font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Justifications</label>
+              <label className="block text-[10px] font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Justifications</label>
               <div className="flex items-center justify-center gap-2">
                 <button onClick={() => setMaxJustifications(Math.max(1, maxJustifications - 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">−</button>
                 <span className="text-xl font-mono text-white w-16 text-center border-b border-[#2a2a2a] pb-1">{maxJustifications}</span>
                 <button onClick={() => setMaxJustifications(Math.min(5, maxJustifications + 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">+</button>
+              </div>
+            </div>
+
+            {/* الحد الأقصى للعقوبات */}
+            <div>
+              <label className="block text-[10px] font-mono text-[#808080] mb-2 tracking-widest uppercase text-center">Max Penalties</label>
+              <div className="flex items-center justify-center gap-2">
+                <button onClick={() => setMaxPenalties(Math.max(1, maxPenalties - 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">−</button>
+                <span className="text-xl font-mono text-white w-16 text-center border-b border-[#2a2a2a] pb-1">{maxPenalties}</span>
+                <button onClick={() => setMaxPenalties(Math.min(5, maxPenalties + 1))} className="w-10 h-10 bg-[#050505] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors font-mono">+</button>
               </div>
             </div>
           </div>
@@ -3378,6 +3415,110 @@ export default function LeaderPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ── مودال تصفير/إبقاء العقوبات عند بدء لعبة جديدة ── */}
+        {pendingNewGameAction && (
+          <div className="fixed inset-0 z-[999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#0a0a0a] border border-[#C5A059]/30 rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl relative overflow-hidden">
+              {/* Top accent */}
+              <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-[#C5A059] to-transparent" />
+              
+              <div className="text-center mb-6">
+                <div className="text-3xl mb-3">⚖️</div>
+                <h3 className="text-[#C5A059] text-lg font-bold mb-2" style={{ fontFamily: 'Amiri, serif' }}>العقوبات الفعّالة</h3>
+                <p className="text-[#888] text-xs leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
+                  يوجد لاعبون عليهم عقوبات من الجيم السابق. ماذا تريد أن تفعل؟
+                </p>
+              </div>
+              
+              {/* العقوبات الحالية — عرض سريع */}
+              <div className="bg-[#111] border border-[#1a1a1a] rounded-xl p-3 mb-6">
+                {gameState.players
+                  .filter((p: any) => (p.penalties || 0) > 0 && !(pendingNewGameAction.excludePlayerIds || []).includes(p.physicalId))
+                  .map((p: any) => (
+                    <div key={p.physicalId} className="flex items-center justify-between py-1.5 border-b border-[#1a1a1a] last:border-0">
+                      <span className="text-white text-xs font-mono">#{p.physicalId} {p.name}</span>
+                      <div className="flex gap-1">
+                        {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_: any, i: number) => (
+                          <span key={i} className={`w-2 h-2 rounded-full ${i < (p.penalties || 0) ? 'bg-red-600 shadow-[0_0_4px_#dc2626]' : 'bg-neutral-800'}`} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              
+              <div className="flex flex-col gap-3">
+                {/* خيار الإبقاء — الافتراضي لأن العقوبات على مستوى الروم */}
+                <button
+                  onClick={async () => {
+                    const action = pendingNewGameAction;
+                    setPendingNewGameAction(null);
+                    try {
+                      if (action.type === 'new-game-start') {
+                        if (action.excludePlayerIds && action.excludePlayerIds.length > 0) {
+                          const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: false });
+                          if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
+                        }
+                        await emit('room:start-generation', { roomId: gameState.roomId });
+                        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
+                      } else if (action.type === 'new-game-return') {
+                        const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: false });
+                        if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
+                        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
+                      } else {
+                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties: false });
+                        if (res.success) setGameState((prev: any) => prev ? { ...prev, phase: 'LOBBY', winner: undefined, rolesPool: [], votingState: undefined, discussionState: undefined, players: (res.players || prev.players).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })) } : prev);
+                        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
+                      }
+                    } catch (err: any) { setError(err.message); }
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-[#1a1a1a] border border-[#C5A059]/40 text-[#C5A059] font-bold text-sm tracking-wide hover:bg-[#222] transition-all shadow-[0_0_15px_rgba(197,160,89,0.1)]"
+                  style={{ fontFamily: 'Amiri, serif' }}
+                >
+                  ⚠️ إبقاء العقوبات (مستوى الروم)
+                </button>
+                
+                {/* خيار التصفير */}
+                <button
+                  onClick={async () => {
+                    const action = pendingNewGameAction;
+                    setPendingNewGameAction(null);
+                    try {
+                      if (action.type === 'new-game-start') {
+                        if (action.excludePlayerIds && action.excludePlayerIds.length > 0) {
+                          const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds, resetPenalties: true });
+                          if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
+                        }
+                        await emit('room:start-generation', { roomId: gameState.roomId });
+                        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(false);
+                      } else if (action.type === 'new-game-return') {
+                        const res = await emit('room:new-game', { roomId: gameState.roomId, excludePlayerIds: action.excludePlayerIds || [], resetPenalties: true });
+                        if (res.success) setGameState((prev: any) => prev ? { ...prev, players: (res.players || []).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })), winner: undefined, phase: 'LOBBY' } : prev);
+                        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
+                      } else {
+                        const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId, resetPenalties: true });
+                        if (res.success) setGameState((prev: any) => prev ? { ...prev, phase: 'LOBBY', winner: undefined, rolesPool: [], votingState: undefined, discussionState: undefined, players: (res.players || prev.players).map((p: any) => ({ ...p, isAlive: true, isSilenced: false, role: null })) } : prev);
+                        setExcludedPlayers([]); setShowExcludeUI(false); setInSession(true);
+                      }
+                    } catch (err: any) { setError(err.message); }
+                  }}
+                  className="w-full py-3.5 rounded-xl bg-[#111] border border-green-800/30 text-green-400 font-bold text-sm tracking-wide hover:bg-[#1a1a1a] transition-all"
+                  style={{ fontFamily: 'Amiri, serif' }}
+                >
+                  ✅ تصفير العقوبات (بداية جديدة)
+                </button>
+                
+                {/* إلغاء */}
+                <button
+                  onClick={() => setPendingNewGameAction(null)}
+                  className="w-full py-2.5 text-[#555] text-xs font-mono tracking-widest uppercase hover:text-white transition-colors"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* أزرار التنقل */}
         <div className="flex items-center justify-center gap-6 mt-12 mb-8">

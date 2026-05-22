@@ -13,6 +13,9 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
+import { applyRR } from '../services/progression.service.js';
+import { getProgressionConfig } from '../routes/progression-settings.routes.js';
+import { sendPushToPlayer } from '../services/fcm.service.js';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
@@ -160,6 +163,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     existingSessionId?: number;
     sessionCode?: string;
     nightMode?: 'manual' | 'auto'; // جديد: نمط الليل — افتراضي: manual
+    maxPenalties?: number; // نظام عقوبات اللاعبين
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
@@ -203,6 +207,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         data.maxJustifications || 2,
         data.displayPin,
         overrideCode,
+        data.maxPenalties ?? 3,
       );
 
       let sessionId: number | null = null;
@@ -1049,12 +1054,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           isAlive: player.isAlive,
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
+          penalties: player.penalties || 0,
         },
         mafiaTeam: mafiaTeamData || [],
         phase: state.phase,
         gameName: state.config?.gameName || '',
         roomCode: state.roomCode || '',
         votingState: votingData,
+        maxPenalties: state.config?.maxPenalties || 3,
       });
 
       console.log(`♻️  Player rejoin: #${player.physicalId} - ${player.name} (alive: ${player.isAlive})`);
@@ -1347,6 +1354,126 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       callback({ success: true });
       console.log(`👑 Leader kicked player: #${data.physicalId}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── صلاحية الليدر: تسجيل عقوبة على لاعب ──
+  socket.on('leader:record-penalty', async (data: {
+    roomId: string;
+    targetPhysicalId: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader can record penalties' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // البحث عن اللاعب المعني في مصفوفة اللاعبين داخل الغرفة
+      const player = state.players.find(p => p.physicalId === data.targetPhysicalId);
+      if (!player) return callback({ success: false, error: 'Player not found' });
+
+      // زيادة عدد العقوبات بمقدار 1
+      player.penalties = (player.penalties || 0) + 1;
+
+      // جلب إعدادات التقدم من قاعدة البيانات لمعرفة قيمة الخصومات الفعالة
+      const config = await getProgressionConfig();
+      const penaltyDeduction = config?.rr?.penaltyDeduction ?? -10;
+      const penaltyKickDeduction = config?.rr?.penaltyKickDeduction ?? -30;
+
+      let totalDeduction = penaltyDeduction;
+      const maxPenalties = state.config.maxPenalties ?? 3;
+      const isKicked = player.penalties >= maxPenalties;
+
+      if (isKicked) {
+        totalDeduction += penaltyKickDeduction;
+      }
+
+      // إذا كان للاعب معرّف حقيقي في قاعدة البيانات
+      if (player.playerId) {
+        try {
+          await applyRR(player.playerId, totalDeduction);
+
+          // إرسال إشعار فوري
+          const bodyMsg = isKicked
+            ? `حصلت على عقوبة (${player.penalties}/${maxPenalties}) وتم استبعادك من اللعبة، مع خصم ${Math.abs(totalDeduction)} نقطة RR!`
+            : `حصلت على عقوبة (${player.penalties}/${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR من رتبتك.`;
+          
+          await sendPushToPlayer(
+            player.playerId,
+            '⚖️ عقوبة لاعب',
+            bodyMsg,
+            'penalty',
+            { roomId: data.roomId }
+          );
+        } catch (e: any) {
+          console.error(`❌ Failed to apply RR penalty for player ${player.playerId}:`, e.message);
+        }
+      }
+
+      // إعلان العقوبة
+      const arabicName = player.name;
+      const msg = isKicked
+        ? `🛑 تم استبعاد اللاعب ${arabicName} لتجاوزه حد العقوبات المسموح به (${player.penalties}/${maxPenalties})، وتم تطبيق خصم ${Math.abs(totalDeduction)} نقطة RR.`
+        : `⚠️ اللاعب ${arabicName} حصل على عقوبة (${player.penalties}/${maxPenalties})، وتم خصم ${Math.abs(totalDeduction)} نقطة RR من رتبتك.`;
+
+      io.to(data.roomId).emit('game:penalty-recorded', {
+        physicalId: data.targetPhysicalId,
+        penalties: player.penalties,
+        maxPenalties,
+        message: msg,
+        isKicked,
+      });
+
+      // طرد اللاعب المطرود
+      if (isKicked) {
+        if (state.phase === Phase.LOBBY) {
+          // 1. في اللوبي: حذف نهائي
+          state.players = state.players.filter(p => p.physicalId !== data.targetPhysicalId);
+          if (state.sessionId) {
+            await removePlayerFromSession(state.sessionId, data.targetPhysicalId);
+          }
+          const room = activeRooms.get(data.roomId);
+          if (room) {
+            room.playerCount = state.players.length;
+          }
+          io.to(data.roomId).emit('room:player-kicked', {
+            physicalId: data.targetPhysicalId,
+            totalPlayers: state.players.length,
+          });
+        } else {
+          // 2. أثناء اللعب: ميت ومستبعد
+          player.isAlive = false;
+          player.isConnected = false;
+          
+          // إزالة من طابور التحدث الفعال
+          if (state.discussionState?.speakingQueue) {
+            state.discussionState.speakingQueue = state.discussionState.speakingQueue.filter(id => id !== data.targetPhysicalId);
+          }
+        }
+
+        const allSockets = await io.in(data.roomId).fetchSockets();
+        for (const s of allSockets) {
+          if (s.data.role === 'player' && s.data.physicalId === data.targetPhysicalId) {
+            s.emit('player:kicked-self', {
+              reason: `تم استبعادك لتجاوز حد العقوبات (${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR.`,
+            });
+            s.leave(data.roomId);
+          }
+        }
+      }
+
+      // حفظ في Redis
+      await setGameState(data.roomId, state);
+
+      // بث الحالة المحدثة للجميع
+      io.to(data.roomId).emit('game:state-updated', state);
+
+      callback({ success: true, penalties: player.penalties, isKicked });
+      console.log(`⚖️ Leader recorded penalty for player #${data.targetPhysicalId} in room ${data.roomId} (${player.penalties}/${maxPenalties})`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -1788,10 +1915,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           isAlive: player.isAlive,
           gender: player.gender || 'MALE',
           playerId: player.playerId || null,
+          penalties: player.penalties || 0,
         },
         phase: state.phase,
         rolesConfirmed: state.rolesConfirmed || false,
         votingState: votingData,
+        maxPenalties: state.config?.maxPenalties || 3,
         // بيانات التبرير (لاستعادة الـ UI عند reconnect)
         justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
         // حالة سحب الأصوات
@@ -2173,7 +2302,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── دالة مشتركة: إعادة تعيين حالة الغرفة للوبي ──
-  function resetRoomState(state: any, excludeIds: number[] = []): any {
+  function resetRoomState(state: any, excludeIds: number[] = [], resetPenalties: boolean = true): any {
     // فلترة المستبعدين وإعادة تعيين الباقين
     const activePlayers = excludeIds.length > 0
       ? state.players.filter((p: any) => !excludeIds.includes(p.physicalId))
@@ -2185,6 +2314,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       isSilenced: false,
       role: null,
       justificationCount: 0,
+      penalties: resetPenalties ? 0 : (p.penalties || 0),
     }));
 
     state.phase = Phase.LOBBY;
@@ -2237,7 +2367,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   }
 
   // ── إعادة الغرفة لحالة اللوبي (بعد GAME_OVER) ────────────
-  socket.on('room:reset-to-lobby', async (data: { roomId: string }, callback) => {
+  socket.on('room:reset-to-lobby', async (data: { roomId: string; resetPenalties?: boolean }, callback) => {
     try {
       // Auto-join as leader
       socket.join(data.roomId);
@@ -2247,7 +2377,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      resetRoomState(state);
+      resetRoomState(state, [], data.resetPenalties ?? true);
       await setGameState(data.roomId, state);
 
       io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY', state });
@@ -2291,6 +2421,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   socket.on('room:new-game', async (data: { 
     roomId: string; 
     excludePlayerIds?: number[];
+    resetPenalties?: boolean;
   }, callback) => {
     try {
       // Auto-join as leader
@@ -2311,7 +2442,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // إعادة تعيين الحالة باستخدام الدالة المشتركة
-      resetRoomState(state, excludeIds);
+      resetRoomState(state, excludeIds, data.resetPenalties ?? true);
       await setGameState(data.roomId, state);
 
       // ── إبلاغ المستبعدين قبل بث الحالة الجديدة ──

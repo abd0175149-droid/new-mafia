@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import Image from 'next/image';
 
@@ -26,9 +26,23 @@ interface VotingCardProps {
   handleVote: (candidateIndex: number, delta: 1 | -1, proxyVoterId?: number) => void;
   revealedRoles: Set<number>;
   setRevealedRoles: React.Dispatch<React.SetStateAction<Set<number>>>;
+  onPenalizeClick?: (physicalId: number) => void;
+  maxPenalties?: number;
 }
 
-function VotingCard({ candidate, index, isDeal, targetDetails, initiatorDetails, isComplete, handleVote, revealedRoles, setRevealedRoles }: VotingCardProps) {
+function VotingCard({
+  candidate,
+  index,
+  isDeal,
+  targetDetails,
+  initiatorDetails,
+  isComplete,
+  handleVote,
+  revealedRoles,
+  setRevealedRoles,
+  onPenalizeClick,
+  maxPenalties = 3
+}: VotingCardProps) {
   const [isFlipped, setIsFlipped] = useState(false);
   const tapTimerRef = useRef<NodeJS.Timeout | null>(null);
   const tapCountRef = useRef(0);
@@ -37,6 +51,7 @@ function VotingCard({ candidate, index, isDeal, targetDetails, initiatorDetails,
   const flipTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const physicalId = candidate.targetPhysicalId;
+  const penalties = targetDetails?.penalties || 0;
 
   // ── Tap Logic (فقط +1 بالوكالة — بدون double-tap) ──
   const handleTapAction = useCallback(() => {
@@ -95,7 +110,7 @@ function VotingCard({ candidate, index, isDeal, targetDetails, initiatorDetails,
   return (
     <motion.div
       layout
-      className="relative flex flex-col items-center"
+      className="relative flex flex-col items-center group"
       style={{ touchAction: 'pan-y' }}
     >
       {/* DEAL Badge */}
@@ -113,6 +128,34 @@ function VotingCard({ candidate, index, isDeal, targetDetails, initiatorDetails,
       }`}>
         {candidate.votes}
       </div>
+
+      {/* Penalty dots indicator */}
+      {penalties > 0 && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 border border-amber-500/40 px-2 py-0.5 rounded-full flex gap-1 z-10">
+          {Array.from({ length: maxPenalties }).map((_, idx) => (
+            <span
+              key={idx}
+              className={`w-1.5 h-1.5 rounded-full ${
+                idx < penalties ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-600'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ⚠️ Hover Warning Button */}
+      {onPenalizeClick && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPenalizeClick(physicalId);
+          }}
+          className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+          title="تسجيل عقوبة"
+        >
+          ⚠️
+        </button>
+      )}
 
       {/* Linked Player (for Deals) */}
       {isDeal && initiatorDetails && (
@@ -148,6 +191,10 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [loading, setLoading] = useState(false);
   const [dealInitiator, setDealInitiator] = useState<number | ''>('');
   const [dealTarget, setDealTarget] = useState<number | ''>('');
+
+  const [penalizingId, setPenalizingId] = useState<number | null>(null);
+  const [penalizingLoading, setPenalizingLoading] = useState(false);
+  const [showQuickPenalties, setShowQuickPenalties] = useState(false);
   
   const [startSpeakerId, setStartSpeakerId] = useState<number | ''>('');
   const [discussionTimeLimit, setDiscussionTimeLimit] = useState<number>(30);
@@ -157,6 +204,195 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
   const localVoteTotalRef = useRef(0);
   const [revealedRoles, setRevealedRoles] = useState<Set<number>>(new Set());
+
+  const handleRecordPenalty = async (physicalId: number) => {
+    setPenalizingLoading(true);
+    try {
+      await emit('leader:record-penalty', { roomId: gameState.roomId, targetPhysicalId: physicalId });
+      setPenalizingId(null);
+    } catch (err: any) {
+      setError(err.message || 'فشل تسجيل العقوبة');
+    } finally {
+      setPenalizingLoading(false);
+    }
+  };
+
+  const renderWithGlobals = (content: React.ReactNode) => {
+    return (
+      <div className="relative min-h-screen pb-20">
+        {content}
+
+        {/* Floating ⚖️ button */}
+        <button
+          onClick={() => setShowQuickPenalties(true)}
+          className="fixed bottom-6 right-6 z-45 bg-[#C5A059] text-black w-12 h-12 rounded-full flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 cursor-pointer font-bold border border-[#C5A059]/50 hover:bg-[#b08b47] transition-all"
+          title="نظام العقوبات السريع"
+        >
+          ⚖️
+        </button>
+
+        {/* Quick Penalties Drawer */}
+        <AnimatePresence>
+          {showQuickPenalties && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowQuickPenalties(false)}
+                className="fixed inset-0 bg-black z-40"
+              />
+              {/* Drawer Panel */}
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="fixed top-0 right-0 h-full w-full max-w-md bg-[#080808]/95 border-l border-[#2a2a2a] shadow-2xl z-50 p-6 flex flex-col backdrop-blur-md"
+                dir="rtl"
+              >
+                <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-4 mb-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">⚖️</span>
+                    <h3 className="text-xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>نظام العقوبات السريع</h3>
+                  </div>
+                  <button
+                    onClick={() => setShowQuickPenalties(false)}
+                    className="text-[#808080] hover:text-white text-lg font-mono"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                  {alivePlayers.map((player: any) => (
+                    <div key={player.physicalId} className="bg-[#111]/80 border border-[#2a2a2a] rounded-xl p-3 flex items-center justify-between group hover:border-amber-500/30 transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-[#050505] border border-[#555] flex items-center justify-center font-mono font-bold text-white text-sm">
+                          {player.physicalId}
+                        </div>
+                        <div>
+                          <p className="text-white font-bold text-sm">{player.name}</p>
+                          {/* Penalty Dots */}
+                          <div className="flex gap-1 mt-1.5">
+                            {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_, idx) => (
+                              <span
+                                key={idx}
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  idx < (player.penalties || 0) ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-700'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setPenalizingId(player.physicalId);
+                          setShowQuickPenalties(false);
+                        }}
+                        className="px-3 py-1.5 bg-amber-950/40 border border-amber-500/40 text-amber-400 rounded-lg text-xs font-mono font-bold hover:bg-amber-900/50 hover:scale-105 active:scale-95 transition-all flex items-center gap-1"
+                      >
+                        ⚠️ عقوبة
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        {/* Confirm Modal */}
+        <AnimatePresence>
+          {penalizingId !== null && (() => {
+            const player = gameState.players.find((p: any) => p.physicalId === penalizingId);
+            if (!player) return null;
+            const currentPenalties = player.penalties || 0;
+            const maxPenalties = gameState.config.maxPenalties || 3;
+            const willBeKicked = currentPenalties + 1 >= maxPenalties;
+
+            return (
+              <>
+                {/* Modal Backdrop */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.6 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 bg-black/80 z-50 backdrop-blur-sm"
+                />
+                {/* Modal Content */}
+                <div className="fixed inset-0 z-55 flex items-center justify-center p-4" dir="rtl">
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="w-full max-w-md bg-[#0a0a0a] border-2 border-amber-500/40 rounded-2xl p-6 shadow-2xl relative overflow-hidden text-center"
+                  >
+                    <div className="absolute top-0 left-0 w-full h-[3px] bg-amber-500" />
+                    
+                    <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center text-3xl mx-auto mb-4 animate-bounce">
+                      ⚠️
+                    </div>
+
+                    <h3 className="text-xl font-black text-amber-500 mb-2" style={{ fontFamily: 'Amiri, serif' }}>
+                      تسجيل عقوبة جديدة
+                    </h3>
+
+                    <p className="text-white text-lg font-bold mb-1">
+                      اللاعب: {player.name} (مقعد #{player.physicalId})
+                    </p>
+
+                    <div className="flex justify-center gap-1 mb-4">
+                      {Array.from({ length: maxPenalties }).map((_, idx) => (
+                        <span
+                          key={idx}
+                          className={`w-3 h-3 rounded-full ${
+                            idx < currentPenalties ? 'bg-red-500 shadow-[0_0_6px_#ef4444]' : 'bg-zinc-700'
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    <p className="text-zinc-400 text-xs leading-relaxed mb-6">
+                      سيتم خصم رتبة وتوجيه إنذار رسمي للاعب.
+                      <br/>
+                      العقوبات الحالية بعد هذا الإجراء: <span className="text-red-400 font-bold">{currentPenalties + 1} من {maxPenalties}</span>.
+                      {willBeKicked && (
+                        <span className="block text-red-500 font-black text-sm mt-3 animate-pulse">
+                          🚨 تحذير: سيتم طرد هذا اللاعب فوراً لتجاوزه الحد الأقصى للعقوبات!
+                        </span>
+                      )}
+                    </p>
+
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => handleRecordPenalty(player.physicalId)}
+                        disabled={penalizingLoading}
+                        className="flex-1 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                      >
+                        {penalizingLoading ? 'جاري التسجيل...' : 'تأكيد وتسجيل'}
+                      </button>
+                      <button
+                        onClick={() => setPenalizingId(null)}
+                        disabled={penalizingLoading}
+                        className="flex-1 py-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 rounded-lg transition-all active:scale-95"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              </>
+            );
+          })()}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
+  const renderContent = (content: React.ReactNode) => renderWithGlobals(content);
 
   // Timer Tick Effect for Leader
   useEffect(() => {
@@ -415,7 +651,9 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       const currentAccused = canJustifyList[justCurrentIdx];
       if (currentAccused) {
         const isMafiaRole = currentAccused.role?.includes('MAFIA') || currentAccused.role === 'GODFATHER' || currentAccused.role === 'SILENCER' || currentAccused.role === 'CHAMELEON';
-        return (
+        const accusedPlayer = gameState.players.find((p: any) => p.physicalId === currentAccused.targetPhysicalId);
+        const accusedPenalties = accusedPlayer?.penalties || 0;
+        return renderContent(
           <div className="p-6">
             <div className="text-center mb-6 border-b border-[#2a2a2a] pb-4">
               <h2 className="text-2xl font-black text-[#C5A059] mb-2" style={{ fontFamily: 'Amiri, serif' }}>مرحلة التبرير</h2>
@@ -433,14 +671,39 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             </div>
 
             {/* Accused Info */}
-            <div className="noir-card p-6 border-[#C5A059]/40 mb-6">
+            <div className="noir-card p-6 border-[#C5A059]/40 mb-6 group relative">
               <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-[#111] border-2 border-[#C5A059] rounded-full flex items-center justify-center text-4xl text-[#C5A059] font-mono font-black">
-                  {currentAccused.targetPhysicalId}
+                <div className="relative">
+                  <div className="w-20 h-20 bg-[#111] border-2 border-[#C5A059] rounded-full flex items-center justify-center text-4xl text-[#C5A059] font-mono font-black">
+                    {currentAccused.targetPhysicalId}
+                  </div>
+                  {/* Penalty button for defense hearing */}
+                  <button
+                    onClick={() => setPenalizingId(currentAccused.targetPhysicalId)}
+                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    title="تسجيل عقوبة"
+                  >
+                    ⚠️
+                  </button>
                 </div>
                 <div>
                   <h3 className="text-2xl font-bold text-white" style={{ fontFamily: 'Amiri, serif' }}>{currentAccused.name || 'Unknown'}</h3>
-                  <p className="text-[#808080] text-xs font-mono tracking-widest uppercase">
+                  
+                  {/* Penalty dots for defense hearing */}
+                  {accusedPenalties > 0 && (
+                    <div className="flex gap-1.5 mt-1 bg-black/40 border border-amber-500/30 px-3 py-1.5 rounded-full w-fit">
+                      {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_, idx) => (
+                        <span
+                          key={idx}
+                          className={`w-2 h-2 rounded-full ${
+                            idx < accusedPenalties ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-600'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-[#808080] text-xs font-mono tracking-widest uppercase mt-1">
                     VOTES: {gameState.justificationData?.topVotes} • DEFENSE {currentAccused.justificationCount}/{maxJustifications}
                   </p>
                   {currentAccused.role && (
@@ -545,7 +808,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const wsNeeded = ws?.needed || Math.ceil(votersTotal / 2);
     const canRevoteByWithdrawal = wsCount >= wsNeeded;
 
-    return (
+    return renderContent(
       <div className="p-6">
         <div className="text-center mb-8 border-b border-[#2a2a2a] pb-4">
           <h2 className="text-2xl font-black text-[#C5A059] mb-2" style={{ fontFamily: 'Amiri, serif' }}>انتهت التبريرات - اتخذ القرار</h2>
@@ -554,25 +817,56 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
         {/* Show accused summary */}
         <div className="space-y-3 mb-6">
-          {accused.map((acc: any) => (
-            <div key={acc.targetPhysicalId} className="noir-card p-4 border-[#2a2a2a] flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[#111] border border-[#555] rounded-full flex items-center justify-center text-xl text-white font-mono font-black">
-                  {acc.targetPhysicalId}
+          {accused.map((acc: any) => {
+            const p = gameState.players.find((player: any) => player.physicalId === acc.targetPhysicalId);
+            const penalties = p?.penalties || 0;
+            const maxPenalties = gameState.config.maxPenalties || 3;
+            return (
+              <div key={acc.targetPhysicalId} className="noir-card p-4 border-[#2a2a2a] flex items-center justify-between group relative">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <div className="w-12 h-12 bg-[#111] border border-[#555] rounded-full flex items-center justify-center text-xl text-white font-mono font-black">
+                      {acc.targetPhysicalId}
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPenalizingId(acc.targetPhysicalId);
+                      }}
+                      className="absolute -bottom-1 -left-1 w-6 h-6 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg text-[10px]"
+                      title="تسجيل عقوبة"
+                    >
+                      ⚠️
+                    </button>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-white font-bold">{acc.name}</p>
+                      {penalties > 0 && (
+                        <div className="flex gap-0.5">
+                          {Array.from({ length: maxPenalties }).map((_, idx) => (
+                            <span
+                              key={idx}
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                idx < penalties ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-600'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs font-mono" style={{ color: acc.role?.includes('MAFIA') || acc.role === 'GODFATHER' || acc.role === 'SILENCER' || acc.role === 'CHAMELEON' ? '#ff4444' : '#44ff44' }}>
+                      🔒 {acc.role || 'UNKNOWN'}
+                    </p>
+                    <p className="text-[#555] text-[9px] font-mono mt-1">
+                      مرات التبرير: {acc.justificationCount || 0}/{gameState.justificationData?.maxJustifications || 2}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-white font-bold">{acc.name}</p>
-                  <p className="text-xs font-mono" style={{ color: acc.role?.includes('MAFIA') || acc.role === 'GODFATHER' || acc.role === 'SILENCER' || acc.role === 'CHAMELEON' ? '#ff4444' : '#44ff44' }}>
-                    🔒 {acc.role || 'UNKNOWN'}
-                  </p>
-                  <p className="text-[#555] text-[9px] font-mono mt-1">
-                    مرات التبرير: {acc.justificationCount || 0}/{gameState.justificationData?.maxJustifications || 2}
-                  </p>
-                </div>
+                <span className="text-[#C5A059] font-mono font-bold text-lg">{gameState.justificationData?.topVotes} أصوات</span>
               </div>
-              <span className="text-[#C5A059] font-mono font-bold text-lg">{gameState.justificationData?.topVotes} أصوات</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* عداد سحب الأصوات — معلوماتي */}
@@ -715,7 +1009,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const pendingRolesMap: Record<number, string> = {};
     pendingRolesArr.forEach((r: any) => { pendingRolesMap[r.physicalId] = r.role; });
 
-    return (
+    return renderContent(
       <div className="flex flex-col items-center justify-center p-8 text-center">
         <h2 className="text-2xl font-black text-[#8A0303] mb-2" style={{ fontFamily: 'Amiri, serif' }}>اكتمل التصويت وجاهز للحسم</h2>
         <p className="text-[#808080] font-mono uppercase tracking-widest text-[10px] mb-8">
@@ -793,7 +1087,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
     // ── شاشة سؤال تفعيل الممرضة ──
     if (showNursePrompt) {
-      return (
+      return renderContent(
         <div className="flex flex-col items-center justify-center p-12 text-center">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
@@ -831,7 +1125,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       );
     }
 
-    return (
+    return renderContent(
       <div className="flex flex-col items-center justify-center p-8 text-center">
         <div className="mb-8">
           <div className="text-6xl mb-4">💀</div>
@@ -900,7 +1194,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   // RENDER TIE-BREAKER (fallback for old flow)
   // ==========================================
   if (gameState.phase === 'DAY_TIEBREAKER') {
-    return (
+    return renderContent(
       <div className="p-6">
         <h2 className="text-2xl font-black text-[#C5A059] mb-4 text-center">حالة تعادل!</h2>
         <div className="grid grid-cols-2 gap-4 max-w-md mx-auto">
@@ -923,7 +1217,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
     if (!ds) {
       // ── START NEW DISCUSSION ──
-      return (
+      return renderContent(
         <div className="flex flex-col items-center justify-center p-8">
           <h2 className="text-3xl font-black text-white mb-6" style={{ fontFamily: 'Amiri, serif' }}>بدء جولة النقاش</h2>
           
@@ -987,7 +1281,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       const activePlayer = alivePlayers.find((p: any) => p.physicalId === ds.currentSpeakerId);
       const isCurrentSilenced = activePlayer?.isSilenced === true;
       
-      return (
+      return renderContent(
         <div className="flex flex-col h-full bg-[#050505]">
           <div className="text-center pb-6 border-b border-[#2a2a2a] mb-6">
             <h2 className="text-2xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>وحدة تحكم النقاش</h2>
@@ -999,16 +1293,42 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
           
           <div className="flex-1 flex flex-col items-center justify-center max-w-lg mx-auto w-full px-4">
             {/* Current Player Status */}
-            <div className={`w-full noir-card p-8 flex flex-col items-center gap-4 transition-all duration-300 ${isCurrentSilenced ? 'border-[#8A0303] bg-[#8A0303]/10' : ds.status === 'SPEAKING' ? 'border-[#C5A059] bg-[#C5A059]/5' : ds.status === 'PAUSED' ? 'border-[#8A0303] bg-[#8A0303]/5' : 'border-[#2a2a2a]'}`}>
-              <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl font-mono relative ${isCurrentSilenced ? 'bg-[#8A0303]/20 border-2 border-[#8A0303] text-[#8A0303]' : 'bg-[#111] border border-[#555] text-white'}`}>
-                {ds.currentSpeakerId}
-                {isCurrentSilenced && (
-                  <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#8A0303] rounded-full flex items-center justify-center text-white text-lg animate-pulse">
-                    🔇
+            <div className={`w-full noir-card p-8 flex flex-col items-center gap-4 transition-all duration-300 relative group ${isCurrentSilenced ? 'border-[#8A0303] bg-[#8A0303]/10' : ds.status === 'SPEAKING' ? 'border-[#C5A059] bg-[#C5A059]/5' : ds.status === 'PAUSED' ? 'border-[#8A0303] bg-[#8A0303]/5' : 'border-[#2a2a2a]'}`}>
+              <div className="relative">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl font-mono relative ${isCurrentSilenced ? 'bg-[#8A0303]/20 border-2 border-[#8A0303] text-[#8A0303]' : 'bg-[#111] border border-[#555] text-white'}`}>
+                  {ds.currentSpeakerId}
+                  {isCurrentSilenced && (
+                    <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#8A0303] rounded-full flex items-center justify-center text-white text-lg animate-pulse">
+                      🔇
+                    </div>
+                  )}
+                </div>
+                {activePlayer && (
+                  <button
+                    onClick={() => setPenalizingId(activePlayer.physicalId)}
+                    className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                    title="تسجيل عقوبة"
+                  >
+                    ⚠️
+                  </button>
+                )}
+              </div>
+              
+              <div className="flex flex-col items-center">
+                <p className="text-2xl text-white font-bold">{activePlayer?.name || 'مجهول'}</p>
+                {activePlayer && (activePlayer.penalties || 0) > 0 && (
+                  <div className="flex gap-1.5 mt-2 bg-black/40 border border-amber-500/30 px-3 py-1 rounded-full w-fit">
+                    {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_, idx) => (
+                      <span
+                        key={idx}
+                        className={`w-2 h-2 rounded-full ${
+                          idx < (activePlayer.penalties || 0) ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-600'
+                        }`}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
-              <p className="text-2xl text-white font-bold">{activePlayer?.name || 'مجهول'}</p>
               
               {/* تنبيه الإسكات */}
               {isCurrentSilenced && (
@@ -1141,7 +1461,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     }
 
     if (!showDealsUI) {
-      return (
+      return renderContent(
         <div className="flex flex-col items-center justify-center p-12 text-center h-[50vh]">
           <h2 className="text-3xl font-black text-white mb-6" style={{ fontFamily: 'Amiri, serif' }}>انتهت جولة النقاش</h2>
           <p className="text-[#808080] font-mono uppercase tracking-widest text-sm mb-12">
@@ -1199,7 +1519,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       );
     }
 
-    return (
+    return renderContent(
       <div>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-mono text-[#555] uppercase tracking-widest">DEAL REGISTRATION</h2>
@@ -1328,7 +1648,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const votingColor = votingLabel === 'NARROWED' ? 'text-[#ff4444]' 
       : votingLabel === 'REVOTE' ? 'text-[#C5A059]' : 'text-white';
 
-    return (
+    return renderContent(
       <div className="flex flex-col h-full">
         {/* ═══ Voting Info Bar (no logo — parent has it) ═══ */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#2a2a2a] bg-[#0a0a0a]/80">
@@ -1472,6 +1792,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   handleVote={handleVote}
                   revealedRoles={revealedRoles}
                   setRevealedRoles={setRevealedRoles}
+                  onPenalizeClick={setPenalizingId}
+                  maxPenalties={gameState.config.maxPenalties || 3}
                 />
               );
             })}
@@ -1527,5 +1849,5 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     );
   }
 
-  return <div className="text-[#555] font-mono p-4">UNKNOWN SUB-PHASE: {gameState.phase}</div>;
+  return renderContent(<div className="text-[#555] font-mono p-4">UNKNOWN SUB-PHASE: {gameState.phase}</div>);
 }
