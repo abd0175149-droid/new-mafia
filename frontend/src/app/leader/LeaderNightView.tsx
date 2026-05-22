@@ -409,9 +409,10 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
     );
   }
 
-  // 👮‍♀️ نتيجة إقصاء الشرطية — عرض مؤقت ثم الانتقال للنهار
+  // 👮‍♀️ نتيجة إقصاء الشرطية — عرض مؤقت ثم الانتقال للنهار أو إنهاء اللعبة
   if (policewomanResult) {
     const isMafia = policewomanResult.targetIsMafia;
+    const hasPendingWinner = !!policewomanResult.pendingWinner;
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 text-center">
         <motion.div
@@ -429,21 +430,46 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           {isMafia && (
             <p className="text-[#a78bfa] text-sm font-mono">+نقاط رانك للشرطية 🏆</p>
           )}
-          <button
-            onClick={async () => {
-              setPolicewomanResult(null);
-              setPolicewomanTarget(null);
-              // الانتقال للنهار
-              try {
-                await emit('night:end-recap', { roomId: gameState.roomId });
-              } catch (err: any) {
-                setError(err.message);
-              }
-            }}
-            className="btn-premium px-12 py-4 !text-sm !border-[#C5A059] mt-4"
-          >
-            <span>☀️ متابعة لنقاش اليوم</span>
-          </button>
+
+          {/* إذا فيه فائز معلق → زر إنهاء اللعبة */}
+          {hasPendingWinner ? (
+            <div className="flex flex-col items-center gap-3 mt-4">
+              <div className="text-4xl">{policewomanResult.pendingWinner === 'MAFIA' ? '🩸' : '⚖️'}</div>
+              <h3 className="text-lg font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>
+                {policewomanResult.pendingWinner === 'MAFIA' ? 'المافيا انتصرت!' : 'المدينة انتصرت!'}
+              </h3>
+              <button
+                onClick={async () => {
+                  setPolicewomanResult(null);
+                  setPolicewomanTarget(null);
+                  try {
+                    await emit('game:confirm-end', { roomId: gameState.roomId });
+                  } catch (err: any) {
+                    setError(err.message);
+                  }
+                }}
+                className="btn-premium px-12 py-4 !text-sm !border-[#C5A059] mt-2"
+              >
+                <span>🏁 عرض النتائج</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={async () => {
+                setPolicewomanResult(null);
+                setPolicewomanTarget(null);
+                // الانتقال للنهار
+                try {
+                  await emit('night:end-recap', { roomId: gameState.roomId });
+                } catch (err: any) {
+                  setError(err.message);
+                }
+              }}
+              className="btn-premium px-12 py-4 !text-sm !border-[#C5A059] mt-4"
+            >
+              <span>☀️ متابعة لنقاش اليوم</span>
+            </button>
+          )}
         </motion.div>
       </div>
     );

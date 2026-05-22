@@ -18,9 +18,9 @@ import {
   type DynamicNightAction,
 } from '../game/dynamic-night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
+import { clearGameTimer } from '../game/game-timer.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
-import { clearGameTimer } from '../game/game-timer.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -1068,6 +1068,30 @@ export function registerNightEvents(io: Server, socket: Socket) {
           });
           return callback({ success: true, policewomanPending: true });
         }
+      }
+
+      // 🛡️ حماية: إذا فيه فائز معلق (مثلاً الشرطية أقصت آخر مافيا) → إنهاء اللعبة مباشرة
+      if (state.pendingWinner) {
+        const winner = state.pendingWinner;
+        const gameOverPayload: any = {
+          winner,
+          players: state.players,
+        };
+        if (state.config.useDynamicEngine) {
+          try {
+            const winResult = await checkWinConditionDynamic(state);
+            gameOverPayload.neutralResults = winResult.neutralResults || [];
+          } catch { /* fallback */ }
+        }
+        io.to(data.roomId).emit('game:over', gameOverPayload);
+        await setPhase(data.roomId, Phase.GAME_OVER);
+        state.phase = Phase.GAME_OVER;
+        clearGameTimer(data.roomId);
+        state.pendingWinner = null;
+        await setGameState(data.roomId, state);
+        await finalizeMatch(state);
+        console.log(`✅ Game ended via night:end-recap safety check — winner: ${winner}`);
+        return callback({ success: true });
       }
 
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
