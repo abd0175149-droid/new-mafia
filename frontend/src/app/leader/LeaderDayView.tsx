@@ -341,7 +341,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   className="fixed inset-0 bg-black/80 z-50 backdrop-blur-sm"
                 />
                 {/* Modal Content */}
-                <div className="fixed inset-0 z-[55] flex items-center justify-center p-4" dir="rtl">
+                <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 55 }} dir="rtl">
                   <motion.div
                     initial={{ scale: 0.95, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}

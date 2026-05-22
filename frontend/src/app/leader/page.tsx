@@ -2088,7 +2088,7 @@ export default function LeaderPage() {
             const penalizedPlayers = gs.players.filter((p: any) => (p.penalties || 0) > 0 && !(pendingNewGameAction.excludePlayerIds || []).includes(p.physicalId));
             const maxPen = gs.config?.maxPenalties || 3;
             return (
-            <div className="fixed inset-0 z-[999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 9999 }}>
               <div className="bg-[#0a0a0a] border border-[#C5A059]/30 rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-[#C5A059] to-transparent" />
                 <div className="text-center mb-6">
@@ -3461,7 +3461,8 @@ export default function LeaderPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              style={{ zIndex: 9999 }}
               onClick={() => setSelectedMatch(null)}
             >
               <motion.div
@@ -3553,7 +3554,7 @@ export default function LeaderPage() {
           const penalizedPlayers = gs.players.filter((p: any) => (p.penalties || 0) > 0 && !(pendingNewGameAction.excludePlayerIds || []).includes(p.physicalId));
           const maxPen = gs.config?.maxPenalties || 3;
           return (
-          <div className="fixed inset-0 z-[999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 9999 }}>
             <div className="bg-[#0a0a0a] border border-[#C5A059]/30 rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl relative overflow-hidden">
               {/* Top accent */}
               <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-[#C5A059] to-transparent" />
