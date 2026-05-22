@@ -3417,7 +3417,7 @@ export default function LeaderPage() {
         </AnimatePresence>
 
         {/* ── مودال تصفير/إبقاء العقوبات عند بدء لعبة جديدة ── */}
-        {pendingNewGameAction && (
+        {pendingNewGameAction && gameState && (
           <div className="fixed inset-0 z-[999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#0a0a0a] border border-[#C5A059]/30 rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl relative overflow-hidden">
               {/* Top accent */}
