@@ -3419,9 +3419,9 @@ export default function LeaderPage() {
         {/* ── مودال تصفير/إبقاء العقوبات عند بدء لعبة جديدة ── */}
         {(() => {
           if (!pendingNewGameAction || !gameState) return null;
-          const gs = gameState;
+          const gs: any = gameState;
           const penalizedPlayers = gs.players.filter((p: any) => (p.penalties || 0) > 0 && !(pendingNewGameAction.excludePlayerIds || []).includes(p.physicalId));
-          const maxPen = (gs.config as any).maxPenalties || 3;
+          const maxPen = gs.config?.maxPenalties || 3;
           return (
           <div className="fixed inset-0 z-[999] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-[#0a0a0a] border border-[#C5A059]/30 rounded-2xl p-6 sm:p-8 w-full max-w-sm shadow-2xl relative overflow-hidden">
