@@ -573,10 +573,27 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }, 6000);
     });
 
+    // إقصاء بسبب العقوبات — اللاعب يبقى في الغرفة لكن ميت
+    const cleanupPenaltyEjected = on('player:penalty-ejected', (data: { reason: string; penalties: number; maxPenalties: number }) => {
+      setIsPlayerDead(true);
+      setCardFlipped(true);
+      setPenalties(data.penalties);
+      setMaxPenalties(data.maxPenalties);
+      setPenaltyAlert({
+        message: data.reason,
+        penalties: data.penalties,
+        maxPenalties: data.maxPenalties
+      });
+      if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
+      }
+    });
+
     return () => {
       cleanupSeat();
       cleanupKick();
       cleanupPenalty();
+      cleanupPenaltyEjected();
     };
   }, [on, initialRoomCode, physicalId]);
 

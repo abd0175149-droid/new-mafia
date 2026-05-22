@@ -1446,9 +1446,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             totalPlayers: state.players.length,
           });
         } else {
-          // 2. أثناء اللعب: ميت ومستبعد
+          // 2. أثناء اللعب: ميت ومستبعد (لكن يبقى في الغرفة)
           player.isAlive = false;
-          player.isConnected = false;
+          player.penaltyKicked = true; // علامة إقصاء بالعقوبات — للتفريق عن الموت العادي
           
           // إزالة من طابور التحدث الفعال
           if (state.discussionState?.speakingQueue) {
@@ -1456,13 +1456,24 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
         }
 
+        // إبلاغ اللاعب المُقصى (يبقى في الغرفة — لا نطرده من السوكت)
         const allSockets = await io.in(data.roomId).fetchSockets();
         for (const s of allSockets) {
           if (s.data.role === 'player' && s.data.physicalId === data.targetPhysicalId) {
-            s.emit('player:kicked-self', {
-              reason: `تم استبعادك لتجاوز حد العقوبات (${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR.`,
-            });
-            s.leave(data.roomId);
+            if (state.phase === Phase.LOBBY) {
+              // في اللوبي فقط: طرد فعلي من السوكت
+              s.emit('player:kicked-self', {
+                reason: `تم استبعادك لتجاوز حد العقوبات (${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR.`,
+              });
+              s.leave(data.roomId);
+            } else {
+              // أثناء اللعب: إقصاء من اللعبة فقط (يبقى في الغرفة)
+              s.emit('player:penalty-ejected', {
+                reason: `تم إقصاؤك من هذه اللعبة لتجاوز حد العقوبات (${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR.`,
+                penalties: player.penalties,
+                maxPenalties,
+              });
+            }
           }
         }
       }
@@ -2350,10 +2361,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       ? resetPenalties 
       : (state.config?.penaltyScope === 'game'); // game = تصفير تلقائي / room = إبقاء
 
-    // فلترة المستبعدين وإعادة تعيين الباقين
-    const activePlayers = excludeIds.length > 0
+    // فلترة المستبعدين يدوياً
+    let activePlayers = excludeIds.length > 0
       ? state.players.filter((p: any) => !excludeIds.includes(p.physicalId))
-      : state.players;
+      : [...state.players];
+
+    // إذا لم نصفّر العقوبات → المقصيين بالعقوبات يُستبعدون أيضاً
+    if (!shouldResetPenalties) {
+      activePlayers = activePlayers.filter((p: any) => !p.penaltyKicked);
+    }
 
     state.players = activePlayers.map((p: any) => ({
       ...p,
@@ -2362,6 +2378,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       role: null,
       justificationCount: 0,
       penalties: shouldResetPenalties ? 0 : (p.penalties || 0),
+      penaltyKicked: shouldResetPenalties ? false : (p.penaltyKicked || false),
     }));
 
     state.phase = Phase.LOBBY;

@@ -270,6 +270,7 @@ function DisplayPageContent() {
       syncStateFromData(state);
     };
     socket.on('game:state-sync', onStateSync);
+    socket.on('game:state-updated', onStateSync); // نفس المعالج — يُبث بعد العقوبات وتحديثات أخرى
 
     // ══════════════════════════════════════════════════
     // الأحداث الأساسية
@@ -513,6 +514,7 @@ function DisplayPageContent() {
     return () => {
       socket.off('connect', onReconnect);
       socket.off('game:state-sync', onStateSync);
+      socket.off('game:state-updated', onStateSync);
       socket.off('room:player-joined', onPlayerJoined);
       socket.off('room:player-kicked', onPlayerKicked);
       socket.off('room:player-updated', onPlayerUpdated);

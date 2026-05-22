@@ -172,6 +172,8 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
       sessionId: room.id,
       activityId,
       maxPlayers: room.maxPlayers || 10,
+      maxPenalties: room.maxPenalties || 3,
+      penaltyScope: room.penaltyScope || 'room',
     }));
     window.open('/leader', '_blank');
   };
