@@ -1138,6 +1138,7 @@ function DisplayPageContent() {
                         initial={{ opacity: 0, scale: 0.9, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
+                        className="relative"
                       >
                         <MafiaCard
                           playerNumber={p.physicalId}
@@ -1152,6 +1153,19 @@ function DisplayPageContent() {
                           avatarUrl={p.avatarUrl}
                           rankTier={p.rankTier}
                         />
+                        {/* نقاط العقوبات */}
+                        {(p.penalties || 0) > 0 && (
+                          <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm">
+                            {Array.from({ length: displayMaxPenalties }).map((_, idx) => (
+                              <span
+                                key={idx}
+                                className={`w-2 h-2 rounded-full ${
+                                  idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444] animate-pulse' : 'bg-zinc-700'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </motion.div>
                    ))}
                  </AnimatePresence>

@@ -222,6 +222,24 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
       <div className="relative min-h-screen pb-20">
         {content}
 
+        {/* شريط اللاعبين المقصيين بالعقوبات */}
+        {penaltyKickedPlayers.length > 0 && (
+          <div className="px-4 py-2 mt-2">
+            <div className="bg-red-950/30 border border-red-500/20 rounded-xl p-3">
+              <p className="text-red-400/80 text-[10px] font-mono tracking-widest uppercase mb-2 text-center">⛔ EJECTED BY PENALTIES</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {penaltyKickedPlayers.map((p: any) => (
+                  <div key={p.physicalId} className="flex items-center gap-2 bg-black/40 border border-red-500/30 rounded-lg px-3 py-1.5">
+                    <span className="text-red-500 font-mono font-bold text-sm">#{p.physicalId}</span>
+                    <span className="text-red-400/70 text-xs">{p.name}</span>
+                    <span className="text-[8px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-mono uppercase">مُقصى</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Floating ⚖️ button */}
         <button
           onClick={() => setShowQuickPenalties(true)}
@@ -413,6 +431,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   }, [gameState.discussionState]);
 
   const alivePlayers = gameState.players.filter((p: any) => p.isAlive);
+  const penaltyKickedPlayers = gameState.players.filter((p: any) => !p.isAlive && p.penaltyKicked);
   const deals = gameState.votingState?.deals || [];
   const candidates = gameState.votingState?.candidates || [];
   const tiedCandidates = gameState.tiedCandidates || []; // Assuming stored here if TIE

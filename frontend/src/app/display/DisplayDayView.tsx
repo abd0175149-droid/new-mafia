@@ -577,6 +577,19 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                           rankTier={p.rankTier}
                             className={isSpeaker ? 'shadow-[0_0_50px_rgba(197,160,89,0.4)] border-2 border-[#C5A059]' : ''}
                           />
+                          {/* نقاط العقوبات */}
+                          {(p.penalties || 0) > 0 && (
+                            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 bg-black/70 px-2 py-1 rounded-full border border-red-500/30 backdrop-blur-sm z-20">
+                              {Array.from({ length: Math.max(p.penalties || 0, 3) }).map((_, idx) => (
+                                <span
+                                  key={idx}
+                                  className={`w-2 h-2 rounded-full ${
+                                    idx < (p.penalties || 0) ? 'bg-red-500 shadow-[0_0_6px_#ef4444]' : 'bg-zinc-700'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          )}
                           
                           {/* Dynamic Timer Placement */}
                           {isSpeaker && discussionState && (

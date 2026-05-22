@@ -123,12 +123,26 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
     }
   };
 
+  const [showAddRoomForm, setShowAddRoomForm] = useState(false);
+  const [newRoomMaxPenalties, setNewRoomMaxPenalties] = useState(3);
+  const [newRoomPenaltyScope, setNewRoomPenaltyScope] = useState<'room' | 'game'>('room');
+
   const handleAddRoom = async () => {
     setAdding(true);
     try {
-      const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, { method: 'POST', body: JSON.stringify({}) });
+      const newRoom = await apiFetch(`/api/activities/${activityId}/add-room`, { 
+        method: 'POST', 
+        body: JSON.stringify({
+          maxPenalties: newRoomMaxPenalties,
+          penaltyScope: newRoomPenaltyScope,
+        }),
+      });
+      // إضافة إعدادات العقوبات للكائن المحلي (لتمريرها لـ enterRoom)
+      newRoom.maxPenalties = newRoomMaxPenalties;
+      newRoom.penaltyScope = newRoomPenaltyScope;
       setRooms(prev => [newRoom, ...prev]);
-      fetchRooms(); // تحديث الملخص
+      setShowAddRoomForm(false);
+      fetchRooms();
     } catch (err: any) {
       alert('فشل إنشاء الغرفة: ' + err.message);
     } finally {
@@ -204,14 +218,54 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
               ⚠️ حضروا بدون حجز
             </button>
             <button
-              onClick={handleAddRoom}
-              disabled={adding}
-              className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition disabled:opacity-50"
+              onClick={() => setShowAddRoomForm(!showAddRoomForm)}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition"
             >
-              {adding ? '⏳ جارٍ...' : '➕ إضافة غرفة'}
+              {showAddRoomForm ? '✕ إلغاء' : '➕ إضافة غرفة'}
             </button>
           </div>
         </div>
+
+        {/* نموذج إعدادات الغرفة الجديدة */}
+        {showAddRoomForm && (
+          <div className="bg-gray-900/60 border border-amber-500/20 rounded-xl p-4 space-y-3 mb-4">
+            <p className="text-amber-400 text-xs font-bold text-center">⚖️ إعدادات العقوبات للغرفة الجديدة</p>
+            
+            {/* الحد الأقصى للعقوبات */}
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-gray-400 text-xs">الحد الأقصى:</span>
+              <button onClick={() => setNewRoomMaxPenalties(Math.max(1, newRoomMaxPenalties - 1))}
+                className="w-7 h-7 bg-gray-800 border border-gray-600 rounded text-gray-300 hover:text-white hover:border-gray-500 transition text-sm">−</button>
+              <span className="text-amber-400 font-bold text-lg font-mono w-6 text-center">{newRoomMaxPenalties}</span>
+              <button onClick={() => setNewRoomMaxPenalties(Math.min(10, newRoomMaxPenalties + 1))}
+                className="w-7 h-7 bg-gray-800 border border-gray-600 rounded text-gray-300 hover:text-white hover:border-gray-500 transition text-sm">+</button>
+            </div>
+            
+            {/* نطاق العقوبات */}
+            <div className="flex justify-center gap-2">
+              <button
+                onClick={() => setNewRoomPenaltyScope('room')}
+                className={`px-4 py-1.5 rounded-lg text-xs transition ${newRoomPenaltyScope === 'room' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}
+              >كامل الغرفة</button>
+              <button
+                onClick={() => setNewRoomPenaltyScope('game')}
+                className={`px-4 py-1.5 rounded-lg text-xs transition ${newRoomPenaltyScope === 'game' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}
+              >كل لعبة</button>
+            </div>
+            <p className="text-gray-600 text-[10px] text-center">
+              {newRoomPenaltyScope === 'game' ? 'العقوبات تُصفّر تلقائياً عند بدء لعبة جديدة' : 'العقوبات تستمر طوال جلسة الغرفة'}
+            </p>
+            
+            {/* زر الإنشاء */}
+            <button
+              onClick={handleAddRoom}
+              disabled={adding}
+              className="w-full py-2 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-lg text-sm font-bold hover:bg-amber-500/30 transition disabled:opacity-50"
+            >
+              {adding ? '⏳ جارٍ الإنشاء...' : '✅ إنشاء الغرفة'}
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-6">
