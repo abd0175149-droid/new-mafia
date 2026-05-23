@@ -45,8 +45,9 @@ export async function createMatch(state: GameState): Promise<number | null> {
 // ── حفظ نتيجة المباراة عند نهاية اللعبة ────────────
 export async function finalizeMatch(state: GameState): Promise<void> {
   const db = getDB();
+  console.log(`📊 [finalizeMatch] Called — matchId: ${state.matchId}, activityId: ${state.activityId}, players: ${state.players.length}, winner: ${state.winner}`);
   if (!db || !state.matchId) {
-    console.warn('⚠️ Cannot finalize match — no DB or matchId');
+    console.warn(`⚠️ Cannot finalize match — db: ${!!db}, matchId: ${state.matchId}`);
     return;
   }
 
@@ -61,6 +62,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       if (activityInfo[0]?.isTest) {
         isTestGame = true;
       }
+      console.log(`📊 [finalizeMatch] activityId: ${state.activityId}, isTestLocation: ${activityInfo[0]?.isTest}, isTestGame: ${isTestGame}`);
+    } else {
+      console.log(`📊 [finalizeMatch] No activityId — isTestGame defaults to false`);
     }
     const startTime = state.startedAt ? new Date(state.startedAt).getTime() : 0;
     const endTime = Date.now();
@@ -152,6 +156,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     }
 
     // ── تحديث إحصائيات اللاعبين (القديمة) + نظام التقدم الجديد ──
+    console.log(`📊 [finalizeMatch] isTestGame: ${isTestGame} — ${isTestGame ? 'SKIPPING' : 'UPDATING'} stats for ${state.players.length} players`);
     if (!isTestGame) {
       for (const p of state.players) {
         if (p.playerId) {
@@ -159,11 +164,16 @@ export async function finalizeMatch(state: GameState): Promise<void> {
             const playerIsMafia = isMafiaRole(p.role as any);
             const won = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
             await updatePlayerStats(p.playerId, won, p.isAlive);
+            console.log(`📊 [finalizeMatch] ✅ Stats updated for playerId=${p.playerId} (${p.name}) — won: ${won}, alive: ${p.isAlive}`);
           } catch (statsErr: any) {
-            console.error(`⚠️ Failed to update stats for player ${p.playerId}:`, statsErr.message);
+            console.error(`⚠️ Failed to update stats for player ${p.playerId} (${p.name}):`, statsErr.message);
           }
+        } else {
+          console.warn(`📊 [finalizeMatch] ⚠️ Player #${p.physicalId} (${p.name}) has NO playerId — stats SKIPPED`);
         }
       }
+    } else {
+      console.log(`📊 [finalizeMatch] ⛔ isTestGame=true — ALL stats skipped for match #${state.matchId}`);
     }
 
     // ── تطبيق نظام التقدم (XP + Level + RR + Rank) ──
