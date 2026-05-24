@@ -110,14 +110,22 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                 </div>
 
                 <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-                  {alivePlayers.map((player: any) => (
-                    <div key={player.physicalId} className="bg-[#111]/80 border border-[#2a2a2a] rounded-xl p-3 flex items-center justify-between group hover:border-amber-500/30 transition-all">
+                  {/* كل اللاعبين (أحياء + أموات) ما عدا المقصيين بالعقوبات */}
+                  {(gameState.players || [])
+                    .filter((p: any) => !p.penaltyKicked)
+                    .map((player: any) => {
+                      const isDead = !player.isAlive;
+                      return (
+                    <div key={player.physicalId} className={`${isDead ? 'bg-[#111]/40 border-red-900/30' : 'bg-[#111]/80 border-[#2a2a2a] hover:border-amber-500/30'} border rounded-xl p-3 flex items-center justify-between group transition-all`}>
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-[#050505] border border-[#555] flex items-center justify-center font-mono font-bold text-white text-sm">
-                          {player.physicalId}
+                        <div className={`w-10 h-10 rounded-full ${isDead ? 'bg-red-950/40 border-red-500/30' : 'bg-[#050505] border-[#555]'} border flex items-center justify-center font-mono font-bold text-sm ${isDead ? 'text-red-400/60' : 'text-white'}`}>
+                          {isDead ? '💀' : player.physicalId}
                         </div>
                         <div>
-                          <p className="text-white font-bold text-sm">{player.name}</p>
+                          <p className={`font-bold text-sm flex items-center gap-1.5 ${isDead ? 'text-red-400/60' : 'text-white'}`}>
+                            {player.name}
+                            {isDead && <span className="text-[8px] bg-red-500/15 text-red-400/70 px-1.5 py-0.5 rounded font-mono">مُقصى</span>}
+                          </p>
                           {/* Penalty Dots */}
                           <div className="flex gap-1 mt-1.5">
                             {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_, idx) => (
@@ -141,7 +149,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                         ⚠️ عقوبة
                       </button>
                     </div>
-                  ))}
+                      );
+                    })}
                 </div>
               </motion.div>
             </>
