@@ -37,6 +37,8 @@ const DEFAULT_CONFIG = {
     abilityIncorrect: -5,
     penaltyDeduction: -10,
     penaltyKickDeduction: -30,
+    bombHitCitizen: 10,
+    bombHitMafia: -10,
   },
   ranks: {
     INFORMANT: { rrRequired: 100 },

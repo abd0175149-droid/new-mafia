@@ -879,6 +879,40 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
               : 'العقوبات تستمر طوال جلسة الغرفة (مع خيار التصفير)'}
           </p>
         </div>
+
+        {/* 💣 Bomb Ability Toggle */}
+        <div className="flex flex-col items-center gap-2">
+          <span className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">💣 GODFATHER BOMB</span>
+          <div className="flex bg-[#050505] rounded-xl border border-[#2a2a2a] p-1.5 w-56 mx-auto">
+            <button
+              onClick={async () => {
+                await emit('room:update-bomb-setting', { roomId: gameState.roomId, bombEnabled: true });
+              }}
+              className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                (gameState.config as any).bombEnabled !== false
+                  ? 'bg-[#1a1a1a] text-[#ff4444] shadow-md border border-[#8A0303]/40'
+                  : 'text-[#666] hover:text-[#aaa]'
+              }`}
+            >
+              مفعلة
+            </button>
+            <button
+              onClick={async () => {
+                await emit('room:update-bomb-setting', { roomId: gameState.roomId, bombEnabled: false });
+              }}
+              className={`flex-1 py-2.5 px-4 rounded-lg text-xs font-mono uppercase tracking-[0.15em] transition-all ${
+                (gameState.config as any).bombEnabled === false
+                  ? 'bg-[#1a1a1a] text-white shadow-md border border-[#333]'
+                  : 'text-[#666] hover:text-[#aaa]'
+              }`}
+            >
+              معطلة
+            </button>
+          </div>
+          <p className="text-[#555] text-[9px] font-mono text-center max-w-xs">
+            عند إقصاء شيخ المافيا بالتصويت يأخذ معه لاعبين مجاورين
+          </p>
+        </div>
       </div>
 
       {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة) ── */}

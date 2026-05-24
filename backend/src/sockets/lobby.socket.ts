@@ -1622,6 +1622,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── 💣 تحديث إعداد القنبلة ──────────────────────────
+  socket.on('room:update-bomb-setting', async (data: {
+    roomId: string;
+    bombEnabled: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      state.config.bombEnabled = data.bombEnabled;
+      await updateRoom(data.roomId, { config: state.config });
+
+      io.to(data.roomId).emit('game:state-updated', state);
+      callback({ success: true, bombEnabled: state.config.bombEnabled });
+      console.log(`💣 Leader ${data.bombEnabled ? 'enabled' : 'disabled'} bomb ability`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── تحديث خيار تعارف المافيا ────────────────────────
   socket.on('room:update-mafia-reveal', async (data: {
     roomId: string;

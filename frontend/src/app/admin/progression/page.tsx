@@ -47,6 +47,13 @@ const ACTION_CATEGORIES = [
       { key: 'penaltyDeduction', label: 'عقوبة عادية', icon: '⚠️', type: 'RR', desc: 'خصم نقاط رتبة عند تلقي عقوبة (سالب عادة)' },
       { key: 'penaltyKickDeduction', label: 'عقوبة الإقصاء', icon: '🚫', type: 'RR', desc: 'خصم إضافي عند طرد اللاعب لتجاوزه حد العقوبات' }
     ]
+  },
+  {
+    id: 'bomb', label: '💣 قدرة القنبلة (شيخ المافيا)',
+    actions: [
+      { key: 'bombHitCitizen', label: 'قنبلة أصابت مواطن', icon: '💣', type: 'RR', desc: 'مكافأة شيخ المافيا عند إقصاء مواطن بالقنبلة' },
+      { key: 'bombHitMafia', label: 'قنبلة أصابت مافيا', icon: '💥', type: 'RR', desc: 'خصم على شيخ المافيا عند إقصاء حليف بالقنبلة (سالب عادة)' }
+    ]
   }
 ];
 

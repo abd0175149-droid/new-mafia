@@ -29,6 +29,7 @@ interface RRBreakdown {
   abilityCorrect: number;
   abilityIncorrect: number;
   penalty: number;
+  bomb: number;
 }
 
 interface MatchDetails {
@@ -52,6 +53,7 @@ interface MatchDetails {
   rrChange: number;
   penaltyCount: number;
   penaltyRRDeduction: number;
+  bombRRChange: number;
   breakdown?: {
     xp: XPBreakdown;
     rr: RRBreakdown;
@@ -322,6 +324,7 @@ export default function MatchHistoryPage() {
                             <PointRow icon="✅" label="قدرة خاصة صحيحة" value={b.rr.abilityCorrect} type="rr" />
                             <PointRow icon="❌" label="قدرة خاصة خاطئة" value={b.rr.abilityIncorrect} type="rr" />
                             <PointRow icon="⚠️" label={`عقوبات (${m.penaltyCount || 0})`} value={b.rr.penalty} type="rr" />
+                            <PointRow icon="💣" label="قدرة القنبلة" value={b.rr.bomb} type="rr" />
                           </>
                         ) : (
                           <p className="text-[10px] text-gray-600 text-center py-2">التفاصيل غير متوفرة</p>

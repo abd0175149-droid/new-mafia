@@ -1039,6 +1039,126 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const pendingRolesMap: Record<number, string> = {};
     pendingRolesArr.forEach((r: any) => { pendingRolesMap[r.physicalId] = r.role; });
 
+    // 💣 هل في قنبلة معلقة؟
+    const bomb = gameState.pendingBomb;
+    const isGodfatherEliminated = eliminatedIds.some((id: number) => {
+      const role = pendingRolesMap[id];
+      return role === 'GODFATHER';
+    });
+
+    // إذا فيه قنبلة معلقة — عرض شاشة القنبلة
+    if (bomb && isGodfatherEliminated) {
+      const handleBombDecision = async (eliminateAbove: boolean, eliminateBelow: boolean) => {
+        setLoading(true);
+        try {
+          await emit('day:bomb-decision', { roomId: gameState.roomId, eliminateAbove, eliminateBelow });
+        } catch (err: any) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return renderContent(
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          {/* كروت المُقصَين */}
+          <div className="flex flex-wrap justify-center gap-3 mb-6">
+            <p className="w-full text-center text-[#555] font-mono text-[10px] tracking-widest uppercase mb-2">🔒 LEADER EYES ONLY</p>
+            {eliminatedIds.map((physicalId: number) => {
+              const player = gameState.players.find((p: any) => p.physicalId === physicalId);
+              const role = pendingRolesMap[physicalId] || player?.role || 'UNKNOWN';
+              return (
+                <MafiaCard
+                  key={physicalId}
+                  playerNumber={physicalId}
+                  playerName={player?.name || 'Unknown'}
+                  role={role}
+                  avatarUrl={player?.avatarUrl || null}
+                  isFlipped={true}
+                  flippable={false}
+                  size="sm"
+                />
+              );
+            })}
+          </div>
+
+          {/* 💣 شاشة القنبلة */}
+          <div className="w-full max-w-md bg-gradient-to-b from-[#1a0505] to-[#0a0a0a] border-2 border-[#8A0303]/40 rounded-2xl p-6 mb-6">
+            <div className="text-5xl mb-3">💣</div>
+            <h2 className="text-2xl font-black text-[#ff4444] mb-1" style={{ fontFamily: 'Amiri, serif' }}>قدرة القنبلة</h2>
+            <p className="text-[#808080] text-xs mb-6">شيخ المافيا يأخذ معه لاعبين مجاورين عند إقصائه</p>
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              {/* اللاعب الأعلى */}
+              {bomb.above ? (
+                <div className="bg-[#111] border border-[#333] rounded-xl p-4 text-center">
+                  <p className="text-[10px] text-[#888] font-mono uppercase mb-2">⬆️ اللاعب التالي</p>
+                  <p className="text-2xl font-black text-white mb-1">#{bomb.above.physicalId}</p>
+                  <p className="text-sm text-gray-300 font-bold">{bomb.above.name}</p>
+                  <p className="text-[10px] text-[#ff4444] font-mono mt-1">{bomb.above.role}</p>
+                  <button
+                    onClick={() => handleBombDecision(true, false)}
+                    disabled={loading}
+                    className="mt-3 w-full py-2 bg-[#8A0303]/20 border border-[#8A0303]/50 text-[#ff4444] rounded-lg text-sm font-bold hover:bg-[#8A0303]/40 transition disabled:opacity-50"
+                  >
+                    💣 إقصاء هذا فقط
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-[#111] border border-[#222] rounded-xl p-4 text-center opacity-30">
+                  <p className="text-[10px] text-[#555] font-mono uppercase mb-2">⬆️ اللاعب التالي</p>
+                  <p className="text-gray-600 text-sm">لا يوجد</p>
+                </div>
+              )}
+
+              {/* اللاعب الأقل */}
+              {bomb.below ? (
+                <div className="bg-[#111] border border-[#333] rounded-xl p-4 text-center">
+                  <p className="text-[10px] text-[#888] font-mono uppercase mb-2">⬇️ اللاعب السابق</p>
+                  <p className="text-2xl font-black text-white mb-1">#{bomb.below.physicalId}</p>
+                  <p className="text-sm text-gray-300 font-bold">{bomb.below.name}</p>
+                  <p className="text-[10px] text-[#ff4444] font-mono mt-1">{bomb.below.role}</p>
+                  <button
+                    onClick={() => handleBombDecision(false, true)}
+                    disabled={loading}
+                    className="mt-3 w-full py-2 bg-[#8A0303]/20 border border-[#8A0303]/50 text-[#ff4444] rounded-lg text-sm font-bold hover:bg-[#8A0303]/40 transition disabled:opacity-50"
+                  >
+                    💣 إقصاء هذا فقط
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-[#111] border border-[#222] rounded-xl p-4 text-center opacity-30">
+                  <p className="text-[10px] text-[#555] font-mono uppercase mb-2">⬇️ اللاعب السابق</p>
+                  <p className="text-gray-600 text-sm">لا يوجد</p>
+                </div>
+              )}
+            </div>
+
+            {/* أزرار القرار */}
+            <div className="space-y-3">
+              {bomb.above && bomb.below && (
+                <button
+                  onClick={() => handleBombDecision(true, true)}
+                  disabled={loading}
+                  className="w-full py-4 bg-gradient-to-r from-[#8A0303] to-[#cc0000] text-white font-black text-lg rounded-xl hover:from-[#aa0404] hover:to-[#ee0000] transition-all animate-pulse disabled:opacity-50"
+                >
+                  💣💣 تفعيل القنبلة — إقصاء الاثنين
+                </button>
+              )}
+              <button
+                onClick={() => handleBombDecision(false, false)}
+                disabled={loading}
+                className="w-full py-3 bg-[#111] border border-[#444] text-gray-300 font-bold rounded-xl hover:bg-[#222] transition disabled:opacity-50"
+              >
+                ❌ إيقاف القدرة — بدون إقصاء إضافي
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // الحالة العادية (بدون قنبلة)
     return renderContent(
       <div className="flex flex-col items-center justify-center p-8 text-center">
         <h2 className="text-2xl font-black text-[#8A0303] mb-2" style={{ fontFamily: 'Amiri, serif' }}>اكتمل التصويت وجاهز للحسم</h2>

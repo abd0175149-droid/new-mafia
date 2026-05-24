@@ -263,6 +263,39 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         round: state.round || 1,
         team: (player.role && isMafiaRole(player.role)) ? 'MAFIA' : 'CITIZEN',
       });
+
+      // 💣 قدرة القنبلة — إذا المُقصى شيخ المافيا بالتصويت + القنبلة مفعلة
+      if (player.role === 'GODFATHER' && state.config.bombEnabled !== false) {
+        const gfId = player.physicalId;
+        // اللاعبون الأحياء (بعد إقصاء شيخ المافيا) مرتبين بالرقم
+        const alive = state.players
+          .filter(p => p.isAlive && p.physicalId !== gfId)
+          .sort((a, b) => a.physicalId - b.physicalId);
+
+        if (alive.length > 0) {
+          // أول لاعب حي رقمه أعلى (مع التفاف دائري)
+          let abovePlayer = alive.find(p => p.physicalId > gfId);
+          if (!abovePlayer) abovePlayer = alive[0]; // التفاف → أصغر رقم
+
+          // أول لاعب حي رقمه أقل (مع التفاف دائري)
+          let belowPlayer = [...alive].reverse().find(p => p.physicalId < gfId);
+          if (!belowPlayer) belowPlayer = alive[alive.length - 1]; // التفاف → أكبر رقم
+
+          // تجنب التكرار إذا لاعب واحد فقط
+          const above = abovePlayer ? { physicalId: abovePlayer.physicalId, name: abovePlayer.name, role: abovePlayer.role || 'UNKNOWN' } : null;
+          const below = belowPlayer && belowPlayer.physicalId !== abovePlayer?.physicalId
+            ? { physicalId: belowPlayer.physicalId, name: belowPlayer.name, role: belowPlayer.role || 'UNKNOWN' }
+            : null;
+
+          state.pendingBomb = {
+            godfatherPhysicalId: gfId,
+            godfatherPlayerId: player.playerId || null,
+            above,
+            below,
+          };
+          console.log(`💣 Bomb ability triggered for Godfather #${gfId} — above: ${above?.physicalId || 'none'}, below: ${below?.physicalId || 'none'}`);
+        }
+      }
     }
   } else if (winner.type === CandidateType.DEAL) {
     // فوز اتفاقية

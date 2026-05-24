@@ -137,6 +137,7 @@ export interface GameConfig {
   useDynamicEngine: boolean;     // 🧩 هل نستخدم المحرك الديناميكي (Data-Driven)
   maxPenalties?: number;         // أقصى عدد عقوبات مسموح به (الافتراضي 3)
   penaltyScope?: 'game' | 'room'; // مستوى العقوبات: 'game' = تصفير كل لعبة / 'room' = تستمر طول الغرفة (الافتراضي 'room')
+  bombEnabled?: boolean;          // 💣 هل قدرة القنبلة لشيخ المافيا مفعلة (الافتراضي true)
 }
 
 export interface GameState {
@@ -198,6 +199,13 @@ export interface GameState {
   } | null;
   // 🧩 حالة الليل الديناميكية (Data-Driven engine)
   dynamicNightState?: DynamicNightState | null;
+  // 💣 قدرة القنبلة — معلقة بانتظار قرار الليدر
+  pendingBomb?: {
+    godfatherPhysicalId: number;
+    godfatherPlayerId: number | null;
+    above: { physicalId: number; name: string; role: string } | null;
+    below: { physicalId: number; name: string; role: string } | null;
+  } | null;
   createdAt: string;
 }
 
@@ -260,6 +268,7 @@ export async function createRoom(
       useDynamicEngine: false,
       maxPenalties,
       penaltyScope,
+      bombEnabled: true,
     },
     players: [],
     rolesPool: [],

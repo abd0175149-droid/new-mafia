@@ -642,6 +642,7 @@ router.get('/:id/matches', async (req: Request, res: Response) => {
       rrChange: matchPlayers.rrChange,
       penaltyCount: matchPlayers.penaltyCount,
       penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
+      bombRRChange: matchPlayers.bombRRChange,
     })
       .from(matchPlayers)
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -696,6 +697,7 @@ router.get('/:id/matches', async (req: Request, res: Response) => {
             abilityCorrect: rrAbilityCorrect,
             abilityIncorrect: rrAbilityIncorrect,
             penalty: m.penaltyRRDeduction || 0,
+            bomb: m.bombRRChange || 0,
           },
         },
       };

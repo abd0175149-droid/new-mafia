@@ -617,6 +617,28 @@ export default function LeaderPage() {
           ...prev,
           phase: 'DAY_ELIMINATION',
           pendingResolution: data,
+          pendingBomb: data.pendingBomb || null,
+        } as any;
+      });
+    });
+
+    // 💣 نتيجة القنبلة — بعد قرار الليدر
+    const offBombResult = on('day:bomb-result', (data: any) => {
+      setGameState(prev => {
+        if (!prev) return prev;
+        const updatedPlayers = prev.players.map((p: any) => {
+          if (data.bombEliminated?.includes(p.physicalId)) {
+            return { ...p, isAlive: false };
+          }
+          return p;
+        });
+        return {
+          ...prev,
+          players: updatedPlayers,
+          pendingBomb: null,
+          pendingWinner: data.winResult !== 'GAME_CONTINUES'
+            ? (data.winResult === 'MAFIA_WIN' ? 'MAFIA' : 'CITIZEN')
+            : (prev as any).pendingWinner || null,
         } as any;
       });
     });
@@ -911,6 +933,7 @@ export default function LeaderPage() {
       offJustificationStarted();
       offJustTimerStarted();
       offEliminationPending();
+      offBombResult();
       offEliminationRevealed();
       offDiscussionUpdate();
       offGameClosed();

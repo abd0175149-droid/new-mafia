@@ -794,6 +794,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           revealedRoles: result.revealedRoles,
           winResult: result.winResult,
           type: result.type,
+          pendingBomb: stateAfter?.pendingBomb || null,
         });
       }
 
@@ -838,6 +839,132 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       callback({ success: true });
     } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 💣 قرار الليدر بشأن قدرة القنبلة ──────────────
+  socket.on('day:bomb-decision', async (data: {
+    roomId: string;
+    eliminateAbove: boolean;
+    eliminateBelow: boolean;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (!state.pendingBomb) return callback({ success: false, error: 'No pending bomb' });
+
+      const bomb = state.pendingBomb;
+      const bombEliminated: number[] = [];
+      const bombRevealedRoles: { physicalId: number; role: string }[] = [];
+      let totalBombRR = 0;
+
+      // جلب إعدادات التقدم
+      const { getProgressionConfig } = await import('../routes/progression-settings.routes.js');
+      const config = await getProgressionConfig();
+      const bombHitCitizen = config?.rr?.bombHitCitizen ?? 10;
+      const bombHitMafia = config?.rr?.bombHitMafia ?? -10;
+
+      const processTarget = (target: { physicalId: number; name: string; role: string }) => {
+        const player = state.players.find(p => p.physicalId === target.physicalId);
+        if (!player || !player.isAlive) return;
+
+        player.isAlive = false;
+        bombEliminated.push(player.physicalId);
+        bombRevealedRoles.push({ physicalId: player.physicalId, role: player.role || 'UNKNOWN' });
+
+        // تسجيل سبب الإقصاء
+        if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+        state.performanceTracking.eliminationLog.push({
+          physicalId: player.physicalId,
+          eliminatedBy: 'GODFATHER_BOMB',
+          round: state.round || 1,
+          team: (player.role && isMafiaRole(player.role)) ? 'MAFIA' : 'CITIZEN',
+        });
+
+        // حساب RR
+        const isMafia = player.role && isMafiaRole(player.role);
+        totalBombRR += isMafia ? bombHitMafia : bombHitCitizen;
+      };
+
+      if (data.eliminateAbove && bomb.above) processTarget(bomb.above);
+      if (data.eliminateBelow && bomb.below) processTarget(bomb.below);
+
+      // تطبيق RR لشيخ المافيا
+      if (totalBombRR !== 0 && bomb.godfatherPlayerId) {
+        try {
+          const { applyRR } = await import('../services/progression.service.js');
+          await applyRR(bomb.godfatherPlayerId, totalBombRR);
+
+          // تسجيل في match_players
+          if (state.matchId) {
+            const { getDB } = await import('../config/db.js');
+            const { matchPlayers } = await import('../schemas/game.schema.js');
+            const { eq, sql, and } = await import('drizzle-orm');
+            const db = getDB();
+            if (db) {
+              await db.update(matchPlayers)
+                .set({
+                  bombRRChange: sql`COALESCE(${matchPlayers.bombRRChange}, 0) + ${totalBombRR}`,
+                  rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalBombRR}`,
+                })
+                .where(
+                  and(
+                    eq(matchPlayers.matchId, state.matchId),
+                    eq(matchPlayers.playerId, bomb.godfatherPlayerId)
+                  )
+                );
+              console.log(`💣 Bomb RR (${totalBombRR}) recorded for Godfather player ${bomb.godfatherPlayerId}`);
+            }
+          }
+        } catch (e: any) {
+          console.warn(`⚠️ Failed to apply bomb RR:`, e.message);
+        }
+      }
+
+      // مسح القنبلة المعلقة
+      state.pendingBomb = null;
+
+      // فحص شرط الفوز بعد الإقصاء الإضافي
+      let winResult;
+      if (state.config.useDynamicEngine) {
+        const { checkWinConditionDynamic } = await import('../game/dynamic-win-checker.js');
+        const dynResult = await checkWinConditionDynamic(state);
+        winResult = dynResult.mainWinner === 'MAFIA' ? 'MAFIA_WIN'
+                  : dynResult.mainWinner === 'CITIZEN' ? 'CITIZEN_WIN'
+                  : 'GAME_CONTINUES';
+      } else {
+        const winCheck = checkWinCondition(state);
+        winResult = winCheck === WinResult.MAFIA_WIN ? 'MAFIA_WIN'
+                  : winCheck === WinResult.CITIZEN_WIN ? 'CITIZEN_WIN'
+                  : 'GAME_CONTINUES';
+      }
+
+      if (winResult !== 'GAME_CONTINUES') {
+        const winnerValue = winResult === 'MAFIA_WIN' ? 'MAFIA' : 'CITIZEN';
+        state.winner = winnerValue;
+        state.pendingWinner = winnerValue;
+      }
+
+      await setGameState(data.roomId, state);
+
+      // بث النتيجة
+      io.to(data.roomId).emit('day:bomb-result', {
+        bombEliminated,
+        bombRevealedRoles,
+        bombRR: totalBombRR,
+        winResult,
+        teamCounts: getTeamCounts(state.players),
+      });
+
+      console.log(`💣 Bomb decision executed: eliminated ${bombEliminated.join(', ') || 'none'}, RR: ${totalBombRR}`);
+      callback({ success: true, bombEliminated, bombRR: totalBombRR, winResult });
+    } catch (err: any) {
+      console.error('❌ bomb-decision error:', err.message);
       callback({ success: false, error: err.message });
     }
   });
