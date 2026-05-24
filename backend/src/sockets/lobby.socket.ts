@@ -16,6 +16,9 @@ import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer }
 import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
+import { getDB } from '../config/db.js';
+import { matchPlayers } from '../schemas/game.schema.js';
+import { eq, sql, and } from 'drizzle-orm';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
@@ -1397,6 +1400,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (player.playerId) {
         try {
           await applyRR(player.playerId, totalDeduction);
+
+          // ── تسجيل خصم العقوبة في سجل المباراة الحالية ──
+          if (state.matchId) {
+            try {
+              const db = getDB();
+              if (db) {
+                await db.update(matchPlayers)
+                  .set({
+                    penaltyCount: sql`COALESCE(${matchPlayers.penaltyCount}, 0) + 1`,
+                    penaltyRRDeduction: sql`COALESCE(${matchPlayers.penaltyRRDeduction}, 0) + ${totalDeduction}`,
+                    rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalDeduction}`,
+                  })
+                  .where(
+                    and(
+                      eq(matchPlayers.matchId, state.matchId),
+                      eq(matchPlayers.playerId, player.playerId)
+                    )
+                  );
+                console.log(`📝 Penalty RR deduction (${totalDeduction}) recorded in match_players for player ${player.playerId}, match ${state.matchId}`);
+              }
+            } catch (dbErr: any) {
+              console.warn(`⚠️ Failed to record penalty in match_players:`, dbErr.message);
+            }
+          }
 
           // إرسال إشعار فوري
           const bodyMsg = isKicked

@@ -89,6 +89,9 @@ export const matchPlayers = pgTable('match_players', {
   abilityCorrect: boolean('ability_correct'),
   xpEarned: integer('xp_earned').default(0),
   rrChange: integer('rr_change').default(0),
+  // ── تتبع العقوبات ──
+  penaltyCount: integer('penalty_count').default(0),
+  penaltyRRDeduction: integer('penalty_rr_deduction').default(0),
 });
 
 // ── Surveys (التقييمات بعد المباراة) ─────────────────
