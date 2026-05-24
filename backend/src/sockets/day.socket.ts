@@ -796,6 +796,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
           type: result.type,
           pendingBomb: stateAfter?.pendingBomb || null,
         });
+        console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}`);
+        console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
+        console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
       }
 
       callback({ success: true, result });
