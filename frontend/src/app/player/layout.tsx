@@ -179,6 +179,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
             <div className="text-xs text-gray-500 mt-2 font-arabic">
               ⚠️ نظام Apple يمنع تفعيل الإشعارات إلا من خلال التطبيق المضاف للشاشة الرئيسية.
             </div>
+
+            <a href="/player/debug-push" className="text-[10px] text-gray-600 hover:text-amber-500 mt-2 underline font-arabic">🔧 صفحة تشخيص الإشعارات</a>
           </div>
         </div>
       );
@@ -225,6 +227,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
             <p className="text-xs text-gray-500 font-arabic">
               عند الضغط، سيظهر لك طلب المتصفح النظامي، يرجى اختيار <span className="text-amber-500 font-semibold">"سماح" (Allow)</span>.
             </p>
+
+            <a href="/player/debug-push" className="text-[10px] text-gray-600 hover:text-amber-500 mt-1 underline font-arabic">🔧 صفحة تشخيص الإشعارات</a>
           </div>
         </div>
       );
@@ -272,6 +276,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
             >
               <span>تحديث الصفحة وإعادة التحقق 🔄</span>
             </button>
+
+            <a href="/player/debug-push" className="text-[10px] text-gray-600 hover:text-amber-500 mt-1 underline font-arabic">🔧 صفحة تشخيص الإشعارات</a>
           </div>
         </div>
       );
