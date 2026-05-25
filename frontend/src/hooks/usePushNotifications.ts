@@ -117,9 +117,9 @@ export function usePushNotifications() {
     if (typeof window === 'undefined') return;
     if (!('Notification' in window)) return;
 
-    // فقط إذا كان الإذن ممنوح مسبقاً — لا نطلب تلقائياً
-    const hasGrantedLocally = localStorage.getItem('push_notifications_enabled') === 'true';
-    if (Notification.permission === 'granted' || hasGrantedLocally) {
+    // ⚠️ لتجنب خطأ iOS Safari PWA (حيث يُرجع المتصفح حالة الإذن 'default' بالخطأ ويؤدي طلب الإذن التلقائي بدون نقرة مستخدم لحظرها فورياً كـ 'denied'):
+    // لا نقوم بالاستدعاء التلقائي لـ requestPermission() عند فتح الصفحة إلا إذا كانت حالة المتصفح الحقيقية هي 'granted' فعلاً.
+    if (Notification.permission === 'granted') {
       requestPermission();
     }
   }, [player, requestPermission]);
