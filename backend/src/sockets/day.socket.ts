@@ -270,17 +270,38 @@ export function registerDayEvents(io: Server, socket: Socket) {
     dealId: string;
   }, callback) => {
     try {
-      if (socket.data.role !== 'leader') {
-        return callback({ success: false, error: 'Only leader' });
+      const isLeader = socket.data.role === 'leader';
+      const isPlayer = socket.data.role === 'player';
+
+      if (!isLeader && !isPlayer) {
+        return callback({ success: false, error: 'غير مصرح لك بإجراء هذه العملية' });
       }
 
-      const state = await removeDeal(data.roomId, data.dealId);
+      if (isPlayer) {
+        const state = await getRoom(data.roomId);
+        if (!state) return callback({ success: false, error: 'لم يتم العثور على الغرفة' });
+        
+        if (state.phase !== Phase.DAY_DISCUSSION) {
+          return callback({ success: false, error: 'يمكن إلغاء الاتفاقيات أثناء مرحلة النقاش فقط' });
+        }
+        
+        const deal = state.votingState?.deals?.find((d: any) => d.id === data.dealId);
+        if (!deal) {
+          return callback({ success: false, error: 'الاتفاقية غير موجودة' });
+        }
+        
+        if (deal.initiatorPhysicalId !== socket.data.physicalId) {
+          return callback({ success: false, error: 'لا يمكنك إلغاء اتفاقية ليست لك' });
+        }
+      }
+
+      const stateAfter = await removeDeal(data.roomId, data.dealId);
 
       io.to(data.roomId).emit('day:deal-removed', {
-        deals: state.votingState.deals,
+        deals: stateAfter.votingState.deals,
       });
 
-      callback({ success: true, deals: state.votingState.deals });
+      callback({ success: true, deals: stateAfter.votingState.deals });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

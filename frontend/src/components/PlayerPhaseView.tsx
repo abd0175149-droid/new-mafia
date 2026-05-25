@@ -37,6 +37,7 @@ export default function PlayerPhaseView({
   const [selectedTargetId, setSelectedTargetId] = useState<number | ''>('');
   const [dealError, setDealError] = useState('');
   const [dealSubmitting, setDealSubmitting] = useState(false);
+  const [dealRemoving, setDealRemoving] = useState(false);
   // ── حالة التبرير ──
   const [justificationData, setJustificationData] = useState<any>(pollData?.justificationData || null);
   const [justTimer, setJustTimer] = useState<number | null>(null);
@@ -509,6 +510,7 @@ export default function PlayerPhaseView({
         setSelectedTargetId('');
         setDealError('');
         setDealSubmitting(false);
+        setDealRemoving(false);
         setDeals([]);
       }
       if (p === 'DAY_VOTING') {
@@ -587,6 +589,23 @@ export default function PlayerPhaseView({
       setDealError(err.message || 'خطأ في الاتصال بالخادم');
     } finally {
       setDealSubmitting(false);
+    }
+  };
+
+  // ── دالة إلغاء الاتفاقية ──
+  const handleRemoveDeal = async (dealId: string) => {
+    if (!roomId || dealRemoving) return;
+    setDealRemoving(true);
+    setDealError('');
+    try {
+      const res = await emit('day:remove-deal', { roomId, dealId });
+      if (!res.success) {
+        setDealError(res.error || 'فشل إلغاء الاتفاقية');
+      }
+    } catch (err: any) {
+      setDealError(err.message || 'خطأ في الاتصال بالخادم');
+    } finally {
+      setDealRemoving(false);
     }
   };
 
@@ -738,6 +757,18 @@ export default function PlayerPhaseView({
                         </strong>
                       </p>
                     </div>
+                    <button
+                      onClick={() => handleRemoveDeal(myDeal.id)}
+                      disabled={dealRemoving}
+                      className="w-full bg-red-500/10 border border-red-500/20 text-red-400 font-bold px-4 py-3 text-sm rounded-xl hover:bg-red-500/20 transition-all disabled:opacity-40 shadow-sm"
+                    >
+                      {dealRemoving ? 'جاري الإلغاء...' : '❌ إلغاء الاتفاقية'}
+                    </button>
+                    {dealError && (
+                      <p className="text-red-400 text-xs text-center font-bold bg-red-500/10 border border-red-500/20 py-2 rounded-xl">
+                        ❌ {dealError}
+                      </p>
+                    )}
                     {/* تحذير المخاطرة */}
                     <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center text-red-400 text-[11px] font-bold leading-relaxed">
                       ⚠️ مخاطرة: في حال تم إقصاء شريكك في الاتفاقية وكان مواطناً، فسيتم إقصاؤك معه تلقائياً!
