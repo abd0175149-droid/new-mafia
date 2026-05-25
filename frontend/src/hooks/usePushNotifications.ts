@@ -115,12 +115,59 @@ export function usePushNotifications() {
   useEffect(() => {
     if (!player || registeredRef.current) return;
     if (typeof window === 'undefined') return;
-    if (!('Notification' in window)) return;
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
 
-    // ⚠️ لتجنب خطأ iOS Safari PWA (حيث يُرجع المتصفح حالة الإذن 'default' بالخطأ ويؤدي طلب الإذن التلقائي بدون نقرة مستخدم لحظرها فورياً كـ 'denied'):
-    // لا نقوم بالاستدعاء التلقائي لـ requestPermission() عند فتح الصفحة إلا إذا كانت حالة المتصفح الحقيقية هي 'granted' فعلاً.
-    if (Notification.permission === 'granted') {
+    const browserPerm = Notification.permission;
+    const locallyGranted = localStorage.getItem('push_notifications_enabled') === 'true';
+
+    if (browserPerm === 'granted') {
+      // المتصفح يقول granted → نسجل عبر المسار الطبيعي
       requestPermission();
+    } else if (locallyGranted && browserPerm === 'default') {
+      // 🍎 iOS PWA Bug: المتصفح أرجع 'default' لكننا نعرف أن المستخدم وافق سابقاً
+      // نسجل مباشرة عبر Web Push بدون استدعاء requestPermission() لتجنب NotAllowedError
+      (async () => {
+        try {
+          const swReg = await navigator.serviceWorker.ready;
+          // جلب VAPID key من السيرفر
+          const vpRes = await fetch('/api/push/vapid-public-key');
+          const vpData = await vpRes.json();
+          if (!vpData.publicKey) return;
+
+          // حذف اشتراك قديم (تجنب VapidPkHashMismatch)
+          const oldSub = await swReg.pushManager.getSubscription();
+          if (oldSub) await oldSub.unsubscribe();
+
+          // إنشاء اشتراك جديد
+          const padding = '='.repeat((4 - (vpData.publicKey.length % 4)) % 4);
+          const base64 = (vpData.publicKey + padding).replace(/-/g, '+').replace(/_/g, '/');
+          const rawData = atob(base64);
+          const appServerKey = new Uint8Array(rawData.length);
+          for (let i = 0; i < rawData.length; ++i) appServerKey[i] = rawData.charCodeAt(i);
+
+          const subscription = await swReg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: appServerKey as BufferSource,
+          });
+
+          if (subscription) {
+            const subJson = JSON.stringify(subscription.toJSON());
+            const webpushToken = 'WEBPUSH::' + subJson;
+            await fetch('/api/player-notifications/register-token', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${player.token}`,
+              },
+              body: JSON.stringify({ token: webpushToken, deviceInfo: navigator.userAgent.slice(0, 200) }),
+            });
+            registeredRef.current = true;
+            console.log('🍎✅ iOS PWA: silent re-registration successful');
+          }
+        } catch (err) {
+          console.warn('🍎⚠️ iOS PWA silent re-registration failed:', err);
+        }
+      })();
     }
   }, [player, requestPermission]);
 
