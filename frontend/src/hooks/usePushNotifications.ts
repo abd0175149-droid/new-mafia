@@ -22,12 +22,21 @@ export function usePushNotifications() {
   const { player } = usePlayer();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [permissionState, setPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unsupported'>('prompt');
+
+  // 🔑 القيمة الأولية تُقرأ فوراً من localStorage لمنع ظهور شاشة الحجب لحظياً عند تحديث الصفحة
+  const [permissionState, setPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unsupported'>(() => {
+    if (typeof window === 'undefined') return 'prompt';
+    const locallyGranted = localStorage.getItem('push_notifications_enabled') === 'true';
+    if (locallyGranted) return 'granted';
+    if ('Notification' in window && Notification.permission === 'granted') return 'granted';
+    return 'prompt';
+  });
+
   const [isIOSPWA, setIsIOSPWA] = useState(false);
   const [needsInstall, setNeedsInstall] = useState(false);
   const registeredRef = useRef(false);
 
-  // ── اكتشاف بيئة التشغيل ──
+  // ── اكتشاف بيئة التشغيل (تحديث دقيق بعد أول render) ──
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -50,16 +59,15 @@ export function usePushNotifications() {
       return;
     }
 
-    // Notification.permission returns 'default' | 'granted' | 'denied'
+    // تحديث الحالة الفعلية (localStorage + browser permission)
     const perm = Notification.permission;
-    
-    // 💡 حل مشكلة آيفون (iOS PWA Bug): المتصفح يعيد حالة الإذن إلى default بالخطأ عند إعادة فتح التطبيق
-    // نعتمد على localStorage كحافظة إضافية لحالة الإذن الممنوحة مسبقاً
     const hasGrantedLocally = localStorage.getItem('push_notifications_enabled') === 'true';
     if (hasGrantedLocally || perm === 'granted') {
       setPermissionState('granted');
+    } else if (perm === 'denied') {
+      setPermissionState('denied');
     } else {
-      setPermissionState(perm === 'default' ? 'prompt' : perm as any);
+      setPermissionState('prompt');
     }
   }, []);
 
