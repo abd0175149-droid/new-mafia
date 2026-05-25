@@ -201,7 +201,7 @@ export default function DebugPushPage() {
     try {
       const subscription = await swReg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: applicationServerKey,
+        applicationServerKey: applicationServerKey as BufferSource,
       });
 
       if (!subscription) {
@@ -337,6 +337,7 @@ export default function DebugPushPage() {
         🔧 Push Notifications Debugger v2
       </h1>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
       <button
         onClick={runFullDiagnostics}
         disabled={running}
@@ -354,8 +355,41 @@ export default function DebugPushPage() {
           opacity: running ? 0.6 : 1,
         }}
       >
-        {running ? '⏳ جاري التشخيص...' : '▶️ ابدأ التشخيص الشامل (اضغط هنا)'}
+        {running ? '⏳ جاري...' : '▶️ ابدأ التشخيص'}
       </button>
+
+      <button
+        onClick={() => {
+          const text = logs.join('\n');
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => alert('✅ تم نسخ التشخيص!')).catch(() => {
+              const ta = document.createElement('textarea');
+              ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+              alert('✅ تم نسخ التشخيص!');
+            });
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+            alert('✅ تم نسخ التشخيص!');
+          }
+        }}
+        disabled={logs.length === 0}
+        style={{
+          padding: '14px 20px',
+          background: logs.length === 0 ? '#222' : '#3b82f6',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 12,
+          fontSize: 14,
+          fontWeight: 'bold',
+          cursor: logs.length === 0 ? 'not-allowed' : 'pointer',
+          flex: '0 0 auto',
+          opacity: logs.length === 0 ? 0.4 : 1,
+        }}
+      >
+        📋 نسخ
+      </button>
+      </div>
 
       <div style={{
         background: '#111',
