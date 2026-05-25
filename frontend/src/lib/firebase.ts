@@ -76,11 +76,11 @@ export async function requestNotificationPermission(): Promise<string | null> {
   console.log('🔔 Notification permission:', permission);
   if (permission !== 'granted') return null;
 
-  // ── هل iOS Safari؟ FCM tokens من iOS لا تعمل — نتجاوز لـ Web Push مباشرة ──
-  const isIOSSafari = /iPad|iPhone|iPod/.test(navigator.userAgent) && /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+  // ── هل نظام التشغيل iOS (آيفون/آيباد)؟ توكنات FCM لا تعمل على iOS على الإطلاق، لذا نتجاوز لـ Web Push مباشرة ──
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-  // الخطوة 1: محاولة FCM (فقط Chrome/Firefox/Edge — ليس iOS Safari)
-  if (!isIOSSafari) {
+  // الخطوة 1: محاولة FCM (فقط Chrome/Firefox/Edge — ليس هواتف آيفون/آيباد)
+  if (!isIOS) {
     const m = getFirebaseMessaging();
     if (m && VAPID_KEY) {
       try {
@@ -112,7 +112,7 @@ export async function requestNotificationPermission(): Promise<string | null> {
       }
     }
   } else {
-    console.log('🍎 iOS Safari detected — skipping FCM, using Web Push API directly');
+    console.log('🍎 iOS PWA/Safari detected — skipping FCM, using Web Push API directly');
   }
 
   // الخطوة 2: Web Push API مباشر (Safari iOS/macOS)
