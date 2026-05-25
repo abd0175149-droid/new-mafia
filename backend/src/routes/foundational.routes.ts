@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { foundationalCosts, notifications, staff } from '../schemas/admin.schema.js';
 import { authenticate } from '../middleware/auth.js';
@@ -17,7 +17,9 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
   if (req.user?.role === 'location_owner') return res.json([]);
 
-  const rows = await db.select().from(foundationalCosts).orderBy(desc(foundationalCosts.date));
+  const rows = await db.select().from(foundationalCosts)
+    .where(isNull(foundationalCosts.deletedAt))
+    .orderBy(desc(foundationalCosts.date));
   res.json(rows);
 });
 
@@ -62,7 +64,7 @@ router.put('/:id/process', authenticate, async (req: Request, res: Response) => 
   const id = parseInt(req.params.id);
   const { isProcessed } = req.body;
 
-  const existing = await db.select().from(foundationalCosts).where(eq(foundationalCosts.id, id)).limit(1);
+  const existing = await db.select().from(foundationalCosts).where(and(eq(foundationalCosts.id, id), isNull(foundationalCosts.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'التكلفة غير موجودة' });
 
   await db.update(foundationalCosts).set({ isProcessed: !!isProcessed } as any).where(eq(foundationalCosts.id, id));
@@ -75,7 +77,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  await db.delete(foundationalCosts).where(eq(foundationalCosts.id, id));
+  await db.update(foundationalCosts).set({ deletedAt: new Date() }).where(eq(foundationalCosts.id, id));
   res.json({ success: true });
 });
 

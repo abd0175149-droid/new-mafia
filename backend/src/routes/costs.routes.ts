@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { costs, notifications, staff } from '../schemas/admin.schema.js';
 import { authenticate } from '../middleware/auth.js';
@@ -18,10 +18,14 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   if (req.user?.role === 'location_owner') return res.json([]);
 
   let query = db.select().from(costs).orderBy(desc(costs.date)).$dynamic();
+  
+  const conditions: any[] = [isNull(costs.deletedAt)];
 
   if (req.query.activityId && req.query.activityId !== 'all') {
-    query = query.where(eq(costs.activityId, parseInt(req.query.activityId as string)));
+    conditions.push(eq(costs.activityId, parseInt(req.query.activityId as string)));
   }
+
+  query = query.where(and(...conditions));
 
   const rows = await query;
   res.json(rows);
@@ -73,7 +77,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  await db.delete(costs).where(eq(costs.id, id));
+  await db.update(costs).set({ deletedAt: new Date() }).where(eq(costs.id, id));
   res.json({ success: true });
 });
 

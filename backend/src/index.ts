@@ -60,6 +60,7 @@ const io = new Server(server, {
   pingTimeout: 15000,   // 15 ثانية (كان 60) — اكتشاف أسرع للانقطاع
   pingInterval: 10000,  // 10 ثوانٍ (كان 25) — فحص حياة الاتصال أكثر تواتراً
 });
+(global as any).io = io;
 
 // ── Middleware ───────────────────────────────────────
 app.use(cors({

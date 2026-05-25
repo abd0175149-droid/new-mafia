@@ -89,7 +89,7 @@ export async function rehydrateActiveRooms(): Promise<void> {
       // ── إعادة فتح Sessions المغلقة في DB إذا الغرفة لا زالت في Redis ──
       try {
         const { getDB } = await import('../config/db.js');
-        const { eq } = await import('drizzle-orm');
+        const { eq, and, isNull } = await import('drizzle-orm');
         const { sessions } = await import('../schemas/game.schema.js');
         const db = getDB();
         if (db) {
@@ -97,7 +97,7 @@ export async function rehydrateActiveRooms(): Promise<void> {
             if (!state || !state.sessionId) continue;
             const [session] = await db.select({ id: sessions.id, isActive: sessions.isActive })
               .from(sessions)
-              .where(eq(sessions.id, state.sessionId))
+              .where(and(eq(sessions.id, state.sessionId), isNull(sessions.deletedAt)))
               .limit(1);
             if (session && !session.isActive) {
               const updateData: any = { isActive: true, status: 'active' };

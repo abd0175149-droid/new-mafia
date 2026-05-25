@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, and, sql, inArray, or } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray, or, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
@@ -68,7 +68,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
   try {
     // التحقق من النشاط
     const actRows = await db.select().from(activities)
-      .where(eq(activities.id, activityId)).limit(1);
+      .where(and(eq(activities.id, activityId), isNull(activities.deletedAt))).limit(1);
 
     if (actRows.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
     const activity = actRows[0];
@@ -76,7 +76,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
     // التحقق من السعة القصوى
     const [countResult] = await db.select({
       total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-    }).from(bookings).where(eq(bookings.activityId, activityId));
+    }).from(bookings).where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
     const currentBooked = countResult?.total || 0;
     const maxCap = activity.maxCapacity || 20;
     if (currentBooked >= maxCap) {
@@ -88,6 +88,7 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       .from(bookings)
       .where(and(
         eq(bookings.activityId, activityId),
+        isNull(bookings.deletedAt),
         or(
           eq(bookings.phone, player.phone),
           player.playerId ? eq(bookings.playerId, player.playerId) : sql`false`
@@ -162,7 +163,10 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
     })
       .from(activities)
       .leftJoin(locations, eq(activities.locationId, locations.id))
-      .where(or(eq(activities.status, 'planned'), eq(activities.status, 'active')))
+      .where(and(
+        or(eq(activities.status, 'planned'), eq(activities.status, 'active')),
+        isNull(activities.deletedAt)
+      ))
       .orderBy(desc(activities.date));
 
     // فلترة أنشطة الاختبار: لا تظهر إلا لحسابات الاختبار
@@ -181,7 +185,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
     const enriched = await Promise.all(filtered.map(async (act) => {
       const [countResult] = await db.select({
         total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-      }).from(bookings).where(eq(bookings.activityId, act.id));
+      }).from(bookings).where(and(eq(bookings.activityId, act.id), isNull(bookings.deletedAt)));
 
       // فلترة العروض: فقط العروض المفعّلة لهذا النشاط
       const allOffers: any[] = Array.isArray(act.locationOffers) ? act.locationOffers : [];

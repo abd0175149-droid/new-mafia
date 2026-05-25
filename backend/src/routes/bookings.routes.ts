@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, and, like, or, sql } from 'drizzle-orm';
+import { eq, desc, and, like, or, sql, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { bookings, activities, notifications, staff } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
@@ -31,7 +31,7 @@ async function syncSessionMaxPlayers(activityId: number) {
       totalPeople: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
     })
       .from(bookings)
-      .where(eq(bookings.activityId, activityId));
+      .where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
 
     const totalPeople = result[0]?.totalPeople || 0;
     const newMax = Math.max(totalPeople, 6); // حد أدنى 6
@@ -51,7 +51,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const conditions: any[] = [];
+  const conditions: any[] = [isNull(bookings.deletedAt)];
 
   if (req.query.activityId && req.query.activityId !== 'all') {
     conditions.push(eq(bookings.activityId, parseInt(req.query.activityId as string)));
@@ -141,7 +141,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const { name, phone, count, paidAmount, receivedBy, notes, isPaid, isFree, offerItems } = req.body;
 
-  const existing = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+  const existing = await db.select().from(bookings).where(and(eq(bookings.id, id), isNull(bookings.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
   const updates: any = {};
@@ -189,7 +189,7 @@ router.put('/:id/pay', authenticate, async (req: Request, res: Response) => {
   if (receivedBy !== undefined) updates.receivedBy = receivedBy;
   if (notes !== undefined) updates.notes = notes;
 
-  const existing = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+  const existing = await db.select().from(bookings).where(and(eq(bookings.id, id), isNull(bookings.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
   const result = await db.update(bookings)
@@ -221,10 +221,10 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const existing = await db.select().from(bookings).where(eq(bookings.id, id)).limit(1);
+  const existing = await db.select().from(bookings).where(and(eq(bookings.id, id), isNull(bookings.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
-  await db.delete(bookings).where(eq(bookings.id, id));
+  await db.update(bookings).set({ deletedAt: new Date() }).where(eq(bookings.id, id));
   res.json({ success: true });
 
   // تحديث maxPlayers في الغرفة حسب عدد الأشخاص

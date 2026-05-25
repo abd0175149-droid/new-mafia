@@ -29,6 +29,7 @@ export const sessions = pgTable('sessions', {
   // 🔗 ربط بالنشاط (activities.id) — يُملأ لاحقاً من admin.schema
   activityId: integer('activity_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Session Players (لاعبو الغرفة) ──────────────────
@@ -66,6 +67,7 @@ export const matches = pgTable('matches', {
   durationSeconds: integer('duration_seconds'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   endedAt: timestamp('ended_at'),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Match Players (لاعبو كل مباراة) ─────────────────

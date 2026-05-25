@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, sql, desc, gte, and, lte } from 'drizzle-orm';
+import { eq, sql, desc, gte, and, lte, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { activities, bookings, costs, foundationalCosts, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -29,25 +29,25 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       unpaidBookings: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = false AND ${bookings.isFree} = false THEN 1 ELSE 0 END), 0)::int`,
       totalAttendees: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
       unpaidAmount: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = false AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
-    }).from(bookings);
+    }).from(bookings).where(isNull(bookings.deletedAt));
 
     // ── 2. تكاليف الأنشطة ──
     const [costRow] = await db.select({
       totalActivityCosts: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
       costCount: sql<number>`COUNT(*)::int`,
-    }).from(costs);
+    }).from(costs).where(isNull(costs.deletedAt));
 
     // ── 3. التكاليف التأسيسية ──
     const [foundRow] = await db.select({
       totalFoundational: sql<number>`COALESCE(SUM(${foundationalCosts.amount}::numeric), 0)`,
       foundationalCount: sql<number>`COUNT(*)::int`,
-    }).from(foundationalCosts);
+    }).from(foundationalCosts).where(isNull(foundationalCosts.deletedAt));
 
     // ── 4. الأنشطة حسب الحالة ──
     const activityStats = await db.select({
       status: activities.status,
       count: sql<number>`COUNT(*)::int`,
-    }).from(activities).groupBy(activities.status);
+    }).from(activities).where(isNull(activities.deletedAt)).groupBy(activities.status);
 
     const actByStatus: Record<string, number> = {};
     let totalActivities = 0;
@@ -71,13 +71,13 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
     const [matchRow] = await db.select({
       totalMatches: sql<number>`COUNT(*)::int`,
       todayMatches: sql<number>`COALESCE(SUM(CASE WHEN ${matches.createdAt} >= ${today} AND ${matches.createdAt} < ${tomorrow} THEN 1 ELSE 0 END), 0)::int`,
-    }).from(matches);
+    }).from(matches).where(isNull(matches.deletedAt));
 
     // ── 7. الموظفون ──
     const [staffRow] = await db.select({
       totalStaff: sql<number>`COUNT(*)::int`,
       activeStaff: sql<number>`COALESCE(SUM(CASE WHEN ${staff.isActive} = true THEN 1 ELSE 0 END), 0)::int`,
-    }).from(staff);
+    }).from(staff).where(isNull(staff.deletedAt));
 
     // ── 8. أنشطة هذا الأسبوع ──
     const weekEnd = new Date();
@@ -93,6 +93,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       .where(and(
         gte(activities.date, new Date()),
         lte(activities.date, weekEnd),
+        isNull(activities.deletedAt)
       ))
       .orderBy(activities.date)
       .limit(5);
@@ -128,6 +129,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       date: activities.date,
       status: activities.status,
     }).from(activities)
+      .where(isNull(activities.deletedAt))
       .orderBy(desc(activities.date))
       .limit(5);
 
@@ -143,6 +145,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
       activityId: bookings.activityId,
       createdAt: bookings.createdAt,
     }).from(bookings)
+      .where(isNull(bookings.deletedAt))
       .orderBy(desc(bookings.createdAt))
       .limit(5);
 

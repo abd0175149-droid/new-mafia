@@ -191,11 +191,30 @@ export async function sendPushToPlayer(
   const db = getDB();
   if (!db) return;
 
-  // حفظ الإشعار في قاعدة البيانات
-  await db.insert(playerNotifications).values({
+  // حفظ الإشعار في قاعدة البيانات والتقاط معرف السجل
+  const [insertedNotif] = await db.insert(playerNotifications).values({
     playerId, title, body, type, data,
     isPushSent: false,
-  } as any);
+  } as any).returning({ id: playerNotifications.id });
+
+  // WebSocket Fallback المباشر: إذا كان اللاعب متصلاً حالياً عبر السوكيت، نبث له فوراً
+  try {
+    const io = (global as any).io;
+    if (io) {
+      io.emit('notification:new', {
+        id: insertedNotif?.id,
+        playerId,
+        title,
+        body,
+        type,
+        data,
+        createdAt: new Date(),
+      });
+      console.log(`🔌 WebSocket real-time broadcast sent to player #${playerId}`);
+    }
+  } catch (wsErr: any) {
+    console.warn('⚠️ WebSocket real-time broadcast failed:', wsErr.message);
+  }
 
   // إرسال Push
   const tokens = await db.select({ token: playerFcmTokens.fcmToken })
@@ -205,6 +224,7 @@ export async function sendPushToPlayer(
   if (tokens.length === 0) return;
 
   const { fcmTokens, webpushSubs } = splitTokens(tokens);
+  let isDelivered = false;
 
   // إرسال عبر FCM (Chrome/Firefox/Edge)
   if (fcmTokens.length > 0) {
@@ -214,6 +234,9 @@ export async function sendPushToPlayer(
         const response = await messaging.sendEachForMulticast(
           buildFCMPayload(fcmTokens, title, body, type, data)
         );
+        if (response.successCount > 0) {
+          isDelivered = true;
+        }
         response.responses.forEach((r, i) => {
           if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
             db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, fcmTokens[i])).catch(() => {});
@@ -230,11 +253,20 @@ export async function sendPushToPlayer(
   for (const wp of webpushSubs) {
     const ok = await sendWebPush(wp.sub, title, body, type, data);
     if (ok) {
+      isDelivered = true;
       console.log(`🍎 WebPush sent to player #${playerId}`);
     } else {
       // إزالة الاشتراك الفاشل
       db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
     }
+  }
+
+  // تحديث حالة الإرسال في قاعدة البيانات عند النجاح الفعلي
+  if (isDelivered && insertedNotif?.id) {
+    await db.update(playerNotifications)
+      .set({ isPushSent: true })
+      .where(eq(playerNotifications.id, insertedNotif.id));
+    console.log(`✅ Push notification #${insertedNotif.id} status updated to isPushSent=true`);
   }
 }
 
@@ -249,10 +281,32 @@ export async function sendPushToPlayers(
   const db = getDB();
   if (!db || playerIds.length === 0) return;
 
-  // حفظ إشعار لكل لاعب
-  const rows = playerIds.map(pid => ({ playerId: pid, title, body, type, data, isPushSent: false }));
-  await db.insert(playerNotifications).values(rows as any);
+  // حفظ إشعار لكل لاعب والتقاط المعرفات
+  const insertedRows = await db.insert(playerNotifications).values(
+    playerIds.map(pid => ({ playerId: pid, title, body, type, data, isPushSent: false }))
+  ).returning({ id: playerNotifications.id, playerId: playerNotifications.playerId });
 
+  // WebSocket Fallback المباشر لجميع اللاعبين المتصلين حالياً
+  try {
+    const io = (global as any).io;
+    if (io && insertedRows.length > 0) {
+      for (const row of insertedRows) {
+        if (!row.playerId) continue;
+        io.emit('notification:new', {
+          id: row.id,
+          playerId: row.playerId,
+          title,
+          body,
+          type,
+          data,
+          createdAt: new Date(),
+        });
+      }
+      console.log(`🔌 WebSocket real-time broadcast sent for ${insertedRows.length} players`);
+    }
+  } catch (wsErr: any) {
+    console.warn('⚠️ WebSocket real-time broadcast failed:', wsErr.message);
+  }
 
   // جلب tokens
   const tokenRows = await db.select({ token: playerFcmTokens.fcmToken })
@@ -262,6 +316,7 @@ export async function sendPushToPlayers(
   if (tokenRows.length === 0) return;
 
   const { fcmTokens, webpushSubs } = splitTokens(tokenRows);
+  let fcmSuccess = false;
 
   // FCM
   if (fcmTokens.length > 0) {
@@ -271,6 +326,9 @@ export async function sendPushToPlayers(
         const response = await messaging.sendEachForMulticast(
           buildFCMPayload(fcmTokens, title, body, type, data)
         );
+        if (response.successCount > 0) {
+          fcmSuccess = true;
+        }
         response.responses.forEach((r, i) => {
           if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
             db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, fcmTokens[i])).catch(() => {});
@@ -284,14 +342,39 @@ export async function sendPushToPlayers(
   }
 
   // WebPush (Safari/iOS)
-  let wpSuccess = 0;
+  let wpSuccessCount = 0;
   for (const wp of webpushSubs) {
     const ok = await sendWebPush(wp.sub, title, body, type, data);
-    if (ok) wpSuccess++;
+    if (ok) wpSuccessCount++;
     else db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
   }
   if (webpushSubs.length > 0) {
-    console.log(`🍎 WebPush sent: ${wpSuccess}/${webpushSubs.length}`);
+    console.log(`🍎 WebPush sent: ${wpSuccessCount}/${webpushSubs.length}`);
+  }
+
+  // تحديث حالة الإرسال في قاعدة البيانات للأشخاص الذين أرسل لهم بنجاح
+  const successfulPlayerIds = new Set<number>();
+  if (fcmSuccess || wpSuccessCount > 0) {
+    const activeTokenPlayers = await db.select({ playerId: playerFcmTokens.playerId })
+      .from(playerFcmTokens)
+      .where(and(inArray(playerFcmTokens.playerId, playerIds), eq(playerFcmTokens.isActive, true)));
+    
+    activeTokenPlayers.forEach(p => {
+      if (p.playerId) successfulPlayerIds.add(p.playerId);
+    });
+  }
+
+  if (successfulPlayerIds.size > 0 && insertedRows.length > 0) {
+    const successfulRowIds = insertedRows
+      .filter(row => row.playerId && successfulPlayerIds.has(row.playerId))
+      .map(row => row.id);
+    
+    if (successfulRowIds.length > 0) {
+      await db.update(playerNotifications)
+        .set({ isPushSent: true })
+        .where(inArray(playerNotifications.id, successfulRowIds));
+      console.log(`✅ Updated isPushSent=true for ${successfulRowIds.length} notification rows`);
+    }
   }
 }
 

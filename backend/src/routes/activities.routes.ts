@@ -6,7 +6,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, desc, sql, or, and, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, notifications, staff, activityTickets } from '../schemas/admin.schema.js';
+import { activities, notifications, staff, activityTickets, bookings } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
@@ -49,7 +49,10 @@ router.get('/available', async (req: Request, res: Response) => {
     const rows = await db.select()
       .from(activities)
       .where(
-        or(eq(activities.status, 'planned'), eq(activities.status, 'active'))
+        and(
+          or(eq(activities.status, 'planned'), eq(activities.status, 'active')),
+          isNull(activities.deletedAt)
+        )
       )
       .orderBy(desc(activities.date));
     res.json(rows);
@@ -127,7 +130,8 @@ router.get('/:id/rooms', authenticate, async (req: Request, res: Response) => {
       .from(sessions)
       .where(and(
         eq(sessions.activityId, activityId),
-        sql`${sessions.status} != 'deleted'`
+        sql`${sessions.status} != 'deleted'`,
+        isNull(sessions.deletedAt)
       ))
       .orderBy(desc(sessions.createdAt));
 
@@ -145,13 +149,14 @@ router.get('/:id/rooms-summary', authenticate, async (req: Request, res: Respons
   try {
     const activityId = parseInt(req.params.id);
     const { matches, matchPlayers } = await import('../schemas/game.schema.js');
-    const { eq: drizzleEq, desc: drizzleDesc, and: drizzleAnd, sql: drizzleSql } = await import('drizzle-orm');
+    const { eq: drizzleEq, desc: drizzleDesc, and: drizzleAnd, sql: drizzleSql, isNull: drizzleIsNull } = await import('drizzle-orm');
 
     // جلب الغرف (بدون المحذوفة)
     const rooms = await db.select().from(sessions)
       .where(drizzleAnd(
         drizzleEq(sessions.activityId, activityId),
-        drizzleSql`${sessions.status} != 'deleted'`
+        drizzleSql`${sessions.status} != 'deleted'`,
+        drizzleIsNull(sessions.deletedAt)
       ))
       .orderBy(drizzleDesc(sessions.createdAt));
 
@@ -486,7 +491,9 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const [act] = await db.select().from(activities).where(eq(activities.id, id)).limit(1);
+  const [act] = await db.select().from(activities)
+    .where(and(eq(activities.id, id), isNull(activities.deletedAt)))
+    .limit(1);
   if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
   res.json(act);
 });
@@ -499,12 +506,17 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   // location_owner: filtered by locationId
   if (req.user?.role === 'location_owner' && (req.user as any).locationId) {
     const rows = await db.select().from(activities)
-      .where(eq(activities.locationId, (req.user as any).locationId))
+      .where(and(
+        eq(activities.locationId, (req.user as any).locationId),
+        isNull(activities.deletedAt)
+      ))
       .orderBy(desc(activities.date));
     return res.json(rows);
   }
 
-  const rows = await db.select().from(activities).orderBy(desc(activities.date));
+  const rows = await db.select().from(activities)
+    .where(isNull(activities.deletedAt))
+    .orderBy(desc(activities.date));
   res.json(rows);
 });
 
@@ -692,7 +704,9 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   const id = parseInt(req.params.id);
   const deleteDriveFolder = req.query.deleteDriveFolder === 'true';
 
-  const existing = await db.select().from(activities).where(eq(activities.id, id)).limit(1);
+  const existing = await db.select().from(activities)
+    .where(and(eq(activities.id, id), isNull(activities.deletedAt)))
+    .limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
 
   // Delete Drive Folder if requested and link exists
@@ -710,6 +724,8 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
     }
   }
 
+  const now = new Date();
+
   // 🗑️ حذف جميع الغرف المرتبطة بالنشاط (soft delete)
   try {
     const linkedRooms = await db.select({ id: sessions.id })
@@ -718,7 +734,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
 
     if (linkedRooms.length > 0) {
       await db.update(sessions)
-        .set({ isActive: false, status: 'deleted', activityId: null } as any)
+        .set({ isActive: false, status: 'deleted', deletedAt: now } as any)
         .where(eq(sessions.activityId, id));
       console.log(`🗑️ Soft-deleted ${linkedRooms.length} room(s) linked to Activity #${id}`);
     }
@@ -726,7 +742,32 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
     console.error('Failed to delete linked sessions:', e.message);
   }
 
-  await db.delete(activities).where(eq(activities.id, id));
+  // 🗑️ حذف جميع الحجوزات التابعة للنشاط (soft delete)
+  try {
+    await db.update(bookings)
+      .set({ deletedAt: now } as any)
+      .where(eq(bookings.activityId, id));
+    console.log(`🗑️ Soft-deleted bookings linked to Activity #${id}`);
+  } catch (e: any) {
+    console.error('Failed to delete linked bookings:', e.message);
+  }
+
+  // 🗑️ حذف جميع التذاكر التابعة للنشاط (soft delete)
+  try {
+    await db.update(activityTickets)
+      .set({ deletedAt: now } as any)
+      .where(eq(activityTickets.activityId, id));
+    console.log(`🎫 Soft-deleted tickets linked to Activity #${id}`);
+  } catch (e: any) {
+    console.error('Failed to delete linked tickets:', e.message);
+  }
+
+  // 🗑️ حذف النشاط نفسه (soft delete)
+  await db.update(activities)
+    .set({ deletedAt: now, status: 'cancelled' } as any)
+    .where(eq(activities.id, id));
+
+  console.log(`🗑️ Soft-deleted Activity #${id}`);
   res.json({ success: true });
 });
 
@@ -797,7 +838,9 @@ router.delete('/:id/tickets', authenticate, async (req: Request, res: Response) 
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const activityId = parseInt(req.params.id);
-  await db.delete(activityTickets).where(eq(activityTickets.activityId, activityId));
+  await db.update(activityTickets)
+    .set({ deletedAt: new Date() })
+    .where(eq(activityTickets.activityId, activityId));
   res.json({ success: true });
 });
 

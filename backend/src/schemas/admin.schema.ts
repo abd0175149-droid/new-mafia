@@ -30,6 +30,7 @@ export const locations = pgTable('locations', {
   offers: jsonb('offers').default([]),
   isTestLocation: boolean('is_test_location').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Staff (الموظفون/الليدر) ─────────────────────────
@@ -47,6 +48,7 @@ export const staff = pgTable('staff', {
   isActive: boolean('is_active').default(true),
   locationId: integer('location_id').references(() => locations.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Activities (الأنشطة/جلسات الألعاب) ───────────────
@@ -70,6 +72,7 @@ export const activities = pgTable('activities', {
   // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Bookings (الحجوزات) ─────────────────────────────
@@ -92,6 +95,7 @@ export const bookings = pgTable('bookings', {
   ticketNumber: varchar('ticket_number', { length: 50 }),
   checkedIn: boolean('checked_in').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Costs (التكاليف والمصاريف) ───────────────────────
@@ -104,6 +108,7 @@ export const costs = pgTable('costs', {
   date: timestamp('date').notNull(),
   paidBy: varchar('paid_by', { length: 100 }).default(''),
   type: costTypeEnum('type').default('general').notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Foundational Costs (التكاليف التأسيسية) ──────────
@@ -116,6 +121,7 @@ export const foundationalCosts = pgTable('foundational_costs', {
   source: varchar('source', { length: 100 }).default(''),
   date: timestamp('date').notNull(),
   isProcessed: boolean('is_processed').default(false),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Notifications (الإشعارات) ────────────────────────
@@ -192,6 +198,7 @@ export const tickets = pgTable('tickets', {
   // ── metadata ──
   createdAt: timestamp('created_at').defaultNow().notNull(),
   createdBy: varchar('created_by', { length: 100 }),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Activity Tickets (قديم — للتوافق فقط) ──
@@ -205,6 +212,7 @@ export const activityTickets = pgTable('activity_tickets', {
   usedByName: varchar('used_by_name', { length: 100 }),
   usedAt: timestamp('used_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
 });
 
 // ── Progression Config (إعدادات نظام التقدم) ────────

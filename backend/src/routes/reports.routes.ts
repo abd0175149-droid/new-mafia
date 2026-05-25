@@ -3,7 +3,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { sql, desc, eq, and, gte, lte, count } from 'drizzle-orm';
+import { sql, desc, eq, and, gte, lte, count, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { activities, bookings, costs, foundationalCosts, staff, locations, auditLog } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -58,21 +58,21 @@ router.get('/financial', authenticate, async (req: Request, res: Response) => {
       totalAttendees: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
       totalBookings: sql<number>`COUNT(*)::int`,
     }).from(bookings)
-      .where(and(gte(bookings.createdAt, from), lte(bookings.createdAt, to)));
+      .where(and(gte(bookings.createdAt, from), lte(bookings.createdAt, to), isNull(bookings.deletedAt)));
 
     // التكاليف التشغيلية
     const [opCosts] = await db.select({
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
       count: sql<number>`COUNT(*)::int`,
     }).from(costs)
-      .where(and(gte(costs.date, from), lte(costs.date, to)));
+      .where(and(gte(costs.date, from), lte(costs.date, to), isNull(costs.deletedAt)));
 
     // التكاليف التأسيسية
     const [foundCosts] = await db.select({
       total: sql<number>`COALESCE(SUM(${foundationalCosts.amount}::numeric), 0)`,
       count: sql<number>`COUNT(*)::int`,
     }).from(foundationalCosts)
-      .where(and(gte(foundationalCosts.date, from), lte(foundationalCosts.date, to)));
+      .where(and(gte(foundationalCosts.date, from), lte(foundationalCosts.date, to), isNull(foundationalCosts.deletedAt)));
 
     // الإيرادات حسب الشهر (آخر 12 شهر)
     const monthlyRevenue = await db.select({
@@ -80,6 +80,7 @@ router.get('/financial', authenticate, async (req: Request, res: Response) => {
       revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
       bookings: sql<number>`COUNT(*)::int`,
     }).from(bookings)
+      .where(isNull(bookings.deletedAt))
       .groupBy(sql`TO_CHAR(${bookings.createdAt}, 'YYYY-MM')`)
       .orderBy(sql`TO_CHAR(${bookings.createdAt}, 'YYYY-MM')`);
 
@@ -97,8 +98,8 @@ router.get('/financial', authenticate, async (req: Request, res: Response) => {
       unpaidBookings: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = false AND ${bookings.isFree} = false THEN 1 ELSE 0 END), 0)::int`,
       freeBookings: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isFree} = true THEN 1 ELSE 0 END), 0)::int`,
     }).from(activities)
-      .leftJoin(bookings, eq(bookings.activityId, activities.id))
-      .where(and(gte(activities.date, from), lte(activities.date, to)))
+      .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
+      .where(and(gte(activities.date, from), lte(activities.date, to), isNull(activities.deletedAt)))
       .groupBy(activities.id, activities.name, activities.date, activities.status, activities.basePrice, activities.maxCapacity)
       .orderBy(desc(activities.date));
 
@@ -107,7 +108,7 @@ router.get('/financial', authenticate, async (req: Request, res: Response) => {
       activityId: costs.activityId,
       totalCost: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
     }).from(costs)
-      .where(and(sql`${costs.activityId} IS NOT NULL`, gte(costs.date, from), lte(costs.date, to)))
+      .where(and(sql`${costs.activityId} IS NOT NULL`, gte(costs.date, from), lte(costs.date, to), isNull(costs.deletedAt)))
       .groupBy(costs.activityId);
 
     const costsMap = new Map(activityCosts.map(c => [c.activityId, Number(c.totalCost)]));
@@ -363,13 +364,13 @@ router.get('/kpi', authenticate, async (req: Request, res: Response) => {
       revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
       bookings: sql<number>`COUNT(*)::int`,
       attendees: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-    }).from(bookings).where(gte(bookings.createdAt, thisMonthStart));
+    }).from(bookings).where(and(gte(bookings.createdAt, thisMonthStart), isNull(bookings.deletedAt)));
 
     // الشهر الماضي (للمقارنة)
     const [lastMonth] = await db.select({
       revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
       bookings: sql<number>`COUNT(*)::int`,
-    }).from(bookings).where(and(gte(bookings.createdAt, lastMonthStart), lte(bookings.createdAt, lastMonthEnd)));
+    }).from(bookings).where(and(gte(bookings.createdAt, lastMonthStart), lte(bookings.createdAt, lastMonthEnd), isNull(bookings.deletedAt)));
 
     const [gameStats] = await db.select({
       total: sql<number>`COUNT(*)::int`,
@@ -391,7 +392,7 @@ router.get('/kpi', authenticate, async (req: Request, res: Response) => {
       total: sql<number>`COUNT(*)::int`,
       completed: sql<number>`COALESCE(SUM(CASE WHEN ${activities.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
       totalCapacity: sql<number>`COALESCE(SUM(${activities.maxCapacity}), 0)::int`,
-    }).from(activities);
+    }).from(activities).where(isNull(activities.deletedAt));
 
     const revenueGrowth = Number(lastMonth.revenue) > 0
       ? Math.round(((Number(thisMonth.revenue) - Number(lastMonth.revenue)) / Number(lastMonth.revenue)) * 100)
@@ -403,7 +404,7 @@ router.get('/kpi', authenticate, async (req: Request, res: Response) => {
 
     const [unpaidSummary] = await db.select({
       unpaidAmount: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = false AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
-    }).from(bookings);
+    }).from(bookings).where(isNull(bookings.deletedAt));
 
     res.json({
       success: true,
@@ -450,7 +451,7 @@ router.get('/sessions', authenticate, async (req: Request, res: Response) => {
       deleted: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'deleted' THEN 1 ELSE 0 END), 0)::int`,
       avgMaxPlayers: sql<number>`ROUND(AVG(${sessions.maxPlayers}))::int`,
     }).from(sessions)
-      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to)));
+      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to), isNull(sessions.deletedAt)));
 
     // متوسط المباريات لكل جلسة
     const matchesPerSession = await db.select({
@@ -470,8 +471,8 @@ router.get('/sessions', authenticate, async (req: Request, res: Response) => {
       displayName: staff.displayName,
       sessionCount: sql<number>`COUNT(${sessions.id})::int`,
     }).from(sessions)
-      .leftJoin(staff, eq(staff.id, sessions.createdBy))
-      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to), sql`${sessions.createdBy} IS NOT NULL`))
+      .leftJoin(staff, and(eq(staff.id, sessions.createdBy), isNull(staff.deletedAt)))
+      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to), sql`${sessions.createdBy} IS NOT NULL`, isNull(sessions.deletedAt)))
       .groupBy(sessions.createdBy, staff.displayName)
       .orderBy(desc(sql`COUNT(${sessions.id})`))
       .limit(10);
@@ -481,7 +482,7 @@ router.get('/sessions', authenticate, async (req: Request, res: Response) => {
       month: sql<string>`TO_CHAR(${sessions.createdAt}, 'YYYY-MM')`,
       count: sql<number>`COUNT(*)::int`,
     }).from(sessions)
-      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to)))
+      .where(and(gte(sessions.createdAt, from), lte(sessions.createdAt, to), isNull(sessions.deletedAt)))
       .groupBy(sql`TO_CHAR(${sessions.createdAt}, 'YYYY-MM')`)
       .orderBy(sql`TO_CHAR(${sessions.createdAt}, 'YYYY-MM')`);
 
@@ -512,7 +513,7 @@ router.get('/partners', authenticate, async (req: Request, res: Response) => {
       role: staff.role,
       isActive: staff.isActive,
     }).from(staff)
-      .where(eq(staff.isPartner, true));
+      .where(and(eq(staff.isPartner, true), isNull(staff.deletedAt)));
 
     // إيرادات الحجوزات حسب من أنشأها
     const revenueByCreator = await db.select({
@@ -520,6 +521,7 @@ router.get('/partners', authenticate, async (req: Request, res: Response) => {
       revenue: sql<number>`COALESCE(SUM(CASE WHEN ${bookings.isPaid} = true AND ${bookings.isFree} = false THEN ${bookings.paidAmount}::numeric ELSE 0 END), 0)`,
       bookingCount: sql<number>`COUNT(*)::int`,
     }).from(bookings)
+      .where(isNull(bookings.deletedAt))
       .groupBy(bookings.createdBy);
 
     // تكاليف حسب من دفعها
@@ -527,6 +529,7 @@ router.get('/partners', authenticate, async (req: Request, res: Response) => {
       paidBy: costs.paidBy,
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
     }).from(costs)
+      .where(isNull(costs.deletedAt))
       .groupBy(costs.paidBy);
 
     const revenueMap = new Map(revenueByCreator.map(r => [r.createdBy, { revenue: Number(r.revenue), bookings: r.bookingCount }]));

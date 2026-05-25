@@ -221,7 +221,7 @@ export async function deleteSession(sessionId: number): Promise<boolean> {
 
   try {
     await db.update(sessions)
-      .set({ isActive: false, status: 'deleted' } as any)
+      .set({ isActive: false, status: 'deleted', deletedAt: new Date() } as any)
       .where(eq(sessions.id, sessionId));
 
     console.log(`🗑️ Session #${sessionId} soft-deleted (status=deleted)`);
@@ -251,7 +251,7 @@ export async function getClosedSessions() {
         (SELECT SUM(m3.duration_seconds) FROM matches m3 WHERE m3.session_id = s.id AND m3.is_active = false)::int AS total_duration
       FROM sessions s
       LEFT JOIN matches m ON m.session_id = s.id AND m.is_active = false
-      WHERE s.is_active = false
+      WHERE s.is_active = false AND s.deleted_at IS NULL
       GROUP BY s.id
       ORDER BY MAX(m.ended_at) DESC NULLS LAST, s.created_at DESC
     `);
@@ -303,6 +303,7 @@ export async function getAllSessions() {
          WHERE sp.session_id = s.id)::int AS player_count
       FROM sessions s
       LEFT JOIN matches m ON m.session_id = s.id
+      WHERE s.deleted_at IS NULL
       GROUP BY s.id
       ORDER BY s.is_active DESC, s.created_at DESC
     `);
