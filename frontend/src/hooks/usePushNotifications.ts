@@ -51,9 +51,16 @@ export function usePushNotifications() {
     }
 
     // Notification.permission returns 'default' | 'granted' | 'denied'
-    // 'default' means the user hasn't been asked yet
     const perm = Notification.permission;
-    setPermissionState(perm === 'default' ? 'prompt' : perm as any);
+    
+    // 💡 حل مشكلة آيفون (iOS PWA Bug): المتصفح يعيد حالة الإذن إلى default بالخطأ عند إعادة فتح التطبيق
+    // نعتمد على localStorage كحافظة إضافية لحالة الإذن الممنوحة مسبقاً
+    const hasGrantedLocally = localStorage.getItem('push_notifications_enabled') === 'true';
+    if (hasGrantedLocally || perm === 'granted') {
+      setPermissionState('granted');
+    } else {
+      setPermissionState(perm === 'default' ? 'prompt' : perm as any);
+    }
   }, []);
 
   // ── طلب إذن + تسجيل Token (يُستدعى بنقرة المستخدم) ──
@@ -64,13 +71,22 @@ export function usePushNotifications() {
 
     try {
       const permission = await Notification.requestPermission();
-      setPermissionState(permission as any);
 
-      if (permission !== 'granted') return false;
+      if (permission !== 'granted') {
+        setPermissionState(permission as any);
+        return false;
+      }
+
+      // ضبط حالة الإذن فوراً إلى granted محلياً لحماية الشاشة من الحجب
+      setPermissionState('granted');
+      localStorage.setItem('push_notifications_enabled', 'true');
 
       const { requestNotificationPermission } = await import('../lib/firebase');
       const token = await requestNotificationPermission();
-      if (!token) return false;
+      if (!token) {
+        console.warn('⚠️ Push permission granted but failed to generate token');
+        return true; // نعتبره ناجحاً لتجنب حجب الشاشة، ولكن بدون توكن
+      }
 
       await fetch('/api/player-notifications/register-token', {
         method: 'POST',
@@ -86,6 +102,11 @@ export function usePushNotifications() {
       return true;
     } catch (err) {
       console.error('FCM registration error:', err);
+      // في حال حدوث خطأ وكان الإذن granted بالفعل لا نحجب الشاشة
+      if (Notification.permission === 'granted') {
+        setPermissionState('granted');
+        localStorage.setItem('push_notifications_enabled', 'true');
+      }
       return false;
     }
   }, [player]);
@@ -97,7 +118,8 @@ export function usePushNotifications() {
     if (!('Notification' in window)) return;
 
     // فقط إذا كان الإذن ممنوح مسبقاً — لا نطلب تلقائياً
-    if (Notification.permission === 'granted') {
+    const hasGrantedLocally = localStorage.getItem('push_notifications_enabled') === 'true';
+    if (Notification.permission === 'granted' || hasGrantedLocally) {
       requestPermission();
     }
   }, [player, requestPermission]);
