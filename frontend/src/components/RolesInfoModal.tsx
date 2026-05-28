@@ -1,4 +1,6 @@
-import React from 'react';
+'use client';
+
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface RolesInfoModalProps {
@@ -6,70 +8,100 @@ interface RolesInfoModalProps {
   onClose: () => void;
 }
 
-const ROLES = {
-  mafia: [
-    {
-      name: 'شيخ المافيا',
-      icon: '🎩',
-      desc: 'قائد فريق المافيا. هو من يصدر قرار الاغتيال ليلاً.',
-    },
-    {
-      name: 'قص المافيا',
-      icon: '🤫',
-      desc: 'يستطيع اختيار لاعب واحد ليلاً ليتم "قصه"، مما يمنعه من النقاش والتبرير نهائياً في نهار اليوم التالي، ولكنه يبقى قادراً على التصويت.',
-    },
-    {
-      name: 'حرباية المافيا',
-      icon: '🦎',
-      desc: 'تمتلك حصانة كاملة ضد "الشريف"، حيث لا يمكنه معرفة هويتها وتظهر له كمواطن صالح.',
-    },
-    {
-      name: 'مافيا عادي',
-      icon: '🔪',
-      desc: 'عضو في المافيا لا يمتلك قدرات خاصة، يتعرف على شركائه عبر التطبيق ويساعد في توجيه التصويت نهاراً.',
-    },
-  ],
-  citizen: [
-    {
-      name: 'الشريف',
-      icon: '🕵️',
-      desc: 'المحقق الخاص بالمواطنين. يستيقظ ليلاً ليتفحص هوية شخص واحد ليعرف ما إذا كان من المافيا أم لا.',
-    },
-    {
-      name: 'الطبيب',
-      icon: '🩺',
-      desc: 'يستيقظ ليلاً لاختيار شخص واحد لحمايته. يُمنع منعاً باتاً حماية نفس الشخص لليلتين متتاليتين.',
-    },
-    {
-      name: 'القناص',
-      icon: '🎯',
-      desc: 'يمتلك عدداً غير محدود من الطلقات؛ يستطيع إطلاق طلقة في كل ليلة. إذا كان الهدف مافيا يُقصى، أما إذا كان الهدف مواطناً، فيموت المواطن والقناص معاً.',
-    },
-    {
-      name: 'الشرطية',
-      icon: '👮‍♀️',
-      desc: 'تتفعل قدرتها فقط بعد خروجها (موتها). يُحسب عدد المواطنين، وإذا خرج ربعهم تتفعل قدرتها لتتمكن من إقصاء لاعب واحد، وفي كل صباح جديد تستطيع إقصاء لاعب.',
-    },
-    {
-      name: 'الممرضة',
-      icon: '💉',
-      desc: 'كرت بديل للطبيب؛ يتم تفعيل قدرتها لتنوب عن الطبيب وتقوم بحماية المواطنين فقط في حال تم إخراج الطبيب من اللعبة.',
-    },
-    {
-      name: 'مواطن صالح',
-      icon: '👤',
-      desc: 'لا يملك قدرات ليلية. سلاحه الوحيد هو صوته وقدرته على الإقناع والتبرير في النهار لكشف المافيا وطردهم.',
-    },
-  ],
+interface RoleDef {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
+  abilities: string[];
+  description: string | null;
+  winConditionType: string | null;
+  winConditionDescription: string | null;
+  genPriority: number;
+}
+
+// أيقونات افتراضية للأدوار المعروفة — الأدوار الجديدة تحصل على أيقونة حسب الفريق
+const ROLE_ICONS: Record<string, string> = {
+  GODFATHER: '🎩', SILENCER: '🤫', CHAMELEON: '🦎', MAFIA_REGULAR: '🔪',
+  SHERIFF: '🕵️', DOCTOR: '🩺', SNIPER: '🎯', POLICEWOMAN: '👮‍♀️',
+  NURSE: '💉', CITIZEN: '👤', JESTER: '🃏',
+};
+
+const TEAM_DEFAULT_ICON: Record<string, string> = {
+  MAFIA: '🎭', CITIZEN: '🛡️', NEUTRAL: '⚖️',
+};
+
+const TEAM_CONFIG = {
+  MAFIA: {
+    title: 'فريق المافيا',
+    color: 'text-rose-500',
+    barColor: 'bg-rose-500',
+    cardBorder: 'border-rose-900/30',
+    cardBg: 'bg-gray-800/40 hover:bg-gray-800/60',
+    nameColor: 'text-rose-100',
+  },
+  CITIZEN: {
+    title: 'فريق المواطنين',
+    color: 'text-emerald-500',
+    barColor: 'bg-emerald-500',
+    cardBorder: 'border-emerald-900/30',
+    cardBg: 'bg-gray-800/40 hover:bg-gray-800/60',
+    nameColor: 'text-emerald-100',
+  },
+  NEUTRAL: {
+    title: 'الأدوار المستقلة',
+    color: 'text-amber-500',
+    barColor: 'bg-amber-500',
+    cardBorder: 'border-amber-900/30',
+    cardBg: 'bg-gray-800/40 hover:bg-gray-800/60',
+    nameColor: 'text-amber-100',
+  },
 };
 
 export default function RolesInfoModal({ isOpen, onClose }: RolesInfoModalProps) {
+  const [roles, setRoles] = useState<RoleDef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoading(true);
+    setError(false);
+
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+    fetch(`${API_URL}/api/game-config/roles`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.data && Array.isArray(d.data)) {
+          setRoles(d.data);
+        } else {
+          setError(true);
+        }
+      })
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  // تجميع الأدوار حسب الفريق
+  const grouped: Record<string, RoleDef[]> = { MAFIA: [], CITIZEN: [], NEUTRAL: [] };
+  for (const role of roles) {
+    if (grouped[role.team]) {
+      grouped[role.team].push(role);
+    }
+  }
+  // ترتيب حسب الأولوية
+  for (const team of Object.keys(grouped)) {
+    grouped[team].sort((a, b) => a.genPriority - b.genPriority);
+  }
+
+  const getIcon = (role: RoleDef) => ROLE_ICONS[role.id] || TEAM_DEFAULT_ICON[role.team] || '🎭';
 
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" dir="rtl">
-        {/* خلفية معتمة للتسكير عند النقر عليها */}
+        {/* خلفية معتمة */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -78,7 +110,7 @@ export default function RolesInfoModal({ isOpen, onClose }: RolesInfoModalProps)
           className="fixed inset-0 bg-black/60 backdrop-blur-sm"
         />
 
-        {/* الموديل الأساسي */}
+        {/* الموديل */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -104,47 +136,64 @@ export default function RolesInfoModal({ isOpen, onClose }: RolesInfoModalProps)
             </button>
           </div>
 
-          {/* Body (Scrollable) */}
+          {/* Body */}
           <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-8 custom-scrollbar">
-            
-            {/* فريق المافيا */}
-            <section>
-              <h3 className="text-lg font-bold text-rose-500 mb-4 flex items-center gap-2">
-                <span className="w-2 h-6 bg-rose-500 rounded-full inline-block"></span>
-                فريق المافيا
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {ROLES.mafia.map((role, idx) => (
-                  <div key={idx} className="bg-gray-800/40 border border-rose-900/30 p-4 rounded-2xl hover:bg-gray-800/60 transition-colors">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">{role.icon}</span>
-                      <h4 className="font-bold text-rose-100">{role.name}</h4>
-                    </div>
-                    <p className="text-xs text-gray-400 leading-relaxed">{role.desc}</p>
-                  </div>
-                ))}
+            {loading && (
+              <div className="flex justify-center py-16">
+                <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" />
               </div>
-            </section>
+            )}
 
-            {/* فريق المواطنين */}
-            <section>
-              <h3 className="text-lg font-bold text-emerald-500 mb-4 flex items-center gap-2">
-                <span className="w-2 h-6 bg-emerald-500 rounded-full inline-block"></span>
-                فريق المواطنين
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {ROLES.citizen.map((role, idx) => (
-                  <div key={idx} className="bg-gray-800/40 border border-emerald-900/30 p-4 rounded-2xl hover:bg-gray-800/60 transition-colors">
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-2xl">{role.icon}</span>
-                      <h4 className="font-bold text-emerald-100">{role.name}</h4>
-                    </div>
-                    <p className="text-xs text-gray-400 leading-relaxed">{role.desc}</p>
-                  </div>
-                ))}
+            {error && (
+              <div className="text-center py-12 text-gray-500">
+                <p className="text-2xl mb-2">⚠️</p>
+                <p className="text-sm">تعذّر تحميل الأدوار</p>
               </div>
-            </section>
+            )}
 
+            {!loading && !error && (['MAFIA', 'CITIZEN', 'NEUTRAL'] as const).map(team => {
+              const teamRoles = grouped[team];
+              if (teamRoles.length === 0) return null;
+              const config = TEAM_CONFIG[team];
+
+              return (
+                <section key={team}>
+                  <h3 className={`text-lg font-bold ${config.color} mb-4 flex items-center gap-2`}>
+                    <span className={`w-2 h-6 ${config.barColor} rounded-full inline-block`}></span>
+                    {config.title}
+                    <span className="text-xs text-gray-600 font-normal">({teamRoles.length})</span>
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {teamRoles.map((role) => (
+                      <motion.div
+                        key={role.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`${config.cardBg} border ${config.cardBorder} p-4 rounded-2xl transition-colors`}
+                      >
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="text-2xl">{getIcon(role)}</span>
+                          <div>
+                            <h4 className={`font-bold ${config.nameColor}`}>{role.nameAr}</h4>
+                            <span className="text-[10px] text-gray-600">{role.nameEn}</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-400 leading-relaxed">
+                          {role.description || 'لا يوجد وصف'}
+                        </p>
+                        {role.winConditionType && (
+                          <div className="mt-2 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/15">
+                            <p className="text-[10px] text-amber-400">
+                              🏆 {role.winConditionDescription || role.winConditionType}
+                            </p>
+                          </div>
+                        )}
+                      </motion.div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
           </div>
 
           {/* Footer */}
