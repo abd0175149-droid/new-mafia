@@ -42,13 +42,25 @@ export const EFFECT_TYPE_OPTIONS = [
   { value: 'REVEAL_TEAM', label: 'كشف فريق' },
   { value: 'SILENCE', label: 'إسكات' },
   { value: 'CONDITIONAL_ELIMINATE', label: 'إقصاء مشروط' },
-  { value: 'PASSIVE', label: 'سلبي' },
+  { value: 'PASSIVE', label: 'سلبي (بدون تأثير مباشر)' },
+  { value: 'SWAP_ROLE', label: 'تبديل دور' },
+  { value: 'COPY_ABILITY', label: 'نسخ قدرة' },
+  { value: 'REDIRECT', label: 'إعادة توجيه' },
 ];
 
 export const TEAM_OPTIONS = [
   { value: 'MAFIA', label: 'مافيا', color: 'text-rose-400' },
   { value: 'CITIZEN', label: 'مواطن', color: 'text-blue-400' },
   { value: 'NEUTRAL', label: 'محايد', color: 'text-amber-400' },
+];
+
+export const WIN_CONDITION_OPTIONS = [
+  { value: '', label: 'بدون شرط خاص' },
+  { value: 'VOTED_OUT', label: '🎭 الإقصاء بالتصويت فقط (المهرج)' },
+  { value: 'SURVIVE_UNTIL_END', label: '🛡️ البقاء حتى نهاية اللعبة' },
+  { value: 'BE_ELIMINATED', label: '💀 يفوز إذا مات (بأي طريقة)' },
+  { value: 'ELIMINATE_TARGET', label: '🎯 إقصاء هدف محدد' },
+  { value: 'LAST_STANDING', label: '👑 آخر لاعب حي' },
 ];
 
 export const CONDITION_OPTIONS = [

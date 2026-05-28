@@ -15,14 +15,22 @@ interface Ability {
   excludeLastTarget: boolean;
   maxTargets: number;
   effectType: string;
+  effectOnSuccess: string | null;
+  effectOnFail: string | null;
   canSkip: boolean;
   isInheritable: boolean;
+  inheritanceOrder: string[] | null;
+  deceptionRule: string | null;
+  soundEvent: string | null;
+  animationType: string | null;
 }
 
 const EMPTY: Partial<Ability> = {
   id: '', nameAr: '', nameEn: '', phase: 'NIGHT', priority: 10,
   targetType: 'ANY', excludeSelf: true, excludeLastTarget: false,
-  maxTargets: 1, effectType: 'ELIMINATE', canSkip: true, isInheritable: false,
+  maxTargets: 1, effectType: 'ELIMINATE', effectOnSuccess: null, effectOnFail: null,
+  canSkip: true, isInheritable: false, inheritanceOrder: null,
+  deceptionRule: null, soundEvent: null, animationType: null,
 };
 
 export default function AbilitiesTab() {
@@ -133,6 +141,21 @@ export default function AbilitiesTab() {
                   <Toggle label="استثناء آخر هدف" checked={editing.excludeLastTarget ?? false} onChange={v => setEditing({ ...editing, excludeLastTarget: v })} />
                   <Toggle label="يمكن تخطيها" checked={editing.canSkip ?? true} onChange={v => setEditing({ ...editing, canSkip: v })} />
                   <Toggle label="قابلة للتوريث" checked={editing.isInheritable ?? false} onChange={v => setEditing({ ...editing, isInheritable: v })} />
+                </div>
+
+                {/* حقول متقدمة */}
+                <div className="bg-gray-800/30 border border-gray-700/30 rounded-xl p-3 space-y-3">
+                  <label className="text-xs text-gray-500 font-bold block">⚙️ إعدادات متقدمة</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="حدث النجاح" value={editing.effectOnSuccess || ''} onChange={v => setEditing({ ...editing, effectOnSuccess: v || null })} />
+                    <Field label="حدث الفشل" value={editing.effectOnFail || ''} onChange={v => setEditing({ ...editing, effectOnFail: v || null })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="حدث الصوت" value={editing.soundEvent || ''} onChange={v => setEditing({ ...editing, soundEvent: v || null })} />
+                    <Field label="نوع الأنيميشن" value={editing.animationType || ''} onChange={v => setEditing({ ...editing, animationType: v || null })} />
+                  </div>
+                  <Field label="قاعدة الخداع" value={editing.deceptionRule || ''} onChange={v => setEditing({ ...editing, deceptionRule: v || null })} />
+                  <Field label="ترتيب التوريث (IDs مفصولة بفواصل)" value={(editing.inheritanceOrder || []).join(', ')} onChange={v => setEditing({ ...editing, inheritanceOrder: v ? v.split(',').map(s => s.trim()).filter(Boolean) : null })} />
                 </div>
               </div>
               <div className="flex gap-3 mt-6">

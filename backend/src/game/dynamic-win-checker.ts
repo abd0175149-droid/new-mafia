@@ -14,6 +14,7 @@ export interface NeutralResult {
   roleNameAr: string;
   won: boolean;
   conditionType: string;
+  conditionDescription: string;
 }
 
 export interface DynamicWinResult {
@@ -50,45 +51,111 @@ export async function checkWinConditionDynamic(state: GameState): Promise<Dynami
     mainWinner = 'MAFIA';
   }
 
-  // فحص شروط فوز المحايدين (يُفحصون عند انتهاء اللعبة فقط)
+  // فحص شروط فوز المحايدين (يُفحصون عند انتهاء اللعبة)
   const neutralResults: NeutralResult[] = [];
 
   if (mainWinner) {
-    for (const player of state.players) {
-      const roleDef = allRoles.find(r => r.id === player.role);
-      if (!roleDef || roleDef.team !== 'NEUTRAL') continue;
-
-      const conditionType = roleDef.winConditionType || 'SURVIVE_UNTIL_END';
-      let won = false;
-
-      switch (conditionType) {
-        case 'SURVIVE_UNTIL_END':
-          won = player.isAlive;
-          break;
-
-        case 'ELIMINATE_TARGET':
-          // يُحدد الهدف عند بداية اللعبة (يُخزن في حقل مخصص مستقبلاً)
-          won = false; // سيُحدد لاحقاً عند تنفيذ آلية تعيين الهدف
-          break;
-
-        case 'BE_ELIMINATED':
-          won = !player.isAlive; // يفوز إذا مات
-          break;
-
-        default:
-          won = false;
-      }
-
-      neutralResults.push({
-        physicalId: player.physicalId,
-        playerName: player.name,
-        roleId: roleDef.id,
-        roleNameAr: roleDef.nameAr,
-        won,
-        conditionType,
-      });
-    }
+    const results = evaluateNeutralWins(state, allRoles);
+    neutralResults.push(...results);
   }
 
   return { mainWinner, neutralResults };
+}
+
+/**
+ * يفحص فوز المحايدين — يُستدعى عند انتهاء اللعبة أو عند إقصاء لاعب محايد
+ */
+export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): NeutralResult[] {
+  const results: NeutralResult[] = [];
+
+  for (const player of state.players) {
+    const roleDef = allRoles.find(r => r.id === player.role);
+    if (!roleDef || roleDef.team !== 'NEUTRAL') continue;
+
+    const conditionType = roleDef.winConditionType || 'SURVIVE_UNTIL_END';
+    let won = false;
+
+    switch (conditionType) {
+      // ── البقاء حتى النهاية ──
+      case 'SURVIVE_UNTIL_END':
+        won = player.isAlive;
+        break;
+
+      // ── الإقصاء بالتصويت النهاري فقط (المهرج) ──
+      case 'VOTED_OUT': {
+        if (!player.isAlive) {
+          const log = state.performanceTracking?.eliminationLog || [];
+          const entry = log.find(e => e.physicalId === player.physicalId);
+          won = entry?.eliminatedBy === 'DAY_VOTE';
+        }
+        break;
+      }
+
+      // ── يفوز إذا مات بأي طريقة ──
+      case 'BE_ELIMINATED':
+        won = !player.isAlive;
+        break;
+
+      // ── إقصاء هدف محدد ──
+      case 'ELIMINATE_TARGET':
+        // يُحدد الهدف عند بداية اللعبة (يُخزن في حقل مخصص مستقبلاً)
+        won = false;
+        break;
+
+      // ── آخر لاعب حي ──
+      case 'LAST_STANDING': {
+        const totalAlive = state.players.filter(p => p.isAlive).length;
+        won = player.isAlive && totalAlive === 1;
+        break;
+      }
+
+      default:
+        won = false;
+    }
+
+    results.push({
+      physicalId: player.physicalId,
+      playerName: player.name,
+      roleId: roleDef.id,
+      roleNameAr: roleDef.nameAr,
+      won,
+      conditionType,
+      conditionDescription: roleDef.winConditionDescription || '',
+    });
+  }
+
+  return results;
+}
+
+/**
+ * فحص فوز محايد عند إقصائه بالتصويت — يُستدعى فوراً من vote-engine
+ * يرجع نتيجة فوز المحايد إن وُجد، أو null
+ */
+export async function checkNeutralVoteWin(
+  state: GameState,
+  eliminatedPhysicalId: number,
+): Promise<NeutralResult | null> {
+  const allRoles = await getRoleDefs();
+  const player = state.players.find(p => p.physicalId === eliminatedPhysicalId);
+  if (!player) return null;
+
+  const roleDef = allRoles.find(r => r.id === player.role);
+  if (!roleDef || roleDef.team !== 'NEUTRAL') return null;
+
+  const conditionType = roleDef.winConditionType || '';
+
+  // شرط VOTED_OUT: المهرج يفوز فورياً عند إقصائه بالتصويت
+  if (conditionType === 'VOTED_OUT') {
+    return {
+      physicalId: player.physicalId,
+      playerName: player.name,
+      roleId: roleDef.id,
+      roleNameAr: roleDef.nameAr,
+      won: true,
+      conditionType,
+      conditionDescription: roleDef.winConditionDescription || 'يفوز عند إقصائه بالتصويت',
+    };
+  }
+
+  return null;
 }

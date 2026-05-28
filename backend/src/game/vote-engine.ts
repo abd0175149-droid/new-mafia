@@ -8,6 +8,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { isMafiaRole } from './roles.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
+import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 
 // ── تهيئة ساحة التصويت ──────────────────────────
 
@@ -211,6 +212,7 @@ export interface VoteResolution {
   revealedRoles: { physicalId: number; role: string }[];
   winResult: WinResult;
   tiedCandidates?: Candidate[]; // في حال التعادل
+  neutralWin?: NeutralResult | null; // 🎭 فوز محايد (مثل المهرج)
 }
 
 /**
@@ -346,6 +348,15 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
     }
   }
 
+  // 🎭 فحص فوز محايد فوري (مثل المهرج — يفوز عند إقصائه بالتصويت)
+  let neutralWin: NeutralResult | null = null;
+  for (const elId of eliminated) {
+    try {
+      const nw = await checkNeutralVoteWin(state, elId);
+      if (nw) { neutralWin = nw; break; }
+    } catch { /* المحرك الديناميكي غير متاح — نتجاهل */ }
+  }
+
   // فحص شرط الفوز بعد الإقصاء
   const winResult = checkWinCondition(state);
   if (winResult !== WinResult.GAME_CONTINUES) {
@@ -354,7 +365,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
   await setGameState(roomId, state);
 
-  return { type: winner.type === CandidateType.DEAL ? 'DEAL_ELIMINATION' : 'ELIMINATION', eliminated, revealedRoles, winResult };
+  return { type: winner.type === CandidateType.DEAL ? 'DEAL_ELIMINATION' : 'ELIMINATION', eliminated, revealedRoles, winResult, neutralWin };
 }
 
 // ── كسر التعادل ──────────────────────────────────

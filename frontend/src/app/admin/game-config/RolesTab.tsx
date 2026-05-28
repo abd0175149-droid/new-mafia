@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { gcFetch, TEAM_OPTIONS } from './helpers';
+import { gcFetch, TEAM_OPTIONS, WIN_CONDITION_OPTIONS } from './helpers';
 import MafiaCardLegacy from '@/components/MafiaCardLegacy';
 
 interface Role {
@@ -123,6 +123,7 @@ export default function RolesTab() {
                       })}
                       {r.genIsRequired && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">إجباري</span>}
                       {r.cardTemplateId && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20">🎴 {r.cardTemplateId}</span>}
+                      {r.winConditionType && <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">🏆 {WIN_CONDITION_OPTIONS.find(w => w.value === r.winConditionType)?.label || r.winConditionType}</span>}
                     </div>
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
@@ -220,38 +221,33 @@ export default function RolesTab() {
                   </select>
                 </div>
 
-                {/* شروط الفوز (للمحايدين فقط) */}
-                {editing.team === 'NEUTRAL' && (
-                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 space-y-3">
-                    <label className="text-xs text-amber-400 font-bold block">🏆 شروط الفوز (محايد)</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs text-gray-500 mb-1 block">نوع الشرط</label>
-                        <select value={editing.winConditionType || ''} onChange={e => setEditing({ ...editing, winConditionType: e.target.value || null })}
-                          className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none">
-                          <option value="">بدون</option>
-                          <option value="SURVIVE_TILL_END">البقاء حتى النهاية</option>
-                          <option value="ELIMINATE_TARGET">إقصاء هدف محدد</option>
-                          <option value="CUSTOM">مخصص</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="flex items-center gap-2 cursor-pointer mt-5">
-                          <div className={`w-8 h-5 rounded-full transition ${editing.winConditionRevealTarget ? 'bg-amber-500' : 'bg-gray-700'} relative`}>
-                            <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-all ${editing.winConditionRevealTarget ? 'right-0.5' : 'right-4'}`} />
-                          </div>
-                          <span className="text-xs text-gray-400">كشف الهدف</span>
-                        </label>
-                      </div>
+                {/* شروط الفوز — متاحة لكل الفرق (خاصة المحايدين) */}
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 space-y-3">
+                  <label className="text-xs text-amber-400 font-bold block">🏆 شرط الفوز {editing.team === 'NEUTRAL' ? '(محايد — مطلوب)' : '(اختياري)'}</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">نوع الشرط</label>
+                      <select value={editing.winConditionType || ''} onChange={e => setEditing({ ...editing, winConditionType: e.target.value || null })}
+                        className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none">
+                        {WIN_CONDITION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
                     </div>
                     <div>
-                      <label className="text-xs text-gray-500 mb-1 block">وصف شرط الفوز</label>
-                      <input value={editing.winConditionDescription || ''} onChange={e => setEditing({ ...editing, winConditionDescription: e.target.value || null })}
-                        placeholder="مثلاً: ابقَ حياً حتى نهاية اللعبة"
-                        className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none" />
+                      <label className="flex items-center gap-2 cursor-pointer mt-5">
+                        <div className={`w-8 h-5 rounded-full transition ${editing.winConditionRevealTarget ? 'bg-amber-500' : 'bg-gray-700'} relative`}>
+                          <div className={`w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-all ${editing.winConditionRevealTarget ? 'right-0.5' : 'right-4'}`} />
+                        </div>
+                        <span className="text-xs text-gray-400">كشف الهدف</span>
+                      </label>
                     </div>
                   </div>
-                )}
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">وصف شرط الفوز</label>
+                    <input value={editing.winConditionDescription || ''} onChange={e => setEditing({ ...editing, winConditionDescription: e.target.value || null })}
+                      placeholder="مثلاً: يفوز فقط إذا تم إقصاؤه بالتصويت النهاري"
+                      className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none" />
+                  </div>
+                </div>
 
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">الوصف</label>

@@ -265,7 +265,7 @@ export async function createRoom(
       nightMode: 'manual',
       gameTimerEnabled: false,
       gameTimerMinutes: 30,
-      useDynamicEngine: false,
+      useDynamicEngine: true,
       maxPenalties,
       penaltyScope,
       bombEnabled: true,
