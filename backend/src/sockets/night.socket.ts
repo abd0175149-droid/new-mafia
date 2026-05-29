@@ -132,8 +132,13 @@ async function resolveAutoNight(io: Server, roomId: string) {
     teamCounts: stateAfter ? getTeamCounts(stateAfter.players) : undefined,
   });
 
+  // 🤡 فوز المهرج — اللعبة تنتهي فوراً (لا pendingWinner)
   let pendingWinner: string | null = null;
-  if (resolution.winResult !== WinResult.GAME_CONTINUES) {
+  if (resolution.neutralWin?.won) {
+    pendingWinner = 'JESTER';
+    const state = await getGameState(roomId);
+    if (state) { state.pendingWinner = 'JESTER'; await setGameState(roomId, state); }
+  } else if (resolution.winResult !== WinResult.GAME_CONTINUES) {
     pendingWinner = resolution.winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
     const state = await getGameState(roomId);
     if (state) { state.pendingWinner = pendingWinner; await setGameState(roomId, state); }
@@ -145,6 +150,7 @@ async function resolveAutoNight(io: Server, roomId: string) {
     events: resolution.events,
     pendingWinner,
     players: stateAfter?.players || [],
+    neutralWin: resolution.neutralWin || null,
   });
 
   console.log(`✅ Auto night resolved for room ${roomId}`);
@@ -892,9 +898,16 @@ export function registerNightEvents(io: Server, socket: Socket) {
         teamCounts: stateAfterResolve ? getTeamCounts(stateAfterResolve.players) : undefined,
       });
 
-      // حفظ حالة الفوز المعلقة (إن وجدت) بدون بث فوري
+      // 🤡 فوز المهرج — اللعبة تنتهي فوراً
       let pendingWinner: string | null = null;
-      if (resolution.winResult !== WinResult.GAME_CONTINUES) {
+      if (resolution.neutralWin?.won) {
+        pendingWinner = 'JESTER';
+        const stFinal = await getGameState(data.roomId);
+        if (stFinal) {
+          stFinal.pendingWinner = 'JESTER';
+          await setGameState(data.roomId, stFinal);
+        }
+      } else if (resolution.winResult !== WinResult.GAME_CONTINUES) {
         pendingWinner = resolution.winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
         // حفظ في الـ state للاستخدام لاحقاً عند تأكيد الليدر
         const stFinal = await getGameState(data.roomId);
@@ -909,6 +922,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         events: resolution.events,
         pendingWinner: pendingWinner,
         players: stateAfterResolve?.players || [],
+        neutralWin: resolution.neutralWin || null,
       });
 
       callback({ success: true, events: resolution.events });

@@ -390,7 +390,12 @@ function DisplayPageContent() {
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
       stopAmbientSound();
-      playGameSound(data.winner === 'MAFIA' ? 'win_mafia' : 'win_citizen');
+      // 🤡 صوت مخصص لفوز المهرج
+      if (data.winner === 'JESTER') {
+        playGameSound('win_citizen'); // fallback — يمكن إضافة win_jester لاحقاً
+      } else {
+        playGameSound(data.winner === 'MAFIA' ? 'win_mafia' : 'win_citizen');
+      }
     };
 
     const onPlayerUpdated = (data: any) => {
@@ -1230,13 +1235,20 @@ function DisplayPageContent() {
 
         {/* ═══ نهاية اللعبة ═══ */}
         {phase === Phase.GAME_OVER && winner && (() => {
-          // تصفية الفريق الفائز فقط
-          const winningTeamPlayers = players.filter((p: any) => {
-            const roleStr = p.role || null;
-            if (!roleStr) return false;
-            const playerIsMafia = isMafiaRole(roleStr as Role);
-            return winner === 'MAFIA' ? playerIsMafia : !playerIsMafia;
-          });
+          const isJesterWin = winner === 'JESTER';
+          // تصفية الفريق الفائز
+          let winningTeamPlayers;
+          if (isJesterWin) {
+            // فوز المهرج: عرض المهرج فقط
+            winningTeamPlayers = players.filter((p: any) => p.role === 'JESTER');
+          } else {
+            winningTeamPlayers = players.filter((p: any) => {
+              const roleStr = p.role || null;
+              if (!roleStr) return false;
+              const playerIsMafia = isMafiaRole(roleStr as Role);
+              return winner === 'MAFIA' ? playerIsMafia : !playerIsMafia;
+            });
+          }
           // ترتيب: الأحياء أولاً ثم الأموات
           const sorted = [...winningTeamPlayers].sort((a, b) => (b.isAlive ? 1 : 0) - (a.isAlive ? 1 : 0));
           const isMafiaWin = winner === 'MAFIA';
@@ -1274,6 +1286,8 @@ function DisplayPageContent() {
                   style={{
                     background: isMafiaWin
                       ? 'radial-gradient(ellipse at center, rgba(138,3,3,0.2) 0%, transparent 70%)'
+                      : isJesterWin
+                      ? 'radial-gradient(ellipse at center, rgba(245,158,11,0.2) 0%, transparent 70%)'
                       : 'radial-gradient(ellipse at center, rgba(197,160,89,0.15) 0%, transparent 70%)',
                   }}
                   animate={{ opacity: [0.4, 1, 0.4] }}
@@ -1296,16 +1310,18 @@ function DisplayPageContent() {
                   className="text-4xl md:text-7xl font-black uppercase tracking-tighter mb-2 relative z-10"
                   style={{
                     fontFamily: 'Amiri, serif',
-                    color: isMafiaWin ? '#8A0303' : '#C5A059',
+                    color: isMafiaWin ? '#8A0303' : isJesterWin ? '#f59e0b' : '#C5A059',
                     textShadow: isMafiaWin
                       ? '0 0 60px rgba(138,3,3,0.6), 0 0 120px rgba(138,3,3,0.3)'
+                      : isJesterWin
+                      ? '0 0 60px rgba(245,158,11,0.6), 0 0 120px rgba(245,158,11,0.3)'
                       : '0 0 60px rgba(197,160,89,0.4), 0 0 120px rgba(197,160,89,0.2)',
                   }}
                   initial={{ opacity: 0, y: 30, scale: 0.8 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ delay: 0.5, duration: 1, type: 'spring', damping: 10 }}
                 >
-                  {isMafiaWin ? 'انتصار المافيا' : 'تطهير المدينة'}
+                  {isMafiaWin ? 'انتصار المافيا' : isJesterWin ? '🤡 فوز المهرج!' : 'تطهير المدينة'}
                 </motion.h1>
                 <motion.p
                   className="text-[#808080] font-mono mb-8 tracking-[0.4em] uppercase text-sm relative z-10"
@@ -1313,7 +1329,7 @@ function DisplayPageContent() {
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.8 }}
                 >
-                  {isMafiaWin ? 'THE FAMILY PREVAILS' : 'JUSTICE HAS BEEN SERVED'}
+                  {isMafiaWin ? 'THE FAMILY PREVAILS' : isJesterWin ? 'THE JESTER WINS' : 'JUSTICE HAS BEEN SERVED'}
                 </motion.p>
 
                 {/* شبكة كروت الفريق الفائز — الحي ملوّن والميت رمادي */}

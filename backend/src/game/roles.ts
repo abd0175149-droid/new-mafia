@@ -19,6 +19,9 @@ export enum Role {
   POLICEWOMAN = 'POLICEWOMAN',       // الشرطية
   NURSE = 'NURSE',                   // الممرضة
   CITIZEN = 'CITIZEN',               // مواطن صالح
+
+  // فريق محايد
+  JESTER = 'JESTER',                 // المهرج 🤡
 }
 
 // ── تصنيف الفرق ────────────────────────────────────
@@ -39,6 +42,10 @@ export const CITIZEN_ROLES: Role[] = [
   Role.CITIZEN,
 ];
 
+export const NEUTRAL_ROLES: Role[] = [
+  Role.JESTER,
+];
+
 // الأدوار التي لها قدرات ليلية
 export const NIGHT_ACTIVE_ROLES: Role[] = [
   Role.GODFATHER,
@@ -56,6 +63,10 @@ export function isCitizenRole(role: Role): boolean {
   return CITIZEN_ROLES.includes(role);
 }
 
+export function isNeutralRole(role: Role | string): boolean {
+  return NEUTRAL_ROLES.includes(role as Role);
+}
+
 // ── أسماء الأدوار بالعربي ────────────────────────
 
 export const ROLE_NAMES_AR: Record<Role, string> = {
@@ -69,6 +80,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.POLICEWOMAN]: 'الشرطية',
   [Role.NURSE]: 'الممرضة',
   [Role.CITIZEN]: 'مواطن صالح',
+  [Role.JESTER]: 'المهرج',
 };
 
 // ── خوارزمية التوليد ────────────────────────────────

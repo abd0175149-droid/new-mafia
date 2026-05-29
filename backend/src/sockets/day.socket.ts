@@ -804,6 +804,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
             revealedRoles: result.revealedRoles,
             winResult: result.winResult,
             type: result.type,
+            neutralWin: result.neutralWin || null,
           };
           stateAfter.phase = Phase.DAY_ELIMINATION;
           await setGameState(data.roomId, stateAfter);
@@ -817,8 +818,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
           winResult: result.winResult,
           type: result.type,
           pendingBomb: stateAfter?.pendingBomb || null,
+          neutralWin: result.neutralWin || null,
         });
-        console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}`);
+        console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
         console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
         console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
       }
@@ -840,11 +842,17 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       const result = data.result;
       
-      // حفظ حالة الفوز المعلقة — الليدر يضغط زر "عرض النتيجة" لبثها
+      // 🤡 فحص فوز المهرج أولاً
       let pendingWinner: string | null = null;
-      if (result.winResult !== WinResult.GAME_CONTINUES) {
-        const state = await getGameState(data.roomId);
-        if (state) {
+      const state = await getGameState(data.roomId);
+      if (state) {
+        if (result.neutralWin?.won) {
+          // فوز المهرج — اللعبة تنتهي فوراً
+          state.pendingWinner = 'JESTER';
+          state.winner = 'JESTER';
+          pendingWinner = 'JESTER';
+          await setGameState(data.roomId, state);
+        } else if (result.winResult !== WinResult.GAME_CONTINUES) {
           const winnerValue: 'MAFIA' | 'CITIZEN' = result.winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
           state.pendingWinner = winnerValue;
           state.winner = winnerValue;

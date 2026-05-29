@@ -15,12 +15,18 @@ export enum Role {
   POLICEWOMAN = 'POLICEWOMAN',
   NURSE = 'NURSE',
   CITIZEN = 'CITIZEN',
+  JESTER = 'JESTER',
 }
 
 export const MAFIA_ROLES = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR];
+export const NEUTRAL_ROLES = [Role.JESTER];
 
 export function isMafiaRole(role: Role): boolean {
   return MAFIA_ROLES.includes(role);
+}
+
+export function isNeutralRole(role: Role | string): boolean {
+  return NEUTRAL_ROLES.includes(role as Role);
 }
 
 export const ROLE_NAMES: Record<Role, string> = {
@@ -34,6 +40,7 @@ export const ROLE_NAMES: Record<Role, string> = {
   [Role.POLICEWOMAN]: 'الشرطية',
   [Role.NURSE]: 'الممرضة',
   [Role.CITIZEN]: 'مواطن صالح',
+  [Role.JESTER]: 'المهرج',
 };
 
 export const ROLE_ICONS: Record<Role, string> = {
@@ -47,6 +54,7 @@ export const ROLE_ICONS: Record<Role, string> = {
   [Role.POLICEWOMAN]: '👮‍♀️',
   [Role.NURSE]: '🏥',
   [Role.CITIZEN]: '👤',
+  [Role.JESTER]: '🤡',
 };
 
 // ── المراحل ────────────────────────────────────

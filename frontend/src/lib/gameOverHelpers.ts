@@ -67,6 +67,9 @@ export function getWinnerDisplayName(winner: string): { title: string; subtitle:
   if (winner === 'CITIZEN') {
     return { title: 'تطهير المدينة', subtitle: 'JUSTICE HAS BEEN SERVED', isMafia: false };
   }
-  // محايد
+  if (winner === 'JESTER') {
+    return { title: '🤡 فوز المهرج!', subtitle: 'THE JESTER WINS', isMafia: false };
+  }
+  // محايد آخر
   return { title: `فوز: ${winner}`, subtitle: 'NEUTRAL VICTORY', isMafia: false };
 }

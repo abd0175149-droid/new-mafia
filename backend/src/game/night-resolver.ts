@@ -12,10 +12,12 @@ import {
 import { getGameState, setGameState } from '../config/redis.js';
 import { Role, isMafiaRole } from './roles.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
+import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 
 export interface NightResolution {
   events: MorningEvent[];
   winResult: WinResult;
+  neutralWin?: NeutralResult | null; // 🤡 فوز المهرج
 }
 
 /**
@@ -176,7 +178,25 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   // ── 6. حفظ أحداث الصباح ───────────────────────
   state.morningEvents = events;
 
-  // ── 7. فحص شرط الفوز ─────────────────────────
+  // ── 7. فحص فوز المهرج (إذا القناص قتله) ──────────────
+  let neutralWin: NeutralResult | null = null;
+  for (const ev of events) {
+    if (ev.type === 'SNIPE_CITIZEN' && ev.targetPhysicalId) {
+      try {
+        const nw = await checkNeutralVoteWin(state, ev.targetPhysicalId, 'SNIPER');
+        if (nw?.won) { neutralWin = nw; break; }
+      } catch { /* المحرك الديناميكي غير متاح */ }
+    }
+  }
+
+  // 🤡 فوز المهرج = اللعبة تنتهي فوراً
+  if (neutralWin?.won) {
+    state.winner = 'JESTER';
+    await setGameState(roomId, state);
+    return { events, winResult: WinResult.GAME_CONTINUES, neutralWin };
+  }
+
+  // ── 8. فحص شرط الفوز العادي ─────────────────
   const winResult = checkWinCondition(state);
   if (winResult !== WinResult.GAME_CONTINUES) {
     state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
@@ -184,7 +204,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
 
   await setGameState(roomId, state);
 
-  return { events, winResult };
+  return { events, winResult, neutralWin };
 }
 
 // ══════════════════════════════════════════════════════

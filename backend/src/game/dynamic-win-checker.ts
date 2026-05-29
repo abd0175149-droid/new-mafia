@@ -81,12 +81,15 @@ export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): Neut
         won = player.isAlive;
         break;
 
-      // ── الإقصاء بالتصويت النهاري فقط (المهرج) ──
+      // ── الإقصاء بواسطة المدينة (المهرج) ──
+      // يفوز إذا: تصويت نهاري / اتفاقية (ديل) / قنص
       case 'VOTED_OUT': {
         if (!player.isAlive) {
           const log = state.performanceTracking?.eliminationLog || [];
           const entry = log.find(e => e.physicalId === player.physicalId);
-          won = entry?.eliminatedBy === 'DAY_VOTE';
+          // فوز: أي إقصاء من طرف المدينة (ليس من المافيا)
+          const cityKillMethods = ['DAY_VOTE', 'DEAL', 'SNIPER'];
+          won = entry ? cityKillMethods.includes(entry.eliminatedBy) : false;
         }
         break;
       }
@@ -128,12 +131,13 @@ export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): Neut
 }
 
 /**
- * فحص فوز محايد عند إقصائه بالتصويت — يُستدعى فوراً من vote-engine
+ * فحص فوز محايد عند إقصائه — يُستدعى فوراً من vote-engine أو night-resolver
  * يرجع نتيجة فوز المحايد إن وُجد، أو null
  */
 export async function checkNeutralVoteWin(
   state: GameState,
   eliminatedPhysicalId: number,
+  eliminatedBy: string = 'DAY_VOTE',
 ): Promise<NeutralResult | null> {
   const allRoles = await getRoleDefs();
   const player = state.players.find(p => p.physicalId === eliminatedPhysicalId);
@@ -144,17 +148,20 @@ export async function checkNeutralVoteWin(
 
   const conditionType = roleDef.winConditionType || '';
 
-  // شرط VOTED_OUT: المهرج يفوز فورياً عند إقصائه بالتصويت
+  // شرط VOTED_OUT: المهرج يفوز فورياً عند إقصائه بواسطة المدينة
   if (conditionType === 'VOTED_OUT') {
-    return {
-      physicalId: player.physicalId,
-      playerName: player.name,
-      roleId: roleDef.id,
-      roleNameAr: roleDef.nameAr,
-      won: true,
-      conditionType,
-      conditionDescription: roleDef.winConditionDescription || 'يفوز عند إقصائه بالتصويت',
-    };
+    const cityKillMethods = ['DAY_VOTE', 'DEAL', 'SNIPER'];
+    if (cityKillMethods.includes(eliminatedBy)) {
+      return {
+        physicalId: player.physicalId,
+        playerName: player.name,
+        roleId: roleDef.id,
+        roleNameAr: roleDef.nameAr,
+        won: true,
+        conditionType,
+        conditionDescription: roleDef.winConditionDescription || 'يفوز عند إقصائه بواسطة المدينة',
+      };
+    }
   }
 
   return null;

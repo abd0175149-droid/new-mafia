@@ -348,19 +348,27 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
     }
   }
 
-  // 🎭 فحص فوز محايد فوري (مثل المهرج — يفوز عند إقصائه بالتصويت)
+  // 🎭 فحص فوز محايد فوري (مثل المهرج — يفوز عند إقصائه بواسطة المدينة)
   let neutralWin: NeutralResult | null = null;
+  const eliminationType = winner.type === CandidateType.DEAL ? 'DEAL' : 'DAY_VOTE';
   for (const elId of eliminated) {
     try {
-      const nw = await checkNeutralVoteWin(state, elId);
+      const nw = await checkNeutralVoteWin(state, elId, eliminationType);
       if (nw) { neutralWin = nw; break; }
     } catch { /* المحرك الديناميكي غير متاح — نتجاهل */ }
   }
 
-  // فحص شرط الفوز بعد الإقصاء
-  const winResult = checkWinCondition(state);
-  if (winResult !== WinResult.GAME_CONTINUES) {
-    state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+  // 🤡 فوز المهرج = اللعبة تنتهي فوراً
+  let winResult: WinResult;
+  if (neutralWin?.won) {
+    state.winner = 'JESTER';
+    winResult = WinResult.GAME_CONTINUES; // لن يُستخدم — winner = JESTER يُنهي اللعبة
+  } else {
+    // فحص شرط الفوز بعد الإقصاء (MAFIA/CITIZEN)
+    winResult = checkWinCondition(state);
+    if (winResult !== WinResult.GAME_CONTINUES) {
+      state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+    }
   }
 
   await setGameState(roomId, state);
