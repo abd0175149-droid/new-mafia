@@ -881,8 +881,6 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
           </p>
         </div>
 
-        {/* 🪑 Seating Constraints */}
-        <SeatingConstraintsSection gameState={gameState} emit={emit} setError={setError} />
 
         {/* 💣 Bomb Ability Toggle */}
         <div className="flex flex-col items-center gap-2">
