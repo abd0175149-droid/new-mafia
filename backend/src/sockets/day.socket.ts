@@ -809,7 +809,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
           await setGameState(data.roomId, stateAfter);
         }
         await setPhase(data.roomId, Phase.DAY_ELIMINATION);
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_ELIMINATION });
+        // ⚠️ مهم: إرسال state مع phase-changed لمنع REST fallback من مسح pendingBomb
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_ELIMINATION, state: stateAfter });
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated: result.eliminated,
           revealedRoles: result.revealedRoles,
