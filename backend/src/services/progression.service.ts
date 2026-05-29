@@ -236,6 +236,41 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     if (!p.playerId) continue;
 
     const playerIsMafia = isMafiaRole(p.role as any);
+    const isJester = p.role === 'JESTER';
+
+    // 🤡 المهرج: منطق مختلف تماماً عن الفريقين
+    if (isJester) {
+      const jesterWon = state.winner === 'JESTER';
+      const jesterXP = jesterWon ? (cfg?.xp?.jesterWin ?? 50) : (cfg?.xp?.jesterLoss ?? 0);
+      const jesterRR = jesterWon ? (cfg?.rr?.jesterWin ?? 30) : (cfg?.rr?.jesterLoss ?? -10);
+
+      try {
+        const xpResult = await applyXPAndLevel(p.playerId, Math.max(0, jesterXP));
+        const rrResult = await applyRR(p.playerId, jesterRR);
+
+        console.log(`🤡 Jester #${p.physicalId} (${p.name}): ${jesterWon ? 'WON' : 'LOST'} → +${jesterXP} XP, ${jesterRR >= 0 ? '+' : ''}${jesterRR} RR`);
+
+        // تنبيهات
+        try {
+          const { sendPushToPlayer } = await import('./fcm.service.js');
+          if (xpResult.leveledUp) {
+            sendPushToPlayer(p.playerId, '🎉 ارتفع مستواك!', `أصبحت الآن Level ${xpResult.newLevel}`, 'level_up', { level: String(xpResult.newLevel) });
+          }
+          if (rrResult.promoted) {
+            sendPushToPlayer(p.playerId, '🏆 ترقية!', `مبروك! أصبحت "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_up', { rankTier: rrResult.newTier });
+          }
+          if (rrResult.demoted) {
+            sendPushToPlayer(p.playerId, '⬇️ انخفضت رتبتك', `رجعت لرتبة "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_down', { rankTier: rrResult.newTier });
+          }
+        } catch (pushErr: any) {
+          console.warn(`⚠️ Push notification failed for jester ${p.playerId}:`, pushErr.message);
+        }
+      } catch (err: any) {
+        console.error(`⚠️ Failed to apply jester progression for player ${p.playerId}:`, err.message);
+      }
+      continue; // تخطي المنطق العادي
+    }
+
     const teamWon = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
 
     const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);

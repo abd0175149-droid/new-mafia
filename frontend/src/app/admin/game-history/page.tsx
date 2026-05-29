@@ -73,6 +73,10 @@ export default function GameHistoryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
 
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
   // حالة التوسيع
   const [expandedSession, setExpandedSession] = useState<number | null>(null);
   const [sessionMatches, setSessionMatches] = useState<Record<number, Match[]>>({});
@@ -229,7 +233,7 @@ export default function GameHistoryPage() {
           <div className="relative">
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              onChange={(e) => { setStatusFilter(e.target.value as StatusFilter); setCurrentPage(1); }}
               className="w-full appearance-none bg-gray-800/60 border border-gray-700/40 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
             >
               {statusOptions.map(opt => (
@@ -248,7 +252,7 @@ export default function GameHistoryPage() {
           <div className="relative">
             <select
               value={activityFilter}
-              onChange={(e) => setActivityFilter(e.target.value as ActivityFilter)}
+              onChange={(e) => { setActivityFilter(e.target.value as ActivityFilter); setCurrentPage(1); }}
               className="w-full appearance-none bg-gray-800/60 border border-gray-700/40 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
             >
               {activityOptions.map(opt => (
@@ -269,10 +273,14 @@ export default function GameHistoryPage() {
 
       {/* ── قائمة الغرف ── */}
       <div className="space-y-3">
-        {filteredSessions.length === 0 ? (
-          <div className="text-center py-16 text-gray-500">لا توجد غرف تطابق الفلتر</div>
-        ) : (
-          filteredSessions.map((session, i) => {
+        {(() => {
+          const totalPages = Math.ceil(filteredSessions.length / itemsPerPage);
+          const paginatedSessions = filteredSessions.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+          return paginatedSessions.length === 0 ? (
+            <div className="text-center py-16 text-gray-500">لا توجد غرف تطابق الفلتر</div>
+          ) : (
+            <>
+            {paginatedSessions.map((session, i) => {
             const st = getStatusStyle(session.status);
             return (
               <motion.div
@@ -423,8 +431,53 @@ export default function GameHistoryPage() {
                 </AnimatePresence>
               </motion.div>
             );
-          })
-        )}
+          })}
+
+          {/* ══ PAGINATION ══ */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-800/30 border border-gray-700/30 rounded-xl mt-4">
+              <p className="text-xs text-gray-500">
+                عرض {((currentPage - 1) * itemsPerPage) + 1}–{Math.min(currentPage * itemsPerPage, filteredSessions.length)} من {filteredSessions.length} غرفة
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-30 text-gray-400 hover:bg-gray-700/40"
+                >◀</button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                  .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('...');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, i) =>
+                    p === '...' ? (
+                      <span key={`dots-${i}`} className="px-1.5 text-gray-600 text-xs">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setCurrentPage(p as number)}
+                        className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
+                          currentPage === p
+                            ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                            : 'text-gray-400 hover:bg-gray-700/40'
+                        }`}
+                      >{p}</button>
+                    )
+                  )}
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-30 text-gray-400 hover:bg-gray-700/40"
+                >▶</button>
+              </div>
+            </div>
+          )}
+          </>
+          );
+        })()}
       </div>
 
       {/* ── Modal تفاصيل المباراة ── */}

@@ -25,6 +25,8 @@ const DEFAULT_CONFIG = {
     failedDeal: -10,
     mafiaDealOnMafia: -10,
     teamEliminationBonus: 15,
+    jesterWin: 50,
+    jesterLoss: 0,
   },
   rr: {
     teamWin: 20,
@@ -39,6 +41,8 @@ const DEFAULT_CONFIG = {
     penaltyKickDeduction: -30,
     bombHitCitizen: 10,
     bombHitMafia: -10,
+    jesterWin: 30,
+    jesterLoss: -10,
   },
   ranks: {
     INFORMANT: { rrRequired: 100 },

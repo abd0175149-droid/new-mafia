@@ -55,6 +55,10 @@ export default function PlayersManagementPage() {
   const [togglingFreeId, setTogglingFreeId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  // ── Pagination ──
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+
   // ── Load Players ──
   async function loadPlayers() {
     setLoading(true);
@@ -142,6 +146,13 @@ export default function PlayersManagementPage() {
     return p.name?.toLowerCase().includes(q) || p.phone?.includes(q);
   });
 
+  // ── Pagination Logic ──
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const paginatedPlayers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  // إعادة الصفحة لـ 1 عند تغيير البحث
+  useEffect(() => { setCurrentPage(1); }, [search]);
+
   // ── Render ──
   if (loading) {
     return (
@@ -168,7 +179,7 @@ export default function PlayersManagementPage() {
           <input
             type="text"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="🔍 بحث بالاسم أو الهاتف..."
             className="px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 w-64 placeholder-gray-500"
           />
@@ -218,7 +229,7 @@ export default function PlayersManagementPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(p => {
+                {paginatedPlayers.map(p => {
                   const winRate = p.totalMatches > 0 ? Math.round((p.totalWins / p.totalMatches) * 100) : 0;
                   return (
                     <tr key={p.id} className="border-b border-gray-700/15 hover:bg-gray-700/10 transition">
@@ -335,6 +346,49 @@ export default function PlayersManagementPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* ══ PAGINATION ══ */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700/30">
+            <p className="text-xs text-gray-500">
+              عرض {((currentPage - 1) * itemsPerPage) + 1}–{Math.min(currentPage * itemsPerPage, filtered.length)} من {filtered.length}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-30 text-gray-400 hover:bg-gray-700/40"
+              >◀</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                .reduce<(number | '...')[]>((acc, p, i, arr) => {
+                  if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('...');
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === '...' ? (
+                    <span key={`dots-${i}`} className="px-1.5 text-gray-600 text-xs">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p as number)}
+                      className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
+                        currentPage === p
+                          ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
+                          : 'text-gray-400 hover:bg-gray-700/40'
+                      }`}
+                    >{p}</button>
+                  )
+                )}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-30 text-gray-400 hover:bg-gray-700/40"
+              >▶</button>
+            </div>
           </div>
         )}
       </div>

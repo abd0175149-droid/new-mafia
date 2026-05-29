@@ -54,6 +54,13 @@ const ACTION_CATEGORIES = [
       { key: 'bombHitCitizen', label: 'قنبلة أصابت مواطن', icon: '💣', type: 'RR', desc: 'مكافأة شيخ المافيا عند إقصاء مواطن بالقنبلة' },
       { key: 'bombHitMafia', label: 'قنبلة أصابت مافيا', icon: '💥', type: 'RR', desc: 'خصم على شيخ المافيا عند إقصاء حليف بالقنبلة (سالب عادة)' }
     ]
+  },
+  {
+    id: 'neutral', label: '🤡 الأدوار المحايدة',
+    actions: [
+      { key: 'jesterWin', label: 'فوز المهرج', icon: '🤡', type: 'BOTH', desc: 'مكافأة المهرج عند تحقيق هدفه (إقصاء من المدينة)' },
+      { key: 'jesterLoss', label: 'خسارة المهرج', icon: '😢', type: 'BOTH', desc: 'خصم نقاط المهرج عند فشله (بقي حياً أو قتلته المافيا)' },
+    ]
   }
 ];
 
