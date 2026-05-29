@@ -6,8 +6,62 @@ import { Router, type Request, type Response } from 'express';
 import { authenticate, leaderOrAbove } from '../middleware/auth.js';
 import { CONSTRAINT_TYPES } from '../game/seating/constraint-registry.js';
 import { reshuffleSeating } from '../game/seating/engine.js';
-import type { PlayerSeatData, EvaluationContext, SeatingConfig } from '../game/seating/types.js';
+import type { PlayerSeatData, EvaluationContext, SeatingConfig, ConstraintConfig } from '../game/seating/types.js';
 import { neighborKey } from '../game/seating/types.js';
+
+/**
+ * جلب الأزواج الممنوعة العالمية من DB ودمجها في إعدادات القيود
+ */
+async function mergeGlobalBlockedPairs(seatingConfig: SeatingConfig | null): Promise<SeatingConfig> {
+  const config: SeatingConfig = seatingConfig ? { ...seatingConfig } : { engineEnabled: true, constraints: [] };
+
+  try {
+    const { getDB } = await import('../config/db.js');
+    const db = getDB();
+    if (!db) return config;
+
+    const { sql } = await import('drizzle-orm');
+    const rows = await db.execute(sql`SELECT * FROM blocked_pairs`);
+    const globalPairs: any[] = (rows as any).rows || rows || [];
+
+    if (globalPairs.length === 0) return config;
+
+    // تحويل إلى صيغة الأزواج المطلوبة
+    const pairs = globalPairs.map((p: any) => ({
+      player1Phone: p.player1_phone,
+      player1Name: p.player1_name,
+      player2Phone: p.player2_phone,
+      player2Name: p.player2_name,
+    }));
+
+    // دمج مع القيود الموجودة
+    if (!config.constraints) config.constraints = [];
+
+    const existingIdx = config.constraints.findIndex(c => c.type === 'NO_ADJACENT_PAIRS');
+    if (existingIdx >= 0) {
+      // دمج الأزواج العالمية مع أزواج النشاط
+      const existing = config.constraints[existingIdx];
+      const existingPairs = existing.params?.pairs || [];
+      config.constraints[existingIdx] = {
+        ...existing,
+        enabled: true,
+        params: { ...existing.params, pairs: [...existingPairs, ...pairs] },
+      };
+    } else {
+      // إضافة قيد جديد
+      config.constraints.push({
+        type: 'NO_ADJACENT_PAIRS',
+        enabled: true,
+        priority: 1,
+        params: { pairs },
+      });
+    }
+  } catch (err) {
+    console.warn('⚠️ Failed to fetch global blocked pairs:', err);
+  }
+
+  return config;
+}
 
 const router = Router();
 
@@ -186,10 +240,13 @@ router.post('/reshuffle', authenticate, leaderOrAbove, async (req: Request, res:
       constraintParams: {},
     };
 
+    // دمج الأزواج الممنوعة العالمية مع إعدادات النشاط
+    const mergedConfig = await mergeGlobalBlockedPairs(seatingConfig);
+
     const result = reshuffleSeating({
       maxPlayers: state.config.maxPlayers,
       players,
-      seatingConfig,
+      seatingConfig: mergedConfig,
       context,
     });
 
@@ -284,6 +341,105 @@ router.get('/penalty-history', authenticate, leaderOrAbove, async (req: Request,
     `);
 
     res.json({ history: (rows as any).rows || rows || [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 🚫 الأزواج الممنوعة العالمية — Global Blocked Pairs
+// مستقلة عن الأنشطة — تُطبّق على كل الألعاب
+// ══════════════════════════════════════════════════════
+
+// GET /api/seating/blocked-pairs — جلب كل الأزواج الممنوعة
+router.get('/blocked-pairs', authenticate, leaderOrAbove, async (_req: Request, res: Response) => {
+  try {
+    const { getDB } = await import('../config/db.js');
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    const { sql } = await import('drizzle-orm');
+    const rows = await db.execute(sql`
+      SELECT * FROM blocked_pairs ORDER BY created_at DESC
+    `);
+
+    res.json({ pairs: (rows as any).rows || rows || [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/seating/blocked-pairs — إضافة زوج ممنوع
+router.post('/blocked-pairs', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const { player1Id, player2Id, reason } = req.body;
+  if (!player1Id || !player2Id) return res.status(400).json({ error: 'يجب تحديد لاعبين' });
+  if (player1Id === player2Id) return res.status(400).json({ error: 'لا يمكن منع لاعب من الجلوس بجانب نفسه' });
+
+  try {
+    const { getDB } = await import('../config/db.js');
+    const { players } = await import('../schemas/player.schema.js');
+    const { eq, inArray } = await import('drizzle-orm');
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    // جلب بيانات اللاعبين
+    const playerRows = await db.select({
+      id: players.id,
+      name: players.name,
+      phone: players.phone,
+    }).from(players).where(inArray(players.id, [player1Id, player2Id]));
+
+    const p1 = playerRows.find(p => p.id === player1Id);
+    const p2 = playerRows.find(p => p.id === player2Id);
+    if (!p1 || !p2) return res.status(404).json({ error: 'أحد اللاعبين غير موجود' });
+
+    // إدراج مع منع التكرار
+    const { sql } = await import('drizzle-orm');
+    const staffId = (req as any).user?.id || null;
+
+    // فحص التكرار (الزوج نفسه بأي ترتيب)
+    const minId = Math.min(p1.id, p2.id);
+    const maxId = Math.max(p1.id, p2.id);
+    const existing = await db.execute(sql`
+      SELECT id FROM blocked_pairs
+      WHERE LEAST(player1_id, player2_id) = ${minId}
+        AND GREATEST(player1_id, player2_id) = ${maxId}
+      LIMIT 1
+    `);
+    const existingRows = (existing as any).rows || existing || [];
+    if (existingRows.length > 0) {
+      return res.status(409).json({ error: 'هذا الزوج مسجل مسبقاً' });
+    }
+
+    await db.execute(sql`
+      INSERT INTO blocked_pairs (player1_id, player1_phone, player1_name, player2_id, player2_phone, player2_name, reason, created_by)
+      VALUES (${p1.id}, ${p1.phone}, ${p1.name}, ${p2.id}, ${p2.phone}, ${p2.name}, ${reason || null}, ${staffId})
+    `);
+
+    res.json({ success: true, pair: { player1: p1, player2: p2, reason } });
+  } catch (err: any) {
+    // الفهرس الفريد يمنع التكرار
+    if (err.message?.includes('duplicate') || err.message?.includes('unique')) {
+      return res.status(409).json({ error: 'هذا الزوج مسجل مسبقاً' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/seating/blocked-pairs/:id — حذف زوج ممنوع
+router.delete('/blocked-pairs/:id', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const pairId = parseInt(req.params.id);
+  if (!pairId) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  try {
+    const { getDB } = await import('../config/db.js');
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    const { sql } = await import('drizzle-orm');
+    await db.execute(sql`DELETE FROM blocked_pairs WHERE id = ${pairId}`);
+
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -94,6 +94,26 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       console.log('🔄 Migration: Added seat_constraints column to activities table');
     }
 
+    // 4. إنشاء جدول الأزواج الممنوعة العالمية (مستقل عن الأنشطة)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blocked_pairs (
+        id              SERIAL PRIMARY KEY,
+        player1_id      INTEGER NOT NULL,
+        player1_phone   VARCHAR(20) NOT NULL,
+        player1_name    VARCHAR(100) NOT NULL,
+        player2_id      INTEGER NOT NULL,
+        player2_phone   VARCHAR(20) NOT NULL,
+        player2_name    VARCHAR(100) NOT NULL,
+        reason          TEXT,
+        created_by      INTEGER,
+        created_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_blocked_pairs_unique
+      ON blocked_pairs (LEAST(player1_id, player2_id), GREATEST(player1_id, player2_id))
+    `);
+
   } catch (err: any) {
     console.warn('⚠️ Auto-migration warning:', err.message);
   } finally {

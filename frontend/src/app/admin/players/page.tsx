@@ -341,6 +341,9 @@ export default function PlayersManagementPage() {
 
 
 
+      {/* ═══ BLOCKED PAIRS ═══ */}
+      <BlockedPairsPanel players={players} showToast={showToast} />
+
       {/* ═══ TOAST ═══ */}
       <AnimatePresence>
         {toast && (
@@ -351,6 +354,343 @@ export default function PlayersManagementPage() {
             }`}
           >
             {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🚫 لوحة الأزواج الممنوعة العالمية
+// ══════════════════════════════════════════════════════
+
+function BlockedPairsPanel({ players, showToast }: { players: any[]; showToast: (msg: string, type: 'success' | 'error') => void }) {
+  const [pairs, setPairs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // ── اختيار اللاعبين ──
+  const [player1Id, setPlayer1Id] = useState<number | null>(null);
+  const [player2Id, setPlayer2Id] = useState<number | null>(null);
+  const [reason, setReason] = useState('');
+  const [search1, setSearch1] = useState('');
+  const [search2, setSearch2] = useState('');
+  const [dropdown1Open, setDropdown1Open] = useState(false);
+  const [dropdown2Open, setDropdown2Open] = useState(false);
+
+  useEffect(() => {
+    loadPairs();
+  }, []);
+
+  // إغلاق الـ dropdown عند الضغط خارجها
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.dropdown-container')) {
+        setDropdown1Open(false);
+        setDropdown2Open(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  async function loadPairs() {
+    setLoading(true);
+    try {
+      const data = await apiFetch('/api/seating/blocked-pairs');
+      setPairs(data.pairs || []);
+    } catch (err: any) {
+      console.warn('Failed to load blocked pairs:', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAdd() {
+    if (!player1Id || !player2Id) return showToast('يجب اختيار لاعبين', 'error');
+    if (player1Id === player2Id) return showToast('لا يمكن اختيار نفس اللاعب', 'error');
+
+    setAdding(true);
+    try {
+      await apiFetch('/api/seating/blocked-pairs', {
+        method: 'POST',
+        body: JSON.stringify({ player1Id, player2Id, reason: reason.trim() || null }),
+      });
+      showToast('تم إضافة الزوج الممنوع بنجاح', 'success');
+      setPlayer1Id(null);
+      setPlayer2Id(null);
+      setReason('');
+      setSearch1('');
+      setSearch2('');
+      loadPairs();
+    } catch (err: any) {
+      showToast(err.message || 'فشل الإضافة', 'error');
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleDelete(pairId: number) {
+    if (!confirm('هل تريد إزالة هذا القيد؟')) return;
+    setDeletingId(pairId);
+    try {
+      await apiFetch(`/api/seating/blocked-pairs/${pairId}`, { method: 'DELETE' });
+      setPairs(prev => prev.filter(p => p.id !== pairId));
+      showToast('تم حذف الزوج الممنوع', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل الحذف', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  // ── فلترة اللاعبين في dropdown ──
+  function filterPlayers(query: string, excludeId: number | null) {
+    const q = query.toLowerCase().trim();
+    return players
+      .filter(p => {
+        if (excludeId && p.id === excludeId) return false;
+        if (!q) return true;
+        return p.name?.toLowerCase().includes(q) || p.phone?.includes(q);
+      })
+      .slice(0, 8);
+  }
+
+  const player1 = player1Id ? players.find(p => p.id === player1Id) : null;
+  const player2 = player2Id ? players.find(p => p.id === player2Id) : null;
+
+  return (
+    <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
+      {/* ── Header ── */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-700/10 transition"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-orange-600 flex items-center justify-center text-lg shrink-0">
+            🚫
+          </div>
+          <div className="text-right">
+            <h2 className="text-sm font-bold text-white">أزواج الجلوس الممنوعة</h2>
+            <p className="text-[10px] text-gray-500">
+              لاعبان لا يجلسان بجانب بعض في أي لعبة • {pairs.length} زوج
+            </p>
+          </div>
+        </div>
+        <span className={`text-gray-500 transition-transform ${expanded ? 'rotate-180' : ''}`}>▼</span>
+      </button>
+
+      {/* ── Content ── */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-5 space-y-4 border-t border-gray-700/20 pt-4">
+
+              {/* ── إضافة زوج جديد ── */}
+              <div className="bg-gray-900/40 border border-gray-700/20 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-bold text-gray-400 mb-2">➕ إضافة زوج جديد</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* اللاعب 1 */}
+                  <div className="relative dropdown-container">
+                    <label className="text-[10px] text-gray-500 mb-1 block">اللاعب الأول</label>
+                    {player1 ? (
+                      <div className="flex items-center gap-2 bg-gray-800/60 border border-amber-500/30 rounded-lg px-3 py-2">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          {player1.name?.[0] || '?'}
+                        </div>
+                        <span className="text-sm text-white font-bold truncate flex-1">{player1.name}</span>
+                        <span className="text-[10px] text-gray-500 font-mono" dir="ltr">{player1.phone}</span>
+                        <button onClick={() => { setPlayer1Id(null); setSearch1(''); }} className="text-gray-500 hover:text-rose-400 text-xs mr-1">✕</button>
+                      </div>
+                    ) : (
+                      <div>
+                        <input
+                          type="text"
+                          value={search1}
+                          onChange={e => { setSearch1(e.target.value); setDropdown1Open(true); }}
+                          onFocus={() => setDropdown1Open(true)}
+                          placeholder="ابحث بالاسم أو الهاتف..."
+                          className="w-full px-3 py-2 bg-gray-800/60 border border-gray-600/40 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
+                        />
+                        {dropdown1Open && (
+                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700/50 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+                            {filterPlayers(search1, player2Id).length === 0 ? (
+                              <p className="px-3 py-2 text-xs text-gray-600">لا توجد نتائج</p>
+                            ) : filterPlayers(search1, player2Id).map(p => (
+                              <button
+                                key={p.id}
+                                onClick={() => { setPlayer1Id(p.id); setSearch1(''); setDropdown1Open(false); }}
+                                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800/60 transition text-right"
+                              >
+                                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                                  {p.name?.[0] || '?'}
+                                </div>
+                                <span className="text-sm text-white truncate flex-1">{p.name}</span>
+                                <span className="text-[10px] text-gray-500 font-mono" dir="ltr">{p.phone}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* اللاعب 2 */}
+                  <div className="relative dropdown-container">
+                    <label className="text-[10px] text-gray-500 mb-1 block">اللاعب الثاني</label>
+                    {player2 ? (
+                      <div className="flex items-center gap-2 bg-gray-800/60 border border-amber-500/30 rounded-lg px-3 py-2">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          {player2.name?.[0] || '?'}
+                        </div>
+                        <span className="text-sm text-white font-bold truncate flex-1">{player2.name}</span>
+                        <span className="text-[10px] text-gray-500 font-mono" dir="ltr">{player2.phone}</span>
+                        <button onClick={() => { setPlayer2Id(null); setSearch2(''); }} className="text-gray-500 hover:text-rose-400 text-xs mr-1">✕</button>
+                      </div>
+                    ) : (
+                      <div>
+                        <input
+                          type="text"
+                          value={search2}
+                          onChange={e => { setSearch2(e.target.value); setDropdown2Open(true); }}
+                          onFocus={() => setDropdown2Open(true)}
+                          placeholder="ابحث بالاسم أو الهاتف..."
+                          className="w-full px-3 py-2 bg-gray-800/60 border border-gray-600/40 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
+                        />
+                        {dropdown2Open && (
+                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700/50 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+                            {filterPlayers(search2, player1Id).length === 0 ? (
+                              <p className="px-3 py-2 text-xs text-gray-600">لا توجد نتائج</p>
+                            ) : filterPlayers(search2, player1Id).map(p => (
+                              <button
+                                key={p.id}
+                                onClick={() => { setPlayer2Id(p.id); setSearch2(''); setDropdown2Open(false); }}
+                                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800/60 transition text-right"
+                              >
+                                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                                  {p.name?.[0] || '?'}
+                                </div>
+                                <span className="text-sm text-white truncate flex-1">{p.name}</span>
+                                <span className="text-[10px] text-gray-500 font-mono" dir="ltr">{p.phone}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* السبب + زر الإضافة */}
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={reason}
+                    onChange={e => setReason(e.target.value)}
+                    placeholder="السبب (اختياري)..."
+                    className="flex-1 px-3 py-2 bg-gray-800/60 border border-gray-600/40 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
+                  />
+                  <button
+                    onClick={handleAdd}
+                    disabled={!player1Id || !player2Id || adding}
+                    className="px-5 py-2 rounded-lg bg-gradient-to-r from-rose-500 to-orange-500 text-white text-sm font-bold shadow-lg hover:shadow-rose-500/20 transition disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                  >
+                    {adding ? '⏳' : '🚫 إضافة'}
+                  </button>
+                </div>
+              </div>
+
+              {/* ── قائمة الأزواج الممنوعة ── */}
+              {loading ? (
+                <div className="flex justify-center py-6">
+                  <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+                </div>
+              ) : pairs.length === 0 ? (
+                <div className="text-center py-6">
+                  <span className="text-3xl block mb-2 opacity-20">🤝</span>
+                  <p className="text-gray-600 text-sm">لا توجد أزواج ممنوعة حالياً</p>
+                  <p className="text-gray-700 text-xs mt-1">أضف أزواج اللاعبين الذين لا يجب أن يجلسوا بجانب بعض</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500 font-bold">الأزواج الممنوعة ({pairs.length})</p>
+                  {pairs.map((pair: any) => (
+                    <motion.div
+                      key={pair.id}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center justify-between bg-gray-900/40 border border-gray-700/20 rounded-xl px-4 py-3 group hover:border-rose-500/20 transition"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {/* اللاعب 1 */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-rose-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {pair.player1_name?.[0] || '?'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{pair.player1_name}</p>
+                            <p className="text-[10px] text-gray-600 font-mono" dir="ltr">{pair.player1_phone}</p>
+                          </div>
+                        </div>
+
+                        {/* الفاصل */}
+                        <div className="flex items-center gap-1 px-2 shrink-0">
+                          <div className="w-5 h-[1px] bg-rose-500/30" />
+                          <span className="text-rose-400/60 text-xs">🚫</span>
+                          <div className="w-5 h-[1px] bg-rose-500/30" />
+                        </div>
+
+                        {/* اللاعب 2 */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {pair.player2_name?.[0] || '?'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{pair.player2_name}</p>
+                            <p className="text-[10px] text-gray-600 font-mono" dir="ltr">{pair.player2_phone}</p>
+                          </div>
+                        </div>
+
+                        {/* السبب */}
+                        {pair.reason && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-800/60 text-gray-500 border border-gray-700/20 truncate max-w-[150px] mr-2 shrink-0">
+                            {pair.reason}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* حذف */}
+                      <button
+                        onClick={() => handleDelete(pair.id)}
+                        disabled={deletingId === pair.id}
+                        className="p-2 rounded-lg text-gray-600 hover:text-rose-400 hover:bg-rose-500/10 transition opacity-0 group-hover:opacity-100 shrink-0 mr-2"
+                        title="إزالة هذا القيد"
+                      >
+                        {deletingId === pair.id ? '⏳' : '🗑️'}
+                      </button>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── ملاحظة ── */}
+              <div className="bg-gray-900/30 border border-gray-700/20 rounded-xl p-3">
+                <p className="text-[10px] text-gray-600 text-center">
+                  💡 هذه القيود عالمية — تُطبّق تلقائياً على كل الأنشطة والألعاب عند تفعيل المحرك الذكي
+                </p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

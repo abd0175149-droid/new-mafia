@@ -550,6 +550,41 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 state.config.maxPlayers = latestMax;
                 await updateRoom(data.roomId, { config: state.config });
               }
+
+              // ── دمج الأزواج الممنوعة العالمية من جدول blocked_pairs ──
+              try {
+                const { sql } = await import('drizzle-orm');
+                const bpRows = await db.execute(sql`SELECT * FROM blocked_pairs`);
+                const globalPairs: any[] = (bpRows as any).rows || bpRows || [];
+                if (globalPairs.length > 0) {
+                  if (!constraints) constraints = { genderSeparation: false, noAdjacentPairs: [] };
+                  if (!constraints.noAdjacentPairs) constraints.noAdjacentPairs = [];
+                  for (const gp of globalPairs) {
+                    constraints.noAdjacentPairs.push({
+                      player1Phone: gp.player1_phone,
+                      player1Name: gp.player1_name,
+                      player2Phone: gp.player2_phone,
+                      player2Name: gp.player2_name,
+                    });
+                  }
+                  // تأكيد تفعيل المحرك
+                  if (!constraints.engineEnabled && constraints.noAdjacentPairs.length > 0) {
+                    constraints.engineEnabled = true;
+                    if (!constraints.constraints) constraints.constraints = [];
+                    const hasNAP = constraints.constraints.some((c: any) => c.type === 'NO_ADJACENT_PAIRS');
+                    if (!hasNAP) {
+                      constraints.constraints.push({
+                        type: 'NO_ADJACENT_PAIRS',
+                        enabled: true,
+                        priority: 1,
+                        params: { pairs: constraints.noAdjacentPairs },
+                      });
+                    }
+                  }
+                }
+              } catch (bpErr: any) {
+                console.warn('⚠️ Failed to load global blocked pairs:', bpErr.message);
+              }
             }
 
             // ── 2. فحص الحساب المجاني ──
