@@ -561,6 +561,234 @@ function TicketsSection({ activityId }: { activityId: number }) {
   );
 }
 
+// ══════════════════════════════════════════════════════
+// 🪑 إعدادات الجلوس الذكي
+// ══════════════════════════════════════════════════════
+const CONSTRAINT_INFO: Record<string, { label: string; icon: string; desc: string; defaultEnabled: boolean }> = {
+  NO_ADJACENT_PAIRS: {
+    label: 'أزواج ممنوعة',
+    icon: '🚫',
+    desc: 'لاعبان محددان يدوياً لا يجلسان بجانب بعض',
+    defaultEnabled: true,
+  },
+  PENALTY_NEIGHBOR_AVOIDANCE: {
+    label: 'تجنب جيران المعاقب',
+    icon: '⚠️',
+    desc: 'اللاعب المعاقب لا يجلس بجانب نفس الجيران مرة أخرى',
+    defaultEnabled: true,
+  },
+  NEW_PLAYER_SEPARATION: {
+    label: 'فصل اللاعبين الجدد',
+    icon: '👶',
+    desc: 'لاعب جديد (أقل من 3 فعاليات) لا يُحاط بلاعبَين جديدَين',
+    defaultEnabled: true,
+  },
+  HIGH_RANK_SEPARATION: {
+    label: 'فصل الرتب العالية',
+    icon: '⚔️',
+    desc: 'لاعبان بتصنيف عالٍ لا يجلسان بجانب بعض',
+    defaultEnabled: false,
+  },
+  GENDER_SEPARATION: {
+    label: 'فصل الجنسين',
+    icon: '🚹',
+    desc: 'ذكر لا يجلس بجانب أنثى (أضعف قيد)',
+    defaultEnabled: false,
+  },
+};
+
+function SeatingConstraintsPanel({ activityId }: { activityId: number }) {
+  const [engineEnabled, setEngineEnabled] = useState(false);
+  const [constraints, setConstraints] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetchConstraints();
+  }, [activityId]);
+
+  const fetchConstraints = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/seating/constraints?activityId=${activityId}`);
+      setEngineEnabled(res.engineEnabled || false);
+      if (res.constraints && res.constraints.length > 0) {
+        setConstraints(res.constraints);
+      } else {
+        // إعدادات افتراضية
+        setConstraints(
+          Object.entries(CONSTRAINT_INFO).map(([type, info]) => ({
+            type,
+            enabled: info.defaultEnabled,
+            priority: type === 'NO_ADJACENT_PAIRS' ? 1 : type === 'PENALTY_NEIGHBOR_AVOIDANCE' ? 2 : type === 'NEW_PLAYER_SEPARATION' ? 3 : type === 'HIGH_RANK_SEPARATION' ? 4 : 8,
+            params: {},
+          }))
+        );
+      }
+    } catch (err: any) {
+      console.warn('Failed to fetch seating constraints:', err.message);
+      // إعدادات افتراضية عند الخطأ
+      setConstraints(
+        Object.entries(CONSTRAINT_INFO).map(([type, info]) => ({
+          type,
+          enabled: info.defaultEnabled,
+          priority: type === 'NO_ADJACENT_PAIRS' ? 1 : type === 'PENALTY_NEIGHBOR_AVOIDANCE' ? 2 : type === 'NEW_PLAYER_SEPARATION' ? 3 : type === 'HIGH_RANK_SEPARATION' ? 4 : 8,
+          params: {},
+        }))
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveConstraints = async (newEnabled: boolean, newConstraints: any[]) => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await apiFetch('/api/seating/constraints', {
+        method: 'PUT',
+        body: JSON.stringify({
+          activityId,
+          engineEnabled: newEnabled,
+          constraints: newConstraints,
+        }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      console.warn('Failed to save seating constraints:', err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleEngine = () => {
+    const next = !engineEnabled;
+    setEngineEnabled(next);
+    saveConstraints(next, constraints);
+  };
+
+  const toggleConstraint = (type: string) => {
+    const updated = constraints.map(c =>
+      c.type === type ? { ...c, enabled: !c.enabled } : c
+    );
+    setConstraints(updated);
+    saveConstraints(engineEnabled, updated);
+  };
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+          🪑 إعدادات الجلوس الذكي
+          {engineEnabled && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+              مفعّل
+            </span>
+          )}
+          {saved && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-[10px] text-emerald-400"
+            >
+              ✓ تم الحفظ
+            </motion.span>
+          )}
+        </h3>
+        <div className="flex items-center gap-2">
+          {saving && (
+            <div className="animate-spin h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full" />
+          )}
+          <button
+            onClick={toggleEngine}
+            className={`text-xs px-4 py-2 rounded-lg font-bold transition-all border ${
+              engineEnabled
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                : 'bg-gray-700/30 text-gray-500 border-gray-600/30 hover:text-white hover:border-gray-500'
+            }`}
+          >
+            {engineEnabled ? '✓ المحرك الذكي مفعّل' : 'تفعيل المحرك الذكي'}
+          </button>
+        </div>
+      </div>
+
+      {!engineEnabled && !loading && (
+        <div className="text-center py-6">
+          <span className="text-3xl block mb-3 opacity-30">🪑</span>
+          <p className="text-gray-500 text-sm mb-2">المحرك الذكي معطّل حالياً</p>
+          <p className="text-gray-600 text-xs">عند التفعيل، النظام يوزع المقاعد تلقائياً حسب القيود التي تحددها</p>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex justify-center py-6">
+          <div className="animate-spin h-6 w-6 border-2 border-amber-500 border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {engineEnabled && !loading && (
+        <div className="space-y-3">
+          <p className="text-gray-500 text-xs mb-3">
+            حدد القيود التي تريد تطبيقها عند توزيع المقاعد. القيود المفعّلة تُطبّق تلقائياً عند دخول اللاعبين للغرفة.
+          </p>
+
+          {constraints.map(c => {
+            const info = CONSTRAINT_INFO[c.type];
+            if (!info) return null;
+            return (
+              <motion.div
+                key={c.type}
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`flex items-center justify-between bg-gray-900/50 border rounded-xl px-4 py-3.5 transition-all cursor-pointer hover:bg-gray-900/70 ${
+                  c.enabled ? 'border-amber-500/30' : 'border-gray-700/20'
+                }`}
+                onClick={() => toggleConstraint(c.type)}
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 ${
+                    c.enabled ? 'bg-amber-500/15 border border-amber-500/20' : 'bg-gray-800/50 border border-gray-700/20'
+                  }`}>
+                    {info.icon}
+                  </div>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${c.enabled ? 'text-white' : 'text-gray-500'}`}>
+                      {info.label}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">{info.desc}</p>
+                  </div>
+                </div>
+                <div
+                  className={`w-11 h-6 rounded-full relative transition-all shrink-0 ml-3 ${
+                    c.enabled ? 'bg-amber-500/30' : 'bg-gray-700/30'
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 rounded-full absolute top-0.5 transition-all shadow-md ${
+                      c.enabled
+                        ? 'right-0.5 bg-amber-500'
+                        : 'left-0.5 bg-gray-600'
+                    }`}
+                  />
+                </div>
+              </motion.div>
+            );
+          })}
+
+          <div className="bg-gray-900/30 border border-gray-700/20 rounded-xl p-3 mt-3">
+            <p className="text-[10px] text-gray-600 text-center">
+              💡 القيود تُحفظ تلقائياً وتُطبّق على جميع الغرف المرتبطة بهذا النشاط
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ActivityDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -805,6 +1033,9 @@ export default function ActivityDetailPage() {
           onCancel={() => setShowEditForm(false)}
         />
       )}
+
+      {/* ══ إعدادات الجلوس الذكي ══ */}
+      <SeatingConstraintsPanel activityId={activity.id} />
 
       {/* ══ الغرف المرتبطة (متعددة) ══ */}
       <RoomsSection activityId={activity.id} activityName={activity.name} />

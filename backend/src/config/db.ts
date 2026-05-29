@@ -84,6 +84,16 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_penalty_neighbor_session ON penalty_neighbor_history(session_id)
     `);
 
+    // 3. التحقق من وجود عمود seat_constraints في جدول activities
+    const checkSeatCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'activities' AND column_name = 'seat_constraints'
+    `);
+    if (checkSeatCol.rows.length === 0) {
+      await client.query(`ALTER TABLE activities ADD COLUMN seat_constraints JSONB DEFAULT NULL`);
+      console.log('🔄 Migration: Added seat_constraints column to activities table');
+    }
+
   } catch (err: any) {
     console.warn('⚠️ Auto-migration warning:', err.message);
   } finally {

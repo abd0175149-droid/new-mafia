@@ -40,7 +40,12 @@ router.get('/constraints', authenticate, leaderOrAbove, async (req: Request, res
 
     if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
 
-    res.json({ constraints: act.seatConstraints || null });
+    const config = act.seatConstraints as SeatingConfig | null;
+    res.json({
+      engineEnabled: config?.engineEnabled ?? false,
+      strictness: config?.strictness ?? 'relaxed',
+      constraints: config?.constraints ?? [],
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
