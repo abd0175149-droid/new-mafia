@@ -1,8 +1,13 @@
 // ══════════════════════════════════════════════════════
 // 🪑 خوارزمية التوزيع التلقائي للمقاعد (Seat Allocator)
 // المقاعد مرتبة على شكل مربع دائري: N مجاور لـ 1
+// يدعم: النظام القديم + المحرك الذكي الجديد
 // ══════════════════════════════════════════════════════
 
+import { allocateSeatWithConstraints } from './seating/engine.js';
+import type { PlayerSeatData, SeatingConfig, EvaluationContext } from './seating/types.js';
+
+// ── الواجهات القديمة (Backward-compatible) ──────────
 export interface SeatConstraints {
   genderSeparation: boolean;       // فصل الجنسين (ذكر لا يجلس بجانب أنثى)
   noAdjacentPairs: Array<{         // أزواج لا يجلسون بجانب بعض
@@ -11,21 +16,41 @@ export interface SeatConstraints {
     player2Phone: string;
     player2Name: string;
   }>;
+  // ── إعدادات المحرك الذكي (اختياري) ──
+  engineEnabled?: boolean;
+  strictness?: 'strict' | 'relaxed';
+  constraints?: Array<{
+    type: string;
+    enabled: boolean;
+    priority: number;
+    params: Record<string, any>;
+  }>;
 }
 
 export interface SeatPlayer {
   physicalId: number;
   phone: string | null;
   gender: string | null;
-  seatHeld?: boolean; // المقعد محجوز (اللاعب خرج ولكن مقعده محفوظ)
+  seatHeld?: boolean;
+  // ── بيانات إضافية للمحرك الذكي ──
+  playerId?: number | null;
+  name?: string;
+  totalMatches?: number;
+  activityCount?: number;
+  rankRR?: number;
+  rankTier?: string;
+  hasPenalty?: boolean;
 }
 
 export interface AllocateParams {
   maxPlayers: number;
   players: SeatPlayer[];
   constraints: SeatConstraints | null;
-  newPlayer: { phone: string; gender: string };
-  preferredSeat?: number;  // المقعد السابق (للعودة)
+  newPlayer: { phone: string; gender: string; playerId?: number | null; name?: string; totalMatches?: number; activityCount?: number; rankRR?: number; rankTier?: string };
+  preferredSeat?: number;
+  // ── سياق المحرك الذكي ──
+  penaltyNeighborHistory?: Map<string, number>;
+  sessionId?: number;
 }
 
 // ── دالة الجوار الدائري (مربع) ──
@@ -48,19 +73,76 @@ function shuffle<T>(arr: T[]): T[] {
 
 /**
  * تخصيص مقعد للاعب بشكل تلقائي مع مراعاة القيود.
- * 
- * الأولوية:
- * 1. المقعد المفضل (إذا فارغ) — للعودة
- * 2. مقعد يحقق كل القيود
- * 3. fallback عشوائي (إذا القيود مستحيلة)
+ * يدعم: الوضع القديم + المحرك الذكي الجديد
  */
 export function allocateSeat(params: AllocateParams): { seat: number; constraintViolation: boolean } {
   const { maxPlayers, players, constraints, newPlayer, preferredSeat } = params;
 
-  // حساب المقاعد المشغولة (تشمل المقاعد المحجوزة — seatHeld)
-  const occupiedSet = new Set(players.map(p => p.physicalId));
+  // ═══ المحرك الذكي الجديد ═══
+  // يُفعَّل إذا: engineEnabled = true أو توفرت بيانات إضافية
+  const useNewEngine = constraints?.engineEnabled || 
+    (constraints?.constraints && constraints.constraints.length > 0) ||
+    params.penaltyNeighborHistory;
 
-  // حساب كل المقاعد الفارغة (المحجوزة تُعتبر مشغولة)
+  if (useNewEngine) {
+    // تحويل بيانات اللاعبين للصيغة الجديدة
+    const occupiedSeats = new Map<number, PlayerSeatData>();
+    for (const p of players) {
+      occupiedSeats.set(p.physicalId, {
+        playerId: p.playerId ?? null,
+        phone: p.phone || '',
+        name: p.name || `لاعب #${p.physicalId}`,
+        gender: p.gender || 'MALE',
+        totalMatches: p.totalMatches ?? 0,
+        activityCount: p.activityCount ?? 0,
+        rankRR: p.rankRR ?? 0,
+        rankTier: p.rankTier || 'INFORMANT',
+        hasPenalty: p.hasPenalty,
+        physicalId: p.physicalId,
+        seatHeld: p.seatHeld,
+      });
+    }
+
+    const newPlayerData: PlayerSeatData = {
+      playerId: newPlayer.playerId ?? null,
+      phone: newPlayer.phone || '',
+      name: newPlayer.name || 'لاعب جديد',
+      gender: newPlayer.gender || 'MALE',
+      totalMatches: newPlayer.totalMatches ?? 0,
+      activityCount: newPlayer.activityCount ?? 0,
+      rankRR: newPlayer.rankRR ?? 0,
+      rankTier: newPlayer.rankTier || 'INFORMANT',
+    };
+
+    const seatingConfig: SeatingConfig = {
+      engineEnabled: constraints?.engineEnabled,
+      strictness: constraints?.strictness || 'relaxed',
+      constraints: constraints?.constraints,
+      genderSeparation: constraints?.genderSeparation,
+      noAdjacentPairs: constraints?.noAdjacentPairs,
+    };
+
+    const context: EvaluationContext = {
+      maxPlayers,
+      sessionId: params.sessionId,
+      penaltyNeighborHistory: params.penaltyNeighborHistory || new Map(),
+      constraintParams: {},
+    };
+
+    const result = allocateSeatWithConstraints({
+      maxPlayers,
+      occupiedSeats,
+      newPlayer: newPlayerData,
+      seatingConfig,
+      context,
+      preferredSeat,
+    });
+
+    return { seat: result.seat, constraintViolation: result.constraintViolation };
+  }
+
+  // ═══ الوضع القديم (Legacy) ═══
+  const occupiedSet = new Set(players.map(p => p.physicalId));
   const allEmpty: number[] = [];
   for (let i = 1; i <= maxPlayers; i++) {
     if (!occupiedSet.has(i)) allEmpty.push(i);
@@ -72,12 +154,9 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
 
   // 1. المقعد المفضل (rejoin)
   if (preferredSeat && allEmpty.includes(preferredSeat)) {
-    // نتحقق من القيود حتى لو مفضل
     if (!constraints || isSeatValid(preferredSeat, players, constraints, newPlayer, maxPlayers)) {
       return { seat: preferredSeat, constraintViolation: false };
     }
-    // المقعد المفضل ينتهك القيود → نحاول مقعد آخر أولاً
-    // لكن إذا لا يوجد غيره سنعود إليه في الـ fallback
   }
 
   // 2. فلترة حسب القيود
@@ -91,17 +170,15 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       return { seat: shuffled[0], constraintViolation: false };
     }
 
-    // 3. fallback — لا مقاعد تحقق القيود
     console.warn(`⚠️ Seat constraints couldn't be fully satisfied — assigning random seat`);
   }
 
-  // عشوائي بدون قيود
   const shuffled = shuffle(allEmpty);
   return { seat: shuffled[0], constraintViolation: !!constraints };
 }
 
 /**
- * فحص صلاحية مقعد معين حسب القيود
+ * فحص صلاحية مقعد معين حسب القيود (الوضع القديم)
  */
 function isSeatValid(
   seat: number,
@@ -111,8 +188,6 @@ function isSeatValid(
   maxPlayers: number,
 ): boolean {
   const adjacent = getAdjacentSeats(seat, maxPlayers);
-
-  // الجيران الحاليين
   const neighbors = players.filter(p => adjacent.includes(p.physicalId));
 
   // ── قيد 1: فصل الجنسين ──
@@ -121,7 +196,7 @@ function isSeatValid(
     for (const neighbor of neighbors) {
       const neighborGender = (neighbor.gender || 'MALE').toUpperCase();
       if (newGender !== neighborGender) {
-        return false; // جنس مختلف بجانب بعض
+        return false;
       }
     }
   }
@@ -134,9 +209,7 @@ function isSeatValid(
       const p1 = normalizePhone(pair.player1Phone);
       const p2 = normalizePhone(pair.player2Phone);
 
-      // هل اللاعب الجديد هو أحد طرفي الزوج؟
       if (normalizedNewPhone === p1) {
-        // نتحقق إن كان الطرف الثاني مجاوراً
         if (neighbors.some(n => normalizePhone(n.phone || '') === p2)) {
           return false;
         }

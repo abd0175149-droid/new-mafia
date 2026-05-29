@@ -36,6 +36,7 @@ import gameConfigRoutes from './routes/game-config.routes.js';
 import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
+import seatingRoutes from './routes/seating.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -105,6 +106,7 @@ app.use('/api/game-config', gameConfigRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/seating', seatingRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 app.get('/api/push/vapid-public-key', async (_req, res) => {

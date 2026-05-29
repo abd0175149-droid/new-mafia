@@ -44,11 +44,11 @@ export async function connectDB(): Promise<Database> {
   return db;
 }
 
-// ── ترحيل تلقائي — إضافة أعمدة مفقودة ──────────────
+// ── ترحيل تلقائي — إضافة أعمدة وجداول مفقودة ──────────────
 async function runAutoMigrations(pool: pg.Pool): Promise<void> {
   const client = await pool.connect();
   try {
-    // التحقق من وجود عمود linked_staff_id في جدول players
+    // 1. التحقق من وجود عمود linked_staff_id في جدول players
     const checkCol = await client.query(`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'players' AND column_name = 'linked_staff_id'
@@ -57,6 +57,33 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       await client.query(`ALTER TABLE players ADD COLUMN linked_staff_id INTEGER`);
       console.log('🔄 Migration: Added linked_staff_id column to players table');
     }
+
+    // 2. إنشاء جدول تاريخ جيران اللاعبين المعاقبين
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS penalty_neighbor_history (
+        id              SERIAL PRIMARY KEY,
+        player_a_id     INTEGER NOT NULL,
+        player_b_id     INTEGER NOT NULL,
+        session_id      INTEGER,
+        match_id        INTEGER,
+        seat_a          INTEGER NOT NULL,
+        seat_b          INTEGER NOT NULL,
+        penalty_player_id INTEGER NOT NULL,
+        created_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // فهارس للبحث السريع
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_penalty_neighbor_a ON penalty_neighbor_history(player_a_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_penalty_neighbor_b ON penalty_neighbor_history(player_b_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_penalty_neighbor_session ON penalty_neighbor_history(session_id)
+    `);
+
   } catch (err: any) {
     console.warn('⚠️ Auto-migration warning:', err.message);
   } finally {

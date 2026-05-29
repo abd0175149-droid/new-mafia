@@ -849,23 +849,132 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // ── 5. تخصيص مقعد جديد (لا يوجد مقعد محجوز) ──
-      const seatPlayers = state.players.map(p => ({
-        physicalId: p.physicalId,
-        phone: p.phone,
-        gender: p.gender || null,
-        seatHeld: p.seatHeld || false,
-      }));
+      // جلب بيانات اللاعبين الموسّعة للمحرك الذكي
+      let penaltyNeighborHistory: Map<string, number> | undefined;
+      let enrichedPlayers: any[] = [];
 
-      const { seat: assignedSeat, constraintViolation } = allocateSeat({
-        maxPlayers: state.config.maxPlayers,
-        players: seatPlayers,
-        constraints,
-        newPlayer: {
+      // التحقق من تفعيل المحرك الذكي
+      const engineEnabled = constraints && (constraints as any).engineEnabled;
+
+      if (engineEnabled) {
+        // إثراء بيانات اللاعبين الحاليين
+        const db = getDB();
+        enrichedPlayers = [];
+        for (const p of state.players) {
+          let enriched: any = {
+            physicalId: p.physicalId,
+            phone: p.phone,
+            gender: p.gender || null,
+            seatHeld: p.seatHeld || false,
+            playerId: p.playerId || null,
+            name: p.name || `لاعب #${p.physicalId}`,
+            totalMatches: 0,
+            activityCount: 0,
+            rankRR: 0,
+            rankTier: 'INFORMANT',
+          };
+
+          if (p.playerId && db) {
+            try {
+              const { players: playersTable } = await import('../schemas/player.schema.js');
+              const [dbPlayer] = await db.select({
+                totalMatches: playersTable.totalMatches,
+                rankRR: playersTable.rankRR,
+                rankTier: playersTable.rankTier,
+              }).from(playersTable).where(eq(playersTable.id, p.playerId)).limit(1);
+
+              if (dbPlayer) {
+                enriched.totalMatches = dbPlayer.totalMatches || 0;
+                enriched.rankRR = dbPlayer.rankRR || 0;
+                enriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
+                enriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+              }
+            } catch {}
+          }
+          enrichedPlayers.push(enriched);
+        }
+
+        // جلب تاريخ جيران المعاقبين
+        penaltyNeighborHistory = new Map();
+        if (db && state.sessionId) {
+          try {
+            const rows = await db.execute(sql`
+              SELECT player_a_id, player_b_id, COUNT(*) as cnt
+              FROM penalty_neighbor_history
+              WHERE session_id = ${state.sessionId}
+              GROUP BY player_a_id, player_b_id
+            `);
+            for (const row of (rows as any).rows || rows || []) {
+              const aId = Math.min(Number(row.player_a_id), Number(row.player_b_id));
+              const bId = Math.max(Number(row.player_a_id), Number(row.player_b_id));
+              penaltyNeighborHistory.set(`${aId}-${bId}`, Number(row.cnt));
+            }
+          } catch {}
+        }
+
+        // جلب بيانات اللاعب الجديد
+        let newPlayerEnriched: any = {
           phone: data.phone || '',
           gender: data.gender || 'MALE',
-        },
-        preferredSeat: data.preferredSeat,
-      });
+          playerId: data.playerId || null,
+          name: data.name || 'لاعب جديد',
+          totalMatches: 0,
+          activityCount: 0,
+          rankRR: 0,
+          rankTier: 'INFORMANT',
+        };
+
+        if (data.playerId && db) {
+          try {
+            const { players: playersTable } = await import('../schemas/player.schema.js');
+            const [dbPlayer] = await db.select({
+              totalMatches: playersTable.totalMatches,
+              rankRR: playersTable.rankRR,
+              rankTier: playersTable.rankTier,
+            }).from(playersTable).where(eq(playersTable.id, data.playerId)).limit(1);
+
+            if (dbPlayer) {
+              newPlayerEnriched.totalMatches = dbPlayer.totalMatches || 0;
+              newPlayerEnriched.rankRR = dbPlayer.rankRR || 0;
+              newPlayerEnriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
+              newPlayerEnriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+            }
+          } catch {}
+        }
+
+        const { seat: assignedSeatResult, constraintViolation: cvResult } = allocateSeat({
+          maxPlayers: state.config.maxPlayers,
+          players: enrichedPlayers,
+          constraints,
+          newPlayer: newPlayerEnriched,
+          preferredSeat: data.preferredSeat,
+          penaltyNeighborHistory,
+          sessionId: state.sessionId,
+        });
+        var assignedSeat = assignedSeatResult;
+        var constraintViolation = cvResult;
+      } else {
+        // الوضع القديم — بيانات أساسية فقط
+        const seatPlayers = state.players.map(p => ({
+          physicalId: p.physicalId,
+          phone: p.phone,
+          gender: p.gender || null,
+          seatHeld: p.seatHeld || false,
+        }));
+
+        const { seat: assignedSeatResult, constraintViolation: cvResult } = allocateSeat({
+          maxPlayers: state.config.maxPlayers,
+          players: seatPlayers,
+          constraints,
+          newPlayer: {
+            phone: data.phone || '',
+            gender: data.gender || 'MALE',
+          },
+          preferredSeat: data.preferredSeat,
+        });
+        var assignedSeat = assignedSeatResult;
+        var constraintViolation = cvResult;
+      }
 
       if (constraintViolation) {
         console.warn(`⚠️ Seat constraints violated for player ${data.name} — assigned seat #${assignedSeat} anyway`);
@@ -1439,6 +1548,36 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           );
         } catch (e: any) {
           console.error(`❌ Failed to apply RR penalty for player ${player.playerId}:`, e.message);
+        }
+
+        // ── تسجيل جيران اللاعب المعاقب (للجلوس الذكي) ──
+        try {
+          const db = getDB();
+          if (db && player.playerId) {
+            const playerSeat = player.physicalId;
+            const maxP = state.config.maxPlayers;
+            const leftSeat = playerSeat === 1 ? maxP : playerSeat - 1;
+            const rightSeat = playerSeat === maxP ? 1 : playerSeat + 1;
+            const neighbors = state.players.filter(
+              (p: any) => p.physicalId === leftSeat || p.physicalId === rightSeat
+            );
+            for (const neighbor of neighbors) {
+              if (!neighbor.playerId) continue;
+              const aId = Math.min(player.playerId, neighbor.playerId);
+              const bId = Math.max(player.playerId, neighbor.playerId);
+              const seatA = aId === player.playerId ? playerSeat : neighbor.physicalId;
+              const seatB = bId === player.playerId ? playerSeat : neighbor.physicalId;
+              await db.execute(sql`
+                INSERT INTO penalty_neighbor_history (player_a_id, player_b_id, session_id, match_id, seat_a, seat_b, penalty_player_id)
+                VALUES (${aId}, ${bId}, ${state.sessionId || null}, ${state.matchId || null}, ${seatA}, ${seatB}, ${player.playerId})
+              `);
+            }
+            if (neighbors.length > 0) {
+              console.log(`🪑 Recorded ${neighbors.length} penalty neighbors for player #${player.physicalId} (${player.name})`);
+            }
+          }
+        } catch (neighborErr: any) {
+          console.warn(`⚠️ Failed to record penalty neighbors:`, neighborErr.message);
         }
       }
 
