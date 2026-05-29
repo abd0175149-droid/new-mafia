@@ -89,6 +89,14 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const hasJesterInRoles = roles.includes(Role.JESTER);
   const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
 
+  // تحديد أي قسم فيه dropdown مفتوح لرفع z-index ديناميكياً
+  const openRole = openDropdown !== null ? roles[openDropdown] : null;
+  const activeSection = openRole 
+    ? MAFIA_ROLES.includes(openRole) ? 'mafia' 
+    : NEUTRAL_ROLES.includes(openRole) ? 'neutral' 
+    : 'citizen'
+    : null;
+
   // دالة مساعدة لبناء كارد الدور
   const renderRoleCard = (r: Role, i: number, teamColor: string, borderColor: string) => (
     <div key={i} className={`bg-[#0a0a0a] border ${borderColor} rounded-lg p-2 flex items-center gap-3 hover:border-opacity-60 transition-colors group flex-1 min-w-[200px] sm:flex-none`}>
@@ -145,7 +153,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
 
       <div className="flex flex-col gap-6 mb-8 w-full">
         {/* Mafia Column */}
-        <div className="bg-black/40 border border-[#8A0303]/30 rounded-xl p-6 backdrop-blur-sm relative z-20">
+        <div className={`bg-black/40 border border-[#8A0303]/30 rounded-xl p-6 backdrop-blur-sm relative ${activeSection === 'mafia' ? 'z-30' : 'z-0'}`}>
           <div className="absolute top-0 right-0 w-full h-[1px] bg-gradient-to-l from-transparent via-[#8A0303]/50 to-transparent rounded-t-xl" />
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#8A0303]/20">
             <h3 className="text-sm font-mono text-[#8A0303] uppercase tracking-[0.2em] font-bold">
@@ -165,7 +173,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
         </div>
 
         {/* Citizens Section */}
-        <div className="bg-black/40 border border-[#C5A059]/30 rounded-xl p-6 backdrop-blur-sm relative z-10">
+        <div className={`bg-black/40 border border-[#C5A059]/30 rounded-xl p-6 backdrop-blur-sm relative ${activeSection === 'citizen' ? 'z-30' : 'z-0'}`}>
           <div className="absolute top-0 right-0 w-full h-[1px] bg-gradient-to-l from-transparent via-[#C5A059]/50 to-transparent rounded-t-xl" />
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#2a2a2a]">
             <h3 className="text-sm font-mono text-[#C5A059] uppercase tracking-[0.2em] font-bold">
@@ -185,7 +193,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
         </div>
 
         {/* 🤡 Neutral Section */}
-        <div className="bg-black/40 border border-amber-500/30 rounded-xl p-6 backdrop-blur-sm relative z-10">
+        <div className={`bg-black/40 border border-amber-500/30 rounded-xl p-6 backdrop-blur-sm relative ${activeSection === 'neutral' ? 'z-30' : 'z-0'}`}>
           <div className="absolute top-0 right-0 w-full h-[1px] bg-gradient-to-l from-transparent via-amber-500/50 to-transparent rounded-t-xl" />
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-amber-500/20">
             <h3 className="text-sm font-mono text-amber-400 uppercase tracking-[0.2em] font-bold">
