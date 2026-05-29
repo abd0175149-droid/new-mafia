@@ -43,6 +43,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     // صفحة اللوقن لا تحتاج تحقق
@@ -68,6 +69,24 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     setLoading(false);
   }, [pathname, router]);
 
+  // ── Responsive: detect mobile ──
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // على الموبايل: الـ sidebar مغلقة افتراضياً
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  // إغلاق الـ sidebar عند التنقل (موبايل)
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [pathname, isMobile]);
+
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -86,25 +105,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </div>
     );
   }
-
-  // ── Responsive: detect mobile ──
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
-  }, []);
-
-  // على الموبايل: الـ sidebar مغلقة افتراضياً
-  useEffect(() => {
-    if (isMobile) setSidebarOpen(false);
-  }, [isMobile]);
-
-  // إغلاق الـ sidebar عند التنقل (موبايل)
-  useEffect(() => {
-    if (isMobile) setSidebarOpen(false);
-  }, [pathname, isMobile]);
 
   return (
     <div className="min-h-screen bg-gray-950 flex" dir="rtl">
