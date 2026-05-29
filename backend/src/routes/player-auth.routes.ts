@@ -192,6 +192,46 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
     }
 
+    // ── جلب بيانات الموظف المرتبط (إن وجد) ──
+    let staffInfo: any = null;
+    let staffToken: string | null = null;
+    if ((player as any).linkedStaffId) {
+      try {
+        const { staff } = await import('../schemas/admin.schema.js');
+        const { generateToken } = await import('../middleware/auth.js');
+        const staffRows = await db.select({
+          id: staff.id,
+          username: staff.username,
+          displayName: staff.displayName,
+          role: staff.role,
+          permissions: staff.permissions,
+          photoUrl: staff.photoUrl,
+          locationId: staff.locationId,
+          isPartner: staff.isPartner,
+        }).from(staff).where(eq(staff.id, (player as any).linkedStaffId)).limit(1);
+
+        const staffRow = staffRows[0];
+        if (staffRow) {
+          staffInfo = {
+            staffId: staffRow.id,
+            username: staffRow.username,
+            role: staffRow.role,
+            displayName: staffRow.displayName,
+            permissions: (staffRow.permissions as string[]) || [],
+          };
+          // إصدار staff token تلقائي (Auto-login)
+          staffToken = generateToken({
+            id: staffRow.id,
+            username: staffRow.username,
+            role: staffRow.role as any,
+            displayName: staffRow.displayName,
+          });
+        }
+      } catch (staffErr: any) {
+        console.warn('⚠️ Failed to fetch linked staff:', staffErr.message);
+      }
+    }
+
     // البحث عن لعبة نشطة + ألعاب مجمدة
     let activeGame = null;
     const frozenGames: any[] = [];
@@ -240,6 +280,8 @@ router.get('/me', authenticatePlayer, async (req: Request, res: Response) => {
         totalSurvived: player.totalSurvived,
         mustChangePassword: player.mustChangePassword || false,
       },
+      staffInfo,
+      staffToken,
       activeGame,
       frozenGames,
     });

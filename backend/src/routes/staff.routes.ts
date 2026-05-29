@@ -130,4 +130,114 @@ router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Respons
   res.json({ success: true });
 });
 
+// ══════════════════════════════════════════════
+// 🔗 ربط حساب الموظف بلاعب — Link Staff ↔ Player
+// ══════════════════════════════════════════════
+
+// PUT /api/staff/:id/link-player — ربط موظف بلاعب
+router.put('/:id/link-player', authenticate, adminOnly, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const staffId = parseInt(req.params.id);
+  const { playerId } = req.body;
+
+  if (!playerId) return res.status(400).json({ error: 'playerId مطلوب' });
+
+  try {
+    // التأكد أن الموظف موجود
+    const staffRow = await db.select({ id: staff.id }).from(staff).where(eq(staff.id, staffId)).limit(1);
+    if (!staffRow[0]) return res.status(404).json({ error: 'الموظف غير موجود' });
+
+    // التأكد أن اللاعب موجود
+    const { players } = await import('../schemas/player.schema.js');
+    const playerRow = await db.select({ id: players.id, name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
+    if (!playerRow[0]) return res.status(404).json({ error: 'اللاعب غير موجود' });
+
+    // فك أي ربط سابق لهذا الموظف (لاعب آخر مرتبط به)
+    await db.update(players)
+      .set({ linkedStaffId: null } as any)
+      .where(eq(players.linkedStaffId, staffId));
+
+    // ربط اللاعب بالموظف
+    await db.update(players)
+      .set({ linkedStaffId: staffId } as any)
+      .where(eq(players.id, playerId));
+
+    console.log(`🔗 Staff #${staffId} linked to Player #${playerId} (${playerRow[0].name})`);
+    res.json({ success: true, linkedPlayer: playerRow[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/staff/:id/link-player — فك ربط الموظف من اللاعب
+router.delete('/:id/link-player', authenticate, adminOnly, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const staffId = parseInt(req.params.id);
+
+  try {
+    const { players } = await import('../schemas/player.schema.js');
+    await db.update(players)
+      .set({ linkedStaffId: null } as any)
+      .where(eq(players.linkedStaffId, staffId));
+
+    console.log(`🔓 Staff #${staffId} unlinked from player`);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/staff/:id/linked-player — جلب اللاعب المرتبط بموظف
+router.get('/:id/linked-player', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const staffId = parseInt(req.params.id);
+
+  try {
+    const { players } = await import('../schemas/player.schema.js');
+    const rows = await db.select({
+      id: players.id,
+      name: players.name,
+      phone: players.phone,
+      avatarUrl: players.avatarUrl,
+    }).from(players).where(eq(players.linkedStaffId, staffId)).limit(1);
+
+    res.json({ success: true, linkedPlayer: rows[0] || null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/staff/players-search?q=xxx — بحث عن لاعبين للربط
+router.get('/players-search', authenticate, adminOnly, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const q = (req.query.q as string || '').trim();
+  if (!q || q.length < 2) return res.json({ players: [] });
+
+  try {
+    const { players } = await import('../schemas/player.schema.js');
+    const { sql } = await import('drizzle-orm');
+    const rows = await db.select({
+      id: players.id,
+      name: players.name,
+      phone: players.phone,
+      avatarUrl: players.avatarUrl,
+      linkedStaffId: players.linkedStaffId,
+    }).from(players)
+      .where(sql`(${players.name} ILIKE ${'%' + q + '%'} OR ${players.phone} ILIKE ${'%' + q + '%'})`)
+      .limit(15);
+
+    res.json({ players: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

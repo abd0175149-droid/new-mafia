@@ -22,7 +22,7 @@ const DIFFICULTY_LABELS: Record<string, { label: string; color: string; icon: st
 };
 
 export default function HomePage() {
-  const { player } = usePlayer();
+  const { player, staffInfo } = usePlayer();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
   const [feed, setFeed] = useState<any[]>([]);
@@ -31,6 +31,7 @@ export default function HomePage() {
   const [selectedActivity, setSelectedActivity] = useState<any>(null);
   const [activeRooms, setActiveRooms] = useState<any[]>([]);
   const [roomSelectActivity, setRoomSelectActivity] = useState<any>(null);
+  const [staffPanelOpen, setStaffPanelOpen] = useState(false);
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
@@ -40,6 +41,10 @@ export default function HomePage() {
   const roomSelectModal = useModalScrollLock({
     isOpen: !!roomSelectActivity,
     onClose: () => setRoomSelectActivity(null),
+  });
+  const staffPanelModal = useModalScrollLock({
+    isOpen: staffPanelOpen,
+    onClose: () => setStaffPanelOpen(false),
   });
 
   useEffect(() => {
@@ -81,13 +86,157 @@ export default function HomePage() {
       <a href="/player/debug-push" style={{ display: 'block', textAlign: 'center', padding: 8, background: '#1a1a2e', borderRadius: 8, color: '#f59e0b', fontSize: 12, textDecoration: 'none' }}>
         🔧 تشخيص الإشعارات
       </a>
-      {/* ── الجرس + Hero ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
+      {/* ── الجرس + زر التحكم (للموظفين) ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: -8 }}>
+        {/* زر التحكم — يظهر فقط إذا الحساب مرتبط بموظف */}
+        {staffInfo ? (
+          <motion.button
+            onClick={() => setStaffPanelOpen(true)}
+            whileTap={{ scale: 0.92 }}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+            style={{
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05))',
+              border: '1px solid rgba(139,92,246,0.3)',
+              color: '#a78bfa',
+            }}
+          >
+            <span>🎛️</span>
+            <span>لوحة التحكم</span>
+          </motion.button>
+        ) : <div />}
         <NotificationBell />
       </div>
 
       {/* ── بانر تفعيل الإشعارات ── */}
       <PushBanner />
+
+      {/* ══ Staff Control Panel Bottom Sheet ══ */}
+      <AnimatePresence>
+        {staffPanelOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-end justify-center"
+            onClick={() => setStaffPanelOpen(false)}
+          >
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-lg rounded-t-3xl p-6 pb-10"
+              style={{
+                background: 'linear-gradient(180deg, #1a1a2e 0%, #0a0a1a 100%)',
+                border: '1px solid rgba(139,92,246,0.25)',
+                borderBottom: 'none',
+              }}
+              onClick={(e) => e.stopPropagation()}
+              ref={staffPanelModal.modalContentRef}
+              onTouchStart={staffPanelModal.handleTouchStart}
+              onTouchEnd={staffPanelModal.handleTouchEnd}
+            >
+              {/* Handle bar */}
+              <div className="w-10 h-1 rounded-full bg-purple-400/30 mx-auto mb-5" />
+
+              <h3 className="text-white text-lg font-bold text-center mb-1">
+                🎛️ لوحة التحكم
+              </h3>
+              <p className="text-gray-500 text-xs text-center mb-5">
+                مرحباً {staffInfo?.displayName} • {staffInfo?.role === 'admin' ? 'مدير' : staffInfo?.role === 'leader' ? 'قائد' : 'موظف'}
+              </p>
+
+              <div className="space-y-3">
+                {/* لوحة الإدارة */}
+                <motion.a
+                  href="/admin"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.05 }}
+                  className="w-full rounded-xl p-4 flex items-center justify-between transition-all active:scale-[0.98] block"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(138,3,3,0.12), rgba(138,3,3,0.04))',
+                    border: '1px solid rgba(138,3,3,0.25)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                      background: 'linear-gradient(135deg, rgba(138,3,3,0.2), rgba(138,3,3,0.08))',
+                      border: '1px solid rgba(138,3,3,0.4)',
+                    }}>
+                      <span className="text-lg">📊</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-white text-sm font-medium">لوحة الإدارة</p>
+                      <p className="text-gray-500 text-[10px]">Dashboard • إحصائيات وأنشطة ومالية</p>
+                    </div>
+                  </div>
+                  <span className="text-red-400 text-lg">←</span>
+                </motion.a>
+
+                {/* غرفة العمليات (ليدر) */}
+                {['admin', 'manager', 'leader'].includes(staffInfo?.role || '') && (
+                  <motion.a
+                    href="/leader"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="w-full rounded-xl p-4 flex items-center justify-between transition-all active:scale-[0.98] block"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(197,160,89,0.12), rgba(197,160,89,0.04))',
+                      border: '1px solid rgba(197,160,89,0.25)',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                        background: 'linear-gradient(135deg, rgba(197,160,89,0.2), rgba(197,160,89,0.08))',
+                        border: '1px solid rgba(197,160,89,0.4)',
+                      }}>
+                        <span className="text-lg">🕹️</span>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-white text-sm font-medium">غرفة العمليات</p>
+                        <p className="text-gray-500 text-[10px]">Leader • إدارة وتشغيل الألعاب</p>
+                      </div>
+                    </div>
+                    <span className="text-amber-400 text-lg">←</span>
+                  </motion.a>
+                )}
+
+                {/* شاشة العرض */}
+                <motion.a
+                  href="/display"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.15 }}
+                  className="w-full rounded-xl p-4 flex items-center justify-between transition-all active:scale-[0.98] block"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.04))',
+                    border: '1px solid rgba(59,130,246,0.25)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{
+                      background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(59,130,246,0.08))',
+                      border: '1px solid rgba(59,130,246,0.4)',
+                    }}>
+                      <span className="text-lg">📺</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-white text-sm font-medium">شاشة العرض</p>
+                      <p className="text-gray-500 text-[10px]">Display • عرض حالة اللعبة</p>
+                    </div>
+                  </div>
+                  <span className="text-blue-400 text-lg">←</span>
+                </motion.a>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}

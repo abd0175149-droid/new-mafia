@@ -10,8 +10,17 @@ interface PlayerData {
   token: string;
 }
 
+interface StaffInfo {
+  staffId: number;
+  username: string;
+  role: string;
+  displayName: string;
+  permissions: string[];
+}
+
 interface PlayerContextType {
   player: PlayerData | null;
+  staffInfo: StaffInfo | null;
   setPlayer: (p: PlayerData | null) => void;
   logout: () => void;
   isLoading: boolean;
@@ -19,6 +28,7 @@ interface PlayerContextType {
 
 const PlayerContext = createContext<PlayerContextType>({
   player: null,
+  staffInfo: null,
   setPlayer: () => {},
   logout: () => {},
   isLoading: true,
@@ -30,6 +40,7 @@ export function usePlayer() {
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [player, setPlayerState] = useState<PlayerData | null>(null);
+  const [staffInfo, setStaffInfo] = useState<StaffInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -51,6 +62,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 phone: data.player.phone,
                 token: parsed.token,
               });
+
+              // ── تخزين بيانات الموظف المرتبط (Auto-login) ──
+              if (data.staffInfo && data.staffToken) {
+                setStaffInfo(data.staffInfo);
+                // حفظ staff token في localStorage (نفس المفاتيح المستخدمة في الداشبورد)
+                localStorage.setItem('token', data.staffToken);
+                localStorage.setItem('user', JSON.stringify({
+                  id: data.staffInfo.staffId,
+                  username: data.staffInfo.username,
+                  displayName: data.staffInfo.displayName,
+                  role: data.staffInfo.role,
+                }));
+                // حفظ leader token أيضاً (لواجهة الليدر)
+                localStorage.setItem('leader_token', data.staffToken);
+                localStorage.setItem('leader_name', data.staffInfo.displayName);
+              }
             } else {
               localStorage.removeItem('mafia_player_auth');
             }
@@ -77,12 +104,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setPlayerState(null);
+    setStaffInfo(null);
     localStorage.removeItem('mafia_player_auth');
+    // لا نمسح staff tokens هنا — المستخدم قد يريد البقاء مسجلاً في الداشبورد
   };
 
   return (
-    <PlayerContext.Provider value={{ player, setPlayer, logout, isLoading }}>
+    <PlayerContext.Provider value={{ player, staffInfo, setPlayer, logout, isLoading }}>
       {children}
     </PlayerContext.Provider>
   );
 }
+

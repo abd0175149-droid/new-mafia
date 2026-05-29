@@ -38,7 +38,30 @@ export async function connectDB(): Promise<Database> {
     schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema, ...gameConfigSchema },
   });
 
+  // ── Auto-migration: إضافة أعمدة جديدة تلقائياً ──
+  await runAutoMigrations(pool);
+
   return db;
+}
+
+// ── ترحيل تلقائي — إضافة أعمدة مفقودة ──────────────
+async function runAutoMigrations(pool: pg.Pool): Promise<void> {
+  const client = await pool.connect();
+  try {
+    // التحقق من وجود عمود linked_staff_id في جدول players
+    const checkCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'players' AND column_name = 'linked_staff_id'
+    `);
+    if (checkCol.rows.length === 0) {
+      await client.query(`ALTER TABLE players ADD COLUMN linked_staff_id INTEGER`);
+      console.log('🔄 Migration: Added linked_staff_id column to players table');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Auto-migration warning:', err.message);
+  } finally {
+    client.release();
+  }
 }
 
 // ── جلب الاتصال الحالي ──────────────────────────────

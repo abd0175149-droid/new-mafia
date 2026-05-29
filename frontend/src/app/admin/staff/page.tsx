@@ -60,6 +60,13 @@ export default function StaffManagementPage() {
   const [isPartner, setIsPartner] = useState(false);
   const [permissions, setPermissions] = useState<string[]>(['activities', 'bookings', 'finances', 'locations']);
 
+  // ── Linked Player State ──
+  const [linkedPlayer, setLinkedPlayer] = useState<any | null>(null);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [playerResults, setPlayerResults] = useState<any[]>([]);
+  const [searchingPlayers, setSearchingPlayers] = useState(false);
+  const [linkingPlayer, setLinkingPlayer] = useState(false);
+
   // ══ Load Staff ══
   async function loadUsers() {
     setLoading(true);
@@ -100,6 +107,13 @@ export default function StaffManagementPage() {
     } catch {
       setPermissions([]);
     }
+    // جلب اللاعب المرتبط
+    setLinkedPlayer(null);
+    setPlayerSearch('');
+    setPlayerResults([]);
+    apiFetch(`/api/staff/${userItem.id}/linked-player`)
+      .then(data => { if (data.linkedPlayer) setLinkedPlayer(data.linkedPlayer); })
+      .catch(() => {});
     setIsDialogOpen(true);
   }
 
@@ -166,6 +180,46 @@ export default function StaffManagementPage() {
     } catch (err: any) {
       alert(err.message || 'فشل الحذف');
     }
+  }
+
+  // ══ Player Search (for linking) ══
+  async function searchPlayers(q: string) {
+    setPlayerSearch(q);
+    if (q.length < 2) { setPlayerResults([]); return; }
+    setSearchingPlayers(true);
+    try {
+      const data = await apiFetch(`/api/staff/players-search?q=${encodeURIComponent(q)}`);
+      setPlayerResults(data.players || []);
+    } catch { setPlayerResults([]); }
+    finally { setSearchingPlayers(false); }
+  }
+
+  async function linkPlayer(playerId: number) {
+    if (!editingUser) return;
+    setLinkingPlayer(true);
+    try {
+      const data = await apiFetch(`/api/staff/${editingUser.id}/link-player`, {
+        method: 'PUT',
+        body: JSON.stringify({ playerId }),
+      });
+      if (data.success) {
+        setLinkedPlayer(data.linkedPlayer);
+        setPlayerSearch('');
+        setPlayerResults([]);
+      }
+    } catch (err: any) { alert(err.message); }
+    finally { setLinkingPlayer(false); }
+  }
+
+  async function unlinkPlayer() {
+    if (!editingUser) return;
+    if (!confirm('هل تريد فك ربط حساب اللاعب من هذا الموظف؟')) return;
+    setLinkingPlayer(true);
+    try {
+      await apiFetch(`/api/staff/${editingUser.id}/link-player`, { method: 'DELETE' });
+      setLinkedPlayer(null);
+    } catch (err: any) { alert(err.message); }
+    finally { setLinkingPlayer(false); }
   }
 
   // ══ Role Visuals ══
@@ -348,6 +402,78 @@ export default function StaffManagementPage() {
                     </div>
                   )}
                 </div>
+
+                {/* ── Linked Player Account ── */}
+                {editingUser && (
+                  <>
+                    <hr className="border-gray-700/30" />
+                    <div>
+                      <p className="text-sm font-bold text-white mb-3">🔗 حساب اللاعب المرتبط</p>
+                      <p className="text-xs text-gray-500 mb-3">اربط حساب موظف بحساب لاعب ليحصل على زر التحكم في تطبيق اللاعب (PWA)</p>
+
+                      {linkedPlayer ? (
+                        <div className="flex items-center justify-between bg-purple-500/10 border border-purple-500/20 rounded-xl p-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-purple-500/20 flex items-center justify-center text-white text-sm font-bold overflow-hidden">
+                              {linkedPlayer.avatarUrl ? <img src={linkedPlayer.avatarUrl} alt="" className="w-full h-full object-cover" /> : '🎮'}
+                            </div>
+                            <div>
+                              <p className="text-white text-sm font-medium">{linkedPlayer.name}</p>
+                              <p className="text-gray-500 text-[10px] font-mono" dir="ltr">{linkedPlayer.phone}</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={unlinkPlayer}
+                            disabled={linkingPlayer}
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-rose-500/15 text-rose-400 border border-rose-500/25 hover:bg-rose-500/25 transition disabled:opacity-50"
+                          >
+                            {linkingPlayer ? '...' : 'فك الربط'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={playerSearch}
+                            onChange={e => searchPlayers(e.target.value)}
+                            placeholder="ابحث بالاسم أو رقم الهاتف..."
+                            className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-purple-500/30"
+                          />
+                          {searchingPlayers && <p className="text-xs text-gray-500">جاري البحث...</p>}
+                          {playerResults.length > 0 && (
+                            <div className="max-h-40 overflow-y-auto space-y-1 rounded-xl border border-gray-700/30 p-1">
+                              {playerResults.map(pr => (
+                                <button
+                                  key={pr.id}
+                                  onClick={() => linkPlayer(pr.id)}
+                                  disabled={linkingPlayer || !!pr.linkedStaffId}
+                                  className={`w-full flex items-center gap-3 p-2.5 rounded-lg text-right transition ${
+                                    pr.linkedStaffId
+                                      ? 'opacity-40 cursor-not-allowed bg-gray-800/30'
+                                      : 'hover:bg-purple-500/10 bg-gray-800/50'
+                                  }`}
+                                >
+                                  <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-xs overflow-hidden">
+                                    {pr.avatarUrl ? <img src={pr.avatarUrl} alt="" className="w-full h-full object-cover" /> : '🎮'}
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-white text-sm">{pr.name}</p>
+                                    <p className="text-gray-500 text-[10px] font-mono" dir="ltr">{pr.phone}</p>
+                                  </div>
+                                  {pr.linkedStaffId ? (
+                                    <span className="text-[10px] text-gray-500">مرتبط بآخر</span>
+                                  ) : (
+                                    <span className="text-purple-400 text-xs">ربط ←</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Actions */}

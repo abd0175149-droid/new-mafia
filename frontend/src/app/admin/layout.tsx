@@ -87,14 +87,67 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  // ── Responsive: detect mobile ──
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // على الموبايل: الـ sidebar مغلقة افتراضياً
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
+  // إغلاق الـ sidebar عند التنقل (موبايل)
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [pathname, isMobile]);
+
   return (
     <div className="min-h-screen bg-gray-950 flex" dir="rtl">
+      {/* Mobile: Overlay backdrop */}
+      {isMobile && sidebarOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[55]"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Mobile: Fixed top bar */}
+      {isMobile && (
+        <div className="fixed top-0 left-0 right-0 h-14 bg-gray-900/90 backdrop-blur-xl border-b border-gray-800/50 z-[54] flex items-center px-4 gap-3">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-lg shrink-0"
+          >
+            ☰
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 flex items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-rose-600 text-white text-xs shrink-0">
+              🎭
+            </div>
+            <h2 className="font-bold text-white text-sm">نادي المافيا</h2>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <motion.aside
         initial={false}
-        animate={{ width: sidebarOpen ? 260 : 72 }}
+        animate={{ 
+          width: isMobile ? 280 : (sidebarOpen ? 260 : 72),
+          x: isMobile && !sidebarOpen ? 280 : 0,
+        }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
-        className="fixed top-0 right-0 h-[100dvh] bg-gray-900/80 backdrop-blur-xl border-l border-gray-800/50 z-50 flex flex-col overflow-hidden"
+        className={`fixed top-0 right-0 h-[100dvh] bg-gray-900/95 backdrop-blur-xl border-l border-gray-800/50 flex flex-col overflow-hidden ${
+          isMobile ? 'z-[60]' : 'z-50'
+        }`}
       >
         {/* Header */}
         <div className="p-4 flex items-center gap-3 border-b border-gray-800/50 shrink-0">
@@ -103,10 +156,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors text-lg shrink-0"
             title="فتح/إغلاق القائمة"
           >
-            ☰
+            {isMobile && sidebarOpen ? '✕' : '☰'}
           </button>
           <AnimatePresence>
-            {sidebarOpen && (
+            {(sidebarOpen || isMobile) && (
               <motion.div
                 initial={{ opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -140,6 +193,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
             const isExternal = (item as any).external;
             const isActive = !isExternal && (pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href)));
+            const showLabel = sidebarOpen || isMobile;
 
             if (isExternal) {
               return (
@@ -150,13 +204,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 >
                   <span className="text-lg shrink-0 w-6 text-center">{item.icon}</span>
                   <AnimatePresence>
-                    {sidebarOpen && (
+                    {showLabel && (
                       <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium whitespace-nowrap">
                         {item.label}
                       </motion.span>
                     )}
                   </AnimatePresence>
-                  {sidebarOpen && <span className="mr-auto text-xs text-gray-600">↗</span>}
+                  {showLabel && <span className="mr-auto text-xs text-gray-600">↗</span>}
                 </a>
               );
             }
@@ -173,7 +227,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               >
                 <span className="text-lg shrink-0 w-6 text-center">{item.icon}</span>
                 <AnimatePresence>
-                  {sidebarOpen && (
+                  {showLabel && (
                     <motion.span
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
@@ -187,6 +241,23 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
+
+          {/* ── رابط العودة لواجهة اللاعب (PWA) ── */}
+          <div className="border-t border-gray-800/50 my-2" />
+          <a
+            href="/player/home"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-purple-400 hover:text-purple-300 hover:bg-purple-500/5 border border-transparent hover:border-purple-500/20 transition-all"
+          >
+            <span className="text-lg shrink-0 w-6 text-center">🎮</span>
+            <AnimatePresence>
+              {(sidebarOpen || isMobile) && (
+                <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium whitespace-nowrap">
+                  واجهة اللاعب
+                </motion.span>
+              )}
+            </AnimatePresence>
+            {(sidebarOpen || isMobile) && <span className="mr-auto text-xs text-gray-600">↗</span>}
+          </a>
         </nav>
 
         {/* User */}
@@ -196,7 +267,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               {user?.displayName?.[0] || 'U'}
             </div>
             <AnimatePresence>
-              {sidebarOpen && (
+              {(sidebarOpen || isMobile) && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -217,12 +288,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       {/* Main Content */}
       <main
         className="flex-1 transition-all duration-300"
-        style={{ marginRight: sidebarOpen ? 260 : 72 }}
+        style={{ 
+          marginRight: isMobile ? 0 : (sidebarOpen ? 260 : 72),
+          paddingTop: isMobile ? 56 : 0,
+        }}
       >
-        <div className="p-6 max-w-7xl mx-auto">
+        <div className={`max-w-7xl mx-auto ${isMobile ? 'p-3' : 'p-6'}`}>
           {children}
         </div>
       </main>
     </div>
   );
 }
+
