@@ -1,6 +1,7 @@
 // ══════════════════════════════════════════════════════
-// 🔪 محرك السفّاح — Assassin Contract Engine
-// يدير: توليد العقود الذكية، التحقق من الإنجاز، شرط الفوز
+// 🔪 محرك السفّاح — Assassin Contract Engine v2
+// يدير: توليد العقود الذكية، التحقق من الإنجاز (بدون ترتيب)، شرط الفوز
+// التحديثات الذكية عند خروج الأهداف
 // ══════════════════════════════════════════════════════
 
 import type { GameState, AssassinContract, AssassinState } from './state.js';
@@ -55,6 +56,7 @@ export function generateContracts(state: GameState, totalRequired: number): Assa
       id: i + 1,
       type: 'KILL_ROLE',
       targetRole,
+      descriptionAr: `🔪 اغتل ${roleName}`,
       description: `🔪 اغتل ${roleName}`,
       completed: false,
     });
@@ -64,104 +66,189 @@ export function generateContracts(state: GameState, totalRequired: number): Assa
 }
 
 // ══════════════════════════════════════════════════════
-// ✅ التحقق من إنجاز العقد الحالي
+// ✅ التحقق من إنجاز أي عقد (بدون ترتيب!)
 // ══════════════════════════════════════════════════════
 
 /**
- * يفحص هل الهدف المقتول يطابق الدور المطلوب في العقد الحالي.
+ * يفحص هل الهدف المقتول يطابق أي عقد غير مكتمل.
  * ⚠️ إذا المافيا قتلت نفس الهدف → لا يُحسب كإنجاز!
+ * 🆕 v2: يبحث في كل العقود — مش بس الحالي (بدون ترتيب)
  */
 export function checkContractCompletion(
   state: GameState,
   killedPhysicalId: number,
   killedByMafiaToo: boolean,
-): { completed: boolean; contractId: number } {
-  if (!state.assassinState) return { completed: false, contractId: -1 };
-  if (killedByMafiaToo) return { completed: false, contractId: -1 };
-
-  const currentIdx = state.assassinState.currentContractIndex;
-  const contract = state.assassinState.contracts[currentIdx];
-  if (!contract || contract.completed) return { completed: false, contractId: -1 };
+): { completed: boolean; contractId: number; contractIndex: number } {
+  if (!state.assassinState) return { completed: false, contractId: -1, contractIndex: -1 };
+  if (killedByMafiaToo) return { completed: false, contractId: -1, contractIndex: -1 };
 
   const target = state.players.find(p => p.physicalId === killedPhysicalId);
-  if (!target) return { completed: false, contractId: -1 };
+  if (!target) return { completed: false, contractId: -1, contractIndex: -1 };
 
-  // فحص: هل دور الهدف يطابق الدور المطلوب في العقد؟
-  const matches = (target.role as string) === contract.targetRole;
+  // 🆕 البحث في كل العقود غير المكتملة (بدون ترتيب)
+  for (let i = 0; i < state.assassinState.contracts.length; i++) {
+    const contract = state.assassinState.contracts[i];
+    if (contract.completed) continue;
 
-  return { completed: matches, contractId: contract.id };
+    // فحص: هل دور الهدف يطابق الدور المطلوب في العقد؟
+    if ((target.role as string) === contract.targetRole) {
+      return { completed: true, contractId: contract.id, contractIndex: i };
+    }
+  }
+
+  return { completed: false, contractId: -1, contractIndex: -1 };
 }
 
 // ══════════════════════════════════════════════════════
-// ⏭️ تقدم العقد بعد الإنجاز
+// ⏭️ إكمال عقد محدد بعد الإنجاز
 // ══════════════════════════════════════════════════════
 
-export function advanceContract(state: GameState, round: number): void {
+/**
+ * 🆕 v2: يكمل عقد بأي index (مش بس الحالي)
+ */
+export function completeContract(state: GameState, contractIndex: number, round: number): void {
   if (!state.assassinState) return;
-  const idx = state.assassinState.currentContractIndex;
-  const contract = state.assassinState.contracts[idx];
-  if (!contract) return;
+  const contract = state.assassinState.contracts[contractIndex];
+  if (!contract || contract.completed) return;
 
   contract.completed = true;
   contract.completedAtRound = round;
   state.assassinState.completedCount++;
   state.assassinState.lastKillRound = round;
 
-  // التقدم للعقد التالي
-  if (state.assassinState.currentContractIndex < state.assassinState.contracts.length - 1) {
-    state.assassinState.currentContractIndex++;
-
-    // ⚡ إعادة توليد العقد القادم بناءً على الأحياء الحاليين
-    regenerateNextContract(state);
-  }
+  console.log(`🔪 Contract #${contract.id} completed: ${contract.targetRole} (round ${round})`);
 }
 
 // ══════════════════════════════════════════════════════
-// 🔄 إعادة توليد العقد التالي بناءً على الوضع الحالي
+// ⏭️ تقدم العقد (legacy — للتوافق مع الكود القديم)
 // ══════════════════════════════════════════════════════
 
-function regenerateNextContract(state: GameState): void {
+export function advanceContract(state: GameState, round: number): void {
   if (!state.assassinState) return;
-  const idx = state.assassinState.currentContractIndex;
+  // 🆕 v2: نبحث عن أول عقد غير مكتمل ونكمله
+  const idx = state.assassinState.contracts.findIndex(c => !c.completed);
+  if (idx === -1) return;
+  completeContract(state, idx, round);
+}
 
-  // جمع الأدوار المميزة الحية (ليست مكتملة بالفعل)
+// ══════════════════════════════════════════════════════
+// 🔄 تحديث العقود الذكي — عند خروج لاعب
+// ══════════════════════════════════════════════════════
+
+/**
+ * 🆕 عند خروج لاعب (بأي طريقة — تصويت/قنص/مافيا):
+ * يفحص هل فيه عقد معلّق يستهدف دوره.
+ * إذا نعم → يُستبدل العقد بدور حي آخر.
+ * يرجع true إذا تم تعديل العقود (يحتاج إشعار).
+ */
+export function regenerateDeadContracts(state: GameState): {
+  changed: boolean;
+  updatedContracts: AssassinContract[];
+  changeLog: string[];
+} {
+  if (!state.assassinState) return { changed: false, updatedContracts: [], changeLog: [] };
+
   const alive = state.players.filter(p => p.isAlive && p.role !== 'ASSASSIN');
-  const completedRoles = state.assassinState.contracts
-    .filter(c => c.completed)
-    .map(c => c.targetRole);
+  const changeLog: string[] = [];
+  let changed = false;
 
-  // أدوار مميزة حية ولم تُنجز بعد
-  const availableRoles = alive
-    .map(p => p.role as string)
-    .filter(role => SPECIAL_ROLES.includes(role) && !completedRoles.includes(role));
+  for (let i = 0; i < state.assassinState.contracts.length; i++) {
+    const contract = state.assassinState.contracts[i];
+    if (contract.completed) continue;
 
-  if (availableRoles.length > 0) {
-    // اختيار عشوائي من المتاح
-    const picked = availableRoles[Math.floor(Math.random() * availableRoles.length)];
-    const roleName = ROLE_NAMES_AR[picked] || picked;
+    // هل الدور المطلوب لا يزال حياً؟
+    const targetAlive = alive.some(p => (p.role as string) === contract.targetRole);
+    if (targetAlive) continue;
 
-    state.assassinState.contracts[idx] = {
-      id: idx + 1,
-      type: 'KILL_ROLE',
-      targetRole: picked,
-      description: `🔪 اغتل ${roleName}`,
-      completed: false,
-    };
-  } else {
-    // كل الأدوار المميزة ماتت → اختر أي دور حي عشوائي
-    const anyAlive = alive.filter(p => p.role && SPECIAL_ROLES.includes(p.role as string));
-    if (anyAlive.length > 0) {
-      const picked = anyAlive[Math.floor(Math.random() * anyAlive.length)].role as string;
+    // الدور خرج من اللعبة → نختار بديل
+    const completedRoles = state.assassinState.contracts
+      .filter(c => c.completed)
+      .map(c => c.targetRole);
+
+    // الأدوار المتاحة: مميزة + حية + لم تُنجز + ليست نفس العقد الحالي
+    const pendingRoles = state.assassinState.contracts
+      .filter(c => !c.completed && c.id !== contract.id)
+      .map(c => c.targetRole);
+
+    const availableRoles = alive
+      .map(p => p.role as string)
+      .filter(role =>
+        SPECIAL_ROLES.includes(role) &&
+        !completedRoles.includes(role) &&
+        !pendingRoles.includes(role)
+      );
+
+    if (availableRoles.length > 0) {
+      const picked = availableRoles[Math.floor(Math.random() * availableRoles.length)];
       const roleName = ROLE_NAMES_AR[picked] || picked;
-      state.assassinState.contracts[idx] = {
-        id: idx + 1,
-        type: 'KILL_ROLE',
-        targetRole: picked,
-        description: `🔪 اغتل ${roleName}`,
-        completed: false,
-      };
+      const oldDesc = contract.descriptionAr || contract.description;
+
+      contract.targetRole = picked;
+      contract.descriptionAr = `🔪 اغتل ${roleName}`;
+      contract.description = `🔪 اغتل ${roleName}`;
+
+      changeLog.push(`العقد #${contract.id}: ${oldDesc} → ${contract.descriptionAr}`);
+      changed = true;
+    } else {
+      // كل الأدوار المميزة مستخدمة → نختار أي دور حي
+      const anyAlive = alive.filter(p => p.role && SPECIAL_ROLES.includes(p.role as string));
+      if (anyAlive.length > 0) {
+        const picked = anyAlive[Math.floor(Math.random() * anyAlive.length)].role as string;
+        const roleName = ROLE_NAMES_AR[picked] || picked;
+        const oldDesc = contract.descriptionAr || contract.description;
+
+        contract.targetRole = picked;
+        contract.descriptionAr = `🔪 اغتل ${roleName}`;
+        contract.description = `🔪 اغتل ${roleName}`;
+
+        changeLog.push(`العقد #${contract.id}: ${oldDesc} → ${contract.descriptionAr} (تكرار)`);
+        changed = true;
+      }
+      // إذا ما فيه أحد أصلاً → العقد يبقى (حالة نادرة)
     }
   }
+
+  return {
+    changed,
+    updatedContracts: state.assassinState.contracts,
+    changeLog,
+  };
+}
+
+// ══════════════════════════════════════════════════════
+// 🎯 تقييم قتل السفّاح الكامل (Auto Mode)
+// ══════════════════════════════════════════════════════
+
+/**
+ * 🆕 يُستدعى بعد resolveNight لتقييم قتل السفّاح:
+ * - يقتل الهدف
+ * - يفحص هل يطابق أي عقد
+ * - يكمل العقد إذا تطابق
+ * - يفحص شرط الفوز
+ */
+export function evaluateAssassinKill(
+  state: GameState,
+  targetPhysicalId: number,
+): { contractCompleted: boolean; contractId: number; won: boolean } {
+  if (!state.assassinState) return { contractCompleted: false, contractId: -1, won: false };
+
+  // هل المافيا قتلت نفس الهدف؟
+  const killedByMafia = state.nightActions?.godfatherTarget === targetPhysicalId;
+
+  const result = checkContractCompletion(state, targetPhysicalId, killedByMafia);
+
+  if (result.completed) {
+    completeContract(state, result.contractIndex, state.round || 1);
+
+    if (checkAssassinWin(state)) {
+      state.assassinState!.won = true;
+      return { contractCompleted: true, contractId: result.contractId, won: true };
+    }
+
+    return { contractCompleted: true, contractId: result.contractId, won: false };
+  }
+
+  return { contractCompleted: false, contractId: -1, won: false };
 }
 
 // ══════════════════════════════════════════════════════
@@ -198,7 +285,7 @@ export function initAssassinState(state: GameState): AssassinState | null {
   return {
     assassinPhysicalId: assassin.physicalId,
     contracts,
-    currentContractIndex: 0,
+    currentContractIndex: 0, // legacy — v2 لا يستخدمه
     completedCount: 0,
     totalRequired,
     firstNightPassed: false,

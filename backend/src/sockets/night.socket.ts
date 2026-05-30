@@ -137,19 +137,46 @@ async function resolveAutoNight(io: Server, roomId: string) {
     const { evaluateAssassinKill } = await import('../game/assassin-engine.js');
     const targetId = stateBeforeAssassin.nightActions.assassinTarget;
     const target = stateBeforeAssassin.players.find((p: any) => p.physicalId === targetId);
+
     if (target && target.isAlive) {
-      target.isAlive = false;
-      const wasRandom = stateBeforeAssassin.nightActions.randomSelections?.['ASSASSIN'] || false;
-      // تقييم هل القتل يُكمل عقد
-      evaluateAssassinKill(stateBeforeAssassin, targetId);
-      resolution.events.push({
-        type: 'ASSASSINATION',
-        targetPhysicalId: targetId,
-        targetName: target.name,
-        performerPhysicalId: stateBeforeAssassin.assassinState.assassinPhysicalId,
-        performerName: stateBeforeAssassin.players.find((p: any) => p.physicalId === stateBeforeAssassin.assassinState.assassinPhysicalId)?.name || '',
-        wasRandom,
-      });
+      // 🛡️ فحص الحماية — هل الطبيب/الممرضة حمت الهدف؟
+      const protectedId = stateBeforeAssassin.nightActions.doctorTarget ?? stateBeforeAssassin.nightActions.nurseTarget;
+      if (targetId === protectedId) {
+        // الحماية نجحت ضد السفّاح!
+        resolution.events.push({
+          type: 'ASSASSIN_BLOCKED' as any,
+          targetPhysicalId: targetId,
+          targetName: target.name,
+          performerPhysicalId: stateBeforeAssassin.assassinState.assassinPhysicalId,
+          performerName: stateBeforeAssassin.players.find((p: any) => p.physicalId === stateBeforeAssassin.assassinState.assassinPhysicalId)?.name || '',
+          revealed: false,
+        });
+        console.log(`🛡️ Assassin kill blocked by protection on ${target.name}`);
+      } else {
+        // القتل ينجح!
+        target.isAlive = false;
+        const wasRandom = stateBeforeAssassin.nightActions.randomSelections?.['ASSASSIN'] || false;
+
+        // تقييم هل القتل يُكمل عقد
+        const evalResult = evaluateAssassinKill(stateBeforeAssassin, targetId);
+
+        resolution.events.push({
+          type: 'ASSASSIN_KILL' as any,
+          targetPhysicalId: targetId,
+          targetName: target.name,
+          performerPhysicalId: stateBeforeAssassin.assassinState.assassinPhysicalId,
+          performerName: stateBeforeAssassin.players.find((p: any) => p.physicalId === stateBeforeAssassin.assassinState.assassinPhysicalId)?.name || '',
+          wasRandom,
+          extra: {
+            contractCompleted: evalResult.contractCompleted,
+            contractId: evalResult.contractId,
+            assassinWon: evalResult.won,
+          },
+          revealed: false,
+        });
+
+        console.log(`🔪 Assassin killed ${target.name} — contract: ${evalResult.contractCompleted ? '✅' : '❌'}, won: ${evalResult.won}`);
+      }
     }
   }
 
@@ -157,6 +184,27 @@ async function resolveAutoNight(io: Server, roomId: string) {
   if (stateBeforeAssassin?.assassinState && !stateBeforeAssassin.assassinState.firstNightPassed) {
     stateBeforeAssassin.assassinState.firstNightPassed = true;
   }
+
+  // 🔪 تحديث العقود — إذا أي لاعب خرج هذه الليلة، نحدّث العقود
+  if (stateBeforeAssassin?.assassinState) {
+    const { regenerateDeadContracts } = await import('../game/assassin-engine.js');
+    const regen = regenerateDeadContracts(stateBeforeAssassin);
+    if (regen.changed) {
+      console.log(`🔄 Assassin contracts updated: ${regen.changeLog.join(', ')}`);
+      // إشعار اللاعب السفّاح بالتحديثات
+      const assassinSock = findPlayerSocket(io, roomId, stateBeforeAssassin.assassinState.assassinPhysicalId);
+      if (assassinSock) {
+        assassinSock.emit('assassin:contracts-update', {
+          contracts: stateBeforeAssassin.assassinState.contracts,
+          currentIndex: 0, // legacy
+          completedCount: stateBeforeAssassin.assassinState.completedCount,
+          totalRequired: stateBeforeAssassin.assassinState.totalRequired,
+          changeLog: regen.changeLog,
+        });
+      }
+    }
+  }
+
   if (stateBeforeAssassin) {
     await setGameState(roomId, stateBeforeAssassin);
   }
@@ -194,6 +242,7 @@ async function resolveAutoNight(io: Server, roomId: string) {
     pendingWinner,
     players: stateAfter?.players || [],
     neutralWin: resolution.neutralWin || null,
+    assassinState: stateAfter?.assassinState || null,
   });
 
   console.log(`✅ Auto night resolved for room ${roomId}`);

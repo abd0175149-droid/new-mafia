@@ -35,6 +35,8 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   SNIPE_MAFIA:          { icon: '🎯', title: 'القناص نجح',        color: 'text-[#C5A059]', displayable: true },
   SNIPE_CITIZEN:        { icon: '💀', title: 'القناص فشل',        color: 'text-[#8A0303]', displayable: true },
   SHERIFF_RESULT:       { icon: '🔍', title: 'نتيجة التحقيق',     color: 'text-[#C5A059]', displayable: false },
+  ASSASSIN_KILL:        { icon: '🔪', title: 'السفّاح اغتال',     color: 'text-[#DC143C]', displayable: true },
+  ASSASSIN_BLOCKED:     { icon: '🛡️', title: 'حماية ضد السفّاح',   color: 'text-[#2E5C31]', displayable: true },
 };
 
 export default function LeaderNightView({ gameState, emit, setError }: LeaderNightViewProps) {

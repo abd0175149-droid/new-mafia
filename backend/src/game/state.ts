@@ -8,6 +8,29 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { Role } from './roles.js';
 import type { DynamicNightState } from './dynamic-night-resolver.js';
 
+// ── أسماء الأدوار بالعربي (للعقود) ──────────────────
+export const ROLE_NAMES_AR: Record<string, string> = {
+  GODFATHER: 'شيخ المافيا',
+  SILENCER: 'قص المافيا',
+  CHAMELEON: 'حرباية المافيا',
+  MAFIA_REGULAR: 'مافيا عادي',
+  SHERIFF: 'الشريف',
+  DOCTOR: 'الطبيب',
+  SNIPER: 'القناص',
+  POLICEWOMAN: 'الشرطية',
+  NURSE: 'الممرضة',
+  JESTER: 'المهرج',
+  ASSASSIN: 'السفّاح',
+  CITIZEN: 'مواطن',
+};
+
+// ── الأدوار المميزة (المسموح استهدافها بعقود السفّاح) ──
+export const SPECIAL_ROLES: string[] = [
+  'GODFATHER', 'SILENCER', 'CHAMELEON',
+  'SHERIFF', 'DOCTOR', 'SNIPER', 'POLICEWOMAN', 'NURSE',
+  'JESTER',
+];
+
 // ── الأنواع (Types) ────────────────────────────────
 
 export enum Phase {
@@ -109,6 +132,7 @@ export interface NightActions {
   doctorTarget: number | null;
   sniperTarget: number | null;
   nurseTarget: number | null;
+  assassinTarget?: number | null;  // 🔪 هدف السفّاح
   lastProtectedTarget: number | null;
   randomSelections?: Record<string, boolean>;  // تتبع الاختيارات العشوائية (Auto Mode)
 }
@@ -149,6 +173,7 @@ export interface AssassinContract {
   type: AssassinContractType;     // نوع المهمة (دائماً KILL_ROLE)
   targetRole: string;             // الدور المطلوب قتله (مثل 'GODFATHER', 'DOCTOR')
   description: string;            // وصف المهمة بالعربي
+  descriptionAr?: string;         // وصف المهمة بالعربي (نسخة جديدة)
   completed: boolean;
   completedAtRound?: number;
 }

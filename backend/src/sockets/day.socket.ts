@@ -862,6 +862,36 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       const currentState = await getGameState(data.roomId);
+
+      // 🔪 تجديد عقود السفّاح إذا خرج لاعب مستهدف
+      if (currentState?.assassinState) {
+        const { regenerateDeadContracts } = await import('../game/assassin-engine.js');
+        const regen = regenerateDeadContracts(currentState);
+        if (regen.changed) {
+          await setGameState(data.roomId, currentState);
+          console.log(`🔄 Assassin contracts updated after elimination: ${regen.changeLog.join(', ')}`);
+          // إشعار اللاعب السفّاح
+          const assassinRoom = io.sockets.adapter.rooms.get(data.roomId);
+          if (assassinRoom) {
+            for (const socketId of assassinRoom) {
+              const sock = io.sockets.sockets.get(socketId);
+              if (sock?.data.physicalId === currentState.assassinState.assassinPhysicalId && sock?.data.role === 'player') {
+                sock.emit('assassin:contracts-update', {
+                  contracts: currentState.assassinState.contracts,
+                  currentIndex: 0,
+                  completedCount: currentState.assassinState.completedCount,
+                  totalRequired: currentState.assassinState.totalRequired,
+                  changeLog: regen.changeLog,
+                });
+                break;
+              }
+            }
+          }
+          // إشعار الليدر
+          io.to(data.roomId).emit('game:state-sync', currentState);
+        }
+      }
+
       io.to(data.roomId).emit('day:elimination-revealed', {
         eliminated: result.eliminated,
         revealedRoles: result.revealedRoles,

@@ -10,6 +10,7 @@ interface AssassinContract {
   type: string;
   targetRole: string;
   description: string;
+  descriptionAr?: string;
   completed: boolean;
   completedAtRound?: number;
 }
@@ -103,10 +104,9 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
 
                 {/* قائمة العقود */}
                 <div className="w-full max-w-sm space-y-3 max-h-[50vh] overflow-y-auto px-2 pb-4">
-                  {assassinContracts.contracts.map((contract, i) => {
-                    const isCurrent = i === assassinContracts.currentIndex && !contract.completed;
+                {assassinContracts.contracts.map((contract, i) => {
                     const isCompleted = contract.completed;
-                    const isFuture = i > assassinContracts.currentIndex && !contract.completed;
+                    const isActive = !contract.completed; // 🆕 كل العقود غير المكتملة نشطة
 
                     return (
                       <motion.div
@@ -117,9 +117,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                         className={`relative rounded-2xl p-4 border-2 transition-all ${
                           isCompleted
                             ? 'border-green-500/30 bg-gradient-to-r from-green-950/30 to-green-950/10'
-                            : isCurrent
-                            ? 'border-[#8A0303]/60 bg-gradient-to-r from-[#1a0505] to-[#0d0202] shadow-[0_0_20px_rgba(138,3,3,0.3)]'
-                            : 'border-[#222] bg-[#111]/50 opacity-50'
+                            : 'border-[#8A0303]/60 bg-gradient-to-r from-[#1a0505] to-[#0d0202] shadow-[0_0_20px_rgba(138,3,3,0.3)]'
                         }`}
                       >
                         <div className="flex items-center gap-3">
@@ -127,42 +125,40 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-black text-sm ${
                             isCompleted
                               ? 'bg-green-500/20 border border-green-500/50 text-green-400'
-                              : isCurrent
-                              ? 'bg-[#8A0303]/20 border-2 border-[#8A0303] text-red-400'
-                              : 'bg-[#1a1a1a] border border-[#333] text-[#555]'
+                              : 'bg-[#8A0303]/20 border-2 border-[#8A0303] text-red-400'
                           }`}>
-                            {isCompleted ? '✅' : isCurrent ? (
+                            {isCompleted ? '✅' : (
                               <motion.span
                                 animate={{ scale: [1, 1.2, 1] }}
                                 transition={{ duration: 1.5, repeat: Infinity }}
                               >
                                 🔪
                               </motion.span>
-                            ) : `${contract.id}`}
+                            )}
                           </div>
 
                           {/* وصف المهمة */}
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm font-bold ${
-                              isCompleted ? 'text-green-400 line-through' : isCurrent ? 'text-white' : 'text-[#555]'
+                              isCompleted ? 'text-green-400 line-through' : 'text-white'
                             }`}>
-                              {contract.description}
+                              {contract.descriptionAr || contract.description}
                             </p>
                             {isCompleted && contract.completedAtRound && (
                               <p className="text-[10px] text-green-500/60 font-mono mt-0.5">
                                 أُنجز في الجولة {contract.completedAtRound}
                               </p>
                             )}
-                            {isCurrent && (
+                            {isActive && (
                               <p className="text-[10px] text-red-400/60 font-mono mt-0.5 animate-pulse">
-                                المهمة الحالية — أنجزها!
+                                اقتل صاحب هذا الدور!
                               </p>
                             )}
                           </div>
                         </div>
 
-                        {/* مؤشر الحالة الحالية */}
-                        {isCurrent && (
+                        {/* مؤشر النشاط */}
+                        {isActive && (
                           <motion.div
                             className="absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-full"
                             style={{ background: '#8A0303' }}

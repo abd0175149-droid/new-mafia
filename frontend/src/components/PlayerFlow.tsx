@@ -726,6 +726,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setPlayerVotes({});
       setTotalVotesCast(0);
       setLastVoteTime(null);
+      setAssassinContracts(null); // 🔪 تصفير عقود السفّاح
       if (navigator.vibrate) navigator.vibrate(200);
     });
 

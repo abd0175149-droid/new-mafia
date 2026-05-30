@@ -604,6 +604,58 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
     case 'SNIPE_CITIZEN':
       return <MorningSnipeAnim data={data} success={false} />;
 
+    // 🔪 اغتيال السفّاح
+    case 'ASSASSIN_KILL':
+      return (
+        <div className="text-center py-4">
+          <motion.div
+            className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(220,20,60,0.9)]"
+            animate={{ scale: [0.6, 1.4, 1], rotate: [0, -15, 15, 0] }}
+            transition={{ duration: 0.8 }}
+          >
+            🔪
+          </motion.div>
+          <motion.p
+            className="text-3xl md:text-4xl font-black text-[#DC143C] tracking-widest mb-3"
+            style={{ fontFamily: 'Amiri, serif' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            السفّاح اغتال
+          </motion.p>
+          {data.targetName && (
+            <motion.div
+              className="flex justify-center mt-6"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8, type: 'spring', damping: 12 }}
+            >
+              <MafiaCard
+                playerNumber={data.targetPhysicalId!}
+                playerName={data.targetName}
+                role={data.extra?.targetRole || null}
+                isFlipped={!!data.extra?.targetRole}
+                flippable={false}
+                isAlive={true}
+                size="fluid"
+                className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+              />
+            </motion.div>
+          )}
+          <motion.div
+            className="w-64 h-[2px] bg-gradient-to-r from-transparent via-[#DC143C] to-transparent mx-auto mt-6"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: 0.5, duration: 0.6 }}
+          />
+        </div>
+      );
+
+    // 🛡️ حماية ضد السفّاح
+    case 'ASSASSIN_BLOCKED':
+      return <MorningProtectionAnim />;
+
     // 👮‍♀️ إقصاء الشرطية
     case 'POLICEWOMAN_EXECUTION': {
       const isMafia = data.extra?.targetIsMafia;

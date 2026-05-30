@@ -1236,11 +1236,15 @@ function DisplayPageContent() {
         {/* ═══ نهاية اللعبة ═══ */}
         {phase === Phase.GAME_OVER && winner && (() => {
           const isJesterWin = winner === 'JESTER';
+          const isAssassinWin = winner === 'ASSASSIN';
           // تصفية الفريق الفائز
           let winningTeamPlayers;
           if (isJesterWin) {
             // فوز المهرج: عرض المهرج فقط
             winningTeamPlayers = players.filter((p: any) => p.role === 'JESTER');
+          } else if (isAssassinWin) {
+            // 🔪 فوز السفّاح: عرض السفّاح فقط
+            winningTeamPlayers = players.filter((p: any) => p.role === 'ASSASSIN');
           } else {
             winningTeamPlayers = players.filter((p: any) => {
               const roleStr = p.role || null;
