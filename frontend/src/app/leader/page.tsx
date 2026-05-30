@@ -61,6 +61,8 @@ interface GameState {
   // Session
   sessionId?: number;
   activityId?: number;
+  // 🔪 Assassin
+  assassinState?: any;
 }
 
 export default function LeaderPage() {
@@ -222,6 +224,7 @@ export default function LeaderPage() {
             nightComplete: data.state.nightComplete || false,
             morningEvents: data.state.morningEvents || [],
             pendingWinner: data.state.pendingWinner || null,
+            assassinState: data.state.assassinState || null,
           });
 
           if (phase === 'LOBBY') {
@@ -456,6 +459,7 @@ export default function LeaderPage() {
         ...prev,
         players: state.players,
         phase: state.phase || prev.phase,
+        assassinState: state.assassinState || prev.assassinState,
       } : prev);
     });
 
@@ -2791,7 +2795,42 @@ export default function LeaderPage() {
                           </div>
                         )}
 
-                        {/* زر تخطي (للقناص والقص) */}
+                        {/* زر تخطي (للقناص والقص والسفّاح) */}
+                        {/* 🔪 عقود السفّاح — Auto Mode */}
+                        {autoNightStep.role === 'ASSASSIN' && gameState.assassinState && (
+                          <div className="mb-3 border border-[#6b21a8]/30 rounded-xl p-3 bg-[#0d0015]/60">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-lg">🗡️</span>
+                              <span className="text-xs font-bold text-purple-300">عقود السفّاح</span>
+                              <span className="text-[10px] text-purple-400/60 font-mono mr-auto">
+                                {gameState.assassinState.completedCount}/{gameState.assassinState.totalRequired}
+                              </span>
+                            </div>
+                            <div className="h-1 bg-[#1a0030] rounded-full overflow-hidden mb-2">
+                              <div
+                                className="h-full bg-gradient-to-r from-purple-600 to-purple-400 rounded-full transition-all"
+                                style={{
+                                  width: `${(gameState.assassinState.completedCount / gameState.assassinState.totalRequired) * 100}%`,
+                                }}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              {gameState.assassinState.contracts.map((contract: any, i: number) => {
+                                const isCurrent = i === gameState.assassinState.currentContractIndex && !contract.completed;
+                                return (
+                                  <div key={i} className={`flex items-center gap-2 text-[10px] px-2 py-1 rounded-lg ${
+                                    contract.completed ? 'bg-green-900/20 text-green-400' :
+                                    isCurrent ? 'bg-purple-900/30 text-purple-300 border border-purple-500/30' :
+                                    'bg-[#111] text-[#555]'
+                                  }`}>
+                                    <span>{contract.completed ? '✅' : isCurrent ? '🎯' : '⏳'}</span>
+                                    <span>{contract.descriptionAr || `اغتيال ${contract.targetRole}`}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                         {autoNightStep.canSkip && !autoNightStep.dispatched && (
                           <button
                             onClick={async () => {

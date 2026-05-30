@@ -465,6 +465,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
           }
         }
 
+        // 🔪 ضمان حفظ state مع assassinState قبل تحضير الطابور
+        await setGameState(data.roomId, state);
+
         prepareAutoQueueStep(io, data.roomId, -1);
 
         return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
@@ -1732,6 +1735,7 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
 
     // 🔪 السفّاح: تخطي أول ليلة + تخطي إذا فاز
     if (actionRole === ('ASSASSIN' as Role)) {
+      console.log(`🔪 getNextQueueStep: ASSASSIN check — firstNightPassed=${state.assassinState?.firstNightPassed}, won=${state.assassinState?.won}`);
       if (!state.assassinState?.firstNightPassed) continue;
       if (state.assassinState?.won) continue;
     }
