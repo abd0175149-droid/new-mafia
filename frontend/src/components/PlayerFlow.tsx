@@ -685,6 +685,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     localStorage.setItem('mafia_user_exited', 'true');
   }, [initialRoomCode, emit, roomId, phone, playerId, roomCode, displayName]);
 
+  // ── منع pull-to-refresh داخل اللعبة ──
+  useEffect(() => {
+    document.body.classList.add('in-game');
+    return () => {
+      document.body.classList.remove('in-game');
+    };
+  }, []);
+
   // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;

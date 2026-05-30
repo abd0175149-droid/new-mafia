@@ -16,8 +16,9 @@ function usePullToRefresh() {
   const pullDistance = useRef(0);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
-    // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة
+    // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة أو داخل اللعبة
     if (document.body.classList.contains('modal-open')) return;
+    if (document.body.classList.contains('in-game')) return;
     if (document.body.style.position === 'fixed') return;
     if (window.scrollY === 0) {
       startY.current = e.touches[0].clientY;
@@ -25,8 +26,9 @@ function usePullToRefresh() {
   }, []);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة
+    // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة أو داخل اللعبة
     if (document.body.classList.contains('modal-open')) return;
+    if (document.body.classList.contains('in-game')) return;
     if (document.body.style.position === 'fixed') return;
     if (window.scrollY > 0) return;
     const currentY = e.touches[0].clientY;
@@ -37,8 +39,8 @@ function usePullToRefresh() {
   }, []);
 
   const handleTouchEnd = useCallback(() => {
-    // ⚠️ تجاهل إذا موديل مفتوح
-    if (document.body.classList.contains('modal-open')) {
+    // ⚠️ تجاهل إذا موديل مفتوح أو داخل اللعبة
+    if (document.body.classList.contains('modal-open') || document.body.classList.contains('in-game')) {
       setPulling(false);
       pullDistance.current = 0;
       return;

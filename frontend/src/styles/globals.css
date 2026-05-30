@@ -49,6 +49,12 @@
     overscroll-behavior: none;
   }
 
+  /* منع pull-to-refresh أثناء اللعب (التصويت/الليل/كاردز اللاعبين) */
+  body.in-game {
+    overscroll-behavior: none !important;
+    -webkit-overflow-scrolling: auto;
+  }
+
   /* ── Noise Overlay ── */
   body::after {
     content: "";
