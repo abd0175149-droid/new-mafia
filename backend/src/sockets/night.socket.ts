@@ -432,8 +432,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
         });
 
         // ── تجهيز أول خطوة (تنتظر الليدر) ──
-        // 🔪 تهيئة حالة السفّاح (أول ليلة فقط — Auto Mode)
-        if (!state.assassinState) {
+        // 🔪 تهيئة حالة السفّاح (أول ليلة → تهيئة جديدة دائماً، حتى لو فيه بقايا من لعبة سابقة)
+        const isFirstNight = state.round <= 1;
+        if (!state.assassinState || isFirstNight) {
           const { initAssassinState } = await import('../game/assassin-engine.js');
           const assassinState = initAssassinState(state);
           if (assassinState) {
@@ -493,8 +494,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
           const dynamicNight = createDynamicNightState(state.dynamicNightState || undefined);
           state.dynamicNightState = dynamicNight;
 
-          // 🔪 تهيئة حالة السفّاح (أول ليلة فقط)
-          if (!state.assassinState) {
+          // 🔪 تهيئة حالة السفّاح (أول ليلة → تهيئة جديدة دائماً)
+          const isFirstNightDyn = state.round <= 1;
+          if (!state.assassinState || isFirstNightDyn) {
             const { initAssassinState } = await import('../game/assassin-engine.js');
             const assassinState = initAssassinState(state);
             if (assassinState) {
