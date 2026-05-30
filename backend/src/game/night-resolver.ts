@@ -269,6 +269,7 @@ export async function resetNightActions(roomId: string): Promise<GameState> {
     doctorTarget: null,
     sniperTarget: null,
     nurseTarget: null,
+    assassinTarget: null,
     lastProtectedTarget: lastProtected, // يبقى قيد الطبيب
   };
 
@@ -327,7 +328,15 @@ export function getAvailableTargets(state: GameState, role: Role): number[] {
         .filter(p => p.physicalId !== state.nightActions.lastProtectedTarget)
         .map(p => p.physicalId);
 
-    default:
+    default: {
+      // 🔪 السفّاح: كل الأحياء ما عدا نفسه
+      if ((role as string) === 'ASSASSIN') {
+        const assassin = state.players.find(p => (p.role as string) === 'ASSASSIN' && p.isAlive);
+        return alive
+          .filter(p => p.physicalId !== assassin?.physicalId)
+          .map(p => p.physicalId);
+      }
       return [];
+    }
   }
 }

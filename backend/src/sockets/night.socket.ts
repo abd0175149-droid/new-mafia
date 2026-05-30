@@ -34,6 +34,7 @@ const NIGHT_QUEUE_ORDER: Role[] = [
   Role.SHERIFF,    // 3. إجراء التحقيق
   Role.DOCTOR,     // 4. إجراء الحماية
   Role.SNIPER,     // 5. إجراء القنص
+  'ASSASSIN' as Role,  // 6. 🔪 اغتيال السفّاح (آخر مرحلة)
 ];
 
 // ── أسماء الإجراءات بالعربي ──
@@ -43,6 +44,7 @@ const ACTION_NAMES: Record<string, string> = {
   [Role.SHERIFF]: 'تحقيق الشريف',
   [Role.DOCTOR]: 'حماية الطبيب',
   [Role.SNIPER]: 'قنص القناص',
+  'ASSASSIN': 'اغتيال السفّاح',
 };
 
 // ── سلسلة وراثة الاغتيال ──
@@ -67,6 +69,7 @@ function getAutoActionType(role: Role | null): string {
     case Role.DOCTOR:        return 'PROTECT';
     case Role.NURSE:         return 'PROTECT';
     case Role.SNIPER:        return 'SNIPE';
+    case 'ASSASSIN' as Role:  return 'ASSASSINATE';
     default:                 return 'DECOY'; // مواطن عادي — يُهمل
   }
 }
@@ -88,6 +91,9 @@ function getAutoTargets(state: any, role: Role | null, selfId: number): number[]
     case Role.NURSE:
       return alive.filter((id: number) => id !== state.nightActions.lastProtectedTarget);
     case Role.SNIPER:
+      return alive.filter((id: number) => id !== selfId);
+    case 'ASSASSIN' as Role:
+      // السفّاح: كل الأحياء ما عدا نفسه
       return alive.filter((id: number) => id !== selfId);
     default:
       // DECOY: نفس الأحياء للتمويه
@@ -124,6 +130,37 @@ async function resolveAutoNight(io: Server, roomId: string) {
   if (timer) { clearTimeout(timer); autoNightTimers.delete(roomId); }
 
   const resolution = await resolveNight(roomId);
+
+  // 🔪 معالجة اغتيال السفّاح (بعد الحل الأساسي)
+  const stateBeforeAssassin = await getGameState(roomId);
+  if (stateBeforeAssassin?.assassinState && stateBeforeAssassin.nightActions?.assassinTarget) {
+    const { evaluateAssassinKill } = await import('../game/assassin-engine.js');
+    const targetId = stateBeforeAssassin.nightActions.assassinTarget;
+    const target = stateBeforeAssassin.players.find((p: any) => p.physicalId === targetId);
+    if (target && target.isAlive) {
+      target.isAlive = false;
+      const wasRandom = stateBeforeAssassin.nightActions.randomSelections?.['ASSASSIN'] || false;
+      // تقييم هل القتل يُكمل عقد
+      evaluateAssassinKill(stateBeforeAssassin, targetId);
+      resolution.events.push({
+        type: 'ASSASSINATION',
+        targetPhysicalId: targetId,
+        targetName: target.name,
+        performerPhysicalId: stateBeforeAssassin.assassinState.assassinPhysicalId,
+        performerName: stateBeforeAssassin.players.find((p: any) => p.physicalId === stateBeforeAssassin.assassinState.assassinPhysicalId)?.name || '',
+        wasRandom,
+      });
+    }
+  }
+
+  // 🔪 تحديث firstNightPassed
+  if (stateBeforeAssassin?.assassinState && !stateBeforeAssassin.assassinState.firstNightPassed) {
+    stateBeforeAssassin.assassinState.firstNightPassed = true;
+  }
+  if (stateBeforeAssassin) {
+    await setGameState(roomId, stateBeforeAssassin);
+  }
+
   await setPhase(roomId, Phase.MORNING_RECAP);
 
   const stateAfter = await getGameState(roomId);
@@ -134,7 +171,14 @@ async function resolveAutoNight(io: Server, roomId: string) {
 
   // 🤡 فوز المهرج — اللعبة تنتهي فوراً (لا pendingWinner)
   let pendingWinner: string | null = null;
-  if (resolution.neutralWin?.won) {
+
+  // 🔪 فحص فوز السفّاح أولاً
+  if (stateAfter?.assassinState?.won && !stateAfter.winner) {
+    pendingWinner = 'ASSASSIN';
+    stateAfter.winner = 'ASSASSIN';
+    stateAfter.pendingWinner = 'ASSASSIN';
+    await setGameState(roomId, stateAfter);
+  } else if (resolution.neutralWin?.won) {
     pendingWinner = 'JESTER';
     const state = await getGameState(roomId);
     if (state) { state.pendingWinner = 'JESTER'; await setGameState(roomId, state); }
@@ -145,7 +189,6 @@ async function resolveAutoNight(io: Server, roomId: string) {
   }
 
   // إرسال ملخص الصباح للليدر — بث للغرفة بالكامل لضمان الوصول
-  // (findLeaderSocket قد يفشل عند الاستدعاء من setTimeout في auto mode)
   io.to(roomId).emit('night:morning-recap', {
     events: resolution.events,
     pendingWinner,
@@ -298,6 +341,13 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
                 latestState.nightActions.nurseTarget = tId;
                 latestState.nightActions.randomSelections['NURSE'] = true;
                 break;
+              default:
+                // 🔪 السفّاح وأي دور جديد
+                if (latestState.autoNightStepRole === 'ASSASSIN') {
+                  latestState.nightActions.assassinTarget = tId;
+                  latestState.nightActions.randomSelections['ASSASSIN'] = true;
+                }
+                break;
             }
           
             if (!latestState.playerNightActions) latestState.playerNightActions = { submitted: {} };
@@ -382,6 +432,39 @@ export function registerNightEvents(io: Server, socket: Socket) {
         });
 
         // ── تجهيز أول خطوة (تنتظر الليدر) ──
+        // 🔪 تهيئة حالة السفّاح (أول ليلة فقط — Auto Mode)
+        if (!state.assassinState) {
+          const { initAssassinState } = await import('../game/assassin-engine.js');
+          const assassinState = initAssassinState(state);
+          if (assassinState) {
+            state.assassinState = assassinState;
+            await setGameState(data.roomId, state);
+            console.log(`🔪 [Auto] Assassin initialized: ${assassinState.totalRequired} contracts`);
+
+            // إرسال العقود للاعب السفّاح
+            const assassinSock = findPlayerSocket(io, data.roomId, assassinState.assassinPhysicalId);
+            if (assassinSock) {
+              assassinSock.emit('assassin:contracts-update', {
+                contracts: assassinState.contracts,
+                currentIndex: assassinState.currentContractIndex,
+                completedCount: assassinState.completedCount,
+                totalRequired: assassinState.totalRequired,
+              });
+            }
+          }
+        } else {
+          // 🔪 إرسال تحديث العقود كل ليلة (Auto Mode)
+          const assassinSock = findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId);
+          if (assassinSock) {
+            assassinSock.emit('assassin:contracts-update', {
+              contracts: state.assassinState.contracts,
+              currentIndex: state.assassinState.currentContractIndex,
+              completedCount: state.assassinState.completedCount,
+              totalRequired: state.assassinState.totalRequired,
+            });
+          }
+        }
+
         prepareAutoQueueStep(io, data.roomId, -1);
 
         return callback({ success: true, round: state.round, nurseAvailable: false, mode: 'auto' });
@@ -703,6 +786,16 @@ export function registerNightEvents(io: Server, socket: Socket) {
           break;
         case Role.NURSE:
           state.nightActions.nurseTarget = data.targetPhysicalId;
+          break;
+        default:
+          // 🔪 السفّاح
+          if ((data.role as string) === 'ASSASSIN') {
+            state.nightActions.assassinTarget = data.targetPhysicalId;
+            io.to(data.roomId).emit('night:animation', {
+              type: 'ASSASSINATE',
+              targetPhysicalId: data.targetPhysicalId,
+            });
+          }
           break;
       }
 
@@ -1444,6 +1537,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
           case Role.SNIPER:
             state.nightActions.sniperTarget = data.targetPhysicalId;
             break;
+          default:
+            // 🔪 السفّاح
+            if ((stepRole as string) === 'ASSASSIN') {
+              state.nightActions.assassinTarget = data.targetPhysicalId;
+            }
+            break;
         }
       }
 
@@ -1631,6 +1730,12 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
 
     if (!performer) continue;
 
+    // 🔪 السفّاح: تخطي أول ليلة + تخطي إذا فاز
+    if (actionRole === ('ASSASSIN' as Role)) {
+      if (!state.assassinState?.firstNightPassed) continue;
+      if (state.assassinState?.won) continue;
+    }
+
     const targets = getAvailableTargets(state, actionRole);
 
     return {
@@ -1642,7 +1747,7 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
         const p = state.players.find((pl: any) => pl.physicalId === id);
         return { physicalId: id, name: p?.name || '', avatarUrl: p?.avatarUrl || null };
       }),
-      canSkip: actionRole === Role.SNIPER || actionRole === Role.SILENCER,
+      canSkip: actionRole === Role.SNIPER || actionRole === Role.SILENCER || actionRole === ('ASSASSIN' as Role),
     };
   }
 
