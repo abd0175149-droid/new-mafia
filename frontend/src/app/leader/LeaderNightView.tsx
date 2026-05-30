@@ -1066,11 +1066,16 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           </div>
 
           <div className="flex items-center gap-1.5">
-            {['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'].map((role) => {
+            {(() => {
+              // دعم الوضعين: Auto Mode (أسماء الأدوار) + Dynamic Engine (معرفات القدرات)
+              const autoRoles = ['GODFATHER', 'SILENCER', 'SHERIFF', 'DOCTOR', 'SNIPER', 'ASSASSIN'];
+              const dynamicRoles = ['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'];
+              const roles = autoRoles.includes(nightStep.role) ? autoRoles : dynamicRoles;
+              return roles.map((role) => {
               const roleMeta = ACTION_META[role];
               const isCurrent = nightStep.role === role;
-              const isPast = ['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'].indexOf(role) <
-                             ['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'].indexOf(nightStep.role);
+              const isPast = roles.indexOf(role) <
+                             roles.indexOf(nightStep.role);
               return (
                 <div key={role} className="flex flex-col items-center gap-0.5">
                   <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs transition-all ${
@@ -1082,7 +1087,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                   {isCurrent && <div className="w-1 h-1 rounded-full bg-[#C5A059]" />}
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </div>
 
@@ -1109,8 +1115,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           </div>
         </motion.div>
 
-        {/* 🔪 عقود السفّاح — تظهر فقط في خطوة ASSASSINATE */}
-        {nightStep.role === 'ASSASSINATE' && gameState.assassinState && (
+        {/* 🔪 عقود السفّاح — تظهر فقط في خطوة ASSASSINATE أو ASSASSIN */}
+        {(nightStep.role === 'ASSASSINATE' || nightStep.role === 'ASSASSIN') && gameState.assassinState && (
           <div className="mb-5 border border-[#6b21a8]/30 rounded-xl p-4 bg-[#0d0015]/60">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-lg">🗡️</span>
