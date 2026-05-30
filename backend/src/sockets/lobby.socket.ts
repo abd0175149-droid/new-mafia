@@ -1193,6 +1193,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         })),
       } : null;
 
+      // جمع عقود السفّاح إذا اللاعب هو السفّاح
+      let assassinContractsData: any = null;
+      if (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) {
+        assassinContractsData = {
+          contracts: state.assassinState.contracts,
+          currentIndex: state.assassinState.currentContractIndex,
+          completedCount: state.assassinState.completedCount,
+          totalRequired: state.assassinState.totalRequired,
+        };
+      }
+
       callback({
         success: true,
         player: {
@@ -1205,6 +1216,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           penalties: player.penalties || 0,
         },
         mafiaTeam: mafiaTeamData || [],
+        assassinContracts: assassinContractsData,
         phase: state.phase,
         gameName: state.config?.gameName || '',
         roomCode: state.roomCode || '',

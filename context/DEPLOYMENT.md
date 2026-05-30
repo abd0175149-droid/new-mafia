@@ -1,18 +1,117 @@
 # 🎭 Mafia Platform — دليل النشر والتطوير الشامل
 
-> آخر تحديث: 2026-05-11
+> آخر تحديث: 2026-05-30
+
+---
+
+## ⛔ قواعد ذهبية للنشر الآمن (اقرأ أولاً!)
+
+> **هذا القسم إلزامي — يجب مراجعته قبل كل عملية نشر**
+
+### 🚫 ممنوعات مطلقة
+
+| # | الأمر الممنوع | السبب | البديل الآمن |
+|---|--------------|-------|--------------|
+| 1 | `git reset --hard` على السيرفر | يحذف `docker-compose.override.yml` → يفقد ربط الفوليومات → **ضياع البيانات** | `git pull origin <branch>` |
+| 2 | `git push origin main` من فرع `staging` | الفرع `main` غير موجود — الفرع الرئيسي اسمه `master` | `git push origin staging` أو `git push origin master` |
+| 3 | `docker volume prune` | يحذف جميع الفوليومات غير المستخدمة = **ضياع بيانات الإنتاج** | حذف فوليوم محدد بالاسم |
+| 4 | `docker compose down -v` | يحذف الفوليومات المرتبطة | `docker compose down` بدون `-v` |
+| 5 | نشر على `~/mafia-prod` بدون اختبار على `~/mafia-staging` أولاً | خطر توقف الموقع | اختبر على staging أولاً دائماً |
+
+### ✅ خطوات النشر الآمنة (Checklist)
+
+```
+□ 1. تأكد من الفرع الصحيح:
+     - جهازك (Windows): فرع staging
+     - السيرفر ~/mafia-staging: فرع staging  
+     - السيرفر ~/mafia-prod: فرع master
+
+□ 2. على السيرفر، استخدم PULL فقط (لا reset!):
+     cd ~/mafia-staging && git pull origin staging
+     cd ~/mafia-prod && git pull origin master
+
+□ 3. تحقق أن docker-compose.override.yml موجود قبل البناء:
+     cat ~/mafia-prod/docker-compose.override.yml
+     # يجب أن يظهر: unified-mafia_postgres_data + unified-mafia_uploads_data
+
+□ 4. ابنِ backend + frontend فقط (لا تعيد بناء database!):
+     docker compose build --no-cache backend frontend
+     docker compose up -d backend frontend
+
+□ 5. تحقق أن البيانات لم تُفقد:
+     docker exec mafia-prod-database-1 psql -U mafia_user -d mafia_db \
+       -c "SELECT COUNT(*) FROM players;"
+```
+
+### 🔑 معلومات الفروع (Git Branches)
+
+| البيئة | الفرع | أمر Push | أمر Pull (على السيرفر) |
+|--------|-------|----------|------------------------|
+| **التطوير** (staging) | `staging` | `git push origin staging` | `cd ~/mafia-staging && git pull origin staging` |
+| **الإنتاج** (production) | `master` | `git push origin master` | `cd ~/mafia-prod && git pull origin master` |
+
+> ⚠️ **لا يوجد فرع اسمه `main`!** الفرع الرئيسي اسمه `master`.
+
+### 🔗 ملف docker-compose.override.yml الحرج
+
+هذا الملف موجود **فقط** في `~/mafia-prod` ويربط الفوليومات الأصلية:
+
+```yaml
+# ~/mafia-prod/docker-compose.override.yml
+# ⛔ لا تحذف هذا الملف أبداً!
+volumes:
+  db_data:
+    external: true
+    name: unified-mafia_postgres_data
+  uploads_data:
+    external: true  
+    name: unified-mafia_uploads_data
+```
+
+إذا اختفى هذا الملف (مثلاً بسبب `git reset --hard`):
+- Docker ينشئ فوليومات **جديدة فارغة** بدلاً من ربط الأصلية
+- النتيجة: **ضياع كامل للبيانات والصور**
+- الحل: إعادة إنشاء الملف يدوياً + إعادة تشغيل
+
+### 💾 النسخ الاحتياطية التلقائية (Google Drive)
+
+| العنصر | المسار على Google Drive |
+|--------|------------------------|
+| قاعدة بيانات الإنتاج | `gdrive:Server-Backups/latest/databases/mafia-prod_mafia_db.sql.gz` |
+| صور المستخدمين | `gdrive:Server-Backups/latest/uploads/mafia-prod_uploads.tar.gz` |
+| سكريبت النسخ | `/opt/backup/server-backup.sh` |
+| أداة الاسترجاع | `rclone` |
+
+**استعادة من Google Drive:**
+```bash
+# قاعدة البيانات
+rclone copy gdrive:Server-Backups/latest/databases/mafia-prod_mafia_db.sql.gz /tmp/
+gunzip -k /tmp/mafia-prod_mafia_db.sql.gz
+docker exec mafia-prod-database-1 psql -U mafia_user -d postgres -c "DROP DATABASE mafia_db;"
+docker exec mafia-prod-database-1 psql -U mafia_user -d postgres -c "CREATE DATABASE mafia_db OWNER mafia_user;"
+docker cp /tmp/mafia-prod_mafia_db.sql mafia-prod-database-1:/tmp/restore.sql
+docker exec mafia-prod-database-1 psql -U mafia_user -d mafia_db -f /tmp/restore.sql
+
+# الصور
+rclone copy gdrive:Server-Backups/latest/uploads/mafia-prod_uploads.tar.gz /tmp/
+cd /tmp && tar -xzf mafia-prod_uploads.tar.gz
+docker cp /tmp/avatars mafia-prod-backend-1:/app/uploads/
+docker cp /tmp/card-faces mafia-prod-backend-1:/app/uploads/
+docker cp /tmp/sounds mafia-prod-backend-1:/app/uploads/
+```
 
 ---
 
 ## 📋 فهرس المحتويات
 
-1. [نظرة عامة على البنية التحتية](#-نظرة-عامة-على-البنية-التحتية)
-2. [تفاصيل البيئات](#-تفاصيل-البيئات)
-3. [دورة حياة التطوير والنشر](#-دورة-حياة-التطوير-والنشر)
-4. [أوامر مرجعية سريعة](#-أوامر-مرجعية-سريعة)
-5. [إدارة قواعد البيانات](#-إدارة-قواعد-البيانات)
-6. [استكشاف الأخطاء وإصلاحها](#-استكشاف-الأخطاء-وإصلاحها)
-7. [ملاحظات أمنية مهمة](#-ملاحظات-أمنية-مهمة)
+1. [قواعد ذهبية للنشر الآمن](#-قواعد-ذهبية-للنشر-الآمن-اقرأ-أولاً)
+2. [نظرة عامة على البنية التحتية](#-نظرة-عامة-على-البنية-التحتية)
+3. [تفاصيل البيئات](#-تفاصيل-البيئات)
+4. [دورة حياة التطوير والنشر](#-دورة-حياة-التطوير-والنشر)
+5. [أوامر مرجعية سريعة](#-أوامر-مرجعية-سريعة)
+6. [إدارة قواعد البيانات](#-إدارة-قواعد-البيانات)
+7. [استكشاف الأخطاء وإصلاحها](#-استكشاف-الأخطاء-وإصلاحها)
+8. [ملاحظات أمنية مهمة](#-ملاحظات-أمنية-مهمة)
 
 ---
 
@@ -77,8 +176,9 @@
 |--------|--------|
 | **الرابط** | `https://club-mafia.grade.sbs/` |
 | **المسار على السيرفر** | `~/mafia-prod` |
-| **فرع Git** | `master` |
+| **فرع Git** | `master` ⚠️ (ليس `main`!) |
 | **Cloudflare Tunnel** | يوجه إلى `http://127.0.0.1:3010` |
+| **override.yml** | ✅ مطلوب — يربط الفوليومات الأصلية |
 
 **ملف `.env` الخاص بالإنتاج:**
 

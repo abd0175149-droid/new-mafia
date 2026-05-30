@@ -3,98 +3,59 @@
 // يدير: توليد العقود الذكية، التحقق من الإنجاز، شرط الفوز
 // ══════════════════════════════════════════════════════
 
-import type { GameState, Player, AssassinContract, AssassinContractType, AssassinState } from './state.js';
-import { isMafiaRole, isCitizenRole } from './roles.js';
-
-// ── الأدوار التي تملك قدرات ليلية (لعقد KILL_ABILITY) ──
-const ABILITY_ROLES = ['SHERIFF', 'DOCTOR', 'SNIPER', 'NURSE', 'GODFATHER', 'SILENCER'];
-
-// ── الأدوار حسب الفريق (لعقود KILL_TEAM) ──
-const MAFIA_ROLE_IDS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
-const CITIZEN_ROLE_IDS = ['SHERIFF', 'DOCTOR', 'SNIPER', 'POLICEWOMAN', 'NURSE', 'CITIZEN'];
+import type { GameState, AssassinContract, AssassinState } from './state.js';
+import { ROLE_NAMES_AR, SPECIAL_ROLES } from './state.js';
 
 // ══════════════════════════════════════════════════════
-// 🧠 الخوارزمية الذكية لتوليد العقود
+// 🧠 توليد عقود الاغتيال — كل كارد له دور مميز
 // ══════════════════════════════════════════════════════
 
 /**
- * تولد عقود اغتيال بناءً على اللاعبين الأحياء الحاليين.
- * الصعوبة تتصاعد: العقود الأولى أسهل → الأخيرة أصعب.
- * 
- * نظام الأوزان:
- *   KILL_ANY           → وزن 1 (سهل)
- *   KILL_TEAM_CITIZEN  → وزن 1 (سهل — المواطنون كثر)
- *   KILL_TEAM_MAFIA    → وزن 2 (متوسط — المافيا عددهم أقل)
- *   KILL_ABILITY       → وزن 3 (صعب — لاعب بقدرة محددة)
- *   KILL_ADJACENT      → وزن 3 (صعب — لاعب بجانبك)
- *   KILL_SPECIFIC_SEAT → وزن 4 (صعب جداً — رقم مقعد محدد)
+ * تولد عقود اغتيال عشوائية من الأدوار المميزة الموجودة في اللعبة.
+ * - تجمع كل الأدوار المميزة الحية (ليس CITIZEN أو MAFIA_REGULAR أو ASSASSIN)
+ * - تخلطها عشوائياً
+ * - تختار العدد المطلوب
+ * - إذا الأدوار أقل من المطلوب → تكرر عشوائياً
  */
 export function generateContracts(state: GameState, totalRequired: number): AssassinContract[] {
   const alive = state.players.filter(p => p.isAlive && p.role !== 'ASSASSIN');
-  const contracts: AssassinContract[] = [];
 
-  // تجميع العقود المتاحة بناءً على اللاعبين الأحياء
-  const pool: { type: AssassinContractType; desc: string; constraint: any; weight: number }[] = [];
-
-  // ── دائماً متاح: اقتل أي لاعب ──
-  pool.push({ type: 'KILL_ANY', desc: 'اغتل أي لاعب', constraint: null, weight: 1 });
-
-  // ── مواطنون أحياء ──
-  const aliveCitizens = alive.filter(p => CITIZEN_ROLE_IDS.includes(p.role as string));
-  if (aliveCitizens.length > 0) {
-    pool.push({ type: 'KILL_TEAM_CITIZEN', desc: 'اغتل مواطن', constraint: { team: 'CITIZEN' }, weight: 1 });
-  }
-
-  // ── مافيا أحياء ──
-  const aliveMafia = alive.filter(p => MAFIA_ROLE_IDS.includes(p.role as string));
-  if (aliveMafia.length > 0) {
-    pool.push({ type: 'KILL_TEAM_MAFIA', desc: 'اغتل عضو مافيا', constraint: { team: 'MAFIA' }, weight: 2 });
-  }
-
-  // ── لاعبون بقدرات ليلية ──
-  const aliveWithAbility = alive.filter(p => ABILITY_ROLES.includes(p.role as string));
-  if (aliveWithAbility.length > 0) {
-    pool.push({ type: 'KILL_ABILITY', desc: 'اغتل لاعب يملك قدرة ليلية', constraint: { hasAbility: true }, weight: 3 });
-  }
-
-  // ── لاعبون بجانب السفّاح ──
-  const assassin = state.players.find(p => p.role === 'ASSASSIN');
-  if (assassin) {
-    const sorted = state.players.filter(p => p.isAlive).sort((a, b) => a.physicalId - b.physicalId);
-    if (sorted.length > 2) {
-      pool.push({ type: 'KILL_ADJACENT', desc: 'اغتل لاعب بجانبك (فوق أو تحت)', constraint: { adjacent: true }, weight: 3 });
+  // جمع الأدوار المميزة الموجودة فعلاً في اللعبة
+  const availableRoles: string[] = [];
+  for (const player of alive) {
+    const role = player.role as string;
+    if (role && SPECIAL_ROLES.includes(role) && !availableRoles.includes(role)) {
+      availableRoles.push(role);
     }
   }
 
-  // ── مقعد محدد (عشوائي من الأحياء) ──
-  if (alive.length >= 4) {
-    const randomTarget = alive[Math.floor(Math.random() * alive.length)];
-    pool.push({
-      type: 'KILL_SPECIFIC_SEAT',
-      desc: `اغتل اللاعب رقم #${randomTarget.physicalId}`,
-      constraint: { seatId: randomTarget.physicalId },
-      weight: 4,
-    });
+  // خلط عشوائي (Fisher-Yates)
+  for (let i = availableRoles.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [availableRoles[i], availableRoles[j]] = [availableRoles[j], availableRoles[i]];
   }
 
-  // ── ترتيب المسبح حسب الوزن (سهل → صعب) ──
-  pool.sort((a, b) => a.weight - b.weight);
+  const contracts: AssassinContract[] = [];
 
-  // ── توليد العقود بالتصاعد ──
   for (let i = 0; i < totalRequired; i++) {
-    // العقود الأولى سهلة، والأخيرة صعبة
-    const progress = totalRequired <= 1 ? 0 : i / (totalRequired - 1); // 0 → 1
-    const poolIndex = Math.min(
-      Math.floor(progress * pool.length),
-      pool.length - 1,
-    );
-    const selected = pool[poolIndex];
+    // إذا استنفدنا الأدوار → نكرر من البداية (بخلط جديد)
+    const roleIndex = i % availableRoles.length;
+    if (i > 0 && roleIndex === 0 && availableRoles.length > 1) {
+      // إعادة خلط عند التكرار
+      for (let k = availableRoles.length - 1; k > 0; k--) {
+        const j = Math.floor(Math.random() * (k + 1));
+        [availableRoles[k], availableRoles[j]] = [availableRoles[j], availableRoles[k]];
+      }
+    }
+
+    const targetRole = availableRoles[roleIndex];
+    const roleName = ROLE_NAMES_AR[targetRole] || targetRole;
 
     contracts.push({
       id: i + 1,
-      type: selected.type,
-      description: selected.desc,
-      targetConstraint: selected.constraint,
+      type: 'KILL_ROLE',
+      targetRole,
+      description: `🔪 اغتل ${roleName}`,
       completed: false,
     });
   }
@@ -107,10 +68,8 @@ export function generateContracts(state: GameState, totalRequired: number): Assa
 // ══════════════════════════════════════════════════════
 
 /**
- * يفحص هل الهدف المقتول يطابق شروط العقد الحالي.
- * يُستدعى بعد أن ينجح السفّاح في قتل هدف فعلياً.
- * 
- * ⚠️ قاعدة مهمة: إذا المافيا قتلت نفس الهدف → لا يُحسب كإنجاز!
+ * يفحص هل الهدف المقتول يطابق الدور المطلوب في العقد الحالي.
+ * ⚠️ إذا المافيا قتلت نفس الهدف → لا يُحسب كإنجاز!
  */
 export function checkContractCompletion(
   state: GameState,
@@ -127,46 +86,8 @@ export function checkContractCompletion(
   const target = state.players.find(p => p.physicalId === killedPhysicalId);
   if (!target) return { completed: false, contractId: -1 };
 
-  let matches = false;
-
-  switch (contract.type) {
-    case 'KILL_ANY':
-      matches = true;
-      break;
-
-    case 'KILL_TEAM_MAFIA':
-      matches = MAFIA_ROLE_IDS.includes(target.role as string);
-      break;
-
-    case 'KILL_TEAM_CITIZEN':
-      matches = CITIZEN_ROLE_IDS.includes(target.role as string);
-      break;
-
-    case 'KILL_ABILITY':
-      matches = ABILITY_ROLES.includes(target.role as string);
-      break;
-
-    case 'KILL_ADJACENT': {
-      const assassin = state.players.find(p => p.role === 'ASSASSIN');
-      if (assassin) {
-        // قائمة الأحياء مرتبة (بما فيهم الهدف قبل قتله)
-        const sorted = state.players
-          .filter(p => p.isAlive || p.physicalId === killedPhysicalId)
-          .sort((a, b) => a.physicalId - b.physicalId);
-        const aIdx = sorted.findIndex(p => p.physicalId === assassin.physicalId);
-        const tIdx = sorted.findIndex(p => p.physicalId === killedPhysicalId);
-        // بجانبه = مباشرة فوق أو تحت (بما في ذلك circular — أول وآخر)
-        matches = Math.abs(aIdx - tIdx) === 1
-          || (aIdx === 0 && tIdx === sorted.length - 1)
-          || (tIdx === 0 && aIdx === sorted.length - 1);
-      }
-      break;
-    }
-
-    case 'KILL_SPECIFIC_SEAT':
-      matches = target.physicalId === contract.targetConstraint?.seatId;
-      break;
-  }
+  // فحص: هل دور الهدف يطابق الدور المطلوب في العقد؟
+  const matches = (target.role as string) === contract.targetRole;
 
   return { completed: matches, contractId: contract.id };
 }
@@ -202,20 +123,44 @@ export function advanceContract(state: GameState, round: number): void {
 function regenerateNextContract(state: GameState): void {
   if (!state.assassinState) return;
   const idx = state.assassinState.currentContractIndex;
-  const remaining = state.assassinState.totalRequired - state.assassinState.completedCount;
 
-  // توليد عقد واحد جديد بناءً على الأحياء
-  const tempContracts = generateContracts(state, remaining);
-  if (tempContracts.length > 0) {
-    // اختيار عقد بصعوبة مناسبة (آخر العقود المولدة = الأصعب)
-    const progressRatio = state.assassinState.completedCount / state.assassinState.totalRequired;
-    const pickIdx = Math.min(
-      Math.floor(progressRatio * tempContracts.length),
-      tempContracts.length - 1,
-    );
-    const newContract = tempContracts[pickIdx];
-    newContract.id = idx + 1;
-    state.assassinState.contracts[idx] = newContract;
+  // جمع الأدوار المميزة الحية (ليست مكتملة بالفعل)
+  const alive = state.players.filter(p => p.isAlive && p.role !== 'ASSASSIN');
+  const completedRoles = state.assassinState.contracts
+    .filter(c => c.completed)
+    .map(c => c.targetRole);
+
+  // أدوار مميزة حية ولم تُنجز بعد
+  const availableRoles = alive
+    .map(p => p.role as string)
+    .filter(role => SPECIAL_ROLES.includes(role) && !completedRoles.includes(role));
+
+  if (availableRoles.length > 0) {
+    // اختيار عشوائي من المتاح
+    const picked = availableRoles[Math.floor(Math.random() * availableRoles.length)];
+    const roleName = ROLE_NAMES_AR[picked] || picked;
+
+    state.assassinState.contracts[idx] = {
+      id: idx + 1,
+      type: 'KILL_ROLE',
+      targetRole: picked,
+      description: `🔪 اغتل ${roleName}`,
+      completed: false,
+    };
+  } else {
+    // كل الأدوار المميزة ماتت → اختر أي دور حي عشوائي
+    const anyAlive = alive.filter(p => p.role && SPECIAL_ROLES.includes(p.role as string));
+    if (anyAlive.length > 0) {
+      const picked = anyAlive[Math.floor(Math.random() * anyAlive.length)].role as string;
+      const roleName = ROLE_NAMES_AR[picked] || picked;
+      state.assassinState.contracts[idx] = {
+        id: idx + 1,
+        type: 'KILL_ROLE',
+        targetRole: picked,
+        description: `🔪 اغتل ${roleName}`,
+        completed: false,
+      };
+    }
   }
 }
 
@@ -236,7 +181,6 @@ export function canAssassinateTonight(state: GameState): boolean {
   if (!state.assassinState) return false;
   if (!state.assassinState.firstNightPassed) return false; // أول ليلة ممنوع
   if (state.assassinState.won) return false; // أكمل العقود
-  // لا يوجد cooldown — يقتل كل ليلة
   return true;
 }
 

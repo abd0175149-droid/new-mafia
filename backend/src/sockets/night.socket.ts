@@ -414,6 +414,34 @@ export function registerNightEvents(io: Server, socket: Socket) {
             if (assassinState) {
               state.assassinState = assassinState;
               console.log(`🔪 Assassin initialized: ${assassinState.totalRequired} contracts`);
+
+              // 🔪 إرسال العقود للاعب السفّاح
+              const allSockets = await io.in(data.roomId).fetchSockets();
+              for (const s of allSockets) {
+                if (s.data.role === 'player' && s.data.physicalId === assassinState.assassinPhysicalId) {
+                  s.emit('assassin:contracts-update', {
+                    contracts: assassinState.contracts,
+                    currentIndex: assassinState.currentContractIndex,
+                    completedCount: assassinState.completedCount,
+                    totalRequired: assassinState.totalRequired,
+                  });
+                  break;
+                }
+              }
+            }
+          } else {
+            // 🔪 إرسال تحديث العقود كل ليلة (ليس أول ليلة فقط)
+            const allSockets = await io.in(data.roomId).fetchSockets();
+            for (const s of allSockets) {
+              if (s.data.role === 'player' && s.data.physicalId === state.assassinState.assassinPhysicalId) {
+                s.emit('assassin:contracts-update', {
+                  contracts: state.assassinState.contracts,
+                  currentIndex: state.assassinState.currentContractIndex,
+                  completedCount: state.assassinState.completedCount,
+                  totalRequired: state.assassinState.totalRequired,
+                });
+                break;
+              }
             }
           }
 

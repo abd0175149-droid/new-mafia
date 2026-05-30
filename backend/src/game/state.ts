@@ -126,19 +126,29 @@ export interface MorningEvent {
 
 // ── أنواع عقود السفّاح ────────────────────────────
 
-export type AssassinContractType =
-  | 'KILL_TEAM_MAFIA'     // اقتل لاعب من فريق المافيا
-  | 'KILL_TEAM_CITIZEN'   // اقتل لاعب من فريق المواطنين
-  | 'KILL_ABILITY'        // اقتل لاعب يملك قدرة ليلية
-  | 'KILL_ADJACENT'       // اقتل لاعب بجانبك (فوق أو تحت)
-  | 'KILL_SPECIFIC_SEAT'  // اقتل لاعب برقم مقعد محدد
-  | 'KILL_ANY';           // اقتل أي لاعب
+export type AssassinContractType = 'KILL_ROLE'; // اقتل لاعب بدور محدد
+
+// أسماء الأدوار المميزة بالعربي (للعرض في مهام السفّاح)
+export const ROLE_NAMES_AR: Record<string, string> = {
+  GODFATHER: 'شيخ المافيا',
+  SILENCER: 'قص المافيا',
+  SHERIFF: 'الشريف',
+  DOCTOR: 'الدكتور',
+  SNIPER: 'القنّاص',
+  CHAMELEON: 'الحرباء',
+  NURSE: 'الممرضة',
+  POLICEWOMAN: 'الشرطية',
+  JESTER: 'المهرج',
+};
+
+// الأدوار المؤهلة للعقود (كل دور مميز — ما عدا المواطن العادي والمافيا العادي)
+export const SPECIAL_ROLES = Object.keys(ROLE_NAMES_AR);
 
 export interface AssassinContract {
   id: number;                     // ترتيب العقد (1, 2, 3, ...)
-  type: AssassinContractType;     // نوع المهمة
+  type: AssassinContractType;     // نوع المهمة (دائماً KILL_ROLE)
+  targetRole: string;             // الدور المطلوب قتله (مثل 'GODFATHER', 'DOCTOR')
   description: string;            // وصف المهمة بالعربي
-  targetConstraint: any;          // قيد الهدف (فريق، قدرة، رقم مقعد)
   completed: boolean;
   completedAtRound?: number;
 }

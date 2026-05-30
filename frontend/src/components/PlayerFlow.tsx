@@ -160,6 +160,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [assassinContracts, setAssassinContracts] = useState<any>(null);
   const [switchConfirm, setSwitchConfirm] = useState<{
     currentRoomId: string;
     currentGameName: string;
@@ -344,6 +345,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           }
           if (res.mafiaTeam !== undefined) {
             setMafiaTeam(res.mafiaTeam);
+          }
+          if (res.assassinContracts) {
+            setAssassinContracts(res.assassinContracts);
           }
 
           if (!res.player.isAlive) {
@@ -705,6 +709,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setIsPlayerDead(false); // ← reset: لعبة جديدة = حي
       if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
       if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
+    });
+
+    // 🔪 استقبال عقود السفّاح
+    const cleanupAssassin = on('assassin:contracts-update', (data: any) => {
+      setAssassinContracts(data);
     });
 
     const cleanup = on('game:started', () => {
@@ -1488,6 +1497,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setPlayerId(pid);
           if (res.player.role) setAssignedRole(res.player.role);
           if (res.mafiaTeam !== undefined) setMafiaTeam(res.mafiaTeam);
+          if (res.assassinContracts) setAssassinContracts(res.assassinContracts);
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
             setCardFlipped(true);
@@ -3219,6 +3229,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         isOpen={isGalleryOpen}
         onClose={() => setIsGalleryOpen(false)}
         team={mafiaTeam}
+        isAssassin={assignedRole === 'ASSASSIN'}
+        assassinContracts={assassinContracts}
       />
 
       {/* ── زر شركاء المافيا العائم (موجود كشكل للجميع لتجنب كشف الدور) ── */}
