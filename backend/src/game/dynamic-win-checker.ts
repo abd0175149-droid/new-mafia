@@ -112,6 +112,18 @@ export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): Neut
         break;
       }
 
+      // 🔪 إكمال عقود الاغتيال (السفّاح)
+      case 'COMPLETE_CONTRACTS': {
+        if (state.assassinState) {
+          won = state.assassinState.completedCount >= state.assassinState.totalRequired;
+        }
+        // السفّاح يخسر إذا مات
+        if (!player.isAlive) {
+          won = false;
+        }
+        break;
+      }
+
       default:
         won = false;
     }

@@ -406,6 +406,17 @@ export function registerNightEvents(io: Server, socket: Socket) {
         try {
           const dynamicNight = createDynamicNightState(state.dynamicNightState || undefined);
           state.dynamicNightState = dynamicNight;
+
+          // 🔪 تهيئة حالة السفّاح (أول ليلة فقط)
+          if (!state.assassinState) {
+            const { initAssassinState } = await import('../game/assassin-engine.js');
+            const assassinState = initAssassinState(state);
+            if (assassinState) {
+              state.assassinState = assassinState;
+              console.log(`🔪 Assassin initialized: ${assassinState.totalRequired} contracts`);
+            }
+          }
+
           const queue = await buildNightQueue(state);
           // حفظ الطابور الديناميكي في state
           (state as any).dynamicQueue = queue;
@@ -851,10 +862,21 @@ export function registerNightEvents(io: Server, socket: Socket) {
         // فحص الفوز بالمحرك الديناميكي
         const winResult = await checkWinConditionDynamic(state);
         let pendingWinner: string | null = null;
-        if (winResult.mainWinner) {
+
+        // 🔪 فحص فوز السفّاح (أكمل العقود)
+        if (state.assassinState?.won && !state.winner) {
+          pendingWinner = 'ASSASSIN';
+          state.winner = 'ASSASSIN';
+          state.pendingWinner = 'ASSASSIN';
+        } else if (winResult.mainWinner) {
           pendingWinner = winResult.mainWinner;
           state.winner = winResult.mainWinner;
           state.pendingWinner = pendingWinner;
+        }
+
+        // 🔪 تحديث firstNightPassed بعد أول ليلة
+        if (state.assassinState && !state.assassinState.firstNightPassed) {
+          state.assassinState.firstNightPassed = true;
         }
 
         // حفظ الحالة

@@ -114,7 +114,7 @@ export interface NightActions {
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -122,6 +122,36 @@ export interface MorningEvent {
   wasRandom?: boolean;           // هل تم الاختيار عشوائياً (Auto Mode timeout)
   extra?: Record<string, unknown>;
   revealed: boolean;
+}
+
+// ── أنواع عقود السفّاح ────────────────────────────
+
+export type AssassinContractType =
+  | 'KILL_TEAM_MAFIA'     // اقتل لاعب من فريق المافيا
+  | 'KILL_TEAM_CITIZEN'   // اقتل لاعب من فريق المواطنين
+  | 'KILL_ABILITY'        // اقتل لاعب يملك قدرة ليلية
+  | 'KILL_ADJACENT'       // اقتل لاعب بجانبك (فوق أو تحت)
+  | 'KILL_SPECIFIC_SEAT'  // اقتل لاعب برقم مقعد محدد
+  | 'KILL_ANY';           // اقتل أي لاعب
+
+export interface AssassinContract {
+  id: number;                     // ترتيب العقد (1, 2, 3, ...)
+  type: AssassinContractType;     // نوع المهمة
+  description: string;            // وصف المهمة بالعربي
+  targetConstraint: any;          // قيد الهدف (فريق، قدرة، رقم مقعد)
+  completed: boolean;
+  completedAtRound?: number;
+}
+
+export interface AssassinState {
+  assassinPhysicalId: number;
+  contracts: AssassinContract[];
+  currentContractIndex: number;   // العقد الحالي (0-based)
+  completedCount: number;
+  totalRequired: number;          // يحدده الليدر (الافتراضي 4)
+  firstNightPassed: boolean;      // false أول ليلة → ممنوع القتل
+  lastKillRound: number | null;
+  won: boolean;
 }
 
 export interface GameConfig {
@@ -138,6 +168,8 @@ export interface GameConfig {
   maxPenalties?: number;         // أقصى عدد عقوبات مسموح به (الافتراضي 3)
   penaltyScope?: 'game' | 'room'; // مستوى العقوبات: 'game' = تصفير كل لعبة / 'room' = تستمر طول الغرفة (الافتراضي 'room')
   bombEnabled?: boolean;          // 💣 هل قدرة القنبلة لشيخ المافيا مفعلة (الافتراضي true)
+  assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)
+  jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
 }
 
 export interface GameState {
@@ -159,7 +191,7 @@ export interface GameState {
   tiedCandidates?: Candidate[]; // In case of tie
   justificationData?: any; // بيانات التبرير المحفوظة لاستعادتها عند إعادة الاتصال
   withdrawalState?: { count: number; needed: number; withdrawn: number[]; accusedIds: number[]; total: number } | null;
-  winner: 'MAFIA' | 'CITIZEN' | 'JESTER' | null;
+  winner: 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN' | null;
   pendingWinner?: string | null; // فوز مُعلّق (ينتظر تأكيد الليدر بعد ملخص الصباح)
   nurseActivated?: boolean; // هل الليدر فعّل الممرضة في بداية هذا الليل
   rolesConfirmed?: boolean; // هل الليدر أكد توزيع الأدوار (يمنع إرسالها للاعبين قبل التأكيد)
@@ -206,6 +238,8 @@ export interface GameState {
     above: { physicalId: number; name: string; role: string } | null;
     below: { physicalId: number; name: string; role: string } | null;
   } | null;
+  // 🔪 حالة السفّاح (عقود الاغتيال)
+  assassinState?: AssassinState | null;
   createdAt: string;
 }
 

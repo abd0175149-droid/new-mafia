@@ -358,11 +358,11 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
     } catch { /* المحرك الديناميكي غير متاح — نتجاهل */ }
   }
 
-  // 🤡 فوز المهرج = اللعبة تنتهي فوراً
+  // 🤡🔪 فوز محايد = اللعبة تنتهي فوراً
   let winResult: WinResult;
   if (neutralWin?.won) {
-    state.winner = 'JESTER';
-    winResult = WinResult.GAME_CONTINUES; // لن يُستخدم — winner = JESTER يُنهي اللعبة
+    state.winner = neutralWin.roleId === 'ASSASSIN' ? 'ASSASSIN' : 'JESTER';
+    winResult = WinResult.GAME_CONTINUES; // لن يُستخدم — winner يُنهي اللعبة
   } else {
     // فحص شرط الفوز بعد الإقصاء (MAFIA/CITIZEN)
     winResult = checkWinCondition(state);

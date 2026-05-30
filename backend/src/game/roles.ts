@@ -22,6 +22,7 @@ export enum Role {
 
   // فريق محايد
   JESTER = 'JESTER',                 // المهرج 🤡
+  ASSASSIN = 'ASSASSIN',             // السفّاح 🔪
 }
 
 // ── تصنيف الفرق ────────────────────────────────────
@@ -44,6 +45,7 @@ export const CITIZEN_ROLES: Role[] = [
 
 export const NEUTRAL_ROLES: Role[] = [
   Role.JESTER,
+  Role.ASSASSIN,
 ];
 
 // الأدوار التي لها قدرات ليلية
@@ -81,6 +83,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.NURSE]: 'الممرضة',
   [Role.CITIZEN]: 'مواطن صالح',
   [Role.JESTER]: 'المهرج',
+  [Role.ASSASSIN]: 'السفّاح',
 };
 
 // ── خوارزمية التوليد ────────────────────────────────

@@ -50,6 +50,12 @@ export async function buildNightQueue(state: GameState): Promise<{abilityId: str
           if (!state.nurseActivated) continue;
         }
 
+        // 🔪 السفّاح: ممنوع القتل أول ليلة
+        if (roleId === 'ASSASSIN' && ability.id === 'ASSASSINATE') {
+          if (!state.assassinState?.firstNightPassed) continue;
+          if (state.assassinState?.won) continue; // أكمل العقود
+        }
+
         queue.push({
           abilityId: ability.id,
           performerPhysicalId: player.physicalId,
@@ -211,7 +217,52 @@ export async function resolveNightDynamic(
     if (!target) continue;
 
     switch (ability.effectType) {
-      case 'ELIMINATE':
+      case 'ELIMINATE': {
+        // 🔪 فحص: هل المنفذ هو السفّاح؟
+        const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
+        const isAssassinAction = performer?.role === 'ASSASSIN';
+
+        if (isAssassinAction && state.assassinState) {
+          // ── منطق السفّاح ──
+          // هل المافيا استهدفت نفس اللاعب؟
+          const mafiaKillAction = actions.find(a =>
+            a.abilityId === 'KILL' && a.targetPhysicalId === action.targetPhysicalId
+          );
+          const killedByMafiaToo = !!mafiaKillAction && !cancelledActions.has('KILL');
+
+          if (killedByMafiaToo) {
+            // نفس الهدف → الهدف يموت مرة واحدة لكن العقد لا يُحسب
+            events.push({
+              type: 'ASSASSIN_KILL' as any,
+              targetPhysicalId: target.physicalId,
+              targetName: target.name,
+              extra: { contractFailed: true, reason: 'SAME_TARGET_AS_MAFIA' },
+              revealed: false,
+            });
+            break; // الهدف ميت بالفعل من المافيا
+          }
+
+          target.isAlive = false;
+          events.push({
+            type: 'ASSASSIN_KILL' as any,
+            targetPhysicalId: target.physicalId,
+            targetName: target.name,
+            revealed: false,
+          });
+
+          // فحص إنجاز العقد
+          const { checkContractCompletion, advanceContract, checkAssassinWin } = await import('./assassin-engine.js');
+          const result = checkContractCompletion(state, target.physicalId, false);
+          if (result.completed) {
+            advanceContract(state, state.round || 1);
+            if (checkAssassinWin(state)) {
+              state.assassinState!.won = true;
+            }
+          }
+          break;
+        }
+
+        // ── المنطق العادي (مافيا) ──
         target.isAlive = false;
         events.push({
           type: (ability.effectOnSuccess || 'ASSASSINATION') as any,
@@ -220,6 +271,7 @@ export async function resolveNightDynamic(
           revealed: false,
         });
         break;
+      }
 
       case 'SILENCE':
         target.isSilenced = true;
@@ -237,6 +289,10 @@ export async function resolveNightDynamic(
         let revealedTeam = targetRole?.team || 'CITIZEN';
         if (target.role === 'CHAMELEON') {
           revealedTeam = 'CITIZEN'; // يظهر كمواطن
+        }
+        // 🔪 خداع السفّاح — يظهر كمواطن
+        if (target.role === 'ASSASSIN') {
+          revealedTeam = 'CITIZEN';
         }
 
         events.push({

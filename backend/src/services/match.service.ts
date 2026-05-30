@@ -115,8 +115,30 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         };
       }
 
-      // عند فوز المهرج — كل الفريقين يخسرون
-      const teamWon = state.winner === 'JESTER' ? false
+      // 🔪 السفّاح: منطق مستقل
+      const isAssassin = p.role === 'ASSASSIN';
+      if (isAssassin) {
+        return {
+          matchId: state.matchId!,
+          playerId: p.playerId || null,
+          physicalId: p.physicalId,
+          playerName: p.name,
+          role: p.role || 'UNKNOWN',
+          survivedToEnd: p.isAlive,
+          eliminatedAtRound: elimEntry ? elimEntry.round : null,
+          eliminatedDuring: elimEntry ? (elimEntry.eliminatedBy === 'NIGHT_KILL' || elimEntry.eliminatedBy === 'SNIPER' ? 'NIGHT' : 'DAY') : null,
+          roundsSurvived,
+          dealInitiated: false,
+          dealSuccess: null,
+          abilityUsed: true, // السفّاح يستخدم قدرته
+          abilityCorrect: null,
+          xpEarned: 0, // سيتم حسابه في processMatchRewards
+          rrChange: 0,
+        };
+      }
+
+      // عند فوز المهرج أو السفّاح — كل الفريقين يخسرون
+      const teamWon = (state.winner === 'JESTER' || state.winner === 'ASSASSIN') ? false
         : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
 
       // حساب مكافأة إقصاء الخصم
@@ -190,8 +212,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
             const playerIsMafia = isMafiaRole(p.role as any);
             const isJester = p.role === 'JESTER';
             // المهرج يفوز فقط إذا هو الفائز، باقي اللاعبين يخسرون عند فوز المهرج
-            const won = isJester ? (state.winner === 'JESTER')
-              : state.winner === 'JESTER' ? false
+            const isAssassinP = p.role === 'ASSASSIN';
+            const won = isAssassinP ? (state.winner === 'ASSASSIN')
+              : isJester ? (state.winner === 'JESTER')
+              : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
               : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
             const survived = !!p.isAlive; // استخراج boolean بسيط — يمنع circular JSON
             await updatePlayerStats(p.playerId, won, survived);
@@ -221,7 +245,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     // 🔔 Push للاعبين المشاركين (نتيجة المباراة)
     try {
       const { sendPushToPlayers } = await import('../services/fcm.service.js');
-      const winnerLabel = state.winner === 'MAFIA' ? '🔴 المافيا' : state.winner === 'JESTER' ? '🤡 المهرج' : '🟢 المواطنون';
+      const winnerLabel = state.winner === 'MAFIA' ? '🔴 المافيا'
+        : state.winner === 'JESTER' ? '🤡 المهرج'
+        : state.winner === 'ASSASSIN' ? '🔪 السفّاح'
+        : '🟢 المواطنون';
       const playerIdsInGame = state.players.filter(p => p.playerId).map(p => p.playerId!);
       if (playerIdsInGame.length > 0) {
         sendPushToPlayers(
@@ -318,11 +345,14 @@ export async function getMatchDetails(matchId: number) {
       .where(eq(matchPlayers.matchId, matchId));
 
     const mafiaRoles = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+    const neutralRoles = ['JESTER', 'ASSASSIN'];
     const teamPlayers = players.map(p => ({
       physicalId: p.physicalId,
       playerName: p.playerName,
       role: p.role,
-      team: mafiaRoles.includes(p.role) ? 'MAFIA' : 'CITIZEN',
+      team: mafiaRoles.includes(p.role) ? 'MAFIA'
+        : neutralRoles.includes(p.role) ? 'NEUTRAL'
+        : 'CITIZEN',
       survivedToEnd: p.survivedToEnd,
     }));
 

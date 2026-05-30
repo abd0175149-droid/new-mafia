@@ -221,6 +221,8 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     for (const p of state.players) {
       if (p.physicalId === elim.physicalId) continue;
       const pIsMafia = isMafiaRole(p.role as any);
+      const pIsNeutral = p.role === 'JESTER' || p.role === 'ASSASSIN';
+      if (pIsNeutral) continue; // المحايدون لا يحصلون مكافأة إقصاء فريق
 
       if (elim.team === 'MAFIA' && !pIsMafia) {
         teamElimBonusMap[p.physicalId] = (teamElimBonusMap[p.physicalId] || 0) + elimBonus;
@@ -271,7 +273,51 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       continue; // تخطي المنطق العادي
     }
 
-    // عند فوز المهرج — كل الفريقين يخسرون\r\n    const teamWon = state.winner === 'JESTER' ? false\r\n      : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+    // 🔪 السفّاح: منطق مستقل تماماً
+    const isAssassin = p.role === 'ASSASSIN';
+    if (isAssassin) {
+      const assassinWon = state.winner === 'ASSASSIN';
+      const contractsCompleted = state.assassinState?.completedCount || 0;
+
+      const baseXP = assassinWon ? (cfg?.xp?.assassinWin ?? 80) : (cfg?.xp?.assassinLoss ?? 10);
+      const contractBonusXP = contractsCompleted * (cfg?.xp?.assassinContractComplete ?? 15);
+
+      const baseRR = assassinWon ? (cfg?.rr?.assassinWin ?? 30) : (cfg?.rr?.assassinLoss ?? -15);
+      const contractBonusRR = contractsCompleted * (cfg?.rr?.assassinContractComplete ?? 10);
+
+      const totalXP = Math.max(0, baseXP + contractBonusXP);
+      const totalRR = baseRR + contractBonusRR;
+
+      try {
+        const xpResult = await applyXPAndLevel(p.playerId, totalXP);
+        const rrResult = await applyRR(p.playerId, totalRR);
+
+        console.log(`🔪 Assassin #${p.physicalId} (${p.name}): ${assassinWon ? 'WON' : 'LOST'} — contracts: ${contractsCompleted}/${state.assassinState?.totalRequired || 4} → +${totalXP} XP, ${totalRR >= 0 ? '+' : ''}${totalRR} RR`);
+
+        // تنبيهات
+        try {
+          const { sendPushToPlayer } = await import('./fcm.service.js');
+          if (xpResult.leveledUp) {
+            sendPushToPlayer(p.playerId, '🎉 ارتفع مستواك!', `أصبحت الآن Level ${xpResult.newLevel}`, 'level_up', { level: String(xpResult.newLevel) });
+          }
+          if (rrResult.promoted) {
+            sendPushToPlayer(p.playerId, '🏆 ترقية!', `مبروك! أصبحت "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_up', { rankTier: rrResult.newTier });
+          }
+          if (rrResult.demoted) {
+            sendPushToPlayer(p.playerId, '⬇️ انخفضت رتبتك', `رجعت لرتبة "${RANK_NAMES_AR[rrResult.newTier]}"`, 'rank_down', { rankTier: rrResult.newTier });
+          }
+        } catch (pushErr: any) {
+          console.warn(`⚠️ Push notification failed for assassin ${p.playerId}:`, pushErr.message);
+        }
+      } catch (err: any) {
+        console.error(`⚠️ Failed to apply assassin progression for player ${p.playerId}:`, err.message);
+      }
+      continue; // تخطي المنطق العادي
+    }
+
+    // عند فوز المهرج أو السفّاح — كل الفريقين يخسرون
+    const teamWon = (state.winner === 'JESTER' || state.winner === 'ASSASSIN') ? false
+      : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
 
     const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
     const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;

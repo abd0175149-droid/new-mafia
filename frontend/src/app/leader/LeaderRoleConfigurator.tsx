@@ -14,6 +14,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
+  const [assassinContractCount, setAssassinContractCount] = useState(4);  // 🔪 عدد عقود السفّاح
 
   useEffect(() => {
     const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
@@ -69,10 +70,29 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
     setRoles(newRoles);
   };
 
+  // 🔪 تبديل السفّاح ↔ مواطن
+  const toggleAssassin = () => {
+    const newRoles = [...roles];
+    const assassinIdx = newRoles.indexOf(Role.ASSASSIN);
+    if (assassinIdx >= 0) {
+      newRoles[assassinIdx] = Role.CITIZEN;
+    } else {
+      const lastCitizenIdx = newRoles.lastIndexOf(Role.CITIZEN);
+      if (lastCitizenIdx >= 0) {
+        newRoles[lastCitizenIdx] = Role.ASSASSIN;
+      }
+    }
+    setRoles(newRoles);
+  };
+
   const handleConfirm = async () => {
     try {
       setLoading(true);
-      await emit('setup:roles-confirmed', { roomId: gameState.roomId, roles });
+      await emit('setup:roles-confirmed', {
+        roomId: gameState.roomId,
+        roles,
+        assassinContractCount: roles.includes(Role.ASSASSIN) ? assassinContractCount : undefined,
+      });
     } catch (err: any) {
       setError(err.message);
       setLoading(false);
@@ -87,6 +107,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const citizenRoles = roles.filter(r => !MAFIA_ROLES.includes(r) && !NEUTRAL_ROLES.includes(r));
   const neutralRoles = roles.filter(r => NEUTRAL_ROLES.includes(r));
   const hasJesterInRoles = roles.includes(Role.JESTER);
+  const hasAssassinInRoles = roles.includes(Role.ASSASSIN);
   const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
 
   // تحديد أي قسم فيه dropdown مفتوح لرفع z-index ديناميكياً
@@ -214,6 +235,19 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
               >
                 {hasJesterInRoles ? '🤡 إزالة المهرج' : '➕ إضافة المهرج'}
               </button>
+              {/* 🔪 زر السفّاح — يظهر فقط عند 10+ لاعبين */}
+              {playerCount >= 10 && (
+                <button
+                  onClick={toggleAssassin}
+                  className={`px-4 py-1.5 rounded-lg font-mono text-xs font-bold transition-all border ${
+                    hasAssassinInRoles
+                      ? 'bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30'
+                      : 'bg-[#111] text-[#555] border-[#2a2a2a] hover:border-red-500/40 hover:text-red-400'
+                  }`}
+                >
+                  {hasAssassinInRoles ? '🔪 إزالة السفّاح' : '➕ إضافة السفّاح'}
+                </button>
+              )}
             </div>
           </div>
           
@@ -242,6 +276,33 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
               <p className="text-amber-400/80 text-xs font-mono leading-relaxed" dir="rtl">
                 🤡 المهرج يفوز إذا أقصته المدينة (تصويت / اتفاقية / قنص). إذا فاز — تنتهي اللعبة فوراً.
               </p>
+            </motion.div>
+          )}
+
+          {/* 🔪 إعدادات السفّاح */}
+          {hasAssassinInRoles && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }} 
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-4 p-4 bg-red-500/5 border border-red-500/10 rounded-lg space-y-3"
+            >
+              <p className="text-red-400/80 text-xs font-mono leading-relaxed" dir="rtl">
+                🔪 السفّاح: قاتل محترف بنظام عقود اغتيال ذكية. يقتل كل ليلة (ما عدا الأولى). إذا قتل نفس هدف المافيا لا يُحسب. يظهر كمواطن عند التحقيق.
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-red-400/60 text-xs font-mono" dir="rtl">عدد العقود المطلوبة:</span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setAssassinContractCount(Math.max(2, assassinContractCount - 1))}
+                    className="w-7 h-7 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-bold transition-colors"
+                  >−</button>
+                  <span className="text-red-300 font-mono font-bold w-6 text-center">{assassinContractCount}</span>
+                  <button 
+                    onClick={() => setAssassinContractCount(Math.min(6, assassinContractCount + 1))}
+                    className="w-7 h-7 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
             </motion.div>
           )}
         </div>

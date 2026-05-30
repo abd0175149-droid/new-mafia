@@ -27,6 +27,9 @@ const DEFAULT_CONFIG = {
     teamEliminationBonus: 15,
     jesterWin: 50,
     jesterLoss: 0,
+    assassinWin: 80,               // 🔪 فوز السفّاح (أكمل كل العقود)
+    assassinLoss: 10,              // 🔪 خسارة (مات/انتهت اللعبة)
+    assassinContractComplete: 15,  // 🔪 لكل عقد مُنجز
   },
   rr: {
     teamWin: 20,
@@ -43,6 +46,9 @@ const DEFAULT_CONFIG = {
     bombHitMafia: -10,
     jesterWin: 30,
     jesterLoss: -10,
+    assassinWin: 30,               // 🔪
+    assassinLoss: -15,             // 🔪
+    assassinContractComplete: 10,  // 🔪
   },
   ranks: {
     INFORMANT: { rrRequired: 100 },

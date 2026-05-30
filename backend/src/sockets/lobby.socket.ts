@@ -1936,6 +1936,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   socket.on('setup:roles-confirmed', async (data: {
     roomId: string;
     roles: Role[];
+    assassinContractCount?: number;    // 🔪 عدد عقود السفّاح
+    jesterSurviveRounds?: number;      // 🤡 جولات نجاة المهرج
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -1951,7 +1953,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: validation.error });
       }
 
-      await updateRoom(data.roomId, { phase: Phase.ROLE_BINDING, rolesPool: data.roles });
+      // 🔪 حفظ إعدادات الأدوار المحايدة في config
+      if (data.assassinContractCount !== undefined) {
+        state.config.assassinContractCount = Math.min(6, Math.max(2, data.assassinContractCount));
+      }
+      if (data.jesterSurviveRounds !== undefined) {
+        state.config.jesterSurviveRounds = data.jesterSurviveRounds;
+      }
+
+      await updateRoom(data.roomId, { phase: Phase.ROLE_BINDING, rolesPool: data.roles, config: state.config });
       io.to(data.roomId).emit('game:phase-changed', { phase: Phase.ROLE_BINDING });
 
       socket.emit('setup:binding-start', {
