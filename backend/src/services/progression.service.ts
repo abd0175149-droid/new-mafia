@@ -271,7 +271,7 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       continue; // تخطي المنطق العادي
     }
 
-    const teamWon = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+    // عند فوز المهرج — كل الفريقين يخسرون\r\n    const teamWon = state.winner === 'JESTER' ? false\r\n      : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
 
     const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
     const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
