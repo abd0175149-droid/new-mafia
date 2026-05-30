@@ -131,84 +131,18 @@ async function resolveAutoNight(io: Server, roomId: string) {
 
   const resolution = await resolveNight(roomId);
 
-  // 🔪 معالجة اغتيال السفّاح (بعد الحل الأساسي)
-  const stateBeforeAssassin = await getGameState(roomId);
-  if (stateBeforeAssassin?.assassinState && stateBeforeAssassin.nightActions?.assassinTarget) {
-    const { evaluateAssassinKill } = await import('../game/assassin-engine.js');
-    const targetId = stateBeforeAssassin.nightActions.assassinTarget;
-    const target = stateBeforeAssassin.players.find((p: any) => p.physicalId === targetId);
-
-    if (target && target.isAlive) {
-      // 🛡️ فحص الحماية — هل الطبيب/الممرضة حمت الهدف؟
-      const protectedId = stateBeforeAssassin.nightActions.doctorTarget ?? stateBeforeAssassin.nightActions.nurseTarget;
-      if (targetId === protectedId) {
-        // الحماية نجحت ضد السفّاح!
-        resolution.events.push({
-          type: 'ASSASSIN_BLOCKED' as any,
-          targetPhysicalId: targetId,
-          targetName: target.name,
-          performerPhysicalId: stateBeforeAssassin.assassinState.assassinPhysicalId,
-          performerName: stateBeforeAssassin.players.find((p: any) => p.physicalId === stateBeforeAssassin.assassinState.assassinPhysicalId)?.name || '',
-          revealed: false,
-        });
-        console.log(`🛡️ Assassin kill blocked by protection on ${target.name}`);
-      } else {
-        // القتل ينجح!
-        target.isAlive = false;
-        const wasRandom = stateBeforeAssassin.nightActions.randomSelections?.['ASSASSIN'] || false;
-
-        // تقييم هل القتل يُكمل عقد
-        const evalResult = evaluateAssassinKill(stateBeforeAssassin, targetId);
-
-        resolution.events.push({
-          type: 'ASSASSIN_KILL' as any,
-          targetPhysicalId: targetId,
-          targetName: target.name,
-          performerPhysicalId: stateBeforeAssassin.assassinState.assassinPhysicalId,
-          performerName: stateBeforeAssassin.players.find((p: any) => p.physicalId === stateBeforeAssassin.assassinState.assassinPhysicalId)?.name || '',
-          wasRandom,
-          extra: {
-            contractCompleted: evalResult.contractCompleted,
-            contractId: evalResult.contractId,
-            assassinWon: evalResult.won,
-          },
-          revealed: false,
-        });
-
-        console.log(`🔪 Assassin killed ${target.name} — contract: ${evalResult.contractCompleted ? '✅' : '❌'}, won: ${evalResult.won}`);
-      }
+  // 🔪 إشعار اللاعب السفّاح بالتحديثات إذا حصلت
+  const stateAfterResolve = await getGameState(roomId);
+  if (stateAfterResolve?.assassinState) {
+    const assassinSock = findPlayerSocket(io, roomId, stateAfterResolve.assassinState.assassinPhysicalId);
+    if (assassinSock) {
+      assassinSock.emit('assassin:contracts-update', {
+        contracts: stateAfterResolve.assassinState.contracts,
+        currentIndex: 0, // legacy
+        completedCount: stateAfterResolve.assassinState.completedCount,
+        totalRequired: stateAfterResolve.assassinState.totalRequired,
+      });
     }
-  }
-
-  // 🔪 تحديث firstNightPassed
-  if (stateBeforeAssassin?.assassinState && !stateBeforeAssassin.assassinState.firstNightPassed) {
-    stateBeforeAssassin.assassinState.firstNightPassed = true;
-  }
-
-  // 🔪 تحديث العقود — إذا أي لاعب خرج هذه الليلة، نحدّث العقود
-  if (stateBeforeAssassin?.assassinState) {
-    const { regenerateDeadContracts } = await import('../game/assassin-engine.js');
-    const regen = regenerateDeadContracts(stateBeforeAssassin);
-    if (regen.changed) {
-      console.log(`🔄 Assassin contracts updated: ${regen.changeLog.join(', ')}`);
-      // إشعار اللاعب السفّاح بالتحديثات
-      const assassinSock = findPlayerSocket(io, roomId, stateBeforeAssassin.assassinState.assassinPhysicalId);
-      if (assassinSock) {
-        assassinSock.emit('assassin:contracts-update', {
-          contracts: stateBeforeAssassin.assassinState.contracts,
-          currentIndex: 0, // legacy
-          completedCount: stateBeforeAssassin.assassinState.completedCount,
-          totalRequired: stateBeforeAssassin.assassinState.totalRequired,
-          changeLog: regen.changeLog,
-        });
-      }
-    }
-  }
-
-  if (stateBeforeAssassin) {
-    // 🔄 مزامنة أحداث الصباح — resolution.events قد تحتوي أحداث السفّاح المُضافة بعد resolveNight
-    stateBeforeAssassin.morningEvents = resolution.events;
-    await setGameState(roomId, stateBeforeAssassin);
   }
 
   await setPhase(roomId, Phase.MORNING_RECAP);
@@ -223,11 +157,13 @@ async function resolveAutoNight(io: Server, roomId: string) {
   let pendingWinner: string | null = null;
 
   // 🔪 فحص فوز السفّاح أولاً
-  if (stateAfter?.assassinState?.won && !stateAfter.winner) {
+  if (stateAfter?.winner === 'ASSASSIN' || (stateAfter?.assassinState?.won && !stateAfter.winner)) {
     pendingWinner = 'ASSASSIN';
-    stateAfter.winner = 'ASSASSIN';
-    stateAfter.pendingWinner = 'ASSASSIN';
-    await setGameState(roomId, stateAfter);
+    if (stateAfter) {
+      stateAfter.winner = 'ASSASSIN';
+      stateAfter.pendingWinner = 'ASSASSIN';
+      await setGameState(roomId, stateAfter);
+    }
   } else if (resolution.neutralWin?.won) {
     pendingWinner = 'JESTER';
     const state = await getGameState(roomId);
@@ -1097,9 +1033,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
         teamCounts: stateAfterResolve ? getTeamCounts(stateAfterResolve.players) : undefined,
       });
 
-      // 🤡 فوز المهرج — اللعبة تنتهي فوراً
+      // 🔪 فحص فوز السفّاح أو المهرج أو الفوز العادي
       let pendingWinner: string | null = null;
-      if (resolution.neutralWin?.won) {
+      if (stateAfterResolve?.winner === 'ASSASSIN') {
+        pendingWinner = 'ASSASSIN';
+        stateAfterResolve.pendingWinner = 'ASSASSIN';
+        await setGameState(data.roomId, stateAfterResolve);
+      } else if (resolution.neutralWin?.won) {
         pendingWinner = 'JESTER';
         const stFinal = await getGameState(data.roomId);
         if (stFinal) {
@@ -1116,12 +1056,26 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
       }
 
+      // 🔪 إشعار اللاعب السفّاح بالتحديثات اليدوية
+      if (stateAfterResolve?.assassinState) {
+        const assassinSock = findPlayerSocket(io, data.roomId, stateAfterResolve.assassinState.assassinPhysicalId);
+        if (assassinSock) {
+          assassinSock.emit('assassin:contracts-update', {
+            contracts: stateAfterResolve.assassinState.contracts,
+            currentIndex: 0, // legacy
+            completedCount: stateAfterResolve.assassinState.completedCount,
+            totalRequired: stateAfterResolve.assassinState.totalRequired,
+          });
+        }
+      }
+
       // إرسال كروت الملخص لليدر + حالة الفوز المعلقة + اللاعبين المحدّثين
       socket.emit('night:morning-recap', {
         events: resolution.events,
         pendingWinner: pendingWinner,
         players: stateAfterResolve?.players || [],
         neutralWin: resolution.neutralWin || null,
+        assassinState: stateAfterResolve?.assassinState || null,
       });
 
       callback({ success: true, events: resolution.events });

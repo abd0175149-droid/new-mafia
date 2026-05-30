@@ -147,13 +147,72 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   }
 
   // ── 5. تحديث قيد الطبيب ──────────────────────
-  // حفظ الهدف المحمي لمنع تكراره في الليلة القادمة
   state.nightActions.lastProtectedTarget = nightActions.doctorTarget ?? nightActions.nurseTarget ?? null;
+
+  // ── 4.5. معالجة اغتيال السفّاح ──────────────────
+  if (state.assassinState && nightActions.assassinTarget !== null) {
+    const { evaluateAssassinKill, regenerateDeadContracts } = await import('./assassin-engine.js');
+    const targetId = nightActions.assassinTarget;
+    const target = state.players.find(p => p.physicalId === targetId);
+
+    if (target && target.isAlive) {
+      const protectedId = nightActions.doctorTarget ?? nightActions.nurseTarget;
+      if (targetId === protectedId) {
+        // الحماية نجحت ضد السفّاح!
+        events.push({
+          type: 'ASSASSIN_BLOCKED' as any,
+          targetPhysicalId: targetId,
+          targetName: target.name,
+          performerPhysicalId: state.assassinState.assassinPhysicalId,
+          performerName: state.players.find(p => p.physicalId === state.assassinState.assassinPhysicalId)?.name || '',
+          revealed: false,
+        });
+        console.log(`🛡️ [resolveNight] Assassin kill blocked by protection on ${target.name}`);
+      } else {
+        // القتل ينجح!
+        target.isAlive = false;
+        const wasRandom = !!nightActions.randomSelections?.['ASSASSIN'];
+        const evalResult = evaluateAssassinKill(state, targetId);
+
+        events.push({
+          type: 'ASSASSIN_KILL' as any,
+          targetPhysicalId: targetId,
+          targetName: target.name,
+          performerPhysicalId: state.assassinState.assassinPhysicalId,
+          performerName: state.players.find(p => p.physicalId === state.assassinState.assassinPhysicalId)?.name || '',
+          wasRandom,
+          extra: {
+            contractCompleted: evalResult.contractCompleted,
+            contractId: evalResult.contractId,
+            assassinWon: evalResult.won,
+          },
+          revealed: false,
+        });
+
+        pt.eliminationLog.push({
+          physicalId: target.physicalId,
+          eliminatedBy: 'ASSASSIN',
+          round: state.round || 1,
+          team: (target.role && isMafiaRole(target.role)) ? 'MAFIA' : 'CITIZEN',
+        });
+        console.log(`🔪 [resolveNight] Assassin killed ${target.name} — contract: ${evalResult.contractCompleted ? '✅' : '❌'}, won: ${evalResult.won}`);
+      }
+    }
+
+    if (!state.assassinState.firstNightPassed) {
+      state.assassinState.firstNightPassed = true;
+    }
+
+    const regen = regenerateDeadContracts(state);
+    if (regen.changed) {
+      console.log(`🔄 [resolveNight] Assassin contracts updated: ${regen.changeLog.join(', ')}`);
+    }
+  }
 
   // ── 5.5. فحص تفعيل الشرطية (لكل لاعب مات هذه الليلة) ──
   const deadThisNight: number[] = [];
   for (const ev of events) {
-    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN'].includes(ev.type)) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(ev.type)) {
       deadThisNight.push(ev.targetPhysicalId);
       // القناص يموت أيضاً عند قنص مواطن
       if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {
@@ -196,15 +255,19 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     return { events, winResult: WinResult.GAME_CONTINUES, neutralWin };
   }
 
-  // ── 8. فحص شرط الفوز العادي ─────────────────
-  const winResult = checkWinCondition(state);
-  if (winResult !== WinResult.GAME_CONTINUES) {
-    state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+  // ── 8. فحص شرط الفوز ─────────────────
+  if (state.assassinState?.won) {
+    state.winner = 'ASSASSIN';
+  } else {
+    const winResult = checkWinCondition(state);
+    if (winResult !== WinResult.GAME_CONTINUES) {
+      state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+    }
   }
 
   await setGameState(roomId, state);
 
-  return { events, winResult, neutralWin };
+  return { events, winResult: state.winner ? WinResult.GAME_CONTINUES : WinResult.GAME_CONTINUES, neutralWin };
 }
 
 // ══════════════════════════════════════════════════════

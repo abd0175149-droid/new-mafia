@@ -816,6 +816,39 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                               )}
                             </p>
                           )}
+                          {event.type === 'ASSASSIN_KILL' && (
+                            <div className="mt-1 space-y-1">
+                              <p className="text-white text-xs font-mono">
+                                💀 الهدف المقتول: #{event.targetPhysicalId} — {event.targetName}
+                              </p>
+                              <p className="text-[#a78bfa] text-[10px] font-mono">
+                                🔪 القاتل: السفّاح (#{event.performerPhysicalId} — {event.performerName})
+                              </p>
+                              <p className="text-[10px] font-bold">
+                                {event.extra?.assassinWon ? (
+                                  <span className="text-amber-500">🎉 مهمة السفّاح: نجحت (تم إنجاز جميع العقود وفاز بالكامل!)</span>
+                                ) : (
+                                  <span className="text-zinc-500">⏳ مهمة السفّاح: مستمرة (لم ينجز كامل العقود بعد)</span>
+                                )}
+                              </p>
+                            </div>
+                          )}
+                          {event.type === 'ASSASSIN_BLOCKED' && (
+                            <div className="mt-1 space-y-1">
+                              <p className="text-[#2E5C31] text-xs font-mono">
+                                🛡️ الهدف المحمي: #{event.targetPhysicalId} — {event.targetName}
+                              </p>
+                              <p className="text-[#a78bfa] text-[10px] font-mono">
+                                🔪 المنفذ: السفّاح (#{event.performerPhysicalId} — {event.performerName})
+                              </p>
+                              <p className="text-[#2E5C31] text-[10px] font-bold">
+                                🛡️ تم إنقاذ الهدف بنجاح من اغتيال السفّاح!
+                              </p>
+                              <p className="text-[10px] font-bold text-zinc-500">
+                                ⏳ مهمة السفّاح: مستمرة (لم ينجز كامل العقود بعد)
+                              </p>
+                            </div>
+                          )}
                           {isBlocked && (
                             <div className="mt-1">
                               <p className="text-[#2E5C31] text-xs font-mono">
