@@ -206,6 +206,8 @@ async function resolveAutoNight(io: Server, roomId: string) {
   }
 
   if (stateBeforeAssassin) {
+    // 🔄 مزامنة أحداث الصباح — resolution.events قد تحتوي أحداث السفّاح المُضافة بعد resolveNight
+    stateBeforeAssassin.morningEvents = resolution.events;
     await setGameState(roomId, stateBeforeAssassin);
   }
 
