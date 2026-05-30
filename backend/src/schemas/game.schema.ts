@@ -10,7 +10,7 @@ import {
 
 // ── Enums ─────────────────────────────────────────────
 
-export const winnerEnum = pgEnum('winner_type', ['MAFIA', 'CITIZEN']);
+export const winnerEnum = pgEnum('winner_type', ['MAFIA', 'CITIZEN', 'JESTER']);
 export const genderEnum = pgEnum('gender_type', ['male', 'female']);
 
 // ── Sessions (غرف الألعاب — الحاوي الأكبر) ──────────

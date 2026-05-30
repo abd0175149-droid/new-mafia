@@ -996,7 +996,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.phase = Phase.GAME_OVER;
       clearGameTimer(data.roomId);
 
-      // مسح pendingWinner
+      // مسح pendingWinner وتعيين winner
+      state.winner = winner as 'MAFIA' | 'CITIZEN' | 'JESTER';
       state.pendingWinner = null;
       await setGameState(data.roomId, state);
 
@@ -1101,6 +1102,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.GAME_OVER);
         state.phase = Phase.GAME_OVER;
         clearGameTimer(data.roomId);
+        state.winner = winner as 'MAFIA' | 'CITIZEN' | 'JESTER';
         state.pendingWinner = null;
         await setGameState(data.roomId, state);
         await finalizeMatch(state);
@@ -1179,14 +1181,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
         if (dynResult.mainWinner) {
           pendingWinner = dynResult.mainWinner;
           state.pendingWinner = pendingWinner;
-          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN';
+          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN' | 'JESTER';
         }
       } else {
         const winResult = checkWinCondition(state);
         if (winResult !== WinResult.GAME_CONTINUES) {
           pendingWinner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
           state.pendingWinner = pendingWinner;
-          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN';
+          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN' | 'JESTER';
         }
       }
 

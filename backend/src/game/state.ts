@@ -159,7 +159,7 @@ export interface GameState {
   tiedCandidates?: Candidate[]; // In case of tie
   justificationData?: any; // بيانات التبرير المحفوظة لاستعادتها عند إعادة الاتصال
   withdrawalState?: { count: number; needed: number; withdrawn: number[]; accusedIds: number[]; total: number } | null;
-  winner: 'MAFIA' | 'CITIZEN' | null;
+  winner: 'MAFIA' | 'CITIZEN' | 'JESTER' | null;
   pendingWinner?: string | null; // فوز مُعلّق (ينتظر تأكيد الليدر بعد ملخص الصباح)
   nurseActivated?: boolean; // هل الليدر فعّل الممرضة في بداية هذا الليل
   rolesConfirmed?: boolean; // هل الليدر أكد توزيع الأدوار (يمنع إرسالها للاعبين قبل التأكيد)

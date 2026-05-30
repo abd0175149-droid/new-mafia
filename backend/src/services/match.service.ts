@@ -73,7 +73,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     await db.update(matches)
       .set({
         isActive: false,
-        winner: (state.winner as 'MAFIA' | 'CITIZEN' | null) ?? null,
+        winner: (state.winner as 'MAFIA' | 'CITIZEN' | 'JESTER' | null) ?? null,
         totalRounds: state.round || 0,
         durationSeconds,
         endedAt: new Date(),
@@ -91,7 +91,33 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
 
       const playerIsMafia = isMafiaRole(p.role as any);
-      const teamWon = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+      const isJester = p.role === 'JESTER';
+
+      // 🤡 المهرج: لا يستخدم منطق الفريقين
+      if (isJester) {
+        const jesterWon = state.winner === 'JESTER';
+        return {
+          matchId: state.matchId!,
+          playerId: p.playerId || null,
+          physicalId: p.physicalId,
+          playerName: p.name,
+          role: p.role || 'UNKNOWN',
+          survivedToEnd: p.isAlive,
+          eliminatedAtRound: elimEntry ? elimEntry.round : null,
+          eliminatedDuring: elimEntry ? (elimEntry.eliminatedBy === 'NIGHT_KILL' || elimEntry.eliminatedBy === 'SNIPER' ? 'NIGHT' : 'DAY') : null,
+          roundsSurvived,
+          dealInitiated: !!dealOutcome,
+          dealSuccess: dealOutcome ? dealOutcome.success : null,
+          abilityUsed: abilityResults.length > 0,
+          abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
+          xpEarned: 0, // سيتم حسابه في processMatchRewards
+          rrChange: 0,  // سيتم حسابه في processMatchRewards
+        };
+      }
+
+      // عند فوز المهرج — كل الفريقين يخسرون
+      const teamWon = state.winner === 'JESTER' ? false
+        : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
 
       // حساب مكافأة إقصاء الخصم
       let teamElimBonus = 0;
@@ -127,7 +153,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         successfulDealsCount,
         failedDealsCount,
         mafiaDealOnMafiaCount,
-        survivedToEnd: !elimEntry, // نجا إذا لم يُقصى
+        survivedToEnd: !elimEntry,
         abilityCorrectCount,
         abilityIncorrectCount,
       }) : 0) : 0;
@@ -162,9 +188,14 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         if (p.playerId) {
           try {
             const playerIsMafia = isMafiaRole(p.role as any);
-            const won = (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
-            await updatePlayerStats(p.playerId, won, p.isAlive);
-            console.log(`📊 [finalizeMatch] ✅ Stats updated for playerId=${p.playerId} (${p.name}) — won: ${won}, alive: ${p.isAlive}`);
+            const isJester = p.role === 'JESTER';
+            // المهرج يفوز فقط إذا هو الفائز، باقي اللاعبين يخسرون عند فوز المهرج
+            const won = isJester ? (state.winner === 'JESTER')
+              : state.winner === 'JESTER' ? false
+              : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
+            const survived = !!p.isAlive; // استخراج boolean بسيط — يمنع circular JSON
+            await updatePlayerStats(p.playerId, won, survived);
+            console.log(`📊 [finalizeMatch] ✅ Stats updated for playerId=${p.playerId} (${p.name}) — won: ${won}, alive: ${survived}`);
           } catch (statsErr: any) {
             console.error(`⚠️ Failed to update stats for player ${p.playerId} (${p.name}):`, statsErr.message);
           }
@@ -190,13 +221,13 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     // 🔔 Push للاعبين المشاركين (نتيجة المباراة)
     try {
       const { sendPushToPlayers } = await import('../services/fcm.service.js');
-      const winnerLabel = state.winner === 'MAFIA' ? '🔴 المافيا' : '🟢 المواطنون';
+      const winnerLabel = state.winner === 'MAFIA' ? '🔴 المافيا' : state.winner === 'JESTER' ? '🤡 المهرج' : '🟢 المواطنون';
       const playerIdsInGame = state.players.filter(p => p.playerId).map(p => p.playerId!);
       if (playerIdsInGame.length > 0) {
         sendPushToPlayers(
           playerIdsInGame,
           '🎮 انتهت اللعبة!',
-          `فاز فريق ${winnerLabel} — تحقق من نتائجك و XP`,
+          `فاز ${winnerLabel} — تحقق من نتائجك و XP`,
           'game_ended',
           { matchId: state.matchId, url: '/player/home' },
         );
