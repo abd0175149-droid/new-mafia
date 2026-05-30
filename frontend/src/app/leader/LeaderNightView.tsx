@@ -18,6 +18,12 @@ const ACTION_META: Record<string, { icon: string; color: string; bgGlow: string 
   DOCTOR:     { icon: '💉', color: 'text-[#2E5C31]', bgGlow: 'shadow-[0_0_40px_rgba(46,92,49,0.2)]' },
   SNIPER:     { icon: '🎯', color: 'text-[#8A0303]', bgGlow: 'shadow-[0_0_40px_rgba(138,3,3,0.2)]' },
   NURSE:      { icon: '⚕️', color: 'text-[#2E5C31]', bgGlow: 'shadow-[0_0_40px_rgba(46,92,49,0.2)]' },
+  KILL:       { icon: '🔪', color: 'text-[#8A0303]', bgGlow: 'shadow-[0_0_40px_rgba(138,3,3,0.2)]' },
+  SILENCE:    { icon: '🤐', color: 'text-[#555]',    bgGlow: 'shadow-[0_0_40px_rgba(85,85,85,0.2)]' },
+  INVESTIGATE:{ icon: '🔍', color: 'text-[#C5A059]', bgGlow: 'shadow-[0_0_40px_rgba(197,160,89,0.2)]' },
+  PROTECT:    { icon: '💉', color: 'text-[#2E5C31]', bgGlow: 'shadow-[0_0_40px_rgba(46,92,49,0.2)]' },
+  SNIPE:      { icon: '🎯', color: 'text-[#8A0303]', bgGlow: 'shadow-[0_0_40px_rgba(138,3,3,0.2)]' },
+  ASSASSINATE:{ icon: '🗡️', color: 'text-[#6b21a8]', bgGlow: 'shadow-[0_0_40px_rgba(107,33,168,0.3)]' },
 };
 
 // أيقونة أحداث الصباح
@@ -1060,11 +1066,11 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           </div>
 
           <div className="flex items-center gap-1.5">
-            {['GODFATHER', 'SILENCER', 'SHERIFF', 'DOCTOR', 'SNIPER'].map((role) => {
+            {['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'].map((role) => {
               const roleMeta = ACTION_META[role];
               const isCurrent = nightStep.role === role;
-              const isPast = ['GODFATHER', 'SILENCER', 'SHERIFF', 'DOCTOR', 'SNIPER'].indexOf(role) <
-                             ['GODFATHER', 'SILENCER', 'SHERIFF', 'DOCTOR', 'SNIPER'].indexOf(nightStep.role);
+              const isPast = ['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'].indexOf(role) <
+                             ['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'].indexOf(nightStep.role);
               return (
                 <div key={role} className="flex flex-col items-center gap-0.5">
                   <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs transition-all ${
@@ -1102,6 +1108,60 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
             <span className="text-white text-sm font-bold" style={{ fontFamily: 'Amiri, serif' }}>{nightStep.performerName}</span>
           </div>
         </motion.div>
+
+        {/* 🔪 عقود السفّاح — تظهر فقط في خطوة ASSASSINATE */}
+        {nightStep.role === 'ASSASSINATE' && gameState.assassinState && (
+          <div className="mb-5 border border-[#6b21a8]/30 rounded-xl p-4 bg-[#0d0015]/60">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">🗡️</span>
+              <h4 className="text-sm font-black text-[#a78bfa]" style={{ fontFamily: 'Amiri, serif' }}>عقود الاغتيال</h4>
+              <span className="text-[9px] font-mono text-[#6b21a8] bg-[#6b21a8]/10 px-2 py-0.5 rounded-full border border-[#6b21a8]/30">
+                {gameState.assassinState.completedCount}/{gameState.assassinState.totalRequired}
+              </span>
+            </div>
+            {/* شريط التقدم */}
+            <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden mb-3">
+              <div
+                className="h-full rounded-full transition-all duration-700"
+                style={{
+                  width: `${(gameState.assassinState.completedCount / gameState.assassinState.totalRequired) * 100}%`,
+                  background: 'linear-gradient(90deg, #6b21a8, #a78bfa)',
+                }}
+              />
+            </div>
+            {/* قائمة العقود */}
+            <div className="space-y-1.5">
+              {gameState.assassinState.contracts.map((contract: any, i: number) => {
+                const isCurrent = i === gameState.assassinState.currentContractIndex && !contract.completed;
+                const isCompleted = contract.completed;
+                return (
+                  <div
+                    key={contract.id}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-mono ${
+                      isCompleted
+                        ? 'bg-green-950/20 border border-green-500/20 text-green-400'
+                        : isCurrent
+                        ? 'bg-[#6b21a8]/10 border border-[#6b21a8]/40 text-white'
+                        : 'bg-[#111]/30 border border-[#222] text-[#555]'
+                    }`}
+                  >
+                    <span className="shrink-0">
+                      {isCompleted ? '✅' : isCurrent ? '🔪' : `${contract.id}`}
+                    </span>
+                    <span className={isCompleted ? 'line-through' : ''}>
+                      {contract.description}
+                    </span>
+                    {isCurrent && (
+                      <span className="mr-auto text-[7px] text-[#a78bfa] tracking-widest uppercase animate-pulse">
+                        الحالية
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ── اختيار الهدف ── */}
         <label className="block text-[9px] font-mono text-[#808080] mb-3 tracking-widest uppercase text-center">
