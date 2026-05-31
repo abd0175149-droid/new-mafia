@@ -260,19 +260,20 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     return { events, winResult: WinResult.GAME_CONTINUES, neutralWin };
   }
 
+  let finalWinResult = WinResult.GAME_CONTINUES;
   // ── 8. فحص شرط الفوز ─────────────────
   if (state.assassinState?.won) {
     state.winner = 'ASSASSIN';
   } else {
-    const winResult = checkWinCondition(state);
-    if (winResult !== WinResult.GAME_CONTINUES) {
-      state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+    finalWinResult = checkWinCondition(state);
+    if (finalWinResult !== WinResult.GAME_CONTINUES) {
+      state.winner = finalWinResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
     }
   }
 
   await setGameState(roomId, state);
 
-  return { events, winResult: state.winner ? WinResult.GAME_CONTINUES : WinResult.GAME_CONTINUES, neutralWin };
+  return { events, winResult: finalWinResult, neutralWin };
 }
 
 // ══════════════════════════════════════════════════════
