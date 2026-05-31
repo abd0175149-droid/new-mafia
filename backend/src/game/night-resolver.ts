@@ -185,6 +185,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
             contractCompleted: evalResult.contractCompleted,
             contractId: evalResult.contractId,
             assassinWon: evalResult.won,
+            targetRole: target.role,
           },
           revealed: false,
         });
