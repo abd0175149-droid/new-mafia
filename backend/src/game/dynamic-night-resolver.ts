@@ -252,10 +252,10 @@ export async function resolveNightDynamic(
           });
 
           // فحص إنجاز العقد
-          const { checkContractCompletion, advanceContract, checkAssassinWin } = await import('./assassin-engine.js');
+          const { checkContractCompletion, completeContract, checkAssassinWin } = await import('./assassin-engine.js');
           const result = checkContractCompletion(state, target.physicalId, false);
           if (result.completed) {
-            advanceContract(state, state.round || 1);
+            completeContract(state, result.contractIndex, state.round || 1);
             if (checkAssassinWin(state)) {
               state.assassinState!.won = true;
             }
