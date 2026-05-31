@@ -1020,6 +1020,19 @@ export function registerNightEvents(io: Server, socket: Socket) {
           neutralResults: winResult.neutralResults, // 🧩 نتائج المحايدين
         });
 
+        // 🔪 إشعار اللاعب السفّاح بالتحديثات
+        if (state.assassinState) {
+          const assassinSock = findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId);
+          if (assassinSock) {
+            assassinSock.emit('assassin:contracts-update', {
+              contracts: state.assassinState.contracts,
+              currentIndex: 0, // legacy
+              completedCount: state.assassinState.completedCount,
+              totalRequired: state.assassinState.totalRequired,
+            });
+          }
+        }
+
         console.log(`🧩 Dynamic night resolved: ${events.length} events`);
         return callback({ success: true, events });
       }
