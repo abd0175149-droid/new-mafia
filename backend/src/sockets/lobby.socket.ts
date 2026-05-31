@@ -2669,6 +2669,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     state.justificationData = null;
     state.withdrawalState = null;
     state.performanceTracking = null;
+    delete state.assassinState;
+    delete state.dynamicNightState;
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);

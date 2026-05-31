@@ -97,6 +97,18 @@ export default function RolesTab() {
 
       {error && <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm">{error}</div>}
 
+      {/* 🔪 Assassin Info Box */}
+      <div className="bg-[#8A0303]/10 border border-[#8A0303]/30 rounded-xl p-4 mb-4 flex items-start gap-4">
+        <div className="text-3xl">🔪</div>
+        <div>
+          <h3 className="text-rose-400 font-bold mb-1" style={{ fontFamily: 'Amiri, serif' }}>بنك مهام السفّاح (Assassin Contracts Pool)</h3>
+          <p className="text-gray-400 text-sm leading-relaxed">
+            يتم اختيار مهام السفّاح ديناميكياً عند بدء كل لعبة. بنك الأهداف المحتملة يشمل <strong>جميع الأدوار المميزة</strong> المتواجدة في اللعبة فعلياً (أي دور باستثناء المواطن العادي، والمافيا العادي، والسفاح نفسه). 
+            كلما زاد عدد الأدوار المميزة في الجلسة، زاد تنوع العقود المتاحة للسفاح.
+          </p>
+        </div>
+      </div>
+
       {/* Group by team */}
       {['MAFIA', 'CITIZEN', 'NEUTRAL'].map(team => {
         const teamRoles = items.filter(r => r.team === team);

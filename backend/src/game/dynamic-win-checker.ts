@@ -82,14 +82,20 @@ export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): Neut
         break;
 
       // ── الإقصاء بواسطة المدينة (المهرج) ──
-      // يفوز إذا: تصويت نهاري / اتفاقية (ديل) / قنص
+      // يفوز إذا: تصويت نهاري / اتفاقية (ديل) / قنص (تم حذفه سابقاً)
       case 'VOTED_OUT': {
         if (!player.isAlive) {
           const log = state.performanceTracking?.eliminationLog || [];
           const entry = log.find(e => e.physicalId === player.physicalId);
           // فوز: أي إقصاء من طرف المدينة (ليس من المافيا)
-          const cityKillMethods = ['DAY_VOTE', 'DEAL', 'SNIPER'];
-          won = entry ? cityKillMethods.includes(entry.eliminatedBy) : false;
+          const cityKillMethods = ['DAY_VOTE', 'DEAL'];
+          const killedByCity = entry ? cityKillMethods.includes(entry.eliminatedBy) : false;
+          
+          // شرط البقاء على قيد الحياة للمدة المطلوبة
+          const reqRounds = state.config.jesterSurviveRounds || 2;
+          const hasSurvivedRequiredRounds = state.round >= reqRounds;
+
+          won = killedByCity && hasSurvivedRequiredRounds;
         }
         break;
       }
@@ -160,10 +166,13 @@ export async function checkNeutralVoteWin(
 
   const conditionType = roleDef.winConditionType || '';
 
-  // شرط VOTED_OUT: المهرج يفوز فورياً عند إقصائه بواسطة المدينة
+  // شرط VOTED_OUT: المهرج يفوز فورياً عند إقصائه بواسطة المدينة، بشرط بقائه على قيد الحياة للحد الأدنى من الجولات
   if (conditionType === 'VOTED_OUT') {
-    const cityKillMethods = ['DAY_VOTE', 'DEAL', 'SNIPER'];
-    if (cityKillMethods.includes(eliminatedBy)) {
+    const cityKillMethods = ['DAY_VOTE', 'DEAL'];
+    const reqRounds = state.config.jesterSurviveRounds || 2;
+    const hasSurvivedRequiredRounds = state.round >= reqRounds;
+
+    if (cityKillMethods.includes(eliminatedBy) && hasSurvivedRequiredRounds) {
       return {
         physicalId: player.physicalId,
         playerName: player.name,

@@ -248,6 +248,7 @@ export async function resolveNightDynamic(
             targetPhysicalId: target.physicalId,
             targetName: target.name,
             revealed: false,
+            extra: { targetRole: target.role },
           });
 
           // فحص إنجاز العقد

@@ -15,6 +15,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const [loading, setLoading] = useState(true);
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [assassinContractCount, setAssassinContractCount] = useState(4);  // 🔪 عدد عقود السفّاح
+  const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
 
   useEffect(() => {
     const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
@@ -92,6 +93,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
         roomId: gameState.roomId,
         roles,
         assassinContractCount: roles.includes(Role.ASSASSIN) ? assassinContractCount : undefined,
+        jesterSurviveRounds: roles.includes(Role.JESTER) ? jesterSurviveRounds : undefined,
       });
     } catch (err: any) {
       setError(err.message);
@@ -266,16 +268,30 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
             </div>
           )}
 
-          {/* وصف المهرج */}
+          {/* وصف المهرج وإعدادات النجاة */}
           {hasJesterInRoles && (
             <motion.div 
               initial={{ opacity: 0, height: 0 }} 
               animate={{ opacity: 1, height: 'auto' }}
-              className="mt-4 p-3 bg-amber-500/5 border border-amber-500/10 rounded-lg"
+              className="mt-4 p-4 bg-amber-500/5 border border-amber-500/10 rounded-lg space-y-3"
             >
               <p className="text-amber-400/80 text-xs font-mono leading-relaxed" dir="rtl">
-                🤡 المهرج يفوز إذا أقصته المدينة (تصويت / اتفاقية / قنص). إذا فاز — تنتهي اللعبة فوراً.
+                🤡 المهرج يفوز إذا أقصته المدينة (تصويت / اتفاقية / قنص). يجب أن يبقى على قيد الحياة للمدة المحددة أدناه ليفوز عند إقصائه، وإلا يخسر مثل أي لاعب.
               </p>
+              <div className="flex items-center justify-between">
+                <span className="text-amber-400/60 text-xs font-mono" dir="rtl">جولات النجاة المطلوبة:</span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setJesterSurviveRounds(Math.max(1, jesterSurviveRounds - 1))}
+                    className="w-7 h-7 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-sm font-bold transition-colors"
+                  >−</button>
+                  <span className="text-amber-300 font-mono font-bold w-6 text-center">{jesterSurviveRounds}</span>
+                  <button 
+                    onClick={() => setJesterSurviveRounds(Math.min(6, jesterSurviveRounds + 1))}
+                    className="w-7 h-7 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-sm font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
             </motion.div>
           )}
 
