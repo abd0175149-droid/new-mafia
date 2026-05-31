@@ -151,7 +151,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
 
   // ── 4.5. معالجة اغتيال السفّاح ──────────────────
   if (state.assassinState && nightActions.assassinTarget !== null) {
-    const { evaluateAssassinKill, regenerateDeadContracts } = await import('./assassin-engine.js');
+    const { evaluateAssassinKill } = await import('./assassin-engine.js');
     const targetId = nightActions.assassinTarget;
     const target = state.players.find(p => p.physicalId === targetId);
 
@@ -198,11 +198,15 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
         console.log(`🔪 [resolveNight] Assassin killed ${target.name} — contract: ${evalResult.contractCompleted ? '✅' : '❌'}, won: ${evalResult.won}`);
       }
     }
+  }
 
+  // تحديث حالة السفاح سواء تصرف هذه الليلة أم لا
+  if (state.assassinState) {
     if (!state.assassinState.firstNightPassed) {
       state.assassinState.firstNightPassed = true;
     }
 
+    const { regenerateDeadContracts } = await import('./assassin-engine.js');
     const regen = regenerateDeadContracts(state);
     if (regen.changed) {
       console.log(`🔄 [resolveNight] Assassin contracts updated: ${regen.changeLog.join(', ')}`);

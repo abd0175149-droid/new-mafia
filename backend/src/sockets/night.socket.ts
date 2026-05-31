@@ -988,8 +988,15 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
 
         // 🔪 تحديث firstNightPassed بعد أول ليلة
-        if (state.assassinState && !state.assassinState.firstNightPassed) {
-          state.assassinState.firstNightPassed = true;
+        if (state.assassinState) {
+          if (!state.assassinState.firstNightPassed) {
+            state.assassinState.firstNightPassed = true;
+          }
+          const { regenerateDeadContracts } = await import('../game/assassin-engine.js');
+          const regen = regenerateDeadContracts(state);
+          if (regen.changed) {
+            console.log(`🔄 [DynamicResolve] Assassin contracts updated: ${regen.changeLog.join(', ')}`);
+          }
         }
 
         // حفظ الحالة
