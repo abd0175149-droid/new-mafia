@@ -89,7 +89,7 @@ export default function LeaderPage() {
   const [availableActivities, setAvailableActivities] = useState<any[]>([]);
   const [nightMode, setNightMode] = useState<'manual' | 'auto'>('manual'); // نمط الليل
   // تتبع Auto Night Progress
-  const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number; missingPlayers?: {physicalId: number, name: string}[] } | null>(null);
+  const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number; missingPlayers?: {physicalId: number, name: string}[]; choices?: any[] } | null>(null);
   // الخطوة الجاهزة للليدر (Auto Night)
   const [autoNightStep, setAutoNightStep] = useState<{
     roleName: string; role: string; performerName: string; performerPhysicalId: number;
