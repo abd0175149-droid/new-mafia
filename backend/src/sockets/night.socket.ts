@@ -1674,7 +1674,6 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       callback?.({ success: true });
     } catch (err: any) {
-    } catch (err: any) {
       callback?.({ success: false, error: err.message });
     }
   });
