@@ -2838,7 +2838,9 @@ export default function LeaderPage() {
                                   if (!res?.success) setError(res?.error || 'فشل اعتماد الخطوة');
                                   else {
                                     setAutoNightApproval(null);
-                                    setAutoNightStep(null);
+                                    // لا نمسح autoNightStep هنا لأن night:auto-step-ready
+                                    // يصل قبل الـ callback ويُعيّن الخطوة الجديدة
+                                    // مسحه هنا يسبب race condition ويمسح الخطوة الجديدة
                                   }
                                 } catch (err: any) { setError(err.message); }
                               }}
