@@ -357,7 +357,7 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
             latestState.autoNightChoices.push({
               physicalId: performerId,
               targetPhysicalId: tId,
-              isReal: isPerformer,
+              isReal: true,
               isRandom: true
             });
 
@@ -1565,7 +1565,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'Not night phase' });
       if (state.config.nightMode !== 'auto') return callback?.({ success: false, error: 'Not auto mode' });
 
-      const physicalId: number = socket.data.physicalId;
+      const physicalId: number = Number(socket.data.physicalId);
       const player = state.players.find((p: any) => p.physicalId === physicalId);
       if (!player || !player.isAlive) return callback?.({ success: false, error: 'Player not alive' });
 
