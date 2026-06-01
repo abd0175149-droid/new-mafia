@@ -95,6 +95,7 @@ export default function LeaderPage() {
     roleName: string; role: string; performerName: string; performerPhysicalId: number;
     canSkip: boolean; timeoutSeconds: number; dispatched: boolean;
   } | null>(null);
+  const [autoNightApproval, setAutoNightApproval] = useState<{choices: any[], nextIndex: number} | null>(null);
   const [customNightTimer, setCustomNightTimer] = useState<number | null>(null);
 
   // Active game state
@@ -742,24 +743,31 @@ export default function LeaderPage() {
     });
 
     // ── Auto Night Mode: تقدم الإجراءات ──
-    const offAutoProgress = on('night:auto-progress', (data: { total: number; submitted: number }) => {
+    const offAutoProgress = on('night:auto-progress', (data: { total: number; submitted: number; missingPlayers?: any[]; choices?: any[] }) => {
       setAutoNightProgress(data);
     });
     const offAutoStarted = on('night:auto-started', (data: { totalAlive: number }) => {
       console.log('🌙 [Leader] night:auto-started received', data);
       setAutoNightProgress({ total: data.totalAlive, submitted: 0 });
       setAutoNightStep(null);
+      setAutoNightApproval(null);
     });
     // الخطوة جاهزة — تنتظر الليدر
     const offAutoStepReady = on('night:auto-step-ready', (data: any) => {
       console.log('🌙 [Leader] night:auto-step-ready received', data);
       setAutoNightStep({ ...data, dispatched: false });
-      setAutoNightProgress(prev => prev ? { ...prev, submitted: 0 } : null);
+      setAutoNightProgress(prev => prev ? { ...prev, submitted: 0, choices: [] } : null);
+      setAutoNightApproval(null);
     });
     // الخطوة أُرسلت للاعبين
     const offAutoStepStarted = on('night:auto-step-started', (data: any) => {
       console.log('🌙 [Leader] night:auto-step-started received', data);
       setAutoNightStep(prev => prev ? { ...prev, dispatched: true } : null);
+    });
+    // مرحلة الموافقة من الليدر
+    const offAutoStepApproval = on('night:auto-step-approval', (data: any) => {
+      console.log('⏸️ [Leader] night:auto-step-approval received', data);
+      setAutoNightApproval(data);
     });
 
     // 👮‍♀️ صلاحية الشرطية جاهزة — عرض واجهة الاختيار
@@ -949,6 +957,9 @@ export default function LeaderPage() {
       offSheriffResult();
       offAutoProgress();
       offAutoStarted();
+      offAutoStepReady();
+      offAutoStepStarted();
+      offAutoStepApproval();
       offPolicewomanAvailable();
       offGameOver();
       offGameRestarted();
@@ -2762,6 +2773,79 @@ export default function LeaderPage() {
                           >
                             ▶ بدء {autoNightStep.roleName}
                           </button>
+                        ) : autoNightApproval ? (
+                          <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-4">
+                            <p className="text-center text-[#C5A059] font-bold mb-3">✅ اكتمل الاختيار — مرحلة مراجعة الليدر</p>
+                            <div className="space-y-2 max-h-64 overflow-y-auto mb-3">
+                              {[...autoNightApproval.choices]
+                                .sort((a, b) => {
+                                  if (a.isReal && !b.isReal) return -1;
+                                  if (!a.isReal && b.isReal) return 1;
+                                  return a.physicalId - b.physicalId;
+                                })
+                                .map((c: any) => {
+                                  const isReal = c.isReal;
+                                  const isRandom = c.isRandom;
+                                  const chooser = gameState.players.find((p: any) => p.physicalId === c.physicalId);
+                                  const target = gameState.players.find((p: any) => p.physicalId === c.targetPhysicalId);
+                                  
+                                  return (
+                                    <div key={c.physicalId} className={`p-3 rounded-lg border ${isReal ? 'bg-[#C5A059]/10 border-[#C5A059] shadow-[0_0_10px_rgba(197,160,89,0.2)]' : 'bg-[#222] border-[#333]'}`}>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className={`text-xs font-mono ${isReal ? 'font-black text-white' : 'text-[#ccc]'}`}>
+                                          #{chooser?.physicalId} {chooser?.name}
+                                          {isReal && <span className="mr-2 px-2 py-0.5 bg-[#C5A059] text-black rounded text-[10px] font-bold">صاحب الدور</span>}
+                                          {isRandom && <span className="mr-1 px-1.5 py-0.5 bg-gray-600 text-white rounded text-[9px]">عشوائي</span>}
+                                        </span>
+                                        <span className={`text-xs font-bold ${isReal ? 'text-[#C5A059]' : 'text-[#888]'}`}>
+                                          ← {target ? `#${target.physicalId} ${target.name}` : 'تخطي'}
+                                        </span>
+                                      </div>
+                                      {isReal && (
+                                        <div className="mt-2 text-left">
+                                          <select
+                                            className="text-[11px] bg-black border border-[#C5A059]/50 focus:border-[#C5A059] focus:outline-none text-white p-1.5 rounded w-full"
+                                            value={c.targetPhysicalId || ''}
+                                            onChange={(e) => {
+                                              const newChoices = [...autoNightApproval.choices];
+                                              const originalIdx = newChoices.findIndex((nc: any) => nc.physicalId === c.physicalId);
+                                              if (originalIdx >= 0) {
+                                                newChoices[originalIdx].targetPhysicalId = e.target.value ? Number(e.target.value) : null;
+                                                setAutoNightApproval({...autoNightApproval, choices: newChoices});
+                                              }
+                                            }}
+                                          >
+                                            <option value="">تخطي</option>
+                                            {gameState.players.filter((p: any) => p.isAlive).map((p: any) => (
+                                              <option key={p.physicalId} value={p.physicalId}>#{p.physicalId} {p.name}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                              })}
+                            </div>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const res = await emit('night:auto-approve-step', {
+                                    roomId: gameState.roomId,
+                                    modifiedChoices: autoNightApproval.choices,
+                                    nextIndex: autoNightApproval.nextIndex
+                                  });
+                                  if (!res?.success) setError(res?.error || 'فشل اعتماد الخطوة');
+                                  else {
+                                    setAutoNightApproval(null);
+                                    setAutoNightStep(null);
+                                  }
+                                } catch (err: any) { setError(err.message); }
+                              }}
+                              className="w-full py-2 bg-[#C5A059] text-black font-bold text-sm rounded hover:bg-[#d4af63] transition-colors"
+                            >
+                              اعتماد الإجراء
+                            </button>
+                          </div>
                         ) : (
                           <div>
                             {/* شريط التقدم */}
@@ -2773,11 +2857,41 @@ export default function LeaderPage() {
                                     style={{ width: `${autoNightProgress.total > 0 ? (autoNightProgress.submitted / autoNightProgress.total) * 100 : 0}%` }}
                                   />
                                 </div>
-                                <p className="text-[10px] text-[#555] font-mono text-center tracking-widest mb-2">
-                                  {autoNightProgress.submitted >= autoNightProgress.total
-                                    ? '✅ الجميع أرسلوا — جارٍ تحضير الخطوة التالية...'
-                                    : 'اللاعبون يختارون من أجهزتهم...'}
+                                <p className="text-[10px] text-[#555] font-mono text-center tracking-widest mb-3">
+                                  اللاعبون يختارون من أجهزتهم...
                                 </p>
+
+                                {/* عرض الخيارات الحية أثناء اختيار اللاعبين */}
+                                {autoNightProgress.choices && autoNightProgress.choices.length > 0 && (
+                                  <div className="space-y-2 mb-3">
+                                    {[...autoNightProgress.choices]
+                                      .sort((a, b) => {
+                                        if (a.isReal && !b.isReal) return -1;
+                                        if (!a.isReal && b.isReal) return 1;
+                                        return a.physicalId - b.physicalId;
+                                      })
+                                      .map((c: any) => {
+                                        const isReal = c.isReal;
+                                        const chooser = gameState.players.find((p: any) => p.physicalId === c.physicalId);
+                                        const target = gameState.players.find((p: any) => p.physicalId === c.targetPhysicalId);
+                                        
+                                        return (
+                                          <div key={c.physicalId} className={`p-2 rounded-lg border ${isReal ? 'bg-[#C5A059]/10 border-[#C5A059]/50 shadow-[0_0_8px_rgba(197,160,89,0.1)]' : 'bg-[#222] border-[#333]'}`}>
+                                            <div className="flex items-center justify-between mb-1">
+                                              <span className={`text-[11px] font-mono ${isReal ? 'font-bold text-white' : 'text-[#aaa]'}`}>
+                                                #{chooser?.physicalId} {chooser?.name}
+                                                {isReal && <span className="mr-1 px-1.5 py-0.5 bg-[#C5A059] text-black rounded text-[9px] font-bold">صاحب الدور</span>}
+                                              </span>
+                                              <span className={`text-[11px] ${isReal ? 'text-[#C5A059] font-bold' : 'text-[#888]'}`}>
+                                                ← {target ? `#${target.physicalId} ${target.name}` : 'تخطي'}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                  </div>
+                                )}
+
                                 {autoNightProgress.missingPlayers && autoNightProgress.missingPlayers.length > 0 && (
                                   <div className="bg-[#111] border border-[#2a2a2a] rounded-lg p-2 max-h-32 overflow-y-auto">
                                     <p className="text-[9px] text-[#888] font-mono mb-1">في انتظار الإرسال:</p>

@@ -101,15 +101,20 @@ function getAutoTargets(state: any, role: Role | null, selfId: number): number[]
   }
 }
 
-// ── إيجاد socket لاعب بـ physicalId ──
+// ── إيجاد جميع اتصالات اللاعب بـ physicalId ──
 function findPlayerSocket(io: Server, roomId: string, physicalId: number) {
-  const room = io.sockets.adapter.rooms.get(roomId);
-  if (!room) return undefined;
-  for (const socketId of room) {
-    const sock = io.sockets.sockets.get(socketId);
-    if (sock?.data.physicalId === physicalId && sock?.data.role === 'player') return sock;
-  }
-  return undefined;
+  return {
+    emit: (event: string, payload: any) => {
+      const room = io.sockets.adapter.rooms.get(roomId);
+      if (!room) return;
+      for (const socketId of room) {
+        const sock = io.sockets.sockets.get(socketId);
+        if (sock?.data.physicalId === physicalId && sock?.data.role === 'player') {
+          sock.emit(event, payload);
+        }
+      }
+    }
+  };
 }
 
 // ── إيجاد socket الليدر ──
@@ -134,15 +139,12 @@ async function resolveAutoNight(io: Server, roomId: string) {
   // 🔪 إشعار اللاعب السفّاح بالتحديثات إذا حصلت
   const stateAfterResolve = await getGameState(roomId);
   if (stateAfterResolve?.assassinState) {
-    const assassinSock = findPlayerSocket(io, roomId, stateAfterResolve.assassinState.assassinPhysicalId);
-    if (assassinSock) {
-      assassinSock.emit('assassin:contracts-update', {
-        contracts: stateAfterResolve.assassinState.contracts,
-        currentIndex: 0, // legacy
-        completedCount: stateAfterResolve.assassinState.completedCount,
-        totalRequired: stateAfterResolve.assassinState.totalRequired,
-      });
-    }
+    findPlayerSocket(io, roomId, stateAfterResolve.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
+      contracts: stateAfterResolve.assassinState.contracts,
+      currentIndex: 0, // legacy
+      completedCount: stateAfterResolve.assassinState.completedCount,
+      totalRequired: stateAfterResolve.assassinState.totalRequired,
+    });
   }
 
   await setPhase(roomId, Phase.MORNING_RECAP);
@@ -230,6 +232,7 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
   const nextStep = state.nightStep;
   state.autoNightStepDispatched = true;
   state.playerNightActions = { submitted: {} };
+  state.autoNightChoices = []; // Reset choices for new step
   await setGameState(roomId, state);
 
   const timeoutSeconds = durationSeconds || state.config.autoNightTime || 15;
@@ -339,6 +342,16 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
           
             if (!latestState.playerNightActions) latestState.playerNightActions = { submitted: {} };
             latestState.playerNightActions.submitted[performerId] = true;
+            
+            // تسجيل الاختيار العشوائي
+            if (!latestState.autoNightChoices) latestState.autoNightChoices = [];
+            latestState.autoNightChoices.push({
+              physicalId: performerId,
+              targetPhysicalId: tId,
+              isReal: isPerformer,
+              isRandom: true
+            });
+
             await setGameState(roomId, latestState);
           }
         }
@@ -347,8 +360,17 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
 
     const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
     const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
-    // تجهيز الخطوة التالية (تنتظر الليدر)
-    await prepareAutoQueueStep(io, roomId, newIndex);
+    
+    // بدلاً من تجهيز الخطوة التالية، نذهب لشاشة المراجعة لليدر
+    latestState.autoNightStepApproval = true;
+    await setGameState(roomId, latestState);
+    
+    io.to(roomId).emit('night:auto-step-approval', {
+      choices: latestState.autoNightChoices || [],
+      nextIndex: newIndex,
+    });
+    
+    console.log(`⏸️ Auto step ${nextStep.roleName} pending leader approval in room ${roomId}`);
     } catch (err) {
       console.error(`❌ Auto night timer error for room ${roomId}:`, err);
     }
@@ -1022,15 +1044,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
         // 🔪 إشعار اللاعب السفّاح بالتحديثات
         if (state.assassinState) {
-          const assassinSock = findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId);
-          if (assassinSock) {
-            assassinSock.emit('assassin:contracts-update', {
-              contracts: state.assassinState.contracts,
-              currentIndex: 0, // legacy
-              completedCount: state.assassinState.completedCount,
-              totalRequired: state.assassinState.totalRequired,
-            });
-          }
+          findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
+            contracts: state.assassinState.contracts,
+            currentIndex: 0, // legacy
+            completedCount: state.assassinState.completedCount,
+            totalRequired: state.assassinState.totalRequired,
+          });
         }
 
         console.log(`🧩 Dynamic night resolved: ${events.length} events`);
@@ -1170,7 +1189,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       clearGameTimer(data.roomId);
 
       // مسح pendingWinner وتعيين winner
-      state.winner = winner as 'MAFIA' | 'CITIZEN' | 'JESTER';
+      state.winner = winner as 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN';
       state.pendingWinner = null;
       await setGameState(data.roomId, state);
 
@@ -1354,14 +1373,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
         if (dynResult.mainWinner) {
           pendingWinner = dynResult.mainWinner;
           state.pendingWinner = pendingWinner;
-          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN' | 'JESTER';
+          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN';
         }
       } else {
         const winResult = checkWinCondition(state);
         if (winResult !== WinResult.GAME_CONTINUES) {
           pendingWinner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
           state.pendingWinner = pendingWinner;
-          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN' | 'JESTER';
+          state.winner = pendingWinner as 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN';
         }
       }
 
@@ -1579,6 +1598,20 @@ export function registerNightEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       // إعلام الليدر بالتقدم وتحديث الحالة (لكي يرى اختيارات اللاعبين)
+      if (!state.autoNightChoices) state.autoNightChoices = [];
+      const existingChoiceIdx = state.autoNightChoices.findIndex(c => c.physicalId === physicalId);
+      const newChoice = {
+        physicalId,
+        targetPhysicalId: data.targetPhysicalId,
+        isReal: isRoleOwner,
+        isRandom: false
+      };
+      if (existingChoiceIdx >= 0) {
+        state.autoNightChoices[existingChoiceIdx] = newChoice;
+      } else {
+        state.autoNightChoices.push(newChoice);
+      }
+      
       const alivePlayers = state.players.filter((p: any) => p.isAlive);
       const submittedCount = Object.keys(state.playerNightActions.submitted).length;
       const missingPlayers = alivePlayers
@@ -1590,18 +1623,30 @@ export function registerNightEvents(io: Server, socket: Socket) {
         total: alivePlayers.length,
         submitted: submittedCount,
         missingPlayers,
+        choices: state.autoNightChoices, // Send real-time choices to leader
       });
 
       callback?.({ success: true });
 
-      // إذا أرسل الجميع → تجهيز الخطوة التالية (تنتظر الليدر)
+      // إذا أرسل الجميع → ننتقل لوضع المراجعة
       if (submittedCount >= alivePlayers.length) {
-        console.log(`✅ All players submitted for step ${stepRole} in room ${data.roomId} — preparing next`);
+        console.log(`✅ All players submitted for step ${stepRole} in room ${data.roomId} — pending leader approval`);
         const oldTimer = autoNightTimers.get(data.roomId);
-        if (oldTimer) clearTimeout(oldTimer);
+        if (oldTimer) {
+          clearTimeout(oldTimer);
+          autoNightTimers.delete(data.roomId);
+        }
+        
         const effectiveRole = stepRole === Role.NURSE ? Role.DOCTOR : stepRole;
-        const currentIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
-        prepareAutoQueueStep(io, data.roomId, currentIndex);
+        const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole as any);
+        
+        state.autoNightStepApproval = true;
+        await setGameState(data.roomId, state);
+        
+        io.to(data.roomId).emit('night:auto-step-approval', {
+          choices: state.autoNightChoices || [],
+          nextIndex: newIndex,
+        });
       }
     } catch (err: any) {
       callback?.({ success: false, error: err.message });
@@ -1627,6 +1672,63 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // الليدر يبدأ الخطوة → إرسال للاعبين + بدء المؤقت
       await dispatchAutoStepToPlayers(io, data.roomId, data.durationSeconds);
 
+      callback?.({ success: true });
+    } catch (err: any) {
+    } catch (err: any) {
+      callback?.({ success: false, error: err.message });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 📱 night:auto-approve-step — الليدر يوافق على الاختيارات وينتقل للتالي
+  // ══════════════════════════════════════════════════════
+  socket.on('night:auto-approve-step', async (data: { roomId: string, modifiedChoices?: any[], nextIndex: number }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
+      
+      const state = await getGameState(data.roomId);
+      if (!state || !state.autoNightStepApproval) return callback?.({ success: false, error: 'Not in approval state' });
+
+      // If leader modified choices, update them
+      if (data.modifiedChoices && data.modifiedChoices.length > 0) {
+        state.autoNightChoices = data.modifiedChoices;
+        
+        // Find the real choice and update action
+        const realChoice = data.modifiedChoices.find(c => c.isReal);
+        if (realChoice && realChoice.targetPhysicalId !== null) {
+           const stepRole = state.autoNightStepRole;
+           switch (stepRole) {
+             case Role.GODFATHER:
+             case Role.CHAMELEON:
+             case Role.MAFIA_REGULAR:
+               state.nightActions.godfatherTarget = realChoice.targetPhysicalId; break;
+             case Role.SILENCER:
+               state.nightActions.silencerTarget = realChoice.targetPhysicalId; break;
+             case Role.SHERIFF: {
+               state.nightActions.sheriffTarget = realChoice.targetPhysicalId;
+               const investigated = state.players.find((p: any) => p.physicalId === realChoice.targetPhysicalId);
+               let sheriffResult = 'CITIZEN';
+               if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
+               else if (investigated?.role && [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(investigated.role)) sheriffResult = 'MAFIA';
+               state.nightActions.sheriffResult = sheriffResult;
+               break;
+             }
+             case Role.DOCTOR: state.nightActions.doctorTarget = realChoice.targetPhysicalId; break;
+             case Role.NURSE: state.nightActions.nurseTarget = realChoice.targetPhysicalId; break;
+             case Role.SNIPER: state.nightActions.sniperTarget = realChoice.targetPhysicalId; break;
+             default:
+               if ((stepRole as string) === 'ASSASSIN') state.nightActions.assassinTarget = realChoice.targetPhysicalId;
+               break;
+           }
+        }
+      }
+
+      state.autoNightStepApproval = false;
+      await setGameState(data.roomId, state);
+      
+      // تجهيز الخطوة التالية (تنتظر الليدر)
+      await prepareAutoQueueStep(io, data.roomId, data.nextIndex);
+      
       callback?.({ success: true });
     } catch (err: any) {
       callback?.({ success: false, error: err.message });

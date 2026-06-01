@@ -9,6 +9,7 @@ import { isMafiaRole } from './roles.js';
 export enum WinResult {
   MAFIA_WIN = 'MAFIA',
   CITIZEN_WIN = 'CITIZEN',
+  ASSASSIN_WIN = 'ASSASSIN',
   GAME_CONTINUES = 'CONTINUE',
 }
 

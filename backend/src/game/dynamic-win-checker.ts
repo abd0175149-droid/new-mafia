@@ -18,7 +18,7 @@ export interface NeutralResult {
 }
 
 export interface DynamicWinResult {
-  mainWinner: 'MAFIA' | 'CITIZEN' | null;  // null = اللعبة مستمرة
+  mainWinner: 'MAFIA' | 'CITIZEN' | 'ASSASSIN' | 'JESTER' | null;  // null = اللعبة مستمرة
   neutralResults: NeutralResult[];
 }
 
@@ -42,21 +42,23 @@ export async function checkWinConditionDynamic(state: GameState): Promise<Dynami
     // المحايد لا يُحسب لأي فريق
   }
 
-  // فحص فوز المافيا/المواطنين
-  let mainWinner: 'MAFIA' | 'CITIZEN' | null = null;
+  // فحص شروط فوز المحايدين أولاً لأن بعضهم قد ينهي اللعبة
+  const neutralResults = evaluateNeutralWins(state, allRoles);
 
-  if (aliveMafia === 0) {
+  let mainWinner: 'MAFIA' | 'CITIZEN' | 'ASSASSIN' | 'JESTER' | null = null;
+
+  const assassinWon = neutralResults.find(r => r.roleId === 'ASSASSIN' && r.won);
+  if (assassinWon) {
+    mainWinner = 'ASSASSIN';
+  } else if (aliveMafia === 0) {
     mainWinner = 'CITIZEN';
   } else if (aliveMafia >= aliveCitizens) {
     mainWinner = 'MAFIA';
   }
 
-  // فحص شروط فوز المحايدين (يُفحصون عند انتهاء اللعبة)
-  const neutralResults: NeutralResult[] = [];
-
-  if (mainWinner) {
-    const results = evaluateNeutralWins(state, allRoles);
-    neutralResults.push(...results);
+  // لا نرسل نتائج المحايدين إلا إذا انتهت اللعبة فعلياً
+  if (!mainWinner) {
+    return { mainWinner: null, neutralResults: [] };
   }
 
   return { mainWinner, neutralResults };

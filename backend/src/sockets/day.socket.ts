@@ -883,7 +883,6 @@ export function registerDayEvents(io: Server, socket: Socket) {
                   totalRequired: currentState.assassinState.totalRequired,
                   changeLog: regen.changeLog,
                 });
-                break;
               }
             }
           }
@@ -999,6 +998,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const dynResult = await checkWinConditionDynamic(state);
         winResult = dynResult.mainWinner === 'MAFIA' ? 'MAFIA_WIN'
                   : dynResult.mainWinner === 'CITIZEN' ? 'CITIZEN_WIN'
+                  : dynResult.mainWinner === 'ASSASSIN' ? 'ASSASSIN_WIN'
                   : 'GAME_CONTINUES';
       } else {
         const winCheck = checkWinCondition(state);
@@ -1008,7 +1008,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       }
 
       if (winResult !== 'GAME_CONTINUES') {
-        const winnerValue = winResult === 'MAFIA_WIN' ? 'MAFIA' : 'CITIZEN';
+        const winnerValue = winResult === 'MAFIA_WIN' ? 'MAFIA' : winResult === 'ASSASSIN_WIN' ? 'ASSASSIN' : 'CITIZEN';
         state.winner = winnerValue;
         state.pendingWinner = winnerValue;
       }
@@ -1086,12 +1086,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
           const dynResult = await checkWinConditionDynamic(state);
           winResult = dynResult.mainWinner === 'MAFIA' ? WinResult.MAFIA_WIN
                     : dynResult.mainWinner === 'CITIZEN' ? WinResult.CITIZEN_WIN
+                    : dynResult.mainWinner === 'ASSASSIN' ? WinResult.ASSASSIN_WIN
                     : WinResult.GAME_CONTINUES;
         } else {
           winResult = checkWinCondition(state);
         }
         if (winResult !== WinResult.GAME_CONTINUES) {
-          state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+          state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : winResult === WinResult.ASSASSIN_WIN ? 'ASSASSIN' : 'CITIZEN';
           state.pendingWinner = state.winner;
           await setGameState(data.roomId, state);
         }
@@ -1447,12 +1448,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const dynResult = await checkWinConditionDynamic(state);
         winResult = dynResult.mainWinner === 'MAFIA' ? WinResult.MAFIA_WIN
                   : dynResult.mainWinner === 'CITIZEN' ? WinResult.CITIZEN_WIN
+                  : dynResult.mainWinner === 'ASSASSIN' ? WinResult.ASSASSIN_WIN
                   : WinResult.GAME_CONTINUES;
       } else {
         winResult = rolesAssigned ? checkWinCondition(state) : WinResult.GAME_CONTINUES;
       }
       if (winResult !== WinResult.GAME_CONTINUES) {
-        const winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : 'CITIZEN';
+        const winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : winResult === WinResult.ASSASSIN_WIN ? 'ASSASSIN' : 'CITIZEN';
         state.winner = winner;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.GAME_OVER);

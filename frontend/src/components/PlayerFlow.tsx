@@ -855,6 +855,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             }
           }
 
+          // ── استعادة مهام السفّاح ──
+          if (res.assassinContracts) {
+            setAssassinContracts(res.assassinContracts);
+          }
+
           // ── استعادة حالة الليل الأوتو عند refresh ──
           if (res.nightState && res.phase === 'NIGHT' && !res.nightState.playerSubmitted) {
             const ns = res.nightState;

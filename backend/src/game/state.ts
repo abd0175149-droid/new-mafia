@@ -235,6 +235,8 @@ export interface GameState {
     submitted: Record<number, boolean>; // physicalId → هل أرسل إجراءه
     timerHandle?: any;                  // مرجع setInterval/setTimeout للإلغاء
   };
+  autoNightChoices?: Array<{ physicalId: number; targetPhysicalId: number | null; isReal: boolean; isRandom: boolean }>;
+  autoNightStepApproval?: boolean;
   // ── مؤقت اللعبة ──
   gameTimer: {
     totalSeconds: number;   // المدة الإجمالية بالثواني

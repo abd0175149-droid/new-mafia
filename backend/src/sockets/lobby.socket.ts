@@ -2237,6 +2237,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         } : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
+        // عقود السفّاح
+        assassinContracts: (shouldShowRole && player.role === 'ASSASSIN' && state.assassinState) ? {
+          contracts: state.assassinState.contracts,
+          currentIndex: state.assassinState.currentContractIndex || 0,
+          completedCount: state.assassinState.completedCount,
+          totalRequired: state.assassinState.totalRequired,
+        } : null,
         // نتيجة اللعبة
         winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
         // معلومات قائمة اللاعبين للمفكرة وغيرها
