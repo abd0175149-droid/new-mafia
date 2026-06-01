@@ -274,7 +274,8 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     const latestState = await getGameState(roomId);
     if (latestState && latestState.nightStep && latestState.nightStep.role === nextStep.role) {
       const performerId = latestState.nightStep.performerPhysicalId;
-      const submitted = latestState.playerNightActions?.submitted?.[performerId];
+      const submitted = latestState.playerNightActions?.submitted?.[performerId] 
+        || latestState.playerNightActions?.submitted?.[String(performerId)];
       
       if (!submitted) {
         // القناص: تخطي بدل الاختيار العشوائي (لأن قنص مواطن = موت القناص + الهدف)
@@ -379,7 +380,10 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     
     const alivePlayers = latestState.players.filter((p: any) => p.isAlive);
     for (const player of alivePlayers) {
-      if (!latestState.playerNightActions.submitted[player.physicalId]) {
+      const alreadyHasChoice = latestState.autoNightChoices.some(c => c.physicalId === player.physicalId);
+      const isSubmitted = latestState.playerNightActions.submitted[player.physicalId] 
+        || latestState.playerNightActions.submitted[String(player.physicalId)];
+      if (!isSubmitted && !alreadyHasChoice) {
         // اختيار عشوائي وهمي (Decoy)
         let validTargets = alivePlayers.filter((p: any) => p.physicalId !== player.physicalId);
         if (validTargets.length === 0) validTargets = alivePlayers;
@@ -1579,7 +1583,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const stepRole = state.autoNightStepRole;
       if (!stepRole) return callback?.({ success: false, error: 'No active step' });
 
-      const isRoleOwner = physicalId === state.autoNightPerformerId;
+      const isRoleOwner = Number(physicalId) === Number(state.autoNightPerformerId);
 
       // تسجيل submitted
       state.playerNightActions.submitted[physicalId] = true;
@@ -1627,8 +1631,6 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
       }
 
-      await setGameState(data.roomId, state);
-
       // إعلام الليدر بالتقدم وتحديث الحالة (لكي يرى اختيارات اللاعبين)
       if (!state.autoNightChoices) state.autoNightChoices = [];
       const existingChoiceIdx = state.autoNightChoices.findIndex(c => c.physicalId === physicalId);
@@ -1643,6 +1645,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
       } else {
         state.autoNightChoices.push(newChoice);
       }
+
+      // ⚠️ حفظ الحالة بالكامل (بما فيها autoNightChoices) في Redis
+      await setGameState(data.roomId, state);
       
       const alivePlayers = state.players.filter((p: any) => p.isAlive);
       const submittedCount = Object.keys(state.playerNightActions.submitted).length;
