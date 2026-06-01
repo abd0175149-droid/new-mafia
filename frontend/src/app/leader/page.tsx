@@ -2795,33 +2795,34 @@ export default function LeaderPage() {
                                         <span className={`text-xs font-mono ${isReal ? 'font-black text-white' : 'text-[#ccc]'}`}>
                                           #{chooser?.physicalId} {chooser?.name}
                                           {isReal && <span className="mr-2 px-2 py-0.5 bg-[#C5A059] text-black rounded text-[10px] font-bold">صاحب الدور</span>}
-                                          {isRandom && <span className="mr-1 px-1.5 py-0.5 bg-gray-600 text-white rounded text-[9px]">عشوائي</span>}
-                                        </span>
-                                        <span className={`text-xs font-bold ${isReal ? 'text-[#C5A059]' : 'text-[#888]'}`}>
-                                          ← {target ? `#${target.physicalId} ${target.name}` : 'تخطي'}
+                                          {isRandom ? (
+                                            <span className="mr-1 px-1.5 py-0.5 bg-gray-600 text-white rounded text-[9px]">عشوائي</span>
+                                          ) : (
+                                            <span className="mr-1 px-1.5 py-0.5 bg-[#4CAF50] text-white rounded text-[9px]">يدوي</span>
+                                          )}
                                         </span>
                                       </div>
-                                      {isReal && (
-                                        <div className="mt-2 text-left">
-                                          <select
-                                            className="text-[11px] bg-black border border-[#C5A059]/50 focus:border-[#C5A059] focus:outline-none text-white p-1.5 rounded w-full"
-                                            value={c.targetPhysicalId || ''}
-                                            onChange={(e) => {
-                                              const newChoices = [...autoNightApproval.choices];
-                                              const originalIdx = newChoices.findIndex((nc: any) => nc.physicalId === c.physicalId);
-                                              if (originalIdx >= 0) {
-                                                newChoices[originalIdx].targetPhysicalId = e.target.value ? Number(e.target.value) : null;
-                                                setAutoNightApproval({...autoNightApproval, choices: newChoices});
-                                              }
-                                            }}
-                                          >
-                                            <option value="">تخطي</option>
-                                            {gameState.players.filter((p: any) => p.isAlive).map((p: any) => (
-                                              <option key={p.physicalId} value={p.physicalId}>#{p.physicalId} {p.name}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
+                                      <div className="mt-2 text-left">
+                                        <select
+                                          className={`text-[11px] bg-black border ${isReal ? 'border-[#C5A059]/50 focus:border-[#C5A059]' : 'border-[#444] opacity-70'} focus:outline-none text-white p-1.5 rounded w-full`}
+                                          value={c.targetPhysicalId || ''}
+                                          disabled={!isReal}
+                                          onChange={(e) => {
+                                            if (!isReal) return;
+                                            const newChoices = [...autoNightApproval.choices];
+                                            const originalIdx = newChoices.findIndex((nc: any) => nc.physicalId === c.physicalId);
+                                            if (originalIdx >= 0) {
+                                              newChoices[originalIdx].targetPhysicalId = e.target.value ? Number(e.target.value) : null;
+                                              setAutoNightApproval({...autoNightApproval, choices: newChoices});
+                                            }
+                                          }}
+                                        >
+                                          <option value="">تخطي / لا أحد</option>
+                                          {gameState.players.filter((p: any) => p.isAlive).map((p: any) => (
+                                            <option key={p.physicalId} value={p.physicalId}>#{p.physicalId} {p.name}</option>
+                                          ))}
+                                        </select>
+                                      </div>
                                     </div>
                                   );
                               })}

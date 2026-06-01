@@ -283,6 +283,15 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
           latestState.nightActions.sniperTarget = null;
           if (!latestState.playerNightActions) latestState.playerNightActions = { submitted: {} };
           latestState.playerNightActions.submitted[performerId] = true;
+          
+          if (!latestState.autoNightChoices) latestState.autoNightChoices = [];
+          latestState.autoNightChoices.push({
+            physicalId: performerId,
+            targetPhysicalId: null,
+            isReal: true,
+            isRandom: true
+          });
+          
           await setGameState(roomId, latestState);
         } else {
           console.log(`🎲 Auto random selection for ${nextStep.role} in room ${roomId}`);
@@ -363,6 +372,29 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     
     // بدلاً من تجهيز الخطوة التالية، نذهب لشاشة المراجعة لليدر
     latestState.autoNightStepApproval = true;
+    
+    // 💡 إضافة اختيارات عشوائية (وهمية) لجميع اللاعبين الأحياء الذين لم يرسلوا خياراتهم (بمن فيهم أصحاب الأدوار الوهمية)
+    if (!latestState.autoNightChoices) latestState.autoNightChoices = [];
+    if (!latestState.playerNightActions) latestState.playerNightActions = { submitted: {} };
+    
+    const alivePlayers = latestState.players.filter((p: any) => p.isAlive);
+    for (const player of alivePlayers) {
+      if (!latestState.playerNightActions.submitted[player.physicalId]) {
+        // اختيار عشوائي وهمي (Decoy)
+        let validTargets = alivePlayers.filter((p: any) => p.physicalId !== player.physicalId);
+        if (validTargets.length === 0) validTargets = alivePlayers;
+        const randomTarget = validTargets[Math.floor(Math.random() * validTargets.length)];
+        
+        latestState.autoNightChoices.push({
+          physicalId: player.physicalId,
+          targetPhysicalId: randomTarget.physicalId,
+          isReal: player.physicalId === nextStep.performerPhysicalId,
+          isRandom: true
+        });
+        // لا نحتاج لتعيينها في playerNightActions.submitted لأنها اختيارات وهمية، لكن لحفظ الحالة
+      }
+    }
+
     await setGameState(roomId, latestState);
     
     io.to(roomId).emit('night:auto-step-approval', {
