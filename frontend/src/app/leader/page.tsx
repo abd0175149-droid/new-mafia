@@ -2995,12 +2995,14 @@ export default function LeaderPage() {
 
           {gameState.phase === 'GAME_OVER' && (
             <div className="flex flex-col items-center justify-center p-12 text-center">
-              <div className="text-8xl mb-6 grayscale">{gameState.winner === 'MAFIA' ? '🩸' : gameState.winner === 'JESTER' ? '🤡' : '⚖️'}</div>
+              <div className="text-8xl mb-6 grayscale">
+                {gameState.winner === 'MAFIA' ? '🩸' : gameState.winner === 'ASSASSIN' ? '🔪' : gameState.winner === 'JESTER' ? '🤡' : '⚖️'}
+              </div>
               <h2 className="text-4xl font-black text-white mb-4" style={{ fontFamily: 'Amiri, serif' }}>
-                {gameState.winner === 'MAFIA' ? 'انتصار المافيا' : gameState.winner === 'JESTER' ? 'فوز المهرج!' : 'تطهير المدينة'}
+                {gameState.winner === 'MAFIA' ? 'انتصار المافيا' : gameState.winner === 'ASSASSIN' ? 'انتصار السفاح!' : gameState.winner === 'JESTER' ? 'فوز المهرج!' : 'تطهير المدينة'}
               </h2>
               <p className="text-[#808080] font-mono tracking-widest uppercase text-sm mb-8">
-                {gameState.winner === 'MAFIA' ? 'ALL CITIZENS ELIMINATED' : gameState.winner === 'JESTER' ? 'THE JESTER WINS' : 'THREAT NEUTRALIZED'}
+                {gameState.winner === 'MAFIA' ? 'ALL CITIZENS ELIMINATED' : gameState.winner === 'ASSASSIN' ? 'CONTRACTS FULFILLED' : gameState.winner === 'JESTER' ? 'THE JESTER WINS' : 'THREAT NEUTRALIZED'}
               </p>
 
               {/* شبكة كروت مصغرة — المراجعة النهائية لليدر */}

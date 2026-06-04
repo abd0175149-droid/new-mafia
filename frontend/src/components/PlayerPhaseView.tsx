@@ -1092,18 +1092,17 @@ export default function PlayerPhaseView({
 
   // ── نتيجة اللعبة ──
   if (gamePhase === 'GAME_OVER' && gameWinner) {
-    const isMafiaWin = gameWinner === 'MAFIA';
     return (
       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="py-6">
         <div className="text-center mb-6">
           <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 2, repeat: Infinity }} className="text-6xl mb-3">
-            {isMafiaWin ? '🩸' : '⚖️'}
+            {gameWinner === 'MAFIA' ? '🩸' : gameWinner === 'ASSASSIN' ? '🔪' : gameWinner === 'JESTER' ? '🤡' : '⚖️'}
           </motion.div>
           <h3 className="text-2xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>
-            {isMafiaWin ? 'انتصار المافيا' : 'تطهير المدينة'}
+            {gameWinner === 'MAFIA' ? 'انتصار المافيا' : gameWinner === 'ASSASSIN' ? 'انتصار السفاح!' : gameWinner === 'JESTER' ? 'فوز المهرج!' : 'تطهير المدينة'}
           </h3>
           <p className="text-[#666] text-xs font-bold mt-2">
-            {isMafiaWin ? 'سيطرة مطلقة' : 'العدالة انتصرت'}
+            {gameWinner === 'MAFIA' ? 'سيطرة مطلقة' : gameWinner === 'ASSASSIN' ? 'تم إنجاز العقود بنجاح' : gameWinner === 'JESTER' ? 'نجح المهرج في الانتحار' : 'العدالة انتصرت'}
           </p>
         </div>
 

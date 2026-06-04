@@ -1314,9 +1314,11 @@ function DisplayPageContent() {
                   className="text-4xl md:text-7xl font-black uppercase tracking-tighter mb-2 relative z-10"
                   style={{
                     fontFamily: 'Amiri, serif',
-                    color: isMafiaWin ? '#8A0303' : isJesterWin ? '#f59e0b' : '#C5A059',
+                    color: isMafiaWin ? '#8A0303' : isAssassinWin ? '#9333ea' : isJesterWin ? '#f59e0b' : '#C5A059',
                     textShadow: isMafiaWin
                       ? '0 0 60px rgba(138,3,3,0.6), 0 0 120px rgba(138,3,3,0.3)'
+                      : isAssassinWin
+                      ? '0 0 60px rgba(147,51,234,0.6), 0 0 120px rgba(147,51,234,0.3)'
                       : isJesterWin
                       ? '0 0 60px rgba(245,158,11,0.6), 0 0 120px rgba(245,158,11,0.3)'
                       : '0 0 60px rgba(197,160,89,0.4), 0 0 120px rgba(197,160,89,0.2)',
@@ -1325,7 +1327,7 @@ function DisplayPageContent() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   transition={{ delay: 0.5, duration: 1, type: 'spring', damping: 10 }}
                 >
-                  {isMafiaWin ? 'انتصار المافيا' : isJesterWin ? '🤡 فوز المهرج!' : 'تطهير المدينة'}
+                  {isMafiaWin ? 'انتصار المافيا' : isAssassinWin ? '🔪 انتصار السفاح!' : isJesterWin ? '🤡 فوز المهرج!' : 'تطهير المدينة'}
                 </motion.h1>
                 <motion.p
                   className="text-[#808080] font-mono mb-8 tracking-[0.4em] uppercase text-sm relative z-10"
@@ -1333,7 +1335,7 @@ function DisplayPageContent() {
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.8 }}
                 >
-                  {isMafiaWin ? 'THE FAMILY PREVAILS' : isJesterWin ? 'THE JESTER WINS' : 'JUSTICE HAS BEEN SERVED'}
+                  {isMafiaWin ? 'THE FAMILY PREVAILS' : isAssassinWin ? 'CONTRACTS FULFILLED' : isJesterWin ? 'THE JESTER WINS' : 'JUSTICE HAS BEEN SERVED'}
                 </motion.p>
 
                 {/* شبكة كروت الفريق الفائز — الحي ملوّن والميت رمادي */}
@@ -1409,7 +1411,7 @@ function DisplayPageContent() {
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 0.3 }}
               >
-                {isMafiaWin ? 'انتصار المافيا' : 'تطهير المدينة'}
+                {isMafiaWin ? 'انتصار المافيا' : replayData.winner === 'ASSASSIN' ? 'انتصار السفاح' : replayData.winner === 'JESTER' ? 'فوز المهرج' : 'تطهير المدينة'}
               </motion.h1>
               <motion.p
                 className="text-[#808080] font-mono mb-8 tracking-[0.3em] uppercase text-sm"

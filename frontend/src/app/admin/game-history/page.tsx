@@ -331,11 +331,12 @@ export default function GameHistoryPage() {
                     {/* آخر نتيجة */}
                     {session.lastWinner && (
                       <span className={`text-xs px-2 py-1 rounded-full hidden sm:inline-block ${
-                        session.lastWinner === 'MAFIA'
-                          ? 'bg-rose-500/10 text-rose-400'
-                          : 'bg-emerald-500/10 text-emerald-400'
+                        session.lastWinner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
+                        session.lastWinner === 'ASSASSIN' ? 'bg-purple-500/10 text-purple-400' :
+                        session.lastWinner === 'JESTER' ? 'bg-amber-500/10 text-amber-400' :
+                        'bg-emerald-500/10 text-emerald-400'
                       }`}>
-                        {session.lastWinner === 'MAFIA' ? '🔴' : '🟢'} آخر فوز
+                        {session.lastWinner === 'MAFIA' ? '🔴' : session.lastWinner === 'ASSASSIN' ? '🔪' : session.lastWinner === 'JESTER' ? '🤡' : '🟢'} آخر فوز
                       </span>
                     )}
 
@@ -398,9 +399,11 @@ export default function GameHistoryPage() {
                               <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm ${
                                 match.winner === 'MAFIA' ? 'bg-rose-500/15 text-rose-400' :
                                 match.winner === 'CITIZEN' ? 'bg-emerald-500/15 text-emerald-400' :
-                                'bg-amber-500/15 text-amber-400'
+                                match.winner === 'ASSASSIN' ? 'bg-purple-500/15 text-purple-400' :
+                                match.winner === 'JESTER' ? 'bg-amber-500/15 text-amber-400' :
+                                'bg-gray-500/15 text-gray-400'
                               }`}>
-                                {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : '⏳'}
+                                {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : match.winner === 'ASSASSIN' ? '🔪' : match.winner === 'JESTER' ? '🤡' : '⏳'}
                               </div>
 
                               <div className="flex-1 min-w-0">
@@ -418,9 +421,11 @@ export default function GameHistoryPage() {
                               <span className={`text-[10px] px-2 py-0.5 rounded-full ${
                                 match.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
                                 match.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' :
-                                'bg-amber-500/10 text-amber-400'
+                                match.winner === 'ASSASSIN' ? 'bg-purple-500/10 text-purple-400' :
+                                match.winner === 'JESTER' ? 'bg-amber-500/10 text-amber-400' :
+                                'bg-gray-500/10 text-gray-400'
                               }`}>
-                                {match.winner === 'MAFIA' ? 'مافيا' : match.winner === 'CITIZEN' ? 'مواطنين' : 'جارية'}
+                                {match.winner === 'MAFIA' ? 'مافيا' : match.winner === 'CITIZEN' ? 'مواطنين' : match.winner === 'ASSASSIN' ? 'السفاح' : match.winner === 'JESTER' ? 'المهرج' : 'جارية'}
                               </span>
                             </motion.div>
                           ))
@@ -518,10 +523,14 @@ export default function GameHistoryPage() {
               <div className={`rounded-xl p-3 mb-4 text-center font-bold ${
                 selectedMatch.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400'
                   : selectedMatch.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400'
+                  : selectedMatch.winner === 'ASSASSIN' ? 'bg-purple-500/10 text-purple-400'
+                  : selectedMatch.winner === 'JESTER' ? 'bg-amber-500/10 text-amber-400'
                   : 'bg-gray-700/30 text-gray-400'
               }`}>
                 {selectedMatch.winner === 'MAFIA' ? '🔴 فازت المافيا'
                   : selectedMatch.winner === 'CITIZEN' ? '🟢 فاز المواطنون'
+                  : selectedMatch.winner === 'ASSASSIN' ? '🔪 انتصار السفاح'
+                  : selectedMatch.winner === 'JESTER' ? '🤡 فاز المهرج'
                   : '⏳ بدون نتيجة'}
               </div>
 
@@ -539,7 +548,9 @@ export default function GameHistoryPage() {
                     </span>
                     <span className="flex-1 text-sm text-white">{p.playerName}</span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      p.team === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : 'bg-blue-500/10 text-blue-400'
+                      p.team === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' :
+                      p.team === 'NEUTRAL' ? 'bg-purple-500/10 text-purple-400' :
+                      'bg-blue-500/10 text-blue-400'
                     }`}>
                       {p.role}
                     </span>
