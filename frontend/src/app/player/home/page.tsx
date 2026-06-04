@@ -88,21 +88,37 @@ export default function HomePage() {
       </a>
       {/* ── الجرس + زر التحكم (للموظفين) ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: -8 }}>
-        {/* زر التحكم — يظهر فقط إذا الحساب مرتبط بموظف */}
+        {/* أزرار التحكم — تظهر فقط إذا الحساب مرتبط بموظف */}
         {staffInfo ? (
-          <motion.button
-            onClick={() => setStaffPanelOpen(true)}
-            whileTap={{ scale: 0.92 }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
-            style={{
-              background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05))',
-              border: '1px solid rgba(139,92,246,0.3)',
-              color: '#a78bfa',
-            }}
-          >
-            <span>🎛️</span>
-            <span>لوحة التحكم</span>
-          </motion.button>
+          <div className="flex items-center gap-2">
+            <motion.button
+              onClick={() => setStaffPanelOpen(true)}
+              whileTap={{ scale: 0.92 }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+              style={{
+                background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05))',
+                border: '1px solid rgba(139,92,246,0.3)',
+                color: '#a78bfa',
+              }}
+            >
+              <span>🎛️</span>
+              <span>لوحة التحكم</span>
+            </motion.button>
+            <motion.a
+              href="/admin/reservations"
+              whileTap={{ scale: 0.92 }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all"
+              style={{
+                background: 'linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05))',
+                border: '1px solid rgba(245,158,11,0.3)',
+                color: '#fbbf24',
+                textDecoration: 'none',
+              }}
+            >
+              <span>📋</span>
+              <span>متابعة الحجوزات</span>
+            </motion.a>
+          </div>
         ) : <div />}
         <NotificationBell />
       </div>
