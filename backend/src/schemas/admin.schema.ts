@@ -262,3 +262,21 @@ export const whatsappRankNotifications = pgTable('whatsapp_rank_notifications', 
 }, (table) => ({
   uniquePlayerRank: unique().on(table.playerId, table.rankTier),
 }));
+
+// ══════════════════════════════════════════════════════
+// 📋 Reservations — متابعة الحجوزات (مستقل عن نظام الحجوزات المالي)
+// ══════════════════════════════════════════════════════
+
+export const reservations = pgTable('reservations', {
+  id: serial('id').primaryKey(),
+  activityId: integer('activity_id').references(() => activities.id, { onDelete: 'set null' }),
+  contactName: varchar('contact_name', { length: 150 }).notNull(),
+  contactMethod: varchar('contact_method', { length: 200 }).default(''),
+  peopleCount: integer('people_count').default(1),
+  status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | confirmed | paid_all
+  notes: text('notes').default(''),
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+});

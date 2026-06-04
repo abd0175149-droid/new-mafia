@@ -37,6 +37,7 @@ import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
+import reservationsRoutes from './routes/reservations.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -107,6 +108,7 @@ app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/seating', seatingRoutes);
+app.use('/api/reservations', reservationsRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 app.get('/api/push/vapid-public-key', async (_req, res) => {
@@ -719,6 +721,33 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ WhatsApp rank notifications migration:', err.message);
+  }
+
+  // ── إنشاء جدول متابعة الحجوزات (مستقل عن الحجوزات المالية) ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS reservations (
+          id SERIAL PRIMARY KEY,
+          activity_id INTEGER REFERENCES activities(id) ON DELETE SET NULL,
+          contact_name VARCHAR(150) NOT NULL,
+          contact_method VARCHAR(200) DEFAULT '',
+          people_count INTEGER DEFAULT 1,
+          status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+          notes TEXT DEFAULT '',
+          created_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          deleted_at TIMESTAMP
+        )
+      `);
+      console.log('✅ Reservations tracker table ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Reservations table migration:', err.message);
   }
 
   // ── تهيئة Firebase ──

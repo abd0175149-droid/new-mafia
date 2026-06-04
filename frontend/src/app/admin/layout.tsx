@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { href: '/admin', icon: '📊', label: 'لوحة التحكم' },
   { href: '/admin/activities', icon: '🎯', label: 'الأنشطة' },
   { href: '/admin/bookings', icon: '📅', label: 'الحجوزات' },
+  { href: '/admin/reservations', icon: '📋', label: 'متابعة الحجوزات' },
   { href: '/admin/finance', icon: '💰', label: 'المالية' },
   { href: '/admin/locations', icon: '📍', label: 'المواقع' },
   { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
