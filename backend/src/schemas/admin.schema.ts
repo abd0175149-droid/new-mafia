@@ -272,6 +272,7 @@ export const reservations = pgTable('reservations', {
   activityId: integer('activity_id').references(() => activities.id, { onDelete: 'set null' }),
   contactName: varchar('contact_name', { length: 150 }).notNull(),
   contactMethod: varchar('contact_method', { length: 200 }).default(''),
+  phone: varchar('phone', { length: 30 }).default(''),
   peopleCount: integer('people_count').default(1),
   status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | confirmed | paid_all
   notes: text('notes').default(''),

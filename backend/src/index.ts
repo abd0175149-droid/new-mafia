@@ -735,6 +735,7 @@ async function main() {
           activity_id INTEGER REFERENCES activities(id) ON DELETE SET NULL,
           contact_name VARCHAR(150) NOT NULL,
           contact_method VARCHAR(200) DEFAULT '',
+          phone VARCHAR(30) DEFAULT '',
           people_count INTEGER DEFAULT 1,
           status VARCHAR(20) DEFAULT 'pending' NOT NULL,
           notes TEXT DEFAULT '',
@@ -744,6 +745,8 @@ async function main() {
           deleted_at TIMESTAMP
         )
       `);
+      // إضافة عمود الهاتف إن لم يكن موجوداً (للجداول الموجودة مسبقاً)
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS phone VARCHAR(30) DEFAULT ''`);
       console.log('✅ Reservations tracker table ensured');
     }
   } catch (err: any) {

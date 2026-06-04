@@ -38,7 +38,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { activityId, contactName, contactMethod, peopleCount, notes } = req.body;
+  const { activityId, contactName, contactMethod, phone, peopleCount, notes } = req.body;
   if (!contactName) return res.status(400).json({ error: 'اسم الشخص مطلوب' });
 
   const createdByName = req.user?.displayName || req.user?.username || '';
@@ -47,6 +47,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     activityId: activityId || null,
     contactName,
     contactMethod: contactMethod || '',
+    phone: phone || '',
     peopleCount: peopleCount || 1,
     status: 'pending',
     notes: notes || '',
@@ -66,11 +67,12 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     .where(and(eq(reservations.id, id), isNull(reservations.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
-  const { contactName, contactMethod, peopleCount, status, notes } = req.body;
+  const { contactName, contactMethod, phone, peopleCount, status, notes } = req.body;
 
   const updates: any = { updatedAt: new Date() };
   if (contactName !== undefined) updates.contactName = contactName;
   if (contactMethod !== undefined) updates.contactMethod = contactMethod;
+  if (phone !== undefined) updates.phone = phone;
   if (peopleCount !== undefined) updates.peopleCount = peopleCount;
   if (status !== undefined) updates.status = status;
   if (notes !== undefined) updates.notes = notes;

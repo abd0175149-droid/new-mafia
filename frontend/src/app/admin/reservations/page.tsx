@@ -46,6 +46,7 @@ export default function ReservationsPage() {
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
   const [formContact, setFormContact] = useState('');
+  const [formPhone, setFormPhone] = useState('');
   const [formCount, setFormCount] = useState(1);
   const [formNotes, setFormNotes] = useState('');
   const [formActivity, setFormActivity] = useState('');
@@ -55,6 +56,7 @@ export default function ReservationsPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [editName, setEditName] = useState('');
   const [editContact, setEditContact] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [editCount, setEditCount] = useState(1);
   const [editNotes, setEditNotes] = useState('');
   const [editStatus, setEditStatus] = useState('pending');
@@ -131,12 +133,14 @@ export default function ReservationsPage() {
           activityId: formActivity ? Number(formActivity) : null,
           contactName: formName.trim(),
           contactMethod: formContact.trim(),
+          phone: formPhone.trim(),
           peopleCount: formCount,
           notes: formNotes.trim(),
         }),
       });
       setFormName('');
       setFormContact('');
+      setFormPhone('');
       setFormCount(1);
       setFormNotes('');
       await fetchAll();
@@ -165,6 +169,7 @@ export default function ReservationsPage() {
     setEditing(r);
     setEditName(r.contactName || '');
     setEditContact(r.contactMethod || '');
+    setEditPhone(r.phone || '');
     setEditCount(r.peopleCount || 1);
     setEditNotes(r.notes || '');
     setEditStatus(r.status || 'pending');
@@ -179,6 +184,7 @@ export default function ReservationsPage() {
         body: JSON.stringify({
           contactName: editName,
           contactMethod: editContact,
+          phone: editPhone,
           peopleCount: editCount,
           notes: editNotes,
           status: editStatus,
@@ -307,20 +313,28 @@ export default function ReservationsPage() {
               )}
 
               {/* الاسم + التواصل */}
+              <input
+                type="text"
+                value={formName}
+                onChange={e => setFormName(e.target.value)}
+                placeholder="اسم الشخص *"
+                className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
+                autoFocus
+              />
               <div className="grid grid-cols-2 gap-2">
                 <input
-                  type="text"
-                  value={formName}
-                  onChange={e => setFormName(e.target.value)}
-                  placeholder="اسم الشخص *"
+                  type="tel"
+                  value={formPhone}
+                  onChange={e => setFormPhone(e.target.value)}
+                  placeholder="📞 رقم الهاتف"
+                  dir="ltr"
                   className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
-                  autoFocus
                 />
                 <input
                   type="text"
                   value={formContact}
                   onChange={e => setFormContact(e.target.value)}
-                  placeholder="رقم / واتساب"
+                  placeholder="واتساب / انستا"
                   dir="ltr"
                   className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
                 />
@@ -396,6 +410,16 @@ export default function ReservationsPage() {
                       <p className="text-gray-500 text-xs" dir="ltr">{r.contactMethod}</p>
                     )}
                   </div>
+                  {/* زر اتصال */}
+                  {r.phone && (
+                    <a
+                      href={`tel:${r.phone}`}
+                      className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition shrink-0"
+                      title={`اتصال: ${r.phone}`}
+                    >
+                      📞
+                    </a>
+                  )}
                   <div className="text-center shrink-0">
                     <div className="text-white font-black text-lg leading-none">{r.peopleCount || 1}</div>
                     <div className="text-[9px] text-gray-600">شخص</div>
@@ -477,10 +501,17 @@ export default function ReservationsPage() {
                   className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
               </div>
 
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">طريقة التواصل</label>
-                <input type="text" value={editContact} onChange={e => setEditContact(e.target.value)} dir="ltr"
-                  className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">📞 رقم الهاتف</label>
+                  <input type="tel" value={editPhone} onChange={e => setEditPhone(e.target.value)} dir="ltr"
+                    className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">طريقة التواصل</label>
+                  <input type="text" value={editContact} onChange={e => setEditContact(e.target.value)} dir="ltr"
+                    className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
