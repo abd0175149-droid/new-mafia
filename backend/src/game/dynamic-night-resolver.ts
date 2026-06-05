@@ -12,6 +12,7 @@ import {
   type AbilityDef,
   type InteractionRuleDef,
 } from './definition-service.js';
+import { isNeutralRole } from './roles.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -308,11 +309,11 @@ export async function resolveNightDynamic(
       }
 
       case 'CONDITIONAL_ELIMINATE': {
-        // القنص — إذا أصاب مافيا يموت الهدف، وإلا يموت القناص معه
+        // القنص — إذا أصاب مافيا أو محايد يموت الهدف، وإلا يموت القناص معه
         const targetRole = await getRoleById(target.role as string);
         const sniper = state.players.find(p => p.physicalId === action.performerPhysicalId);
 
-        if (targetRole?.team === 'MAFIA') {
+        if (targetRole?.team === 'MAFIA' || targetRole?.team === 'NEUTRAL' || (target.role && isNeutralRole(target.role as string))) {
           target.isAlive = false;
           events.push({
             type: 'SNIPE_MAFIA',
