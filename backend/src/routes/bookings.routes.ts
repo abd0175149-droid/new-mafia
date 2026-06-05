@@ -8,6 +8,7 @@ import { eq, desc, and, like, or, sql, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { bookings, activities, notifications, staff } from '../schemas/admin.schema.js';
 import { sessions } from '../schemas/game.schema.js';
+import { players } from '../schemas/player.schema.js';
 import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
@@ -90,15 +91,29 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   const createdByName = req.user?.displayName || req.user?.username || '';
 
+  let finalIsFree = isFree || false;
+  let finalIsPaid = isPaid || false;
+  let finalPaidAmount = String(paidAmount || 0);
+
+  // التحقق من حساب اللاعب إذا كان مجانياً
+  if (phone) {
+    const pRow = await db.select({ isFreeAccount: players.isFreeAccount }).from(players).where(eq(players.phone, phone)).limit(1);
+    if (pRow.length > 0 && pRow[0].isFreeAccount) {
+      finalIsFree = true;
+      finalIsPaid = true; // نعتبره مدفوعاً لأنه مجاني
+      finalPaidAmount = '0';
+    }
+  }
+
   const result = await db.insert(bookings).values({
     activityId,
     name,
     phone: phone || '',
     count: count || 1,
-    isPaid: isPaid || false,
-    paidAmount: String(paidAmount || 0),
+    isPaid: finalIsPaid,
+    paidAmount: finalPaidAmount,
     receivedBy: receivedBy || '',
-    isFree: isFree || false,
+    isFree: finalIsFree,
     notes: notes || '',
     offerItems: Array.isArray(offerItems) ? offerItems : [],
     createdBy: createdByName,

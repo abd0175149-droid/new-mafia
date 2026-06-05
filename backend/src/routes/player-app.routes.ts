@@ -100,6 +100,13 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       return res.status(409).json({ error: 'محجوز مسبقاً لهذا النشاط' });
     }
 
+    // التحقق من حالة الحساب المجاني
+    let isFreeAccount = false;
+    if (player.playerId) {
+      const pRow = await db.select({ isFreeAccount: players.isFreeAccount }).from(players).where(eq(players.id, player.playerId)).limit(1);
+      isFreeAccount = pRow[0]?.isFreeAccount || false;
+    }
+
     // إنشاء الحجز (count=1 دائماً — لنفسه فقط)
     const { offerId } = req.body;
     const result = await db.insert(bookings).values({
@@ -107,9 +114,9 @@ router.post('/book', authenticatePlayer, async (req: Request, res: Response) => 
       name: player.name,
       phone: player.phone,
       count: 1,
-      isPaid: false,
+      isPaid: isFreeAccount,
       paidAmount: '0',
-      isFree: false,
+      isFree: isFreeAccount,
       playerId: player.playerId,
       createdBy: 'player-app',
       offerItems: offerId ? [offerId] : [],

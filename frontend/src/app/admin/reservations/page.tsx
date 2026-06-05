@@ -41,6 +41,8 @@ export default function ReservationsPage() {
   // ── Filters ── (default: no activity selected → don't show reservations)
   const [filterActivity, setFilterActivity] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterAttendance, setFilterAttendance] = useState('all');
 
   // ── Quick Add Form ──
   const [showForm, setShowForm] = useState(false);
@@ -104,14 +106,26 @@ export default function ReservationsPage() {
       .filter(r => {
         const matchActivity = filterActivity === 'all' || r.activityId === Number(filterActivity);
         const matchStatus = filterStatus === 'all' || r.status === filterStatus;
-        return matchActivity && matchStatus;
+        
+        let matchAttendance = true;
+        if (filterAttendance === 'attended') matchAttendance = r.attended === true;
+        else if (filterAttendance === 'noShow') matchAttendance = r.attended === false;
+        else if (filterAttendance === 'unmarked') matchAttendance = r.attended === null || r.attended === undefined;
+
+        let matchSearch = true;
+        if (filterSearch) {
+          const s = filterSearch.toLowerCase();
+          matchSearch = (r.contactName && r.contactName.toLowerCase().includes(s)) || (r.phone && r.phone.includes(s));
+        }
+
+        return matchActivity && matchStatus && matchAttendance && matchSearch;
       })
       .sort((a, b) => {
         // ترتيب: غير محدد الحضور أولاً، ثم حضر (أخضر)، ثم لم يحضر (أحمر)
         const attendOrder = (r: any) => r.attended === null || r.attended === undefined ? 0 : r.attended ? 1 : 2;
         return attendOrder(a) - attendOrder(b);
       });
-  }, [reservations, filterActivity, filterStatus]);
+  }, [reservations, filterActivity, filterStatus, filterAttendance, filterSearch]);
 
   // ══ Stats ══ (فقط بعد اختيار نشاط)
   const stats = useMemo(() => {
@@ -137,10 +151,11 @@ export default function ReservationsPage() {
   const attendanceStats = useMemo(() => {
     if (!filterActivity) return null;
     const data = filterActivity === 'all' ? reservations : reservations.filter(r => r.activityId === Number(filterActivity));
-    const attended = data.filter(r => r.attended === true).length;
-    const noShow = data.filter(r => r.attended === false).length;
-    const unmarked = data.filter(r => r.attended === null || r.attended === undefined).length;
-    return { attended, noShow, unmarked, total: data.length };
+    const attended = data.filter(r => r.attended === true).reduce((s, r) => s + (r.peopleCount || 1), 0);
+    const noShow = data.filter(r => r.attended === false).reduce((s, r) => s + (r.peopleCount || 1), 0);
+    const unmarked = data.filter(r => r.attended === null || r.attended === undefined).reduce((s, r) => s + (r.peopleCount || 1), 0);
+    const total = data.reduce((s, r) => s + (r.peopleCount || 1), 0);
+    return { attended, noShow, unmarked, total };
   }, [reservations, filterActivity]);
 
   // ══ Helpers ══
@@ -287,7 +302,7 @@ export default function ReservationsPage() {
       </div>
 
       {/* ══════ FILTER BAR (Activity Selector) ══════ */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 mb-3">
         <select
           value={filterActivity}
           onChange={e => { setFilterActivity(e.target.value); if (!formActivity) setFormActivity(e.target.value !== 'all' && e.target.value !== '' ? e.target.value : ''); }}
@@ -311,6 +326,18 @@ export default function ReservationsPage() {
           </button>
         )}
       </div>
+
+      {activitySelected && (
+        <div className="mb-4">
+          <input
+            type="text"
+            placeholder="🔍 بحث باسم الشخص أو رقم الهاتف..."
+            value={filterSearch}
+            onChange={e => setFilterSearch(e.target.value)}
+            className="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-700/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder-gray-500"
+          />
+        </div>
+      )}
 
       {/* ══════ NO ACTIVITY SELECTED ══════ */}
       {!activitySelected && (
@@ -353,13 +380,33 @@ export default function ReservationsPage() {
 
           {/* ══════ ATTENDANCE STATS BAR ══════ */}
           {attendanceStats && attendanceStats.total > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-800/30 border border-gray-700/20 rounded-xl text-xs">
-              <span className="text-gray-500 font-medium">الحضور:</span>
-              <span className="text-emerald-400 font-bold">✓ {attendanceStats.attended}</span>
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 bg-gray-800/30 border border-gray-700/20 rounded-xl text-xs">
+              <span className="text-gray-500 font-medium">الحضور ({attendanceStats.total} شخص):</span>
+              
+              <button 
+                onClick={() => setFilterAttendance(filterAttendance === 'attended' ? 'all' : 'attended')}
+                className={`font-bold transition-colors ${filterAttendance === 'attended' ? 'text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded' : 'text-emerald-400 hover:text-emerald-300'}`}
+              >
+                ✓ {attendanceStats.attended}
+              </button>
+              
               <span className="text-gray-600">|</span>
-              <span className="text-rose-400 font-bold">✗ {attendanceStats.noShow}</span>
+              
+              <button 
+                onClick={() => setFilterAttendance(filterAttendance === 'noShow' ? 'all' : 'noShow')}
+                className={`font-bold transition-colors ${filterAttendance === 'noShow' ? 'text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded' : 'text-rose-400 hover:text-rose-300'}`}
+              >
+                ✗ {attendanceStats.noShow}
+              </button>
+              
               <span className="text-gray-600">|</span>
-              <span className="text-gray-400">⏳ {attendanceStats.unmarked}</span>
+              
+              <button 
+                onClick={() => setFilterAttendance(filterAttendance === 'unmarked' ? 'all' : 'unmarked')}
+                className={`transition-colors ${filterAttendance === 'unmarked' ? 'text-gray-200 bg-gray-700/50 px-2 py-0.5 rounded font-bold' : 'text-gray-400 hover:text-gray-300'}`}
+              >
+                ⏳ {attendanceStats.unmarked}
+              </button>
             </div>
           )}
 

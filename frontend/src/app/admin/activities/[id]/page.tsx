@@ -803,6 +803,7 @@ export default function ActivityDetailPage() {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [bookingsOpen, setBookingsOpen] = useState(false);
+  const [bookingSearch, setBookingSearch] = useState('');
   const [costsOpen, setCostsOpen] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   // Payment modal
@@ -957,6 +958,27 @@ export default function ActivityDetailPage() {
       setBookings(prev => prev.filter(b => b.id !== bookingId));
     } catch (err: any) {
       alert('فشل الحذف: ' + err.message);
+    }
+  }
+
+  async function handleMakeFree() {
+    if (selectedBookings.length === 0) return;
+    if (!confirm('هل أنت متأكد من تحويل الحجوزات المحددة إلى مجانية لهذا النشاط فقط؟ ستصبح قيمة الدفع 0 ولن يطالبوا بالدفع.')) return;
+    try {
+      const promises = selectedBookings.map(id => 
+        apiFetch(`/api/bookings/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ isFree: true, isPaid: true, paidAmount: '0' })
+        })
+      );
+      const updated = await Promise.all(promises);
+      setBookings(prev => prev.map(b => {
+        const u = updated.find((upd: any) => upd.id === b.id);
+        return u ? u : b;
+      }));
+      setSelectedBookings([]);
+    } catch (err: any) {
+      alert('فشل التحويل: ' + err.message);
     }
   }
 
@@ -1136,15 +1158,26 @@ export default function ActivityDetailPage() {
             <span className="font-bold text-white">قائمة الحجوزات</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-400">{actBookings.length} حجز</span>
             {selectedBookings.length > 0 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openPayModal(actBookings.filter((b: any) => selectedBookings.includes(b.id)));
-                }}
-                className="ml-4 text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition font-bold"
-              >
-                💰 دفع المحدد ({selectedBookings.length})
-              </button>
+              <div className="flex items-center gap-2 mr-4">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openPayModal(actBookings.filter((b: any) => selectedBookings.includes(b.id)));
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition font-bold"
+                >
+                  💰 دفع المحدد ({selectedBookings.length})
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMakeFree();
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-teal-500/20 text-teal-400 border border-teal-500/30 hover:bg-teal-500/30 transition font-bold"
+                >
+                  🏷️ تحويل لمجاني ({selectedBookings.length})
+                </button>
+              </div>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -1157,6 +1190,15 @@ export default function ActivityDetailPage() {
 
         {bookingsOpen && (
           <div className="px-5 pb-5">
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="🔍 بحث باسم الشخص أو رقم الهاتف..."
+                value={bookingSearch}
+                onChange={e => setBookingSearch(e.target.value)}
+                className="w-full px-4 py-2.5 bg-gray-900/50 border border-gray-700/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/50 placeholder-gray-500"
+              />
+            </div>
             {actBookings.length > 0 ? (
               <>
                 <div className="overflow-x-auto border border-gray-700/30 rounded-xl">
@@ -1189,7 +1231,12 @@ export default function ActivityDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {[...actBookings].sort((a: any, b: any) => {
+                      {[...actBookings].filter((b: any) => 
+                        bookingSearch ? (
+                          (b.name && b.name.toLowerCase().includes(bookingSearch.toLowerCase())) || 
+                          (b.phone && b.phone.includes(bookingSearch))
+                        ) : true
+                      ).sort((a: any, b: any) => {
                         const priority = (bk: any) => bk.isFree ? 2 : bk.isPaid ? 0 : 1;
                         return priority(a) - priority(b);
                       }).map((b: any, i: number) => (
