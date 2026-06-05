@@ -10,7 +10,7 @@ import {
   getAlivePlayers,
 } from './state.js';
 import { getGameState, setGameState } from '../config/redis.js';
-import { Role, isMafiaRole } from './roles.js';
+import { Role, isMafiaRole, isNeutralRole } from './roles.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 
@@ -47,12 +47,12 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     const sniper = state.players.find(p => p.role === Role.SNIPER && p.isAlive);
 
     if (sniperTarget && sniper) {
-      if (sniperTarget.role && isMafiaRole(sniperTarget.role)) {
-        // قنص مافيا → تموت المافيا فقط
+      if (sniperTarget.role && (isMafiaRole(sniperTarget.role) || isNeutralRole(sniperTarget.role))) {
+        // قنص مافيا أو محايد → تموت الهدف فقط
         sniperTarget.isAlive = false;
         events.push({ type: 'SNIPE_MAFIA', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, performerPhysicalId: sniper.physicalId, performerName: sniper.name, wasRandom: !!nightActions.randomSelections?.['SNIPER'], extra: { sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
         pt.abilityResults.push({ physicalId: sniper.physicalId, role: 'SNIPER', correct: true });
-        pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: 'MAFIA' });
+        pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: isMafiaRole(sniperTarget.role) ? 'MAFIA' : 'NEUTRAL' });
       } else {
         // قنص مواطن → يموت المواطن + القناص معاً
         sniperTarget.isAlive = false;

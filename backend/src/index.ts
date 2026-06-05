@@ -747,6 +747,8 @@ async function main() {
       `);
       // إضافة عمود الهاتف إن لم يكن موجوداً (للجداول الموجودة مسبقاً)
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS phone VARCHAR(30) DEFAULT ''`);
+      // إضافة عمود الحضور
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS attended BOOLEAN DEFAULT NULL`);
       console.log('✅ Reservations tracker table ensured');
     }
   } catch (err: any) {

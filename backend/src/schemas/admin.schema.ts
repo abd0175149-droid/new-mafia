@@ -275,6 +275,7 @@ export const reservations = pgTable('reservations', {
   phone: varchar('phone', { length: 30 }).default(''),
   peopleCount: integer('people_count').default(1),
   status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | confirmed | paid_all
+  attended: boolean('attended'),  // null = لم يُحدد بعد | true = حضر | false = لم يحضر
   notes: text('notes').default(''),
   createdBy: varchar('created_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),

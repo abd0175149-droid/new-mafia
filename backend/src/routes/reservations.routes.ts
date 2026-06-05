@@ -67,7 +67,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
     .where(and(eq(reservations.id, id), isNull(reservations.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
-  const { contactName, contactMethod, phone, peopleCount, status, notes } = req.body;
+  const { contactName, contactMethod, phone, peopleCount, status, notes, attended } = req.body;
 
   const updates: any = { updatedAt: new Date() };
   if (contactName !== undefined) updates.contactName = contactName;
@@ -76,6 +76,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (peopleCount !== undefined) updates.peopleCount = peopleCount;
   if (status !== undefined) updates.status = status;
   if (notes !== undefined) updates.notes = notes;
+  if (attended !== undefined) updates.attended = attended;
 
   const result = await db.update(reservations).set(updates).where(eq(reservations.id, id)).returning();
   res.json(result[0]);

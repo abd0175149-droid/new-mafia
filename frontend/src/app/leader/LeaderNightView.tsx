@@ -675,9 +675,11 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           {/* إذا فيه فائز معلق → زر إنهاء اللعبة */}
           {hasPendingWinner ? (
             <div className="flex flex-col items-center gap-3 mt-4">
-              <div className="text-4xl">{policewomanResult.pendingWinner === 'MAFIA' ? '🩸' : '⚖️'}</div>
+              <div className="text-4xl">
+                {policewomanResult.pendingWinner === 'MAFIA' ? '🩸' : policewomanResult.pendingWinner === 'ASSASSIN' ? '🔪' : policewomanResult.pendingWinner === 'JESTER' ? '🤡' : '⚖️'}
+              </div>
               <h3 className="text-lg font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>
-                {policewomanResult.pendingWinner === 'MAFIA' ? 'المافيا انتصرت!' : 'المدينة انتصرت!'}
+                {policewomanResult.pendingWinner === 'MAFIA' ? 'المافيا انتصرت!' : policewomanResult.pendingWinner === 'ASSASSIN' ? 'انتصار السفاح!' : policewomanResult.pendingWinner === 'JESTER' ? 'فوز المهرج!' : 'المدينة انتصرت!'}
               </h3>
               <button
                 onClick={async () => {
@@ -937,9 +939,11 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
             <div className="mt-auto pt-4 border-t border-[#2a2a2a]">
               {gameState.pendingWinner ? (
                 <div className="text-center">
-                  <div className="text-4xl mb-2">{gameState.pendingWinner === 'MAFIA' ? '🩸' : '⚖️'}</div>
+                  <div className="text-4xl mb-2">
+                    {gameState.pendingWinner === 'MAFIA' ? '🩸' : gameState.pendingWinner === 'ASSASSIN' ? '🔪' : gameState.pendingWinner === 'JESTER' ? '🤡' : '⚖️'}
+                  </div>
                   <h3 className="text-lg font-black text-white mb-1" style={{ fontFamily: 'Amiri, serif' }}>
-                    {gameState.pendingWinner === 'MAFIA' ? 'المافيا انتصرت!' : 'المدينة انتصرت!'}
+                    {gameState.pendingWinner === 'MAFIA' ? 'المافيا انتصرت!' : gameState.pendingWinner === 'ASSASSIN' ? 'انتصار السفاح!' : gameState.pendingWinner === 'JESTER' ? 'فوز المهرج!' : 'المدينة انتصرت!'}
                   </h3>
                   <button
                     onClick={handleConfirmEnd}
