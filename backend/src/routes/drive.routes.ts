@@ -6,6 +6,8 @@ import multer from 'multer';
 import { Readable } from 'stream';
 import { authenticate } from '../middleware/auth.js';
 
+import { fileURLToPath } from 'url';
+
 // Setup multer for memory storage
 const upload = multer({ 
   storage: multer.memoryStorage(), 
@@ -13,11 +15,27 @@ const upload = multer({
 });
 
 const router = Router();
-const SERVICE_ACCOUNT_FILE = path.resolve(process.cwd(), 'google-service-account.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export const getDriveAuth = () => {
-  if (!fs.existsSync(SERVICE_ACCOUNT_FILE)) {
-    throw new Error('ملف المصادقة google-service-account.json غير موجود في المجلد الجذري للمشروع.');
+  const possiblePaths = [
+    path.resolve(process.cwd(), 'google-service-account.json'),
+    path.resolve(process.cwd(), 'backend', 'google-service-account.json'),
+    path.resolve(__dirname, '../../../google-service-account.json'),
+    path.resolve(__dirname, '../../google-service-account.json')
+  ];
+
+  let SERVICE_ACCOUNT_FILE = '';
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      SERVICE_ACCOUNT_FILE = p;
+      break;
+    }
+  }
+
+  if (!SERVICE_ACCOUNT_FILE) {
+    throw new Error('ملف المصادقة google-service-account.json غير موجود في أي مسار متوقع.');
   }
   return new google.auth.GoogleAuth({
     keyFile: SERVICE_ACCOUNT_FILE,
