@@ -58,6 +58,16 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       console.log('🔄 Migration: Added linked_staff_id column to players table');
     }
 
+    // 1.5 التحقق من وجود حقل الهاتف في جدول الموظفين
+    const checkPhoneCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'staff' AND column_name = 'phone'
+    `);
+    if (checkPhoneCol.rows.length === 0) {
+      await client.query(`ALTER TABLE staff ADD COLUMN phone VARCHAR(20) DEFAULT ''`);
+      console.log('🔄 Migration: Added phone column to staff table');
+    }
+
     // 2. إنشاء جدول تاريخ جيران اللاعبين المعاقبين
     await client.query(`
       CREATE TABLE IF NOT EXISTS penalty_neighbor_history (

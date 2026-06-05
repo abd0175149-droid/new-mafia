@@ -20,6 +20,7 @@ router.get('/', authenticate, authorize('admin', 'accountant'), async (_req: Req
     id: staff.id,
     username: staff.username,
     displayName: staff.displayName,
+    phone: staff.phone,
     role: staff.role,
     photoUrl: staff.photoUrl,
     permissions: staff.permissions,
@@ -38,7 +39,7 @@ router.post('/', authenticate, adminOnly, async (req: Request, res: Response) =>
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { username, password, displayName, role, permissions, isPartner } = req.body;
+  const { username, password, displayName, phone, role, permissions, isPartner } = req.body;
   if (!username || !password || !displayName) {
     return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
   }
@@ -56,6 +57,7 @@ router.post('/', authenticate, adminOnly, async (req: Request, res: Response) =>
     username,
     passwordHash: hash,
     displayName,
+    phone: phone || '',
     role: role || 'manager',
     permissions: perms,
     isPartner: isPartner || false,
@@ -74,6 +76,7 @@ router.put('/me', authenticate, async (req: Request, res: Response) => {
 
   const updates: any = {};
   if (req.body.displayName) updates.displayName = req.body.displayName;
+  if (req.body.phone !== undefined) updates.phone = req.body.phone;
   if (req.body.photoURL !== undefined) updates.photoUrl = req.body.photoURL;
 
   if (Object.keys(updates).length > 0) {
@@ -88,11 +91,12 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { displayName, role, permissions, isPartner } = req.body;
+  const { displayName, phone, role, permissions, isPartner } = req.body;
   if (!displayName) return res.status(400).json({ error: 'الاسم مطلوب' });
 
   await db.update(staff).set({
     displayName,
+    phone: phone || '',
     role: role || 'manager',
     permissions: permissions || ['activities', 'bookings', 'finances', 'locations'],
     isPartner: isPartner || false,

@@ -55,6 +55,7 @@ export default function StaffManagementPage() {
   // ── Form State ──
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('manager');
   const [isPartner, setIsPartner] = useState(false);
@@ -85,6 +86,7 @@ export default function StaffManagementPage() {
     setEditingUser(null);
     setDisplayName('');
     setUsername('');
+    setPhone('');
     setPassword('');
     setRole('manager');
     setIsPartner(false);
@@ -96,6 +98,7 @@ export default function StaffManagementPage() {
     setEditingUser(userItem);
     setDisplayName(userItem.displayName || '');
     setUsername(userItem.username || '');
+    setPhone(userItem.phone || '');
     setPassword(''); // فارغ ليختار التحديث أم لا
     setRole(userItem.role || 'manager');
     setIsPartner(!!userItem.isPartner);
@@ -137,7 +140,7 @@ export default function StaffManagementPage() {
         // تحديث
         await apiFetch(`/api/staff/${editingUser.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ displayName, role, isPartner, permissions }),
+          body: JSON.stringify({ displayName, phone, role, isPartner, permissions }),
         });
         // تحديث كلمة المرور إن وُجدت
         if (password.trim() !== '') {
@@ -155,7 +158,7 @@ export default function StaffManagementPage() {
         }
         await apiFetch('/api/staff', {
           method: 'POST',
-          body: JSON.stringify({ displayName, username, password, role, isPartner, permissions }),
+          body: JSON.stringify({ displayName, username, phone, password, role, isPartner, permissions }),
         });
       }
       setIsDialogOpen(false);
@@ -283,7 +286,8 @@ export default function StaffManagementPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-left font-mono text-gray-300" dir="ltr">
-                        @{u.username}
+                        <div>@{u.username}</div>
+                        {u.phone && <div className="text-[10px] text-gray-500">{u.phone}</div>}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`text-[10px] px-2 py-0.5 rounded-full border ${roleData.badge}`}>
@@ -349,7 +353,7 @@ export default function StaffManagementPage() {
                   <label htmlFor="isPartnerCheck" className="text-sm text-gray-300 cursor-pointer">هذا المستخدم شريك بالمشروع (مالياً)</label>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">اسم المستخدم {editingUser && '(مغلق)'}</label>
                     <input 
@@ -360,6 +364,17 @@ export default function StaffManagementPage() {
                       dir="ltr" 
                       placeholder="username" 
                       className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed font-mono" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">رقم الهاتف (اختياري)</label>
+                    <input 
+                      type="text" 
+                      value={phone} 
+                      onChange={e => setPhone(e.target.value)} 
+                      dir="ltr" 
+                      placeholder="079..." 
+                      className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/30 font-mono" 
                     />
                   </div>
                   <div>

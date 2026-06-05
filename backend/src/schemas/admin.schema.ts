@@ -38,6 +38,7 @@ export const locations = pgTable('locations', {
 export const staff = pgTable('staff', {
   id: serial('id').primaryKey(),
   username: varchar('username', { length: 50 }).unique().notNull(),
+  phone: varchar('phone', { length: 20 }).default(''),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
   displayName: varchar('display_name', { length: 100 }).notNull(),
   role: staffRoleEnum('role').default('manager').notNull(),

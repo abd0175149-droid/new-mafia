@@ -157,6 +157,7 @@ export default function AdminDashboard() {
           <a href="/admin/activities" className="px-3.5 py-2 border border-gray-700/50 text-gray-400 rounded-xl text-xs hover:bg-gray-800 hover:text-white transition">🎯 الأنشطة</a>
           <a href="/admin/bookings" className="px-3.5 py-2 border border-gray-700/50 text-gray-400 rounded-xl text-xs hover:bg-gray-800 hover:text-white transition">🎟️ الحجوزات</a>
           <a href="/admin/players" className="px-3.5 py-2 border border-gray-700/50 text-gray-400 rounded-xl text-xs hover:bg-gray-800 hover:text-white transition">👥 اللاعبون</a>
+          <a href="/admin/staff" className="px-3.5 py-2 border border-emerald-700/50 text-emerald-400 rounded-xl text-xs hover:bg-emerald-900/40 hover:text-emerald-300 transition font-bold">👔 الموظفون</a>
         </div>
       </div>
 

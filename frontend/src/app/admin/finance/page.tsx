@@ -23,7 +23,7 @@ function safeDate(d: any) { return d ? new Date(d) : new Date(); }
 function fmtDate(d: any) { const dt = safeDate(d); return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`; }
 function fmtDateFull(d: any) { return safeDate(d).toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
 
-type FinTab = 'transactions' | 'foundational' | 'venue_dues';
+type FinTab = 'transactions' | 'foundational' | 'venue_dues' | 'activity_stats';
 
 export default function FinancePage() {
   const user = useMemo(() => getUser(), []);
@@ -48,6 +48,10 @@ export default function FinancePage() {
   const [filterReference, setFilterReference] = useState('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
+
+  // ── Stats filter ──
+  const [statsDateFrom, setStatsDateFrom] = useState('2026-06-01');
+  const [statsDateTo, setStatsDateTo] = useState('');
 
   // ── Transactions pagination ──
   const [txPage, setTxPage] = useState(1);
@@ -252,6 +256,63 @@ export default function FinancePage() {
 
   const grandDuesTotal = venueDues.reduce((s, d) => s + d.totalDue, 0);
 
+  // ══════════════════════════════════════════════════════
+  // ██ ACTIVITY STATS TAB — Logic
+  // ══════════════════════════════════════════════════════
+
+  const activityStats = useMemo(() => {
+    let filteredActs = activities;
+    
+    if (statsDateFrom) {
+      const from = new Date(statsDateFrom);
+      from.setHours(0,0,0,0);
+      filteredActs = filteredActs.filter(a => new Date(a.date) >= from);
+    }
+    
+    if (statsDateTo) {
+      const to = new Date(statsDateTo);
+      to.setHours(23,59,59,999);
+      filteredActs = filteredActs.filter(a => new Date(a.date) <= to);
+    }
+
+    const stats = filteredActs.map(act => {
+      const actBookings = bookings.filter(b => b.activityId === act.id);
+      const actCosts = costs.filter(c => c.activityId === act.id);
+      
+      const revenue = actBookings.filter(b => b.isPaid).reduce((sum, b) => sum + getBookingDisplayAmount(b), 0);
+      const expenses = actCosts.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+      const netProfit = revenue - expenses;
+      
+      const freePlayers = actBookings.filter(b => b.isFree).reduce((sum, b) => sum + (b.count || 1), 0);
+      const paidPlayers = actBookings.filter(b => !b.isFree).reduce((sum, b) => sum + (b.count || 1), 0);
+      
+      return {
+        id: act.id,
+        name: act.name,
+        date: act.date,
+        revenue,
+        expenses,
+        netProfit,
+        freePlayers,
+        paidPlayers,
+        totalPlayers: freePlayers + paidPlayers
+      };
+    });
+
+    return stats.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [activities, bookings, costs, statsDateFrom, statsDateTo, getBookingDisplayAmount]);
+
+  const statsTotals = useMemo(() => {
+    return activityStats.reduce((acc, curr) => ({
+      revenue: acc.revenue + curr.revenue,
+      expenses: acc.expenses + curr.expenses,
+      netProfit: acc.netProfit + curr.netProfit,
+      freePlayers: acc.freePlayers + curr.freePlayers,
+      paidPlayers: acc.paidPlayers + curr.paidPlayers,
+      totalPlayers: acc.totalPlayers + curr.totalPlayers
+    }), { revenue: 0, expenses: 0, netProfit: 0, freePlayers: 0, paidPlayers: 0, totalPlayers: 0 });
+  }, [activityStats]);
+
   // ══ Loading ══
   if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
 
@@ -263,6 +324,7 @@ export default function FinancePage() {
     { key: 'transactions', label: isLocationOwner ? 'الإيرادات' : 'المالية والحركات', icon: '↔️' },
     { key: 'foundational', label: 'مصاريف التأسيس', icon: '🏢', hidden: isLocationOwner },
     { key: 'venue_dues', label: 'مستحقات الأماكن', icon: '📍', hidden: isLocationOwner },
+    { key: 'activity_stats', label: 'إحصائيات الأنشطة', icon: '📊', hidden: isLocationOwner },
   ];
 
   return (
@@ -545,6 +607,96 @@ export default function FinancePage() {
                           </td>
                           <td className="px-4 py-3 text-center font-bold text-violet-400 text-lg">
                             {due.totalDue.toLocaleString()} {CURRENCY}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ════════════════════════════════════════ */}
+        {/* ██ ACTIVITY STATS TAB                   */}
+        {/* ════════════════════════════════════════ */}
+        {activeTab === 'activity_stats' && !isLocationOwner && (
+          <>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <h2 className="text-xl font-bold text-white">📊 إحصائيات الأنشطة التفصيلية</h2>
+            </div>
+
+            {/* فلاتر التاريخ */}
+            <div className="flex items-center gap-3 flex-wrap bg-gray-800/20 border border-gray-700/20 rounded-xl py-2.5 px-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400">من تاريخ:</label>
+                <input type="date" value={statsDateFrom} onChange={e => setStatsDateFrom(e.target.value)} className="px-3 py-1.5 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400">إلى تاريخ:</label>
+                <input type="date" value={statsDateTo} onChange={e => setStatsDateTo(e.target.value)} className="px-3 py-1.5 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+              </div>
+              <span className="text-[10px] text-gray-600 mr-auto">{activityStats.length} نشاط</span>
+            </div>
+
+            {/* بطاقات الإجمالي العام */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">
+                <p className="text-xs text-emerald-400/80 mb-1">إجمالي الإيرادات</p>
+                <p className="text-lg font-bold text-emerald-400">{statsTotals.revenue.toLocaleString()} {CURRENCY}</p>
+              </div>
+              <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3">
+                <p className="text-xs text-rose-400/80 mb-1">إجمالي التكاليف</p>
+                <p className="text-lg font-bold text-rose-400">{statsTotals.expenses.toLocaleString()} {CURRENCY}</p>
+              </div>
+              <div className={`border rounded-xl p-3 ${statsTotals.netProfit >= 0 ? 'bg-amber-500/10 border-amber-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                <p className={`text-xs mb-1 ${statsTotals.netProfit >= 0 ? 'text-amber-400/80' : 'text-red-400/80'}`}>صافي الربح</p>
+                <p className={`text-lg font-bold ${statsTotals.netProfit >= 0 ? 'text-amber-400' : 'text-red-400'}`}>{statsTotals.netProfit.toLocaleString()} {CURRENCY}</p>
+              </div>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3">
+                <p className="text-xs text-blue-400/80 mb-1">إجمالي اللاعبين</p>
+                <p className="text-lg font-bold text-blue-400">
+                  {statsTotals.totalPlayers} <span className="text-xs font-normal text-gray-400">({statsTotals.paidPlayers} مدفوع / {statsTotals.freePlayers} مجاني)</span>
+                </p>
+              </div>
+            </div>
+
+            {/* جدول إحصائيات الأنشطة */}
+            <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
+              {activityStats.length === 0 ? (
+                <div className="text-center py-16"><span className="text-4xl block mb-3 opacity-30">📊</span><p className="text-gray-500">لا توجد أنشطة مطابقة للفلاتر</p></div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" dir="rtl">
+                    <thead>
+                      <tr className="bg-gray-900/50 text-gray-500 text-xs border-b border-gray-700/30">
+                        <th className="text-right px-4 py-3 font-medium">النشاط والتاريخ</th>
+                        <th className="text-center px-4 py-3 font-medium">اللاعبون (مجاني/مدفوع)</th>
+                        <th className="text-center px-4 py-3 font-medium">الإيرادات</th>
+                        <th className="text-center px-4 py-3 font-medium">المصاريف</th>
+                        <th className="text-center px-4 py-3 font-medium">الصافي</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activityStats.map((stat, i) => (
+                        <tr key={stat.id} className="border-b border-gray-700/15 hover:bg-gray-700/10 transition">
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-white mb-0.5">{stat.name}</div>
+                            <div className="text-[10px] text-gray-500">{fmtDate(stat.date)}</div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="font-bold text-white">{stat.totalPlayers}</span>
+                            <div className="text-[10px] text-gray-500 mt-0.5">
+                              <span className="text-blue-400">{stat.freePlayers} مجاني</span> | <span className="text-emerald-400">{stat.paidPlayers} مدفوع</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center text-emerald-400 font-bold text-xs">{stat.revenue.toLocaleString()} {CURRENCY}</td>
+                          <td className="px-4 py-3 text-center text-rose-400 font-bold text-xs">{stat.expenses.toLocaleString()} {CURRENCY}</td>
+                          <td className="px-4 py-3 text-center font-bold text-sm">
+                            <span className={stat.netProfit >= 0 ? 'text-amber-400' : 'text-red-400'}>
+                              {stat.netProfit.toLocaleString()} {CURRENCY}
+                            </span>
                           </td>
                         </tr>
                       ))}
