@@ -1,4 +1,4 @@
-import { getDB } from '../src/config/db.js';
+import { getDB, connectDB } from '../src/config/db.js';
 import { activities } from '../src/schemas/admin.schema.js';
 import { getDriveService } from '../src/routes/drive.routes.js';
 import { isNull, eq } from 'drizzle-orm';
@@ -14,6 +14,7 @@ const PARENT_FOLDER_ID = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || '1yM2R4P0f
 
 async function fixDriveFolders() {
   console.log('🚀 بدء فحص الأنشطة التي لا تمتلك مجلدات درايف...');
+  await connectDB();
   const db = getDB();
   if (!db) {
     console.error('❌ تعذر الاتصال بقاعدة البيانات');
