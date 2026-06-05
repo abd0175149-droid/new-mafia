@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const PARENT_FOLDER_ID = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || '1yM2R4P0fT1K8iXyJ9Z4h7R2C8p3N5b6H'; // استبدل بـ ID المجلد الرئيسي إذا لزم الأمر
+const PARENT_FOLDER_ID = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || '1MLgq3qx0by7pi_MStkAofEiUYb4n33ml'; // الصحيح لمشروع المافيا
 
 async function fixDriveFolders() {
   console.log('🚀 بدء فحص الأنشطة التي لا تمتلك مجلدات درايف...');
