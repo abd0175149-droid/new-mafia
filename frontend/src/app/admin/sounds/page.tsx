@@ -30,6 +30,7 @@ const EVENT_GROUPS = [
       { key: 'ambient_night_investigate', label: '👁️ خلفية التحقيق', desc: 'يعمل أثناء انتظار اختيار هدف التحقيق' },
       { key: 'ambient_night_protect', label: '🛡️ خلفية الحماية', desc: 'يعمل أثناء انتظار اختيار هدف الحماية' },
       { key: 'ambient_night_snipe', label: '🎯 خلفية القنص', desc: 'يعمل أثناء انتظار اختيار هدف القنص' },
+      { key: 'ambient_night_assassin', label: '🔪 خلفية السفّاح', desc: 'يعمل أثناء انتظار اختيار هدف السفّاح' },
     ],
   },
   {
@@ -40,6 +41,7 @@ const EVENT_GROUPS = [
       { key: 'night_protection', label: '🛡️ تنفيذ حماية', desc: 'عند تنفيذ الحماية الطبية' },
       { key: 'night_snipe', label: '🎯 تنفيذ قنص', desc: 'عند تنفيذ تصويب القناص' },
       { key: 'night_silence', label: '🤐 تنفيذ إسكات', desc: 'عند تنفيذ الإسكات' },
+      { key: 'night_assassin', label: '🔪 تنفيذ السفّاح', desc: 'عند تنفيذ اغتيال السفّاح' },
     ],
   },
   {
@@ -51,6 +53,8 @@ const EVENT_GROUPS = [
       { key: 'morning_snipe_mafia', label: '🎯 قنص ناجح', desc: 'القناص أصاب مافيا' },
       { key: 'morning_snipe_citizen', label: '💀 قنص فاشل', desc: 'القناص أصاب مواطن' },
       { key: 'morning_silenced', label: '🤐 إسكات لاعب', desc: 'تم إسكات لاعب' },
+      { key: 'morning_assassin_kill', label: '🔪 اغتيال السفّاح', desc: 'عند كشف أن السفّاح اغتال في الصباح' },
+      { key: 'morning_policewoman', label: '👮 صلاحية الشرطية', desc: 'عند تنفيذ صلاحية الشرطية' },
     ],
   },
   {
@@ -66,6 +70,8 @@ const EVENT_GROUPS = [
       { key: 'elimination_policewoman', label: '👮 إقصاء الشرطية', desc: 'صوت خاص عند إقصاء الشرطية (اختياري — يستخدم صوت المواطن كبديل)' },
       { key: 'elimination_nurse', label: '🏥 إقصاء الممرضة', desc: 'صوت خاص عند إقصاء الممرضة (اختياري — يستخدم صوت المواطن كبديل)' },
       { key: 'elimination_citizen', label: '👤 إقصاء مواطن (افتراضي)', desc: 'صوت افتراضي لإقصاء أي مواطن ليس له صوت خاص' },
+      { key: 'elimination_assassin', label: '🔪 إقصاء السفّاح', desc: 'صوت خاص عند إقصاء السفّاح (اختياري)' },
+      { key: 'elimination_jester', label: '🤡 إقصاء المهرج', desc: 'صوت خاص عند إقصاء المهرج (اختياري)' },
     ],
   },
   {
@@ -82,6 +88,8 @@ const EVENT_GROUPS = [
     events: [
       { key: 'win_mafia', label: '🔴 فوز المافيا', desc: 'موسيقى فوز المافيا' },
       { key: 'win_citizen', label: '🟢 فوز المواطنين', desc: 'موسيقى فوز المواطنين' },
+      { key: 'win_jester', label: '🤡 فوز المهرج', desc: 'موسيقى فوز المهرج' },
+      { key: 'win_assassin', label: '🔪 فوز السفّاح', desc: 'موسيقى فوز السفّاح' },
     ],
   },
   {
@@ -107,6 +115,15 @@ const EVENT_GROUPS = [
       { key: 'phase_night_start', label: '🌙 بداية الليل', desc: 'صوت انتقال لليل' },
       { key: 'phase_voting_start', label: '🗳️ بداية التصويت', desc: 'صوت بدء التصويت' },
       { key: 'phase_elimination', label: '⚡ لحظة الإقصاء', desc: 'صوت عند الإقصاء' },
+    ],
+  },
+  {
+    label: '💣 القنبلة والتعادل',
+    events: [
+      { key: 'bomb_explosion', label: '💣 انفجار القنبلة', desc: 'صوت انفجار عند تفعيل قنبلة شيخ المافيا' },
+      { key: 'day_tie', label: '🔄 صوت التعادل', desc: 'صوت عند حدوث تعادل في التصويت' },
+      { key: 'day_show_silenced', label: '🤐 كشف المُسكت', desc: 'صوت عند كشف اللاعب المُسكت في النهار' },
+      { key: 'voting_complete', label: '✅ انتهاء التصويت', desc: 'صوت عند اكتمال جميع الأصوات' },
     ],
   },
 ];

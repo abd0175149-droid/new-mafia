@@ -323,6 +323,73 @@ function SilenceAnim() {
 }
 
 // ══════════════════════════════════════════
+// 🔪 Assassinate Animation — السفّاح ليلاً
+// ══════════════════════════════════════════
+function AssassinateAnim() {
+  useEffect(() => {
+    playEventSound('night_assassin');
+  }, []);
+
+  return (
+    <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
+      {/* وهج أحمر قرمزي */}
+      <motion.div
+        className="absolute inset-0 bg-[#DC143C]/10 pointer-events-none"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 0.4, 0.1, 0.3, 0] }}
+        transition={{ duration: 1.5, ease: 'easeInOut' }}
+      />
+      {/* خطوط قطع متعددة */}
+      {[...Array(3)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute w-[200%] h-[2px] bg-gradient-to-r from-transparent via-[#DC143C] to-transparent"
+          style={{ top: `${35 + i * 15}%`, left: '-50%', transform: `rotate(${-15 + i * 15}deg)` }}
+          initial={{ x: '-100%', opacity: 0 }}
+          animate={{ x: '100%', opacity: [0, 1, 1, 0] }}
+          transition={{ duration: 0.5, delay: i * 0.15, ease: 'easeInOut' }}
+        />
+      ))}
+      <motion.div className="relative z-10 text-center">
+        <motion.div
+          className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(220,20,60,0.9)]"
+          initial={{ scale: 0, rotate: -45 }}
+          animate={{ scale: [0, 1.5, 1], rotate: [-45, 10, 0] }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+        >
+          🗡️
+        </motion.div>
+        <motion.p
+          className="text-3xl md:text-4xl font-black text-[#DC143C] tracking-widest"
+          style={{ fontFamily: 'Amiri, serif' }}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+        >
+          السفّاح يتحرك
+        </motion.p>
+      </motion.div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════
+// 🔪 مساعد صوت: ASSASSIN_KILL (صباحي)
+// ══════════════════════════════════════════
+function AssassinKillSound() {
+  useEffect(() => { playGameSound('morning_assassin_kill'); }, []);
+  return null;
+}
+
+// ══════════════════════════════════════════
+// 👮 مساعد صوت: POLICEWOMAN_EXECUTION
+// ══════════════════════════════════════════
+function PolicewomanSound() {
+  useEffect(() => { playGameSound('morning_policewoman'); }, []);
+  return null;
+}
+
+// ══════════════════════════════════════════
 // 🩸 Morning: Assassination Success
 // ══════════════════════════════════════════
 function MorningAssassinationAnim({ data }: NightAnimProps) {
@@ -592,6 +659,10 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
     case 'SILENCE':
       return <SilenceAnim />;
 
+    // 🔪 أنيميشن السفّاح الليلي
+    case 'ASSASSINATE':
+      return <AssassinateAnim />;
+
     // أحداث ملخص الصباح (Morning Recap)
     case 'ASSASSINATION':
       return <MorningAssassinationAnim data={data} />;
@@ -615,6 +686,7 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
           >
             🔪
           </motion.div>
+          <AssassinKillSound />
           <motion.p
             className="text-3xl md:text-4xl font-black text-[#DC143C] tracking-widest mb-3"
             style={{ fontFamily: 'Amiri, serif' }}
@@ -661,6 +733,7 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
       const isMafia = data.extra?.targetIsMafia;
       return (
         <div className="text-center py-4">
+          <PolicewomanSound />
           <motion.div
             className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(167,139,250,0.8)]"
             animate={{ scale: [0.8, 1.3, 1], rotate: [0, -10, 10, 0] }}

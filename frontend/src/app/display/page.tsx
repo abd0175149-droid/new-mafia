@@ -339,8 +339,10 @@ function DisplayPageContent() {
         playAmbientSound('ambient_justification');
       } else if (data.phase === 'DAY_TIEBREAKER' || data.phase === 'DAY_REVEALED') {
         stopAmbientSound();
+        playGameSound('day_tie');
       } else if (data.phase === 'DAY_ELIMINATION') {
         stopAmbientSound();
+        playAmbientSound('ambient_elimination');
         playGameSound('phase_elimination');
       } else if (data.phase === 'MORNING_RECAP') {
         stopAmbientSound();
@@ -390,11 +392,12 @@ function DisplayPageContent() {
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
       stopAmbientSound();
-      // 🤡 صوت مخصص لفوز المهرج
-      if (data.winner === 'JESTER') {
-        playGameSound('win_citizen'); // fallback — يمكن إضافة win_jester لاحقاً
-      } else {
-        playGameSound(data.winner === 'MAFIA' ? 'win_mafia' : 'win_citizen');
+      // تشغيل صوت الفوز المناسب
+      switch (data.winner) {
+        case 'JESTER': playGameSound('win_jester'); break;
+        case 'ASSASSIN': playGameSound('win_assassin'); break;
+        case 'MAFIA': playGameSound('win_mafia'); break;
+        default: playGameSound('win_citizen'); break;
       }
     };
 

@@ -1743,35 +1743,61 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // If leader modified choices, update them
       if (data.modifiedChoices && data.modifiedChoices.length > 0) {
         state.autoNightChoices = data.modifiedChoices;
-        
-        // Find the real choice and update action
-        const realChoice = data.modifiedChoices.find(c => c.isReal);
-        if (realChoice && realChoice.targetPhysicalId !== null) {
-           const stepRole = state.autoNightStepRole;
-           switch (stepRole) {
-             case Role.GODFATHER:
-             case Role.CHAMELEON:
-             case Role.MAFIA_REGULAR:
-               state.nightActions.godfatherTarget = realChoice.targetPhysicalId; break;
-             case Role.SILENCER:
-               state.nightActions.silencerTarget = realChoice.targetPhysicalId; break;
-             case Role.SHERIFF: {
-               state.nightActions.sheriffTarget = realChoice.targetPhysicalId;
-               const investigated = state.players.find((p: any) => p.physicalId === realChoice.targetPhysicalId);
-               let sheriffResult = 'CITIZEN';
-               if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
-               else if (investigated?.role && [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(investigated.role)) sheriffResult = 'MAFIA';
-               state.nightActions.sheriffResult = sheriffResult;
-               break;
-             }
-             case Role.DOCTOR: state.nightActions.doctorTarget = realChoice.targetPhysicalId; break;
-             case Role.NURSE: state.nightActions.nurseTarget = realChoice.targetPhysicalId; break;
-             case Role.SNIPER: state.nightActions.sniperTarget = realChoice.targetPhysicalId; break;
-             default:
-               if ((stepRole as string) === 'ASSASSIN') state.nightActions.assassinTarget = realChoice.targetPhysicalId;
-               break;
+      }
+
+      // Find the real choice and update action
+      const realChoice = state.autoNightChoices?.find(c => c.isReal);
+      if (realChoice && realChoice.targetPhysicalId !== null) {
+         const stepRole = state.autoNightStepRole;
+         let animType: string | null = null;
+         
+         switch (stepRole) {
+           case Role.GODFATHER:
+           case Role.CHAMELEON:
+           case Role.MAFIA_REGULAR:
+             state.nightActions.godfatherTarget = realChoice.targetPhysicalId; 
+             animType = 'ASSASSINATION_ATTEMPT';
+             break;
+           case Role.SILENCER:
+             state.nightActions.silencerTarget = realChoice.targetPhysicalId; 
+             animType = 'SILENCE';
+             break;
+           case Role.SHERIFF: {
+             state.nightActions.sheriffTarget = realChoice.targetPhysicalId;
+             animType = 'INVESTIGATION';
+             const investigated = state.players.find((p: any) => p.physicalId === realChoice.targetPhysicalId);
+             let sheriffResult = 'CITIZEN';
+             if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
+             else if (investigated?.role && [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(investigated.role)) sheriffResult = 'MAFIA';
+             state.nightActions.sheriffResult = sheriffResult;
+             break;
            }
-        }
+           case Role.DOCTOR: 
+             state.nightActions.doctorTarget = realChoice.targetPhysicalId; 
+             animType = 'PROTECTION';
+             break;
+           case Role.NURSE: 
+             state.nightActions.nurseTarget = realChoice.targetPhysicalId; 
+             break;
+           case Role.SNIPER: 
+             state.nightActions.sniperTarget = realChoice.targetPhysicalId; 
+             animType = 'SNIPE';
+             break;
+           default:
+             if ((stepRole as string) === 'ASSASSIN') {
+               state.nightActions.assassinTarget = realChoice.targetPhysicalId;
+               animType = 'ASSASSINATE';
+             }
+             break;
+         }
+
+         // إرسال الأنيميشن لشاشة العرض
+         if (animType) {
+           io.to(data.roomId).emit('night:animation', {
+             type: animType,
+             targetPhysicalId: realChoice.targetPhysicalId,
+           });
+         }
       }
 
       state.autoNightStepApproval = false;

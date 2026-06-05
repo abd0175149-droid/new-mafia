@@ -186,6 +186,7 @@ const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
   'DOCTOR': 'ambient_night_protect',
   'NURSE': 'ambient_night_protect',
   'SNIPER': 'ambient_night_snipe',
+  'ASSASSIN': 'ambient_night_assassin',
   // Dynamic engine ability IDs
   'KILL': 'ambient_night_kill',
   'SILENCE': 'ambient_night_silence',
@@ -373,6 +374,44 @@ function playDefaultSound(eventKey: string): void {
         break;
       }
 
+      // 🤡 فوز المهرج — ضحك هستيري مشوّه
+      case 'win_jester': {
+        const playJesterNote = (freq: number, start: number, dur: number) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + start + dur * 0.3);
+          osc.frequency.exponentialRampToValueAtTime(freq * 0.5, ctx.currentTime + start + dur);
+          gain.gain.setValueAtTime(0, ctx.currentTime + start);
+          gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + start + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur);
+        };
+        [440, 880, 330, 660, 550, 1100, 220].forEach((f, i) => playJesterNote(f, i * 0.2, 0.4));
+        playJesterNote(110, 1.5, 2);
+        break;
+      }
+
+      // 🔪 فوز السفّاح — طعنات متتابعة
+      case 'win_assassin': {
+        const playStabNote = (freq: number, start: number, dur: number) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+          osc.frequency.exponentialRampToValueAtTime(freq * 0.3, ctx.currentTime + start + dur);
+          gain.gain.setValueAtTime(0.2, ctx.currentTime + start);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur);
+        };
+        [600, 500, 400, 300, 200].forEach((f, i) => playStabNote(f, i * 0.3, 0.4));
+        playStabNote(80, 1.5, 3);
+        break;
+      }
+
       // ── مؤقت ──
       case 'timer_heartbeat_slow': {
         const osc = ctx.createOscillator();
@@ -454,6 +493,124 @@ function playDefaultSound(eventKey: string): void {
         break;
       }
 
+      // ── 💣 انفجار القنبلة ──
+      case 'bomb_explosion': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 1);
+        gain.gain.setValueAtTime(0.5, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.2);
+        // طبقة ثانية — رنين
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc2.type = 'square';
+        osc2.frequency.setValueAtTime(80, ctx.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.8);
+        gain2.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+        osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 0.8);
+        break;
+      }
+
+      // ── 🔪 السفّاح ليلاً ──
+      case 'night_assassin': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.35, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+        break;
+      }
+
+      // ── 🔪 اغتيال السفّاح صباحاً ──
+      case 'morning_assassin_kill': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(900, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.5);
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.6);
+        break;
+      }
+
+      // ── 👮 الشرطية ──
+      case 'morning_policewoman': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5);
+        break;
+      }
+
+      // ── 🔄 تعادل ──
+      case 'day_tie': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        osc.frequency.setValueAtTime(440, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+        // نغمة ثانية
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(440, ctx.currentTime + 0.5);
+        gain2.gain.setValueAtTime(0.15, ctx.currentTime + 0.5);
+        gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.9);
+        osc2.start(ctx.currentTime + 0.5); osc2.stop(ctx.currentTime + 0.9);
+        break;
+      }
+
+      // ── 🤐 كشف المُسكت في النهار ──
+      case 'day_show_silenced': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+        break;
+      }
+
+      // ── ✅ انتهاء التصويت ──
+      case 'voting_complete': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+        osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1); // E5
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+        break;
+      }
+
       // ── انتقال المراحل (لا يوجد أصوات افتراضية) ──
       case 'phase_day_start':
       case 'phase_night_start':
@@ -463,4 +620,55 @@ function playDefaultSound(eventKey: string): void {
         break;
     }
   } catch (_) {}
+}
+
+// ══════════════════════════════════════════════════════
+// 🥁 Drumroll — يُستخدم في RevealCeremony و BombCeremony
+// ══════════════════════════════════════════════════════
+export function playDrumroll(): void {
+  if (customSoundMap['drumroll']) {
+    playGameSound('drumroll');
+    return;
+  }
+  try {
+    const ACClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!ACClass) return;
+    const ctx = new ACClass();
+    // نبضات متسارعة تحاكي الدرامرول
+    for (let i = 0; i < 20; i++) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(100 + i * 3, ctx.currentTime + i * 0.06);
+      gain.gain.setValueAtTime(0.06 + i * 0.005, ctx.currentTime + i * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.06 + 0.05);
+      osc.start(ctx.currentTime + i * 0.06);
+      osc.stop(ctx.currentTime + i * 0.06 + 0.05);
+    }
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════════
+// 💥 Impact Boom — صوت ارتطام عند الإقصاء النهائي
+// ══════════════════════════════════════════════════════
+export function playImpactBoom(): void {
+  if (customSoundMap['impact_boom']) {
+    playGameSound('impact_boom');
+    return;
+  }
+  try {
+    const ACClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!ACClass) return;
+    const ctx = new ACClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(80, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+  } catch {}
 }

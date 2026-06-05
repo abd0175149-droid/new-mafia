@@ -334,6 +334,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
     const onShowSilenced = (data: { physicalId: number }) => {
       setSilencedPlayerId(data.physicalId);
+      playGameSound('day_show_silenced');
       // يبقى ظاهراً حتى الليدر يضغط NEXT — يختفي عند تغيّر currentSpeakerId عبر discussion-updated
     };
 
@@ -378,6 +379,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:justification-timer-stopped', onJustificationTimerStopped);
     socket.on('day:bomb-result', onBombResult);
 
+    const onVotingComplete = () => {
+      playGameSound('voting_complete');
+    };
+    socket.on('day:voting-complete', onVotingComplete);
+
     // Withdrawal events
     const onWithdrawalUpdate = (data: any) => {
       setWithdrawalState(prev => ({
@@ -406,6 +412,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       socket.off('day:justification-timer-started', onJustificationTimerStarted);
       socket.off('day:justification-timer-stopped', onJustificationTimerStopped);
       socket.off('day:bomb-result', onBombResult);
+      socket.off('day:voting-complete', onVotingComplete);
       socket.off('day:withdrawal-update', onWithdrawalUpdate);
       socket.off('day:withdrawal-result', onWithdrawalResult);
     };
