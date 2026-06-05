@@ -953,8 +953,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         totalBombRR += isMafia ? bombHitMafia : bombHitCitizen;
       };
 
-      if (data.eliminateAbove && bomb.above) processTarget(bomb.above);
+      // ترتيب الكشف: الأقل (below) أولاً ثم الأعلى (above)
       if (data.eliminateBelow && bomb.below) processTarget(bomb.below);
+      if (data.eliminateAbove && bomb.above) processTarget(bomb.above);
 
       // تطبيق RR لشيخ المافيا
       if (totalBombRR !== 0 && bomb.godfatherPlayerId) {

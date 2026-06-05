@@ -118,7 +118,8 @@ interface DisplayDayViewProps {
 }
 
 export default function DisplayDayView({ roomId, players, initialDiscussionState, teamCounts }: DisplayDayViewProps) {
-  const [phase, setPhase] = useState<'DISCUSSION' | 'VOTING' | 'JUSTIFICATION' | 'PENDING' | 'REVEALED' | 'TIE'>('DISCUSSION');
+  const [phase, setPhase] = useState<'DISCUSSION' | 'VOTING' | 'JUSTIFICATION' | 'PENDING' | 'REVEALED' | 'TIE' | 'BOMB'>('DISCUSSION');
+  const [bombData, setBombData] = useState<{ bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] } | null>(null);
   const [candidates, setCandidates] = useState<any[]>([]);
   const [totalVotesCast, setTotalVotesCast] = useState(0);
   const [tieBreakerLevel, setTieBreakerLevel] = useState(0);
@@ -352,6 +353,16 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setJustTimeRemaining(0);
     };
 
+    // 💣 نتيجة القنبلة — بعد قرار الليدر
+    const onBombResult = (data: any) => {
+      setBombData({
+        bombEliminated: data.bombEliminated || [],
+        bombRevealedRoles: data.bombRevealedRoles || [],
+      });
+      if (data.bombEliminated?.length > 0) {
+        setPhase('BOMB');
+      }
+    };
 
 
     socket.on('day:voting-started', onVotingStarted);
@@ -365,6 +376,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:justification-started', onJustificationStarted);
     socket.on('day:justification-timer-started', onJustificationTimerStarted);
     socket.on('day:justification-timer-stopped', onJustificationTimerStopped);
+    socket.on('day:bomb-result', onBombResult);
 
     // Withdrawal events
     const onWithdrawalUpdate = (data: any) => {
@@ -393,6 +405,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       socket.off('day:justification-started', onJustificationStarted);
       socket.off('day:justification-timer-started', onJustificationTimerStarted);
       socket.off('day:justification-timer-stopped', onJustificationTimerStopped);
+      socket.off('day:bomb-result', onBombResult);
       socket.off('day:withdrawal-update', onWithdrawalUpdate);
       socket.off('day:withdrawal-result', onWithdrawalResult);
     };
@@ -1023,6 +1036,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
           </motion.div>
         )}
 
+        {/* 💣 BOMB EXPLOSION — أنيميشن القنبلة */}
+        {phase === 'BOMB' && bombData && (
+          <BombCeremony players={players} bombData={bombData} />
+        )}
+
       </AnimatePresence>
     </div>
   );
@@ -1261,6 +1279,274 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
           {revealType === 'DEAL_ELIMINATION' ? 'DEAL EXECUTION' : 'ELIMINATION PROTOCOL'}
         </span>
       </div>
+    </motion.div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 💣 BombCeremony — أنيميشن القنبلة السينمائي
+// ══════════════════════════════════════════════════════
+function BombCeremony({ players, bombData }: {
+  players: any[];
+  bombData: { bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] };
+}) {
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+  const CARD_DELAY = 4; // ثوانٍ بين كل لاعب
+
+  const [bombStage, setBombStage] = useState<'explosion' | 'revealing' | 'done'>('explosion');
+  const [revealStages, setRevealStages] = useState<Record<number, 'hidden' | 'face-down' | 'flipping' | 'revealed' | 'grayed'>>({});
+
+  useEffect(() => {
+    const timers: NodeJS.Timeout[] = [];
+
+    // المرحلة 1: انفجار (3 ثوانٍ)
+    timers.push(setTimeout(() => {
+      setBombStage('revealing');
+    }, 3000));
+
+    // المرحلة 2: كشف الكروت بالتتابع
+    bombData.bombRevealedRoles.forEach((roleInfo, i) => {
+      const baseDelay = 3000 + i * CARD_DELAY * 1000;
+
+      timers.push(setTimeout(() => {
+        setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'face-down' }));
+      }, baseDelay + 500));
+
+      timers.push(setTimeout(() => {
+        playDrumroll();
+        setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'flipping' }));
+      }, baseDelay + 2000));
+
+      timers.push(setTimeout(() => {
+        playEliminationSound(roleInfo.role);
+        setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'revealed' }));
+      }, baseDelay + 3200));
+
+      timers.push(setTimeout(() => {
+        playImpactBoom();
+        setRevealStages(prev => ({ ...prev, [roleInfo.physicalId]: 'grayed' }));
+      }, baseDelay + 4200));
+    });
+
+    // المرحلة 3: انتهى
+    const totalTime = 3000 + bombData.bombRevealedRoles.length * CARD_DELAY * 1000 + 2000;
+    timers.push(setTimeout(() => {
+      setBombStage('done');
+    }, totalTime));
+
+    return () => timers.forEach(clearTimeout);
+  }, [bombData]);
+
+  return (
+    <motion.div
+      key="bomb-ceremony"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative overflow-hidden"
+    >
+      {/* خلفية انفجارية */}
+      <motion.div
+        className="absolute inset-0 pointer-events-none"
+        animate={{
+          opacity: bombStage === 'explosion' ? [0, 0.4, 0.1, 0.3, 0] : [0, 0.08, 0],
+          scale: bombStage === 'explosion' ? [1, 1.2, 1] : 1,
+        }}
+        transition={{ duration: bombStage === 'explosion' ? 2 : 3, repeat: Infinity }}
+        style={{
+          background: 'radial-gradient(circle at center, rgba(255,100,0,0.4) 0%, rgba(138,3,3,0.3) 30%, transparent 70%)',
+        }}
+      />
+
+      <AnimatePresence mode="wait">
+        {/* مرحلة الانفجار */}
+        {bombStage === 'explosion' && (
+          <motion.div
+            key="explosion"
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.5 }}
+            className="flex flex-col items-center justify-center"
+          >
+            {/* حلقات انفجارية */}
+            <motion.div
+              className="absolute w-[600px] h-[600px] rounded-full border-4 border-orange-500/30"
+              animate={{ scale: [0.5, 3], opacity: [0.6, 0] }}
+              transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
+            />
+            <motion.div
+              className="absolute w-[400px] h-[400px] rounded-full border-2 border-red-500/40"
+              animate={{ scale: [0.5, 2.5], opacity: [0.8, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeOut', delay: 0.3 }}
+            />
+
+            {/* أيقونة القنبلة */}
+            <motion.div
+              animate={{
+                scale: [1, 1.3, 0.9, 1.4, 1],
+                rotate: [0, -10, 10, -5, 0],
+              }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              className="text-[12rem] mb-8 drop-shadow-[0_0_80px_rgba(255,100,0,0.6)]"
+            >
+              💣
+            </motion.div>
+
+            <motion.h1
+              animate={{ opacity: [0.5, 1, 0.5], scale: [0.98, 1.02, 0.98] }}
+              transition={{ duration: 1, repeat: Infinity }}
+              className="text-7xl font-black text-[#ff4444] uppercase tracking-[0.2em]"
+              style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 60px rgba(255,68,68,0.6)' }}
+            >
+              قنبلة شيخ المافيا
+            </motion.h1>
+            <motion.p
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              className="text-orange-400 font-mono text-2xl tracking-[0.5em] uppercase mt-4"
+            >
+              GODFATHER BOMB ACTIVATED
+            </motion.p>
+          </motion.div>
+        )}
+
+        {/* مرحلة كشف الكروت */}
+        {(bombStage === 'revealing' || bombStage === 'done') && (
+          <motion.div
+            key="bomb-cards"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex flex-col items-center justify-center"
+          >
+            {/* عنوان */}
+            <motion.div
+              initial={{ opacity: 0, y: -30 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center mb-12 z-10"
+            >
+              <h1 className="text-5xl font-black text-[#ff4444] uppercase tracking-widest mb-2" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 40px rgba(255,68,68,0.5)' }}>
+                💣 ضحايا القنبلة
+              </h1>
+              <p className="text-orange-400/80 font-mono text-sm tracking-[0.5em] uppercase">
+                COLLATERAL DAMAGE — BOMB CASUALTIES
+              </p>
+            </motion.div>
+
+            {/* الكروت */}
+            <div className="flex items-center justify-center gap-16 z-10" style={{ transform: 'scale(1.3)', transformOrigin: 'center center' }}>
+              {bombData.bombRevealedRoles.map((roleInfo, i) => {
+                const p = players.find((pl: any) => pl.physicalId === roleInfo.physicalId);
+                const stage = revealStages[roleInfo.physicalId] || 'hidden';
+                const isMafia = MAFIA_ROLES.includes(roleInfo.role);
+                const isFlipped = stage === 'flipping' || stage === 'revealed' || stage === 'grayed';
+                const isGrayed = stage === 'grayed';
+
+                if (stage === 'hidden') return null;
+
+                return (
+                  <motion.div
+                    key={roleInfo.physicalId}
+                    initial={{ opacity: 0, y: 60, scale: 0.8 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: 'spring', damping: 15, delay: i * 0.3 }}
+                    className="flex flex-col items-center relative"
+                  >
+                    {/* أيقونة القنبلة فوق الكارد */}
+                    <AnimatePresence>
+                      {isGrayed && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 30, scale: 0 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          transition={{ type: 'spring', damping: 12, stiffness: 200 }}
+                          className="mb-4 flex flex-col items-center"
+                        >
+                          <motion.div
+                            animate={{ scale: [1, 1.15, 1], opacity: [0.8, 1, 0.8] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                            className="text-6xl drop-shadow-[0_0_30px_rgba(255,100,0,0.6)]"
+                          >
+                            💥
+                          </motion.div>
+                          <motion.span
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.3 }}
+                            className="text-xs font-mono font-black tracking-[0.4em] uppercase mt-1 text-orange-400"
+                          >
+                            BOMB VICTIM
+                          </motion.span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* الكارد */}
+                    <div
+                      className={`relative transition-all duration-1000 ${
+                        isGrayed ? 'grayscale opacity-70' : ''
+                      } ${
+                        stage === 'flipping' ? 'animate-pulse' : ''
+                      }`}
+                      style={{ perspective: '1200px' }}
+                    >
+                      {/* حلقة متوهجة برتقالية */}
+                      {(stage === 'flipping' || stage === 'revealed') && (
+                        <motion.div
+                          className="absolute -inset-3 rounded-2xl z-0"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: [0, 0.8, 0] }}
+                          transition={{ duration: 1.5, repeat: stage === 'flipping' ? Infinity : 0 }}
+                          style={{
+                            background: 'linear-gradient(135deg, rgba(255,100,0,0.4), rgba(138,3,3,0.3))',
+                            boxShadow: '0 0 40px rgba(255,100,0,0.5)',
+                          }}
+                        />
+                      )}
+
+                      <div className="relative z-10">
+                        <MafiaCard
+                          playerNumber={roleInfo.physicalId}
+                          playerName={p?.name || 'Unknown'}
+                          role={roleInfo.role}
+                          isFlipped={isFlipped}
+                          flippable={false}
+                          isAlive={!isGrayed}
+                          gender={p?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                          size="fluid"
+                          className="w-56 h-[19rem] md:w-64 md:h-[22rem]"
+                          avatarUrl={p?.avatarUrl}
+                          rankTier={p?.rankTier}
+                        />
+                      </div>
+                    </div>
+
+                    {/* اسم اللاعب */}
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: isGrayed ? 0.5 : 1 }}
+                      className={`mt-4 text-sm font-mono tracking-[0.3em] uppercase ${
+                        isGrayed ? 'text-[#555] line-through' : 'text-[#808080]'
+                      }`}
+                    >
+                      {p?.name || `OPERATIVE #${roleInfo.physicalId}`}
+                    </motion.p>
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            {/* هيدر سفلي */}
+            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-6 py-3 border-t border-orange-500/20 bg-black/50 backdrop-blur-sm z-10">
+              <div className="flex items-center gap-3">
+                <Image src="/mafia_logo.png" alt="Mafia" width={28} height={28} className="w-[28px] h-[28px] opacity-60" priority />
+                <span className="text-sm font-black text-[#C5A059]/60" style={{ fontFamily: 'Amiri, serif' }}>MAFIA CLUB</span>
+              </div>
+              <span className="text-orange-400 text-[10px] font-mono tracking-[0.4em] uppercase">
+                💣 GODFATHER BOMB — COLLATERAL DAMAGE
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

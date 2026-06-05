@@ -1532,6 +1532,21 @@ export function registerNightEvents(io: Server, socket: Socket) {
         playerVotes: {},
       };
       state.policewomanState = null;
+      // 💣 تنظيف حالة القنبلة والإقصاء المعلق والتتبع
+      state.pendingBomb = null;
+      state.pendingResolution = null;
+      state.pendingWinner = null;
+      state.performanceTracking = null;
+      state.assassinState = null;
+      state.withdrawalState = null;
+      state.justificationData = null;
+      state.gameTimer = null;
+      state.nurseActivated = false;
+      state.autoNightChoices = null;
+      state.autoNightStepRole = null;
+      state.autoNightStepApproval = false;
+      state.autoNightPerformerId = null;
+      state.playerNightActions = null;
 
       await setGameState(data.roomId, state);
 

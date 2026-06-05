@@ -812,6 +812,8 @@ export default function LeaderPage() {
           ...prev,
           phase: 'LOBBY',
           winner: null,
+          pendingWinner: null,
+          pendingBomb: null,
           players: data.players || prev.players,
           config: data.config || prev.config,
           rolesPool: [],
@@ -820,6 +822,9 @@ export default function LeaderPage() {
           justificationData: undefined,
           pendingResolution: undefined,
           policewomanChoice: undefined,
+          revealedData: undefined,
+          withdrawalState: null,
+          assassinState: undefined,
           round: 1,
         } as any;
       });
