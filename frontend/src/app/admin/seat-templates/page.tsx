@@ -53,13 +53,14 @@ interface SeatTemplate {
 
 function generatePositions(totalSeats: number, layout: string, width: number, height: number): SeatPosition[] {
   const positions: SeatPosition[] = [];
-  const cx = width / 2;
-  const cy = height / 2;
   const padding = 40;
 
   if (layout === 'circle') {
+    const cx = width / 2;
+    const cy = height / 2;
     const radius = Math.min(cx, cy) - padding;
     for (let i = 0; i < totalSeats; i++) {
+      // مع عقارب الساعة: نبدأ من أعلى المنتصف (شمال) وندور CW
       const angle = (2 * Math.PI * i) / totalSeats - Math.PI / 2;
       positions.push({
         id: i + 1,
@@ -68,26 +69,50 @@ function generatePositions(totalSeats: number, layout: string, width: number, he
       });
     }
   } else if (layout === 'rectangle') {
-    const perSide = Math.ceil(totalSeats / 4);
+    // توزيع متساوي على 4 أضلاع مع عقارب الساعة
+    // Top(يسار→يمين) → Right(أعلى→أسفل) → Bottom(يمين→يسار) → Left(أسفل→أعلى)
+    const sides = [0, 0, 0, 0];
+    let remaining = totalSeats;
+    for (let s = 0; remaining > 0; s = (s + 1) % 4) {
+      sides[s]++;
+      remaining--;
+    }
+
     const w = width - padding * 2;
     const h = height - padding * 2;
     let placed = 0;
 
-    // Top
-    for (let i = 0; i < perSide && placed < totalSeats; i++, placed++) {
-      positions.push({ id: placed + 1, x: padding + (w / (perSide + 1)) * (i + 1), y: padding });
+    // Top: يسار → يمين
+    for (let i = 0; i < sides[0]; i++, placed++) {
+      positions.push({
+        id: placed + 1,
+        x: padding + (w / (sides[0] + 1)) * (i + 1),
+        y: padding,
+      });
     }
-    // Right
-    for (let i = 0; i < perSide && placed < totalSeats; i++, placed++) {
-      positions.push({ id: placed + 1, x: width - padding, y: padding + (h / (perSide + 1)) * (i + 1) });
+    // Right: أعلى → أسفل
+    for (let i = 0; i < sides[1]; i++, placed++) {
+      positions.push({
+        id: placed + 1,
+        x: width - padding,
+        y: padding + (h / (sides[1] + 1)) * (i + 1),
+      });
     }
-    // Bottom
-    for (let i = 0; i < perSide && placed < totalSeats; i++, placed++) {
-      positions.push({ id: placed + 1, x: width - padding - (w / (perSide + 1)) * (i + 1), y: height - padding });
+    // Bottom: يمين → يسار
+    for (let i = 0; i < sides[2]; i++, placed++) {
+      positions.push({
+        id: placed + 1,
+        x: width - padding - (w / (sides[2] + 1)) * (i + 1),
+        y: height - padding,
+      });
     }
-    // Left
-    for (let i = 0; i < perSide && placed < totalSeats; i++, placed++) {
-      positions.push({ id: placed + 1, x: padding, y: height - padding - (h / (perSide + 1)) * (i + 1) });
+    // Left: أسفل → أعلى
+    for (let i = 0; i < sides[3]; i++, placed++) {
+      positions.push({
+        id: placed + 1,
+        x: padding,
+        y: height - padding - (h / (sides[3] + 1)) * (i + 1),
+      });
     }
   } else {
     // rows
@@ -111,6 +136,37 @@ function generatePositions(totalSeats: number, layout: string, width: number, he
   return positions;
 }
 
+// إعادة ترقيم المقاعد بحيث يصبح seatId هو #1 والباقي يتتابع مع عقارب الساعة
+function renumberFromSeat(
+  positions: SeatPosition[],
+  startSeatId: number,
+  pinnedSeats: PinnedSeat[],
+): { newPositions: SeatPosition[]; newPinned: PinnedSeat[] } {
+  const total = positions.length;
+  const startIdx = positions.findIndex(p => p.id === startSeatId);
+  if (startIdx === -1) return { newPositions: positions, newPinned: pinnedSeats };
+
+  // خريطة التحويل: oldId → newId
+  const idMap = new Map<number, number>();
+  for (let i = 0; i < total; i++) {
+    const oldIdx = (startIdx + i) % total;
+    idMap.set(positions[oldIdx].id, i + 1);
+  }
+
+  const newPositions = positions.map(p => ({
+    ...p,
+    id: idMap.get(p.id) || p.id,
+  }));
+
+  // تحديث المقاعد المثبتة
+  const newPinned = pinnedSeats.map(pin => ({
+    ...pin,
+    seatNumber: idMap.get(pin.seatNumber) || pin.seatNumber,
+  }));
+
+  return { newPositions, newPinned };
+}
+
 // ══════════════════════════════════════════════════════
 // 🪑 مكون المقعد الواحد (قابل للسحب)
 // ══════════════════════════════════════════════════════
@@ -125,6 +181,7 @@ function SeatNode({
   isDragging,
   onMouseDown,
   onClick,
+  onSetAsFirst,
 }: {
   seat: number;
   position: SeatPosition;
@@ -135,6 +192,7 @@ function SeatNode({
   isDragging: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
   onClick: () => void;
+  onSetAsFirst: () => void;
 }) {
   const size = 42;
   const half = size / 2;
@@ -166,6 +224,7 @@ function SeatNode({
       style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       onMouseDown={onMouseDown}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onSetAsFirst(); }}
     >
       <rect
         width={size}
@@ -235,6 +294,7 @@ function SeatEditor({
   onPinnedSeatsChange,
   selectedSeat,
   onSelectSeat,
+  onRenumberFrom,
 }: {
   totalSeats: number;
   layoutType: string;
@@ -245,6 +305,7 @@ function SeatEditor({
   onPinnedSeatsChange: (pinned: PinnedSeat[]) => void;
   selectedSeat: number | null;
   onSelectSeat: (seat: number | null) => void;
+  onRenumberFrom: (seatId: number) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -303,8 +364,8 @@ function SeatEditor({
   return (
     <div className="relative bg-gray-900/70 border border-gray-700/30 rounded-2xl overflow-hidden">
       {/* شريط أدوات صغير */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800/50 border-b border-gray-700/20">
-        <span className="text-xs text-gray-500">🖱️ اسحب المقاعد لتغيير مواقعها • اضغط لتثبيت لاعب</span>
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-800/50 border-b border-gray-700/20 flex-wrap gap-2">
+        <span className="text-xs text-gray-500">🖱️ اسحب المقاعد • اضغط لتثبيت لاعب • <span className="text-cyan-400">كليك يمين = تعيين كرقم 1</span></span>
         <button
           onClick={() => onPositionsChange(generatePositions(totalSeats, layoutType, canvasW, canvasH))}
           className="text-xs px-3 py-1 rounded-lg bg-gray-700/50 text-gray-400 hover:text-white hover:bg-gray-600/50 transition"
@@ -356,6 +417,7 @@ function SeatEditor({
               isDragging={dragging === pos.id}
               onMouseDown={(e) => handleMouseDown(pos.id, e)}
               onClick={() => onSelectSeat(selectedSeat === pos.id ? null : pos.id)}
+              onSetAsFirst={() => onRenumberFrom(pos.id)}
             />
           );
         })}
@@ -374,6 +436,9 @@ function SeatEditor({
         </span>
         <span className="flex items-center gap-1.5 text-[10px] text-blue-400">
           <span className="w-3 h-3 rounded bg-blue-500/20 border-2 border-blue-500 inline-block" /> محدد
+        </span>
+        <span className="flex items-center gap-1.5 text-[10px] text-cyan-400">
+          🖱️ كليك يمين = #1
         </span>
       </div>
     </div>
@@ -509,7 +574,7 @@ export default function SeatTemplatesPage() {
 
   // حقول الإنشاء/التعديل
   const [name, setName] = useState('');
-  const [layoutType, setLayoutType] = useState('circle');
+  const [layoutType, setLayoutType] = useState('rectangle');
   const [totalSeats, setTotalSeats] = useState(20);
   const [reservedTailCount, setReservedTailCount] = useState(5);
   const [pinnedSeats, setPinnedSeats] = useState<PinnedSeat[]>([]);
@@ -551,7 +616,7 @@ export default function SeatTemplatesPage() {
   const openNew = () => {
     setEditingTemplate(null);
     setName('');
-    setLayoutType('circle');
+    setLayoutType('rectangle');
     setTotalSeats(20);
     setReservedTailCount(5);
     setPinnedSeats([]);
@@ -646,8 +711,8 @@ export default function SeatTemplatesPage() {
   }, [totalSeats, layoutType]);
 
   const LAYOUT_OPTIONS = [
+    { value: 'rectangle', label: '🔳 مستطيل', desc: 'مقاعد على شكل مستطيل' },
     { value: 'circle', label: '⭕ دائري', desc: 'مقاعد على شكل دائرة' },
-    { value: 'rectangle', label: '🔳 مربع', desc: 'مقاعد على شكل مربع' },
     { value: 'rows', label: '📊 صفوف', desc: 'مقاعد بصفوف أفقية' },
   ];
 
@@ -810,14 +875,14 @@ export default function SeatTemplatesPage() {
                     <input
                       type="range"
                       min={6}
-                      max={27}
+                      max={50}
                       value={totalSeats}
                       onChange={(e) => setTotalSeats(Number(e.target.value))}
                       className="w-full accent-amber-500"
                     />
                     <div className="flex justify-between text-[10px] text-gray-600 mt-1">
                       <span>6</span>
-                      <span>27</span>
+                      <span>50</span>
                     </div>
                   </div>
                   <div>
@@ -851,6 +916,14 @@ export default function SeatTemplatesPage() {
                   onPinnedSeatsChange={setPinnedSeats}
                   selectedSeat={selectedSeat}
                   onSelectSeat={setSelectedSeat}
+                  onRenumberFrom={(seatId) => {
+                    const currentPositions = seatPositions && seatPositions.length === totalSeats
+                      ? seatPositions
+                      : generatePositions(totalSeats, layoutType, 600, 450);
+                    const { newPositions, newPinned } = renumberFromSeat(currentPositions, seatId, pinnedSeats);
+                    setSeatPositions(newPositions);
+                    setPinnedSeats(newPinned);
+                  }}
                 />
 
                 {/* ── لوحة تثبيت المقعد المحدد ── */}

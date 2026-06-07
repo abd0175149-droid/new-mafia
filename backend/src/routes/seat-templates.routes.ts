@@ -78,8 +78,8 @@ router.post('/', authenticate, leaderOrAbove, async (req: Request, res: Response
     return res.status(400).json({ error: 'الاسم وعدد المقاعد مطلوبان' });
   }
 
-  if (totalSeats < 6 || totalSeats > 27) {
-    return res.status(400).json({ error: 'عدد المقاعد يجب أن يكون بين 6 و 27' });
+  if (totalSeats < 6 || totalSeats > 50) {
+    return res.status(400).json({ error: 'عدد المقاعد يجب أن يكون بين 6 و 50' });
   }
 
   try {
