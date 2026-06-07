@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════
 
 import { allocateSeatWithConstraints } from './seating/engine.js';
-import type { PlayerSeatData, SeatingConfig, EvaluationContext } from './seating/types.js';
+import type { PlayerSeatData, SeatingConfig, EvaluationContext, PinnedSeat } from './seating/types.js';
 
 // ── الواجهات القديمة (Backward-compatible) ──────────
 export interface SeatConstraints {
@@ -51,6 +51,9 @@ export interface AllocateParams {
   // ── سياق المحرك الذكي ──
   penaltyNeighborHistory?: Map<string, number>;
   sessionId?: number;
+  // ── بيانات القالب ──
+  pinnedSeats?: PinnedSeat[];
+  reservedTailSeats?: number;
 }
 
 // ── دالة الجوار الدائري (مربع) ──
@@ -127,6 +130,8 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       sessionId: params.sessionId,
       penaltyNeighborHistory: params.penaltyNeighborHistory || new Map(),
       constraintParams: {},
+      pinnedSeats: params.pinnedSeats || [],
+      reservedTailSeats: params.reservedTailSeats ?? 0,
     };
 
     const result = allocateSeatWithConstraints({

@@ -28,6 +28,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [submitting, setSubmitting] = useState(false);
   const [sendNotification, setSendNotification] = useState(true);
   const [requireTicket, setRequireTicket] = useState(false);
+  const [seatTemplateId, setSeatTemplateId] = useState<string>('');
+  const [seatTemplates, setSeatTemplates] = useState<any[]>([]);
 
 
 
@@ -36,6 +38,36 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const hasOffers = enabledOfferIds.length > 0;
 
   useEffect(() => { setEnabledOfferIds([]); }, [locationId]);
+
+  // تحميل قوالب المقاعد
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = getToken();
+        const res = await fetch(`${API_URL}/api/seat-templates`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSeatTemplates(data.templates || []);
+          // تعيين القالب الافتراضي
+          const defaultTpl = (data.templates || []).find((t: any) => t.isDefault);
+          if (defaultTpl) {
+            setSeatTemplateId(String(defaultTpl.id));
+            setMaxCapacity(String(defaultTpl.totalSeats));
+          }
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // عند تغيير القالب → تحديث السعة
+  useEffect(() => {
+    if (seatTemplateId) {
+      const tpl = seatTemplates.find(t => t.id === Number(seatTemplateId));
+      if (tpl) setMaxCapacity(String(tpl.totalSeats));
+    }
+  }, [seatTemplateId, seatTemplates]);
 
 
 
@@ -82,6 +114,7 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         status: 'planned',
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, sendNotification, requireTicket,
+        seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
       });
     } finally { setSubmitting(false); }
   }
@@ -143,6 +176,39 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
             </select>
           </div>
         </div>
+
+        {/* Seat Template Selector */}
+        {seatTemplates.length > 0 && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">📐 قالب المقاعد</label>
+            <div className="flex gap-2 flex-wrap">
+              <button type="button" onClick={() => { setSeatTemplateId(''); setMaxCapacity('20'); }}
+                className={`text-xs px-3 py-2 rounded-lg border transition ${
+                  !seatTemplateId ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' : 'border-gray-600/30 text-gray-500 hover:text-white'
+                }`}
+              >
+                بدون قالب
+              </button>
+              {seatTemplates.map((t: any) => (
+                <button key={t.id} type="button" onClick={() => setSeatTemplateId(String(t.id))}
+                  className={`text-xs px-3 py-2 rounded-lg border transition flex items-center gap-1.5 ${
+                    seatTemplateId === String(t.id) ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' : 'border-gray-600/30 text-gray-500 hover:text-white'
+                  }`}
+                >
+                  {t.layoutType === 'circle' ? '⭕' : t.layoutType === 'rectangle' ? '🔳' : '📊'}
+                  {t.name}
+                  <span className="text-[10px] opacity-60">({t.totalSeats})</span>
+                  {t.isDefault && <span className="text-[10px] text-emerald-400">⭐</span>}
+                </button>
+              ))}
+            </div>
+            {seatTemplateId && (
+              <p className="text-[10px] text-gray-600 mt-1">
+                💡 سيتم استخدام إعدادات القالب (المقاعد المثبتة، المؤخرة، القيود) تلقائياً
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Offers */}
         {locationOffers.length > 0 && (

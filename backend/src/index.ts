@@ -37,6 +37,7 @@ import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
+import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
@@ -108,6 +109,7 @@ app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/seating', seatingRoutes);
+app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
@@ -753,6 +755,37 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ Reservations table migration:', err.message);
+  }
+
+  // ── إنشاء جدول قوالب المقاعد ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS seat_templates (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          layout_type VARCHAR(20) DEFAULT 'circle' NOT NULL,
+          total_seats INTEGER NOT NULL,
+          reserved_tail_count INTEGER DEFAULT 5,
+          pinned_seats JSONB DEFAULT '[]',
+          constraints_config JSONB DEFAULT '[]',
+          seat_positions JSONB,
+          is_default BOOLEAN DEFAULT false,
+          created_by INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          deleted_at TIMESTAMP
+        )
+      `);
+      // إضافة عمود seat_template_id في activities
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS seat_template_id INTEGER`);
+      console.log('✅ Seat templates table ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Seat templates migration:', err.message);
   }
 
   // ── تهيئة Firebase ──

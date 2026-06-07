@@ -922,7 +922,20 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 enriched.totalMatches = dbPlayer.totalMatches || 0;
                 enriched.rankRR = dbPlayer.rankRR || 0;
                 enriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
-                enriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+                // حساب activityCount الحقيقي من DB
+                try {
+                  const activityRows = await db.execute(sql`
+                    SELECT COUNT(DISTINCT s.activity_id) as activity_count
+                    FROM session_players sp
+                    JOIN sessions s ON sp.session_id = s.id
+                    WHERE sp.player_id = ${p.playerId}
+                    AND s.activity_id IS NOT NULL
+                  `);
+                  const actRow = ((activityRows as any).rows || activityRows || [])[0];
+                  enriched.activityCount = Number(actRow?.activity_count || 0);
+                } catch {
+                  enriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+                }
               }
             } catch {}
           }
@@ -972,9 +985,45 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               newPlayerEnriched.totalMatches = dbPlayer.totalMatches || 0;
               newPlayerEnriched.rankRR = dbPlayer.rankRR || 0;
               newPlayerEnriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
-              newPlayerEnriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+              // حساب activityCount الحقيقي من DB
+              try {
+                const activityRows = await db.execute(sql`
+                  SELECT COUNT(DISTINCT s.activity_id) as activity_count
+                  FROM session_players sp
+                  JOIN sessions s ON sp.session_id = s.id
+                  WHERE sp.player_id = ${data.playerId}
+                  AND s.activity_id IS NOT NULL
+                `);
+                const actRow = ((activityRows as any).rows || activityRows || [])[0];
+                newPlayerEnriched.activityCount = Number(actRow?.activity_count || 0);
+              } catch {
+                newPlayerEnriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
+              }
             }
           } catch {}
+        }
+
+        // ── تحميل بيانات القالب (إذا الفعالية مرتبطة بقالب) ──
+        let pinnedSeatsFromTemplate: any[] = [];
+        let reservedTailFromTemplate = 0;
+        if (state.activityId && db) {
+          try {
+            const [actRow] = await db.execute(sql`
+              SELECT seat_template_id FROM activities WHERE id = ${state.activityId} LIMIT 1
+            `).then((r: any) => (r.rows || r || []));
+            if (actRow?.seat_template_id) {
+              const [tplRow] = await db.execute(sql`
+                SELECT pinned_seats, reserved_tail_count FROM seat_templates
+                WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
+              `).then((r: any) => (r.rows || r || []));
+              if (tplRow) {
+                pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+                reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
+              }
+            }
+          } catch (e: any) {
+            console.warn('⚠️ Seat template load failed:', e.message);
+          }
         }
 
         const { seat: assignedSeatResult, constraintViolation: cvResult } = allocateSeat({
@@ -985,6 +1034,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           preferredSeat: data.preferredSeat,
           penaltyNeighborHistory,
           sessionId: state.sessionId,
+          pinnedSeats: pinnedSeatsFromTemplate,
+          reservedTailSeats: reservedTailFromTemplate,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;

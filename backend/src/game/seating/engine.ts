@@ -13,8 +13,15 @@ import type {
   ReshuffleResult,
   SeatingConfig,
   ConstraintConfig,
+  PinnedSeat,
 } from './types.js';
 import { getCircularNeighborSeats } from './types.js';
+
+// ── تطبيع رقم الهاتف ──
+function normalizePhone(phone: string): string {
+  if (!phone) return '';
+  return phone.startsWith('0') ? phone : '0' + phone;
+}
 import { buildConstraints, buildDefaultConstraints, migrateOldConstraints } from './constraint-registry.js';
 
 // ── خلط عشوائي (Fisher-Yates) ──
@@ -50,6 +57,19 @@ export function allocateSeatWithConstraints(params: {
 }): SeatAllocationResult {
   const { maxPlayers, occupiedSeats, newPlayer, seatingConfig, context, preferredSeat } = params;
 
+  // ═══ 0. فحص المقاعد المثبتة (Pinned Seats) — شرط ابتدائي ═══
+  if (context.pinnedSeats && context.pinnedSeats.length > 0) {
+    const normalizedNewPhone = normalizePhone(newPlayer.phone);
+    const pinned = context.pinnedSeats.find(p =>
+      (p.playerId && newPlayer.playerId && p.playerId === newPlayer.playerId) ||
+      (p.phone && normalizedNewPhone && normalizePhone(p.phone) === normalizedNewPhone)
+    );
+    if (pinned && !occupiedSeats.has(pinned.seatNumber)) {
+      console.log(`📌 Pinned seat #${pinned.seatNumber} assigned to ${newPlayer.name}`);
+      return { seat: pinned.seatNumber, constraintViolation: false, violations: [], score: 1.0 };
+    }
+  }
+
   // حساب المقاعد الفارغة
   const allEmpty: number[] = [];
   for (let i = 1; i <= maxPlayers; i++) {
@@ -72,21 +92,35 @@ export function allocateSeatWithConstraints(params: {
     return { seat: shuffle(allEmpty)[0], constraintViolation: false, violations: [], score: 1.0 };
   }
 
+  // ── حساب نطاق المقاعد المؤخرة ──
+  const tailCount = context.reservedTailSeats ?? 0;
+  const tailStart = tailCount > 0 ? maxPlayers - tailCount + 1 : maxPlayers + 1;
+  // هل المقاعد الأمامية ممتلئة؟ (كل المقاعد < tailStart مشغولة)
+  const frontSeats = allEmpty.filter(s => s < tailStart);
+  const frontFull = frontSeats.length === 0;
+
   // ── تقييم كل مقعد فارغ ──
   type ScoredSeat = { seat: number; totalScore: number; hardFail: boolean; violations: string[] };
   const scored: ScoredSeat[] = [];
 
   for (const seat of allEmpty) {
-    const { totalScore, hardFail, violations } = evaluateSeat(
+    let { totalScore, hardFail, violations } = evaluateSeat(
       occupiedSeats, seat, newPlayer, activeConstraints, context
     );
+
+    // عقوبة المقاعد المؤخرة (إلا إذا المقاعد الأمامية ممتلئة)
+    if (tailCount > 0 && seat >= tailStart && !frontFull) {
+      totalScore -= 2.0;
+    }
+
     scored.push({ seat, totalScore, hardFail, violations });
   }
 
-  // ترتيب: الأفضل أولاً (غير الفاشلين → الأعلى نقاطاً)
+  // ترتيب: الأفضل أولاً (غير الفاشلين → الأعلى نقاطاً → الأقل رقماً)
   scored.sort((a, b) => {
     if (a.hardFail !== b.hardFail) return a.hardFail ? 1 : -1;
-    return b.totalScore - a.totalScore;
+    if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+    return a.seat - b.seat; // تفضيل الأرقام الأقل
   });
 
   // 1. المقعد المفضل (إذا حقق القيود)

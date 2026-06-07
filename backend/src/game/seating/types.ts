@@ -24,6 +24,14 @@ export interface ConstraintResult {
   violation?: string;          // وصف المخالفة
 }
 
+// ── مقعد مثبت ──────────────────────────────────────
+export interface PinnedSeat {
+  seatNumber: number;
+  playerId?: number;
+  phone?: string;
+  playerName: string;
+}
+
 // ── سياق التقييم ──────────────────────────────────
 export interface EvaluationContext {
   maxPlayers: number;
@@ -31,6 +39,10 @@ export interface EvaluationContext {
   // تاريخ جيران اللاعبين المعاقبين: "playerA_id-playerB_id" → عدد المرات
   penaltyNeighborHistory: Map<string, number>;
   constraintParams: Record<string, any>;
+  // ── المقاعد المثبتة (من القالب) ──
+  pinnedSeats?: PinnedSeat[];
+  // ── عدد المقاعد المؤخرة (لا تُملأ إلا عند الحاجة) ──
+  reservedTailSeats?: number;
 }
 
 // ── واجهة القيد (Strategy Pattern) ─────────────────
@@ -110,6 +122,29 @@ export function getCircularNeighborSeats(seat: number, maxPlayers: number): [num
   const left = seat === 1 ? maxPlayers : seat - 1;
   const right = seat === maxPlayers ? 1 : seat + 1;
   return [left, right];
+}
+
+/**
+ * جلب كل المقاعد ضمن مسافة معينة (دائرياً)
+ * مثال: seat=5, maxPlayers=20, distance=2 → [3, 4, 6, 7]
+ */
+export function getSeatsWithinDistance(seat: number, maxPlayers: number, distance: number): number[] {
+  const seats: number[] = [];
+  for (let d = 1; d <= distance; d++) {
+    const left = ((seat - 1 - d + maxPlayers) % maxPlayers) + 1;
+    const right = ((seat - 1 + d) % maxPlayers) + 1;
+    if (!seats.includes(left)) seats.push(left);
+    if (!seats.includes(right)) seats.push(right);
+  }
+  return seats;
+}
+
+/**
+ * حساب المسافة الدائرية بين مقعدين
+ */
+export function circularDistance(seatA: number, seatB: number, maxPlayers: number): number {
+  const diff = Math.abs(seatA - seatB);
+  return Math.min(diff, maxPlayers - diff);
 }
 
 // ── مفتاح الجار (ترتيب أبجدي لمنع التكرار) ──────

@@ -70,6 +70,7 @@ export const activities = pgTable('activities', {
   // ── نظام التذاكر والمقاعد ──
   requireTicket: boolean('require_ticket').default(false),
   seatConstraints: jsonb('seat_constraints').default(null),
+  seatTemplateId: integer('seat_template_id'),           // ربط بقالب مقاعد
   // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
