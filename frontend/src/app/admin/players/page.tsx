@@ -653,7 +653,9 @@ function BlockedPairsPanel({ players, setPlayers, showToast, onLoadPlayers }: { 
             <div className="px-5 pb-5 space-y-4 border-t border-gray-700/20 pt-4">
 
               {/* ── اختيار لاعب جديد لتهيئة قيوده ── */}
-              <div className="bg-gray-900/40 border border-gray-700/20 rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-3">
+              <div className={`bg-gray-900/40 border border-gray-700/20 rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-3 relative ${
+                globalDropdownOpen ? 'z-40' : 'z-20'
+              }`}>
                 <div className="flex-1">
                   <p className="text-xs font-bold text-gray-400">➕ تهيئة قيود مخصصة للاعب جديد</p>
                   <p className="text-[10px] text-gray-600 mt-0.5">ابحث عن لاعب لفتحه في لوحة التحكم وتعديل شروطه الخاصة</p>
@@ -669,7 +671,7 @@ function BlockedPairsPanel({ players, setPlayers, showToast, onLoadPlayers }: { 
                     className="w-full px-3 py-2 bg-gray-800/60 border border-gray-600/40 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600"
                   />
                   {globalDropdownOpen && (
-                    <div className="absolute z-35 top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700/50 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700/50 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
                       {filterPlayers(globalSearch).length === 0 ? (
                         <p className="px-3 py-2 text-xs text-gray-600">لا توجد نتائج</p>
                       ) : filterPlayers(globalSearch).map(p => (
