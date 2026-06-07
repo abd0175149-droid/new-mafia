@@ -546,7 +546,15 @@ function PinSeatPanel({
             <button
               onClick={() => {
                 if (!manualName.trim()) return;
-                onPin(selectedSeat, { phone: manualPhone, name: manualName });
+                // التحقق مما إذا كان اللاعب موجوداً في قاعدة البيانات لربطه مباشرة
+                const matchedPlayer = players.find(
+                  (p) => (p.name || '').trim().toLowerCase() === manualName.trim().toLowerCase()
+                );
+                if (matchedPlayer) {
+                  onPin(selectedSeat, { id: matchedPlayer.id, phone: matchedPlayer.phone || manualPhone, name: matchedPlayer.name });
+                } else {
+                  onPin(selectedSeat, { phone: manualPhone, name: manualName });
+                }
                 setManualName('');
                 setManualPhone('');
               }}
@@ -602,7 +610,7 @@ export default function SeatTemplatesPage() {
   // تحميل اللاعبين
   const fetchPlayers = useCallback(async () => {
     try {
-      const res = await apiFetch('/api/player?limit=500');
+      const res = await apiFetch('/api/player/all');
       setPlayers(Array.isArray(res) ? res : res.players || []);
     } catch { }
   }, []);
