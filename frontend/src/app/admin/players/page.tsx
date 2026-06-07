@@ -60,15 +60,15 @@ export default function PlayersManagementPage() {
   const itemsPerPage = 15;
 
   // ── Load Players ──
-  async function loadPlayers() {
-    setLoading(true);
+  async function loadPlayers(background = false) {
+    if (!background) setLoading(true);
     try {
       const data = await apiFetch('/api/player/all');
       setPlayers(data.players || []);
     } catch (err: any) {
       showToast(err.message || 'خطأ في جلب اللاعبين', 'error');
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
   useEffect(() => { loadPlayers(); }, []);
@@ -396,7 +396,7 @@ export default function PlayersManagementPage() {
 
 
       {/* ═══ BLOCKED PAIRS ═══ */}
-      <BlockedPairsPanel players={players} showToast={showToast} onLoadPlayers={loadPlayers} />
+      <BlockedPairsPanel players={players} setPlayers={setPlayers} showToast={showToast} onLoadPlayers={loadPlayers} />
 
       {/* ═══ TOAST ═══ */}
       <AnimatePresence>
@@ -419,7 +419,7 @@ export default function PlayersManagementPage() {
 // 🚫 لوحة القيود المخصصة والذكية للاعبين
 // ══════════════════════════════════════════════════════
 
-function BlockedPairsPanel({ players, showToast, onLoadPlayers }: { players: any[]; showToast: (msg: string, type: 'success' | 'error') => void; onLoadPlayers: () => void }) {
+function BlockedPairsPanel({ players, setPlayers, showToast, onLoadPlayers }: { players: any[]; setPlayers: React.Dispatch<React.SetStateAction<any[]>>; showToast: (msg: string, type: 'success' | 'error') => void; onLoadPlayers: (background?: boolean) => void }) {
   const [pairs, setPairs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -466,15 +466,18 @@ function BlockedPairsPanel({ players, showToast, onLoadPlayers }: { players: any
   // ── تحديث قيد الجنس ──
   async function handleUpdateGenderConstraint(playerId: number, value: string) {
     setUpdatingGenderId(playerId);
+    // تحديث الحالة المحلية فوراً لتفادي وميض أو إعادة تحميل الصفحة
+    setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, genderConstraint: value } : p));
     try {
       await apiFetch(`/api/player/${playerId}/profile`, {
         method: 'PUT',
         body: JSON.stringify({ genderConstraint: value }),
       });
       showToast('تم تحديث شرط الجنس للاعب بنجاح', 'success');
-      onLoadPlayers(); // إعادة تحميل اللاعبين لتحديث الحالة
+      onLoadPlayers(true); // تحديث صامت في الخلفية للمزامنة
     } catch (err: any) {
       showToast(err.message || 'فشل التحديث', 'error');
+      onLoadPlayers(true); // تراجع صامت
     } finally {
       setUpdatingGenderId(null);
     }
@@ -526,7 +529,8 @@ function BlockedPairsPanel({ players, showToast, onLoadPlayers }: { players: any
 
       showToast('تم تنظيف كافة قيود اللاعب', 'success');
       setManuallySelectedPlayerIds(prev => prev.filter(id => id !== playerId));
-      onLoadPlayers();
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, genderConstraint: 'NONE' } : p));
+      onLoadPlayers(true); // تحديث صامت في الخلفية
       loadPairs();
     } catch (err: any) {
       showToast(err.message || 'فشل تنظيف القيود', 'error');
@@ -710,7 +714,9 @@ function BlockedPairsPanel({ players, showToast, onLoadPlayers }: { players: any
                       key={player.id}
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      className="bg-gray-900/60 border border-gray-700/40 backdrop-blur-sm rounded-2xl p-4 space-y-4 flex flex-col justify-between"
+                      className={`bg-gray-900/60 border border-gray-700/40 backdrop-blur-sm rounded-2xl p-4 space-y-4 flex flex-col justify-between relative ${
+                        openDropdownId === player.id ? 'z-30' : 'z-10'
+                      }`}
                     >
                       {/* Player Header */}
                       <div className="flex items-center justify-between pb-2 border-b border-gray-800/60">
@@ -804,7 +810,7 @@ function BlockedPairsPanel({ players, showToast, onLoadPlayers }: { players: any
                           className="w-full px-2.5 py-1.5 bg-gray-950/50 border border-gray-800/80 rounded-lg text-[10px] text-white placeholder-gray-700 focus:outline-none focus:border-amber-500/30"
                         />
                         {openDropdownId === player.id && (
-                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-gray-950 border border-gray-800 rounded-lg shadow-2xl max-h-32 overflow-y-auto">
+                          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-950 border border-gray-800 rounded-lg shadow-2xl max-h-32 overflow-y-auto">
                             {filterPlayers(partnerSearchMap[player.id] || '', player.id)
                               .filter(p => !blockedPartners.some((bp: any) => bp.partnerId === p.id))
                               .length === 0 ? (
