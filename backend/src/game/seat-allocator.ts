@@ -40,13 +40,14 @@ export interface SeatPlayer {
   rankRR?: number;
   rankTier?: string;
   hasPenalty?: boolean;
+  genderConstraint?: string;
 }
 
 export interface AllocateParams {
   maxPlayers: number;
   players: SeatPlayer[];
   constraints: SeatConstraints | null;
-  newPlayer: { phone: string; gender: string; playerId?: number | null; name?: string; totalMatches?: number; activityCount?: number; rankRR?: number; rankTier?: string };
+  newPlayer: { phone: string; gender: string; playerId?: number | null; name?: string; totalMatches?: number; activityCount?: number; rankRR?: number; rankTier?: string; genderConstraint?: string };
   preferredSeat?: number;
   // ── سياق المحرك الذكي ──
   penaltyNeighborHistory?: Map<string, number>;
@@ -103,6 +104,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
         hasPenalty: p.hasPenalty,
         physicalId: p.physicalId,
         seatHeld: p.seatHeld,
+        genderConstraint: p.genderConstraint || 'NONE',
       });
     }
 
@@ -115,6 +117,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       activityCount: newPlayer.activityCount ?? 0,
       rankRR: newPlayer.rankRR ?? 0,
       rankTier: newPlayer.rankTier || 'INFORMANT',
+      genderConstraint: newPlayer.genderConstraint || 'NONE',
     };
 
     const seatingConfig: SeatingConfig = {

@@ -38,6 +38,7 @@ export const players = pgTable('players', {
   isTestAccount: boolean('is_test_account').default(false),
   isFreeAccount: boolean('is_free_account').default(false),
   welcomeBonusApplied: boolean('welcome_bonus_applied').default(false),
+  genderConstraint: varchar('gender_constraint', { length: 20 }).default('NONE'),
   // ── ربط بحساب موظف (Staff) ──
   linkedStaffId: integer('linked_staff_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),

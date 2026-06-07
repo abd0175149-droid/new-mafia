@@ -48,6 +48,7 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       email: playersTable.email,
       isTestAccount: playersTable.isTestAccount,
       isFreeAccount: playersTable.isFreeAccount,
+      genderConstraint: playersTable.genderConstraint,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
     // ── حساب lastMatchAt لكل اللاعبين (batch واحد بدل N+1) ──
@@ -402,12 +403,17 @@ router.put('/:id/profile', async (req: Request, res: Response) => {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
-    const { name, email, gender, phone } = req.body;
+    const { name, email, gender, phone, genderConstraint } = req.body;
     const updates: any = {};
     if (name && name.trim()) updates.name = name.trim();
     if (email !== undefined) updates.email = email?.trim() || null;
     if (gender && ['MALE', 'FEMALE'].includes(gender)) updates.gender = gender;
     if (phone && phone.trim()) updates.phone = phone.trim();
+    if (genderConstraint !== undefined) {
+      if (['NONE', 'FORBID_SAME', 'FORBID_OPPOSITE'].includes(genderConstraint)) {
+        updates.genderConstraint = genderConstraint;
+      }
+    }
 
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ success: false, error: 'لا توجد بيانات للتحديث' });

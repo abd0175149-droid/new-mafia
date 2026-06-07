@@ -169,6 +169,7 @@ router.post('/reshuffle', authenticate, leaderOrAbove, async (req: Request, res:
         rankRR: 0,
         rankTier: 'INFORMANT',
         physicalId: p.physicalId,
+        genderConstraint: 'NONE',
       };
 
       // إثراء البيانات من DB
@@ -187,12 +188,14 @@ router.post('/reshuffle', authenticate, leaderOrAbove, async (req: Request, res:
               totalMatches: playersTable.totalMatches,
               rankRR: playersTable.rankRR,
               rankTier: playersTable.rankTier,
+              genderConstraint: playersTable.genderConstraint,
             }).from(playersTable).where(orOp(...conditions)).limit(1);
 
             if (dbPlayer) {
               playerData.totalMatches = dbPlayer.totalMatches || 0;
               playerData.rankRR = dbPlayer.rankRR || 0;
               playerData.rankTier = dbPlayer.rankTier || 'INFORMANT';
+              playerData.genderConstraint = dbPlayer.genderConstraint || 'NONE';
               // تقدير activityCount ≈ totalMatches / 3 (متوسط 3 ألعاب لكل فعالية)
               playerData.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
             }

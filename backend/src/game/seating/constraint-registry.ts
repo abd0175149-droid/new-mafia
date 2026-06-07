@@ -9,6 +9,7 @@ import { PenaltyNeighborConstraint } from './constraints/penalty-neighbor.constr
 import { HighRankSeparationConstraint } from './constraints/high-rank-separation.constraint.js';
 import { GenderSeparationConstraint } from './constraints/gender-separation.constraint.js';
 import { NoAdjacentPairsConstraint } from './constraints/no-adjacent-pairs.constraint.js';
+import { PlayerGenderConstraint } from './constraints/player-gender.constraint.js';
 
 // ── نوع مصنع القيد ──────────────────────────────
 type ConstraintFactory = (config: { enabled?: boolean; priority?: number; params?: Record<string, any> }) => SeatingConstraint;
@@ -20,6 +21,7 @@ const FACTORIES: Record<string, ConstraintFactory> = {
   HIGH_RANK_SEPARATION: (c) => new HighRankSeparationConstraint(c),
   GENDER_SEPARATION: (c) => new GenderSeparationConstraint(c),
   NO_ADJACENT_PAIRS: (c) => new NoAdjacentPairsConstraint(c),
+  PLAYER_GENDER_CONSTRAINT: (c) => new PlayerGenderConstraint(c),
 };
 
 // ── وصف القيود المتاحة (للعرض في الواجهة) ──────
@@ -32,6 +34,15 @@ export const CONSTRAINT_TYPES = [
     defaultPriority: 1,
     defaultEnabled: true,
     paramsSchema: { pairs: 'array' },
+  },
+  {
+    type: 'PLAYER_GENDER_CONSTRAINT',
+    nameAr: 'قيود جنس اللاعبين',
+    icon: '👥',
+    description: 'تطبيق قيود الجنس الفردية المحددة للاعبين (مثل عدم الجلوس بجانب نفس الجنس أو جنس مختلف)',
+    defaultPriority: 2,
+    defaultEnabled: true,
+    paramsSchema: {},
   },
   {
     type: 'PENALTY_NEIGHBOR_AVOIDANCE',
@@ -138,6 +149,7 @@ export function migrateOldConstraints(old: {
   }
 
   // إضافة القيود الجديدة بالافتراضي
+  configs.push({ type: 'PLAYER_GENDER_CONSTRAINT', enabled: true, priority: 2, params: {} });
   configs.push({ type: 'PENALTY_NEIGHBOR_AVOIDANCE', enabled: true, priority: 2, params: {} });
   configs.push({ type: 'NEW_PLAYER_SEPARATION', enabled: true, priority: 3, params: { threshold: 3 } });
   configs.push({ type: 'HIGH_RANK_SEPARATION', enabled: false, priority: 4, params: { rankThreshold: 500 } });

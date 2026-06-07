@@ -15,6 +15,7 @@ export interface PlayerSeatData {
   hasPenalty?: boolean;        // هل عليه عقوبة في هذه اللعبة
   physicalId?: number;         // المقعد الحالي (إن وُجد)
   seatHeld?: boolean;
+  genderConstraint?: string;
 }
 
 // ── نتيجة تقييم القيد ──────────────────────────────

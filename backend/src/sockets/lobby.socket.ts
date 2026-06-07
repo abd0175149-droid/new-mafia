@@ -907,6 +907,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             activityCount: 0,
             rankRR: 0,
             rankTier: 'INFORMANT',
+            genderConstraint: 'NONE',
           };
 
           if (p.playerId && db) {
@@ -916,12 +917,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 totalMatches: playersTable.totalMatches,
                 rankRR: playersTable.rankRR,
                 rankTier: playersTable.rankTier,
+                genderConstraint: playersTable.genderConstraint,
               }).from(playersTable).where(eq(playersTable.id, p.playerId)).limit(1);
 
               if (dbPlayer) {
                 enriched.totalMatches = dbPlayer.totalMatches || 0;
                 enriched.rankRR = dbPlayer.rankRR || 0;
                 enriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
+                enriched.genderConstraint = dbPlayer.genderConstraint || 'NONE';
                 // حساب activityCount الحقيقي من DB
                 try {
                   const activityRows = await db.execute(sql`
@@ -970,6 +973,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           activityCount: 0,
           rankRR: 0,
           rankTier: 'INFORMANT',
+          genderConstraint: 'NONE',
         };
 
         if (data.playerId && db) {
@@ -979,12 +983,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               totalMatches: playersTable.totalMatches,
               rankRR: playersTable.rankRR,
               rankTier: playersTable.rankTier,
+              genderConstraint: playersTable.genderConstraint,
             }).from(playersTable).where(eq(playersTable.id, data.playerId)).limit(1);
 
             if (dbPlayer) {
               newPlayerEnriched.totalMatches = dbPlayer.totalMatches || 0;
               newPlayerEnriched.rankRR = dbPlayer.rankRR || 0;
               newPlayerEnriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
+              newPlayerEnriched.genderConstraint = dbPlayer.genderConstraint || 'NONE';
               // حساب activityCount الحقيقي من DB
               try {
                 const activityRows = await db.execute(sql`

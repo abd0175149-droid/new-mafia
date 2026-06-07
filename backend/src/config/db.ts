@@ -58,6 +58,16 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       console.log('🔄 Migration: Added linked_staff_id column to players table');
     }
 
+    // التحقق من وجود عمود gender_constraint في جدول players
+    const checkGenderConstraintCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'players' AND column_name = 'gender_constraint'
+    `);
+    if (checkGenderConstraintCol.rows.length === 0) {
+      await client.query(`ALTER TABLE players ADD COLUMN gender_constraint VARCHAR(20) DEFAULT 'NONE'`);
+      console.log('🔄 Migration: Added gender_constraint column to players table');
+    }
+
     // 1.5 التحقق من وجود حقل الهاتف في جدول الموظفين
     const checkPhoneCol = await client.query(`
       SELECT column_name FROM information_schema.columns
