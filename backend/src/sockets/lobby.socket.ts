@@ -1911,6 +1911,28 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── تحديث الحد الأقصى لتكرار المافيا ─────────────────
+  socket.on('room:update-max-consecutive-mafia', async (data: {
+    roomId: string;
+    maxConsecutiveMafiaGames: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      state.config.maxConsecutiveMafiaGames = Math.max(0, data.maxConsecutiveMafiaGames);
+      await updateRoom(data.roomId, { config: state.config });
+
+      callback({ success: true });
+      console.log(`👑 Leader updated max consecutive mafia games limit: ${data.maxConsecutiveMafiaGames}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── تفعيل/تعطيل المحرك الديناميكي ──────────────────
   socket.on('room:toggle-dynamic-engine', async (data: {
     roomId: string;
@@ -2082,7 +2104,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── توزيع عشوائي كامل للأدوار (Digital Distribution) ──
-  socket.on('setup:random-assign', async (data: { roomId: string }, callback) => {
+  // ── توزيع عشوائي انتقائي للأدوار (Mixed Manual/Random Distribution) ──
+  socket.on('setup:random-assign', async (data: { roomId: string; lockedPhysicalIds?: number[] }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
@@ -2101,41 +2124,97 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: `عدد الأدوار (${pool.length}) لا يطابق عدد اللاعبين (${alivePlayers.length})` });
       }
 
-      // 1. إلغاء ربط جميع الأدوار الحالية
-      for (const p of alivePlayers) {
+      const lockedIds = data.lockedPhysicalIds || [];
+
+      // 1. تحديد اللاعبين المثبتين وأدوارهم
+      const lockedPlayers = alivePlayers.filter(p => lockedIds.includes(p.physicalId) && p.role !== null);
+      const lockedRoles = lockedPlayers.map(p => p.role!);
+
+      // 2. تحديد اللاعبين غير المثبتين
+      const remainingPlayers = alivePlayers.filter(p => !lockedPlayers.some(lp => lp.physicalId === p.physicalId));
+
+      // 3. بناء قائمة الأدوار المتبقية بعد استبعاد الأدوار المثبتة
+      const remainingRoles = [...pool];
+      for (const role of lockedRoles) {
+        const index = remainingRoles.indexOf(role);
+        if (index !== -1) {
+          remainingRoles.splice(index, 1);
+        }
+      }
+
+      // 4. استرجاع تاريخ الأدوار للاعبين غير المثبتين وتحديد الممنوعين من المافيا
+      const maxConsecutive = state.config.maxConsecutiveMafiaGames ?? 3;
+      const restrictedPhysicalIds: number[] = [];
+
+      if (maxConsecutive > 0) {
+        const { getPlayerLastRoles } = await import('../services/player.service.js');
+        for (const p of remainingPlayers) {
+          if (p.playerId) {
+            const lastRoles = await getPlayerLastRoles(p.playerId, maxConsecutive);
+            if (lastRoles.length >= maxConsecutive && lastRoles.every(r => isMafiaRole(r as Role))) {
+              restrictedPhysicalIds.push(p.physicalId);
+            }
+          }
+        }
+      }
+
+      // 5. موازنة الاستبعاد لتجنب التعارض (Deadlocks)
+      const remainingMafiaRoles = remainingRoles.filter(r => isMafiaRole(r));
+      const maxRestrictedAllowed = remainingPlayers.length - remainingMafiaRoles.length;
+      
+      let finalRestrictedIds = [...restrictedPhysicalIds];
+      if (finalRestrictedIds.length > maxRestrictedAllowed) {
+        finalRestrictedIds = finalRestrictedIds.slice(0, maxRestrictedAllowed);
+      }
+
+      // 6. توزيع الأدوار غير المافيا للاعبين المستبعدين أولاً
+      const restrictedPlayers = remainingPlayers.filter(p => finalRestrictedIds.includes(p.physicalId));
+      const nonRestrictedPlayers = remainingPlayers.filter(p => !finalRestrictedIds.includes(p.physicalId));
+
+      const assignableRemainingRoles = [...remainingRoles];
+
+      // إلغاء ربط جميع اللاعبين غير المثبتين
+      for (const p of remainingPlayers) {
         if (p.role) {
           await unbindRole(data.roomId, p.physicalId);
         }
       }
 
-      // 2. خلط عشوائي (Fisher-Yates)
-      for (let i = pool.length - 1; i > 0; i--) {
+      // توزيع أدوار غير المافيا للاعبين المستبعدين
+      for (const player of restrictedPlayers) {
+        const nonMafiaRoleIndex = assignableRemainingRoles.findIndex(r => !isMafiaRole(r));
+        if (nonMafiaRoleIndex !== -1) {
+          const role = assignableRemainingRoles[nonMafiaRoleIndex];
+          await bindRole(data.roomId, player.physicalId, role);
+          assignableRemainingRoles.splice(nonMafiaRoleIndex, 1);
+        }
+      }
+
+      // 7. خلط الأدوار المتبقية عشوائياً (Fisher-Yates)
+      for (let i = assignableRemainingRoles.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [pool[i], pool[j]] = [pool[j], pool[i]];
+        [assignableRemainingRoles[i], assignableRemainingRoles[j]] = [assignableRemainingRoles[j], assignableRemainingRoles[i]];
       }
 
-      // 3. ربط كل دور بلاعب
-      for (let i = 0; i < alivePlayers.length; i++) {
-        await bindRole(data.roomId, alivePlayers[i].physicalId, pool[i]);
+      // 8. ربط الأدوار المخلوطة باللاعبين غير المستبعدين
+      for (let i = 0; i < nonRestrictedPlayers.length; i++) {
+        await bindRole(data.roomId, nonRestrictedPlayers[i].physicalId, assignableRemainingRoles[i]);
       }
 
-      // 4. قراءة الحالة المحدثة
+      // 9. قراءة الحالة المحدثة
       const updatedState = await getRoom(data.roomId);
 
-      // 5. إعادة تعيين حالة التأكيد (لأن الأدوار تغيرت)
+      // 10. إعادة تعيين حالة التأكيد لقيم جديدة
       if (updatedState) {
         updatedState.rolesConfirmed = false;
         await setGameState(data.roomId, updatedState);
       }
 
-      // ملاحظة: لا نرسل الأدوار للاعبين هنا — ننتظر حتى يضغط الليدر على "تأكيد الأدوار"
-
-      // 6. إرسال الحالة المحدثة لليدر
       callback({
         success: true,
         state: updatedState,
       });
-      console.log(`🎲 Random role assignment complete in room ${data.roomId} — ${alivePlayers.length} players (awaiting confirmation)`);
+      console.log(`🎲 Mixed role assignment complete in room ${data.roomId} — ${lockedPlayers.length} locked, ${restrictedPlayers.length} restricted, ${nonRestrictedPlayers.length} randomized`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

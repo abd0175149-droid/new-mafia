@@ -19,6 +19,7 @@ interface RoleSlot {
   id: string;
   role: Role;
   assignedPlayerId: number | null;
+  isLocked?: boolean;
 }
 
 export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderRoleBindingProps) {
@@ -30,6 +31,9 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [allowMafiaReveal, setAllowMafiaReveal] = useState(
     gameState?.config?.allowMafiaReveal !== false
+  );
+  const [maxConsecutiveMafiaGames, setMaxConsecutiveMafiaGames] = useState(
+    gameState?.config?.maxConsecutiveMafiaGames ?? 3
   );
 
   // ── تهيئة الأدوار من rolesPool ──
@@ -52,6 +56,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
             id: `role-${idCounter++}`,
             role: p.role,
             assignedPlayerId: p.physicalId,
+            isLocked: true, // تلقائياً مغلق عند الاختيار اليدوي المسبق
           });
           pool.splice(roleIdx, 1);
           usedRoles.push(p.role);
@@ -65,6 +70,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         id: `role-${idCounter++}`,
         role,
         assignedPlayerId: null,
+        isLocked: false,
       });
     });
 
@@ -81,9 +87,9 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
     // عند تغيير أي دور، يتم إلغاء التأكيد
     setRolesConfirmed(false);
 
-    // تحديث محلي فوري
+    // تحديث محلي فوري وتأكيد القفل تلقائياً عند التوزيع اليدوي
     setRoleSlots(prev =>
-      prev.map(s => (s.id === slotId ? { ...s, assignedPlayerId: newPlayerId } : s))
+      prev.map(s => (s.id === slotId ? { ...s, assignedPlayerId: newPlayerId, isLocked: newPlayerId !== null } : s))
     );
 
     const slot = roleSlots.find(s => s.id === slotId);
@@ -109,20 +115,57 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
     } catch (err: any) {
       // إرجاع الحالة عند الفشل
       setRoleSlots(prev =>
-        prev.map(s => (s.id === slotId ? { ...s, assignedPlayerId: oldPlayerId } : s))
+        prev.map(s => (s.id === slotId ? { ...s, assignedPlayerId: oldPlayerId, isLocked: oldPlayerId !== null } : s))
       );
       setError(err.message);
     }
   };
 
-  // ── توزيع عشوائي كامل ──
+  // ── تبديل القفل يدوياً ──
+  const handleToggleLock = (slotId: string) => {
+    setRoleSlots(prev =>
+      prev.map(s => (s.id === slotId ? { ...s, isLocked: !s.isLocked } : s))
+    );
+  };
+
+  // ── أقفال جماعية ──
+  const handleLockAll = (lock: boolean) => {
+    setRoleSlots(prev =>
+      prev.map(s => (s.assignedPlayerId !== null ? { ...s, isLocked: lock } : s))
+    );
+  };
+
+  const handleLockSpecialOnly = () => {
+    setRoleSlots(prev =>
+      prev.map(s => (s.assignedPlayerId !== null && s.role !== Role.CITIZEN ? { ...s, isLocked: true } : { ...s, isLocked: false }))
+    );
+  };
+
+  // ── خلاصة التوزيع ──
+  const distributionSummary = useMemo(() => {
+    const total = roleSlots.length;
+    const locked = roleSlots.filter(s => s.isLocked && s.assignedPlayerId !== null).length;
+    const toShuffle = roleSlots.filter(s => !s.isLocked).length;
+    const unassigned = roleSlots.filter(s => s.assignedPlayerId === null).length;
+
+    return { total, locked, toShuffle, unassigned };
+  }, [roleSlots]);
+
+  // ── توزيع عشوائي انتقائي ──
   const handleRandomAssign = async () => {
     setRandomLoading(true);
     setError('');
+    const lockedPhysicalIds = roleSlots
+      .filter(s => s.isLocked && s.assignedPlayerId !== null)
+      .map(s => s.assignedPlayerId!);
+
     try {
-      const res = await emit('setup:random-assign', { roomId: gameState.roomId });
+      const res = await emit('setup:random-assign', { 
+        roomId: gameState.roomId, 
+        lockedPhysicalIds 
+      });
       if (res.state) {
-        // تحديث roleSlots من الحالة المُرجعة
+        // تحديث roleSlots من الحالة المُرجعة مع الحفاظ على الأقفال
         const pool: Role[] = [...(res.state.rolesPool || [])];
         let idCounter = 0;
         const newSlots: RoleSlot[] = [];
@@ -130,13 +173,19 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
           if (p.role) {
             const roleIdx = pool.indexOf(p.role);
             if (roleIdx !== -1) {
-              newSlots.push({ id: `role-${idCounter++}`, role: p.role, assignedPlayerId: p.physicalId });
+              const wasLocked = roleSlots.some(s => s.assignedPlayerId === p.physicalId && s.isLocked);
+              newSlots.push({ 
+                id: `role-${idCounter++}`, 
+                role: p.role, 
+                assignedPlayerId: p.physicalId,
+                isLocked: wasLocked
+              });
               pool.splice(roleIdx, 1);
             }
           }
         }
         pool.forEach(role => {
-          newSlots.push({ id: `role-${idCounter++}`, role, assignedPlayerId: null });
+          newSlots.push({ id: `role-${idCounter++}`, role, assignedPlayerId: null, isLocked: false });
         });
         setRoleSlots(newSlots);
         setRandomDone(true);
@@ -210,7 +259,52 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
         </p>
       </div>
 
-      {/* ═══ Special Roles (Mafia + Citizen Specials) ═══ */}
+      {/* ═══ شريط ملخص التوزيع ═══ */}
+      <div className="bg-[#0a0a0a]/80 border border-[#2a2a2a] rounded-xl p-3 mb-4 flex justify-around text-center text-xs font-mono backdrop-blur-sm">
+        <div>
+          <span className="text-[#808080] block text-[9px] uppercase tracking-wider">إجمالي الأدوار</span>
+          <span className="text-white font-bold text-sm">{distributionSummary.total}</span>
+        </div>
+        <div className="border-r border-zinc-800 h-6 my-auto" />
+        <div>
+          <span className="text-[#C5A059] block text-[9px] uppercase tracking-wider">🔒 مثبت يدوياً</span>
+          <span className="text-[#C5A059] font-bold text-sm">{distributionSummary.locked}</span>
+        </div>
+        <div className="border-r border-zinc-800 h-6 my-auto" />
+        <div>
+          <span className="text-purple-400 block text-[9px] uppercase tracking-wider">🎲 سيخلط عشوائياً</span>
+          <span className="text-purple-400 font-bold text-sm">{distributionSummary.toShuffle}</span>
+        </div>
+        <div className="border-r border-zinc-800 h-6 my-auto" />
+        <div>
+          <span className="text-rose-400 block text-[9px] uppercase tracking-wider">غير موزع</span>
+          <span className="text-rose-400 font-bold text-sm">{distributionSummary.unassigned}</span>
+        </div>
+      </div>
+
+      {/* ═══ أدوات التحكم الجماعي ═══ */}
+      <div className="flex gap-2 justify-center flex-wrap mb-4">
+        <button
+          onClick={() => handleLockAll(true)}
+          className="px-3 py-1.5 rounded-lg border border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300 bg-zinc-950/40 text-[9px] font-mono uppercase tracking-wider font-bold transition-all"
+        >
+          🔒 قفل جميع المثبتين
+        </button>
+        <button
+          onClick={() => handleLockAll(false)}
+          className="px-3 py-1.5 rounded-lg border border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300 bg-zinc-950/40 text-[9px] font-mono uppercase tracking-wider font-bold transition-all"
+        >
+          🔓 إلغاء قفل الكل
+        </button>
+        <button
+          onClick={handleLockSpecialOnly}
+          className="px-3 py-1.5 rounded-lg border border-amber-900/30 text-amber-500/80 hover:border-amber-500/50 hover:text-amber-400 bg-amber-950/10 text-[9px] font-mono uppercase tracking-wider font-bold transition-all"
+        >
+          🔒 قفل الأدوار الخاصة فقط
+        </button>
+      </div>
+
+      {/* ═══ Special Roles (Mafia + Citizen Specials + Neutrals) ═══ */}
       {specialRoles.length > 0 && (
         <div className="bg-black/40 border border-[#8A0303]/30 rounded-xl mb-4 backdrop-blur-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-[#2a2a2a] flex items-center justify-between">
@@ -235,6 +329,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
                 onAssign={(newPlayerId) =>
                   handleAssign(slot.id, newPlayerId, slot.assignedPlayerId)
                 }
+                onToggleLock={() => handleToggleLock(slot.id)}
               />
             ))}
           </div>
@@ -264,6 +359,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
                 onAssign={(newPlayerId) =>
                   handleAssign(slot.id, newPlayerId, slot.assignedPlayerId)
                 }
+                onToggleLock={() => handleToggleLock(slot.id)}
               />
             ))}
           </div>
@@ -298,6 +394,35 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
           </button>
         </div>
 
+        {/* الحد الأقصى لتكرار المافيا */}
+        <div className="flex items-center justify-between bg-black/40 border border-[#2a2a2a] rounded-xl p-4">
+          <div className="text-right">
+            <p className="text-white text-sm font-bold" style={{ fontFamily: 'Amiri, serif' }}>أقصى تكرار متتالي للمافيا</p>
+            <p className="text-[#666] text-[10px] font-mono mt-0.5">MAX CONSECUTIVE MAFIA GAMES (0 = DISABLE)</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="0"
+              max="10"
+              value={maxConsecutiveMafiaGames}
+              onChange={async (e) => {
+                const val = Math.max(0, parseInt(e.target.value) || 0);
+                setMaxConsecutiveMafiaGames(val);
+                try {
+                  await emit('room:update-max-consecutive-mafia', {
+                    roomId: gameState.roomId,
+                    maxConsecutiveMafiaGames: val,
+                  });
+                } catch (err: any) {
+                  setError(err.message);
+                }
+              }}
+              className="w-16 px-3 py-1.5 bg-[#050505] border border-[#2a2a2a] rounded-lg text-white text-center font-mono text-sm focus:outline-none focus:border-[#C5A059]"
+            />
+          </div>
+        </div>
+
         {/* زر التوزيع العشوائي */}
         <button
           onClick={handleRandomAssign}
@@ -319,7 +444,7 @@ export default function LeaderRoleBinding({ gameState, emit, setError }: LeaderR
           ) : randomDone ? (
             <span>✅ تم التوزيع العشوائي — اضغط مجدداً لإعادة الخلط</span>
           ) : (
-            <span>🎲 توزيع عشوائي للأدوار</span>
+            <span>🎲 توزيع عشوائي للأدوار المتبقية</span>
           )}
         </button>
 
@@ -401,12 +526,14 @@ function RoleRow({
   assignedPlayerIds,
   isMafia,
   onAssign,
+  onToggleLock,
 }: {
   slot: RoleSlot;
   players: any[];
   assignedPlayerIds: Set<number>;
   isMafia: boolean;
   onAssign: (playerId: number | null) => void;
+  onToggleLock: () => void;
 }) {
   const isAssigned = slot.assignedPlayerId !== null;
   const assignedPlayer = isAssigned
@@ -455,6 +582,18 @@ function RoleRow({
       <div className="shrink-0 flex items-center gap-2">
         {isAssigned ? (
           <>
+            {/* زر القفل الذكي */}
+            <button
+              onClick={onToggleLock}
+              className={`w-8 h-8 flex items-center justify-center border rounded-lg transition-all text-xs shrink-0 ${
+                slot.isLocked
+                  ? 'text-[#C5A059] border-[#C5A059]/40 bg-[#C5A059]/10'
+                  : 'text-zinc-500 border-zinc-800 hover:text-zinc-300 hover:border-zinc-700 bg-transparent'
+              }`}
+              title={slot.isLocked ? 'إلغاء قفل الدور' : 'قفل الدور لمنع التوزيع العشوائي'}
+            >
+              {slot.isLocked ? '🔒' : '🔓'}
+            </button>
             {/* عرض اسم اللاعب المرتبط */}
             <div className={`px-3 py-2.5 rounded-lg border font-mono text-sm text-right ${
               isMafia

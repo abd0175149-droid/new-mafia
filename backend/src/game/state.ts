@@ -181,7 +181,8 @@ export interface GameConfig {
   penaltyScope?: 'game' | 'room'; // مستوى العقوبات: 'game' = تصفير كل لعبة / 'room' = تستمر طول الغرفة (الافتراضي 'room')
   bombEnabled?: boolean;          // 💣 هل قدرة القنبلة لشيخ المافيا مفعلة (الافتراضي true)
   assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)
-  jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
+   jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
+  maxConsecutiveMafiaGames?: number; // ♟️ الحد الأقصى لتكرار المافيا المتتالية (الافتراضي 3)
 }
 
 export interface GameState {
@@ -317,6 +318,7 @@ export async function createRoom(
       maxPenalties,
       penaltyScope,
       bombEnabled: true,
+      maxConsecutiveMafiaGames: 3,
     },
     players: [],
     rolesPool: [],

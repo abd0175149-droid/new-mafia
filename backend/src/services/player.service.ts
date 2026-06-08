@@ -281,3 +281,23 @@ export async function getPlayerProfile(playerId: number) {
     matchHistory,
   };
 }
+
+// ── جلب آخر الأدوار التاريخية للاعب ──────────────────────
+export async function getPlayerLastRoles(playerId: number, limit = 3): Promise<string[]> {
+  const db = getDB();
+  if (!db || limit <= 0) return [];
+  try {
+    const { matchPlayers } = await import('../schemas/game.schema.js');
+    const records = await db
+      .select({ role: matchPlayers.role })
+      .from(matchPlayers)
+      .where(eq(matchPlayers.playerId, playerId))
+      .orderBy(desc(matchPlayers.id))
+      .limit(limit);
+    return records.map(r => r.role);
+  } catch (err: any) {
+    console.error(`⚠️ Failed to fetch last roles for player ${playerId}:`, err.message);
+    return [];
+  }
+}
+
