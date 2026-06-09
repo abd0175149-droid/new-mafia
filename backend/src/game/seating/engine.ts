@@ -34,6 +34,24 @@ function shuffle<T>(arr: T[]): T[] {
   return result;
 }
 
+// ── فحص هل المقعد مثبت للاعب آخر ──
+function isPinnedToSomeoneElse(
+  seatNumber: number,
+  newPlayer: PlayerSeatData,
+  pinnedSeats: PinnedSeat[]
+): boolean {
+  const pin = pinnedSeats.find(p => p.seatNumber === seatNumber);
+  if (!pin) return false;
+
+  const normalizedNewPhone = normalizePhone(newPlayer.phone);
+  const matchesPlayer =
+    (pin.playerId && newPlayer.playerId && String(pin.playerId) === String(newPlayer.playerId)) ||
+    (pin.phone && normalizedNewPhone && normalizePhone(pin.phone) === normalizedNewPhone) ||
+    (!pin.playerId && !pin.phone && pin.playerName && pin.playerName === newPlayer.name);
+
+  return !matchesPlayer;
+}
+
 // ══════════════════════════════════════════════════════
 // 📍 الوضع التفاعلي (Incremental) — مقعد واحد لكل لاعب
 // ══════════════════════════════════════════════════════
@@ -61,8 +79,9 @@ export function allocateSeatWithConstraints(params: {
   if (context.pinnedSeats && context.pinnedSeats.length > 0) {
     const normalizedNewPhone = normalizePhone(newPlayer.phone);
     const pinned = context.pinnedSeats.find(p =>
-      (p.playerId && newPlayer.playerId && p.playerId === newPlayer.playerId) ||
-      (p.phone && normalizedNewPhone && normalizePhone(p.phone) === normalizedNewPhone)
+      (p.playerId && newPlayer.playerId && String(p.playerId) === String(newPlayer.playerId)) ||
+      (p.phone && normalizedNewPhone && normalizePhone(p.phone) === normalizedNewPhone) ||
+      (!p.playerId && !p.phone && p.playerName && p.playerName === newPlayer.name)
     );
     if (pinned && !occupiedSeats.has(pinned.seatNumber)) {
       console.log(`📌 Pinned seat #${pinned.seatNumber} assigned to ${newPlayer.name}`);
@@ -71,9 +90,17 @@ export function allocateSeatWithConstraints(params: {
   }
 
   // حساب المقاعد الفارغة
-  const allEmpty: number[] = [];
+  let allEmpty: number[] = [];
   for (let i = 1; i <= maxPlayers; i++) {
     if (!occupiedSeats.has(i)) allEmpty.push(i);
+  }
+
+  // تصفية المقاعد الفارغة: استبعاد المقاعد المثبتة للاعبين آخرين لم ينضموا بعد
+  if (context.pinnedSeats && context.pinnedSeats.length > 0) {
+    const unreservedEmpty = allEmpty.filter(seat => !isPinnedToSomeoneElse(seat, newPlayer, context.pinnedSeats));
+    if (unreservedEmpty.length > 0) {
+      allEmpty = unreservedEmpty;
+    }
   }
 
   if (allEmpty.length === 0) {
