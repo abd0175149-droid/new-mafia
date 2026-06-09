@@ -87,14 +87,21 @@ export function allocateSeatWithConstraints(params: {
   // ═══ 0. فحص المقاعد المثبتة (Pinned Seats) — شرط ابتدائي ═══
   if (context.pinnedSeats && context.pinnedSeats.length > 0) {
     const normalizedNewPhone = normalizePhone(newPlayer.phone);
+    console.log(`🔍 Seating check: player ${newPlayer.name} has phone: "${newPlayer.phone}" (normalized: "${normalizedNewPhone}"), ID: "${newPlayer.playerId}". Pinned seats list:`, JSON.stringify(context.pinnedSeats));
     const pinned = context.pinnedSeats.find(p =>
       (p.playerId && newPlayer.playerId && String(p.playerId) === String(newPlayer.playerId)) ||
       (p.phone && normalizedNewPhone && normalizePhone(p.phone) === normalizedNewPhone) ||
       (!p.playerId && !p.phone && p.playerName && p.playerName === newPlayer.name)
     );
-    if (pinned && !occupiedSeats.has(pinned.seatNumber)) {
-      console.log(`📌 Pinned seat #${pinned.seatNumber} assigned to ${newPlayer.name}`);
-      return { seat: pinned.seatNumber, constraintViolation: false, violations: [], score: 1.0 };
+    if (pinned) {
+      if (!occupiedSeats.has(pinned.seatNumber)) {
+        console.log(`📌 MATCH: Pinned seat #${pinned.seatNumber} assigned to ${newPlayer.name}`);
+        return { seat: pinned.seatNumber, constraintViolation: false, violations: [], score: 1.0 };
+      } else {
+        console.log(`⚠️ MATCH FOUND: Pinned seat #${pinned.seatNumber} is ALREADY OCCUPIED by another player.`);
+      }
+    } else {
+      console.log(`🔍 Player ${newPlayer.name} is NOT pinned to any seat in the template.`);
     }
   }
 
@@ -106,9 +113,13 @@ export function allocateSeatWithConstraints(params: {
 
   // تصفية المقاعد الفارغة: استبعاد المقاعد المثبتة للاعبين آخرين لم ينضموا بعد
   if (context.pinnedSeats && context.pinnedSeats.length > 0) {
+    console.log(`🪑 Empty seats before reservation filtering: ${allEmpty.join(', ')}`);
     const unreservedEmpty = allEmpty.filter(seat => !isPinnedToSomeoneElse(seat, newPlayer, context.pinnedSeats));
     if (unreservedEmpty.length > 0) {
       allEmpty = unreservedEmpty;
+      console.log(`🪑 Empty seats after reserving pinned seats: ${allEmpty.join(', ')}`);
+    } else {
+      console.log(`⚠️ No unreserved empty seats left! Forcing allocation to remaining empty seats: ${allEmpty.join(', ')}`);
     }
   }
 

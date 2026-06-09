@@ -887,17 +887,35 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // جلب بيانات اللاعبين الموسّعة للمحرك الذكي
       let penaltyNeighborHistory: Map<string, number> | undefined;
       let enrichedPlayers: any[] = [];
+      const db = getDB();
+
+      // استرجاع activityId من قاعدة البيانات كـ fallback إذا كان مفقوداً في Redis
+      let activityId = state.activityId;
+      if (!activityId && state.sessionId && db) {
+        try {
+          const [sessRow] = await db.execute(sql`
+            SELECT activity_id FROM sessions WHERE id = ${state.sessionId} LIMIT 1
+          `).then((r: any) => (r.rows || r || []));
+          if (sessRow?.activity_id) {
+            activityId = Number(sessRow.activity_id);
+            state.activityId = activityId;
+            await setGameState(state.roomId, state);
+            console.log(`♻️ Recovered missing activityId #${activityId} for room ${state.roomId} from DB session #${state.sessionId}`);
+          }
+        } catch (e: any) {
+          console.warn('⚠️ Failed to recover activityId from database session:', e.message);
+        }
+      }
 
       // ── تحميل بيانات القالب (إذا الفعالية مرتبطة بقالب) ──
       let pinnedSeatsFromTemplate: any[] = [];
       let reservedTailFromTemplate = 0;
       let hasTemplate = false;
-      const db = getDB();
 
-      if (state.activityId && db) {
+      if (activityId && db) {
         try {
           const [actRow] = await db.execute(sql`
-            SELECT seat_template_id FROM activities WHERE id = ${state.activityId} LIMIT 1
+            SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1
           `).then((r: any) => (r.rows || r || []));
           if (actRow?.seat_template_id) {
             hasTemplate = true;
@@ -908,6 +926,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             if (tplRow) {
               pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
               reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
+              console.log(`🎯 Loaded seat template ID #${actRow.seat_template_id} for room ${state.roomId}: ${pinnedSeatsFromTemplate.length} pinned seats`);
             }
           }
         } catch (e: any) {
