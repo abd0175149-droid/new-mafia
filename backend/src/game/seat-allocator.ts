@@ -83,10 +83,11 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
   const { maxPlayers, players, constraints, newPlayer, preferredSeat } = params;
 
   // ═══ المحرك الذكي الجديد ═══
-  // يُفعَّل إذا: engineEnabled = true أو توفرت بيانات إضافية
+  // يُفعَّل إذا: engineEnabled = true أو توفرت بيانات إضافية أو وجود مقاعد مثبتة في التمبلت
   const useNewEngine = constraints?.engineEnabled || 
     (constraints?.constraints && constraints.constraints.length > 0) ||
-    params.penaltyNeighborHistory;
+    params.penaltyNeighborHistory ||
+    (params.pinnedSeats && params.pinnedSeats.length > 0);
 
   if (useNewEngine) {
     // تحويل بيانات اللاعبين للصيغة الجديدة

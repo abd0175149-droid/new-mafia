@@ -888,12 +888,38 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       let penaltyNeighborHistory: Map<string, number> | undefined;
       let enrichedPlayers: any[] = [];
 
-      // التحقق من تفعيل المحرك الذكي
-      const engineEnabled = constraints && (constraints as any).engineEnabled;
+      // ── تحميل بيانات القالب (إذا الفعالية مرتبطة بقالب) ──
+      let pinnedSeatsFromTemplate: any[] = [];
+      let reservedTailFromTemplate = 0;
+      let hasTemplate = false;
+      const db = getDB();
+
+      if (state.activityId && db) {
+        try {
+          const [actRow] = await db.execute(sql`
+            SELECT seat_template_id FROM activities WHERE id = ${state.activityId} LIMIT 1
+          `).then((r: any) => (r.rows || r || []));
+          if (actRow?.seat_template_id) {
+            hasTemplate = true;
+            const [tplRow] = await db.execute(sql`
+              SELECT pinned_seats, reserved_tail_count FROM seat_templates
+              WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
+            `).then((r: any) => (r.rows || r || []));
+            if (tplRow) {
+              pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+              reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
+            }
+          }
+        } catch (e: any) {
+          console.warn('⚠️ Seat template load failed:', e.message);
+        }
+      }
+
+      // التحقق من تفعيل المحرك الذكي (أو وجود قالب مقاعد نشط للفعالية)
+      const engineEnabled = (constraints && (constraints as any).engineEnabled) || hasTemplate;
 
       if (engineEnabled) {
         // إثراء بيانات اللاعبين الحاليين
-        const db = getDB();
         enrichedPlayers = [];
         for (const p of state.players) {
           let enriched: any = {
@@ -1007,29 +1033,6 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               }
             }
           } catch {}
-        }
-
-        // ── تحميل بيانات القالب (إذا الفعالية مرتبطة بقالب) ──
-        let pinnedSeatsFromTemplate: any[] = [];
-        let reservedTailFromTemplate = 0;
-        if (state.activityId && db) {
-          try {
-            const [actRow] = await db.execute(sql`
-              SELECT seat_template_id FROM activities WHERE id = ${state.activityId} LIMIT 1
-            `).then((r: any) => (r.rows || r || []));
-            if (actRow?.seat_template_id) {
-              const [tplRow] = await db.execute(sql`
-                SELECT pinned_seats, reserved_tail_count FROM seat_templates
-                WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
-              `).then((r: any) => (r.rows || r || []));
-              if (tplRow) {
-                pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
-                reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
-              }
-            }
-          } catch (e: any) {
-            console.warn('⚠️ Seat template load failed:', e.message);
-          }
         }
 
         const { seat: assignedSeatResult, constraintViolation: cvResult } = allocateSeat({
