@@ -526,7 +526,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
 
   const result = await db.insert(activities).values({
@@ -542,6 +542,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     maxCapacity: maxCapacity ? Number(maxCapacity) : 20,
     requireTicket: requireTicket ?? false,
     seatConstraints: seatConstraints || null,
+    seatTemplateId: seatTemplateId || null,
   } as any).returning();
 
   const activity = result[0];
@@ -667,8 +668,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId } = req.body;
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
@@ -685,6 +685,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (difficulty !== undefined) updates.difficulty = difficulty;
   if (requireTicket !== undefined) updates.requireTicket = requireTicket;
   if (seatConstraints !== undefined) updates.seatConstraints = seatConstraints;
+  if (seatTemplateId !== undefined) updates.seatTemplateId = seatTemplateId;
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });

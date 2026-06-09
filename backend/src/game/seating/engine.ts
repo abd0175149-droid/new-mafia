@@ -20,7 +20,16 @@ import { getCircularNeighborSeats } from './types.js';
 // ── تطبيع رقم الهاتف ──
 function normalizePhone(phone: string): string {
   if (!phone) return '';
-  return phone.startsWith('0') ? phone : '0' + phone;
+  // إزالة المسافات والرموز الزائدة
+  let cleaned = phone.replace(/[\s\-\(\)\+]/g, '');
+  // التعامل مع مفتاح الأردن الدولي
+  if (cleaned.startsWith('00962')) {
+    cleaned = cleaned.substring(5);
+  } else if (cleaned.startsWith('962')) {
+    cleaned = cleaned.substring(3);
+  }
+  // التأكد من البدء بـ 0
+  return cleaned.startsWith('0') ? cleaned : '0' + cleaned;
 }
 import { buildConstraints, buildDefaultConstraints, migrateOldConstraints } from './constraint-registry.js';
 
