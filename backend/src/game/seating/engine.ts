@@ -53,10 +53,12 @@ function isPinnedToSomeoneElse(
   if (!pin) return false;
 
   const normalizedNewPhone = normalizePhone(newPlayer.phone);
+  const normalizedPinPhone = normalizePhone(pin.phone || '');
+  
   const matchesPlayer =
     (pin.playerId && newPlayer.playerId && String(pin.playerId) === String(newPlayer.playerId)) ||
-    (pin.phone && normalizedNewPhone && normalizePhone(pin.phone) === normalizedNewPhone) ||
-    (!pin.playerId && !pin.phone && pin.playerName && pin.playerName === newPlayer.name);
+    (normalizedPinPhone && normalizedNewPhone && normalizedPinPhone === normalizedNewPhone) ||
+    (pin.playerName && newPlayer.name && pin.playerName.trim().toLowerCase() === newPlayer.name.trim().toLowerCase());
 
   return !matchesPlayer;
 }
@@ -88,11 +90,12 @@ export function allocateSeatWithConstraints(params: {
   if (context.pinnedSeats && context.pinnedSeats.length > 0) {
     const normalizedNewPhone = normalizePhone(newPlayer.phone);
     console.log(`🔍 Seating check: player ${newPlayer.name} has phone: "${newPlayer.phone}" (normalized: "${normalizedNewPhone}"), ID: "${newPlayer.playerId}". Pinned seats list:`, JSON.stringify(context.pinnedSeats));
-    const pinned = context.pinnedSeats.find(p =>
-      (p.playerId && newPlayer.playerId && String(p.playerId) === String(newPlayer.playerId)) ||
-      (p.phone && normalizedNewPhone && normalizePhone(p.phone) === normalizedNewPhone) ||
-      (!p.playerId && !p.phone && p.playerName && p.playerName === newPlayer.name)
-    );
+    const pinned = context.pinnedSeats.find(p => {
+      const pPhone = normalizePhone(p.phone || '');
+      return (p.playerId && newPlayer.playerId && String(p.playerId) === String(newPlayer.playerId)) ||
+             (pPhone && normalizedNewPhone && pPhone === normalizedNewPhone) ||
+             (p.playerName && newPlayer.name && p.playerName.trim().toLowerCase() === newPlayer.name.trim().toLowerCase());
+    });
     if (pinned) {
       if (!occupiedSeats.has(pinned.seatNumber)) {
         console.log(`📌 MATCH: Pinned seat #${pinned.seatNumber} assigned to ${newPlayer.name}`);
