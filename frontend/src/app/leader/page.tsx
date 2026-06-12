@@ -63,6 +63,8 @@ interface GameState {
   activityId?: number;
   // 🔪 Assassin
   assassinState?: any;
+  // 💣 Bomb
+  pendingBomb?: any;
 }
 
 export default function LeaderPage() {
