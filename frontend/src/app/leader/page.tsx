@@ -226,6 +226,7 @@ export default function LeaderPage() {
             morningEvents: data.state.morningEvents || [],
             pendingWinner: data.state.pendingWinner || null,
             assassinState: data.state.assassinState || null,
+            pendingBomb: data.state.pendingBomb || null,
           });
 
           if (phase === 'LOBBY') {
@@ -327,6 +328,7 @@ export default function LeaderPage() {
                     // استعادة خطوة الليل المحفوظة
                     nightStep: st.currentNightStep || null,
                     nightComplete: st.nightComplete || false,
+                    pendingBomb: st.pendingBomb || null,
                   });
                   if (st.phase === 'LOBBY' || st.phase === 'GAME_OVER') {
                     setInSession(true);

@@ -345,6 +345,35 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
           team: (initiator.role && isMafiaRole(initiator.role)) ? 'MAFIA' : 'CITIZEN',
         });
       }
+
+      // 💣 قدرة القنبلة — إذا المُقصى شيخ المافيا بالديل + القنبلة مفعلة
+      if (target.role === 'GODFATHER' && state.config.bombEnabled !== false) {
+        const gfId = target.physicalId;
+        const alive = state.players
+          .filter(p => p.isAlive && p.physicalId !== gfId)
+          .sort((a, b) => a.physicalId - b.physicalId);
+
+        if (alive.length > 0) {
+          let abovePlayer = alive.find(p => p.physicalId > gfId);
+          if (!abovePlayer) abovePlayer = alive[0];
+
+          let belowPlayer = [...alive].reverse().find(p => p.physicalId < gfId);
+          if (!belowPlayer) belowPlayer = alive[alive.length - 1];
+
+          const above = abovePlayer ? { physicalId: abovePlayer.physicalId, name: abovePlayer.name, role: abovePlayer.role || 'UNKNOWN' } : null;
+          const below = belowPlayer && belowPlayer.physicalId !== abovePlayer?.physicalId
+            ? { physicalId: belowPlayer.physicalId, name: belowPlayer.name, role: belowPlayer.role || 'UNKNOWN' }
+            : null;
+
+          state.pendingBomb = {
+            godfatherPhysicalId: gfId,
+            godfatherPlayerId: target.playerId || null,
+            above,
+            below,
+          };
+          console.log(`💣 Bomb ability triggered (DEAL) for Godfather #${gfId} — above: ${above?.physicalId || 'none'}, below: ${below?.physicalId || 'none'}`);
+        }
+      }
     }
   }
 

@@ -1078,6 +1078,40 @@ export function registerDayEvents(io: Server, socket: Socket) {
               }
             }
           }
+
+          // 💣 فحص القنبلة — إذا كان GODFATHER بين المُقصيين
+          for (const elId of eliminated) {
+            const elPlayer = state.players.find((p: any) => p.physicalId === elId);
+            if (elPlayer?.role === 'GODFATHER' && state.config.bombEnabled !== false) {
+              const gfId = elPlayer.physicalId;
+              const alive = state.players
+                .filter((p: any) => p.isAlive && p.physicalId !== gfId)
+                .sort((a: any, b: any) => a.physicalId - b.physicalId);
+
+              if (alive.length > 0) {
+                let abovePlayer = alive.find((p: any) => p.physicalId > gfId);
+                if (!abovePlayer) abovePlayer = alive[0];
+
+                let belowPlayer = [...alive].reverse().find((p: any) => p.physicalId < gfId);
+                if (!belowPlayer) belowPlayer = alive[alive.length - 1];
+
+                const above = abovePlayer ? { physicalId: abovePlayer.physicalId, name: abovePlayer.name, role: abovePlayer.role || 'UNKNOWN' } : null;
+                const below = belowPlayer && belowPlayer.physicalId !== abovePlayer?.physicalId
+                  ? { physicalId: belowPlayer.physicalId, name: belowPlayer.name, role: belowPlayer.role || 'UNKNOWN' }
+                  : null;
+
+                state.pendingBomb = {
+                  godfatherPhysicalId: gfId,
+                  godfatherPlayerId: elPlayer.playerId || null,
+                  above,
+                  below,
+                };
+                console.log(`💣 Bomb ability triggered (ELIMINATE_ALL) for Godfather #${gfId} — above: ${above?.physicalId || 'none'}, below: ${below?.physicalId || 'none'}`);
+                break; // قنبلة واحدة فقط
+              }
+            }
+          }
+
           await setGameState(data.roomId, state);
         }
 
@@ -1098,12 +1132,27 @@ export function registerDayEvents(io: Server, socket: Socket) {
           await setGameState(data.roomId, state);
         }
 
-        // بث الإقصاء مع نتيجة الفوز
+        // تغيير المرحلة لـ DAY_ELIMINATION
+        state.phase = Phase.DAY_ELIMINATION;
+        state.pendingResolution = {
+          eliminated,
+          revealedRoles,
+          winResult,
+          type: 'ELIMINATE_ALL',
+        };
+        await setGameState(data.roomId, state);
+        await setPhase(data.roomId, Phase.DAY_ELIMINATION);
+
+        // بث تغيير المرحلة مع الحالة (لمنع فقدان pendingBomb)
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_ELIMINATION, state });
+
+        // بث الإقصاء مع نتيجة الفوز والقنبلة
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated,
           revealedRoles,
           type: 'ELIMINATE_ALL',
           winResult,
+          pendingBomb: state.pendingBomb || null,
         });
       } else {
         if (state.votingState.durationSeconds) {
