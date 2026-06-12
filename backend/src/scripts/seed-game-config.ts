@@ -36,6 +36,7 @@ async function seed() {
     { id: 'INVESTIGATE', nameAr: 'تحقيق', nameEn: 'Investigate', phase: 'NIGHT' as const, priority: 3, targetType: 'ANY' as const, excludeSelf: true, excludeLastTarget: false, maxTargets: 1, effectType: 'REVEAL_TEAM' as const, effectOnSuccess: 'SHERIFF_RESULT', effectOnFail: null, canSkip: false, isInheritable: false, inheritanceOrder: null, deceptionRule: null, soundEvent: null, animationType: 'INVESTIGATION' },
     { id: 'PROTECT', nameAr: 'حماية', nameEn: 'Protect', phase: 'NIGHT' as const, priority: 4, targetType: 'ANY' as const, excludeSelf: true, excludeLastTarget: true, maxTargets: 1, effectType: 'BLOCK_ELIMINATE' as const, effectOnSuccess: 'ASSASSINATION_BLOCKED', effectOnFail: 'PROTECTION_FAILED', canSkip: false, isInheritable: false, inheritanceOrder: null, deceptionRule: null, soundEvent: null, animationType: 'PROTECTION' },
     { id: 'SNIPE', nameAr: 'قنص', nameEn: 'Snipe', phase: 'NIGHT' as const, priority: 5, targetType: 'ANY' as const, excludeSelf: true, excludeLastTarget: false, maxTargets: 1, effectType: 'CONDITIONAL_ELIMINATE' as const, effectOnSuccess: 'SNIPE_MAFIA', effectOnFail: 'SNIPE_CITIZEN', canSkip: true, isInheritable: false, inheritanceOrder: null, deceptionRule: null, soundEvent: null, animationType: 'SNIPE' },
+    { id: 'DISABLE_ABILITY', nameAr: 'تعطيل القدرة', nameEn: 'Disable Ability', phase: 'NIGHT' as const, priority: 2, targetType: 'ENEMY' as const, excludeSelf: true, excludeLastTarget: false, maxTargets: 1, effectType: 'DISABLE' as const, effectOnSuccess: 'ABILITY_DISABLED', effectOnFail: null, canSkip: true, isInheritable: false, inheritanceOrder: null, deceptionRule: null, soundEvent: 'night_witch', animationType: 'DISABLE_ABILITY' },
   ];
 
   for (const ability of abilities) {
@@ -62,6 +63,21 @@ async function seed() {
   await db.insert(schema.cardTemplates).values(masterTemplate).onConflictDoNothing();
   console.log(`✅ تم بذر القالب الرئيسي (master)`);
 
+  const witchTemplate = {
+    id: 'witch_card',
+    gradient: 'from-purple-900 via-violet-950 to-indigo-950',
+    borderColor: '#9333ea',
+    textColor: '#e9d5ff',
+    glowEffect: '0 0 30px rgba(147,51,234,0.4)',
+    teamBadge: { text: 'مافيا', bgColor: '#7c2d12', textColor: '#fed7aa', borderColor: '#ea580c' },
+    icon: { type: 'EMOJI', value: '🧙‍♀️' },
+    secretFace: { type: 'GENERATED' },
+    elements: { showPlayerNumber: true, showClubBranding: true, showDescription: false },
+  };
+
+  await db.insert(schema.cardTemplates).values(witchTemplate).onConflictDoNothing();
+  console.log(`✅ تم بذر قالب بطاقة الساحرة (witch_card)`);
+
   // ══════════════════════════════════════════════
   // 3. الأدوار — جميعها تشير للقالب الرئيسي
   // ══════════════════════════════════════════════
@@ -71,6 +87,7 @@ async function seed() {
     { id: 'GODFATHER', nameAr: 'شيخ المافيا', nameEn: 'Godfather', team: 'MAFIA' as const, abilities: ['KILL'], genPriority: 1, genMaxCount: 1, genMinPlayers: 6, genIsRequired: true, cardTemplateId: 'master', description: 'زعيم المافيا — ينفذ عملية الاغتيال كل ليلة', cardOverrides: { icon: { type: 'lucide', value: 'Crown' } } },
     { id: 'SILENCER', nameAr: 'قص المافيا', nameEn: 'Silencer', team: 'MAFIA' as const, abilities: ['SILENCE'], genPriority: 2, genMaxCount: 1, genMinPlayers: 7, genIsRequired: false, cardTemplateId: 'master', description: 'يُسكت لاعباً واحداً فلا يستطيع التحدث في النهار', cardOverrides: { icon: { type: 'lucide', value: 'Scissors' } } },
     { id: 'CHAMELEON', nameAr: 'حرباية المافيا', nameEn: 'Chameleon', team: 'MAFIA' as const, abilities: [], genPriority: 3, genMaxCount: 1, genMinPlayers: 8, genIsRequired: false, cardTemplateId: 'master', description: 'يظهر كمواطن عند تحقيق الشريف — ويرث الاغتيال', cardOverrides: { icon: { type: 'lucide', value: 'Drama' } } },
+    { id: 'WITCH', nameAr: 'الساحرة', nameEn: 'Witch', team: 'MAFIA' as const, abilities: ['DISABLE_ABILITY'], genPriority: 3, genMaxCount: 1, genMinPlayers: 8, genIsRequired: false, cardTemplateId: 'witch_card', description: 'تعطّل قدرة لاعب من المواطنين أو المحايدين لعدة راوندات', cardOverrides: { icon: { type: 'EMOJI', value: '🧙‍♀️' } } },
     { id: 'MAFIA_REGULAR', nameAr: 'مافيا عادي', nameEn: 'Mafia Regular', team: 'MAFIA' as const, abilities: [], genPriority: 99, genMaxCount: 10, genMinPlayers: 6, genIsRequired: false, cardTemplateId: 'master', description: 'عضو مافيا عادي — يشارك في النقاش والتصويت', cardOverrides: { icon: { type: 'lucide', value: 'Skull' } } },
     // ── المواطنون ──
     { id: 'SHERIFF', nameAr: 'الشريف', nameEn: 'Sheriff', team: 'CITIZEN' as const, abilities: ['INVESTIGATE'], genPriority: 1, genMaxCount: 1, genMinPlayers: 6, genIsRequired: true, cardTemplateId: 'master', description: 'يحقق في هوية لاعب واحد كل ليلة', cardOverrides: { icon: { type: 'lucide', value: 'Shield' } } },

@@ -10,6 +10,7 @@ export enum Role {
   GODFATHER = 'GODFATHER',           // شيخ المافيا
   SILENCER = 'SILENCER',             // قص المافيا
   CHAMELEON = 'CHAMELEON',           // حرباية المافيا
+  WITCH = 'WITCH',                   // الساحرة 🧙‍♀️
   MAFIA_REGULAR = 'MAFIA_REGULAR',   // مافيا عادي
 
   // فريق المواطنين
@@ -31,6 +32,7 @@ export const MAFIA_ROLES: Role[] = [
   Role.GODFATHER,
   Role.SILENCER,
   Role.CHAMELEON,
+  Role.WITCH,
   Role.MAFIA_REGULAR,
 ];
 
@@ -55,6 +57,7 @@ export const NIGHT_ACTIVE_ROLES: Role[] = [
   Role.SHERIFF,
   Role.DOCTOR,
   Role.SNIPER,
+  Role.WITCH,
 ];
 
 export function isMafiaRole(role: Role): boolean {
@@ -75,6 +78,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.GODFATHER]: 'شيخ المافيا',
   [Role.SILENCER]: 'قص المافيا',
   [Role.CHAMELEON]: 'حرباية المافيا',
+  [Role.WITCH]: 'الساحرة',
   [Role.MAFIA_REGULAR]: 'مافيا عادي',
   [Role.SHERIFF]: 'الشريف',
   [Role.DOCTOR]: 'الطبيب',

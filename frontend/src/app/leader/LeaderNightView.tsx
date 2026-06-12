@@ -24,6 +24,7 @@ const ACTION_META: Record<string, { icon: string; color: string; bgGlow: string 
   PROTECT:    { icon: '💉', color: 'text-[#2E5C31]', bgGlow: 'shadow-[0_0_40px_rgba(46,92,49,0.2)]' },
   SNIPE:      { icon: '🎯', color: 'text-[#8A0303]', bgGlow: 'shadow-[0_0_40px_rgba(138,3,3,0.2)]' },
   ASSASSINATE:{ icon: '🗡️', color: 'text-[#6b21a8]', bgGlow: 'shadow-[0_0_40px_rgba(107,33,168,0.3)]' },
+  DISABLE_ABILITY:{ icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
 };
 
 // أيقونة أحداث الصباح
@@ -37,6 +38,7 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   SHERIFF_RESULT:       { icon: '🔍', title: 'نتيجة التحقيق',     color: 'text-[#C5A059]', displayable: false },
   ASSASSIN_KILL:        { icon: '🔪', title: 'السفّاح اغتال',     color: 'text-[#DC143C]', displayable: true },
   ASSASSIN_BLOCKED:     { icon: '🛡️', title: 'حماية ضد السفّاح',   color: 'text-[#2E5C31]', displayable: true },
+  ABILITY_DISABLED:     { icon: '🧙‍♀️', title: 'تعطيل قدرة',        color: 'text-[#9333ea]', displayable: true },
 };
 
 export default function LeaderNightView({ gameState, emit, setError }: LeaderNightViewProps) {
@@ -1208,120 +1210,141 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           </div>
         )}
 
-        {/* ── اختيار الهدف ── */}
-        <label className="block text-[9px] font-mono text-[#808080] mb-3 tracking-widest uppercase text-center">
-          🎯 اختر الهدف — SELECT TARGET
-          <span className="block text-[7px] text-[#555] mt-1">اضغط مطولاً على الكارد لكشف الدور</span>
-        </label>
-        <div className="flex flex-wrap justify-center gap-3 mb-5">
-          {nightStep.availableTargets.map((target: any) => {
-            const isSelected = gameState.config?.nightMode === 'auto' 
-              ? autoTargetId === target.physicalId 
-              : selectedTarget === target.physicalId;
-            const targetPlayer = gameState.players?.find((p: any) => p.physicalId === target.physicalId);
-            const isPeeked = peekedCard === target.physicalId;
-            const playerPenalties = targetPlayer?.penalties || 0;
-            const maxPenalties = gameState.config.maxPenalties || 3;
-            return (
-              <div
-                key={target.physicalId}
-                onPointerDown={() => handleCardPressStart(target.physicalId)}
-                onPointerUp={() => handleCardPressEnd(target.physicalId)}
-                onPointerLeave={() => {
-                  if (longPressTimerRef.current) {
-                    clearTimeout(longPressTimerRef.current);
-                    longPressTimerRef.current = null;
-                  }
-                }}
-                className="relative group cursor-pointer select-none"
-              >
-                {/* ⚠️ Penalty Button on hover */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPenalizingId(target.physicalId);
-                  }}
-                  className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
-                  title="تسجيل عقوبة"
-                >
-                  ⚠️
-                </button>
-
-                {/* Warning dots */}
-                {playerPenalties > 0 && (
-                  <div className="absolute top-2 right-2 flex gap-1 z-25 bg-black/60 px-1.5 py-0.5 rounded-full border border-red-500/30">
-                    {Array.from({ length: maxPenalties }).map((_, idx) => (
-                      <span
-                        key={idx}
-                        className={`w-1.5 h-1.5 rounded-full ${
-                          idx < playerPenalties ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-700'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                <MafiaCard
-                  playerNumber={target.physicalId}
-                  playerName={target.name}
-                  role={targetPlayer?.role || null}
-                  isFlipped={isPeeked}
-                  flippable={false}
-                  gender={targetPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
-                  avatarUrl={targetPlayer?.avatarUrl || null}
-                  size={nightStep.availableTargets.length <= 12 ? 'md' : 'sm'}
-                  isAlive={true}
-                  className={`transition-all duration-300 ${
-                    isSelected
-                      ? `ring-2 ${meta.color.replace('text-', 'ring-')} shadow-lg scale-[1.03]`
-                      : ''
-                  }`}
-                />
-              </div>
-            );
-          })}
-        </div>
-
-        {/* أزرار الإجراء أو رسالة الأوتو */}
-        {gameState.config?.nightMode === 'auto' ? (
-          <div className="bg-[#111] border border-[#333] rounded-xl p-4 text-center mt-4">
-            {autoTargetId ? (
-              <div className="animate-pulse">
-                <p className="text-[#4ade80] font-mono text-sm uppercase tracking-widest mb-1">✅ تم اختيار الهدف بنجاح</p>
-                <p className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">
-                  (سينتقل للخطوة التالية قريباً)
-                </p>
-              </div>
-            ) : (
-              <p className="text-[#C5A059] font-mono text-sm uppercase tracking-widest animate-pulse">
-                📱 يختار اللاعبون من أجهزتهم...
-              </p>
-            )}
+        {/* ── اختيار الهدف أو التعطيل ── */}
+        {nightStep.isDisabled ? (
+          <div className="bg-purple-950/20 border border-purple-500/20 rounded-xl p-8 text-center my-6 flex flex-col items-center gap-4">
+            <span className="text-5xl animate-bounce">🚫</span>
+            <p className="text-purple-300 font-bold text-lg" style={{ fontFamily: 'Amiri, serif' }}>
+              هذه القدرة معطّلة بواسطة الساحرة
+            </p>
+            <p className="text-purple-400/60 text-xs font-mono">
+              ROLE IS DISABLED BY THE WITCH — PROCEED BY SKIPPING
+            </p>
+            <button
+              onClick={handleSkipAction}
+              disabled={loading}
+              className="mt-4 px-12 py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-sm tracking-widest transition-all active:scale-95 shadow-lg shadow-purple-500/20 animate-pulse"
+            >
+              ⏭ تخطي للمرحلة التالية
+            </button>
           </div>
         ) : (
-          <div className={`grid ${nightStep.canSkip ? 'grid-cols-2' : 'grid-cols-1'} gap-3 mt-4`}>
-            <button
-              onClick={handleSubmitAction}
-              disabled={selectedTarget === null || loading}
-              className={`py-4 border font-mono text-sm uppercase tracking-widest transition-all rounded-lg ${
-                selectedTarget !== null
-                  ? `${meta.color.replace('text-', 'border-')} text-white hover:bg-white/5`
-                  : 'border-[#1a1a1a] text-[#333] cursor-not-allowed'
-              }`}
-            >
-              {loading ? '...' : '✅ تأكيد'}
-            </button>
+          <>
+            <label className="block text-[9px] font-mono text-[#808080] mb-3 tracking-widest uppercase text-center">
+              🎯 اختر الهدف — SELECT TARGET
+              <span className="block text-[7px] text-[#555] mt-1">اضغط مطولاً على الكارد لكشف الدور</span>
+            </label>
+            <div className="flex flex-wrap justify-center gap-3 mb-5">
+              {nightStep.availableTargets.map((target: any) => {
+                const isSelected = gameState.config?.nightMode === 'auto' 
+                  ? autoTargetId === target.physicalId 
+                  : selectedTarget === target.physicalId;
+                const targetPlayer = gameState.players?.find((p: any) => p.physicalId === target.physicalId);
+                const isPeeked = peekedCard === target.physicalId;
+                const playerPenalties = targetPlayer?.penalties || 0;
+                const maxPenalties = gameState.config.maxPenalties || 3;
+                return (
+                  <div
+                    key={target.physicalId}
+                    onPointerDown={() => handleCardPressStart(target.physicalId)}
+                    onPointerUp={() => handleCardPressEnd(target.physicalId)}
+                    onPointerLeave={() => {
+                      if (longPressTimerRef.current) {
+                        clearTimeout(longPressTimerRef.current);
+                        longPressTimerRef.current = null;
+                      }
+                    }}
+                    className="relative group cursor-pointer select-none"
+                  >
+                    {/* ⚠️ Penalty Button on hover */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPenalizingId(target.physicalId);
+                      }}
+                      className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"
+                      title="تسجيل عقوبة"
+                    >
+                      ⚠️
+                    </button>
 
-            {nightStep.canSkip && (
-              <button
-                onClick={handleSkipAction}
-                disabled={loading}
-                className="py-4 border border-[#333] text-[#555] font-mono text-sm uppercase tracking-widest hover:border-[#555] hover:text-[#808080] transition-all rounded-lg"
-              >
-                ⏭ تخطي
-              </button>
+                    {/* Warning dots */}
+                    {playerPenalties > 0 && (
+                      <div className="absolute top-2 right-2 flex gap-1 z-25 bg-black/60 px-1.5 py-0.5 rounded-full border border-red-500/30">
+                        {Array.from({ length: maxPenalties }).map((_, idx) => (
+                          <span
+                            key={idx}
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              idx < playerPenalties ? 'bg-red-500 animate-pulse shadow-[0_0_4px_#ef4444]' : 'bg-zinc-700'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    <MafiaCard
+                      playerNumber={target.physicalId}
+                      playerName={target.name}
+                      role={targetPlayer?.role || null}
+                      isFlipped={isPeeked}
+                      flippable={false}
+                      gender={targetPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                      avatarUrl={targetPlayer?.avatarUrl || null}
+                      size={nightStep.availableTargets.length <= 12 ? 'md' : 'sm'}
+                      isAlive={true}
+                      className={`transition-all duration-300 ${
+                        isSelected
+                          ? `ring-2 ${meta.color.replace('text-', 'ring-')} shadow-lg scale-[1.03]`
+                          : ''
+                      }`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* أزرار الإجراء أو رسالة الأوتو */}
+            {gameState.config?.nightMode === 'auto' ? (
+              <div className="bg-[#111] border border-[#333] rounded-xl p-4 text-center mt-4">
+                {autoTargetId ? (
+                  <div className="animate-pulse">
+                    <p className="text-[#4ade80] font-mono text-sm uppercase tracking-widest mb-1">✅ تم اختيار الهدف بنجاح</p>
+                    <p className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">
+                      (سينتقل للخطوة التالية قريباً)
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[#C5A059] font-mono text-sm uppercase tracking-widest animate-pulse">
+                    📱 يختار اللاعبون من أجهزتهم...
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className={`grid ${nightStep.canSkip ? 'grid-cols-2' : 'grid-cols-1'} gap-3 mt-4`}>
+                <button
+                  onClick={handleSubmitAction}
+                  disabled={selectedTarget === null || loading}
+                  className={`py-4 border font-mono text-sm uppercase tracking-widest transition-all rounded-lg ${
+                    selectedTarget !== null
+                      ? `${meta.color.replace('text-', 'border-')} text-white hover:bg-white/5`
+                      : 'border-[#1a1a1a] text-[#333] cursor-not-allowed'
+                  }`}
+                >
+                  {loading ? '...' : '✅ تأكيد'}
+                </button>
+
+                {nightStep.canSkip && (
+                  <button
+                    onClick={handleSkipAction}
+                    disabled={loading}
+                    className="py-4 border border-[#333] text-[#555] font-mono text-sm uppercase tracking-widest hover:border-[#555] hover:text-[#808080] transition-all rounded-lg"
+                  >
+                    ⏭ تخطي
+                  </button>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
     );

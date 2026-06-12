@@ -34,15 +34,18 @@ export interface DynamicNightState {
  * يبني قائمة القدرات النشطة لهذا الليل
  * يقرأ من الأدوار الحية في اللعبة الحالية
  */
-export async function buildNightQueue(state: GameState): Promise<{abilityId: string; performerPhysicalId: number; nameAr: string}[]> {
+export async function buildNightQueue(state: GameState): Promise<{abilityId: string; performerPhysicalId: number; nameAr: string; isDisabled?: boolean; disabledRoleName?: string}[]> {
   const alivePlayers = state.players.filter(p => p.isAlive && p.role);
   const allAbilities = await getAbilityDefs();
 
-  const queue: {abilityId: string; performerPhysicalId: number; priority: number; nameAr: string}[] = [];
+  const queue: {abilityId: string; performerPhysicalId: number; priority: number; nameAr: string; isDisabled?: boolean; disabledRoleName?: string}[] = [];
 
   for (const player of alivePlayers) {
     const roleId = player.role as string;
     const abilities = await getAbilitiesForRole(roleId);
+
+    // 🧙‍♀️ فحص التعطيل
+    const isPlayerDisabled = player.disabledUntilRound != null && player.disabledUntilRound >= (state.round || 1);
 
     for (const ability of abilities) {
       if (ability.phase === 'NIGHT' || ability.phase === 'BOTH') {
@@ -62,6 +65,8 @@ export async function buildNightQueue(state: GameState): Promise<{abilityId: str
           performerPhysicalId: player.physicalId,
           priority: ability.priority,
           nameAr: ability.nameAr,
+          isDisabled: isPlayerDisabled || undefined,
+          disabledRoleName: isPlayerDisabled ? (player.disabledRoleName || roleId) : undefined,
         });
       }
     }
@@ -74,6 +79,8 @@ export async function buildNightQueue(state: GameState): Promise<{abilityId: str
     abilityId: q.abilityId,
     performerPhysicalId: q.performerPhysicalId,
     nameAr: q.nameAr,
+    isDisabled: q.isDisabled,
+    disabledRoleName: q.disabledRoleName,
   }));
 }
 
@@ -141,6 +148,12 @@ export async function getAvailableTargets(
     }
   }
 
+  // 🧙‍♀️ استثناء الأهداف السابقة للساحرة (لاعب مختلف كل مرة)
+  if (abilityId === 'DISABLE_ABILITY') {
+    const previousTargets = state.witchPreviousTargets || [];
+    candidates = candidates.filter(p => !previousTargets.includes(p.physicalId));
+  }
+
   return candidates;
 }
 
@@ -204,6 +217,46 @@ export async function resolveNightDynamic(
         cancelledActions.add(actionA.abilityId);
         cancelledActions.add(actionB.abilityId);
         break;
+    }
+  }
+
+  // ═══ 🧙‍♀️ معالجة التعطيل أولاً ═══
+  for (const action of actions) {
+    if (cancelledActions.has(action.abilityId)) continue;
+    const ability = allAbilities.find(a => a.id === action.abilityId);
+    if ((ability?.effectType as string) !== 'DISABLE') continue;
+
+    const target = state.players.find(p => p.physicalId === action.targetPhysicalId);
+    if (!target) continue;
+
+    const disableRounds = state.config.witchDisableRounds || 3;
+    target.disabledUntilRound = (state.round || 1) + disableRounds - 1;
+    target.disabledRoleName = target.role || 'UNKNOWN';
+
+    // تسجيل الهدف لمنع التكرار
+    if (!state.witchPreviousTargets) state.witchPreviousTargets = [];
+    if (!state.witchPreviousTargets.includes(target.physicalId)) {
+      state.witchPreviousTargets.push(target.physicalId);
+    }
+
+    events.push({
+      type: 'ABILITY_DISABLED' as any,
+      targetPhysicalId: target.physicalId,
+      targetName: target.name,
+      extra: {
+        disabledRole: target.role,
+        disabledUntilRound: target.disabledUntilRound,
+      },
+      revealed: false,
+    });
+    console.log(`🧙‍♀️ Witch disabled ${target.name} (${target.role}) until round ${target.disabledUntilRound}`);
+  }
+
+  // ═══ إلغاء أحداث اللاعبين المعطّلين ═══
+  for (const action of actions) {
+    const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
+    if (performer?.disabledUntilRound != null && performer.disabledUntilRound >= (state.round || 1)) {
+      cancelledActions.add(action.abilityId);
     }
   }
 
@@ -288,9 +341,10 @@ export async function resolveNightDynamic(
 
       case 'REVEAL_TEAM': {
         const targetRole = await getRoleById(target.role as string);
-        // خداع الحرباية
+        // خداع الحرباية (إلا إذا معطّلة بالساحرة)
         let revealedTeam = targetRole?.team || 'CITIZEN';
-        if (target.role === 'CHAMELEON') {
+        const isChameleonDisabled = target.disabledUntilRound != null && target.disabledUntilRound >= (state.round || 1);
+        if (target.role === 'CHAMELEON' && !isChameleonDisabled) {
           revealedTeam = 'CITIZEN'; // يظهر كمواطن
         }
         // 🔪 خداع السفّاح — يظهر كمواطن

@@ -43,6 +43,8 @@ export interface Player {
   heldUntil?: number; // timestamp لانتهاء الحجز
   isConnected?: boolean; // هل اللاعب متصل حالياً
   penalties?: number; // عدد العقوبات المسجلة على اللاعب (على مستوى الروم — قابل للإبقاء أو التصفير عند كل جيم جديد)
+  disabledUntilRound?: number;   // 🧙‍♀️ الراوند الأخير للتعطيل (ضمناً)
+  disabledRoleName?: string;     // 🧙‍♀️ اسم الدور المعطّل (للعرض)
 }
 
 export enum CandidateType {
@@ -110,12 +112,13 @@ export interface NightActions {
   sniperTarget: number | null;
   nurseTarget: number | null;
   assassinTarget?: number | null;  // 🔪 هدف السفّاح
+  witchTarget?: number | null;     // 🧙‍♀️ هدف الساحرة
   lastProtectedTarget: number | null;
   randomSelections?: Record<string, boolean>;  // تتبع الاختيارات العشوائية (Auto Mode)
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -140,6 +143,7 @@ export const ROLE_NAMES_AR: Record<string, string> = {
   NURSE: 'الممرضة',
   POLICEWOMAN: 'الشرطية',
   JESTER: 'المهرج',
+  WITCH: 'الساحرة',
 };
 
 // الأدوار المؤهلة للعقود (كل دور مميز — ما عدا المواطن العادي والمافيا العادي)
@@ -183,6 +187,7 @@ export interface GameConfig {
   assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)
    jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
   maxConsecutiveMafiaGames?: number; // ♟️ الحد الأقصى لتكرار المافيا المتتالية (الافتراضي 3)
+  witchDisableRounds?: number;     // 🧙‍♀️ عدد راوندات تعطيل الساحرة (الافتراضي 3)
 }
 
 export interface GameState {
@@ -255,6 +260,11 @@ export interface GameState {
   } | null;
   // 🔪 حالة السفّاح (عقود الاغتيال)
   assassinState?: AssassinState | null;
+  // 🧙‍♀️ أهداف الساحرة السابقة (منع التكرار)
+  witchPreviousTargets?: number[];
+  // ── حالة خطوة الليل الحالية ──
+  currentNightStep?: any;
+  nightComplete?: boolean;
   createdAt: string;
 }
 

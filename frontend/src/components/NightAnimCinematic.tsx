@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import { playEventSound, playGameSound } from '@/lib/soundManager';
+import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
 
 // ══════════════════════════════════════════════════════
 // 🌙 Night Cinematic Animation — GSAP-powered
@@ -641,6 +642,138 @@ function MorningSilencedAnim({ data }: NightAnimProps) {
   );
 }
 
+
+// ══════════════════════════════════════════
+// 🧙‍♀️ Witch Disable Ability Animation — سحر ووهج بنفسجي
+// ══════════════════════════════════════════
+function WitchAnim() {
+  useEffect(() => {
+    playEventSound('night_witch');
+  }, []);
+
+  return (
+    <div className="relative w-full h-[300px] flex items-center justify-center overflow-hidden">
+      {/* هالة بنفسجية */}
+      <motion.div
+        className="absolute w-[300px] h-[300px] rounded-full"
+        style={{ background: 'radial-gradient(circle, rgba(147,51,234,0.3) 0%, transparent 70%)' }}
+        animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.3, 0.6, 0.3] }}
+        transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      {/* جزيئات طائرة (نجوم/رموز سحرية) */}
+      {[...Array(8)].map((_, i) => (
+        <motion.div
+          key={i}
+          className="absolute text-purple-400 text-lg opacity-0"
+          style={{
+            top: '50%',
+            left: '50%',
+          }}
+          animate={{
+            x: [0, (Math.random() - 0.5) * 200],
+            y: [0, (Math.random() - 0.5) * 200],
+            opacity: [0, 0.8, 0],
+            scale: [0.5, 1.2, 0.5],
+            rotate: [0, Math.random() * 360],
+          }}
+          transition={{
+            duration: 1.5 + Math.random(),
+            repeat: Infinity,
+            delay: i * 0.2,
+          }}
+        >
+          🔮
+        </motion.div>
+      ))}
+
+      <motion.div className="relative z-10 text-center">
+        <motion.div
+          className="text-8xl mb-4 drop-shadow-[0_0_30px_rgba(147,51,234,0.8)]"
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: [0, 1.3, 1], rotate: [-180, 10, 0] }}
+          transition={{ duration: 0.7, type: 'spring', damping: 12 }}
+        >
+          🧙‍♀️
+        </motion.div>
+        <motion.p
+          className="text-3xl md:text-4xl font-black text-[#9333ea] tracking-widest"
+          style={{ fontFamily: 'Amiri, serif' }}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+        >
+          تعطيل قدرة جارية...
+        </motion.p>
+      </motion.div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════
+// 🧙‍♀️ Morning: Ability Disabled
+// ══════════════════════════════════════════
+function MorningAbilityDisabledAnim({ data }: NightAnimProps) {
+  useEffect(() => { playGameSound('morning_ability_disabled'); }, []);
+  const disabledRole = data.extra?.disabledRole as Role | null;
+  const roleNameAr = disabledRole ? (ROLE_NAMES[disabledRole] || disabledRole) : 'مجهول';
+  const roleIcon = disabledRole ? (ROLE_ICONS[disabledRole] || '❓') : '❓';
+
+  return (
+    <div className="text-center py-4">
+      <motion.div
+        className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(147,51,234,0.8)]"
+        animate={{ scale: [0.8, 1.2, 1], rotate: [0, -5, 5, 0] }}
+        transition={{ duration: 0.8 }}
+      >
+        🚫
+      </motion.div>
+      <motion.p
+        className="text-3xl md:text-4xl font-black text-[#9333ea] tracking-widest mb-3"
+        style={{ fontFamily: 'Amiri, serif' }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.3 }}
+      >
+        تم تعطيل قدرة لاعب
+      </motion.p>
+      
+      {/* كارت الدور المعطّل — بدون كشف هوية اللاعب أو رقمه */}
+      <motion.div
+        className="mt-6 inline-flex flex-col items-center justify-center p-6 bg-[#0c0c0c] border-2 border-purple-500/30 rounded-2xl w-48 shadow-2xl relative overflow-hidden"
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6, type: 'spring', damping: 15 }}
+      >
+        {/* توهج بنفسجي خلفي */}
+        <div className="absolute inset-0 bg-gradient-to-b from-purple-500/5 to-purple-500/0 pointer-events-none" />
+        
+        <div className="w-16 h-16 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-center text-4xl mb-4">
+          {roleIcon}
+        </div>
+        
+        <p className="text-[#C5A059] font-mono text-sm tracking-widest uppercase mb-1">
+          ROLE DISABLED
+        </p>
+        
+        <p className="text-white text-lg font-black" style={{ fontFamily: 'Amiri, serif' }}>
+          {roleNameAr}
+        </p>
+        
+        <p className="text-purple-400 text-[10px] font-mono mt-3 uppercase tracking-widest">
+          🧙‍♀️ سحر الساحرة
+        </p>
+      </motion.div>
+
+      <motion.div
+        className="w-64 h-[2px] bg-gradient-to-r from-transparent via-[#9333ea] to-transparent mx-auto mt-6"
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={{ delay: 0.5, duration: 0.6 }}
+      />
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════
 // 🌙 Main NightAnimCinematic — Entry Point
 // يختار الأنيميشن المناسبة حسب نوع الحدث
@@ -658,6 +791,8 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
       return <SnipeAnim />;
     case 'SILENCE':
       return <SilenceAnim />;
+    case 'DISABLE_ABILITY':
+      return <WitchAnim />;
 
     // 🔪 أنيميشن السفّاح الليلي
     case 'ASSASSINATE':
@@ -674,6 +809,8 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
       return <MorningSnipeAnim data={data} success={true} />;
     case 'SNIPE_CITIZEN':
       return <MorningSnipeAnim data={data} success={false} />;
+    case 'ABILITY_DISABLED':
+      return <MorningAbilityDisabledAnim data={data} />;
 
     // 🔪 اغتيال السفّاح
     case 'ASSASSIN_KILL':

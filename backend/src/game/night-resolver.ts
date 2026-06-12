@@ -41,6 +41,28 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
   const pt = state.performanceTracking;
 
+  // ═══ 🧙‍♀️ إلغاء أهداف اللاعبين المعطّلين قبل المعالجة ═══
+  const isDisabled = (role: Role | string | null) => {
+    if (!role) return false;
+    const player = state.players.find(p => p.role === role && p.isAlive);
+    return player?.disabledUntilRound != null && player.disabledUntilRound >= (state.round || 1);
+  };
+
+  // الاغتيال: فحص إذا كان منفذ الاغتيال الحالي (حسب الترتيب) معطلاً
+  const activeAssassinator = state.players.find(p => 
+    [Role.GODFATHER, Role.CHAMELEON, Role.SILENCER, Role.MAFIA_REGULAR].includes(p.role as Role) && p.isAlive
+  );
+  if (activeAssassinator && activeAssassinator.disabledUntilRound != null && activeAssassinator.disabledUntilRound >= (state.round || 1)) {
+    nightActions.godfatherTarget = null;
+  }
+
+  if (isDisabled(Role.SILENCER)) { nightActions.silencerTarget = null; }
+  if (isDisabled(Role.SHERIFF)) { nightActions.sheriffTarget = null; }
+  if (isDisabled(Role.DOCTOR)) { nightActions.doctorTarget = null; }
+  if (isDisabled(Role.SNIPER)) { nightActions.sniperTarget = null; }
+  if (isDisabled(Role.NURSE)) { nightActions.nurseTarget = null; }
+  if (isDisabled('ASSASSIN' as any)) { nightActions.assassinTarget = null; }
+
   // ── 1. معالجة القنص ──────────────────────────
   if (nightActions.sniperTarget !== null) {
     const sniperTarget = state.players.find(p => p.physicalId === nightActions.sniperTarget);
@@ -124,7 +146,9 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     if (investigated) {
       let result: string;
       if (investigated.role === Role.CHAMELEON) {
-        result = 'CITIZEN'; // الحرباية تظهر كمواطن
+        // 🧙‍♀️ الحرباية المعطّلة تُكشف هويتها الحقيقية
+        const isChamDisabled = investigated.disabledUntilRound != null && investigated.disabledUntilRound >= (state.round || 1);
+        result = isChamDisabled ? 'MAFIA' : 'CITIZEN';
       } else if (investigated.role && isMafiaRole(investigated.role)) {
         result = 'MAFIA';
       } else {
@@ -345,10 +369,19 @@ export async function resetNightActions(roomId: string): Promise<GameState> {
   state.morningEvents = [];
 
   // إزالة الإسكات من الجولة السابقة
-  state.players.forEach(p => { p.isSilenced = false; });
+  state.players.forEach(p => {
+    p.isSilenced = false;
+    // 🧙‍♀️ تصفير التعطيل المنتهي
+    if (p.disabledUntilRound != null && p.disabledUntilRound < (state.round || 1)) {
+      p.disabledUntilRound = undefined;
+      p.disabledRoleName = undefined;
+    }
+  });
 
   // تصفير حالة تفعيل الممرضة
   state.nurseActivated = false;
+
+  state.nightActions.witchTarget = null;
 
   await setGameState(roomId, state);
   return state;
@@ -398,6 +431,17 @@ export function getAvailableTargets(state: GameState, role: Role): number[] {
         .map(p => p.physicalId);
 
     default: {
+      // 🧙‍♀️ الساحرة: المواطنين والمستقلين (ماعدا الشرطية + الأهداف السابقة + نفسها)
+      if ((role as string) === 'WITCH') {
+        const witch = state.players.find((p: any) => (p.role as string) === 'WITCH' && p.isAlive);
+        const previousTargets: number[] = (state as any).witchPreviousTargets || [];
+        return alive
+          .filter(p => p.role && !isMafiaRole(p.role))            // مواطنين/محايدين فقط
+          .filter(p => p.role !== Role.POLICEWOMAN)                // لا تستهدف الشرطية
+          .filter(p => p.physicalId !== witch?.physicalId)         // لا تستهدف نفسها
+          .filter(p => !previousTargets.includes(p.physicalId))   // لا تكرر هدفاً
+          .map(p => p.physicalId);
+      }
       // 🔪 السفّاح: كل الأحياء ما عدا نفسه
       if ((role as string) === 'ASSASSIN') {
         const assassin = state.players.find(p => (p.role as string) === 'ASSASSIN' && p.isAlive);

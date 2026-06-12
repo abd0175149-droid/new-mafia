@@ -17,7 +17,7 @@ export const targetTypeEnum = pgEnum('target_type', ['ENEMY', 'ALLY', 'ANY', 'SE
 
 export const effectTypeEnum = pgEnum('effect_type', [
   'ELIMINATE', 'BLOCK_ELIMINATE', 'REVEAL_TEAM',
-  'SILENCE', 'CONDITIONAL_ELIMINATE', 'PASSIVE',
+  'SILENCE', 'CONDITIONAL_ELIMINATE', 'PASSIVE', 'DISABLE',
 ]);
 
 export const teamTypeEnum = pgEnum('team_type', ['MAFIA', 'CITIZEN', 'NEUTRAL']);

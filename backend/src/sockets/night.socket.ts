@@ -31,16 +31,18 @@ import { closeSession } from '../services/session.service.js';
 const NIGHT_QUEUE_ORDER: Role[] = [
   Role.GODFATHER,  // 1. إجراء الاغتيال (يرث إذا الشيخ ميت)
   Role.SILENCER,   // 2. إجراء الإسكات
-  Role.SHERIFF,    // 3. إجراء التحقيق
-  Role.DOCTOR,     // 4. إجراء الحماية
-  Role.SNIPER,     // 5. إجراء القنص
-  'ASSASSIN' as Role,  // 6. 🔪 اغتيال السفّاح (آخر مرحلة)
+  Role.WITCH,      // 3. 🧙‍♀️ تعطيل الساحرة
+  Role.SHERIFF,    // 4. إجراء التحقيق
+  Role.DOCTOR,     // 5. إجراء الحماية
+  Role.SNIPER,     // 6. إجراء القنص
+  'ASSASSIN' as Role,  // 7. 🔪 اغتيال السفّاح (آخر مرحلة)
 ];
 
 // ── أسماء الإجراءات بالعربي ──
 const ACTION_NAMES: Record<string, string> = {
   [Role.GODFATHER]: 'اغتيال المافيا',
   [Role.SILENCER]: 'إسكات المافيا',
+  [Role.WITCH]: '🧙‍♀️ تعطيل الساحرة',
   [Role.SHERIFF]: 'تحقيق الشريف',
   [Role.DOCTOR]: 'حماية الطبيب',
   [Role.SNIPER]: 'قنص القناص',
@@ -595,6 +597,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
               availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
               canSkip: true, // كل القدرات الديناميكية قابلة للتخطي
               isDynamic: true,
+              isDisabled: step.isDisabled || false,
+              disabledRoleName: step.disabledRoleName || undefined,
             });
             io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr, stepType: step.abilityId });
             state.currentNightStep = {
@@ -736,7 +740,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
             const targetRole = await getRoleById(investigated.role as string);
             let sheriffResult = 'CITIZEN';
             if (investigated.role === 'CHAMELEON') {
-              sheriffResult = 'CITIZEN';
+              // 🧙‍♀️ الحرباية المعطّلة تُكشف هويتها الحقيقية
+              const isChamDisabled = investigated.disabledUntilRound != null && investigated.disabledUntilRound >= (state.round || 1);
+              sheriffResult = isChamDisabled ? 'MAFIA' : 'CITIZEN';
             } else if (targetRole?.team === 'MAFIA') {
               sheriffResult = 'MAFIA';
             }
@@ -765,6 +771,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
             availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
             canSkip: true,
             isDynamic: true,
+            isDisabled: (step as any).isDisabled || false,
+            disabledRoleName: (step as any).disabledRoleName || undefined,
           };
           socket.emit('night:queue-step', stepData);
           io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr, stepType: step.abilityId });
@@ -803,7 +811,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
           const investigated = state.players.find((p: any) => p.physicalId === data.targetPhysicalId);
           let sheriffResult = 'CITIZEN';
           if (investigated?.role === Role.CHAMELEON) {
-            sheriffResult = 'CITIZEN'; // الحرباية تظهر كمواطن
+            // 🧙‍♀️ الحرباية المعطّلة تُكشف هويتها الحقيقية
+            const isChamDisabled = investigated.disabledUntilRound != null && investigated.disabledUntilRound >= (state.round || 1);
+            sheriffResult = isChamDisabled ? 'MAFIA' : 'CITIZEN';
           } else if (investigated?.role && isMafiaRole(investigated.role)) {
             sheriffResult = 'MAFIA';
           }
@@ -837,6 +847,26 @@ export function registerNightEvents(io: Server, socket: Socket) {
         case Role.NURSE:
           state.nightActions.nurseTarget = data.targetPhysicalId;
           break;
+        case Role.WITCH: {
+          // 🧙‍♀️ تسجيل هدف الساحرة + تعطيل القدرة
+          state.nightActions.witchTarget = data.targetPhysicalId;
+          const witchTarget = state.players.find((p: any) => p.physicalId === data.targetPhysicalId);
+          if (witchTarget) {
+            const disableRounds = state.config.witchDisableRounds || 3;
+            witchTarget.disabledUntilRound = (state.round || 1) + disableRounds - 1;
+            witchTarget.disabledRoleName = witchTarget.role || undefined;
+          }
+          // تسجيل الأهداف السابقة (لمنع تكرار الهدف)
+          if (!state.witchPreviousTargets) state.witchPreviousTargets = [];
+          if (!state.witchPreviousTargets.includes(data.targetPhysicalId)) {
+            state.witchPreviousTargets.push(data.targetPhysicalId);
+          }
+          io.to(data.roomId).emit('night:animation', {
+            type: 'DISABLE_ABILITY',
+            targetPhysicalId: data.targetPhysicalId,
+          });
+          break;
+        }
         default:
           // 🔪 السفّاح
           if ((data.role as string) === 'ASSASSIN') {
@@ -931,6 +961,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
             availableTargets: targets.map(p => ({ physicalId: p.physicalId, name: p.name, avatarUrl: (p as any).avatarUrl || null })),
             canSkip: true,
             isDynamic: true,
+            isDisabled: (step as any).isDisabled || false,
+            disabledRoleName: (step as any).disabledRoleName || undefined,
           };
           socket.emit('night:queue-step', stepData);
           io.to(data.roomId).emit('night:step-info', { roleName: step.nameAr, stepType: step.abilityId });
@@ -1918,6 +1950,7 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
         // الطبيب ميت والممرضة مفعّلة → استبدال بالممرضة
         performer = state.players.find((p: any) => p.role === Role.NURSE && p.isAlive);
         if (performer) {
+          const isPlayerDisabled = performer.disabledUntilRound != null && performer.disabledUntilRound >= (state.round || 1);
           const targets = getAvailableTargets(state, Role.NURSE);
           return {
             role: Role.NURSE,
@@ -1929,6 +1962,8 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
               return { physicalId: id, name: p?.name || '', avatarUrl: p?.avatarUrl || null };
             }),
             canSkip: false,
+            isDisabled: isPlayerDisabled,
+            disabledRoleName: isPlayerDisabled ? (performer.disabledRoleName || Role.NURSE) : undefined,
           };
         }
       }
@@ -1946,6 +1981,7 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
       if (state.assassinState?.won) continue;
     }
 
+    const isPlayerDisabled = performer.disabledUntilRound != null && performer.disabledUntilRound >= (state.round || 1);
     const targets = getAvailableTargets(state, actionRole);
 
     return {
@@ -1957,7 +1993,9 @@ function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {
         const p = state.players.find((pl: any) => pl.physicalId === id);
         return { physicalId: id, name: p?.name || '', avatarUrl: p?.avatarUrl || null };
       }),
-      canSkip: actionRole === Role.SNIPER || actionRole === Role.SILENCER || actionRole === ('ASSASSIN' as Role),
+      canSkip: actionRole === Role.SNIPER || actionRole === Role.SILENCER || actionRole === Role.WITCH || actionRole === ('ASSASSIN' as Role),
+      isDisabled: isPlayerDisabled,
+      disabledRoleName: isPlayerDisabled ? (performer.disabledRoleName || actionRole) : undefined,
     };
   }
 

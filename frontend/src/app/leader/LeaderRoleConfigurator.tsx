@@ -16,6 +16,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [assassinContractCount, setAssassinContractCount] = useState(4);  // 🔪 عدد عقود السفّاح
   const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
+  const [witchDisableRounds, setWitchDisableRounds] = useState(3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
 
   useEffect(() => {
     const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
@@ -26,7 +27,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
     const totalNeutral = hasJester ? 1 : 0;
     const totalCitizens = playerCount - totalMafia - totalNeutral;
 
-    const mafiaOrder = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR];
+    const mafiaOrder = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.MAFIA_REGULAR];
     const citizenOrder = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.CITIZEN];
 
     let generated: Role[] = [];
@@ -94,6 +95,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
         roles,
         assassinContractCount: roles.includes(Role.ASSASSIN) ? assassinContractCount : undefined,
         jesterSurviveRounds: roles.includes(Role.JESTER) ? jesterSurviveRounds : undefined,
+        witchDisableRounds: roles.includes(Role.WITCH) ? witchDisableRounds : undefined,
       });
     } catch (err: any) {
       setError(err.message);
@@ -193,6 +195,33 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
               return renderRoleCard(r, i, 'text-[#C5A059]', 'border-[#8A0303]/20');
             })}
           </div>
+
+          {/* 🧙‍♀️ إعدادات الساحرة */}
+          {roles.includes(Role.WITCH) && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }} 
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-4 p-4 bg-purple-500/5 border border-purple-500/10 rounded-lg space-y-3"
+            >
+              <p className="text-purple-400/80 text-xs font-mono leading-relaxed" dir="rtl">
+                🧙‍♀️ الساحرة: تعطّل قدرة لاعب من المواطنين أو المستقلين لعدة راوندات. لاعب مختلف كل مرة. تكشف الحرباية إذا معطّلة.
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-purple-400/60 text-xs font-mono" dir="rtl">راوندات التعطيل:</span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setWitchDisableRounds(Math.max(1, witchDisableRounds - 1))}
+                    className="w-7 h-7 rounded bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 text-sm font-bold transition-colors"
+                  >−</button>
+                  <span className="text-purple-300 font-mono font-bold w-6 text-center">{witchDisableRounds}</span>
+                  <button 
+                    onClick={() => setWitchDisableRounds(Math.min(6, witchDisableRounds + 1))}
+                    className="w-7 h-7 rounded bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 text-sm font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
+            </motion.div>
+          )}
         </div>
 
         {/* Citizens Section */}
