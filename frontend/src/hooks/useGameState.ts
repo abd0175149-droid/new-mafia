@@ -28,6 +28,12 @@ export interface GameState {
   };
   morningEvents: MorningEvent[];
   winner: 'MAFIA' | 'CITIZEN' | null;
+  pendingBomb?: {
+    godfatherPhysicalId: number;
+    godfatherPlayerId: number | null;
+    above: { physicalId: number; name: string; role: string } | null;
+    below: { physicalId: number; name: string; role: string } | null;
+  } | null;
 }
 
 /**
