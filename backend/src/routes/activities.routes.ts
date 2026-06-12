@@ -668,6 +668,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
+  const id = parseInt(req.params.id);
   const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId } = req.body;
 
   const updates: any = {};
