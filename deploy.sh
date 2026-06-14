@@ -38,7 +38,7 @@ echo "4️⃣  Running database migrations..."
 sleep 5  # Wait for postgres to be ready
 
 # إضافة أعمدة جديدة — يتجاهل الخطأ إذا موجودة
-docker compose exec -T postgres psql -U mafia_user -d mafia_db -c \
+docker compose exec -T database psql -U mafia_user -d mafia_db -c \
   "ALTER TABLE players ADD COLUMN IF NOT EXISTS email VARCHAR(200);
    ALTER TABLE players ADD COLUMN IF NOT EXISTS avatar_url TEXT;
    ALTER TABLE players ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0;

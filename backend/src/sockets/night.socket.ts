@@ -18,6 +18,7 @@ import {
   type DynamicNightAction,
 } from '../game/dynamic-night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
+import { initTwinState, getTwinTransformNotification } from '../game/twin-engine.js';
 import { clearGameTimer } from '../game/game-timer.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
@@ -54,6 +55,7 @@ const ASSASSINATION_INHERITANCE: Role[] = [
   Role.GODFATHER,
   Role.CHAMELEON,
   Role.SILENCER,
+  Role.OLDER_BROTHER,   // 👥 التوأم — قبل المافيا العادي
   Role.MAFIA_REGULAR,
 ];
 
@@ -513,6 +515,15 @@ export function registerNightEvents(io: Server, socket: Socket) {
           }
         }
 
+        // 👥 تهيئة حالة التوأمين (أول ليلة فقط)
+        if (isFirstNight && !state.twinState) {
+          const twinState = initTwinState(state);
+          if (twinState) {
+            state.twinState = twinState;
+            console.log(`👥 [Auto] Twin Bond initialized: Older #${twinState.olderBrotherPhysicalId} ↔ Younger #${twinState.youngerBrotherPhysicalId}`);
+          }
+        }
+
         // 🔪 ضمان حفظ state مع assassinState قبل تحضير الطابور
         await setGameState(data.roomId, state);
 
@@ -580,6 +591,15 @@ export function registerNightEvents(io: Server, socket: Socket) {
             }
           }
 
+          // 👥 تهيئة حالة التوأمين (أول ليلة فقط)
+          if (isFirstNightDyn && !state.twinState) {
+            const twinState = initTwinState(state);
+            if (twinState) {
+              state.twinState = twinState;
+              console.log(`👥 Twin Bond initialized: Older #${twinState.olderBrotherPhysicalId} ↔ Younger #${twinState.youngerBrotherPhysicalId}`);
+            }
+          }
+
           const queue = await buildNightQueue(state);
           // حفظ الطابور الديناميكي في state
           (state as any).dynamicQueue = queue;
@@ -626,6 +646,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
       }
 
       // المحرك القديم (fallback أو الافتراضي)
+      // 👥 تهيئة حالة التوأمين (أول ليلة فقط)
+      if (state.round <= 0 && !state.twinState) {
+        const twinState = initTwinState(state);
+        if (twinState) {
+          state.twinState = twinState;
+          console.log(`👥 [Legacy] Twin Bond initialized: Older #${twinState.olderBrotherPhysicalId} ↔ Younger #${twinState.youngerBrotherPhysicalId}`);
+        }
+      }
       const firstStep = getNextQueueStep(state, -1);
       if (firstStep) {
         socket.emit('night:queue-step', firstStep);
@@ -1570,6 +1598,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.pendingWinner = null;
       state.performanceTracking = null;
       state.assassinState = null;
+      state.twinState = null;              // 👥 تصفير حالة التوأمين
       state.withdrawalState = null;
       state.justificationData = null;
       state.gameTimer = null;

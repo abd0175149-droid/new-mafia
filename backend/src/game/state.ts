@@ -118,7 +118,7 @@ export interface NightActions {
 }
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'PROTECTION_FAILED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ASSASSIN_KILL' | 'ASSASSIN_BLOCKED' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM';
   targetPhysicalId: number;
   targetName: string;
   performerPhysicalId?: number;  // من نفذ هذا الإجراء
@@ -144,6 +144,8 @@ export const ROLE_NAMES_AR: Record<string, string> = {
   POLICEWOMAN: 'الشرطية',
   JESTER: 'المهرج',
   WITCH: 'الساحرة',
+  OLDER_BROTHER: 'الأخ الأكبر',
+  YOUNGER_BROTHER: 'الأخ الأصغر',
 };
 
 // الأدوار المؤهلة للعقود (كل دور مميز — ما عدا المواطن العادي والمافيا العادي)
@@ -168,6 +170,17 @@ export interface AssassinState {
   firstNightPassed: boolean;      // false أول ليلة → ممنوع القتل
   lastKillRound: number | null;
   won: boolean;
+}
+
+// 👥 حالة التوأمين (Twin Bond State)
+export interface TwinState {
+  olderBrotherPhysicalId: number;     // الأخ الأكبر (مافيا)
+  youngerBrotherPhysicalId: number;    // الأخ الأصغر (مواطن)
+  olderAlive: boolean;
+  youngerAlive: boolean;
+  transformed: boolean;                // هل تحوّل الأصغر إلى مافيا؟
+  transformedToRole?: string;          // الدور الموروث بعد التحول
+  suicideTriggered: boolean;           // هل انتحر الأكبر؟
 }
 
 export interface GameConfig {
@@ -262,6 +275,8 @@ export interface GameState {
   assassinState?: AssassinState | null;
   // 🧙‍♀️ أهداف الساحرة السابقة (منع التكرار)
   witchPreviousTargets?: number[];
+  // 👥 حالة التوأمين
+  twinState?: TwinState | null;
   // ── حالة خطوة الليل الحالية ──
   currentNightStep?: any;
   nightComplete?: boolean;

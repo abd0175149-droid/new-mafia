@@ -9,6 +9,7 @@ export enum Role {
   SILENCER = 'SILENCER',
   CHAMELEON = 'CHAMELEON',
   WITCH = 'WITCH',
+  OLDER_BROTHER = 'OLDER_BROTHER',
   MAFIA_REGULAR = 'MAFIA_REGULAR',
   SHERIFF = 'SHERIFF',
   DOCTOR = 'DOCTOR',
@@ -16,11 +17,12 @@ export enum Role {
   POLICEWOMAN = 'POLICEWOMAN',
   NURSE = 'NURSE',
   CITIZEN = 'CITIZEN',
+  YOUNGER_BROTHER = 'YOUNGER_BROTHER',
   JESTER = 'JESTER',
   ASSASSIN = 'ASSASSIN',
 }
 
-export const MAFIA_ROLES = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.MAFIA_REGULAR];
+export const MAFIA_ROLES = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.OLDER_BROTHER, Role.MAFIA_REGULAR];
 export const NEUTRAL_ROLES = [Role.JESTER, Role.ASSASSIN];
 
 export function isMafiaRole(role: Role): boolean {
@@ -36,6 +38,7 @@ export const ROLE_NAMES: Record<Role, string> = {
   [Role.SILENCER]: 'قص المافيا',
   [Role.CHAMELEON]: 'حرباية المافيا',
   [Role.WITCH]: 'الساحرة',
+  [Role.OLDER_BROTHER]: 'الأخ الأكبر',
   [Role.MAFIA_REGULAR]: 'مافيا عادي',
   [Role.SHERIFF]: 'الشريف',
   [Role.DOCTOR]: 'الطبيب',
@@ -43,6 +46,7 @@ export const ROLE_NAMES: Record<Role, string> = {
   [Role.POLICEWOMAN]: 'الشرطية',
   [Role.NURSE]: 'الممرضة',
   [Role.CITIZEN]: 'مواطن صالح',
+  [Role.YOUNGER_BROTHER]: 'الأخ الأصغر',
   [Role.JESTER]: 'المهرج',
   [Role.ASSASSIN]: 'السفّاح',
 };
@@ -52,6 +56,7 @@ export const ROLE_ICONS: Record<Role, string> = {
   [Role.SILENCER]: '🤐',
   [Role.CHAMELEON]: '🦎',
   [Role.WITCH]: '🧙‍♀️',
+  [Role.OLDER_BROTHER]: '👥',
   [Role.MAFIA_REGULAR]: '🎭',
   [Role.SHERIFF]: '🔍',
   [Role.DOCTOR]: '💉',
@@ -59,6 +64,7 @@ export const ROLE_ICONS: Record<Role, string> = {
   [Role.POLICEWOMAN]: '👮‍♀️',
   [Role.NURSE]: '🏥',
   [Role.CITIZEN]: '👤',
+  [Role.YOUNGER_BROTHER]: '👥',
   [Role.JESTER]: '🤡',
   [Role.ASSASSIN]: '🔪',
 };
@@ -126,7 +132,7 @@ export interface DealCandidate {
 export type Candidate = PlayerCandidate | DealCandidate;
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ABILITY_DISABLED';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM';
   targetPhysicalId: number;
   targetName: string;
   extra?: Record<string, unknown>;

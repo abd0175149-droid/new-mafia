@@ -11,6 +11,7 @@ export enum Role {
   SILENCER = 'SILENCER',             // قص المافيا
   CHAMELEON = 'CHAMELEON',           // حرباية المافيا
   WITCH = 'WITCH',                   // الساحرة 🧙‍♀️
+  OLDER_BROTHER = 'OLDER_BROTHER',   // 👥 الأخ الأكبر (توأم مافيا)
   MAFIA_REGULAR = 'MAFIA_REGULAR',   // مافيا عادي
 
   // فريق المواطنين
@@ -20,6 +21,7 @@ export enum Role {
   POLICEWOMAN = 'POLICEWOMAN',       // الشرطية
   NURSE = 'NURSE',                   // الممرضة
   CITIZEN = 'CITIZEN',               // مواطن صالح
+  YOUNGER_BROTHER = 'YOUNGER_BROTHER', // 👥 الأخ الأصغر (توأم مواطن)
 
   // فريق محايد
   JESTER = 'JESTER',                 // المهرج 🤡
@@ -33,6 +35,7 @@ export const MAFIA_ROLES: Role[] = [
   Role.SILENCER,
   Role.CHAMELEON,
   Role.WITCH,
+  Role.OLDER_BROTHER,
   Role.MAFIA_REGULAR,
 ];
 
@@ -43,6 +46,7 @@ export const CITIZEN_ROLES: Role[] = [
   Role.POLICEWOMAN,
   Role.NURSE,
   Role.CITIZEN,
+  Role.YOUNGER_BROTHER,
 ];
 
 export const NEUTRAL_ROLES: Role[] = [
@@ -79,6 +83,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.SILENCER]: 'قص المافيا',
   [Role.CHAMELEON]: 'حرباية المافيا',
   [Role.WITCH]: 'الساحرة',
+  [Role.OLDER_BROTHER]: 'الأخ الأكبر',
   [Role.MAFIA_REGULAR]: 'مافيا عادي',
   [Role.SHERIFF]: 'الشريف',
   [Role.DOCTOR]: 'الطبيب',
@@ -86,6 +91,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.POLICEWOMAN]: 'الشرطية',
   [Role.NURSE]: 'الممرضة',
   [Role.CITIZEN]: 'مواطن صالح',
+  [Role.YOUNGER_BROTHER]: 'الأخ الأصغر',
   [Role.JESTER]: 'المهرج',
   [Role.ASSASSIN]: 'السفّاح',
 };

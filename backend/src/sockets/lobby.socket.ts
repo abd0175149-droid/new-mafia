@@ -2051,6 +2051,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     roles: Role[];
     assassinContractCount?: number;    // 🔪 عدد عقود السفّاح
     jesterSurviveRounds?: number;      // 🤡 جولات نجاة المهرج
+    witchDisableRounds?: number;       // 🧙‍♀️ راوندات تعطيل الساحرة
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -2072,6 +2073,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
       if (data.jesterSurviveRounds !== undefined) {
         state.config.jesterSurviveRounds = data.jesterSurviveRounds;
+      }
+      // 🧙‍♀️ حفظ إعدادات الساحرة
+      if (data.witchDisableRounds !== undefined) {
+        state.config.witchDisableRounds = Math.min(6, Math.max(1, data.witchDisableRounds));
       }
 
       await updateRoom(data.roomId, { phase: Phase.ROLE_BINDING, rolesPool: data.roles, config: state.config });

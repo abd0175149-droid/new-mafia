@@ -13,6 +13,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { Role, isMafiaRole, isNeutralRole } from './roles.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
+import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
 
 export interface NightResolution {
   events: MorningEvent[];
@@ -50,7 +51,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
 
   // الاغتيال: فحص إذا كان منفذ الاغتيال الحالي (حسب الترتيب) معطلاً
   const activeAssassinator = state.players.find(p => 
-    [Role.GODFATHER, Role.CHAMELEON, Role.SILENCER, Role.MAFIA_REGULAR].includes(p.role as Role) && p.isAlive
+    [Role.GODFATHER, Role.CHAMELEON, Role.SILENCER, Role.OLDER_BROTHER, Role.MAFIA_REGULAR].includes(p.role as Role) && p.isAlive
   );
   if (activeAssassinator && activeAssassinator.disabledUntilRound != null && activeAssassinator.disabledUntilRound >= (state.round || 1)) {
     nightActions.godfatherTarget = null;
@@ -282,6 +283,39 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     state.winner = 'JESTER';
     await setGameState(roomId, state);
     return { events, winResult: WinResult.GAME_CONTINUES, neutralWin };
+  }
+
+  // ═══ 👥 معالجة ارتباط التوأمين (قبل فحص الفوز) ═══
+  if (state.twinState) {
+    // جمع كل اللاعبين الذين ماتوا هذه الليلة
+    const nightDeaths = events
+      .filter(e => ['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(e.type))
+      .map(e => e.targetPhysicalId);
+
+    // القناص يموت أيضاً عند قنص مواطن
+    const sniperDeathEvent = events.find(e => e.type === 'SNIPE_CITIZEN');
+    if (sniperDeathEvent) {
+      const sniper = state.players.find(p => p.role === Role.SNIPER);
+      if (sniper) nightDeaths.push(sniper.physicalId);
+    }
+
+    for (const deadId of nightDeaths) {
+      const twinResult = processTwinBond(state, deadId, 'NIGHT');
+      if (twinResult.triggered) {
+        if (twinResult.type === 'SUICIDE') {
+          const suicideEvent = applySuicide(state, twinResult);
+          if (suicideEvent) {
+            events.push(suicideEvent);
+            // فحص الشرطية بعد الانتحار
+            checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+          }
+        } else if (twinResult.type === 'TRANSFORM') {
+          const transformEvent = applyTransform(state, twinResult);
+          if (transformEvent) events.push(transformEvent);
+        }
+        break; // ارتباط الدم يحدث مرة واحدة فقط
+      }
+    }
   }
 
   let finalWinResult = WinResult.GAME_CONTINUES;

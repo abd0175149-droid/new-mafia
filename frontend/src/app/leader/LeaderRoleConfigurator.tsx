@@ -87,6 +87,32 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
     setRoles(newRoles);
   };
 
+  // 👥 تبديل التوأمين (يأتيان معاً أو يُلغيان معاً)
+  const toggleTwins = () => {
+    const newRoles = [...roles];
+    const hasOlder = newRoles.includes(Role.OLDER_BROTHER);
+    const hasYounger = newRoles.includes(Role.YOUNGER_BROTHER);
+
+    if (hasOlder || hasYounger) {
+      // إزالة التوأمين → إعادة مقاعد مافيا عادي + مواطن
+      const olderIdx = newRoles.indexOf(Role.OLDER_BROTHER);
+      if (olderIdx >= 0) newRoles[olderIdx] = Role.MAFIA_REGULAR;
+      const youngerIdx = newRoles.indexOf(Role.YOUNGER_BROTHER);
+      if (youngerIdx >= 0) newRoles[youngerIdx] = Role.CITIZEN;
+    } else {
+      // إضافة التوأمين: سحب مقعد مافيا عادي + مواطن
+      const lastMafiaIdx = newRoles.lastIndexOf(Role.MAFIA_REGULAR);
+      if (lastMafiaIdx >= 0) {
+        newRoles[lastMafiaIdx] = Role.OLDER_BROTHER;
+      }
+      const lastCitizenIdx = newRoles.lastIndexOf(Role.CITIZEN);
+      if (lastCitizenIdx >= 0) {
+        newRoles[lastCitizenIdx] = Role.YOUNGER_BROTHER;
+      }
+    }
+    setRoles(newRoles);
+  };
+
   const handleConfirm = async () => {
     try {
       setLoading(true);
@@ -112,6 +138,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const neutralRoles = roles.filter(r => NEUTRAL_ROLES.includes(r));
   const hasJesterInRoles = roles.includes(Role.JESTER);
   const hasAssassinInRoles = roles.includes(Role.ASSASSIN);
+  const hasTwinsInRoles = roles.includes(Role.OLDER_BROTHER) && roles.includes(Role.YOUNGER_BROTHER);
   const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
 
   // تحديد أي قسم فيه dropdown مفتوح لرفع z-index ديناميكياً
@@ -277,6 +304,19 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
                   }`}
                 >
                   {hasAssassinInRoles ? '🔪 إزالة السفّاح' : '➕ إضافة السفّاح'}
+                </button>
+              )}
+              {/* 👥 زر التوأمين — يظهر فقط عند 10+ لاعبين */}
+              {playerCount >= 10 && (
+                <button
+                  onClick={toggleTwins}
+                  className={`px-4 py-1.5 rounded-lg font-mono text-xs font-bold transition-all border ${
+                    hasTwinsInRoles
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 hover:bg-purple-500/30'
+                      : 'bg-[#111] text-[#555] border-[#2a2a2a] hover:border-purple-500/40 hover:text-purple-400'
+                  }`}
+                >
+                  {hasTwinsInRoles ? '👥 إزالة التوأمين' : '➕ إضافة التوأمين'}
                 </button>
               )}
             </div>

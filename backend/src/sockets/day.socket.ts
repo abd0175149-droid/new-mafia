@@ -22,6 +22,7 @@ import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
+import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
@@ -992,6 +993,29 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // مسح القنبلة المعلقة
       state.pendingBomb = null;
 
+      // 👥 معالجة ارتباط التوأمين بعد القنبلة
+      if (state.twinState) {
+        for (const elId of bombEliminated) {
+          const twinResult = processTwinBond(state, elId, 'BOMB');
+          if (twinResult.triggered) {
+            if (twinResult.type === 'SUICIDE') {
+              const suicideEvent = applySuicide(state, twinResult);
+              if (suicideEvent) {
+                checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+                io.to(data.roomId).emit('display:morning-event', {
+                  type: 'TWIN_SUICIDE',
+                  targetPhysicalId: twinResult.suicidePhysicalId,
+                  targetName: twinResult.suicideName,
+                });
+              }
+            } else if (twinResult.type === 'TRANSFORM') {
+              applyTransform(state, twinResult);
+            }
+            break;
+          }
+        }
+      }
+
       // فحص شرط الفوز بعد الإقصاء الإضافي
       let winResult;
       if (state.config.useDynamicEngine) {
@@ -1112,6 +1136,30 @@ export function registerDayEvents(io: Server, socket: Socket) {
             }
           }
 
+          await setGameState(data.roomId, state);
+        }
+
+        // 👥 معالجة ارتباط التوأمين بعد الإقصاء بالتصويت
+        if (state.twinState && eliminated.length > 0) {
+          for (const elId of eliminated) {
+            const twinResult = processTwinBond(state, elId, 'DAY_VOTE');
+            if (twinResult.triggered) {
+              if (twinResult.type === 'SUICIDE') {
+                const suicideEvent = applySuicide(state, twinResult);
+                if (suicideEvent) {
+                  checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+                  io.to(data.roomId).emit('display:morning-event', {
+                    type: 'TWIN_SUICIDE',
+                    targetPhysicalId: twinResult.suicidePhysicalId,
+                    targetName: twinResult.suicideName,
+                  });
+                }
+              } else if (twinResult.type === 'TRANSFORM') {
+                applyTransform(state, twinResult);
+              }
+              break;
+            }
+          }
           await setGameState(data.roomId, state);
         }
 
@@ -1391,6 +1439,26 @@ export function registerDayEvents(io: Server, socket: Socket) {
       // ═══ إقصاء اللاعب ═══
       player.isAlive = false;
       checkPolicewomanTrigger(state, data.physicalId);
+
+      // 👥 معالجة ارتباط التوأمين بعد الإقصاء الإداري
+      if (state.twinState) {
+        const twinResult = processTwinBond(state, data.physicalId, 'ADMIN');
+        if (twinResult.triggered) {
+          if (twinResult.type === 'SUICIDE') {
+            const suicideEvent = applySuicide(state, twinResult);
+            if (suicideEvent) {
+              checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+              io.to(data.roomId).emit('display:morning-event', {
+                type: 'TWIN_SUICIDE',
+                targetPhysicalId: twinResult.suicidePhysicalId,
+                targetName: twinResult.suicideName,
+              });
+            }
+          } else if (twinResult.type === 'TRANSFORM') {
+            applyTransform(state, twinResult);
+          }
+        }
+      }
 
       // ═══ تحديث النقاش (Discussion) ═══
       if (state.discussionState && !state.discussionState.isFinished) {

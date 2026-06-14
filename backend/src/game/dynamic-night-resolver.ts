@@ -12,7 +12,9 @@ import {
   type AbilityDef,
   type InteractionRuleDef,
 } from './definition-service.js';
-import { isNeutralRole } from './roles.js';
+import { isNeutralRole, Role } from './roles.js';
+import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
+import { checkPolicewomanTrigger } from './night-resolver.js';
 
 // ── أنواع ────────────────────────────────────────────
 
@@ -396,6 +398,37 @@ export async function resolveNightDynamic(
 
     // تحديث آخر هدف
     dynamicNight.lastTargets[action.abilityId] = action.targetPhysicalId!;
+  }
+
+  // ═══ 👥 معالجة ارتباط التوأمين (قبل الإرجاع) ═══
+  if (state.twinState) {
+    const nightDeaths = events
+      .filter(e => ['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(e.type))
+      .map(e => e.targetPhysicalId);
+
+    // القناص يموت أيضاً عند قنص مواطن
+    const sniperDeathEvent = events.find(e => e.type === 'SNIPE_CITIZEN');
+    if (sniperDeathEvent) {
+      const sniper = state.players.find(p => p.role === 'SNIPER' || p.role === Role.SNIPER);
+      if (sniper) nightDeaths.push(sniper.physicalId);
+    }
+
+    for (const deadId of nightDeaths) {
+      const twinResult = processTwinBond(state, deadId, 'NIGHT_DYNAMIC');
+      if (twinResult.triggered) {
+        if (twinResult.type === 'SUICIDE') {
+          const suicideEvent = applySuicide(state, twinResult);
+          if (suicideEvent) {
+            events.push(suicideEvent);
+            checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+          }
+        } else if (twinResult.type === 'TRANSFORM') {
+          const transformEvent = applyTransform(state, twinResult);
+          if (transformEvent) events.push(transformEvent);
+        }
+        break;
+      }
+    }
   }
 
   return events;
