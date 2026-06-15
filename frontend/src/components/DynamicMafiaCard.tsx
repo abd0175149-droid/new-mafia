@@ -137,12 +137,17 @@ export default function DynamicMafiaCard({
   const iconConfig = roleOverrides?.icon || cardTemplate?.icon;
   let RoleIcon: LucideIcon = User;
   let iconEmoji: string | null = null;
+  let iconImageUrl: string | null = null;
 
   if (iconConfig) {
     if (iconConfig.type === 'lucide') {
       RoleIcon = getLucideIcon(iconConfig.value);
     } else if (iconConfig.type === 'emoji') {
       iconEmoji = iconConfig.value;
+    } else if (iconConfig.type === 'image' || iconConfig.type === 'IMAGE') {
+      // صورة مرفوعة — القيمة هي URL الصورة
+      const imgVal = iconConfig.value || iconConfig.url || '';
+      iconImageUrl = imgVal.startsWith('http') ? imgVal : (imgVal ? `${SOCKET_URL}${imgVal}` : null);
     }
   } else {
     // fallback للأيقونات القديمة
@@ -443,7 +448,9 @@ export default function DynamicMafiaCard({
                 ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px) scale(${cardTemplate.elements.positions.icon.s || 1})` } : {})
               }}
             >
-              {iconEmoji ? (
+              {iconImageUrl ? (
+                <img src={iconImageUrl} alt={roleName} className="w-full h-full object-cover rounded-full" />
+              ) : iconEmoji ? (
                 <span style={{ fontSize: iconSize }}>{iconEmoji}</span>
               ) : (
                 <RoleIcon size={iconSize} strokeWidth={1.5} />

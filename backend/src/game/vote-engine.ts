@@ -9,6 +9,7 @@ import { checkWinCondition, WinResult } from './win-checker.js';
 import { isMafiaRole } from './roles.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
+import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
 
 // ── تهيئة ساحة التصويت ──────────────────────────
 
@@ -373,6 +374,29 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
           };
           console.log(`💣 Bomb ability triggered (DEAL) for Godfather #${gfId} — above: ${above?.physicalId || 'none'}, below: ${below?.physicalId || 'none'}`);
         }
+      }
+    }
+  }
+
+  // 👥 معالجة ارتباط التوأمين بعد الإقصاء بالتصويت (قبل فحص الفوز)
+  if (state.twinState && eliminated.length > 0) {
+    for (const elId of eliminated) {
+      const twinResult = processTwinBond(state, elId, 'DAY_VOTE');
+      if (twinResult.triggered) {
+        if (twinResult.type === 'SUICIDE') {
+          const suicideEvent = applySuicide(state, twinResult);
+          if (suicideEvent) {
+            checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+            // إضافة المنتحر لقائمة المُقصين لتظهر في الواجهة
+            eliminated.push(twinResult.suicidePhysicalId!);
+            revealedRoles.push({ physicalId: twinResult.suicidePhysicalId!, role: 'OLDER_BROTHER' });
+            console.log(`👥 Twin suicide triggered in vote: Older Brother #${twinResult.suicidePhysicalId}`);
+          }
+        } else if (twinResult.type === 'TRANSFORM') {
+          applyTransform(state, twinResult);
+          console.log(`👥 Twin transform triggered in vote: Younger Brother #${twinResult.transformPhysicalId} → ${twinResult.newRole}`);
+        }
+        break;
       }
     }
   }
