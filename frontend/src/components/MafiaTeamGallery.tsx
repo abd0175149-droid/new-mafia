@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Users, Target } from 'lucide-react';
-import MafiaCard from './MafiaCard';
+import { X, Users, Target, Shield, Eye, Vote, MessageCircle } from 'lucide-react';
+import { ROLE_NAMES, ROLE_ICONS, Role } from '@/lib/constants';
 
 interface AssassinContract {
   id: number;
@@ -32,6 +32,14 @@ interface MafiaTeamGalleryProps {
     completedCount: number;
     totalRequired: number;
   } | null;
+}
+
+// ── أيقونة الدور حسب role string ──
+function getRoleIcon(role: string): string {
+  return ROLE_ICONS[role as Role] || '🎭';
+}
+function getRoleName(role: string): string {
+  return ROLE_NAMES[role as Role] || role;
 }
 
 export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, assassinContracts }: MafiaTeamGalleryProps) {
@@ -64,7 +72,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-lg mx-auto flex flex-col items-center justify-center p-4"
+            className="relative w-full max-w-sm mx-auto flex flex-col items-center justify-center p-4"
           >
             {/* Close Button */}
             <button
@@ -106,7 +114,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                 <div className="w-full max-w-sm space-y-3 max-h-[50vh] overflow-y-auto px-2 pb-4">
                 {assassinContracts.contracts.map((contract, i) => {
                     const isCompleted = contract.completed;
-                    const isActive = !contract.completed; // 🆕 كل العقود غير المكتملة نشطة
+                    const isActive = !contract.completed;
 
                     return (
                       <motion.div
@@ -172,58 +180,105 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                 </div>
               </>
             ) : (
-              /* ══ عرض المافيا العادي ══ */
+              /* ══ عرض المافيا / المواطن ══ */
               <>
-                <div className="mb-6 flex flex-col items-center">
-                  <div className="w-12 h-12 rounded-full bg-[#1a0505] border border-[#8A0303] flex items-center justify-center mb-2 shadow-[0_0_15px_rgba(138,3,3,0.5)]">
-                    <Users size={24} className="text-[#8A0303]" />
-                  </div>
-                  <h2 className="text-xl font-bold text-red-500 tracking-widest text-center">
-                    فريق المافيا
-                  </h2>
-                  <p className="text-red-500/60 text-xs mt-1 text-center font-mono">
-                    اسحب يميناً ويساراً للتنقل - اضغط على الكارد لكشف الدور
-                  </p>
-                </div>
-
                 {team.length > 0 ? (
+                  /* ── فريق المافيا: Grid مضغوط ثابت ── */
                   <>
-                    {/* Gallery Container */}
-                    <div className="w-full max-w-[100vw] overflow-x-auto snap-x snap-mandatory flex gap-4 px-4 pb-8 pt-4 hide-scrollbar touch-pan-x">
-                      {team.map((member, index) => (
-                        <div 
-                          key={member.physicalId} 
-                          className="snap-center shrink-0 flex items-center justify-center"
-                          style={{ width: '80vw', maxWidth: '280px' }}
+                    <div className="mb-5 flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-[#1a0505] border border-[#8A0303] flex items-center justify-center mb-2 shadow-[0_0_15px_rgba(138,3,3,0.5)]">
+                        <Users size={24} className="text-[#8A0303]" />
+                      </div>
+                      <h2 className="text-xl font-bold text-red-500 tracking-widest text-center" style={{ fontFamily: 'Amiri, serif' }}>
+                        شركاؤك
+                      </h2>
+                      <p className="text-red-500/40 text-[10px] mt-1 text-center font-mono tracking-widest uppercase">
+                        {team.length} في الفريق
+                      </p>
+                    </div>
+
+                    {/* Grid: 3 أعمدة — كل شيء مرئي دفعة واحدة */}
+                    <div className="w-full grid grid-cols-3 gap-3 px-2">
+                      {team.map((member, i) => (
+                        <motion.div
+                          key={member.physicalId}
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: i * 0.07, type: 'spring', stiffness: 300, damping: 25 }}
+                          className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0505] to-[#0d0202]"
                         >
-                          <MafiaCard
-                            playerNumber={member.physicalId}
-                            playerName={member.name}
-                            role={member.role}
-                            avatarUrl={member.avatarUrl}
-                            size="fluid"
-                            className="w-full aspect-[3/4] max-h-[60vh]"
-                            flippable={true}
-                          />
-                        </div>
+                          {/* الأفاتار / الأيقونة */}
+                          <div className="relative">
+                            {member.avatarUrl ? (
+                              <img
+                                src={member.avatarUrl}
+                                alt={member.name}
+                                className="w-14 h-14 rounded-full object-cover border-2 border-[#8A0303]/60"
+                              />
+                            ) : (
+                              <div className="w-14 h-14 rounded-full bg-[#0d0202] border-2 border-[#8A0303]/60 flex items-center justify-center text-2xl">
+                                {getRoleIcon(member.role)}
+                              </div>
+                            )}
+                            {/* رقم المقعد */}
+                            <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-[#8A0303] flex items-center justify-center">
+                              <span className="text-white text-[10px] font-black font-mono">{member.physicalId}</span>
+                            </div>
+                          </div>
+
+                          {/* الاسم */}
+                          <p className="text-white text-[11px] font-bold text-center leading-tight truncate w-full" dir="rtl">
+                            {member.name}
+                          </p>
+
+                          {/* الدور */}
+                          <span className="text-red-400/70 text-[9px] font-mono text-center leading-tight">
+                            {getRoleName(member.role)}
+                          </span>
+                        </motion.div>
                       ))}
                     </div>
-                    
-                    {/* Dots indicator */}
-                    {team.length > 1 && (
-                      <div className="flex gap-2 mt-2">
-                        {team.map((_, i) => (
-                          <div key={i} className="w-2 h-2 rounded-full bg-[#8A0303]/40 border border-[#8A0303]/20" />
-                        ))}
-                      </div>
-                    )}
                   </>
                 ) : (
-                  <div className="text-center py-12 px-4 border border-[#8A0303]/20 bg-[#1a0505]/50 rounded-2xl w-full max-w-sm mt-4">
-                    <Users size={48} className="mx-auto text-[#8A0303]/40 mb-4" />
-                    <p className="text-[#8A0303] font-bold text-lg">أنت لست من المافيا</p>
-                    <p className="text-[#8A0303]/60 text-sm mt-2">ليس لديك شركاء لتتعرف عليهم</p>
-                  </div>
+                  /* ── المواطن / المحايد: محتوى بنفس الحجم البصري ── */
+                  <>
+                    <div className="mb-5 flex flex-col items-center">
+                      <div className="w-12 h-12 rounded-full bg-[#1a0505] border border-[#8A0303] flex items-center justify-center mb-2 shadow-[0_0_15px_rgba(138,3,3,0.5)]">
+                        <Shield size={24} className="text-[#8A0303]" />
+                      </div>
+                      <h2 className="text-xl font-bold text-red-500 tracking-widest text-center" style={{ fontFamily: 'Amiri, serif' }}>
+                        ملف استخباراتي
+                      </h2>
+                      <p className="text-red-500/40 text-[10px] mt-1 text-center font-mono tracking-widest uppercase">
+                        INTELLIGENCE BRIEFING
+                      </p>
+                    </div>
+
+                    <div className="w-full space-y-3 px-2">
+                      {[
+                        { icon: <Eye size={18} className="text-red-400" />, text: 'راقب ردود فعل اللاعبين أثناء النقاش', sub: 'التوتر المفاجئ قد يكشف المافيا' },
+                        { icon: <MessageCircle size={18} className="text-red-400" />, text: 'انتبه لمن يُوجّه الاتهامات بدون دليل', sub: 'المافيا تحاول تشتيت الانتباه' },
+                        { icon: <Vote size={18} className="text-red-400" />, text: 'صوّت بحكمة بناءً على الملاحظات', sub: 'لا تتبع القطيع — فكّر بنفسك' },
+                        { icon: <Shield size={18} className="text-red-400" />, text: 'لا تكشف دورك حتى لو ضُغط عليك', sub: 'الصمت أحياناً أقوى سلاح' },
+                      ].map((tip, i) => (
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.08 }}
+                          className="flex items-start gap-3 p-3 rounded-xl border border-[#8A0303]/20 bg-gradient-to-r from-[#1a0505]/80 to-[#0d0202]/50"
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-[#8A0303]/10 border border-[#8A0303]/30 flex items-center justify-center shrink-0">
+                            {tip.icon}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-xs font-bold" dir="rtl">{tip.text}</p>
+                            <p className="text-red-500/40 text-[10px] mt-0.5 font-mono" dir="rtl">{tip.sub}</p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </>
             )}
