@@ -277,6 +277,9 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
         performerPhysicalId: witchPlayer?.physicalId,
         performerName: witchPlayer?.name,
         wasRandom: !!nightActions.randomSelections?.['WITCH'],
+        extra: {
+          disabledRole: witchTargetPlayer.role
+        },
         revealed: false
       });
       console.log(`🧙‍♀️ [resolveNight] Witch disabled ${witchTargetPlayer.name}`);

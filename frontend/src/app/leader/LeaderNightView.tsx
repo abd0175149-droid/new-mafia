@@ -889,6 +889,9 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                           {event.type === 'SILENCED' && (
                             <p className="text-[#888] text-xs font-mono mt-1">#{event.targetPhysicalId} — {event.targetName}</p>
                           )}
+                          {event.type === 'ABILITY_DISABLED' && (
+                            <p className="text-[#9333ea] text-xs font-mono mt-1">🚫 #{event.targetPhysicalId} — {event.targetName}</p>
+                          )}
                           {event.type === 'PROTECTION_FAILED' && (
                             <p className="text-[#8B4513] text-xs font-mono mt-1">حُمي #{event.targetPhysicalId} — {event.targetName} لكن الاغتيال استهدف شخصاً آخر</p>
                           )}
