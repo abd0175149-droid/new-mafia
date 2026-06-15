@@ -414,92 +414,107 @@ export default function DynamicMafiaCard({
             transform: 'rotateY(180deg) translateZ(0)',
           }}
         >
-          {/* خلفية متدرجة من DB — CSS */}
-          <div className="absolute inset-0" style={{ background: gradient }} />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
+          {/* ── محتوى الوجه الخلفي: صورة مخصصة أو تصميم ديناميكي ── */}
+          {cardTemplate?.secretFace?.customImageUrl ? (
+            /* ✅ وضع الصورة المخصصة — تُعرض كخلفية كاملة بدون أي عنصر ديناميكي */
+            <img
+              src={cardTemplate.secretFace.customImageUrl.startsWith('http')
+                ? cardTemplate.secretFace.customImageUrl
+                : `${SOCKET_URL}${cardTemplate.secretFace.customImageUrl}`}
+              alt={roleName}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            /* التصميم الديناميكي العادي (gradient + icon + badge...) */
+            <>
+              {/* خلفية متدرجة من DB — CSS */}
+              <div className="absolute inset-0" style={{ background: gradient }} />
+              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top right, transparent, rgba(255,255,255,0.03), transparent)' }} />
 
-          {/* شارة الفريق */}
-          {teamBadge.visible && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 font-mono tracking-widest whitespace-nowrap"
-                 style={{ fontSize: `${teamBadge.fontSize}px`, borderRadius: teamBadge.borderRadius, backgroundColor: teamBadge.bgColor, color: teamBadge.textColor, border: `1px solid ${teamBadge.borderColor}`, ...(cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}) }}>
-              {teamBadge.text}
-            </div>
+              {/* شارة الفريق */}
+              {teamBadge.visible && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1 font-mono tracking-widest whitespace-nowrap"
+                     style={{ fontSize: `${teamBadge.fontSize}px`, borderRadius: teamBadge.borderRadius, backgroundColor: teamBadge.bgColor, color: teamBadge.textColor, border: `1px solid ${teamBadge.borderColor}`, ...(cardTemplate?.elements?.positions?.badge ? { transform: `translate(calc(-50% + ${cardTemplate.elements.positions.badge.x}px), ${cardTemplate.elements.positions.badge.y}px) scale(${cardTemplate.elements.positions.badge.s || 1})` } : {}) }}>
+                  {teamBadge.text}
+                </div>
+              )}
+
+              {/* المحتوى */}
+              <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden" dir="rtl" style={{ textAlign: 'center' }}>
+                {/* رقم اللاعب صغير */}
+                <div 
+                  className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40"
+                  style={{ border: `1px solid ${borderColor}`, color: textColor, ...(cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}) }}
+                >
+                  {playerNumber}
+                </div>
+
+                {/* دائرة الأيقونة */}
+                <div
+                  className="w-24 h-24 rounded-full flex items-center justify-center mb-5"
+                  style={{
+                    border: `2px solid ${borderColor}`,
+                    color: textColor,
+                    background: 'rgba(0,0,0,0.4)',
+                    backdropFilter: 'blur(12px)',
+                    boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)',
+                    ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px) scale(${cardTemplate.elements.positions.icon.s || 1})` } : {})
+                  }}
+                >
+                  {iconImageUrl ? (
+                    <img src={iconImageUrl} alt={roleName} className="w-full h-full object-cover rounded-full" />
+                  ) : iconEmoji ? (
+                    <span style={{ fontSize: iconSize }}>{iconEmoji}</span>
+                  ) : (
+                    <RoleIcon size={iconSize} strokeWidth={1.5} />
+                  )}
+                </div>
+
+                {/* اسم الدور */}
+                <h3 
+                  className={`${roleNameSize} font-black mb-2`} 
+                  style={{ fontFamily: 'Amiri, serif', color: textColor, ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px) scale(${cardTemplate.elements.positions.title.s || 1})` } : {}) }}
+                >
+                  {roleName}
+                </h3>
+
+                {/* اسم اللاعب */}
+                {cardTemplate?.elements?.showPlayerNumber !== false && (
+                  <p 
+                    className="text-white/40 text-sm font-mono tracking-widest" 
+                    dir="ltr"
+                    style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}}
+                  >
+                    {playerName}
+                  </p>
+                )}
+
+                {/* الخط الفاصل */}
+                <div className="w-20 h-[1px] my-4" style={{ backgroundColor: borderColor }} />
+
+                {/* نص أسفل */}
+                <div 
+                  className="mt-auto"
+                  style={cardTemplate?.elements?.positions?.footer ? { transform: `translate(${cardTemplate.elements.positions.footer.x}px, ${cardTemplate.elements.positions.footer.y}px) scale(${cardTemplate.elements.positions.footer.s || 1})` } : {}}
+                >
+                  {cardTemplate?.elements?.customFooterText ? (
+                    <span className="text-[9px] text-zinc-500 font-mono" style={{ fontFamily: cardTemplate.elements.fontFamily || 'Amiri, serif' }}>
+                      {cardTemplate.elements.customFooterText}
+                    </span>
+                  ) : (
+                    flippable && <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase" dir="ltr">
+                      اضغط للإخفاء
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Shapes on Role Face (Rendered last to sit on top) */}
+              {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
+                <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
+              ))}
+            </>
           )}
-
-          {/* المحتوى */}
-          <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden" dir="rtl" style={{ textAlign: 'center' }}>
-            {/* رقم اللاعب صغير */}
-            <div 
-              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40"
-              style={{ border: `1px solid ${borderColor}`, color: textColor, ...(cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}) }}
-            >
-              {playerNumber}
-            </div>
-
-            {/* دائرة الأيقونة */}
-            <div
-              className="w-24 h-24 rounded-full flex items-center justify-center mb-5"
-              style={{
-                border: `2px solid ${borderColor}`,
-                color: textColor,
-                background: 'rgba(0,0,0,0.4)',
-                backdropFilter: 'blur(12px)',
-                boxShadow: 'inset 0 0 20px rgba(0,0,0,0.3)',
-                ...(cardTemplate?.elements?.positions?.icon ? { transform: `translate(${cardTemplate.elements.positions.icon.x}px, ${cardTemplate.elements.positions.icon.y}px) scale(${cardTemplate.elements.positions.icon.s || 1})` } : {})
-              }}
-            >
-              {iconImageUrl ? (
-                <img src={iconImageUrl} alt={roleName} className="w-full h-full object-cover rounded-full" />
-              ) : iconEmoji ? (
-                <span style={{ fontSize: iconSize }}>{iconEmoji}</span>
-              ) : (
-                <RoleIcon size={iconSize} strokeWidth={1.5} />
-              )}
-            </div>
-
-            {/* اسم الدور */}
-            <h3 
-              className={`${roleNameSize} font-black mb-2`} 
-              style={{ fontFamily: 'Amiri, serif', color: textColor, ...(cardTemplate?.elements?.positions?.title ? { transform: `translate(${cardTemplate.elements.positions.title.x}px, ${cardTemplate.elements.positions.title.y}px) scale(${cardTemplate.elements.positions.title.s || 1})` } : {}) }}
-            >
-              {roleName}
-            </h3>
-
-            {/* اسم اللاعب */}
-            {cardTemplate?.elements?.showPlayerNumber !== false && (
-              <p 
-                className="text-white/40 text-sm font-mono tracking-widest" 
-                dir="ltr"
-                style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}}
-              >
-                {playerName}
-              </p>
-            )}
-
-            {/* الخط الفاصل */}
-            <div className="w-20 h-[1px] my-4" style={{ backgroundColor: borderColor }} />
-
-            {/* نص أسفل */}
-            <div 
-              className="mt-auto"
-              style={cardTemplate?.elements?.positions?.footer ? { transform: `translate(${cardTemplate.elements.positions.footer.x}px, ${cardTemplate.elements.positions.footer.y}px) scale(${cardTemplate.elements.positions.footer.s || 1})` } : {}}
-            >
-              {cardTemplate?.elements?.customFooterText ? (
-                <span className="text-[9px] text-zinc-500 font-mono" style={{ fontFamily: cardTemplate.elements.fontFamily || 'Amiri, serif' }}>
-                  {cardTemplate.elements.customFooterText}
-                </span>
-              ) : (
-                flippable && <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase" dir="ltr">
-                  اضغط للإخفاء
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Shapes on Role Face (Rendered last to sit on top) */}
-          {(cardTemplate?.elements?.shapes || []).filter((s:any) => s.face === 'role').map((s:any) => (
-            <div key={s.id} className="absolute pointer-events-none" style={{ width: s.w, height: s.h, backgroundColor: s.bg, opacity: s.opacity, zIndex: s.zIndex, borderRadius: s.radius, top: '50%', left: '50%', marginTop: -s.h/2, marginLeft: -s.w/2 }} />
-          ))}
         </div>
       </div>
     </div>
