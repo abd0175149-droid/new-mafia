@@ -185,9 +185,9 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                 {team.length > 0 ? (
                   /* ── فريق المافيا: Grid مضغوط ثابت ── */
                   <>
-                    <div className="mb-5 flex flex-col items-center">
-                      <div className="w-12 h-12 rounded-full bg-[#1a0505] border border-[#8A0303] flex items-center justify-center mb-2 shadow-[0_0_15px_rgba(138,3,3,0.5)]">
-                        <Users size={24} className="text-[#8A0303]" />
+                    <div className="mb-4 flex flex-col items-center">
+                      <div className="w-14 h-14 rounded-full bg-[#1a0505] border border-[#8A0303] flex items-center justify-center mb-2 shadow-[0_0_20px_rgba(138,3,3,0.5)]">
+                        <Users size={28} className="text-[#8A0303]" />
                       </div>
                       <h2 className="text-xl font-bold text-red-500 tracking-widest text-center" style={{ fontFamily: 'Amiri, serif' }}>
                         شركاؤك
@@ -198,14 +198,14 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                     </div>
 
                     {/* Grid: 3 أعمدة — كل شيء مرئي دفعة واحدة */}
-                    <div className="w-full grid grid-cols-3 gap-3 px-2">
+                    <div className="w-full grid grid-cols-3 gap-2.5 px-1">
                       {team.map((member, i) => (
                         <motion.div
                           key={member.physicalId}
                           initial={{ opacity: 0, scale: 0.8 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ delay: i * 0.07, type: 'spring', stiffness: 300, damping: 25 }}
-                          className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0505] to-[#0d0202]"
+                          className="flex flex-col items-center gap-2 py-4 px-2 rounded-2xl border border-[#8A0303]/30 bg-gradient-to-b from-[#1a0808] to-[#0a0101] shadow-[0_0_12px_rgba(138,3,3,0.15)]"
                         >
                           {/* الأفاتار / الأيقونة */}
                           <div className="relative">
@@ -213,26 +213,26 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
                               <img
                                 src={member.avatarUrl}
                                 alt={member.name}
-                                className="w-14 h-14 rounded-full object-cover border-2 border-[#8A0303]/60"
+                                className="w-[72px] h-[72px] rounded-full object-cover border-2 border-[#8A0303]/60 shadow-[0_0_10px_rgba(138,3,3,0.3)]"
                               />
                             ) : (
-                              <div className="w-14 h-14 rounded-full bg-[#0d0202] border-2 border-[#8A0303]/60 flex items-center justify-center text-2xl">
+                              <div className="w-[72px] h-[72px] rounded-full bg-[#0d0202] border-2 border-[#8A0303]/60 flex items-center justify-center text-3xl shadow-[0_0_10px_rgba(138,3,3,0.3)]">
                                 {getRoleIcon(member.role)}
                               </div>
                             )}
                             {/* رقم المقعد */}
-                            <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-[#8A0303] flex items-center justify-center">
-                              <span className="text-white text-[10px] font-black font-mono">{member.physicalId}</span>
+                            <div className="absolute -top-1 -right-1 w-7 h-7 rounded-full bg-[#8A0303] flex items-center justify-center shadow-lg">
+                              <span className="text-white text-[11px] font-black font-mono">{member.physicalId}</span>
                             </div>
                           </div>
 
                           {/* الاسم */}
-                          <p className="text-white text-[11px] font-bold text-center leading-tight truncate w-full" dir="rtl">
+                          <p className="text-white text-xs font-bold text-center leading-tight truncate w-full mt-1" dir="rtl">
                             {member.name}
                           </p>
 
                           {/* الدور */}
-                          <span className="text-red-400/70 text-[9px] font-mono text-center leading-tight">
+                          <span className="text-red-400/80 text-[10px] font-mono text-center leading-tight px-2 py-0.5 rounded-full bg-[#8A0303]/10 border border-[#8A0303]/20">
                             {getRoleName(member.role)}
                           </span>
                         </motion.div>
