@@ -11,16 +11,24 @@ import { Role, ROLE_NAMES } from '@/lib/constants';
 const ALL_ROLES = Object.values(Role);
 
 const DEMO_PLAYERS = [
+  // 🔴 فريق المافيا
   { number: 1, name: 'عبدالله', role: Role.GODFATHER, gender: 'MALE' as const },
-  { number: 2, name: 'فاطمة', role: Role.SHERIFF, gender: 'FEMALE' as const },
-  { number: 3, name: 'خالد', role: Role.DOCTOR, gender: 'MALE' as const },
-  { number: 4, name: 'نورة', role: Role.CHAMELEON, gender: 'FEMALE' as const },
-  { number: 5, name: 'أحمد', role: Role.SNIPER, gender: 'MALE' as const },
-  { number: 6, name: 'سارة', role: Role.NURSE, gender: 'FEMALE' as const },
-  { number: 7, name: 'محمد', role: Role.MAFIA_REGULAR, gender: 'MALE' as const },
-  { number: 8, name: 'ريم', role: Role.POLICEWOMAN, gender: 'FEMALE' as const },
-  { number: 9, name: 'عمر', role: Role.SILENCER, gender: 'MALE' as const },
-  { number: 10, name: 'لينا', role: Role.CITIZEN, gender: 'FEMALE' as const },
+  { number: 2, name: 'خالد', role: Role.SILENCER, gender: 'MALE' as const },
+  { number: 3, name: 'نورة', role: Role.CHAMELEON, gender: 'FEMALE' as const },
+  { number: 4, name: 'سارة', role: Role.WITCH, gender: 'FEMALE' as const },
+  { number: 5, name: 'محمد', role: Role.MAFIA_REGULAR, gender: 'MALE' as const },
+  { number: 6, name: 'طارق', role: Role.OLDER_BROTHER, gender: 'MALE' as const },
+  // 🔵 فريق المواطنين
+  { number: 7, name: 'فاطمة', role: Role.SHERIFF, gender: 'FEMALE' as const },
+  { number: 8, name: 'أحمد', role: Role.DOCTOR, gender: 'MALE' as const },
+  { number: 9, name: 'عمر', role: Role.SNIPER, gender: 'MALE' as const },
+  { number: 10, name: 'ريم', role: Role.POLICEWOMAN, gender: 'FEMALE' as const },
+  { number: 11, name: 'لينا', role: Role.NURSE, gender: 'FEMALE' as const },
+  { number: 12, name: 'سعد', role: Role.CITIZEN, gender: 'MALE' as const },
+  { number: 13, name: 'ياسر', role: Role.YOUNGER_BROTHER, gender: 'MALE' as const },
+  // 🟡 محايد
+  { number: 14, name: 'هند', role: Role.JESTER, gender: 'FEMALE' as const },
+  { number: 15, name: 'زياد', role: Role.ASSASSIN, gender: 'MALE' as const },
 ];
 
 export default function CardDemoPage() {
