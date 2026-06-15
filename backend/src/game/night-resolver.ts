@@ -264,6 +264,25 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     checkPolicewomanTrigger(state, pid);
   }
 
+  // ── 5.6. إضافة حدث تعطيل الساحرة (إن وجد) ──
+  if (nightActions.witchTarget != null) {
+    const witchTargetPlayer = state.players.find(p => p.physicalId === nightActions.witchTarget);
+    const witchPlayer = state.players.find(p => p.role === 'WITCH' && p.isAlive);
+    
+    if (witchTargetPlayer) {
+      events.push({
+        type: 'ABILITY_DISABLED',
+        targetPhysicalId: witchTargetPlayer.physicalId,
+        targetName: witchTargetPlayer.name,
+        performerPhysicalId: witchPlayer?.physicalId,
+        performerName: witchPlayer?.name,
+        wasRandom: !!nightActions.randomSelections?.['WITCH'],
+        revealed: false
+      });
+      console.log(`🧙‍♀️ [resolveNight] Witch disabled ${witchTargetPlayer.name}`);
+    }
+  }
+
   // ── 6. حفظ أحداث الصباح ───────────────────────
   state.morningEvents = events;
 
