@@ -25,6 +25,8 @@ const ACTION_META: Record<string, { icon: string; color: string; bgGlow: string 
   SNIPE:      { icon: '🎯', color: 'text-[#8A0303]', bgGlow: 'shadow-[0_0_40px_rgba(138,3,3,0.2)]' },
   ASSASSINATE:{ icon: '🗡️', color: 'text-[#6b21a8]', bgGlow: 'shadow-[0_0_40px_rgba(107,33,168,0.3)]' },
   DISABLE_ABILITY:{ icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
+  WITCH:      { icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
+  DISABLE:    { icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
 };
 
 // أيقونة أحداث الصباح
@@ -330,6 +332,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
       case 'DOCTOR': return gameState.nightActions.doctorTarget;
       case 'NURSE': return gameState.nightActions.nurseTarget;
       case 'SNIPER': return gameState.nightActions.sniperTarget;
+      case 'WITCH': return gameState.nightActions.witchTarget;
       default: return null;
     }
   };
@@ -1112,8 +1115,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
           <div className="flex items-center gap-1.5">
             {(() => {
               // دعم الوضعين: Auto Mode (أسماء الأدوار) + Dynamic Engine (معرفات القدرات)
-              const autoRoles = ['GODFATHER', 'SILENCER', 'SHERIFF', 'DOCTOR', 'SNIPER', 'ASSASSIN'];
-              const dynamicRoles = ['KILL', 'SILENCE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'];
+              const autoRoles = ['GODFATHER', 'SILENCER', 'WITCH', 'SHERIFF', 'DOCTOR', 'SNIPER', 'ASSASSIN'];
+              const dynamicRoles = ['KILL', 'SILENCE', 'DISABLE', 'INVESTIGATE', 'PROTECT', 'SNIPE', 'ASSASSINATE'];
               const roles = autoRoles.includes(nightStep.role) ? autoRoles : dynamicRoles;
               return roles.map((role) => {
               const roleMeta = ACTION_META[role];

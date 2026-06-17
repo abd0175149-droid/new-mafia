@@ -73,6 +73,7 @@ function getAutoActionType(role: Role | null): string {
     case Role.DOCTOR:        return 'PROTECT';
     case Role.NURSE:         return 'PROTECT';
     case Role.SNIPER:        return 'SNIPE';
+    case Role.WITCH:         return 'DISABLE'; // 🧙‍♀️ تعطيل الساحرة
     case 'ASSASSIN' as Role:  return 'ASSASSINATE';
     default:                 return 'DECOY'; // مواطن عادي — يُهمل
   }
@@ -96,12 +97,43 @@ function getAutoTargets(state: any, role: Role | null, selfId: number): number[]
       return alive.filter((id: number) => id !== state.nightActions.lastProtectedTarget);
     case Role.SNIPER:
       return alive.filter((id: number) => id !== selfId);
+    case Role.WITCH: {
+      // 🧙‍♀️ الساحرة: مواطنون/محايدون أحياء فقط، ماعدا الشرطية + نفسها + الأهداف السابقة
+      const previousTargets: number[] = state.witchPreviousTargets || [];
+      return state.players
+        .filter((p: any) =>
+          p.isAlive &&
+          p.role &&
+          !isMafiaRole(p.role) &&
+          p.role !== Role.POLICEWOMAN &&
+          p.physicalId !== selfId &&
+          !previousTargets.includes(p.physicalId)
+        )
+        .map((p: any) => p.physicalId);
+    }
     case 'ASSASSIN' as Role:
       // السفّاح: كل الأحياء ما عدا نفسه
       return alive.filter((id: number) => id !== selfId);
     default:
       // DECOY: نفس الأحياء للتمويه
       return alive.filter((id: number) => id !== selfId);
+  }
+}
+
+// ── 🧙‍♀️ تطبيق تعطيل الساحرة (دالة موحّدة لكل المسارات: يدوي/مهلة/إرسال/موافقة) ──
+// تضبط الهدف + تطبّق التعطيل + تسجّل الهدف لمنع التكرار. تمنع تكرار المنطق في 4 switch.
+function applyWitchDisable(state: any, targetPhysicalId: number | null) {
+  if (targetPhysicalId == null) return;
+  state.nightActions.witchTarget = targetPhysicalId;
+  const target = state.players.find((p: any) => p.physicalId === targetPhysicalId);
+  if (target) {
+    const disableRounds = state.config.witchDisableRounds || 3;
+    target.disabledUntilRound = (state.round || 1) + disableRounds - 1;
+    target.disabledRoleName = target.role || undefined;
+  }
+  if (!state.witchPreviousTargets) state.witchPreviousTargets = [];
+  if (!state.witchPreviousTargets.includes(targetPhysicalId)) {
+    state.witchPreviousTargets.push(targetPhysicalId);
   }
 }
 
@@ -344,6 +376,11 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
               case Role.NURSE:
                 latestState.nightActions.nurseTarget = tId;
                 latestState.nightActions.randomSelections['NURSE'] = true;
+                break;
+              case Role.WITCH:
+                // 🧙‍♀️ ضبط الهدف + التعطيل (اختيار عشوائي عند انتهاء المهلة)
+                applyWitchDisable(latestState, tId);
+                latestState.nightActions.randomSelections['WITCH'] = true;
                 break;
               default:
                 // 🔪 السفّاح وأي دور جديد
@@ -876,19 +913,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
           state.nightActions.nurseTarget = data.targetPhysicalId;
           break;
         case Role.WITCH: {
-          // 🧙‍♀️ تسجيل هدف الساحرة + تعطيل القدرة
-          state.nightActions.witchTarget = data.targetPhysicalId;
-          const witchTarget = state.players.find((p: any) => p.physicalId === data.targetPhysicalId);
-          if (witchTarget) {
-            const disableRounds = state.config.witchDisableRounds || 3;
-            witchTarget.disabledUntilRound = (state.round || 1) + disableRounds - 1;
-            witchTarget.disabledRoleName = witchTarget.role || undefined;
-          }
-          // تسجيل الأهداف السابقة (لمنع تكرار الهدف)
-          if (!state.witchPreviousTargets) state.witchPreviousTargets = [];
-          if (!state.witchPreviousTargets.includes(data.targetPhysicalId)) {
-            state.witchPreviousTargets.push(data.targetPhysicalId);
-          }
+          // 🧙‍♀️ تسجيل هدف الساحرة + تعطيل القدرة (موحّد عبر الدالة المساعدة)
+          applyWitchDisable(state, data.targetPhysicalId);
           io.to(data.roomId).emit('night:animation', {
             type: 'DISABLE_ABILITY',
             targetPhysicalId: data.targetPhysicalId,
@@ -1698,6 +1724,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
           case Role.SNIPER:
             state.nightActions.sniperTarget = data.targetPhysicalId;
             break;
+          case Role.WITCH:
+            // 🧙‍♀️ ضبط الهدف + التعطيل (إرسال لاعب الساحرة)
+            applyWitchDisable(state, data.targetPhysicalId);
+            break;
           default:
             // 🔪 السفّاح
             if ((stepRole as string) === 'ASSASSIN') {
@@ -1840,9 +1870,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
            case Role.NURSE: 
              state.nightActions.nurseTarget = realChoice.targetPhysicalId; 
              break;
-           case Role.SNIPER: 
-             state.nightActions.sniperTarget = realChoice.targetPhysicalId; 
+           case Role.SNIPER:
+             state.nightActions.sniperTarget = realChoice.targetPhysicalId;
              animType = 'SNIPE';
+             break;
+           case Role.WITCH:
+             // 🧙‍♀️ ضبط الهدف + التعطيل + أنيميشن التعطيل (موافقة القائد)
+             applyWitchDisable(state, realChoice.targetPhysicalId);
+             animType = 'DISABLE_ABILITY';
              break;
            default:
              if ((stepRole as string) === 'ASSASSIN') {
@@ -1959,6 +1994,8 @@ interface QueueStep {
   performerName: string;
   availableTargets: { physicalId: number; name: string; avatarUrl?: string | null }[];
   canSkip: boolean;
+  isDisabled?: boolean;          // 🧙‍♀️ هل اللاعب معطّل (بفعل الساحرة)
+  disabledRoleName?: string;     // اسم الدور المعطّل (للعرض)
 }
 
 function getNextQueueStep(state: any, currentIndex: number): QueueStep | null {

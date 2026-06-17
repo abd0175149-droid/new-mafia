@@ -2794,6 +2794,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       isSilenced: false,
       role: null,
       justificationCount: 0,
+      disabledUntilRound: undefined,  // 🧙‍♀️ منع تسرّب تعطيل الساحرة بين المباريات
+      disabledRoleName: undefined,
       penalties: shouldResetPenalties ? 0 : (p.penalties || 0),
       penaltyKicked: shouldResetPenalties ? false : (p.penaltyKicked || false),
     }));
@@ -2824,8 +2826,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       doctorTarget: null,
       sniperTarget: null,
       nurseTarget: null,
+      witchTarget: null,        // 🧙‍♀️ هدف الساحرة
+      assassinTarget: null,     // 🔪 هدف السفّاح
       lastProtectedTarget: null,
     };
+    // 🧙‍♀️ تصفير أهداف الساحرة السابقة (منع التسرّب بين المباريات)
+    state.witchPreviousTargets = [];
 
     // ── تصفير حالة الليل الأوتو (إصلاح مشكلة القنص عند بدء لعبة ثانية) ──
     state.nightStep = null;

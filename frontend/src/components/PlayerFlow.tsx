@@ -868,6 +868,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             const stepActionType = ns.autoNightStepRole === 'SHERIFF' ? 'INVESTIGATE' :
               ns.autoNightStepRole === 'DOCTOR' || ns.autoNightStepRole === 'NURSE' ? 'PROTECT' :
               ns.autoNightStepRole === 'SNIPER' ? 'SNIPE' :
+              ns.autoNightStepRole === 'WITCH' ? 'DISABLE' :
               ns.autoNightStepRole === 'SILENCER' && !isPerformer ? 'DECOY' : 'KILL';
 
             setNightActionRequired({
@@ -3304,6 +3305,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     (nightActionRequired.actionType === 'PROTECT' && 'من تريد حمايته الليلة؟') ||
                     (nightActionRequired.actionType === 'SNIPE' && 'اختر هدف القنص') ||
                     (nightActionRequired.actionType === 'SILENCE' && 'من تريد إسكاته؟') ||
+                    (nightActionRequired.actionType === 'DISABLE' && 'اختر لاعباً لتعطيل قدرته') ||
                     (nightActionRequired.actionType === 'DECOY' && 'اختر أي شخص')
                   )
                 }
