@@ -223,9 +223,11 @@ async function resolveAutoNight(io: Server, roomId: string) {
   });
 
   // 👥 إشعار المافيا/الأصغر إن حدث تحوّل (الحدث نفسه يُكشف من morningEvents بزر الليدر)
-  if (stateAfter) {
-    notifyTwinTransform(io, roomId, stateAfter);
-    await setGameState(roomId, stateAfter);
+  // ⚠️ نعيد تحميل أحدث حالة (وليس stateAfter القديمة) كي لا نمسح pendingWinner المحفوظ في فروع الفوز أعلاه
+  const finalAutoState = await getGameState(roomId);
+  if (finalAutoState) {
+    notifyTwinTransform(io, roomId, finalAutoState);
+    await setGameState(roomId, finalAutoState);
   }
 
   console.log(`✅ Auto night resolved for room ${roomId}`);
@@ -1251,9 +1253,11 @@ export function registerNightEvents(io: Server, socket: Socket) {
       });
 
       // 👥 إشعار المافيا/الأصغر إن حدث تحوّل
-      if (stateAfterResolve) {
-        notifyTwinTransform(io, data.roomId, stateAfterResolve);
-        await setGameState(data.roomId, stateAfterResolve);
+      // ⚠️ نعيد تحميل أحدث حالة (وليس stateAfterResolve القديمة) كي لا نمسح pendingWinner المحفوظ في فروع الفوز
+      const finalResolveState = await getGameState(data.roomId);
+      if (finalResolveState) {
+        notifyTwinTransform(io, data.roomId, finalResolveState);
+        await setGameState(data.roomId, finalResolveState);
       }
 
       callback({ success: true, events: resolution.events });
