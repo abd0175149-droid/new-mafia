@@ -1621,18 +1621,20 @@ export function registerDayEvents(io: Server, socket: Socket) {
     physicalId: number;
     playerName: string;
     role: string;
-  }) => {
-    if (socket.data.role !== 'leader') return;
+  }, callback?: (res: { success: boolean; error?: string }) => void) => {
+    if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
     io.to(data.roomId).emit('admin:show-reveal', {
       physicalId: data.physicalId,
       playerName: data.playerName,
       role: data.role,
     });
+    callback?.({ success: true });
   });
 
   // ── إخفاء كشف الدور عن الـ Display ──
-  socket.on('admin:dismiss-reveal', (data: { roomId: string }) => {
-    if (socket.data.role !== 'leader') return;
+  socket.on('admin:dismiss-reveal', (data: { roomId: string }, callback?: (res: { success: boolean; error?: string }) => void) => {
+    if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
     io.to(data.roomId).emit('admin:hide-reveal');
+    callback?.({ success: true });
   });
 }
