@@ -189,6 +189,8 @@ export interface MafiaCardProps {
   className?: string;
   /** رابط صورة اللاعب الشخصية */
   avatarUrl?: string | null;
+  /** إخفاء هوية اللاعب (الرقم/الاسم) على الوجه السري — لعرض الدور فقط (مثل تعطيل الساحرة) */
+  hideIdentity?: boolean;
 }
 
 // ── Component ────────────────────────────────

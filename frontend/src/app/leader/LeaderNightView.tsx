@@ -41,6 +41,8 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   ASSASSIN_KILL:        { icon: '🔪', title: 'السفّاح اغتال',     color: 'text-[#DC143C]', displayable: true },
   ASSASSIN_BLOCKED:     { icon: '🛡️', title: 'حماية ضد السفّاح',   color: 'text-[#2E5C31]', displayable: true },
   ABILITY_DISABLED:     { icon: '🧙‍♀️', title: 'تعطيل قدرة',        color: 'text-[#9333ea]', displayable: true },
+  TWIN_SUICIDE:         { icon: '🩸', title: 'انتحار التوأم',      color: 'text-[#8A0303]', displayable: true },
+  TWIN_TRANSFORM:       { icon: '🌑', title: 'الصحوة المظلمة',     color: 'text-[#6b21a8]', displayable: true },
 };
 
 export default function LeaderNightView({ gameState, emit, setError }: LeaderNightViewProps) {
@@ -894,6 +896,17 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                           )}
                           {event.type === 'ABILITY_DISABLED' && (
                             <p className="text-[#9333ea] text-xs font-mono mt-1">🚫 #{event.targetPhysicalId} — {event.targetName}</p>
+                          )}
+                          {event.type === 'TWIN_SUICIDE' && (
+                            <p className="text-[#8A0303] text-xs font-mono mt-1">🩸 #{event.targetPhysicalId} — {event.targetName} (انتحر بعد موت أخيه الأصغر)</p>
+                          )}
+                          {event.type === 'TWIN_TRANSFORM' && (
+                            <p className="text-[#a855f7] text-xs font-mono mt-1">
+                              🌑 #{event.targetPhysicalId} — {event.targetName} تحوّل إلى مافيا
+                              {event.extra?.newRoleName && (
+                                <span className="text-[#6b21a8] text-[9px] ml-2">({event.extra.newRoleName})</span>
+                              )}
+                            </p>
                           )}
                           {event.type === 'PROTECTION_FAILED' && (
                             <p className="text-[#8B4513] text-xs font-mono mt-1">حُمي #{event.targetPhysicalId} — {event.targetName} لكن الاغتيال استهدف شخصاً آخر</p>

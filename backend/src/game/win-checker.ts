@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { type GameState, getAlivePlayers } from './state.js';
-import { isMafiaRole } from './roles.js';
+import { isMafiaRole, isCitizenRole } from './roles.js';
 
 export enum WinResult {
   MAFIA_WIN = 'MAFIA',
@@ -23,14 +23,17 @@ export function checkWinCondition(state: GameState): WinResult {
   const alivePlayers = getAlivePlayers(state);
 
   const aliveMafia = alivePlayers.filter(p => p.role && isMafiaRole(p.role)).length;
-  const aliveCitizens = alivePlayers.filter(p => p.role && !isMafiaRole(p.role)).length;
+  // ⚠️ المواطنون الحقيقيون فقط (CITIZEN_ROLES) — المحايدون (المهرّج/السفّاح) لا يُحسبون
+  // في معادلة المافيا ضد المواطنين. فوزهم يُفحص منفصلاً، وإن بقوا أحياء عند فوز فريق
+  // فهم خاسرون. هذا يمنع تأخّر فوز المافيا أو إعلان فوز خاطئ بسبب محايد حي.
+  const aliveCitizens = alivePlayers.filter(p => p.role && isCitizenRole(p.role)).length;
 
   // فوز المواطنين: كل المافيا ماتوا
   if (aliveMafia === 0) {
     return WinResult.CITIZEN_WIN;
   }
 
-  // فوز المافيا: المافيا الأحياء >= المواطنين الأحياء
+  // فوز المافيا: المافيا الأحياء >= المواطنين الأحياء (الحقيقيين)
   if (aliveMafia >= aliveCitizens) {
     return WinResult.MAFIA_WIN;
   }

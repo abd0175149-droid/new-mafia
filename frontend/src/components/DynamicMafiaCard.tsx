@@ -62,6 +62,8 @@ export interface DynamicMafiaCardProps {
   rankEditable?: boolean;
   /** تجاوز: استخدم القالب القديم (MafiaCard) بدلاً من DB */
   forceClassic?: boolean;
+  /** إخفاء هوية اللاعب (الرقم/الاسم) على الوجه السري — لعرض الدور فقط */
+  hideIdentity?: boolean;
 }
 
 // ── Component ──────────────────────────────────
@@ -86,6 +88,7 @@ export default function DynamicMafiaCard({
   rankEffectsOverride,
   rankEditable = false,
   forceClassic = false,
+  hideIdentity = false,
 }: DynamicMafiaCardProps) {
   const tier = (rankTier || 'INFORMANT');
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
@@ -441,13 +444,15 @@ export default function DynamicMafiaCard({
 
               {/* المحتوى */}
               <div className="relative z-10 flex flex-col items-center justify-center h-full p-4 pt-12 overflow-hidden" dir="rtl" style={{ textAlign: 'center' }}>
-                {/* رقم اللاعب صغير */}
-                <div 
-                  className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40"
-                  style={{ border: `1px solid ${borderColor}`, color: textColor, ...(cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}) }}
-                >
-                  {playerNumber}
-                </div>
+                {/* رقم اللاعب صغير — يُخفى عند hideIdentity (مثل تعطيل الساحرة) */}
+                {!hideIdentity && (
+                  <div
+                    className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center font-mono text-sm font-bold rounded-md bg-black/40"
+                    style={{ border: `1px solid ${borderColor}`, color: textColor, ...(cardTemplate?.elements?.positions?.number ? { transform: `translate(${cardTemplate.elements.positions.number.x}px, ${cardTemplate.elements.positions.number.y}px) scale(${cardTemplate.elements.positions.number.s || 1})` } : {}) }}
+                  >
+                    {playerNumber}
+                  </div>
+                )}
 
                 {/* دائرة الأيقونة */}
                 <div
@@ -478,10 +483,10 @@ export default function DynamicMafiaCard({
                   {roleName}
                 </h3>
 
-                {/* اسم اللاعب */}
-                {cardTemplate?.elements?.showPlayerNumber !== false && (
-                  <p 
-                    className="text-white/40 text-sm font-mono tracking-widest" 
+                {/* اسم اللاعب — يُخفى عند hideIdentity */}
+                {!hideIdentity && cardTemplate?.elements?.showPlayerNumber !== false && (
+                  <p
+                    className="text-white/40 text-sm font-mono tracking-widest"
                     dir="ltr"
                     style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}}
                   >

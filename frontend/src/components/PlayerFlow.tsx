@@ -711,6 +711,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
+    // 👥 تحديث قائمة فريق المافيا (عند تحوّل الأخ الأصغر — دون لمس بطاقة اللاعب)
+    const cleanupMafiaTeam = on('mafia:team-updated', (data: { mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[] }) => {
+      if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
+    });
+
     // 🔪 استقبال عقود السفّاح
     const cleanupAssassin = on('assassin:contracts-update', (data: any) => {
       setAssassinContracts(data);
@@ -798,6 +803,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     return () => {
       cleanupRole();
+      cleanupMafiaTeam();
       cleanup();
       cleanupSync();
     };

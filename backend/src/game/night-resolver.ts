@@ -68,8 +68,15 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   if (nightActions.sniperTarget !== null) {
     const sniperTarget = state.players.find(p => p.physicalId === nightActions.sniperTarget);
     const sniper = state.players.find(p => p.role === Role.SNIPER && p.isAlive);
+    const sniperProtectedId = nightActions.doctorTarget ?? nightActions.nurseTarget;
 
-    if (sniperTarget && sniper) {
+    if (sniperTarget && sniper && nightActions.sniperTarget === sniperProtectedId) {
+      // 🛡️ القنص يخضع لحماية الطبيب/الممرضة — الحماية تبطل القنص (لا أحد يموت، حتى القنّاص ينجو)
+      const protector = state.players.find(p => (p.role === Role.DOCTOR || p.role === Role.NURSE) && p.isAlive);
+      events.push({ type: 'ASSASSINATION_BLOCKED', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, performerPhysicalId: protector?.physicalId, performerName: protector?.name, wasRandom: !!nightActions.randomSelections?.['SNIPER'], extra: { blockedAbility: 'SNIPER', sniperName: sniper.name }, revealed: false });
+      pt.abilityResults.push({ physicalId: sniper.physicalId, role: 'SNIPER', correct: false });
+      if (protector) pt.abilityResults.push({ physicalId: protector.physicalId, role: protector.role || 'DOCTOR', correct: true });
+    } else if (sniperTarget && sniper) {
       if (sniperTarget.role && (isMafiaRole(sniperTarget.role) || isNeutralRole(sniperTarget.role))) {
         // قنص مافيا أو محايد → تموت الهدف فقط
         sniperTarget.isAlive = false;

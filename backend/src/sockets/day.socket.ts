@@ -23,6 +23,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
+import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
@@ -900,6 +901,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
         teamCounts: currentState ? getTeamCounts(currentState.players) : undefined,
       });
 
+      // 👥 إشعار + إظهار تحوّل الأخ الأصغر إن حدث بالتصويت (vote-engine نفّذ التحوّل)
+      if (currentState) {
+        notifyTwinTransform(io, data.roomId, currentState);
+        await setGameState(data.roomId, currentState);
+      }
+
       callback({ success: true });
     } catch (err: any) {
       callback({ success: false, error: err.message });
@@ -948,6 +955,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
           round: state.round || 1,
           team: (player.role && isMafiaRole(player.role)) ? 'MAFIA' : 'CITIZEN',
         });
+
+        // 👮‍♀️ تحفيز/احتساب الشرطية لضحايا القنبلة (كانت مفقودة — X8)
+        checkPolicewomanTrigger(state, player.physicalId);
 
         // حساب RR
         const isMafia = player.role && isMafiaRole(player.role);
@@ -1014,6 +1024,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
             break;
           }
         }
+        // 👥 إشعار + إظهار التحوّل (بعد القنبلة)
+        notifyTwinTransform(io, data.roomId, state);
       }
 
       // فحص شرط الفوز بعد الإقصاء الإضافي
@@ -1160,6 +1172,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
               break;
             }
           }
+          // 👥 إشعار + إظهار التحوّل (بعد كسر التعادل/الإقصاء بالتصويت)
+          notifyTwinTransform(io, data.roomId, state);
           await setGameState(data.roomId, state);
         }
 
@@ -1458,6 +1472,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
             applyTransform(state, twinResult);
           }
         }
+        // 👥 إشعار + إظهار التحوّل (بعد الطرد الإداري)
+        notifyTwinTransform(io, data.roomId, state);
       }
 
       // ═══ تحديث النقاش (Discussion) ═══

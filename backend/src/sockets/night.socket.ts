@@ -19,6 +19,7 @@ import {
 } from '../game/dynamic-night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
 import { initTwinState, getTwinTransformNotification } from '../game/twin-engine.js';
+import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer } from '../game/game-timer.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
@@ -220,6 +221,12 @@ async function resolveAutoNight(io: Server, roomId: string) {
     neutralWin: resolution.neutralWin || null,
     assassinState: stateAfter?.assassinState || null,
   });
+
+  // 👥 إشعار المافيا/الأصغر إن حدث تحوّل (الحدث نفسه يُكشف من morningEvents بزر الليدر)
+  if (stateAfter) {
+    notifyTwinTransform(io, roomId, stateAfter);
+    await setGameState(roomId, stateAfter);
+  }
 
   console.log(`✅ Auto night resolved for room ${roomId}`);
 }
@@ -1164,6 +1171,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
           neutralResults: winResult.neutralResults, // 🧩 نتائج المحايدين
         });
 
+        // 👥 إشعار المافيا/الأصغر إن حدث تحوّل
+        notifyTwinTransform(io, data.roomId, state);
+        await setGameState(data.roomId, state);
+
         // 🔪 إشعار اللاعب السفّاح بالتحديثات
         if (state.assassinState) {
           findPlayerSocket(io, data.roomId, state.assassinState.assassinPhysicalId)?.emit('assassin:contracts-update', {
@@ -1238,6 +1249,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
         neutralWin: resolution.neutralWin || null,
         assassinState: stateAfterResolve?.assassinState || null,
       });
+
+      // 👥 إشعار المافيا/الأصغر إن حدث تحوّل
+      if (stateAfterResolve) {
+        notifyTwinTransform(io, data.roomId, stateAfterResolve);
+        await setGameState(data.roomId, stateAfterResolve);
+      }
 
       callback({ success: true, events: resolution.events });
     } catch (err: any) {

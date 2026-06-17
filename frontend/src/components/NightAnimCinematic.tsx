@@ -737,32 +737,39 @@ function MorningAbilityDisabledAnim({ data }: NightAnimProps) {
         تم تعطيل قدرة لاعب
       </motion.p>
       
-      {/* كارت الدور المعطّل — بدون كشف هوية اللاعب أو رقمه */}
+      {/* الوجه السري لبطاقة الدور المعطّل — يكشف الدور فقط (بلا رقم/اسم اللاعب) */}
       <motion.div
-        className="mt-6 inline-flex flex-col items-center justify-center p-6 bg-[#0c0c0c] border-2 border-purple-500/30 rounded-2xl w-48 shadow-2xl relative overflow-hidden"
+        className="flex justify-center mt-6"
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.6, type: 'spring', damping: 15 }}
       >
-        {/* توهج بنفسجي خلفي */}
-        <div className="absolute inset-0 bg-gradient-to-b from-purple-500/5 to-purple-500/0 pointer-events-none" />
-        
-        <div className="w-16 h-16 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-center text-4xl mb-4">
-          {roleIcon}
-        </div>
-        
-        <p className="text-[#C5A059] font-mono text-sm tracking-widest uppercase mb-1">
-          ROLE DISABLED
-        </p>
-        
-        <p className="text-white text-lg font-black" style={{ fontFamily: 'Amiri, serif' }}>
-          {roleNameAr}
-        </p>
-        
-        <p className="text-purple-400 text-[10px] font-mono mt-3 uppercase tracking-widest">
-          🧙‍♀️ سحر الساحرة
-        </p>
+        {disabledRole ? (
+          <MafiaCard
+            playerNumber={0}
+            playerName=""
+            role={disabledRole}
+            isFlipped={true}
+            flippable={false}
+            hideIdentity={true}
+            isAlive={true}
+            size="fluid"
+            className="w-44 h-[15rem] md:w-52 md:h-[18rem]"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-center text-4xl">
+            {roleIcon}
+          </div>
+        )}
       </motion.div>
+      <motion.p
+        className="text-purple-400 text-[10px] font-mono mt-3 uppercase tracking-widest"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.8 }}
+      >
+        🧙‍♀️ سحر الساحرة — {roleNameAr}
+      </motion.p>
 
       <motion.div
         className="w-64 h-[2px] bg-gradient-to-r from-transparent via-[#9333ea] to-transparent mx-auto mt-6"
@@ -925,6 +932,106 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
         </div>
       );
     }
+
+    // 🩸 انتحار التوأم — الأخ الأكبر ينتحر بعد موت أخيه الأصغر
+    case 'TWIN_SUICIDE':
+      return (
+        <div className="text-center py-4">
+          <motion.div
+            className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(138,3,3,0.9)]"
+            animate={{ scale: [0.7, 1.3, 1], opacity: [0, 1, 1] }}
+            transition={{ duration: 0.8 }}
+          >
+            🩸
+          </motion.div>
+          <motion.p
+            className="text-3xl md:text-4xl font-black text-[#8A0303] tracking-widest mb-3"
+            style={{ fontFamily: 'Amiri, serif' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            انتحار التوأم
+          </motion.p>
+          <motion.p
+            className="text-[#a86]/80 text-sm font-mono"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+          >
+            👥 ارتباط الدم — انتحر بعد موت أخيه الأصغر
+          </motion.p>
+          {data.targetName && (
+            <motion.div
+              className="flex justify-center mt-6"
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8, type: 'spring', damping: 12 }}
+            >
+              <MafiaCard
+                playerNumber={data.targetPhysicalId!}
+                playerName={data.targetName}
+                role={(data.extra?.role as Role) || Role.OLDER_BROTHER}
+                isFlipped={true}
+                flippable={false}
+                isAlive={false}
+                size="fluid"
+                className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+              />
+            </motion.div>
+          )}
+        </div>
+      );
+
+    // 🌑 الصحوة المظلمة — الأخ الأصغر يتحوّل إلى مافيا بعد موت أخيه الأكبر
+    case 'TWIN_TRANSFORM':
+      return (
+        <div className="text-center py-4">
+          <motion.div
+            className="text-8xl mb-4 drop-shadow-[0_0_40px_rgba(147,51,234,0.85)]"
+            animate={{ scale: [0.6, 1.4, 1], rotate: [0, -12, 12, 0] }}
+            transition={{ duration: 0.9 }}
+          >
+            🌑
+          </motion.div>
+          <motion.p
+            className="text-3xl md:text-4xl font-black text-[#a855f7] tracking-widest mb-2"
+            style={{ fontFamily: 'Amiri, serif' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            الصحوة المظلمة
+          </motion.p>
+          <motion.p
+            className="text-[#a855f7]/80 text-sm font-mono"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+          >
+            👥 {data.targetName} تحوّل إلى فريق المافيا
+          </motion.p>
+          {(data.extra?.newRole as string) && (
+            <motion.div
+              className="flex justify-center mt-6"
+              initial={{ opacity: 0, y: 30, rotateY: 180 }}
+              animate={{ opacity: 1, y: 0, rotateY: 0 }}
+              transition={{ delay: 0.8, type: 'spring', damping: 12 }}
+            >
+              <MafiaCard
+                playerNumber={data.targetPhysicalId!}
+                playerName={data.targetName || ''}
+                role={data.extra!.newRole as Role}
+                isFlipped={true}
+                flippable={false}
+                isAlive={true}
+                size="fluid"
+                className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+              />
+            </motion.div>
+          )}
+        </div>
+      );
 
     // Fallback — عرض أساسي
     default:

@@ -180,6 +180,7 @@ export interface TwinState {
   youngerAlive: boolean;
   transformed: boolean;                // هل تحوّل الأصغر إلى مافيا؟
   transformedToRole?: string;          // الدور الموروث بعد التحول
+  transformNotified?: boolean;         // هل تم إشعار المافيا/الأصغر + عرض الحدث؟ (يمنع التكرار)
   suicideTriggered: boolean;           // هل انتحر الأكبر؟
 }
 

@@ -13,6 +13,7 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
+import { initTwinState } from '../game/twin-engine.js';
 import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
@@ -2483,6 +2484,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // Refresh state object with the updated roles from memory
         Object.assign(state, await getRoom(data.roomId));
         console.log(`🤖 Auto-bound ${unboundPlayers.length} citizens in room ${data.roomId}`);
+      }
+
+      // ── 👥 تهيئة رابطة التوأمين فور اعتماد الأدوار (قبل أول نهار) ──
+      // مهم: التهيئة هنا (لا عند بدء الليل) لتعمل الرابطة حتى لو أُقصي توأم في تصويت اليوم الأول.
+      if (!state.twinState) {
+        const twinState = initTwinState(state);
+        if (twinState) {
+          state.twinState = twinState;
+          console.log(`👥 Twin Bond initialized at binding for room ${data.roomId}: Older #${twinState.olderBrotherPhysicalId} ↔ Younger #${twinState.youngerBrotherPhysicalId}`);
+        }
       }
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
