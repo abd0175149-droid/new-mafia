@@ -76,14 +76,11 @@ export async function seedDatabase(): Promise<void> {
         }).onConflictDoNothing();
       }
 
-      console.log('✅ Default admin created (admin / admin123)');
+      console.log('✅ Default admin created — ⚠️ change the default password immediately');
     } else {
-      // إعادة تعيين كلمة مرور الأدمن لضمان التوافق
-      const passwordHash = await hashPassword('admin123');
-      await db.update(staff)
-        .set({ passwordHash })
-        .where(eq(staff.role, 'admin'));
-      console.log('ℹ️ Admin account exists — password reset to admin123');
+      // 🔒 أمان: لا نعيد تعيين كلمة مرور الأدمن عند الإقلاع.
+      // (كان هذا ثغرة خطيرة: تُعاد كلمات سر كل حسابات الأدمن إلى قيمة معروفة عند كل إعادة تشغيل.)
+      console.log('ℹ️ Admin account(s) exist — passwords left unchanged');
     }
   } catch (err: any) {
     console.error('❌ Seed failed:', err.message);
