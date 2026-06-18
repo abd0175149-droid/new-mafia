@@ -234,7 +234,7 @@ router.post('/lookup', async (req: Request, res: Response) => {
     }
 
     // 1. البحث في جدول players الموحد
-    console.log(`[Lookup] 🔍 Searching for phone: "${phone}"`);
+    console.log('[Lookup] 🔍 Searching player by phone');
     const unified = await findPlayerByPhone(phone);
     console.log(`[Lookup] 📦 Unified result:`, unified ? `Found: ${unified.name} (id=${unified.id})` : 'NOT FOUND');
 
@@ -290,7 +290,7 @@ router.post('/lookup', async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`[Lookup] ℹ️ Player with phone "${phone}" not found in any table`);
+    console.log('[Lookup] ℹ️ Player not found');
     return res.json({ found: false, player: null });
   } catch (err: any) {
     console.error('❌ Player lookup error:', err.message);

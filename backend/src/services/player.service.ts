@@ -59,7 +59,7 @@ export async function createPlayer(data: {
     lastActiveAt: new Date(),
   } as any).returning();
 
-  console.log(`👤 New player created: ${data.name} (${data.phone}) → ID: ${result[0]?.id}`);
+  console.log(`👤 New player created → ID: ${result[0]?.id}`);
   return result[0] || null;
 }
 
@@ -134,7 +134,7 @@ export async function migratePlayersWithDefaultPassword(): Promise<number> {
       .where(isNull(players.passwordHash));
 
 
-    console.log(`🔄 Migrated ${playersWithoutPassword.length} players with default password '${PLAYER_DEFAULT_PASSWORD}' — they must change it on first login`);
+    console.log(`🔄 Migrated ${playersWithoutPassword.length} players to a temporary default password — they must change it on first login`);
     return playersWithoutPassword.length;
   } catch (err: any) {
     console.error('❌ Failed to migrate players:', err.message);

@@ -78,7 +78,7 @@ router.post('/register', async (req: Request, res: Response) => {
       name: player.name,
     });
 
-    console.log(`🔐 New player registered: ${player.name} (${player.phone}) → ID: ${player.id} [+200 XP welcome bonus]`);
+    console.log(`🔐 New player registered → ID: ${player.id} [+200 XP welcome bonus]`);
 
     // 🔔 Push للأدمنز (لاعب جديد)
     import('../services/fcm.service.js').then(({ sendPushToAdmins }) => {
@@ -159,7 +159,7 @@ router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 15, keyPrefix: 
       name: player.name,
     });
 
-    console.log(`🔐 Player login: ${player.name} (${player.phone})${player.mustChangePassword ? ' [MUST CHANGE PASSWORD]' : ''}`);
+    console.log(`🔐 Player login → ID: ${player.id}${player.mustChangePassword ? ' [MUST CHANGE PASSWORD]' : ''}`);
 
     return res.json({
       success: true,
