@@ -240,6 +240,7 @@ self.addEventListener('notificationclick', (event) => {
 
 const AUTH_CACHE = 'mafia-auth';
 const AUTH_KEY = '/__player_token';
+const DEVICE_KEY = '/__device_id';
 
 // تحويل VAPID key (Base64URL) إلى Uint8Array
 function urlBase64ToUint8Array(base64String) {
@@ -266,12 +267,29 @@ async function getPlayerToken() {
   } catch (e) { /* تجاهل */ }
   return null;
 }
+async function storeDeviceId(id) {
+  try {
+    const cache = await caches.open(AUTH_CACHE);
+    await cache.put(DEVICE_KEY, new Response(id));
+  } catch (e) { /* تجاهل */ }
+}
+async function getDeviceId() {
+  try {
+    const cache = await caches.open(AUTH_CACHE);
+    const res = await cache.match(DEVICE_KEY);
+    if (res) return await res.text();
+  } catch (e) { /* تجاهل */ }
+  return '';
+}
 
-// استقبال توكن اللاعب من التطبيق لتخزينه (لإعادة التسجيل لاحقاً)
+// استقبال توكن اللاعب + معرّف الجهاز من التطبيق لتخزينهما (لإعادة التسجيل لاحقاً)
 self.addEventListener('message', (event) => {
   const data = event.data || {};
   if (data.type === 'SET_AUTH_TOKEN' && data.token) {
-    event.waitUntil(storePlayerToken(data.token));
+    event.waitUntil(Promise.all([
+      storePlayerToken(data.token),
+      data.deviceId ? storeDeviceId(data.deviceId) : Promise.resolve(),
+    ]));
   }
 });
 
@@ -294,14 +312,15 @@ self.addEventListener('pushsubscriptionchange', (event) => {
       );
 
       const token = await getPlayerToken();
+      const deviceId = await getDeviceId();
       if (token && subscription) {
         await fetch('/api/player-notifications/register-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
           body: JSON.stringify({
             token: 'WEBPUSH::' + JSON.stringify(subscription.toJSON()),
-            // نفس deviceInfo المستخدم في التطبيق (User-Agent) ليتم إزالة التكرار حسب الجهاز
-            deviceInfo: (self.navigator && self.navigator.userAgent ? self.navigator.userAgent.slice(0, 200) : 'sw-resubscribe'),
+            deviceId: deviceId, // نفس معرّف الجهاز الثابت لإزالة التكرار حسب الجهاز
+            deviceInfo: (self.navigator && self.navigator.userAgent ? self.navigator.userAgent.slice(0, 150) : 'sw-resubscribe'),
           }),
         });
         console.log('🔄 Push subscription renewed and re-registered with server');

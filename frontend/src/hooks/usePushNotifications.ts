@@ -7,6 +7,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { usePlayer } from '../context/PlayerContext';
+import { getDeviceId } from '../lib/deviceId';
 
 interface Notification {
   id: number;
@@ -72,7 +73,7 @@ async function registerTokenToServer(token: string, auth: string): Promise<void>
   await fetch('/api/player-notifications/register-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth}` },
-    body: JSON.stringify({ token, deviceInfo: navigator.userAgent.slice(0, 200) }),
+    body: JSON.stringify({ token, deviceId: getDeviceId(), deviceInfo: navigator.userAgent.slice(0, 150) }),
   });
 }
 
@@ -182,7 +183,7 @@ export function usePushNotifications() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${player.token}`,
         },
-        body: JSON.stringify({ token, deviceInfo: navigator.userAgent.slice(0, 200) }),
+        body: JSON.stringify({ token, deviceId: getDeviceId(), deviceInfo: navigator.userAgent.slice(0, 150) }),
       });
 
       registeredRef.current = true;
@@ -261,7 +262,7 @@ export function usePushNotifications() {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
     navigator.serviceWorker.ready.then((reg) => {
       const target = reg.active || navigator.serviceWorker.controller;
-      target?.postMessage({ type: 'SET_AUTH_TOKEN', token: player.token });
+      target?.postMessage({ type: 'SET_AUTH_TOKEN', token: player.token, deviceId: getDeviceId() });
     }).catch(() => {});
   }, [player]);
 

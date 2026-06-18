@@ -254,12 +254,14 @@ export default function DebugPushPage() {
 
     log('📤 جاري إرسال POST /api/player-notifications/register-token ...');
     try {
+      const { getDeviceId } = await import('@/lib/deviceId');
       const res = await fetch('/api/player-notifications/register-token', {
         method: 'POST',
         headers,
         body: JSON.stringify({
           token,
-          deviceInfo: navigator.userAgent.slice(0, 200),
+          deviceId: getDeviceId(),
+          deviceInfo: navigator.userAgent.slice(0, 150),
         }),
       });
       log(`📤 HTTP status: ${res.status}`);

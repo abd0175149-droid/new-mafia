@@ -3,7 +3,7 @@
 // إرسال Push Notifications للاعبين والموظفين
 // ══════════════════════════════════════════════════════
 
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql, like } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { getMessaging } from '../config/firebase.js';
 import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas/notification.schema.js';
@@ -117,22 +117,36 @@ function buildFCMPayload(
 }
 
 // ── تسجيل FCM Token ─────────────────────────────────
-export async function registerPlayerToken(playerId: number, token: string, deviceInfo: string = '') {
+// deviceId: معرّف جهاز ثابت وفريد لكل تثبيت (من localStorage في الواجهة) — مصدر الحقيقة
+//           لإزالة التكرار حسب الجهاز الفعلي. deviceInfo: User-Agent (للعرض فقط).
+export async function registerPlayerToken(
+  playerId: number,
+  token: string,
+  deviceInfo: string = '',
+  deviceId: string = '',
+) {
   const db = getDB();
   if (!db) return;
 
+  // نخزّن المعرّف الثابت مع الـ UA: "<deviceId>|<UA>" لإتاحة الإزالة بالبادئة بلا تعديل المخطّط.
+  const storedInfo = (deviceId ? `${deviceId}|${deviceInfo}` : deviceInfo).slice(0, 200);
+
   try {
-    // نُسلسل التسجيل لكل لاعب عبر قفل استشاري داخل معاملة، لمنع السباق الذي يُنشئ
-    // توكنات مكررة لنفس الجهاز عند تسجيل متزامن (عدّة نسخ من الهوك / عدّة طلبات).
+    // نُسلسل التسجيل لكل لاعب عبر قفل استشاري داخل معاملة، لمنع السباق الذي يُنشئ توكنات مكررة.
     await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(${playerId})`);
 
       // ① إزالة هذا التوكن من أي ارتباط سابق (الجهاز انتقل لحساب آخر / إعادة تسجيل).
       await tx.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, token));
 
-      // ② إزالة التكرار حسب الجهاز: توكنات نفس اللاعب من نفس الجهاز (deviceInfo).
-      //    يبقى دعم تعدّد الأجهزة لأن أي جهاز مختلف له deviceInfo (User-Agent) مختلف.
-      if (deviceInfo) {
+      if (deviceId) {
+        // ② الإزالة حسب الجهاز الفعلي (معرّف ثابت) عبر كل اللاعبين:
+        //    - نفس اللاعب نفس الجهاز → لا تكرار.
+        //    - هاتف مشترك بين لاعبين → يُزال توكن اللاعب السابق ويُربط بالأخير.
+        //    - أجهزة مختلفة (UA متطابق) → معرّفات مختلفة → تبقى كلها (تعدّد الأجهزة سليم).
+        await tx.delete(playerFcmTokens).where(like(playerFcmTokens.deviceInfo, `${deviceId}|%`));
+      } else if (deviceInfo) {
+        // توافق خلفي (طلبات قديمة بلا معرّف جهاز): إزالة حسب (اللاعب + UA).
         await tx.delete(playerFcmTokens).where(
           and(eq(playerFcmTokens.playerId, playerId), eq(playerFcmTokens.deviceInfo, deviceInfo))
         );
@@ -141,11 +155,11 @@ export async function registerPlayerToken(playerId: number, token: string, devic
       await tx.insert(playerFcmTokens).values({
         playerId,
         fcmToken: token,
-        deviceInfo,
+        deviceInfo: storedInfo,
         isActive: true,
       } as any);
     });
-    console.log(`📱 FCM token registered for player #${playerId} (per-device dedup, serialized)`);
+    console.log(`📱 FCM token registered for player #${playerId} (device=${deviceId || 'UA-fallback'})`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
   }
