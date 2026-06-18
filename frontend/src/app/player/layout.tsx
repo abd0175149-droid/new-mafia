@@ -101,6 +101,31 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
     }
   }, [player, isLoading, isPublic, isGamePage, router]);
 
+  // ── توجيه دقيق عند فتح التطبيق من إشعار في حالة الفتح البارد ──
+  // الـ SW يخزّن وجهة الإشعار في الكاش (لأن iOS قد يفتح start_url متجاهلاً الرابط)،
+  // وهنا نستهلكها بعد جاهزية اللاعب ونوجّه إليها عبر راوتر التطبيق بدقّة.
+  useEffect(() => {
+    if (isLoading || !player) return;
+    if (typeof window === 'undefined' || typeof caches === 'undefined') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cache = await caches.open('mafia-auth');
+        const res = await cache.match('/__pending_nav');
+        if (!res || cancelled) return;
+        const dest = (await res.text()).trim();
+        await cache.delete('/__pending_nav');
+        if (!dest || cancelled) return;
+        const target = new URL(dest, window.location.origin);
+        const path = target.pathname + target.search;
+        if (path !== window.location.pathname + window.location.search) {
+          router.replace(path);
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [isLoading, player, router]);
+
   // دالة طلب الإذن الفورية
   const handleRequestPermission = async () => {
     setIsRequesting(true);

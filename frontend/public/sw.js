@@ -213,25 +213,32 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// ── فتح التطبيق عند الضغط على الإشعار ──
+// ── فتح التطبيق + التوجيه الدقيق عند الضغط على الإشعار ──
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
-  const url = data.url || resolveNotificationUrl(data.type, data);
+  const url = data.url || resolveNotificationUrl(data.type, data) || '/player/home';
 
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clients) => {
-        for (const client of clients) {
-          if (client.url.includes(self.location.origin)) {
-            client.navigate(url);
-            return client.focus();
-          }
-        }
-        return self.clients.openWindow(url);
-      })
-  );
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+    // التطبيق مفتوح بالفعل → وجّه ثم ركّز (داخل التطبيق — يعمل بدقّة)
+    for (const client of clients) {
+      if (client.url.includes(self.location.origin)) {
+        try { await client.navigate(url); } catch (e) {}
+        return client.focus();
+      }
+    }
+
+    // فتح بارد (التطبيق مغلق): نخزّن الوجهة كاحتياط لأن iOS قد يفتح start_url
+    // متجاهلاً الرابط العميق — يقرأها التطبيق عند الإقلاع ويوجّه إليها بدقّة.
+    try {
+      const cache = await caches.open('mafia-auth');
+      await cache.put('/__pending_nav', new Response(url));
+    } catch (e) {}
+    return self.clients.openWindow(url);
+  })());
 });
 
 // ══════════════════════════════════════════════════════
