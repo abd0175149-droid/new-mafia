@@ -82,6 +82,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
+      // 🔒 لا تصويت نيابةً عن غيرك: الليدر يسجّل لأي مقعد، واللاعب لمقعده فقط (المقعد الذي انضم به)
+      if (socket.data.role !== 'leader' && data.physicalId !== socket.data.physicalId) {
+        return callback({ success: false, error: 'لا يمكنك التصويت نيابةً عن لاعب آخر' });
+      }
+
       // التحقق من المرحلة
       if (state.phase !== Phase.DAY_VOTING) {
         return callback({ success: false, error: 'ليست مرحلة تصويت' });
@@ -679,6 +684,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const roomId = socket.data.roomId;
       const state = await getGameState(roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+      // 🔒 الليدر أو صاحب المقعد فقط
+      if (socket.data.role !== 'leader' && data.physicalId !== socket.data.physicalId) {
+        return callback({ success: false, error: 'لا يمكنك سحب صوت لاعب آخر' });
+      }
       if (state.phase !== 'DAY_JUSTIFICATION') return callback({ success: false, error: 'Not in justification phase' });
 
       const justData = state.justificationData;

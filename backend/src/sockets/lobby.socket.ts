@@ -187,7 +187,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           console.log(`♻️ Leader re-entered existing active room ${existingState.roomId} for session ${data.existingSessionId}`);
           
           socket.join(existingState.roomId);
-          socket.data.role = 'leader';
+          if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
           socket.data.roomId = existingState.roomId;
           
           return callback({
@@ -251,7 +251,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // لا يتم إنشاء لاعبين افتراضيين — الليدر يضيفهم يدوياً
 
       socket.join(state.roomId);
-      socket.data.role = 'leader';
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = state.roomId;
 
       // تتبع الغرفة النشطة
@@ -1553,7 +1553,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       // Auto-join as leader
       socket.join(data.roomId);
-      socket.data.role = 'leader';
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
       const state = await getRoom(data.roomId);
@@ -2556,6 +2556,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
   // ── الليدر يستعيد الغرفة بعد إعادة الاتصال ──
   socket.on('room:rejoin-leader', (data: { roomId: string }) => {
+    // 🔒 صلاحية الليدر مطلوبة (الدور يُضبط من io.use عبر توكن الموظف الموثّق)
+    if (!socket.data.authStaff) return;
     if (data.roomId) {
       socket.join(data.roomId);
       socket.data.role = 'leader';
@@ -2707,7 +2709,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       // Auto-join as leader
       socket.join(data.roomId);
-      socket.data.role = 'leader';
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
@@ -2734,7 +2736,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       // Auto-join as leader for this operation
       socket.join(data.roomId);
-      socket.data.role = 'leader';
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
@@ -2866,7 +2868,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       // Auto-join as leader
       socket.join(data.roomId);
-      socket.data.role = 'leader';
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);
@@ -2921,7 +2923,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       // Auto-join as leader
       socket.join(data.roomId);
-      socket.data.role = 'leader';
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);

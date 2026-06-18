@@ -11,6 +11,8 @@ import { env } from './config/env.js';
 import { connectDB } from './config/db.js';
 import { connectRedis } from './config/redis.js';
 import { seedDatabase } from './utils/seed.js';
+import jwt from 'jsonwebtoken';
+import { verifyPlayerToken } from './middleware/player-auth.middleware.js';
 
 // ── Routes (Club Admin) ─────────────────────────────
 import authRoutes from './routes/auth.routes.js';
@@ -67,6 +69,33 @@ const io = new Server(server, {
   pingInterval: 10000,  // 10 ثوانٍ (كان 25) — فحص حياة الاتصال أكثر تواتراً
 });
 (global as any).io = io;
+
+// ── مصادقة السوكيت (إضافية — لا ترفض أي اتصال) ──────────
+// تربط هوية موثّقة بالسوكيت من التوكن المرفق في handshake.auth:
+//  • توكن موظف صالح (admin/manager/leader) → socket.data.role = 'leader' + authStaff
+//  • توكن لاعب صالح → socket.data.authPlayer
+// بهذا تعمل حُرّاس "role !== 'leader'" الموجودة أصلاً للموثّقين فقط، ويُمنع المجهول.
+io.use((socket, next) => {
+  try {
+    const a: any = socket.handshake.auth || {};
+    const staffTok: string | undefined = a.token || a.leaderToken;
+    if (staffTok) {
+      try {
+        const dec: any = jwt.verify(staffTok, env.JWT_SECRET);
+        if (dec && ['admin', 'manager', 'leader'].includes(dec.role)) {
+          socket.data.authStaff = { id: dec.id, role: dec.role, username: dec.username };
+          socket.data.role = 'leader';
+        }
+      } catch { /* توكن موظف غير صالح — نتجاهل بلا رفض الاتصال */ }
+    }
+    const playerTok: string | undefined = a.playerToken;
+    if (playerTok) {
+      const p = verifyPlayerToken(playerTok);
+      if (p) socket.data.authPlayer = { playerId: p.playerId, phone: p.phone, name: p.name };
+    }
+  } catch { /* تجاهل — لا نمنع الاتصال */ }
+  next();
+});
 
 // ── Middleware ───────────────────────────────────────
 app.use(cors({

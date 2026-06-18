@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import { reconnectSocketAuth } from '@/lib/socket';
 
 // ── سياق اللاعب ──
 interface PlayerData {
@@ -77,6 +78,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 // حفظ leader token أيضاً (لواجهة الليدر)
                 localStorage.setItem('leader_token', data.staffToken);
                 localStorage.setItem('leader_name', data.staffInfo.displayName);
+                // إعادة اتصال السوكيت ليحمل توكن الموظف (تفعيل صلاحية الليدر على السوكيت بلا إعادة تحميل)
+                try { reconnectSocketAuth(); } catch {}
               }
             } else {
               localStorage.removeItem('mafia_player_auth');
