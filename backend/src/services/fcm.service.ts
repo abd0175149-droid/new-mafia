@@ -3,7 +3,7 @@
 // إرسال Push Notifications للاعبين والموظفين
 // ══════════════════════════════════════════════════════
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { getMessaging } from '../config/firebase.js';
 import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas/notification.schema.js';
@@ -122,25 +122,30 @@ export async function registerPlayerToken(playerId: number, token: string, devic
   if (!db) return;
 
   try {
-    // ① إزالة هذا التوكن من أي ارتباط سابق (الجهاز انتقل لحساب آخر / إعادة تسجيل).
-    await db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, token));
+    // نُسلسل التسجيل لكل لاعب عبر قفل استشاري داخل معاملة، لمنع السباق الذي يُنشئ
+    // توكنات مكررة لنفس الجهاز عند تسجيل متزامن (عدّة نسخ من الهوك / عدّة طلبات).
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${playerId})`);
 
-    // ② إزالة التكرار حسب الجهاز: نحذف توكنات نفس اللاعب من نفس الجهاز (deviceInfo)،
-    //    لمنع تكرار الإشعار الناتج عن إعادة إنشاء الاشتراك. يبقى دعم تعدّد الأجهزة
-    //    لأن أي جهاز مختلف له deviceInfo (User-Agent) مختلف.
-    if (deviceInfo) {
-      await db.delete(playerFcmTokens).where(
-        and(eq(playerFcmTokens.playerId, playerId), eq(playerFcmTokens.deviceInfo, deviceInfo))
-      );
-    }
+      // ① إزالة هذا التوكن من أي ارتباط سابق (الجهاز انتقل لحساب آخر / إعادة تسجيل).
+      await tx.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, token));
 
-    await db.insert(playerFcmTokens).values({
-      playerId,
-      fcmToken: token,
-      deviceInfo,
-      isActive: true,
-    } as any);
-    console.log(`📱 FCM token registered for player #${playerId} (per-device dedup)`);
+      // ② إزالة التكرار حسب الجهاز: توكنات نفس اللاعب من نفس الجهاز (deviceInfo).
+      //    يبقى دعم تعدّد الأجهزة لأن أي جهاز مختلف له deviceInfo (User-Agent) مختلف.
+      if (deviceInfo) {
+        await tx.delete(playerFcmTokens).where(
+          and(eq(playerFcmTokens.playerId, playerId), eq(playerFcmTokens.deviceInfo, deviceInfo))
+        );
+      }
+
+      await tx.insert(playerFcmTokens).values({
+        playerId,
+        fcmToken: token,
+        deviceInfo,
+        isActive: true,
+      } as any);
+    });
+    console.log(`📱 FCM token registered for player #${playerId} (per-device dedup, serialized)`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
   }

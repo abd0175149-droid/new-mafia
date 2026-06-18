@@ -76,6 +76,12 @@ async function registerTokenToServer(token: string, auth: string): Promise<void>
   });
 }
 
+// ── حارس على مستوى الوحدة: يمنع التسجيل المتزامن عبر نسخ الهوك المتعددة ──
+// (الهوك مُستدعى في layout + home + NotificationBell معاً → بدون هذا الحارس
+//  تُسجّل النسخ بالتوازي وتُنشئ توكنات مكررة لنفس الجهاز).
+let autoRegisterInFlight = false;
+let autoRegisteredForToken: string | null = null;
+
 export function usePushNotifications() {
   const { player } = usePlayer();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -198,6 +204,10 @@ export function usePushNotifications() {
     if (!player || registeredRef.current) return;
     if (typeof window === 'undefined') return;
     if (!('serviceWorker' in navigator)) return;
+    // حارس متزامن: نسخة واحدة فقط تسجّل (تمنع السباق بين layout/home/bell)
+    if (autoRegisterInFlight || autoRegisteredForToken === player.token) return;
+    autoRegisterInFlight = true;
+    autoRegisteredForToken = player.token;
 
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
@@ -238,6 +248,9 @@ export function usePushNotifications() {
         }
       } catch (err) {
         console.warn('⚠️ auto-register failed:', err);
+        autoRegisteredForToken = null; // فشل → اسمح بإعادة المحاولة لاحقاً
+      } finally {
+        autoRegisterInFlight = false;
       }
     })();
   }, [player, requestPermission]);
