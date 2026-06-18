@@ -2,7 +2,7 @@
 // 📋 خدمة فيد باك ما بعد الغرفة — Room Feedback Service
 // ══════════════════════════════════════════════════════
 
-import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, gte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { roomFeedback } from '../schemas/feedback.schema.js';
 import { matches, matchPlayers, sessions } from '../schemas/game.schema.js';
@@ -27,6 +27,9 @@ export const FEEDBACK_KEYS = FEEDBACK_QUESTIONS.map(q => q.key);
 
 // مهلة قبل الحجب (إشعار لحظي، لكن لا يُحجب اللاعب إلا بعد ساعة من نهاية اللعبة)
 export const FEEDBACK_GRACE_MS = 60 * 60 * 1000;
+
+// تاريخ فاصل: الألعاب التي انتهت قبله غير مطلوب تقييمها (تجنّب إغراق اللاعبين بالقديم)
+export const FEEDBACK_CUTOFF = new Date('2026-06-17T00:00:00+03:00');
 
 // ── إنشاء الجدول إن لم يكن موجوداً (idempotent — يُستدعى عند الإقلاع) ──
 export async function ensureFeedbackTable(): Promise<void> {
@@ -103,6 +106,7 @@ export async function getPendingMatches(playerId: number): Promise<PendingMatch[
     .where(and(
       eq(matchPlayers.playerId, playerId),
       isNotNull(matches.endedAt),
+      gte(matches.endedAt, FEEDBACK_CUTOFF),  // الألعاب قبل التاريخ الفاصل غير مطلوبة
       isNull(matches.deletedAt),
     ));
 
