@@ -157,7 +157,7 @@ function resolveNotificationUrl(type, data) {
     case 'game_ended':
       return '/player/home';
     case 'feedback_survey':
-      return data.matchId ? `/player/feedback?matchId=${data.matchId}` : '/player/feedback';
+      return data.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
     case 'custom':
       return data.url || '/player/home';
     default:

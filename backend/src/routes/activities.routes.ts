@@ -454,6 +454,22 @@ router.patch('/:id/rooms/:sessionId/close', authenticate, async (req: Request, r
     const closed = await closeSession(sessionId);
     if (!closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
 
+    // 📋 استبيان الرضى على مستوى الغرفة: إنشاء استبيانات معلّقة للمشاركين + إشعار لحظي
+    import('../services/feedback.service.js').then(async ({ createPendingForSession }) => {
+      const newPlayerIds = await createPendingForSession(sessionId);
+      if (newPlayerIds.length > 0) {
+        const { sendPushToPlayers } = await import('../services/fcm.service.js');
+        await sendPushToPlayers(
+          newPlayerIds,
+          '📋 رأيك يهمّنا',
+          'قيّم تجربتك في الفعالية (أقل من دقيقة) — مطلوب قبل حجزك القادم',
+          'feedback_survey',
+          { sessionId, url: `/player/feedback?sessionId=${sessionId}` },
+        );
+        console.log(`📋 Feedback surveys created + notified for ${newPlayerIds.length} players (session #${sessionId})`);
+      }
+    }).catch((err: any) => console.warn('⚠️ feedback on close failed:', err?.message || err));
+
     // تفريغ الذاكرة وإرسال حدث طرد للـ Leader واللاعبين
     if (sessionCode) {
       try {

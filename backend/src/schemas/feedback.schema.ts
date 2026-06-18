@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════
-// 📋 مخطّط فيد باك ما بعد الغرفة — Room Feedback Schema
-// استبيان رضى إلزامي لكل (لاعب × غرفة/مباراة) على مقياس ليكرت 1..5.
-// حقول مُشتقّة (activity/location/leader/playedAt) لتحليلات سريعة ومستقرّة.
+// 📋 مخطّط فيد باك الغرفة — Room (Session) Feedback Schema
+// استبيان رضى إلزامي لكل (لاعب × غرفة/جلسة) على مقياس ليكرت 1..5.
+// يُنشأ صفّ معلّق عند إغلاق الليدر للغرفة، ويُحدَّث عند تعبئة اللاعب.
 // ══════════════════════════════════════════════════════
 
 import {
@@ -10,14 +10,14 @@ import {
 
 export const roomFeedback = pgTable('room_feedback', {
   id: serial('id').primaryKey(),
-  matchId: integer('match_id').notNull(),       // 🔗 matches.id (الغرفة)
-  playerId: integer('player_id').notNull(),     // 🔗 players.id (المُجيب)
-  // ── حقول مُشتقّة (مُجمّدة لحظة التعبئة) ──
-  activityId: integer('activity_id'),           // session.activityId
-  locationId: integer('location_id'),           // activity.locationId (أين)
-  leaderStaffId: integer('leader_staff_id'),    // matches.leaderStaffId (أي ليدر)
-  playedAt: timestamp('played_at'),             // matches.endedAt (متى)
-  // ── أبعاد ليكرت 1..5 ──
+  sessionId: integer('session_id').notNull(),   // 🔗 sessions.id (الغرفة)
+  playerId: integer('player_id').notNull(),      // 🔗 players.id (المُجيب)
+  // ── حقول مُشتقّة (مُجمّدة لحظة الإنشاء عند الإغلاق) ──
+  activityId: integer('activity_id'),            // sessions.activityId
+  locationId: integer('location_id'),            // activity.locationId (أين)
+  leaderStaffId: integer('leader_staff_id'),     // sessions.createdBy (أي ليدر)
+  playedAt: timestamp('played_at'),              // لحظة إغلاق الغرفة (متى)
+  // ── أبعاد ليكرت 1..5 (null حتى التعبئة) ──
   overall: smallint('overall'),
   venue: smallint('venue'),
   gameplay: smallint('gameplay'),
@@ -27,11 +27,12 @@ export const roomFeedback = pgTable('room_feedback', {
   leader: smallint('leader'),
   fairness: smallint('fairness'),
   atmosphere: smallint('atmosphere'),
-  value: smallint('value_rating'),              // value كلمة حسّاسة → عمود value_rating
+  value: smallint('value_rating'),
   recommend: smallint('recommend'),
-  // ── ملاحظات حرّة ──
   notes: text('notes'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  // ── حالة ──
+  submittedAt: timestamp('submitted_at'),        // null = معلّق، غير null = مُعبّأ
+  createdAt: timestamp('created_at').defaultNow().notNull(), // لحظة الإغلاق (مرساة مهلة الحجب)
 }, (t) => ({
-  uniqMatchPlayer: unique('room_feedback_match_player_uniq').on(t.matchId, t.playerId),
+  uniq: unique('room_feedback_session_player_uniq').on(t.sessionId, t.playerId),
 }));

@@ -16,7 +16,8 @@ const router = Router();
 const DIMS = ['overall','venue','gameplay','clarity','pacing','seating','leader','fairness','atmosphere','value','recommend'] as const;
 
 function buildFilters(req: Request): SQL[] {
-  const conds: SQL[] = [];
+  // نحسب فقط الاستبيانات المُعبّأة (المعلّقة لها submitted_at = null)
+  const conds: SQL[] = [isNotNull(roomFeedback.submittedAt)];
   const { from, to, locationId, leaderId, activityId } = req.query as Record<string, string>;
   if (from) conds.push(gte(roomFeedback.playedAt, new Date(from)));
   if (to) conds.push(lte(roomFeedback.playedAt, new Date(to)));
@@ -53,7 +54,7 @@ router.get('/summary', authenticate, async (req: Request, res: Response) => {
     const [totals] = await db.select({
       count: sql<number>`COUNT(*)::int`,
       distinctPlayers: sql<number>`COUNT(DISTINCT ${roomFeedback.playerId})::int`,
-      distinctRooms: sql<number>`COUNT(DISTINCT ${roomFeedback.matchId})::int`,
+      distinctRooms: sql<number>`COUNT(DISTINCT ${roomFeedback.sessionId})::int`,
       ...avgExpr,
       d1: sql<number>`COUNT(*) FILTER (WHERE ${roomFeedback.overall}=1)::int`,
       d2: sql<number>`COUNT(*) FILTER (WHERE ${roomFeedback.overall}=2)::int`,

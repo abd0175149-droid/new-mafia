@@ -263,14 +263,8 @@ export async function finalizeMatch(state: GameState): Promise<void> {
           'game_ended',
           { matchId: state.matchId, url: '/player/home' },
         );
-        // 📋 استبيان الرضى الإلزامي — إشعار لحظي (الحجب يبدأ بعد ساعة من الانتهاء)
-        sendPushToPlayers(
-          playerIdsInGame,
-          '📋 رأيك يهمّنا',
-          'قيّم تجربتك في اللعبة (أقل من دقيقة) — مطلوب قبل حجزك القادم',
-          'feedback_survey',
-          { matchId: state.matchId, url: `/player/feedback?matchId=${state.matchId}` },
-        );
+        // ملاحظة: استبيان الرضى لا يُرسَل هنا (لكل جولة) — بل على مستوى الغرفة
+        // عند ضغط الليدر «انتهت الفعالية» (closeSession) في activities.routes.ts.
       }
     } catch {}
 

@@ -1,7 +1,7 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 📋 استبيان رضى ما بعد الغرفة (إلزامي) — Player Feedback
+// 📋 استبيان رضى الغرفة (إلزامي) — Player Room Feedback
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
@@ -22,10 +22,10 @@ function FeedbackInner() {
   const { player } = usePlayer();
   const router = useRouter();
   const sp = useSearchParams();
-  const queryMatchId = sp.get('matchId');
+  const querySessionId = sp.get('sessionId');
 
   const [pending, setPending] = useState<any[]>([]);
-  const [activeMatchId, setActiveMatchId] = useState<number | null>(queryMatchId ? Number(queryMatchId) : null);
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(querySessionId ? Number(querySessionId) : null);
   const [questions, setQuestions] = useState<Q[]>([]);
   const [context, setContext] = useState<any>(null);
   const [answers, setAnswers] = useState<Record<string, number>>({});
@@ -49,10 +49,10 @@ function FeedbackInner() {
     return [];
   }, [player, authHeaders]);
 
-  const loadSurvey = useCallback(async (matchId: number) => {
+  const loadSurvey = useCallback(async (sessionId: number) => {
     if (!player) return;
     try {
-      const res = await fetch(`/api/player-feedback/${matchId}`, { headers: authHeaders() });
+      const res = await fetch(`/api/player-feedback/${sessionId}`, { headers: authHeaders() });
       const data = await res.json();
       if (data.success) {
         setQuestions(data.questions || []);
@@ -60,10 +60,9 @@ function FeedbackInner() {
         setAnswers({});
         setNotes('');
         if (data.alreadyDone) {
-          // عُبّئ مسبقاً → انتقل للتالي
           const p = await loadPending();
-          const next = p.find((x: any) => x.matchId !== matchId);
-          if (next) { setActiveMatchId(next.matchId); await loadSurvey(next.matchId); }
+          const next = p.find((x: any) => x.sessionId !== sessionId);
+          if (next) { setActiveSessionId(next.sessionId); await loadSurvey(next.sessionId); }
           else setDone(true);
         }
       }
@@ -75,8 +74,8 @@ function FeedbackInner() {
     (async () => {
       setLoading(true);
       const p = await loadPending();
-      const target = activeMatchId || (p.length ? p[0].matchId : null);
-      if (target) { setActiveMatchId(target); await loadSurvey(target); }
+      const target = activeSessionId || (p.length ? p[0].sessionId : null);
+      if (target) { setActiveSessionId(target); await loadSurvey(target); }
       else setDone(true);
       setLoading(false);
     })();
@@ -86,19 +85,19 @@ function FeedbackInner() {
   const allAnswered = questions.length > 0 && questions.every(q => (answers[q.key] || 0) >= 1);
 
   const submit = async () => {
-    if (!activeMatchId || !allAnswered || submitting) return;
+    if (!activeSessionId || !allAnswered || submitting) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/player-feedback/${activeMatchId}`, {
+      const res = await fetch(`/api/player-feedback/${activeSessionId}`, {
         method: 'POST', headers: authHeaders(),
         body: JSON.stringify({ answers, notes }),
       });
       const data = await res.json();
       if (data.success) {
-        const remaining = (await loadPending()).filter((x: any) => x.matchId !== activeMatchId);
+        const remaining = (await loadPending()).filter((x: any) => x.sessionId !== activeSessionId);
         if (remaining.length) {
-          setActiveMatchId(remaining[0].matchId);
-          await loadSurvey(remaining[0].matchId);
+          setActiveSessionId(remaining[0].sessionId);
+          await loadSurvey(remaining[0].sessionId);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         } else {
           setDone(true);
@@ -136,7 +135,6 @@ function FeedbackInner() {
 
   return wrap(
     <>
-      {/* رأس السياق */}
       <div style={{ marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, color: '#f59e0b', margin: 0 }}>📋 قيّم تجربتك</h1>
         {context && (
@@ -144,7 +142,7 @@ function FeedbackInner() {
             {context.activityName ? <>🎯 {context.activityName} · </> : null}
             {context.locationName ? <>📍 {context.locationName} · </> : null}
             {context.playedAt ? <>🗓️ {new Date(context.playedAt).toLocaleDateString('ar-JO', { day: 'numeric', month: 'short' })}</> : null}
-            {' '}<span style={{ color: 'rgba(255,255,255,0.3)' }}>(غرفة #{context.roomCode})</span>
+            {context.sessionCode ? <> <span style={{ color: 'rgba(255,255,255,0.3)' }}>(غرفة {context.sessionCode})</span></> : null}
           </p>
         )}
         {pending.length > 1 && (
@@ -152,12 +150,10 @@ function FeedbackInner() {
         )}
       </div>
 
-      {/* شريط التقدّم */}
       <div style={{ height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 99, marginBottom: 20, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${(answeredCount / (questions.length || 1)) * 100}%`, background: '#22c55e', transition: 'width .25s' }} />
       </div>
 
-      {/* الأسئلة */}
       {questions.map((q, i) => (
         <div key={q.key} style={{
           background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)',
@@ -191,7 +187,6 @@ function FeedbackInner() {
         </div>
       ))}
 
-      {/* ملاحظات */}
       <div style={{ marginBottom: 16 }}>
         <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 6 }}>
           أي ملاحظة أو اقتراح؟ (اختياري)
@@ -206,7 +201,6 @@ function FeedbackInner() {
         />
       </div>
 
-      {/* إرسال */}
       <button onClick={submit} disabled={!allAnswered || submitting}
         style={{
           width: '100%', padding: '14px 0', borderRadius: 12, border: 'none', fontWeight: 800, fontSize: 16,
