@@ -18,6 +18,62 @@ interface Notification {
   createdAt: string;
 }
 
+// ── أدوات مساعدة لاشتراكات Web Push ──
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const arr = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) arr[i] = rawData.charCodeAt(i);
+  return arr;
+}
+
+function bufferToBase64Url(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function fetchServerVapidKey(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/push/vapid-public-key');
+    const data = await res.json();
+    return data.publicKey || null;
+  } catch { return null; }
+}
+
+// هل الاشتراك القائم مُنشأ بنفس مفتاح السيرفر الحالي؟ (إن لا → يجب إعادة إنشائه)
+async function subscriptionMatchesServerKey(sub: PushSubscription): Promise<boolean> {
+  try {
+    const key = (sub.options as any)?.applicationServerKey as ArrayBuffer | null;
+    if (!key) return false;
+    const subKey = bufferToBase64Url(key);
+    const serverKey = ((await fetchServerVapidKey()) || '').replace(/=+$/, '');
+    return !!serverKey && subKey === serverKey;
+  } catch { return false; }
+}
+
+async function createWebPushSubscription(swReg: ServiceWorkerRegistration): Promise<PushSubscription | null> {
+  const serverKey = await fetchServerVapidKey();
+  if (!serverKey) return null;
+  // أزل أي اشتراك قديم بمفتاح مختلف ثم أنشئ واحداً جديداً مطابقاً
+  const old = await swReg.pushManager.getSubscription();
+  if (old) { try { await old.unsubscribe(); } catch {} }
+  return swReg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(serverKey) as BufferSource,
+  });
+}
+
+async function registerTokenToServer(token: string, auth: string): Promise<void> {
+  await fetch('/api/player-notifications/register-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth}` },
+    body: JSON.stringify({ token, deviceInfo: navigator.userAgent.slice(0, 200) }),
+  });
+}
+
 export function usePushNotifications() {
   const { player } = usePlayer();
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -59,16 +115,32 @@ export function usePushNotifications() {
       return;
     }
 
-    // تحديث الحالة الفعلية (localStorage + browser permission)
-    const perm = Notification.permission;
-    const hasGrantedLocally = localStorage.getItem('push_notifications_enabled') === 'true';
-    if (hasGrantedLocally || perm === 'granted') {
-      setPermissionState('granted');
-    } else if (perm === 'denied') {
-      setPermissionState('denied');
-    } else {
-      setPermissionState('prompt');
-    }
+    (async () => {
+      const perm = Notification.permission;
+      let granted = perm === 'granted' || localStorage.getItem('push_notifications_enabled') === 'true';
+
+      // 🔑 مصدر الحقيقة الأقوى: وجود اشتراك Push فعلي = الإشعارات مفعّلة بالفعل،
+      // بغضّ النظر عمّا يقوله Notification.permission (غير موثوق على iOS PWA عبر الفتحات).
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          granted = true;
+          localStorage.setItem('push_notifications_enabled', 'true');
+        }
+      } catch {}
+
+      if (granted) {
+        setPermissionState('granted');
+      } else if (perm === 'denied' && !isIOS) {
+        // 'denied' موثوق على Android/Desktop فقط
+        setPermissionState('denied');
+      } else {
+        // iOS: لا نثق بـ 'denied' عند الإقلاع (قد يكون خاطئاً) — نُتيح للمستخدم محاولة التفعيل.
+        // إن فشل الطلب فعلياً بـ denied سيُحدّثها requestPermission إلى 'denied' حينها.
+        setPermissionState('prompt');
+      }
+    })();
   }, []);
 
   // ── طلب إذن + تسجيل Token (يُستدعى بنقرة المستخدم) ──
@@ -119,64 +191,53 @@ export function usePushNotifications() {
     }
   }, [player]);
 
-  // ── تسجيل تلقائي (فقط إذا الإذن ممنوح مسبقاً) ──
+  // ── تسجيل تلقائي (بلا churn: يعيد استخدام الاشتراك القائم بدل إعادة إنشائه) ──
   useEffect(() => {
     if (!player || registeredRef.current) return;
     if (typeof window === 'undefined') return;
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+    if (!('serviceWorker' in navigator)) return;
 
-    const browserPerm = Notification.permission;
-    const locallyGranted = localStorage.getItem('push_notifications_enabled') === 'true';
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-    if (browserPerm === 'granted') {
-      // المتصفح يقول granted → نسجل عبر المسار الطبيعي
-      requestPermission();
-    } else if (locallyGranted && browserPerm === 'default') {
-      // 🍎 iOS PWA Bug: المتصفح أرجع 'default' لكننا نعرف أن المستخدم وافق سابقاً
-      // نسجل مباشرة عبر Web Push بدون استدعاء requestPermission() لتجنب NotAllowedError
-      (async () => {
-        try {
-          const swReg = await navigator.serviceWorker.ready;
-          // جلب VAPID key من السيرفر
-          const vpRes = await fetch('/api/push/vapid-public-key');
-          const vpData = await vpRes.json();
-          if (!vpData.publicKey) return;
+    (async () => {
+      try {
+        const swReg = await navigator.serviceWorker.ready;
+        const existing = await swReg.pushManager.getSubscription();
 
-          // حذف اشتراك قديم (تجنب VapidPkHashMismatch)
-          const oldSub = await swReg.pushManager.getSubscription();
-          if (oldSub) await oldSub.unsubscribe();
-
-          // إنشاء اشتراك جديد
-          const padding = '='.repeat((4 - (vpData.publicKey.length % 4)) % 4);
-          const base64 = (vpData.publicKey + padding).replace(/-/g, '+').replace(/_/g, '/');
-          const rawData = atob(base64);
-          const appServerKey = new Uint8Array(rawData.length);
-          for (let i = 0; i < rawData.length; ++i) appServerKey[i] = rawData.charCodeAt(i);
-
-          const subscription = await swReg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: appServerKey as BufferSource,
-          });
-
-          if (subscription) {
-            const subJson = JSON.stringify(subscription.toJSON());
-            const webpushToken = 'WEBPUSH::' + subJson;
-            await fetch('/api/player-notifications/register-token', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${player.token}`,
-              },
-              body: JSON.stringify({ token: webpushToken, deviceInfo: navigator.userAgent.slice(0, 200) }),
-            });
-            registeredRef.current = true;
-            console.log('🍎✅ iOS PWA: silent re-registration successful');
-          }
-        } catch (err) {
-          console.warn('🍎⚠️ iOS PWA silent re-registration failed:', err);
+        // ① اشتراك Web Push قائم بنفس مفتاح السيرفر → أعِد تسجيله كما هو (بلا إعادة إنشاء = بلا churn)
+        if (existing && (await subscriptionMatchesServerKey(existing))) {
+          const token = 'WEBPUSH::' + JSON.stringify(existing.toJSON());
+          await registerTokenToServer(token, player.token);
+          registeredRef.current = true;
+          localStorage.setItem('push_notifications_enabled', 'true');
+          console.log('♻️ Reused existing Web Push subscription (no churn)');
+          return;
         }
-      })();
-    }
+
+        const browserPerm = ('Notification' in window) ? Notification.permission : 'default';
+        const locallyGranted = localStorage.getItem('push_notifications_enabled') === 'true';
+
+        // ② غير iOS مع إذن ممنوح → FCM (getToken يعيد نفس التوكن، بلا churn على أندرويد)
+        if (!isIOS && browserPerm === 'granted') {
+          requestPermission();
+          return;
+        }
+
+        // ③ iOS بلا اشتراك صالح لكن سبق الموافقة → أنشئ اشتراكاً واحداً (مرّة واحدة فقط)
+        if (isIOS && (browserPerm === 'granted' || (locallyGranted && browserPerm === 'default'))) {
+          const subscription = await createWebPushSubscription(swReg);
+          if (subscription) {
+            const token = 'WEBPUSH::' + JSON.stringify(subscription.toJSON());
+            await registerTokenToServer(token, player.token);
+            registeredRef.current = true;
+            localStorage.setItem('push_notifications_enabled', 'true');
+            console.log('🍎✅ iOS: created and registered new Web Push subscription');
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ auto-register failed:', err);
+      }
+    })();
   }, [player, requestPermission]);
 
   // ── تزويد الـ SW بتوكن اللاعب (لإعادة تسجيل اشتراك Web Push عند تدويره على iOS) ──
