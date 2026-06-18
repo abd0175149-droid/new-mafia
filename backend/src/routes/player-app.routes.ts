@@ -219,7 +219,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
 });
 
 // ── 👥 GET /activities/:actId/bookers — جميع الحاجزين لنشاط مع تمييز المتابَعين ──
-router.get('/activities/:actId/following-bookers', async (req: Request, res: Response) => {
+router.get('/activities/:actId/following-bookers', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
@@ -360,7 +360,7 @@ router.get('/my-active-rooms', authenticatePlayer, async (req: Request, res: Res
 // ════════════════════════════════════════════
 
 // ── 👥 GET /:id/co-players — لاعبون لعبت معهم ──
-router.get('/:id/co-players', async (req: Request, res: Response) => {
+router.get('/:id/co-players', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
@@ -429,11 +429,12 @@ router.get('/:id/co-players', async (req: Request, res: Response) => {
 });
 
 // ── ⭐ POST /:id/follow/:targetId — متابعة لاعب ──
-router.post('/:id/follow/:targetId', async (req: Request, res: Response) => {
+router.post('/:id/follow/:targetId', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
-  const followerId = parseInt(req.params.id);
+  // المتابِع = اللاعب الموثّق دائماً (نتجاهل :id لمنع المتابعة نيابةً عن غيره)
+  const followerId = (req as any).playerAccount?.playerId;
   const followingId = parseInt(req.params.targetId);
 
   if (!followerId || !followingId || followerId === followingId) {
@@ -485,11 +486,12 @@ router.post('/:id/follow/:targetId', async (req: Request, res: Response) => {
 });
 
 // ── ❌ DELETE /:id/follow/:targetId — إلغاء متابعة ──
-router.delete('/:id/follow/:targetId', async (req: Request, res: Response) => {
+router.delete('/:id/follow/:targetId', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
-  const followerId = parseInt(req.params.id);
+  // المتابِع = اللاعب الموثّق دائماً (نتجاهل :id)
+  const followerId = (req as any).playerAccount?.playerId;
   const followingId = parseInt(req.params.targetId);
 
   try {
@@ -504,7 +506,7 @@ router.delete('/:id/follow/:targetId', async (req: Request, res: Response) => {
 });
 
 // ── 📋 GET /:id/following — قائمة المتابَعين ──
-router.get('/:id/following', async (req: Request, res: Response) => {
+router.get('/:id/following', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
@@ -538,7 +540,7 @@ router.get('/:id/following', async (req: Request, res: Response) => {
 });
 
 // ── 📰 GET /:id/following-feed — فيد أخبار المتابَعين ──
-router.get('/:id/following-feed', async (req: Request, res: Response) => {
+router.get('/:id/following-feed', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
@@ -597,7 +599,7 @@ router.get('/:id/following-feed', async (req: Request, res: Response) => {
 });
 
 // ── 📋 GET /:id/bookings — حجوزات اللاعب ──
-router.get('/:id/bookings', async (req: Request, res: Response) => {
+router.get('/:id/bookings', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
@@ -626,7 +628,7 @@ router.get('/:id/bookings', async (req: Request, res: Response) => {
 });
 
 // ── 🎮 GET /:id/matches — سجل مباريات اللاعب وتفاصيل النقاط ──
-router.get('/:id/matches', async (req: Request, res: Response) => {
+router.get('/:id/matches', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 

@@ -6,6 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { env } from '../config/env.js';
+import { verifyPlayerToken } from './player-auth.middleware.js';
 
 // ── أنواع البيانات ──────────────────────────────────
 
@@ -81,6 +82,37 @@ export function authorize(...roles: string[]) {
     }
 
     next();
+  };
+}
+
+// ── Middleware: موظف (أي دور) أو اللاعب صاحب المورد نفسه ──
+// يحافظ على قدرة الموظف/الأدمن على التصرّف نيابةً عن أي لاعب (واجهة الداش بورد)،
+// ويسمح للّاعب بتعديل بياناته فقط، ويمنع المجهول والوصول العابر للاعبين.
+// يضبط req.user (موظف) أو req.playerAccount (لاعب) عند النجاح.
+export function staffOrSelf(paramName: string = 'id') {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7);
+      // (1) توكن موظف صالح؟ → مسموح (يشمل تصرّف الأدمن نيابةً عن أي لاعب)
+      try {
+        const decoded = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+        req.user = decoded;
+        return next();
+      } catch { /* ليس توكن موظف — نجرّب توكن اللاعب */ }
+      // (2) توكن لاعب صالح يملك هذا المورد؟
+      const player = verifyPlayerToken(token);
+      if (player) {
+        const targetId = parseInt(req.params[paramName]);
+        if (player.playerId === targetId) {
+          req.playerAccount = player;
+          return next();
+        }
+        res.status(403).json({ error: 'غير مصرّح — لا يمكنك تعديل بيانات لاعب آخر' });
+        return;
+      }
+    }
+    res.status(401).json({ error: 'غير مصادق — يرجى تسجيل الدخول' });
   };
 }
 

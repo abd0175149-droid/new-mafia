@@ -13,7 +13,7 @@ import {
   interactionRules,
   rankEffects,
 } from '../schemas/game-config.schema.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, adminOnly } from '../middleware/auth.js';
 import { invalidateCache } from '../game/definition-service.js';
 import multer from 'multer';
 import path from 'path';
@@ -41,6 +41,13 @@ const cardFaceUpload = multer({
 });
 
 const router = Router();
+
+// 🔒 أمان: كل عمليات الكتابة على كتالوج اللعبة (الأدوار/القدرات/البطاقات...) للأدمن فقط.
+// القراءة (GET) تبقى عامة كما هي حتى لا ينكسر عرض الإعدادات في الواجهات.
+router.use((req: Request, res: Response, next) => {
+  if (req.method === 'GET') return next();
+  authenticate(req, res, () => adminOnly(req, res, next));
+});
 
 // Helper: strip metadata fields from request body before DB update
 function stripMeta(body: any) {

@@ -16,6 +16,7 @@ import {
   verifyPlayerPassword,
   authenticatePlayer,
 } from '../middleware/player-auth.middleware.js';
+import { authenticate, adminOnly } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -353,7 +354,7 @@ router.post('/change-password', authenticatePlayer, async (req: Request, res: Re
 });
 
 // ── POST /api/player-auth/migrate-welcome-bonus — منح 200 XP لكل اللاعبين القدامى (مرة واحدة) ──
-router.post('/migrate-welcome-bonus', async (_req: Request, res: Response) => {
+router.post('/migrate-welcome-bonus', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });

@@ -9,7 +9,7 @@ import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
 import { players as playersTable, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
 import { eq, desc } from 'drizzle-orm';
-import { authenticate, adminOnly, authorize } from '../middleware/auth.js';
+import { authenticate, adminOnly, authorize, staffOrSelf } from '../middleware/auth.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
 import {
   findPlayerByPhone,
@@ -392,8 +392,8 @@ router.get('/:id/profile', async (req: Request, res: Response) => {
   }
 });
 
-// ── PUT /api/player/:id/profile — تعديل بيانات البروفايل ──
-router.put('/:id/profile', async (req: Request, res: Response) => {
+// ── PUT /api/player/:id/profile — تعديل بيانات البروفايل (موظف أو اللاعب نفسه) ──
+router.put('/:id/profile', staffOrSelf('id'), async (req: Request, res: Response) => {
   try {
     const playerId = parseInt(req.params.id);
     if (!playerId || isNaN(playerId)) {
@@ -458,8 +458,8 @@ router.put('/:id/profile', async (req: Request, res: Response) => {
   }
 });
 
-// ── POST /api/player/:id/avatar — رفع صورة البروفايل (Base64) ──
-router.post('/:id/avatar', async (req: Request, res: Response) => {
+// ── POST /api/player/:id/avatar — رفع صورة البروفايل (موظف أو اللاعب نفسه) ──
+router.post('/:id/avatar', staffOrSelf('id'), async (req: Request, res: Response) => {
   try {
     const playerId = parseInt(req.params.id);
     if (!playerId || isNaN(playerId)) {
@@ -485,13 +485,25 @@ router.post('/:id/avatar', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'تنسيق صورة غير صالح' });
     }
 
-    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    // allow-list صارم للامتدادات (يمنع svg/أنواع قابلة للتنفيذ)
+    const rawExt = (matches[1] || '').toLowerCase();
+    const ALLOWED_EXT = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    if (!ALLOWED_EXT.includes(rawExt)) {
+      return res.status(400).json({ success: false, error: 'نوع صورة غير مدعوم' });
+    }
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
     const base64Data = matches[2];
     const fileName = `${playerId}.${ext}`;
     const filePath = path.join(uploadDir, fileName);
 
+    // تحقّق من الحجم (حد 5MB بعد فك الترميز)
+    const buffer = Buffer.from(base64Data, 'base64');
+    if (buffer.length > 5 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'حجم الصورة كبير جداً (الحد 5MB)' });
+    }
+
     // حفظ الملف
-    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+    fs.writeFileSync(filePath, buffer);
 
     const avatarUrl = `/uploads/avatars/${fileName}?v=${Date.now()}`;
 

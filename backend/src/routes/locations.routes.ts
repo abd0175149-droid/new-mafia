@@ -7,7 +7,7 @@ import { eq, desc } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
 import { locations, staff, notifications, userSettings } from '../schemas/admin.schema.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, managerOrAbove } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -25,8 +25,8 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
   res.json(rows);
 });
 
-// POST /api/locations
-router.post('/', authenticate, async (req: Request, res: Response) => {
+// POST /api/locations — إنشاء موقع (+ حساب مالك) — مدير فأعلى فقط (يمنع تصعيد الصلاحية)
+router.post('/', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
@@ -78,7 +78,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 });
 
 // PUT /api/locations/:id
-router.put('/:id', authenticate, async (req: Request, res: Response) => {
+router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
@@ -96,7 +96,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
 });
 
 // DELETE /api/locations/:id
-router.delete('/:id', authenticate, async (req: Request, res: Response) => {
+router.delete('/:id', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 

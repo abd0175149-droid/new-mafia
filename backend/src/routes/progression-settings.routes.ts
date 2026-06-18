@@ -9,7 +9,7 @@ import { getDB } from '../config/db.js';
 import { progressionConfig } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { matchPlayers, matches } from '../schemas/game.schema.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, adminOnly } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -141,7 +141,7 @@ router.get('/public', async (_req: Request, res: Response) => {
 });
 
 // ── PUT /api/progression-settings (Admin) ──────────
-router.put('/', authenticate, async (req: Request, res: Response) => {
+router.put('/', authenticate, adminOnly, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
@@ -218,7 +218,7 @@ router.get('/player/:playerId/matches', authenticate, async (req: Request, res: 
 
 // ── POST /api/progression-settings/player/:playerId/adjust ──
 // تعديل نقاط لاعب في مباراة معينة يدوياً
-router.post('/player/:playerId/adjust', authenticate, async (req: Request, res: Response) => {
+router.post('/player/:playerId/adjust', authenticate, adminOnly, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 
