@@ -10,7 +10,7 @@ import { seasons, playerSeasonStats } from '../schemas/season.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { matches, sessions } from '../schemas/game.schema.js';
 import { activities } from '../schemas/admin.schema.js';
-import { RANK_TIERS, RANK_RR_REQUIRED, xpForNextLevel, type RankTier } from './progression.service.js';
+import { RANK_TIERS, RANK_RR_REQUIRED, xpForNextLevel, DEMOTION_RETURN_PERCENT, type RankTier } from './progression.service.js';
 
 export interface SeasonRow {
   id: number; name: string; seasonNumber: number;
@@ -96,7 +96,7 @@ export async function applySeasonStats(
   while (tierIdx < RANK_TIERS.length - 1 && rr >= RANK_RR_REQUIRED[RANK_TIERS[tierIdx]]) {
     rr -= RANK_RR_REQUIRED[RANK_TIERS[tierIdx]]; tierIdx++;
   }
-  while (rr < 0 && tierIdx > 0) { tierIdx--; rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * 0.8); }
+  while (rr < 0 && tierIdx > 0) { tierIdx--; rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * (DEMOTION_RETURN_PERCENT / 100)); }
   if (rr < 0) rr = 0;
   const maxRR = RANK_RR_REQUIRED[RANK_TIERS[tierIdx]];
   if (rr > maxRR) rr = maxRR;

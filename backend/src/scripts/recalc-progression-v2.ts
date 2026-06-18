@@ -18,6 +18,7 @@ import { activities, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import {
   computeMatchReward, xpForNextLevel, RANK_TIERS, RANK_RR_REQUIRED,
+  applyProgressionConfig, DEMOTION_RETURN_PERCENT,
 } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 
@@ -42,7 +43,7 @@ function applyRRInMemory(acc: PlayerAcc, rrChange: number) {
   }
   while (rr < 0 && tierIdx > 0) {
     tierIdx--;
-    rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * 0.8);
+    rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * (DEMOTION_RETURN_PERCENT / 100));
   }
   if (rr < 0) rr = 0;
   const maxRR = RANK_RR_REQUIRED[RANK_TIERS[tierIdx]];
@@ -67,11 +68,7 @@ async function main() {
   // 1) تحميل إعدادات التقدّم + ضبط عتبات الرتب (مثل processMatchRewards)
   let cfg: any;
   try { cfg = await getProgressionConfig(); } catch { cfg = undefined; }
-  if (cfg?.ranks) {
-    for (const tier of RANK_TIERS) {
-      if (cfg.ranks[tier]?.rrRequired) RANK_RR_REQUIRED[tier] = cfg.ranks[tier].rrRequired;
-    }
-  }
+  applyProgressionConfig(cfg);
   console.log(`⚙️  RANK thresholds: ${JSON.stringify(RANK_RR_REQUIRED)}`);
 
   // 2) سحب كل صفوف match_players مع الفائز + علم موقع الاختبار (عبر session→activity→location)

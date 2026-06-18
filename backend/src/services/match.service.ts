@@ -10,7 +10,7 @@ import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
-import { processMatchRewards, computeMatchReward } from './progression.service.js';
+import { processMatchRewards, computeMatchReward, applyProgressionConfig } from './progression.service.js';
 import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 import type { GameState } from '../game/state.js';
 
@@ -100,6 +100,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     // ── تحميل إعدادات التقدّم (نفس مصدر processMatchRewards لضمان تطابق المعروض والمطبَّق) ──
     let cfg: any;
     try { cfg = await getProgressionConfig(); } catch { cfg = DEFAULT_CONFIG; }
+    applyProgressionConfig(cfg); // ضمان أن إعدادات الرتب/المستوى/التنزيل فعّالة في هذه المباراة
     const elimBonusPerKill = cfg?.xp?.teamEliminationBonus || 15;
 
     const playerRows = state.players.map(p => {

@@ -60,6 +60,9 @@ const ACTION_CATEGORIES = [
     actions: [
       { key: 'jesterWin', label: 'فوز المهرج', icon: '🤡', type: 'BOTH', desc: 'مكافأة المهرج عند تحقيق هدفه (إقصاء من المدينة)' },
       { key: 'jesterLoss', label: 'خسارة المهرج', icon: '😢', type: 'BOTH', desc: 'خصم نقاط المهرج عند فشله (بقي حياً أو قتلته المافيا)' },
+      { key: 'assassinWin', label: 'فوز السفّاح', icon: '🔪', type: 'BOTH', desc: 'مكافأة السفّاح عند إكمال كل عقوده' },
+      { key: 'assassinLoss', label: 'خسارة السفّاح', icon: '🗡️', type: 'BOTH', desc: 'خصم على السفّاح عند فشله/موته' },
+      { key: 'assassinContractComplete', label: 'إنجاز عقد سفّاح', icon: '🎯', type: 'BOTH', desc: 'نقاط لكل عقد اغتيال يُنجزه السفّاح' },
     ]
   }
 ];
@@ -239,7 +242,7 @@ export default function ProgressionPage() {
             {tab === 'xp' && (
               <div className="mt-8 p-6 bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl border border-amber-500/20">
                 <h4 className="text-md font-bold text-amber-400 mb-2">📈 معادلة المستوى المتقدمة</h4>
-                <p className="text-xs text-gray-400 mb-4">Level = floor( (TotalXP / BaseXP) ^ (1 / Exponent) )</p>
+                <p className="text-xs text-gray-400 mb-4">تكلفة الصعود للمستوى التالي = floor( BaseXP × (المستوى ^ Exponent) ) — تراكمية لكل مستوى</p>
                 <div className="flex flex-wrap gap-6">
                   <div>
                     <label className="text-xs text-gray-400 block mb-1">الأساس (BaseXP)</label>

@@ -41,9 +41,29 @@ export function rrRequiredForTier(tier: string): number {
   return RANK_RR_REQUIRED[tier as RankTier] || 100;
 }
 
-// ── معادلة Level XP ──────────────────────────────────
+// ── معاملات قابلة للضبط من إعدادات التقدّم (تُحدَّث عبر applyProgressionConfig) ──
+export let LEVEL_BASE_XP = 500;
+export let LEVEL_EXPONENT = 1.2;
+export let DEMOTION_RETURN_PERCENT = 80;
+
+// ── معادلة Level XP (تكلفة الصعود للمستوى التالي) ───────
 export function xpForNextLevel(level: number): number {
-  return Math.floor(500 * Math.pow(level, 1.2));
+  return Math.floor(LEVEL_BASE_XP * Math.pow(level, LEVEL_EXPONENT));
+}
+
+// ── تطبيق إعدادات التقدّم على المعاملات العامة (عتبات الرتب + المستوى + التنزيل) ──
+// يُستدعى أينما تُحمّل cfg (processMatchRewards / finalizeMatch / recalc) لضمان أن
+// تعديلات الواجهة (الرتب/المستوى/نسبة التنزيل) تؤثّر فعلاً في الحساب.
+export function applyProgressionConfig(cfg: any): void {
+  if (!cfg) return;
+  if (cfg.ranks) {
+    for (const tier of RANK_TIERS) {
+      if (cfg.ranks[tier]?.rrRequired != null) RANK_RR_REQUIRED[tier] = cfg.ranks[tier].rrRequired;
+    }
+  }
+  if (cfg.level?.baseXP != null) LEVEL_BASE_XP = cfg.level.baseXP;
+  if (cfg.level?.exponent != null) LEVEL_EXPONENT = cfg.level.exponent;
+  if (cfg.demotionReturnPercent != null) DEMOTION_RETURN_PERCENT = cfg.demotionReturnPercent;
 }
 
 // ── حساب XP المكتسب من مباراة واحدة (ديناميكي) ────
@@ -224,8 +244,8 @@ export async function applyRR(playerId: number, rrChange: number): Promise<{ new
   // ── تنزيل ──
   while (rr < 0 && tierIdx > 0) {
     tierIdx--;
-    // يرجع بـ 80% من RR الرتبة الأدنى
-    rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * 0.8);
+    // يرجع بنسبة DEMOTION_RETURN_PERCENT من RR الرتبة الأدنى (قابلة للضبط من الإعدادات)
+    rr += Math.floor(RANK_RR_REQUIRED[RANK_TIERS[tierIdx]] * (DEMOTION_RETURN_PERCENT / 100));
     demoted = true;
   }
 
@@ -254,14 +274,8 @@ export async function processMatchRewards(state: GameState): Promise<void> {
   let cfg: any;
   try { cfg = await getProgressionConfig(); } catch { cfg = DEFAULT_CONFIG; }
 
-  // تحديث RANK_RR_REQUIRED من الإعدادات
-  if (cfg.ranks) {
-    for (const tier of RANK_TIERS) {
-      if (cfg.ranks[tier]?.rrRequired) {
-        RANK_RR_REQUIRED[tier] = cfg.ranks[tier].rrRequired;
-      }
-    }
-  }
+  // تحديث العتبات + معاملات المستوى/التنزيل من الإعدادات
+  applyProgressionConfig(cfg);
 
   // ── 1. فحص هل النشاط في Test Location؟ ──
   if (state.activityId) {
