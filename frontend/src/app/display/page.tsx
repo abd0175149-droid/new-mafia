@@ -79,6 +79,9 @@ function DisplayPageContent() {
   const [displayMaxPenalties, setDisplayMaxPenalties] = useState(3);
   const [phase, setPhase] = useState<Phase>(Phase.LOBBY);
   const [winner, setWinner] = useState<string | null>(null);
+  // 🏆 كشف الفائز: نبدأ بمرحلة تشويق (يعمل فيها صوت الفوز) ثم نكشف الكروت بعد 5 ثوانٍ
+  const [revealWinner, setRevealWinner] = useState(false);
+  const winnerRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [animation, setAnimation] = useState<any>(null);
   const animTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [discussionState, setDiscussionState] = useState<any>(null);
@@ -392,13 +395,16 @@ function DisplayPageContent() {
       setPhase(Phase.GAME_OVER);
       if (data.players) setPlayers(data.players);
       stopAmbientSound();
-      // تشغيل صوت الفوز المناسب
+      // 🎵 أولاً: شغّل صوت الفريق الفائز فوراً، وأبقِ شاشة التشويق 5 ثوانٍ قبل كشف الكروت
       switch (data.winner) {
         case 'JESTER': playGameSound('win_jester'); break;
         case 'ASSASSIN': playGameSound('win_assassin'); break;
         case 'MAFIA': playGameSound('win_mafia'); break;
         default: playGameSound('win_citizen'); break;
       }
+      setRevealWinner(false);
+      if (winnerRevealTimer.current) clearTimeout(winnerRevealTimer.current);
+      winnerRevealTimer.current = setTimeout(() => setRevealWinner(true), 5000);
     };
 
     const onPlayerUpdated = (data: any) => {
@@ -552,6 +558,7 @@ function DisplayPageContent() {
       socket.off('game:timer-expired');
       socket.off('game:timer-adjusted');
       socket.off('game:restarted');
+      if (winnerRevealTimer.current) clearTimeout(winnerRevealTimer.current);
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
     };
   }, [step, currentRoomId]);
@@ -637,9 +644,10 @@ function DisplayPageContent() {
       if (data.state) {
         setPhase(data.state.phase || 'LOBBY');
         setDiscussionState(data.state.discussionState || null);
-        // استعادة حالة الفوز عند الاتصال بلعبة منتهية
+        // استعادة حالة الفوز عند الاتصال بلعبة منتهية → اكشف الكروت فوراً (لا تشويق، فاتت اللحظة)
         if (data.state.winner) {
           setWinner(data.state.winner);
+          if (data.state.phase === Phase.GAME_OVER) setRevealWinner(true);
         }
         if (data.state.teamCounts) setTeamCounts(data.state.teamCounts);
         if (data.state.gameTimer && !data.state.gameTimer.expired) {
@@ -700,7 +708,10 @@ function DisplayPageContent() {
       if (data.state) {
         setPhase(data.state.phase || 'LOBBY');
         setDiscussionState(data.state.discussionState || null);
-        if (data.state.winner) setWinner(data.state.winner);
+        if (data.state.winner) {
+          setWinner(data.state.winner);
+          if (data.state.phase === Phase.GAME_OVER) setRevealWinner(true);
+        }
         if (data.state.teamCounts) setTeamCounts(data.state.teamCounts);
         if (data.state.gameTimer && !data.state.gameTimer.expired) {
           setGameTimerData(data.state.gameTimer);
@@ -1237,7 +1248,55 @@ function DisplayPageContent() {
         )}
 
         {/* ═══ نهاية اللعبة ═══ */}
-        {phase === Phase.GAME_OVER && winner && (() => {
+        {/* ═══ 🥁 شاشة تشويق الفوز — تعمل 5 ثوانٍ مع صوت الفريق الفائز قبل كشف الكروت ═══ */}
+        {phase === Phase.GAME_OVER && winner && !revealWinner && (() => {
+          const wm = winner === 'MAFIA'
+            ? { emoji: '🩸', color: '#8A0303', glow: 'rgba(138,3,3,0.35)', label: 'المافيا' }
+            : winner === 'ASSASSIN'
+            ? { emoji: '🔪', color: '#DC143C', glow: 'rgba(220,20,60,0.35)', label: 'السفّاح' }
+            : winner === 'JESTER'
+            ? { emoji: '🤡', color: '#f59e0b', glow: 'rgba(245,158,11,0.35)', label: 'المهرّج' }
+            : { emoji: '⚖️', color: '#C5A059', glow: 'rgba(197,160,89,0.3)', label: 'المدينة' };
+          return (
+            <motion.div
+              key="winner-buildup"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-30 flex flex-col items-center justify-center overflow-hidden"
+              style={{ background: `radial-gradient(ellipse at center, ${wm.glow} 0%, rgba(0,0,0,0.92) 70%)` }}
+            >
+              {/* نبضات توهج متتالية */}
+              <motion.div
+                className="absolute inset-0 pointer-events-none"
+                style={{ background: `radial-gradient(circle at center, ${wm.glow} 0%, transparent 60%)` }}
+                animate={{ opacity: [0.2, 0.9, 0.2], scale: [0.9, 1.1, 0.9] }}
+                transition={{ duration: 1.25, repeat: Infinity, ease: 'easeInOut' }}
+              />
+              <motion.div
+                className="text-[10rem] md:text-[14rem] leading-none drop-shadow-[0_0_60px_var(--g)]"
+                style={{ ['--g' as any]: wm.glow }}
+                animate={{ scale: [0.85, 1.12, 0.95, 1.05], rotate: [0, -4, 4, 0] }}
+                transition={{ duration: 1.25, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                {wm.emoji}
+              </motion.div>
+              <motion.p
+                className="mt-4 font-black tracking-[0.4em] text-2xl md:text-4xl"
+                style={{ color: wm.color, fontFamily: 'Amiri, serif' }}
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 1, repeat: Infinity }}
+              >
+                النتيجة قادمة…
+              </motion.p>
+              {/* شريط تقدّم 5 ثوانٍ */}
+              <div className="mt-8 w-64 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <motion.div className="h-full rounded-full" style={{ background: wm.color }}
+                  initial={{ width: '0%' }} animate={{ width: '100%' }} transition={{ duration: 5, ease: 'linear' }} />
+              </div>
+            </motion.div>
+          );
+        })()}
+
+        {phase === Phase.GAME_OVER && winner && revealWinner && (() => {
           const isJesterWin = winner === 'JESTER';
           const isAssassinWin = winner === 'ASSASSIN';
           // تصفية الفريق الفائز
