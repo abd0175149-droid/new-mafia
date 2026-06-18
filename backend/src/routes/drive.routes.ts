@@ -54,9 +54,16 @@ router.get('/list', authenticate, async (req: Request, res: Response) => {
     const searchParams = req.query.q as string;
     if (!folderId) return res.status(400).json({ error: 'مطلوب folderId' });
 
+    // تحقّق من صيغة معرّف Drive (يمنع حقن استعلام GAQL عبر folderId)
+    if (!/^[A-Za-z0-9_-]{6,}$/.test(folderId)) {
+      return res.status(400).json({ error: 'معرّف مجلّد غير صالح' });
+    }
+    // هروب صحيح: backslash أولاً ثم علامة الاقتباس
+    const escGaql = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
     let q = `'${folderId}' in parents and trashed=false`;
     if (searchParams) {
-      q += ` and name contains '${searchParams.replace(/'/g, "\\'")}'`;
+      q += ` and name contains '${escGaql(searchParams)}'`;
     }
 
     const drive = getDriveService();

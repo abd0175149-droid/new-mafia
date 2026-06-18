@@ -12,11 +12,15 @@ import {
   generateToken, verifyPassword, authenticate,
   type JwtPayload,
 } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 
 const router = Router();
 
+// كبح القوة الغاشمة على تسجيل دخول الموظفين
+const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'staff-login' });
+
 // POST /api/auth/login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'اسم المستخدم وكلمة المرور مطلوبان' });
@@ -27,13 +31,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
   const users = await db.select().from(staff).where(eq(staff.username, username)).limit(1);
   const user = users[0];
-  console.log(`🔐 Login attempt: username="${username}", found=${!!user}, hashLength=${user?.passwordHash?.length || 0}`);
   if (!user) {
     return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
   }
 
   const valid = await verifyPassword(password, user.passwordHash);
-  console.log(`🔐 Password check: valid=${valid}`);
   if (!valid) {
     return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
   }

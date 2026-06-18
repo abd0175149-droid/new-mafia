@@ -10,6 +10,7 @@ import { getRoom, addPlayer, updatePlayer } from '../game/state.js';
 import { activeRooms } from '../sockets/lobby.socket.js';
 import { addPlayerToSession } from '../services/session.service.js';
 import { createPlayer, findPlayerByPhone } from '../services/player.service.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 
 const router = Router();
 
@@ -47,7 +48,7 @@ export function requireLeader(req: Request, res: Response, next: NextFunction) {
 
 // ── POST /api/leader/login ──
 // يقبل نفس بيانات الإدارة ويرجع JWT
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 15, keyPrefix: 'leader-login' }), async (req: Request, res: Response) => {
   const { username, password } = req.body;
 
   if (!username || !password) {

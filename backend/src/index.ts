@@ -816,6 +816,20 @@ async function main() {
     await seedDummyGame();
   }
 
+  // ── حماية من الانهيار: التقاط الأخطاء غير المعالَجة (يمنع توقّف العملية) ──
+  process.on('unhandledRejection', (reason: any) => {
+    console.error('⚠️ Unhandled Rejection:', reason?.message || reason);
+  });
+  process.on('uncaughtException', (err: any) => {
+    console.error('⚠️ Uncaught Exception:', err?.message || err);
+  });
+
+  // ── معالج أخطاء عام (آخر middleware) — رسالة عامة بلا تسريب تفاصيل داخلية ──
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    console.error('❌ Route error:', err?.message || err);
+    if (!res.headersSent) res.status(500).json({ error: 'حدث خطأ داخلي' });
+  });
+
   // ── بدء الاستماع ──
   server.listen(env.PORT, () => {
     console.log(`

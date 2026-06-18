@@ -17,6 +17,7 @@ import {
   authenticatePlayer,
 } from '../middleware/player-auth.middleware.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 
 const router = Router();
 
@@ -108,7 +109,7 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // ── POST /api/player-auth/login — تسجيل دخول ──
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 15, keyPrefix: 'player-login' }), async (req: Request, res: Response) => {
   try {
     const { phone, password } = req.body;
 
