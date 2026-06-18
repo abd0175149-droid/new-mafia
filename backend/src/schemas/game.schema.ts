@@ -65,6 +65,8 @@ export const matches = pgTable('matches', {
   winner: winnerEnum('winner'),
   totalRounds: integer('total_rounds').default(0),
   durationSeconds: integer('duration_seconds'),
+  // 🏆 الموسم الذي تُحتسب له المباراة (عادي أو بطولة حسب الموقع) — يُختم عند الإنشاء
+  seasonId: integer('season_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   endedAt: timestamp('ended_at'),
   deletedAt: timestamp('deleted_at'),

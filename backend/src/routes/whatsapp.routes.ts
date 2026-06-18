@@ -412,14 +412,20 @@ router.get('/promoted-players', authenticate, async (_req: Request, res: Respons
       };
     });
 
+    // 🏆 حارس بداية الموسم: لا نُشعِر بالتنزيل إلى INFORMANT (توقيع تصفير الموسم)
+    // يمنع انفجار "تم تنزيل رتبتك" لكل اللاعبين عند بدء موسم جديد.
+    const filteredPlayers = promotedPlayers.filter(
+      (p: any) => !(p.changeType === 'demoted' && p.rankTier === 'INFORMANT'),
+    );
+
     res.json({
       success: true,
-      players: promotedPlayers,
+      players: filteredPlayers,
       summary: {
-        total: promotedPlayers.length,
-        promoted: promotedPlayers.filter((p: any) => p.changeType === 'promoted').length,
-        demoted: promotedPlayers.filter((p: any) => p.changeType === 'demoted').length,
-        new: promotedPlayers.filter((p: any) => p.changeType === 'new').length,
+        total: filteredPlayers.length,
+        promoted: filteredPlayers.filter((p: any) => p.changeType === 'promoted').length,
+        demoted: filteredPlayers.filter((p: any) => p.changeType === 'demoted').length,
+        new: filteredPlayers.filter((p: any) => p.changeType === 'new').length,
       },
     });
   } catch (err: any) {

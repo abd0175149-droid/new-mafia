@@ -165,11 +165,16 @@ export default function ProgressionPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-20" dir="rtl">
-      <div>
-        <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-amber-400 to-rose-500 flex items-center gap-2">
-          🏆 الإدارة المتقدمة للتقدم
-        </h1>
-        <p className="text-gray-400 text-sm mt-1">نظام ديناميكي يتيح التحكم الشامل وتوسيع الأحداث المترتبة عليها نقاط للاعبين.</p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-l from-amber-400 to-rose-500 flex items-center gap-2">
+            🏆 الإدارة المتقدمة للتقدم
+          </h1>
+          <p className="text-gray-400 text-sm mt-1">نظام ديناميكي يتيح التحكم الشامل وتوسيع الأحداث المترتبة عليها نقاط للاعبين.</p>
+        </div>
+        <a href="/admin/seasons" className="shrink-0 px-4 py-2.5 rounded-xl bg-gradient-to-l from-amber-500 to-rose-500 text-black font-bold text-sm hover:brightness-110 flex items-center gap-2">
+          🗓️ إدارة المواسم
+        </a>
       </div>
 
       {/* Tabs Menu */}

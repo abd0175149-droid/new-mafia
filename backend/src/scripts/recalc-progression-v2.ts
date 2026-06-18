@@ -89,6 +89,7 @@ async function main() {
     rrChange: matchPlayers.rrChange,
     matchId: matchPlayers.matchId,
     winner: matches.winner,
+    seasonId: matches.seasonId,
     isTestLocation: locations.isTestLocation,
   })
     .from(matchPlayers)
@@ -100,10 +101,23 @@ async function main() {
 
   console.log(`📊 Fetched ${rows.length} match_player rows.`);
 
-  // 3) فلترة: استبعاد مواقع الاختبار فقط (isTestLocation === true)
-  const counted = rows.filter(r => r.isTestLocation !== true);
+  // 🏆 نطاق الموسم: افتراضياً الموسم العادي النشط (يُمرَّر --season <id> لموسم آخر).
+  // ضروري كي لا تُخلط مباريات البطولات/المواسم الأخرى في رانك اللاعب العادي (players.*).
+  const seasonArgIdx = process.argv.indexOf('--season');
+  let targetSeasonId: number | null = seasonArgIdx >= 0 ? parseInt(process.argv[seasonArgIdx + 1]) : null;
+  if (targetSeasonId == null) {
+    const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+    targetSeasonId = await getActiveRegularSeasonId();
+  }
+  console.log(`🏆 Target season: ${targetSeasonId ?? '(none — counting all)'} `);
+
+  // 3) فلترة: استبعاد مواقع الاختبار + قصر على الموسم المستهدف (إن وُجد)
+  const counted = rows.filter(r =>
+    r.isTestLocation !== true &&
+    (targetSeasonId == null || r.seasonId === targetSeasonId)
+  );
   const skipped = rows.length - counted.length;
-  console.log(`✅ Counted: ${counted.length} | ⛔ Skipped (test location): ${skipped}`);
+  console.log(`✅ Counted: ${counted.length} | ⛔ Skipped (test/other-season): ${skipped}`);
 
   // 4) إعادة اللعب في الذاكرة لكل لاعب (بالترتيب الزمني)
   const accs = new Map<number, PlayerAcc>();

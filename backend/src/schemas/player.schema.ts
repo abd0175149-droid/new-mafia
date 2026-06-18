@@ -27,7 +27,10 @@ export const players = pgTable('players', {
   totalMatches: integer('total_matches').default(0),
   totalWins: integer('total_wins').default(0),
   totalSurvived: integer('total_survived').default(0),
-  // ── نظام التقدم (Progression) ──
+  // 🏆 عدّاد مباريات مدى الحياة — لا يُصفَّر عند بدء موسم جديد
+  // (يُستخدم لكشف "اللاعب الجديد" في محرك المقاعد ومؤشّرات النشاط)
+  lifetimeMatches: integer('lifetime_matches').default(0),
+  // ── نظام التقدم (Progression) — هذه تمثّل الموسم العادي النشط ──
   xp: integer('xp').default(0),
   level: integer('level').default(1),
   rankTier: varchar('rank_tier', { length: 20 }).default('INFORMANT'), // INFORMANT→SOLDIER→CAPO→UNDERBOSS→GODFATHER

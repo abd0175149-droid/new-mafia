@@ -3,9 +3,10 @@
 // حفظ واسترجاع بيانات المباريات من PostgreSQL
 // ══════════════════════════════════════════════════════
 
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { matches, matchPlayers } from '../schemas/game.schema.js';
+import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
@@ -162,9 +163,25 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       await db.insert(matchPlayers).values(playerRows);
     }
 
+    // ── 🏆 إسناد الموسم: بطولة الموقع إن وُجدت، وإلا الموسم العادي ──
+    const { resolveSeasonForActivity, applySeasonStats, mirrorPlayerToRegularSeason } = await import('./season.service.js');
+    const { seasonId, isRegular } = await resolveSeasonForActivity(state.activityId);
+    if (seasonId) {
+      await db.update(matches).set({ seasonId } as any).where(eq(matches.id, state.matchId));
+    }
+    // عدّاد مباريات مدى الحياة (لا يُصفَّر عند بدء موسم) — لكل لاعب مسجّل، حتى للبطولات
+    if (!isTestGame) {
+      for (const p of state.players) {
+        if (p.playerId) {
+          await db.update(players).set({ lifetimeMatches: sql`COALESCE(${players.lifetimeMatches},0) + 1` } as any)
+            .where(eq(players.id, p.playerId)).catch(() => {});
+        }
+      }
+    }
+
     // ── تحديث إحصائيات اللاعبين (القديمة) + نظام التقدم الجديد ──
     console.log(`📊 [finalizeMatch] isTestGame: ${isTestGame} — ${isTestGame ? 'SKIPPING' : 'UPDATING'} stats for ${state.players.length} players`);
-    if (!isTestGame) {
+    if (!isTestGame && isRegular) {
       for (const p of state.players) {
         if (p.playerId) {
           try {
@@ -191,14 +208,38 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     }
 
     // ── تطبيق نظام التقدم (XP + Level + RR + Rank) ──
-    if (!isTestGame) {
+    if (isTestGame) {
+      console.log(`[Match] Skipping stats and progression for match #${state.matchId} (Test Location).`);
+    } else if (isRegular) {
+      // 🔵 الموسم العادي: نطبّق على players.* (كما كان) ثم نزامن صف الموسم
       try {
         await processMatchRewards(state);
+        if (seasonId) {
+          for (const p of state.players) {
+            if (p.playerId) await mirrorPlayerToRegularSeason(p.playerId, seasonId).catch(() => {});
+          }
+        }
       } catch (progressionErr: any) {
         console.error('⚠️ Failed to process progression rewards:', progressionErr.message);
       }
-    } else {
-      console.log(`[Match] Skipping stats and progression updates for match #${state.matchId} because it is a Test Location.`);
+    } else if (seasonId) {
+      // 🏆 بطولة: نطبّق على إحصاءات الموسم فقط (لا تُلمس players.* / الرانك العادي)
+      try {
+        for (const row of playerRows) {
+          if (!row.playerId) continue;
+          const pIsMafia = isMafiaRole(row.role as any);
+          const won = row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
+            : row.role === 'JESTER' ? state.winner === 'JESTER'
+            : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
+            : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
+          await applySeasonStats(row.playerId, seasonId, row.xpEarned || 0, row.rrChange || 0, {
+            won, survived: !!row.survivedToEnd, dealInitiated: !!row.dealInitiated, dealSuccess: !!row.dealSuccess,
+          });
+        }
+        console.log(`🏆 [finalizeMatch] Tournament season #${seasonId} stats applied for match #${state.matchId}`);
+      } catch (tErr: any) {
+        console.error('⚠️ Failed to apply tournament season stats:', tErr.message);
+      }
     }
 
     // 🔔 Push للاعبين المشاركين (نتيجة المباراة)

@@ -960,7 +960,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             try {
               const { players: playersTable } = await import('../schemas/player.schema.js');
               const [dbPlayer] = await db.select({
-                totalMatches: playersTable.totalMatches,
+                totalMatches: playersTable.lifetimeMatches,  // 🏆 مدى الحياة (لا يُصفَّر بالموسم) — لكشف اللاعب الجديد
                 rankRR: playersTable.rankRR,
                 rankTier: playersTable.rankTier,
                 genderConstraint: playersTable.genderConstraint,

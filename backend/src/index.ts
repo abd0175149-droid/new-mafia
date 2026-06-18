@@ -39,6 +39,7 @@ import whatsappRoutes from './routes/whatsapp.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
+import seasonsRoutes from './routes/seasons.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -107,6 +108,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/game-config', gameConfigRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
+app.use('/api/seasons', seasonsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);

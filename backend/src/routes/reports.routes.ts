@@ -165,9 +165,9 @@ router.get('/players', authenticate, async (req: Request, res: Response) => {
     // ملخص اللاعبين
     const [summary] = await db.select({
       total: sql<number>`COUNT(*)::int`,
-      active: sql<number>`COALESCE(SUM(CASE WHEN ${players.totalMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
+      active: sql<number>`COALESCE(SUM(CASE WHEN ${players.lifetimeMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
       newThisMonth: sql<number>`COALESCE(SUM(CASE WHEN ${players.createdAt} >= NOW() - INTERVAL '30 days' THEN 1 ELSE 0 END), 0)::int`,
-      highlyActive: sql<number>`COALESCE(SUM(CASE WHEN ${players.totalMatches} >= 10 AND ${players.lastActiveAt} >= NOW() - INTERVAL '30 days' THEN 1 ELSE 0 END), 0)::int`,
+      highlyActive: sql<number>`COALESCE(SUM(CASE WHEN ${players.lifetimeMatches} >= 10 AND ${players.lastActiveAt} >= NOW() - INTERVAL '30 days' THEN 1 ELSE 0 END), 0)::int`,
     }).from(players);
 
     // توزيع الرتب
@@ -380,7 +380,7 @@ router.get('/kpi', authenticate, async (req: Request, res: Response) => {
 
     const [playerStats] = await db.select({
       total: sql<number>`COUNT(*)::int`,
-      active: sql<number>`COALESCE(SUM(CASE WHEN ${players.totalMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
+      active: sql<number>`COALESCE(SUM(CASE WHEN ${players.lifetimeMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
       newThisMonth: sql<number>`COALESCE(SUM(CASE WHEN ${players.createdAt} >= ${thisMonthStart} THEN 1 ELSE 0 END), 0)::int`,
     }).from(players);
 

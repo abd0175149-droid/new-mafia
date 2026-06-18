@@ -185,7 +185,7 @@ router.post('/reshuffle', authenticate, leaderOrAbove, async (req: Request, res:
           }
           if (conditions.length > 0) {
             const [dbPlayer] = await db.select({
-              totalMatches: playersTable.totalMatches,
+              totalMatches: playersTable.lifetimeMatches,  // 🏆 مدى الحياة (لا يُصفَّر بالموسم)
               rankRR: playersTable.rankRR,
               rankTier: playersTable.rankTier,
               genderConstraint: playersTable.genderConstraint,

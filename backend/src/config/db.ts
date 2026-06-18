@@ -10,6 +10,7 @@ import * as gameSchema from '../schemas/game.schema.js';
 import * as playerSchema from '../schemas/player.schema.js';
 import * as notificationSchema from '../schemas/notification.schema.js';
 import * as gameConfigSchema from '../schemas/game-config.schema.js';
+import * as seasonSchema from '../schemas/season.schema.js';
 
 const { Pool } = pg;
 
@@ -35,7 +36,7 @@ export async function connectDB(): Promise<Database> {
   client.release();
 
   db = drizzle(pool, {
-    schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema, ...gameConfigSchema },
+    schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema, ...gameConfigSchema, ...seasonSchema },
   });
 
   // ── Auto-migration: إضافة أعمدة جديدة تلقائياً ──
@@ -133,6 +134,97 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_blocked_pairs_unique
       ON blocked_pairs (LEAST(player1_id, player2_id), GREATEST(player1_id, player2_id))
     `);
+
+    // ── 5. 🏆 نظام المواسم: الجداول + الأعمدة + باك-فيل Season 1 ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS seasons (
+        id            SERIAL PRIMARY KEY,
+        name          VARCHAR(100) NOT NULL,
+        season_number INTEGER NOT NULL,
+        type          VARCHAR(20) NOT NULL DEFAULT 'REGULAR',
+        location_id   INTEGER,
+        status        VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+        progression_config_snapshot VARCHAR(20),
+        started_at    TIMESTAMP DEFAULT NOW() NOT NULL,
+        ended_at      TIMESTAMP,
+        created_by    INTEGER,
+        created_at    TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    // موسم عادي نشط واحد فقط
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_regular_season
+      ON seasons (status) WHERE status = 'ACTIVE' AND type = 'REGULAR'
+    `);
+    // موسم بطولة نشط واحد لكل موقع
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_tournament_per_location
+      ON seasons (location_id) WHERE status = 'ACTIVE' AND type = 'TOURNAMENT'
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS player_season_stats (
+        id               SERIAL PRIMARY KEY,
+        player_id        INTEGER NOT NULL,
+        season_id        INTEGER NOT NULL,
+        xp               INTEGER DEFAULT 0,
+        level            INTEGER DEFAULT 1,
+        rank_tier        VARCHAR(20) DEFAULT 'INFORMANT',
+        rank_rr          INTEGER DEFAULT 0,
+        total_matches    INTEGER DEFAULT 0,
+        total_wins       INTEGER DEFAULT 0,
+        total_survived   INTEGER DEFAULT 0,
+        total_deals      INTEGER DEFAULT 0,
+        successful_deals INTEGER DEFAULT 0,
+        updated_at       TIMESTAMP DEFAULT NOW() NOT NULL,
+        UNIQUE (player_id, season_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pss_season ON player_season_stats(season_id)`);
+
+    // أعمدة جديدة
+    const checkSeasonIdCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'matches' AND column_name = 'season_id'
+    `);
+    if (checkSeasonIdCol.rows.length === 0) {
+      await client.query(`ALTER TABLE matches ADD COLUMN season_id INTEGER`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season_id)`);
+      console.log('🔄 Migration: Added season_id column to matches table');
+    }
+    const checkLifetimeCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'players' AND column_name = 'lifetime_matches'
+    `);
+    if (checkLifetimeCol.rows.length === 0) {
+      await client.query(`ALTER TABLE players ADD COLUMN lifetime_matches INTEGER DEFAULT 0`);
+      // باك-فيل: lifetime_matches = total_matches الحالي (موسم واحد حتى الآن)
+      await client.query(`UPDATE players SET lifetime_matches = COALESCE(total_matches, 0)`);
+      console.log('🔄 Migration: Added lifetime_matches column to players + backfilled');
+    }
+
+    // باك-فيل Season 1: إن لم يوجد أي موسم → كل التاريخ = الموسم العادي الأول
+    const seasonCount = await client.query(`SELECT COUNT(*)::int AS c FROM seasons`);
+    if (seasonCount.rows[0].c === 0) {
+      await client.query(`
+        INSERT INTO seasons (name, season_number, type, status, started_at)
+        VALUES ('الموسم الأول', 1, 'REGULAR', 'ACTIVE',
+                COALESCE((SELECT MIN(created_at) FROM matches), NOW()))
+      `);
+      const s1 = await client.query(`SELECT id FROM seasons WHERE season_number = 1 LIMIT 1`);
+      const s1Id = s1.rows[0].id;
+      await client.query(`UPDATE matches SET season_id = $1 WHERE season_id IS NULL`, [s1Id]);
+      // إحصاءات الموسم 1 = القيم الحالية في players.* (كلها تخصّ الموسم 1 حتى الآن)
+      await client.query(`
+        INSERT INTO player_season_stats
+          (player_id, season_id, xp, level, rank_tier, rank_rr, total_matches, total_wins, total_survived, total_deals, successful_deals)
+        SELECT id, $1, COALESCE(xp,0), COALESCE(level,1), COALESCE(rank_tier,'INFORMANT'), COALESCE(rank_rr,0),
+               COALESCE(total_matches,0), COALESCE(total_wins,0), COALESCE(total_survived,0), COALESCE(total_deals,0), COALESCE(successful_deals,0)
+        FROM players
+        ON CONFLICT (player_id, season_id) DO NOTHING
+      `, [s1Id]);
+      console.log(`🏆 Migration: Created Season 1 (id=${s1Id}), stamped all matches + seeded player_season_stats`);
+    }
 
   } catch (err: any) {
     console.warn('⚠️ Auto-migration warning:', err.message);

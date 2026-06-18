@@ -59,7 +59,7 @@ router.get('/stats', authenticate, async (_req: Request, res: Response) => {
     // ── 5. اللاعبون ──
     const [playerRow] = await db.select({
       totalPlayers: sql<number>`COUNT(*)::int`,
-      activePlayers: sql<number>`COALESCE(SUM(CASE WHEN ${players.totalMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
+      activePlayers: sql<number>`COALESCE(SUM(CASE WHEN ${players.lifetimeMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
     }).from(players);
 
     // ── 6. المباريات ──
