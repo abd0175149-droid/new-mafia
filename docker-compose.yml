@@ -43,6 +43,9 @@ services:
     volumes:
       - uploads_data:/app/uploads
       - ./google-service-account.json:/app/google-service-account.json
+      # بيانات اعتماد Firebase Admin (لإرسال FCM للأندرويد/كروم). الملف سرّي وخارج git؛
+      # يُوضع يدوياً على السيرفر في backend/firebase-service-account.json ويُركّب للقراءة فقط.
+      - ./backend/firebase-service-account.json:/app/firebase-service-account.json:ro
 
   frontend:
     build:
