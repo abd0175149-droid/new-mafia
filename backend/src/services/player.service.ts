@@ -182,6 +182,7 @@ export async function getPlayerProfile(playerId: number) {
         penaltyCount: matchPlayers.penaltyCount,
         penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
         bombRRChange: matchPlayers.bombRRChange,
+        rewardBreakdown: matchPlayers.rewardBreakdown,
       })
       .from(matchPlayers)
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -214,6 +215,7 @@ export async function getPlayerProfile(playerId: number) {
           penaltyCount: matchPlayers.penaltyCount,
           penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
           bombRRChange: matchPlayers.bombRRChange,
+          rewardBreakdown: matchPlayers.rewardBreakdown,
         })
         .from(matchPlayers)
         .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -223,6 +225,16 @@ export async function getPlayerProfile(playerId: number) {
     }
   } catch (err: any) {
     console.error('⚠️ Failed to fetch match history for profile:', err.message);
+  }
+
+  // 🧮 إرفاق تفصيل النقاط الدقيق لكل مباراة (موحّد مع نقطة /:id/matches، مع بند تسوية)
+  try {
+    const { buildDisplayBreakdown } = await import('./progression.service.js');
+    const { getProgressionConfig } = await import('../routes/progression-settings.routes.js');
+    let cfgB: any; try { cfgB = await getProgressionConfig(); } catch { cfgB = undefined; }
+    matchHistory = matchHistory.map((m: any) => ({ ...m, breakdown: buildDisplayBreakdown(m, cfgB) }));
+  } catch (e: any) {
+    console.warn('⚠️ Failed to attach breakdown to profile matches:', e.message);
   }
 
   // 3. حساب الإحصائيات التفصيلية

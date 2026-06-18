@@ -10,7 +10,7 @@ import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
-import { processMatchRewards, computeMatchReward, applyProgressionConfig } from './progression.service.js';
+import { processMatchRewards, computeMatchReward, computeMatchBreakdown, applyProgressionConfig } from './progression.service.js';
 import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 import type { GameState } from '../game/state.js';
 
@@ -126,7 +126,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       const mafiaDealOnMafiaCount = playerDeals.filter(d => !d.success && playerIsMafia).length;
 
       // 🎯 المصدر الموحّد لحساب النقاط (كل الأدوار بما فيها المحايدون) — نفس قيمة الإجمالي المطبَّق
-      const { xpEarned, rrChange } = computeMatchReward({
+      const rewardOpts = {
         role: p.role || 'CITIZEN',
         winner: state.winner ?? null,
         survivedToEnd: !!p.isAlive,
@@ -138,7 +138,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         abilityIncorrectCount,
         teamEliminationBonus: teamElimBonus,
         assassinContractsCompleted: state.assassinState?.completedCount || 0,
-      }, cfg);
+      };
+      const { xpEarned, rrChange } = computeMatchReward(rewardOpts, cfg);
+      // 🧮 تفصيل النقاط المُجمّد (مكوّنات مُسمّاة تطابق المجموع) — للعرض الدقيق لاحقاً
+      const breakdown = computeMatchBreakdown(rewardOpts, cfg);
 
       return {
         matchId: state.matchId!,
@@ -157,6 +160,7 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         // 💾 تُحفظ القيم لكل الأدوار (حتى المحايدين) — لا أصفار بعد الآن. تُتخطّى المباريات التجريبية فقط.
         xpEarned: isTestGame ? 0 : xpEarned,
         rrChange: isTestGame ? 0 : rrChange,
+        rewardBreakdown: isTestGame ? null : breakdown,
       };
     });
 

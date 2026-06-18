@@ -78,31 +78,14 @@ function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
       </div>
       <div className="space-y-1.5">
         {matchHistory.slice(0,8).map((m:any,i:number)=>{
-          const isMafia=MAFIA.includes(m.role);
-          const won=(isMafia&&m.matchWinner==='MAFIA')||(!isMafia&&m.matchWinner==='CITIZEN');
+          const bd = m.breakdown; // 🧮 التفصيل الدقيق من الخادم (يتضمّن بند تسوية يطابق المجموع)
+          const isNeutral = bd?.team === 'NEUTRAL';
+          const isMafia = bd?.team ? bd.team === 'MAFIA' : MAFIA.includes(m.role);
+          const won = bd ? bd.won : ((isMafia&&m.matchWinner==='MAFIA')||(!isMafia&&m.matchWinner==='CITIZEN'));
           const dur=m.matchDuration?`${Math.floor(m.matchDuration/60)}:${String(m.matchDuration%60).padStart(2,'0')}`:'—';
           const dt=m.matchDate?new Date(m.matchDate):null;
           const dateStr=dt?`${dt.getDate()}/${dt.getMonth()+1}`:'—';
           const isExpanded = expandedIdx === i;
-
-          // ── حساب التفاصيل من البيانات المتاحة ──
-          const rounds = m.roundsSurvived || 0;
-          const xpParticipation = 20;
-          const xpTeamWin = won ? 50 : 0;
-          const xpSurvival = rounds * 5;
-          const xpAbilityCorrect = (m.abilityUsed && m.abilityCorrect === true) ? 10 : 0;
-          const xpAbilityIncorrect = (m.abilityUsed && m.abilityCorrect === false) ? -5 : 0;
-          const xpDealSuccess = (m.dealInitiated && m.dealSuccess === true) ? 50 : 0;
-          const xpDealFailed = (m.dealInitiated && m.dealSuccess === false) ? -10 : 0;
-          const xpKnown = xpParticipation + xpTeamWin + xpSurvival + xpAbilityCorrect + xpAbilityIncorrect + xpDealSuccess + xpDealFailed;
-          const xpElimBonus = Math.max(0, (m.xpEarned || 0) - Math.max(0, xpKnown));
-
-          const rrTeamResult = won ? 20 : -20;
-          const rrDealSuccess = (m.dealInitiated && m.dealSuccess === true) ? 20 : 0;
-          const rrDealFailed = (m.dealInitiated && m.dealSuccess === false) ? -30 : 0;
-          const rrSurvivedToEnd = m.survived ? 5 : 0;
-          const rrAbilityCorrect = (m.abilityUsed && m.abilityCorrect === true) ? 5 : 0;
-          const rrAbilityIncorrect = (m.abilityUsed && m.abilityCorrect === false) ? -5 : 0;
 
           // دالة مساعدة لعرض سطر نقاط
           const PRow = ({ icon, label, value, type }: { icon: string; label: string; value: number; type: 'xp'|'rr' }) => {
@@ -128,8 +111,8 @@ function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
                 <div className="flex items-center gap-2.5">
                   <span className={`w-2 h-2 rounded-full ${won?'bg-emerald-400':'bg-rose-400'}`}/>
                   <span className="text-xs text-gray-300">{ROLE_NAMES_AR[m.role]||m.role||'—'}</span>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded ${isMafia?'bg-red-500/10 text-red-400':'bg-cyan-500/10 text-cyan-400'}`}>
-                    {isMafia?'مافيا':'مواطن'}
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded ${isNeutral?'bg-purple-500/10 text-purple-400':isMafia?'bg-red-500/10 text-red-400':'bg-cyan-500/10 text-cyan-400'}`}>
+                    {isNeutral?'محايد':isMafia?'مافيا':'مواطن'}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-[10px] text-gray-500">
@@ -155,14 +138,8 @@ function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
                       <div>
                         <p className="text-[10px] text-amber-400 font-bold mb-1.5">⭐ تفصيل الخبرة (XP)</p>
                         <div className="space-y-0">
-                          <PRow icon="🎮" label="المشاركة" value={xpParticipation} type="xp" />
-                          <PRow icon="🏆" label={won ? 'فوز الفريق' : 'خسارة (لا نقاط)'} value={xpTeamWin} type="xp" />
-                          <PRow icon="🛡️" label={`النجاة (${rounds} جولة × 5)`} value={xpSurvival} type="xp" />
-                          <PRow icon="✅" label="قدرة صحيحة" value={xpAbilityCorrect} type="xp" />
-                          <PRow icon="❌" label="قدرة خاطئة" value={xpAbilityIncorrect} type="xp" />
-                          <PRow icon="🤝" label="ديل ناجح" value={xpDealSuccess} type="xp" />
-                          <PRow icon="💔" label="ديل فاشل" value={xpDealFailed} type="xp" />
-                          <PRow icon="⚔️" label="إقصاء خصم" value={xpElimBonus} type="xp" />
+                          {bd?.xp?.length ? bd.xp.map((l:any)=><PRow key={l.key} icon={l.icon} label={l.label} value={l.value} type="xp" />)
+                            : <p className="text-[10px] text-gray-600 py-1">لا نقاط خبرة</p>}
                         </div>
                         <div className="flex justify-between mt-1.5 pt-1.5 border-t border-white/[0.06]">
                           <span className="text-[10px] text-gray-300 font-bold">المجموع</span>
@@ -174,12 +151,8 @@ function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
                       <div>
                         <p className="text-[10px] text-purple-400 font-bold mb-1.5">🏆 تفصيل الرتبة (RR)</p>
                         <div className="space-y-0">
-                          <PRow icon={won?'🏆':'💀'} label={won?'فوز الفريق':'خسارة الفريق'} value={rrTeamResult} type="rr" />
-                          <PRow icon="🤝" label="ديل ناجح" value={rrDealSuccess} type="rr" />
-                          <PRow icon="💔" label="ديل فاشل" value={rrDealFailed} type="rr" />
-                          <PRow icon="🛡️" label="النجاة للنهاية" value={rrSurvivedToEnd} type="rr" />
-                          <PRow icon="✅" label="قدرة صحيحة" value={rrAbilityCorrect} type="rr" />
-                          <PRow icon="❌" label="قدرة خاطئة" value={rrAbilityIncorrect} type="rr" />
+                          {bd?.rr?.length ? bd.rr.map((l:any)=><PRow key={l.key} icon={l.icon} label={l.label} value={l.value} type="rr" />)
+                            : <p className="text-[10px] text-gray-600 py-1">لا تغيّر في الرتبة</p>}
                         </div>
                         <div className="flex justify-between mt-1.5 pt-1.5 border-t border-white/[0.06]">
                           <span className="text-[10px] text-gray-300 font-bold">المجموع</span>

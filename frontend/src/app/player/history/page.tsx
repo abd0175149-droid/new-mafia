@@ -10,27 +10,7 @@ const ROLE_NAMES_AR: Record<string, string> = {
 };
 const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
 
-interface XPBreakdown {
-  participation: number;
-  teamWin: number;
-  survival: number;
-  abilityCorrect: number;
-  abilityIncorrect: number;
-  dealSuccess: number;
-  dealFailed: number;
-  elimBonus: number;
-}
-
-interface RRBreakdown {
-  teamResult: number;
-  dealSuccess: number;
-  dealFailed: number;
-  survivedToEnd: number;
-  abilityCorrect: number;
-  abilityIncorrect: number;
-  penalty: number;
-  bomb: number;
-}
+interface BreakdownLine { key: string; label: string; icon: string; value: number; }
 
 interface MatchDetails {
   matchId: number;
@@ -55,8 +35,12 @@ interface MatchDetails {
   penaltyRRDeduction: number;
   bombRRChange: number;
   breakdown?: {
-    xp: XPBreakdown;
-    rr: RRBreakdown;
+    team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
+    won: boolean;
+    xp: BreakdownLine[];
+    rr: BreakdownLine[];
+    xpTotal: number;
+    rrTotal: number;
   };
 }
 
@@ -251,9 +235,10 @@ export default function MatchHistoryPage() {
 
               {(() => {
                 const m = selectedMatch;
-                const isMafia = MAFIA_ROLES.includes(m.role);
-                const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
                 const b = m.breakdown;
+                const isNeutral = b?.team === 'NEUTRAL';
+                const isMafia = b?.team ? b.team === 'MAFIA' : MAFIA_ROLES.includes(m.role);
+                const won = b ? b.won : ((isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN'));
 
                 return (
                   <div className="space-y-4">
@@ -263,8 +248,8 @@ export default function MatchHistoryPage() {
                         <div>
                           <p className="text-[10px] text-gray-500 mb-0.5">الدور</p>
                           <p className="font-bold text-amber-400 text-sm">{ROLE_NAMES_AR[m.role] || m.role}</p>
-                          <span className={`text-[9px] px-2 py-0.5 rounded mt-1 inline-block ${isMafia ? 'bg-red-500/10 text-red-400' : 'bg-cyan-500/10 text-cyan-400'}`}>
-                            {isMafia ? 'فريق المافيا' : 'فريق المواطنين'}
+                          <span className={`text-[9px] px-2 py-0.5 rounded mt-1 inline-block ${isNeutral ? 'bg-purple-500/10 text-purple-400' : isMafia ? 'bg-red-500/10 text-red-400' : 'bg-cyan-500/10 text-cyan-400'}`}>
+                            {isNeutral ? 'دور محايد' : isMafia ? 'فريق المافيا' : 'فريق المواطنين'}
                           </span>
                         </div>
                         <div className="text-left">
@@ -287,19 +272,10 @@ export default function MatchHistoryPage() {
                         ⭐ تفصيل نقاط الخبرة (XP)
                       </h3>
                       <div className="space-y-0.5">
-                        {b ? (
-                          <>
-                            <PointRow icon="🎮" label="المشاركة في المباراة" value={b.xp.participation} type="xp" />
-                            <PointRow icon="🏆" label={won ? 'فوز الفريق' : 'خسارة الفريق'} value={b.xp.teamWin} type="xp" />
-                            <PointRow icon="🛡️" label={`النجاة (${m.roundsSurvived} جولة × 5)`} value={b.xp.survival} type="xp" />
-                            <PointRow icon="✅" label="قدرة خاصة صحيحة" value={b.xp.abilityCorrect} type="xp" />
-                            <PointRow icon="❌" label="قدرة خاصة خاطئة" value={b.xp.abilityIncorrect} type="xp" />
-                            <PointRow icon="🤝" label="اتفاقية ناجحة (ديل)" value={b.xp.dealSuccess} type="xp" />
-                            <PointRow icon="💔" label="اتفاقية فاشلة" value={b.xp.dealFailed} type="xp" />
-                            <PointRow icon="⚔️" label="مكافأة إقصاء خصم" value={b.xp.elimBonus} type="xp" />
-                          </>
+                        {b && b.xp.length ? (
+                          b.xp.map((l: any) => <PointRow key={l.key} icon={l.icon} label={l.label} value={l.value} type="xp" />)
                         ) : (
-                          <p className="text-[10px] text-gray-600 text-center py-2">التفاصيل غير متوفرة</p>
+                          <p className="text-[10px] text-gray-600 text-center py-2">لا نقاط خبرة</p>
                         )}
                       </div>
                       {/* XP Total */}
@@ -315,19 +291,10 @@ export default function MatchHistoryPage() {
                         🏆 تفصيل نقاط الرتبة (RR)
                       </h3>
                       <div className="space-y-0.5">
-                        {b ? (
-                          <>
-                            <PointRow icon={won ? '🏆' : '💀'} label={won ? 'فوز الفريق' : 'خسارة الفريق'} value={b.rr.teamResult} type="rr" />
-                            <PointRow icon="🤝" label="اتفاقية ناجحة" value={b.rr.dealSuccess} type="rr" />
-                            <PointRow icon="💔" label="اتفاقية فاشلة" value={b.rr.dealFailed} type="rr" />
-                            <PointRow icon="🛡️" label="النجاة حتى النهاية" value={b.rr.survivedToEnd} type="rr" />
-                            <PointRow icon="✅" label="قدرة خاصة صحيحة" value={b.rr.abilityCorrect} type="rr" />
-                            <PointRow icon="❌" label="قدرة خاصة خاطئة" value={b.rr.abilityIncorrect} type="rr" />
-                            <PointRow icon="⚠️" label={`عقوبات (${m.penaltyCount || 0})`} value={b.rr.penalty} type="rr" />
-                            <PointRow icon="💣" label="قدرة القنبلة" value={b.rr.bomb} type="rr" />
-                          </>
+                        {b && b.rr.length ? (
+                          b.rr.map((l: any) => <PointRow key={l.key} icon={l.icon} label={l.label} value={l.value} type="rr" />)
                         ) : (
-                          <p className="text-[10px] text-gray-600 text-center py-2">التفاصيل غير متوفرة</p>
+                          <p className="text-[10px] text-gray-600 text-center py-2">لا تغيّر في الرتبة</p>
                         )}
                       </div>
                       {/* RR Total */}

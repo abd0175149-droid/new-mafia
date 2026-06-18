@@ -5,7 +5,7 @@
 
 import {
   pgTable, pgEnum, serial, text, timestamp, integer,
-  boolean, varchar, date,
+  boolean, varchar, date, jsonb,
 } from 'drizzle-orm/pg-core';
 
 // ── Enums ─────────────────────────────────────────────
@@ -98,6 +98,8 @@ export const matchPlayers = pgTable('match_players', {
   penaltyRRDeduction: integer('penalty_rr_deduction').default(0),
   // ── تتبع قدرة القنبلة ──
   bombRRChange: integer('bomb_rr_change').default(0),
+  // 🧮 تفصيل النقاط المُجمّد وقت المباراة (للعرض الدقيق في الملف الشخصي)
+  rewardBreakdown: jsonb('reward_breakdown'),
 });
 
 // ── Surveys (التقييمات بعد المباراة) ─────────────────

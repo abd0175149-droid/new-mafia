@@ -198,6 +198,142 @@ export function computeMatchReward(opts: {
   return { won, xpEarned, rrChange };
 }
 
+// ══════════════════════════════════════════════════════
+// 🧮 تفصيل النقاط (Breakdown) — مكوّنات مُسمّاة بنفس منطق computeMatchReward
+// تُخزَّن وقت المباراة (finalize) وتُعرض في الصفحة الشخصية. تضمن أن مجموع البنود = المجموع.
+// ══════════════════════════════════════════════════════
+export function computeMatchBreakdown(opts: {
+  role: string; winner: string | null; survivedToEnd: boolean; roundsSurvived: number;
+  successfulDealsCount: number; failedDealsCount: number; mafiaDealOnMafiaCount: number;
+  abilityCorrectCount: number; abilityIncorrectCount: number; teamEliminationBonus: number;
+  assassinContractsCompleted: number;
+}, cfg?: any): { won: boolean; team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; xp: Record<string, number>; rr: Record<string, number> } {
+  const c = cfg || DEFAULT_CONFIG;
+  const cx = c.xp || DEFAULT_CONFIG.xp;
+  const cr = c.rr || DEFAULT_CONFIG.rr;
+  const role = opts.role;
+
+  if (role === 'JESTER') {
+    const won = opts.winner === 'JESTER';
+    return { won, team: 'NEUTRAL',
+      xp: { neutralResult: Math.max(0, won ? (cx.jesterWin ?? 50) : (cx.jesterLoss ?? 0)) },
+      rr: { neutralResult: won ? (cr.jesterWin ?? 30) : (cr.jesterLoss ?? -10) } };
+  }
+  if (role === 'ASSASSIN') {
+    const won = opts.winner === 'ASSASSIN';
+    const k = opts.assassinContractsCompleted || 0;
+    return { won, team: 'NEUTRAL',
+      xp: { neutralResult: Math.max(0, won ? (cx.assassinWin ?? 80) : (cx.assassinLoss ?? 10)), contracts: k * (cx.assassinContractComplete ?? 15) },
+      rr: { neutralResult: won ? (cr.assassinWin ?? 30) : (cr.assassinLoss ?? -15), contracts: k * (cr.assassinContractComplete ?? 10) } };
+  }
+
+  const isMafia = isMafiaRole(role as any);
+  const won = (opts.winner === 'JESTER' || opts.winner === 'ASSASSIN') ? false
+    : (opts.winner === 'MAFIA' && isMafia) || (opts.winner === 'CITIZEN' && !isMafia);
+  const roleAb = c?.roleAbilities?.[role];
+  const abCorrXp = roleAb?.correctXp ?? cx.abilityCorrect, abWrongXp = roleAb?.wrongXp ?? cx.abilityIncorrect;
+  const abCorrRr = roleAb?.correctRr ?? cr.abilityCorrect, abWrongRr = roleAb?.wrongRr ?? cr.abilityIncorrect;
+
+  return {
+    won, team: isMafia ? 'MAFIA' : 'CITIZEN',
+    xp: {
+      participation: cx.participation,
+      teamWin: won ? cx.teamWin : 0,
+      survival: opts.roundsSurvived * cx.survivalPerRound,
+      abilityCorrect: opts.abilityCorrectCount * abCorrXp,
+      abilityIncorrect: opts.abilityIncorrectCount * abWrongXp,
+      dealSuccess: opts.successfulDealsCount * cx.citizenDealOnMafia,
+      dealFailed: opts.failedDealsCount * cx.failedDeal,
+      mafiaDealOnMafia: opts.mafiaDealOnMafiaCount * (cx.mafiaDealOnMafia ?? cx.failedDeal),
+      teamElimBonus: opts.teamEliminationBonus,
+    },
+    rr: {
+      teamResult: won ? cr.teamWin : cr.teamLoss,
+      dealSuccess: opts.successfulDealsCount * cr.citizenDealOnMafia,
+      dealFailed: opts.failedDealsCount * cr.failedDeal,
+      mafiaDealOnMafia: opts.mafiaDealOnMafiaCount * (cr.mafiaDealOnMafia ?? cr.failedDeal),
+      survivedToEnd: opts.survivedToEnd ? cr.survivedToEnd : 0,
+      abilityCorrect: opts.abilityCorrectCount * abCorrRr,
+      abilityIncorrect: opts.abilityIncorrectCount * abWrongRr,
+    },
+  };
+}
+
+// تسميات/أيقونات البنود (للعرض)
+const BREAKDOWN_META: Record<string, { label: string; icon: string }> = {
+  participation: { label: 'المشاركة في المباراة', icon: '🎮' },
+  teamWin: { label: 'فوز الفريق', icon: '🏆' },
+  teamResult: { label: 'نتيجة الفريق', icon: '⚔️' },
+  survival: { label: 'النجاة (لكل جولة)', icon: '🛡️' },
+  survivedToEnd: { label: 'النجاة حتى النهاية', icon: '🎖️' },
+  abilityCorrect: { label: 'قدرة صحيحة', icon: '✅' },
+  abilityIncorrect: { label: 'قدرة خاطئة', icon: '❌' },
+  dealSuccess: { label: 'اتفاقية ناجحة', icon: '🤝' },
+  dealFailed: { label: 'اتفاقية فاشلة', icon: '💔' },
+  mafiaDealOnMafia: { label: 'غدر بالفريق (ديل مافيا)', icon: '🔴' },
+  teamElimBonus: { label: 'مكافأة إقصاء خصم', icon: '⚔️' },
+  neutralResult: { label: 'نتيجة الدور المحايد', icon: '🎭' },
+  contracts: { label: 'عقود منجزة', icon: '🎯' },
+  penalty: { label: 'عقوبات', icon: '⚠️' },
+  bomb: { label: 'قدرة القنبلة', icon: '💣' },
+  reconcile: { label: 'تسوية/أخرى', icon: '🧮' },
+};
+
+export interface BreakdownLine { key: string; label: string; icon: string; value: number; }
+
+// ── بناء التفصيل المعروض من صفّ match_players (يضمن المطابقة عبر بند التسوية) ──
+export function buildDisplayBreakdown(row: any, cfg?: any): {
+  team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL'; won: boolean; xp: BreakdownLine[]; rr: BreakdownLine[]; xpTotal: number; rrTotal: number;
+} {
+  const xpTotal = row.xpEarned || 0;
+  const rrTotal = row.rrChange || 0;
+  const penalty = row.penaltyRRDeduction || 0;
+  const bomb = row.bombRRChange || 0;
+
+  // 1) المكوّنات: من المخزّن إن وُجد، وإلا إعادة بناء من الحقول المنطقية
+  let comp = row.rewardBreakdown as { team: any; won: boolean; xp: Record<string, number>; rr: Record<string, number> } | null;
+  if (!comp || !comp.xp || !comp.rr) {
+    const isMafia = isMafiaRole(row.role as any);
+    const dealFailedCitizen = row.dealInitiated && row.dealSuccess === false && !isMafia ? 1 : 0;
+    const mafiaDealOnMafia = row.dealInitiated && row.dealSuccess === false && isMafia ? 1 : 0;
+    const b = computeMatchBreakdown({
+      role: row.role,
+      winner: row.matchWinner ?? row.winner ?? null,
+      survivedToEnd: !!(row.survivedToEnd ?? row.survived),
+      roundsSurvived: row.roundsSurvived || 0,
+      successfulDealsCount: row.dealInitiated && row.dealSuccess === true ? 1 : 0,
+      failedDealsCount: dealFailedCitizen,
+      mafiaDealOnMafiaCount: mafiaDealOnMafia,
+      abilityCorrectCount: row.abilityUsed && row.abilityCorrect === true ? 1 : 0,
+      abilityIncorrectCount: row.abilityUsed && row.abilityCorrect === false ? 1 : 0,
+      teamEliminationBonus: 0, // غير معروف من الحقول → يلتقطه بند التسوية
+      assassinContractsCompleted: 0,
+    }, cfg);
+    comp = b;
+  }
+
+  const toLines = (map: Record<string, number>): BreakdownLine[] =>
+    Object.entries(map).filter(([, v]) => v !== 0).map(([key, value]) => ({
+      key, value, label: BREAKDOWN_META[key]?.label || key, icon: BREAKDOWN_META[key]?.icon || '•',
+    }));
+
+  const xpLines = toLines(comp.xp);
+  const rrLines = toLines(comp.rr);
+  // العقوبة والقنبلة (مخزّنتان منفصلتان — تُعرضان كبنود RR)
+  if (penalty !== 0) rrLines.push({ key: 'penalty', value: penalty, label: `${BREAKDOWN_META.penalty.label} (${row.penaltyCount || 0})`, icon: BREAKDOWN_META.penalty.icon });
+  if (bomb !== 0) rrLines.push({ key: 'bomb', value: bomb, label: BREAKDOWN_META.bomb.label, icon: BREAKDOWN_META.bomb.icon });
+
+  // 2) بند التسوية — يضمن أن مجموع البنود = المجموع المخزّن الفعلي تماماً
+  const xpSum = xpLines.reduce((s, l) => s + l.value, 0);
+  const rrSum = rrLines.reduce((s, l) => s + l.value, 0);
+  const xpReconcile = xpTotal - xpSum;
+  const rrReconcile = rrTotal - rrSum;
+  if (xpReconcile !== 0) xpLines.push({ key: 'reconcile', value: xpReconcile, label: BREAKDOWN_META.reconcile.label, icon: BREAKDOWN_META.reconcile.icon });
+  if (rrReconcile !== 0) rrLines.push({ key: 'reconcile', value: rrReconcile, label: BREAKDOWN_META.reconcile.label, icon: BREAKDOWN_META.reconcile.icon });
+
+  return { team: (comp.team || 'CITIZEN') as any, won: !!comp.won, xp: xpLines, rr: rrLines, xpTotal, rrTotal };
+}
+
 // ── تطبيق XP مع فحص Level Up ────────────────────────
 export async function applyXPAndLevel(playerId: number, xpEarned: number): Promise<{ newXP: number; newLevel: number; leveledUp: boolean }> {
   const db = getDB();

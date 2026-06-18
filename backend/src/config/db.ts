@@ -192,6 +192,15 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_matches_season ON matches(season_id)`);
       console.log('🔄 Migration: Added season_id column to matches table');
     }
+    const checkBreakdownCol = await client.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'match_players' AND column_name = 'reward_breakdown'
+    `);
+    if (checkBreakdownCol.rows.length === 0) {
+      await client.query(`ALTER TABLE match_players ADD COLUMN reward_breakdown JSONB`);
+      console.log('🔄 Migration: Added reward_breakdown column to match_players');
+    }
+
     const checkLifetimeCol = await client.query(`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'players' AND column_name = 'lifetime_matches'

@@ -10,6 +10,8 @@ import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations } from '../schemas/admin.schema.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
+import { buildDisplayBreakdown } from '../services/progression.service.js';
+import { getProgressionConfig } from './progression-settings.routes.js';
 
 const router = Router();
 
@@ -654,65 +656,16 @@ router.get('/:id/matches', async (req: Request, res: Response) => {
       penaltyCount: matchPlayers.penaltyCount,
       penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
       bombRRChange: matchPlayers.bombRRChange,
+      rewardBreakdown: matchPlayers.rewardBreakdown,
     })
       .from(matchPlayers)
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
       .where(eq(matchPlayers.playerId, playerId))
       .orderBy(desc(matches.createdAt));
 
-    // حساب التفاصيل (breakdown) لكل مباراة من البيانات الموجودة
-    const enriched = playerMatches.map(m => {
-      const isMafia = MAFIA_ROLES.includes(m.role);
-      const teamWon = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
-      const rounds = m.roundsSurvived || 0;
-
-      // ── حساب تفصيل XP ──
-      const xpParticipation = 20;
-      const xpTeamWin = teamWon ? 50 : 0;
-      const xpSurvival = rounds * 5;
-      const xpAbilityCorrect = (m.abilityUsed && m.abilityCorrect === true) ? 10 : 0;
-      const xpAbilityIncorrect = (m.abilityUsed && m.abilityCorrect === false) ? -5 : 0;
-      const xpDealSuccess = (m.dealInitiated && m.dealSuccess === true) ? 50 : 0;
-      const xpDealFailed = (m.dealInitiated && m.dealSuccess === false) ? -10 : 0;
-
-      // تقدير مكافأة الإقصاء (الفرق بين المجموع والبنود المعروفة)
-      const xpKnown = xpParticipation + xpTeamWin + xpSurvival + xpAbilityCorrect + xpAbilityIncorrect + xpDealSuccess + xpDealFailed;
-      const xpElimBonus = Math.max(0, (m.xpEarned || 0) - Math.max(0, xpKnown));
-
-      // ── حساب تفصيل RR ──
-      const rrTeamResult = teamWon ? 20 : -20;
-      const rrDealSuccess = (m.dealInitiated && m.dealSuccess === true) ? 20 : 0;
-      const rrDealFailed = (m.dealInitiated && m.dealSuccess === false) ? -30 : 0;
-      const rrSurvivedToEnd = m.survivedToEnd ? 5 : 0;
-      const rrAbilityCorrect = (m.abilityUsed && m.abilityCorrect === true) ? 5 : 0;
-      const rrAbilityIncorrect = (m.abilityUsed && m.abilityCorrect === false) ? -5 : 0;
-
-      return {
-        ...m,
-        breakdown: {
-          xp: {
-            participation: xpParticipation,
-            teamWin: xpTeamWin,
-            survival: xpSurvival,
-            abilityCorrect: xpAbilityCorrect,
-            abilityIncorrect: xpAbilityIncorrect,
-            dealSuccess: xpDealSuccess,
-            dealFailed: xpDealFailed,
-            elimBonus: xpElimBonus,
-          },
-          rr: {
-            teamResult: rrTeamResult,
-            dealSuccess: rrDealSuccess,
-            dealFailed: rrDealFailed,
-            survivedToEnd: rrSurvivedToEnd,
-            abilityCorrect: rrAbilityCorrect,
-            abilityIncorrect: rrAbilityIncorrect,
-            penalty: m.penaltyRRDeduction || 0,
-            bomb: m.bombRRChange || 0,
-          },
-        },
-      };
-    });
+    // 🧮 تفصيل دقيق موحّد: من المخزّن إن وُجد وإلا إعادة بناء + بند تسوية يضمن مطابقة المجموع
+    let cfg: any; try { cfg = await getProgressionConfig(); } catch { cfg = undefined; }
+    const enriched = playerMatches.map(m => ({ ...m, breakdown: buildDisplayBreakdown(m, cfg) }));
 
     res.json({ success: true, matches: enriched });
   } catch (err: any) {
