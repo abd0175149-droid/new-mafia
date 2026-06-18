@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
+import { reconnectSocketAuth } from '@/lib/socket';
 
 export default function LeaderLoginPage() {
   const router = useRouter();
@@ -28,6 +29,8 @@ export default function LeaderLoginPage() {
       if (data.success) {
         localStorage.setItem('leader_token', data.token);
         localStorage.setItem('leader_name', data.displayName);
+        // إعادة اتصال السوكيت ليحمل توكن الليدر (تفعيل صلاحية الليدر على السوكيت بدون إعادة تحميل كاملة)
+        try { reconnectSocketAuth(); } catch {}
         router.push('/leader');
       } else {
         setError(data.error || 'فشل تسجيل الدخول');
