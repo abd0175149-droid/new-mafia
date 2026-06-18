@@ -131,8 +131,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   // 🛡️ حجب لوحة اللاعب إذا لم يتم تفعيل الإشعارات (لغير الصفحات العامة)
-  // ⚠️ TODO: معطّل مؤقتاً لحين إصلاح نظام الإشعارات — أعد تفعيله لاحقاً
-  if (false && player && !isPublic) {
+  // أُعيد تفعيله بعد إصلاح نظام الإشعارات (VAPID الثابت + توحيد مصدر العرض + إعادة التسجيل)
+  if (player && !isPublic) {
     // 1. حالة هواتف آيفون (Safari) التي لم تقم بتثبيت التطبيق كـ PWA
     if (needsInstall) {
       return (

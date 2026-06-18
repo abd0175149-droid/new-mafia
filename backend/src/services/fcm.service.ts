@@ -11,6 +11,7 @@ import { notifications, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 
 // ── Web Push لدعم Safari/iOS (lazy init) ──
+// المفاتيح من مصدر واحد ثابت (config/vapid.ts) لضمان تطابقها مع ما يشترك به العميل
 let webpushModule: any = null;
 let webpushInitialized = false;
 
@@ -18,35 +19,11 @@ async function getWebPush() {
   if (webpushInitialized) return webpushModule;
   webpushInitialized = true;
   try {
-    const wpImport = await import('web-push');
-    // web-push هو CommonJS — عند import() ديناميكي قد يكون على .default
-    webpushModule = wpImport.default || wpImport;
-    let VAPID_PUBLIC = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
-    let VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
-
-    // إذا ما فيه مفتاح خاص → نستخدم المفاتيح المولدة أو نولّد جديدة
-    if (!VAPID_PRIVATE) {
-      if ((global as any).__vapidKeys) {
-        // استخدام المفاتيح المولدة مسبقاً (من /api/push/vapid-public-key أو مكان آخر)
-        VAPID_PUBLIC = (global as any).__vapidKeys.publicKey;
-        VAPID_PRIVATE = (global as any).__vapidKeys.privateKey;
-        console.log('🔑 Using previously generated VAPID keys');
-      } else {
-        console.log('🔑 VAPID_PRIVATE_KEY not set — generating new VAPID key pair...');
-        const vapidKeys = webpushModule.generateVAPIDKeys();
-        VAPID_PUBLIC = vapidKeys.publicKey;
-        VAPID_PRIVATE = vapidKeys.privateKey;
-        (global as any).__vapidKeys = vapidKeys; // حفظ للمشاركة
-        console.log('══════════════════════════════════════════════════');
-        console.log('🔑 VAPID Keys Generated — Add these to your .env:');
-        console.log(`VAPID_PUBLIC_KEY=${VAPID_PUBLIC}`);
-        console.log(`VAPID_PRIVATE_KEY=${VAPID_PRIVATE}`);
-        console.log('══════════════════════════════════════════════════');
-      }
+    const { initWebPush } = await import('../config/vapid.js');
+    webpushModule = await initWebPush();
+    if (webpushModule) {
+      console.log('✅ web-push initialized with stable VAPID keys');
     }
-
-    webpushModule.setVapidDetails('mailto:admin@club-mafia.grade.sbs', VAPID_PUBLIC, VAPID_PRIVATE);
-    console.log('✅ web-push initialized with VAPID keys');
   } catch (err: any) {
     console.warn('⚠️ web-push module not available:', err.message);
     webpushModule = null;
@@ -145,18 +122,17 @@ export async function registerPlayerToken(playerId: number, token: string, devic
   if (!db) return;
 
   try {
-    // حذف نفس الـ token إن كان مسجل للاعب آخر
+    // إزالة هذا التوكن من أي ارتباط سابق (نفس الجهاز كان مسجلاً للاعب آخر،
+    // أو إعادة تسجيل نفس الجهاز) — ثم إدراجه للاعب الحالي.
+    // ⚠️ لا نحذف بقية توكنات اللاعب: ندعم عدّة أجهزة لكل لاعب (توكن لكل جهاز).
     await db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, token));
-    // حذف كل التوكنات القديمة لنفس اللاعب (منع الإشعارات المكررة)
-    await db.delete(playerFcmTokens).where(eq(playerFcmTokens.playerId, playerId));
-    // إدراج التوكن الجديد
     await db.insert(playerFcmTokens).values({
       playerId,
       fcmToken: token,
       deviceInfo,
       isActive: true,
     } as any);
-    console.log(`📱 FCM token registered for player #${playerId} (old tokens cleaned)`);
+    console.log(`📱 FCM token registered for player #${playerId} (multi-device)`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
   }
@@ -197,24 +173,9 @@ export async function sendPushToPlayer(
     isPushSent: false,
   } as any).returning({ id: playerNotifications.id });
 
-  // WebSocket Fallback المباشر: إذا كان اللاعب متصلاً حالياً عبر السوكيت، نبث له فوراً
-  try {
-    const io = (global as any).io;
-    if (io) {
-      io.emit('notification:new', {
-        id: insertedNotif?.id,
-        playerId,
-        title,
-        body,
-        type,
-        data,
-        createdAt: new Date(),
-      });
-      console.log(`🔌 WebSocket real-time broadcast sent to player #${playerId}`);
-    }
-  } catch (wsErr: any) {
-    console.warn('⚠️ WebSocket real-time broadcast failed:', wsErr.message);
-  }
+  // ملاحظة: يُحدَّث التطبيق لحظياً عبر رسالة SW (PUSH_RECEIVED) + onMessage (FCM) + polling.
+  // أُزيل بثّ io.emit('notification:new') العام لأنه لم يكن مُستهلَكاً في الواجهة وكان
+  // يسرّب محتوى الإشعار لكل المتصلين. للبثّ اللحظي مستقبلاً استخدم غرفة اللاعب: io.to(`player:${id}`).
 
   // إرسال Push
   const tokens = await db.select({ token: playerFcmTokens.fcmToken })
@@ -264,7 +225,7 @@ export async function sendPushToPlayer(
   // تحديث حالة الإرسال في قاعدة البيانات عند النجاح الفعلي
   if (isDelivered && insertedNotif?.id) {
     await db.update(playerNotifications)
-      .set({ isPushSent: true })
+      .set({ isPushSent: true } as any)
       .where(eq(playerNotifications.id, insertedNotif.id));
     console.log(`✅ Push notification #${insertedNotif.id} status updated to isPushSent=true`);
   }
@@ -286,52 +247,36 @@ export async function sendPushToPlayers(
     playerIds.map(pid => ({ playerId: pid, title, body, type, data, isPushSent: false }))
   ).returning({ id: playerNotifications.id, playerId: playerNotifications.playerId });
 
-  // WebSocket Fallback المباشر لجميع اللاعبين المتصلين حالياً
-  try {
-    const io = (global as any).io;
-    if (io && insertedRows.length > 0) {
-      for (const row of insertedRows) {
-        if (!row.playerId) continue;
-        io.emit('notification:new', {
-          id: row.id,
-          playerId: row.playerId,
-          title,
-          body,
-          type,
-          data,
-          createdAt: new Date(),
-        });
-      }
-      console.log(`🔌 WebSocket real-time broadcast sent for ${insertedRows.length} players`);
-    }
-  } catch (wsErr: any) {
-    console.warn('⚠️ WebSocket real-time broadcast failed:', wsErr.message);
-  }
+  // ملاحظة: أُزيل بثّ io.emit('notification:new') العام (غير مُستهلَك في الواجهة + يسرّب
+  // محتوى الإشعار لكل المتصلين). التحديث اللحظي يتم عبر SW (PUSH_RECEIVED) + onMessage + polling.
 
-  // جلب tokens
-  const tokenRows = await db.select({ token: playerFcmTokens.fcmToken })
+  // جلب tokens مع معرّف اللاعب — لتتبّع النجاح الفعلي لكل لاعب
+  const tokenRows = await db.select({ playerId: playerFcmTokens.playerId, token: playerFcmTokens.fcmToken })
     .from(playerFcmTokens)
     .where(and(inArray(playerFcmTokens.playerId, playerIds), eq(playerFcmTokens.isActive, true)));
 
   if (tokenRows.length === 0) return;
 
-  const { fcmTokens, webpushSubs } = splitTokens(tokenRows);
-  let fcmSuccess = false;
+  // فصل FCM عن WebPush مع الاحتفاظ بمعرّف اللاعب لكل توكن
+  const fcmRows = tokenRows.filter(r => !r.token.startsWith('WEBPUSH::'));
+  const webpushRows = tokenRows.filter(r => r.token.startsWith('WEBPUSH::'));
 
-  // FCM
-  if (fcmTokens.length > 0) {
+  const successfulPlayerIds = new Set<number>();
+
+  // FCM (Android/Chrome/Edge/Firefox)
+  if (fcmRows.length > 0) {
     const messaging = getMessaging();
     if (messaging) {
       try {
         const response = await messaging.sendEachForMulticast(
-          buildFCMPayload(fcmTokens, title, body, type, data)
+          buildFCMPayload(fcmRows.map(r => r.token), title, body, type, data)
         );
-        if (response.successCount > 0) {
-          fcmSuccess = true;
-        }
         response.responses.forEach((r, i) => {
-          if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
-            db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, fcmTokens[i])).catch(() => {});
+          const row = fcmRows[i];
+          if (r.success) {
+            if (row.playerId) successfulPlayerIds.add(row.playerId);
+          } else if (r.error?.code === 'messaging/registration-token-not-registered') {
+            db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, row.token)).catch(() => {});
           }
         });
         console.log(`🔔 FCM push to ${playerIds.length} players: ${response.successCount} delivered`);
@@ -343,27 +288,20 @@ export async function sendPushToPlayers(
 
   // WebPush (Safari/iOS)
   let wpSuccessCount = 0;
-  for (const wp of webpushSubs) {
-    const ok = await sendWebPush(wp.sub, title, body, type, data);
-    if (ok) wpSuccessCount++;
-    else db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
+  for (const wp of webpushRows) {
+    const ok = await sendWebPush(wp.token.slice(9), title, body, type, data); // إزالة "WEBPUSH::"
+    if (ok) {
+      wpSuccessCount++;
+      if (wp.playerId) successfulPlayerIds.add(wp.playerId);
+    } else {
+      db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, wp.token)).catch(() => {});
+    }
   }
-  if (webpushSubs.length > 0) {
-    console.log(`🍎 WebPush sent: ${wpSuccessCount}/${webpushSubs.length}`);
-  }
-
-  // تحديث حالة الإرسال في قاعدة البيانات للأشخاص الذين أرسل لهم بنجاح
-  const successfulPlayerIds = new Set<number>();
-  if (fcmSuccess || wpSuccessCount > 0) {
-    const activeTokenPlayers = await db.select({ playerId: playerFcmTokens.playerId })
-      .from(playerFcmTokens)
-      .where(and(inArray(playerFcmTokens.playerId, playerIds), eq(playerFcmTokens.isActive, true)));
-    
-    activeTokenPlayers.forEach(p => {
-      if (p.playerId) successfulPlayerIds.add(p.playerId);
-    });
+  if (webpushRows.length > 0) {
+    console.log(`🍎 WebPush sent: ${wpSuccessCount}/${webpushRows.length}`);
   }
 
+  // تحديث isPushSent فقط للاعبين الذين نجح الإرسال إليهم فعلياً
   if (successfulPlayerIds.size > 0 && insertedRows.length > 0) {
     const successfulRowIds = insertedRows
       .filter(row => row.playerId && successfulPlayerIds.has(row.playerId))
@@ -371,7 +309,7 @@ export async function sendPushToPlayers(
     
     if (successfulRowIds.length > 0) {
       await db.update(playerNotifications)
-        .set({ isPushSent: true })
+        .set({ isPushSent: true } as any)
         .where(inArray(playerNotifications.id, successfulRowIds));
       console.log(`✅ Updated isPushSent=true for ${successfulRowIds.length} notification rows`);
     }

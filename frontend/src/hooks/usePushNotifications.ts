@@ -179,6 +179,16 @@ export function usePushNotifications() {
     }
   }, [player, requestPermission]);
 
+  // ── تزويد الـ SW بتوكن اللاعب (لإعادة تسجيل اشتراك Web Push عند تدويره على iOS) ──
+  useEffect(() => {
+    if (!player?.token) return;
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.ready.then((reg) => {
+      const target = reg.active || navigator.serviceWorker.controller;
+      target?.postMessage({ type: 'SET_AUTH_TOKEN', token: player.token });
+    }).catch(() => {});
+  }, [player]);
+
   // ── جلب الإشعارات ──
   const fetchNotifications = useCallback(async () => {
     if (!player) return;

@@ -115,24 +115,12 @@ app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
+// مصدر واحد ثابت (config/vapid.ts) — نفس المفتاح الذي يوقّع به السيرفر الإرسال
 app.get('/api/push/vapid-public-key', async (_req, res) => {
   try {
-    const wp = await import('web-push');
-    let publicKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
-    let privateKey = process.env.VAPID_PRIVATE_KEY || '';
-
-    // إذا ما فيه مفتاح خاص → نولّد زوج مفاتيح
-    if (!privateKey) {
-      // نستخدم نفس الحيلة: الحفظ في متغير عملية (لا يضيع بين الطلبات)
-      if (!(global as any).__vapidKeys) {
-        const keys = wp.generateVAPIDKeys();
-        (global as any).__vapidKeys = keys;
-        console.log('🔑 VAPID keys generated for /api/push/vapid-public-key');
-      }
-      publicKey = (global as any).__vapidKeys.publicKey;
-    }
-
-    res.json({ publicKey });
+    const { getVapidKeys } = await import('./config/vapid.js');
+    const keys = await getVapidKeys();
+    res.json({ publicKey: keys?.publicKey || '' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -798,28 +786,15 @@ async function main() {
     console.warn('⚠️ Firebase init skipped:', err.message);
   }
 
-  // ── تهيئة web-push (VAPID keys) مبكراً — يجب أن تكون جاهزة قبل أي طلب ──
+  // ── تهيئة web-push (VAPID keys) مبكراً — مفاتيح ثابتة من البيئة أو ملف محفوظ ──
   try {
-    const wp = await import('web-push');
-    const webpush = (wp as any).default || wp;
-    let publicKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
-    let privateKey = process.env.VAPID_PRIVATE_KEY || '';
-    
-    if (!privateKey) {
-      if (!(global as any).__vapidKeys) {
-        const keys = webpush.generateVAPIDKeys();
-        (global as any).__vapidKeys = keys;
-        console.log('══════════════════════════════════════════════════');
-        console.log('🔑 VAPID Keys Generated at startup:');
-        console.log(`VAPID_PUBLIC_KEY=${keys.publicKey}`);
-        console.log(`VAPID_PRIVATE_KEY=${keys.privateKey}`);
-        console.log('══════════════════════════════════════════════════');
-      }
-      publicKey = (global as any).__vapidKeys.publicKey;
-      privateKey = (global as any).__vapidKeys.privateKey;
+    const { initWebPush } = await import('./config/vapid.js');
+    const wp = await initWebPush();
+    if (wp) {
+      console.log('✅ web-push initialized with stable VAPID keys at startup');
+    } else {
+      console.warn('⚠️ web-push init skipped: no VAPID keys available');
     }
-    webpush.setVapidDetails('mailto:admin@club-mafia.grade.sbs', publicKey, privateKey);
-    console.log('✅ web-push initialized with VAPID keys at startup');
   } catch (err: any) {
     console.warn('⚠️ web-push init skipped:', err.message);
   }

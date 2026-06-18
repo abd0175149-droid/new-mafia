@@ -2,10 +2,16 @@ node_modules
 dist
 .env
 .env.local
+.env.production
+.env.*.local
 *.log
 data/
 .next
 google-service-account.json
 firebase-service-account.json
+serviceAccountKey.json
 *-firebase-adminsdk-*.json
+# مفاتيح VAPID المُولّدة محلياً (لا ترفعها — تُحفظ في volume الـ uploads)
+vapid-keys.json
+**/uploads/vapid-keys.json
 testsprite_tests/tmp/

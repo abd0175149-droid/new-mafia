@@ -31,7 +31,8 @@ try {
   const messaging = firebase.messaging();
 
   // ── استقبال رسالة FCM في الخلفية (Chrome/Firefox/Edge) ──
-  // data-only message — نعرضه يدوياً (مصدر وحيد للإشعار)
+  // data-only message — هذا هو المصدر الوحيد للعرض على المتصفحات الداعمة لـ FCM.
+  // مستمع push أدناه يتخطّى العرض عندما يكون Firebase مُهيّأ (لمنع التكرار نهائياً).
   messaging.onBackgroundMessage((payload) => {
     const d = payload.data || {};
     const title = d.title || '🎭 نادي المافيا';
@@ -39,7 +40,16 @@ try {
     const tag = d.tag || 'default';
     const type = d.type || '';
     const url = d.url || '/player/home';
-    self.registration.showNotification(title, {
+
+    // تحديث أي نافذة مفتوحة لإعادة جلب قائمة الإشعارات
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((c) => c.postMessage({
+        type: 'PUSH_RECEIVED',
+        payload: { title, body, data: { url, type, ...d } },
+      }));
+    });
+
+    return self.registration.showNotification(title, {
       body,
       icon: '/mafia_logo.png',
       badge: '/mafia_logo.png',
@@ -47,9 +57,6 @@ try {
       data: { url, type, ...d },
       vibrate: [200, 100, 200],
     });
-    // منع push event من إعادة العرض
-    self.__fcmHandled = true;
-    setTimeout(() => { self.__fcmHandled = false; }, 3000);
   });
 
   firebaseInitialized = true;
@@ -160,9 +167,10 @@ function resolveNotificationUrl(type, data) {
 self.addEventListener('push', (event) => {
   if (!event.data) return;
 
-  // إذا FCM onBackgroundMessage عالج هذا الإشعار — لا نكرره
-  if (self.__fcmHandled) {
-    console.log('ℹ️ Push event skipped — already handled by FCM onBackgroundMessage');
+  // على المتصفحات الداعمة لـ FCM (Android/Chrome/Firefox) يتولّى onBackgroundMessage
+  // العرض. هنا نعالج فقط Web Push الخام (iOS/Safari) حيث Firebase غير مُهيّأ.
+  // → مصدر عرض واحد لكل بيئة = بلا تكرار وبلا اعتماد على توقيت هشّ.
+  if (firebaseInitialized) {
     return;
   }
 
@@ -226,15 +234,81 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// ── تحديث الاشتراك (مطلوب لـ iOS) ──
+// ══════════════════════════════════════════════════════
+// 🔁 تجديد اشتراك Web Push (iOS) + إعادة تسجيله في السيرفر
+// ══════════════════════════════════════════════════════
+
+const AUTH_CACHE = 'mafia-auth';
+const AUTH_KEY = '/__player_token';
+
+// تحويل VAPID key (Base64URL) إلى Uint8Array
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+// تخزين/قراءة توكن اللاعب (يبقى متاحاً للـ SW حتى بعد إعادة تشغيله)
+async function storePlayerToken(token) {
+  try {
+    const cache = await caches.open(AUTH_CACHE);
+    await cache.put(AUTH_KEY, new Response(token));
+  } catch (e) { /* تجاهل */ }
+}
+async function getPlayerToken() {
+  try {
+    const cache = await caches.open(AUTH_CACHE);
+    const res = await cache.match(AUTH_KEY);
+    if (res) return await res.text();
+  } catch (e) { /* تجاهل */ }
+  return null;
+}
+
+// استقبال توكن اللاعب من التطبيق لتخزينه (لإعادة التسجيل لاحقاً)
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (data.type === 'SET_AUTH_TOKEN' && data.token) {
+    event.waitUntil(storePlayerToken(data.token));
+  }
+});
+
+// عند تدوير الاشتراك (شائع على iOS): أنشئ اشتراكاً جديداً بنفس مفتاح السيرفر وأعد تسجيله
 self.addEventListener('pushsubscriptionchange', (event) => {
-  event.waitUntil(
-    self.registration.pushManager.subscribe(event.oldSubscription?.options || { userVisibleOnly: true })
-      .then((subscription) => {
-        console.log('🔄 Push subscription renewed');
-      })
-      .catch((err) => {
-        console.error('❌ Failed to renew push subscription:', err);
-      })
-  );
+  event.waitUntil((async () => {
+    try {
+      // جلب نفس المفتاح العام الذي يوقّع به السيرفر (لتفادي عدم التطابق)
+      let appServerKey;
+      try {
+        const vpRes = await fetch('/api/push/vapid-public-key');
+        const { publicKey } = await vpRes.json();
+        if (publicKey) appServerKey = urlBase64ToUint8Array(publicKey);
+      } catch (e) { /* fallback أدناه */ }
+
+      const subscription = await self.registration.pushManager.subscribe(
+        appServerKey
+          ? { userVisibleOnly: true, applicationServerKey: appServerKey }
+          : (event.oldSubscription && event.oldSubscription.options) || { userVisibleOnly: true }
+      );
+
+      const token = await getPlayerToken();
+      if (token && subscription) {
+        await fetch('/api/player-notifications/register-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify({
+            token: 'WEBPUSH::' + JSON.stringify(subscription.toJSON()),
+            deviceInfo: 'sw-resubscribe',
+          }),
+        });
+        console.log('🔄 Push subscription renewed and re-registered with server');
+      } else {
+        console.log('🔄 Push subscription renewed (no stored auth token — skipped server re-register)');
+      }
+    } catch (err) {
+      console.error('❌ Failed to renew push subscription:', err);
+    }
+  })());
 });

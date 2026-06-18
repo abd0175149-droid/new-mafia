@@ -31,6 +31,10 @@ services:
       - DATABASE_URL=postgresql://mafia_user:mafia_pass@database:5432/${DB_NAME}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET:-mafia_secret_key_123}
+      # مفاتيح VAPID لـ Web Push (iOS/Safari). إن لم تُمرَّر فسيولّدها الباكند ويحفظها
+      # داخل volume الـ uploads ليبقى الزوج ثابتاً بين عمليات إعادة التشغيل.
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     depends_on:
