@@ -38,11 +38,13 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 
   const { activityId, item, amount, date, paidBy, type } = req.body;
   if (!item || amount === undefined || !date) return res.status(400).json({ error: 'البند والمبلغ والتاريخ مطلوبين' });
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt < 0) return res.status(400).json({ error: 'المبلغ غير صالح' });
 
   const result = await db.insert(costs).values({
     activityId: activityId || null,
     item,
-    amount: String(amount),
+    amount: String(amt),
     date: new Date(date),
     paidBy: paidBy || '',
     type: type || 'general',
