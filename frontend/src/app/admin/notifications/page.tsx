@@ -26,7 +26,7 @@ interface AdminNotification {
 }
 
 export default function AdminNotificationsPage() {
-  const [tab, setTab] = useState<'inbox' | 'send'>('inbox');
+  const [tab, setTab] = useState<'inbox' | 'send' | 'devices'>('inbox');
 
   // ── حالة الإشعارات الواردة ──
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -57,6 +57,13 @@ export default function AdminNotificationsPage() {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedGroupIdx, setSelectedGroupIdx] = useState<number | null>(null);
 
+  // ── حالة تبويب الأجهزة ──
+  const [devicesData, setDevicesData] = useState<{ totalPlayers: number; totalDevices: number; players: any[] } | null>(null);
+  const [devicesLoading, setDevicesLoading] = useState(false);
+  const [deviceSearch, setDeviceSearch] = useState('');
+  const [expandedPlayer, setExpandedPlayer] = useState<number | null>(null);
+  const [testingPlayer, setTestingPlayer] = useState<number | null>(null);
+
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   // ── جلب الإشعارات الواردة ──
@@ -86,6 +93,39 @@ export default function AdminNotificationsPage() {
     const interval = setInterval(fetchNotifications, 15000);
     return () => clearInterval(interval);
   }, [fetchNotifications, token]);
+
+  // ── جلب أجهزة اللاعبين المفعّلين ──
+  const fetchDevices = useCallback(async () => {
+    if (!token) return;
+    setDevicesLoading(true);
+    try {
+      const res = await fetch('/api/staff-notifications/devices', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setDevicesData(data);
+    } catch {} finally { setDevicesLoading(false); }
+  }, [token]);
+
+  useEffect(() => { if (tab === 'devices') fetchDevices(); }, [tab, fetchDevices]);
+
+  // ── إرسال إشعار اختبار للاعب محدد ──
+  const sendTestToPlayer = async (playerId: number, name: string) => {
+    setTestingPlayer(playerId);
+    try {
+      const res = await fetch('/api/staff-notifications/send-custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title: '🔔 إشعار اختبار',
+          body: 'هذا إشعار تجريبي للتأكد من وصول الإشعارات لجهازك ✅',
+          target: 'specific', targetAudience: 'players', targetIds: [playerId],
+          data: { url: '/player/home' },
+        }),
+      });
+      const data = await res.json();
+      alert(data.success ? `✅ أُرسل إشعار اختبار إلى ${name}` : `❌ ${data.error || 'فشل الإرسال'}`);
+    } catch { alert('❌ فشل الإرسال'); }
+    finally { setTestingPlayer(null); }
+  };
 
   // ── تعليم كمقروء ──
   const markAsRead = async (id: number) => {
@@ -231,6 +271,18 @@ export default function AdminNotificationsPage() {
           }}
         >
           📢 إرسال إشعار
+        </button>
+        <button
+          onClick={() => setTab('devices')}
+          style={{
+            flex: 1, padding: '12px 0', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            border: `1px solid ${tab === 'devices' ? '#22c55e' : 'rgba(255,255,255,0.1)'}`,
+            background: tab === 'devices' ? 'rgba(34,197,94,0.1)' : 'transparent',
+            color: tab === 'devices' ? '#22c55e' : 'rgba(255,255,255,0.5)',
+            cursor: 'pointer', transition: 'all 0.2s',
+          }}
+        >
+          📲 الأجهزة
         </button>
       </div>
 
@@ -654,6 +706,103 @@ export default function AdminNotificationsPage() {
               >
                 {sending ? '⏳ جاري الإرسال...' : '🚀 إرسال الآن'}
               </button>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ══════════ TAB: الأجهزة ══════════ */}
+        {tab === 'devices' && (
+          <motion.div key="devices" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+            {/* ملخّص */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <div style={{ flex: 1, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                <div style={{ color: '#22c55e', fontSize: 26, fontWeight: 800 }}>{devicesData?.totalPlayers ?? '—'}</div>
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>لاعب مفعّل الإشعارات</div>
+              </div>
+              <div style={{ flex: 1, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 12, padding: 14, textAlign: 'center' }}>
+                <div style={{ color: '#3b82f6', fontSize: 26, fontWeight: 800 }}>{devicesData?.totalDevices ?? '—'}</div>
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>جهاز مسجّل</div>
+              </div>
+              <button onClick={fetchDevices} title="تحديث" style={{
+                width: 52, borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 20, cursor: 'pointer',
+              }}>🔄</button>
+            </div>
+
+            {/* بحث */}
+            <input value={deviceSearch} onChange={e => setDeviceSearch(e.target.value)}
+              placeholder="🔍 ابحث باسم اللاعب أو الهاتف"
+              style={{
+                width: '100%', padding: '10px 14px', marginBottom: 12,
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
+              }}
+            />
+
+            {/* القائمة */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, overflow: 'hidden' }}>
+              {devicesLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>⏳ جاري التحميل...</div>
+              ) : !devicesData || devicesData.players.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>
+                  <div style={{ fontSize: 40, marginBottom: 8 }}>📭</div>
+                  لا يوجد لاعبون فعّلوا الإشعارات بعد
+                </div>
+              ) : (
+                devicesData.players
+                  .filter((p: any) => !deviceSearch || (p.name || '').includes(deviceSearch) || (p.phone || '').includes(deviceSearch))
+                  .map((p: any) => (
+                    <div key={p.playerId} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      {/* صف اللاعب */}
+                      <div
+                        onClick={() => setExpandedPlayer(expandedPlayer === p.playerId ? null : p.playerId)}
+                        style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: '#fff', fontWeight: 600, fontSize: 14 }}>{p.name}</div>
+                          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{p.phone}</div>
+                        </div>
+                        <span style={{
+                          fontSize: 12, fontWeight: 700, color: '#22c55e',
+                          background: 'rgba(34,197,94,0.12)', padding: '3px 10px', borderRadius: 20,
+                        }}>{p.deviceCount} 📱</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); sendTestToPlayer(p.playerId, p.name); }}
+                          disabled={testingPlayer === p.playerId}
+                          style={{
+                            fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',
+                            background: testingPlayer === p.playerId ? 'rgba(139,92,246,0.3)' : '#8b5cf6',
+                            border: 'none', borderRadius: 8, padding: '6px 12px', whiteSpace: 'nowrap',
+                          }}
+                        >{testingPlayer === p.playerId ? '⏳' : '🔔 اختبار'}</button>
+                        <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12 }}>{expandedPlayer === p.playerId ? '▲' : '▼'}</span>
+                      </div>
+
+                      {/* تفاصيل الأجهزة */}
+                      {expandedPlayer === p.playerId && (
+                        <div style={{ padding: '0 16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {p.devices.map((d: any, i: number) => (
+                            <div key={i} style={{
+                              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                              background: 'rgba(255,255,255,0.03)', borderRadius: 10,
+                            }}>
+                              <span style={{ fontSize: 18 }}>
+                                {d.os === 'iPhone' || d.os === 'iPad' ? '📱' : d.os === 'Android' ? '🤖' : '🖥️'}
+                              </span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ color: '#fff', fontSize: 13 }}>{d.os} · {d.browser}</div>
+                                <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>
+                                  {d.channel} · {formatTimeAgo(d.registeredAt)}
+                                  {!d.hasDeviceId && ' · (قديم)'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))
+              )}
             </div>
           </motion.div>
         )}

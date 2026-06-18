@@ -124,4 +124,80 @@ router.get('/players/search', authenticate, async (req: Request, res: Response) 
   }
 });
 
+// ── أدوات تحليل User-Agent ──
+function detectOS(ua: string): string {
+  if (/iPhone|iPod/.test(ua)) return 'iPhone';
+  if (/iPad/.test(ua)) return 'iPad';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Mac OS X|Macintosh/.test(ua)) return 'Mac';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'غير معروف';
+}
+function detectBrowser(ua: string): string {
+  if (/CriOS/.test(ua)) return 'Chrome';
+  if (/FxiOS|Firefox/.test(ua)) return 'Firefox';
+  if (/EdgA?|Edg\//.test(ua)) return 'Edge';
+  if (/Chrome/.test(ua)) return 'Chrome';
+  if (/Safari/.test(ua) && !/Chrome/.test(ua)) return 'Safari';
+  return 'غير معروف';
+}
+
+// ── GET /devices — اللاعبون المفعّلون للإشعارات وأجهزتهم ──
+router.get('/devices', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  try {
+    const { playerFcmTokens } = await import('../schemas/notification.schema.js');
+    const rows = await db.select({
+      playerId: playerFcmTokens.playerId,
+      name: players.name,
+      phone: players.phone,
+      avatarUrl: players.avatarUrl,
+      token: playerFcmTokens.fcmToken,
+      deviceInfo: playerFcmTokens.deviceInfo,
+      createdAt: playerFcmTokens.createdAt,
+    }).from(playerFcmTokens)
+      .innerJoin(players, eq(playerFcmTokens.playerId, players.id))
+      .where(eq(playerFcmTokens.isActive, true))
+      .orderBy(desc(playerFcmTokens.createdAt));
+
+    const map = new Map<number, any>();
+    for (const r of rows) {
+      if (!r.playerId) continue;
+      if (!map.has(r.playerId)) {
+        map.set(r.playerId, {
+          playerId: r.playerId, name: r.name, phone: r.phone,
+          avatarUrl: r.avatarUrl, deviceCount: 0, devices: [],
+        });
+      }
+      const isWebpush = (r.token || '').startsWith('WEBPUSH::');
+      const di = r.deviceInfo || '';
+      const sep = di.indexOf('|');
+      const deviceId = sep > 0 ? di.slice(0, sep) : null;
+      const ua = sep > 0 ? di.slice(sep + 1) : di;
+      const entry = map.get(r.playerId);
+      entry.deviceCount++;
+      entry.devices.push({
+        channel: isWebpush ? 'WebPush (iOS/Safari)' : 'FCM (Android/Chrome)',
+        os: detectOS(ua),
+        browser: detectBrowser(ua),
+        hasDeviceId: !!deviceId,
+        registeredAt: r.createdAt,
+      });
+    }
+
+    const list = Array.from(map.values()).sort((a, b) => b.deviceCount - a.deviceCount || a.name.localeCompare(b.name));
+    res.json({
+      success: true,
+      totalPlayers: list.length,
+      totalDevices: rows.length,
+      players: list,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

@@ -331,35 +331,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
         };
 
-        // ── تحقق من وقت النشاط ──
-        try {
-          const { getDB } = await import('../config/db.js');
-          const { eq: eqOp } = await import('drizzle-orm');
-          const { activities } = await import('../schemas/admin.schema.js');
-          const db = getDB();
-          if (db) {
-            const [act] = await db.select({ date: activities.date })
-              .from(activities).where(eqOp(activities.id, data.activityId)).limit(1);
-
-            if (act) {
-              const actTime = new Date(act.date);
-              const now = new Date();
-
-              if (actTime <= now) {
-                // الوقت وصل أو مضى → أرسل إشعار فوراً
-                notifyBookedPlayers();
-              } else {
-                // جدول الإشعار عند وقت النشاط
-                const delay = actTime.getTime() - now.getTime();
-                console.log(`⏰ Scheduled notification for room ${state.roomId} in ${Math.round(delay / 60000)} minutes`);
-                setTimeout(notifyBookedPlayers, delay);
-              }
-            }
-          }
-        } catch (e) {
-          // في حالة خطأ → أرسل إشعار فوراً كـ fallback
-          notifyBookedPlayers();
-        }
+        // ── إشعار فوري بمجرد فتح الليدر للغرفة ──
+        // فتح الليدر للغرفة هو إشارة "ابدأوا الآن"، فنُخطر الحاجزين فوراً للدخول
+        // ومعرفة أرقام مقاعدهم (يُستدعى مرّة واحدة عند الإنشاء الجديد للغرفة فقط).
+        notifyBookedPlayers();
       }
     } catch (err: any) {
       callback({ success: false, error: err.message });
