@@ -43,15 +43,17 @@ async function fetchServerVapidKey(): Promise<string | null> {
   } catch { return null; }
 }
 
-// هل الاشتراك القائم مُنشأ بنفس مفتاح السيرفر الحالي؟ (إن لا → يجب إعادة إنشائه)
+// هل الاشتراك القائم مطابق لمفتاح السيرفر الحالي؟
+// الفلسفة: أعِد الاستخدام افتراضياً (لتجنّب churn)، ولا تُعِد الإنشاء إلا عند إثبات اختلاف المفتاح.
+// (على iOS قد يكون applicationServerKey غير قابل للقراءة — عندها نُعيد الاستخدام لأن مفتاح السيرفر ثابت.)
 async function subscriptionMatchesServerKey(sub: PushSubscription): Promise<boolean> {
   try {
     const key = (sub.options as any)?.applicationServerKey as ArrayBuffer | null;
-    if (!key) return false;
-    const subKey = bufferToBase64Url(key);
+    if (!key) return true; // لا يمكن قراءة المفتاح → أعِد الاستخدام (بلا churn)
     const serverKey = ((await fetchServerVapidKey()) || '').replace(/=+$/, '');
-    return !!serverKey && subKey === serverKey;
-  } catch { return false; }
+    if (!serverKey) return true; // تعذّر جلب مفتاح السيرفر → لا تُعِد الإنشاء الآن
+    return bufferToBase64Url(key) === serverKey;
+  } catch { return true; } // عند أي شك → أعِد الاستخدام
 }
 
 async function createWebPushSubscription(swReg: ServiceWorkerRegistration): Promise<PushSubscription | null> {
