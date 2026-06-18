@@ -9,7 +9,7 @@ import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations } from '../schemas/admin.schema.js';
-import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
+import { authenticatePlayer, requireNoPendingFeedback } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
 
@@ -56,8 +56,8 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
   }
 });
 
-// ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) ──
-router.post('/book', authenticatePlayer, async (req: Request, res: Response) => {
+// ── 🎟️ POST /book — حجز نشاط (لنفسه فقط) — يتطلب إكمال استبيانات الفعاليات السابقة ──
+router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
 

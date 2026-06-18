@@ -448,6 +448,26 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'الغرفة غير موجودة' });
 
+      // ── بوّابة الفيدباك: منع الانضمام لغرفة جديدة عند وجود استبيانات إلزامية معلّقة (مرّت مهلتها) ──
+      // يُسمح للاعب العائد لنفس الغرفة بالدخول دون فحص.
+      if (data.playerId && !state.players.some((p: any) => p.playerId === data.playerId)) {
+        try {
+          const { countBlockingPending } = await import('../services/feedback.service.js');
+          const blocking = await countBlockingPending(data.playerId);
+          if (blocking > 0) {
+            return callback({
+              success: false,
+              error: 'يجب إكمال استبيانات فعالياتك السابقة قبل الانضمام',
+              code: 'PENDING_SURVEYS',
+              pendingCount: blocking,
+              redirect: '/player/feedback',
+            });
+          }
+        } catch (e: any) {
+          console.warn('⚠️ feedback gate (join) error:', e.message);
+        }
+      }
+
       // ══ حماية حرجة: منع انضمام لاعبين جدد بعد بدء اللعبة ══
       const isGameStarted = state.phase !== 'LOBBY' && state.phase !== 'ROLE_GENERATION';
 

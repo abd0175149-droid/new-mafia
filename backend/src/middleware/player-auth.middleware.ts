@@ -82,6 +82,34 @@ export function authenticatePlayer(req: Request, res: Response, next: NextFuncti
   next();
 }
 
+// ── Middleware: حظر الحجز/الانضمام إن وُجدت استبيانات إلزامية معلّقة (مرّت مهلتها) ──
+export async function requireNoPendingFeedback(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const playerId = req.playerAccount?.playerId;
+  if (!playerId) {
+    res.status(401).json({ error: 'غير مصادق' });
+    return;
+  }
+  try {
+    const { countBlockingPending } = await import('../services/feedback.service.js');
+    const blocking = await countBlockingPending(playerId);
+    if (blocking > 0) {
+      res.status(403).json({
+        success: false,
+        error: 'يجب إكمال استبيانات فعالياتك السابقة قبل المتابعة',
+        code: 'PENDING_SURVEYS',
+        pendingCount: blocking,
+        redirect: '/player/feedback',
+      });
+      return;
+    }
+    next();
+  } catch (err: any) {
+    // عند خطأ غير متوقّع لا نحجب اللاعب (سلوك آمن)
+    console.warn('⚠️ requireNoPendingFeedback error:', err.message);
+    next();
+  }
+}
+
 // ── Middleware اختياري: يحاول فك التوكن بدون حظر ──
 
 export function optionalPlayerAuth(req: Request, res: Response, next: NextFunction): void {

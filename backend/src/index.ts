@@ -29,6 +29,8 @@ import playerAuthRoutes from './routes/player-auth.routes.js';
 import playerAppRoutes from './routes/player-app.routes.js';
 import playerNotificationRoutes from './routes/player-notification.routes.js';
 import staffNotificationRoutes from './routes/staff-notification.routes.js';
+import playerFeedbackRoutes from './routes/player-feedback.routes.js';
+import feedbackAnalyticsRoutes from './routes/feedback-analytics.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import soundsRoutes from './routes/sounds.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
@@ -103,6 +105,8 @@ app.use('/api/player-app', playerAppRoutes);
 app.use('/api/player-notifications', playerNotificationRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/staff-notifications', staffNotificationRoutes);
+app.use('/api/player-feedback', playerFeedbackRoutes);
+app.use('/api/feedback', feedbackAnalyticsRoutes);
 app.use('/api/sounds', soundsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/game-config', gameConfigRoutes);
@@ -784,6 +788,14 @@ async function main() {
     initFirebase();
   } catch (err: any) {
     console.warn('⚠️ Firebase init skipped:', err.message);
+  }
+
+  // ── إنشاء جدول الفيدباك إن لم يكن موجوداً (idempotent) ──
+  try {
+    const { ensureFeedbackTable } = await import('./services/feedback.service.js');
+    await ensureFeedbackTable();
+  } catch (err: any) {
+    console.warn('⚠️ ensureFeedbackTable skipped:', err.message);
   }
 
   // ── تهيئة web-push (VAPID keys) مبكراً — مفاتيح ثابتة من البيئة أو ملف محفوظ ──
