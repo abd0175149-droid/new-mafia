@@ -83,6 +83,15 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
   const { permissionState, needsInstall, requestPermission } = usePushNotifications();
   const [isRequesting, setIsRequesting] = useState(false);
 
+  // 🔓 تجاوز شاشة "غير مدعوم" للأجهزة القديمة عبر رمز — القيمة تُخزَّن محلياً
+  // (متوافق مع منطق علامات localStorage الحالي مثل push_notifications_enabled)
+  const [unsupportedBypass, setUnsupportedBypass] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('notifications_unsupported') === 'true';
+  });
+  const [bypassCode, setBypassCode] = useState('');
+  const [bypassError, setBypassError] = useState(false);
+
   const isPublic = PUBLIC_PATHS.includes(pathname);
   // صفحة join تحتاج layout مختلف (بدون بار أثناء اللعب)
   const isGamePage = pathname === '/player/join';
@@ -135,6 +144,17 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
       console.error('Permission request failed:', err);
     } finally {
       setIsRequesting(false);
+    }
+  };
+
+  // 🔓 تجاوز شاشة "غير مدعوم" عند إدخال الرمز الصحيح (للأجهزة القديمة التي لا تدعم الإشعارات)
+  const handleUnsupportedBypass = () => {
+    if (bypassCode.trim() === '1998') {
+      try { localStorage.setItem('notifications_unsupported', 'true'); } catch {}
+      setBypassError(false);
+      setUnsupportedBypass(true);
+    } else {
+      setBypassError(true);
     }
   };
 
@@ -311,8 +331,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
       );
     }
 
-    // 4. حالة غير مدعوم على متصفحات قديمة أو نادرة جداً
-    if (permissionState === 'unsupported') {
+    // 4. حالة غير مدعوم على متصفحات قديمة أو نادرة جداً (يمكن تجاوزها برمز)
+    if (permissionState === 'unsupported' && !unsupportedBypass) {
       return (
         <div className="min-h-screen fixed inset-0 z-[99999] flex items-center justify-center bg-[#050505] p-4" dir="rtl">
           <div className="max-w-md w-full bg-[#0c0c0c]/90 border border-blue-500/20 backdrop-blur-xl rounded-3xl p-6 md:p-8 flex flex-col items-center gap-6 shadow-[0_0_50px_rgba(59,130,246,0.1)] text-center animate-fade-in-up">
@@ -339,6 +359,33 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
             >
               <span>تحديث الصفحة 🔄</span>
             </button>
+
+            {/* 🔓 تجاوز للأجهزة القديمة التي لا تدعم الإشعارات — عبر رمز */}
+            <div className="w-full border-t border-white/10 pt-4 mt-1">
+              <p className="text-gray-400 text-xs font-arabic mb-2 leading-relaxed">
+                جهازك قديم ولا يدعم الإشعارات؟ أدخل رمز التجاوز للمتابعة بدون إشعارات:
+              </p>
+              <div className="flex gap-2">
+                <input
+                  value={bypassCode}
+                  onChange={(e) => { setBypassCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 4)); setBypassError(false); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleUnsupportedBypass(); }}
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="••••"
+                  aria-label="رمز التجاوز"
+                  className="flex-1 text-center tracking-[0.5em] py-3 rounded-xl bg-[#121212] border border-white/10 text-white text-lg outline-none focus:border-amber-500/50 font-arabic"
+                />
+                <button
+                  onClick={handleUnsupportedBypass}
+                  disabled={bypassCode.length < 4}
+                  className="px-5 rounded-xl bg-amber-500 disabled:opacity-40 text-black font-bold font-arabic"
+                >دخول</button>
+              </div>
+              {bypassError && (
+                <p className="text-red-500 text-xs font-arabic mt-2">الرمز غير صحيح</p>
+              )}
+            </div>
           </div>
         </div>
       );
