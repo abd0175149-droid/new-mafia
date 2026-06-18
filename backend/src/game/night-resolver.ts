@@ -111,11 +111,19 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
         if (doctorPlayer) {
           pt.abilityResults.push({ physicalId: doctorPlayer.physicalId, role: doctorPlayer.role || 'DOCTOR', correct: true });
         }
+        // 🎭 المُغتال أُبطل اغتياله (قدرة خاطئة)
+        if (assassinatorBlocked) {
+          pt.abilityResults.push({ physicalId: assassinatorBlocked.physicalId, role: assassinatorBlocked.role || 'GODFATHER', correct: false });
+        }
       } else {
         // الاغتيال نجح
         assassinTarget.isAlive = false;
         const assassinator = state.players.find(p => (p.role === Role.GODFATHER || p.role === Role.CHAMELEON || p.role === Role.SILENCER || p.role === Role.MAFIA_REGULAR) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
         events.push({ type: 'ASSASSINATION', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, performerPhysicalId: assassinator?.physicalId, performerName: assassinator?.name, wasRandom: !!nightActions.randomSelections?.['GODFATHER'], extra: { targetRole: assassinTarget.role }, revealed: false });
+        // 🎭 المُغتال نجح اغتياله (قدرة صحيحة)
+        if (assassinator) {
+          pt.abilityResults.push({ physicalId: assassinator.physicalId, role: assassinator.role || 'GODFATHER', correct: true });
+        }
         pt.eliminationLog.push({
           physicalId: assassinTarget.physicalId,
           eliminatedBy: 'NIGHT_KILL',
@@ -145,6 +153,10 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
       silenced.isSilenced = true;
       const silencer = state.players.find(p => p.role === Role.SILENCER && p.isAlive);
       events.push({ type: 'SILENCED', targetPhysicalId: silenced.physicalId, targetName: silenced.name, performerPhysicalId: silencer?.physicalId, performerName: silencer?.name, wasRandom: !!nightActions.randomSelections?.['SILENCER'], revealed: false });
+      // 🎭 القص: إسكات غير مافيا = مفيد (صحيح)؛ إسكات حليف مافيا = غير مفيد (خاطئ)
+      if (silencer) {
+        pt.abilityResults.push({ physicalId: silencer.physicalId, role: 'SILENCER', correct: !(silenced.role && isMafiaRole(silenced.role)) });
+      }
     }
   }
 
@@ -289,6 +301,11 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
         },
         revealed: false
       });
+      // 🎭 الساحرة: تعطيل دور صاحب قدرة فعّالة = صحيح؛ تعطيل دور بلا قدرة = خاطئ
+      const ABILITY_ROLES = ['SHERIFF', 'DOCTOR', 'SNIPER', 'NURSE', 'POLICEWOMAN', 'GODFATHER', 'SILENCER', 'CHAMELEON', 'ASSASSIN'];
+      if (witchPlayer) {
+        pt.abilityResults.push({ physicalId: witchPlayer.physicalId, role: 'WITCH', correct: !!(witchTargetPlayer.role && ABILITY_ROLES.includes(witchTargetPlayer.role)) });
+      }
       console.log(`🧙‍♀️ [resolveNight] Witch disabled ${witchTargetPlayer.name}`);
     }
   }

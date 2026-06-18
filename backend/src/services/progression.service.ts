@@ -77,15 +77,19 @@ export function calculateMatchXP(params: {
   failedDealsCount: number;
   mafiaDealOnMafiaCount: number;
   teamEliminationBonus: number;
-}, cfg?: any): number {
+}, cfg?: any, abilityRates?: { correctXp?: number; wrongXp?: number }): number {
   const c = cfg?.xp || DEFAULT_CONFIG.xp;
   let xp = 0;
+
+  // معدّل القدرة: لكل دور إن وُجد، وإلا العام
+  const abCorrect = abilityRates?.correctXp ?? c.abilityCorrect;
+  const abWrong = abilityRates?.wrongXp ?? c.abilityIncorrect;
 
   if (params.participated) xp += c.participation;
   if (params.teamWon) xp += c.teamWin;
   xp += params.roundsSurvived * c.survivalPerRound;
-  xp += params.abilityCorrectCount * c.abilityCorrect;
-  xp += params.abilityIncorrectCount * c.abilityIncorrect;
+  xp += params.abilityCorrectCount * abCorrect;
+  xp += params.abilityIncorrectCount * abWrong;
   xp += params.successfulDealsCount * c.citizenDealOnMafia;
   xp += params.failedDealsCount * c.failedDeal;
   xp += params.mafiaDealOnMafiaCount * (c.mafiaDealOnMafia || c.failedDeal);
@@ -103,17 +107,20 @@ export function calculateMatchRR(params: {
   survivedToEnd: boolean;
   abilityCorrectCount: number;
   abilityIncorrectCount: number;
-}, cfg?: any): number {
+}, cfg?: any, abilityRates?: { correctRr?: number; wrongRr?: number }): number {
   const c = cfg?.rr || DEFAULT_CONFIG.rr;
   let rr = 0;
+
+  const abCorrect = abilityRates?.correctRr ?? c.abilityCorrect;
+  const abWrong = abilityRates?.wrongRr ?? c.abilityIncorrect;
 
   rr += params.teamWon ? c.teamWin : c.teamLoss;
   rr += params.successfulDealsCount * c.citizenDealOnMafia;
   rr += params.failedDealsCount * c.failedDeal;
   rr += params.mafiaDealOnMafiaCount * (c.mafiaDealOnMafia || c.failedDeal);
   if (params.survivedToEnd) rr += c.survivedToEnd;
-  rr += params.abilityCorrectCount * c.abilityCorrect;
-  rr += params.abilityIncorrectCount * c.abilityIncorrect;
+  rr += params.abilityCorrectCount * abCorrect;
+  rr += params.abilityIncorrectCount * abWrong;
 
   return rr;
 }
@@ -163,6 +170,9 @@ export function computeMatchReward(opts: {
   const won = (opts.winner === 'JESTER' || opts.winner === 'ASSASSIN') ? false
     : (opts.winner === 'MAFIA' && playerIsMafia) || (opts.winner === 'CITIZEN' && !playerIsMafia);
 
+  // 🎭 معدّلات القدرة الخاصة بهذا الدور (إن وُجدت في الإعدادات، وإلا تسقط على العام)
+  const roleAb = c?.roleAbilities?.[role];
+
   const xpEarned = calculateMatchXP({
     participated: true,
     teamWon: won,
@@ -173,7 +183,7 @@ export function computeMatchReward(opts: {
     failedDealsCount: opts.failedDealsCount,
     mafiaDealOnMafiaCount: opts.mafiaDealOnMafiaCount,
     teamEliminationBonus: opts.teamEliminationBonus,
-  }, c);
+  }, c, roleAb ? { correctXp: roleAb.correctXp, wrongXp: roleAb.wrongXp } : undefined);
 
   const rrChange = calculateMatchRR({
     teamWon: won,
@@ -183,7 +193,7 @@ export function computeMatchReward(opts: {
     survivedToEnd: opts.survivedToEnd,
     abilityCorrectCount: opts.abilityCorrectCount,
     abilityIncorrectCount: opts.abilityIncorrectCount,
-  }, c);
+  }, c, roleAb ? { correctRr: roleAb.correctRr, wrongRr: roleAb.wrongRr } : undefined);
 
   return { won, xpEarned, rrChange };
 }

@@ -75,7 +75,19 @@ const RANK_TIERS = [
   { key: 'GODFATHER', label: 'الأب الروحي', icon: '👑', color: 'text-amber-400', border: 'border-amber-500/30' },
 ];
 
-type Tab = 'xp' | 'rr' | 'ranks' | 'adjust';
+type Tab = 'xp' | 'rr' | 'roleAbilities' | 'ranks' | 'adjust';
+
+// 🎭 أدوار لها قدرة ليلية تُحتسب (صحيحة/خاطئة)
+const ABILITY_ROLE_DEFS = [
+  { key: 'GODFATHER', label: 'شيخ المافيا', icon: '🔪', correctHint: 'اغتيال نجح', wrongHint: 'أُبطل بالحماية' },
+  { key: 'SILENCER', label: 'قص المافيا', icon: '🤐', correctHint: 'أسكت غير مافيا', wrongHint: 'أسكت حليفاً' },
+  { key: 'WITCH', label: 'الساحرة', icon: '🧙‍♀️', correctHint: 'عطّل دوراً صاحب قدرة', wrongHint: 'عطّل دوراً بلا قدرة' },
+  { key: 'SHERIFF', label: 'الشريف', icon: '🔍', correctHint: 'حقّق مافيا فعلية', wrongHint: 'حقّق مواطناً' },
+  { key: 'DOCTOR', label: 'الطبيب', icon: '💉', correctHint: 'حماية أبطلت اغتيالاً', wrongHint: 'حماية فاشلة' },
+  { key: 'NURSE', label: 'الممرضة', icon: '⚕️', correctHint: 'حماية ناجحة', wrongHint: 'حماية فاشلة' },
+  { key: 'SNIPER', label: 'القنّاص', icon: '🎯', correctHint: 'أصاب مافيا/محايد', wrongHint: 'أصاب مواطناً' },
+  { key: 'POLICEWOMAN', label: 'الشرطية', icon: '👮‍♀️', correctHint: 'إعدام مافيا', wrongHint: 'إعدام مواطن' },
+];
 
 export default function ProgressionPage() {
   const [config, setConfig] = useState<any>(null);
@@ -185,6 +197,7 @@ export default function ProgressionPage() {
         {([
           { key: 'xp', label: '⭐ مستويات (XP)', color: 'amber' },
           { key: 'rr', label: '🎖️ رانك (RR)', color: 'blue' },
+          { key: 'roleAbilities', label: '🎭 قدرات الأدوار', color: 'emerald' },
           { key: 'ranks', label: '👑 الرتب (Tiers)', color: 'purple' },
           { key: 'adjust', label: '🔧 التعديل اليدوي', color: 'rose' },
         ] as const).map(t => (
@@ -271,6 +284,48 @@ export default function ProgressionPage() {
                 </div>
               </div>
             )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ─── Role Abilities Tab (تحكّم دقيق لكل دور) ─── */}
+      {tab === 'roleAbilities' && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-gray-800/40 border border-gray-700/50 rounded-3xl p-6 md:p-8 backdrop-blur-sm">
+          <h3 className="text-xl font-bold text-white mb-2">🎭 نقاط قدرة كل دور</h3>
+          <p className="text-gray-400 text-sm mb-6">تحكّم دقيق: نقاط XP وRR لكل دور عند استخدام قدرته بشكل صحيح أو خاطئ. (إن تُركت فارغة يسقط الدور على القيم العامة في تبويبَي XP/RR).</p>
+          <div className="space-y-3">
+            <div className="hidden md:grid grid-cols-12 gap-2 px-3 text-[11px] text-gray-500 font-bold">
+              <div className="col-span-4">الدور</div>
+              <div className="col-span-2 text-center text-emerald-400">✅ XP صحيحة</div>
+              <div className="col-span-2 text-center text-emerald-400">✅ RR صحيحة</div>
+              <div className="col-span-2 text-center text-rose-400">❌ XP خاطئة</div>
+              <div className="col-span-2 text-center text-rose-400">❌ RR خاطئة</div>
+            </div>
+            {ABILITY_ROLE_DEFS.map(r => {
+              const ra = config.roleAbilities?.[r.key] || {};
+              const setRA = (field: string, v: string) => setConfig((p: any) => ({
+                ...p, roleAbilities: { ...(p.roleAbilities || {}), [r.key]: { ...(p.roleAbilities?.[r.key] || {}), [field]: v === '' ? '' : Number(v) } },
+              }));
+              const cell = (field: string, val: any, positive: boolean) => (
+                <input type="number" value={val ?? 0} onChange={e => setRA(field, e.target.value)}
+                  className={`w-full px-2 py-1.5 rounded-lg text-center font-bold bg-gray-950 border focus:outline-none ${positive ? 'text-emerald-400 border-emerald-500/30' : 'text-rose-400 border-rose-500/30'}`} />
+              );
+              return (
+                <div key={r.key} className="grid grid-cols-2 md:grid-cols-12 gap-2 items-center p-3 bg-gray-900/50 rounded-2xl border border-gray-700/30">
+                  <div className="col-span-2 md:col-span-4 flex items-center gap-2">
+                    <span className="text-xl">{r.icon}</span>
+                    <div>
+                      <div className="font-bold text-sm text-gray-200">{r.label}</div>
+                      <div className="text-[10px] text-gray-500">✓ {r.correctHint} · ✗ {r.wrongHint}</div>
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">{cell('correctXp', ra.correctXp, true)}</div>
+                  <div className="md:col-span-2">{cell('correctRr', ra.correctRr, true)}</div>
+                  <div className="md:col-span-2">{cell('wrongXp', ra.wrongXp, false)}</div>
+                  <div className="md:col-span-2">{cell('wrongRr', ra.wrongRr, false)}</div>
+                </div>
+              );
+            })}
           </div>
         </motion.div>
       )}

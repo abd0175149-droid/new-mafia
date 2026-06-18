@@ -57,6 +57,19 @@ const DEFAULT_CONFIG = {
     UNDERBOSS: { rrRequired: 400 },
     GODFATHER: { rrRequired: 9999 },
   },
+  // 🎭 نقاط قدرة لكل دور (تحكّم دقيق): صحيحة/خاطئة × XP/RR.
+  // إن لم يُحدَّد دور هنا → يسقط على القيم العامة abilityCorrect/abilityIncorrect.
+  // القيم الافتراضية مطابقة للعام (لا تغيّر سلوكاً حتى يعدّلها الليدر).
+  roleAbilities: {
+    SNIPER:      { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // أصاب مافيا/محايد ✓ — أصاب مواطن ✗
+    SHERIFF:     { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // حقّق مافيا فعلية ✓
+    DOCTOR:      { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // حماية أبطلت اغتيالاً ✓
+    NURSE:       { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 },
+    POLICEWOMAN: { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // إعدام مافيا ✓
+    GODFATHER:   { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // اغتيال نجح ✓ — أُبطل بالحماية ✗
+    SILENCER:    { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // أسكت غير مافيا (مفيد) ✓
+    WITCH:       { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // عطّل دوراً صاحب قدرة ✓
+  },
   level: {
     baseXP: 500,
     exponent: 1.2,
@@ -100,6 +113,7 @@ async function getConfig() {
       rr: { ...DEFAULT_CONFIG.rr, ...(dbConfig.rr || {}) },
       ranks: { ...DEFAULT_CONFIG.ranks, ...(dbConfig.ranks || {}) },
       level: { ...DEFAULT_CONFIG.level, ...(dbConfig.level || {}) },
+      roleAbilities: { ...DEFAULT_CONFIG.roleAbilities, ...(dbConfig.roleAbilities || {}) },
     };
   }
   cacheTimestamp = Date.now();
