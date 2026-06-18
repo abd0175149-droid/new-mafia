@@ -73,6 +73,14 @@ app.use(cors({
   origin: env.FRONTEND_URL ? env.FRONTEND_URL.split(',') : '*',
   credentials: true,
 }));
+// ── رؤوس أمان أساسية (بلا تبعية؛ بلا CSP/CORP حتى لا تنكسر الصور و/uploads) ──
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '0');
+  next();
+});
 app.use(express.json({ limit: '10mb' }));
 app.use('/uploads', express.static('uploads'));
 

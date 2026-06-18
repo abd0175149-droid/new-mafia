@@ -8,16 +8,18 @@ services:
       POSTGRES_USER: mafia_user
       POSTGRES_PASSWORD: mafia_pass
       POSTGRES_DB: ${DB_NAME}
+    # 🔒 ربط المنفذ بالمضيف المحلي فقط (يمنع الوصول الخارجي المباشر لقاعدة البيانات)
     ports:
-      - "${DB_PORT}:5432"
+      - "127.0.0.1:${DB_PORT}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
 
   redis:
     image: redis:alpine
     restart: always
+    # 🔒 ربط المنفذ بالمضيف المحلي فقط (Redis بلا كلمة سر — يجب ألا يُكشف خارجياً)
     ports:
-      - "${REDIS_PORT}:6379"
+      - "127.0.0.1:${REDIS_PORT}:6379"
     volumes:
       - redis_data:/data
 

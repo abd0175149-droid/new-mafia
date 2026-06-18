@@ -15,12 +15,19 @@ export const env = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
 } as const;
 
-// ── التحقق في الإنتاج ────────────────────────────
-if (env.NODE_ENV === 'production') {
-  const criticalVars = ['JWT_SECRET'] as const;
-  for (const key of criticalVars) {
-    if (!env[key] || env[key].includes('change-in-production')) {
-      console.warn(`⚠️ [ENV] ${key} يجب تغييره في بيئة الإنتاج!`);
-    }
+// ── التحقق من قوة JWT_SECRET ────────────────────────────
+// يحذّر دائماً عند مفتاح ضعيف/افتراضي، ويوقف الإقلاع في الإنتاج (فشل-سريع آمن).
+const WEAK_SECRETS = [
+  'mafia_secret_key_123',
+  'mafia-dev-secret-change-in-production',
+  'change-in-production',
+];
+const jwtIsWeak = !env.JWT_SECRET
+  || env.JWT_SECRET.length < 16
+  || WEAK_SECRETS.some((w) => env.JWT_SECRET.includes(w));
+if (jwtIsWeak) {
+  console.error('🚨 [ENV] JWT_SECRET ضعيف أو افتراضي — اضبط مفتاحاً عشوائياً قوياً (≥32 حرف)!');
+  if (env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET ضعيف أو مفقود في الإنتاج — أُوقف الإقلاع لأسباب أمنية.');
   }
 }
