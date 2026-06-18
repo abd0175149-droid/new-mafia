@@ -122,17 +122,25 @@ export async function registerPlayerToken(playerId: number, token: string, devic
   if (!db) return;
 
   try {
-    // إزالة هذا التوكن من أي ارتباط سابق (نفس الجهاز كان مسجلاً للاعب آخر،
-    // أو إعادة تسجيل نفس الجهاز) — ثم إدراجه للاعب الحالي.
-    // ⚠️ لا نحذف بقية توكنات اللاعب: ندعم عدّة أجهزة لكل لاعب (توكن لكل جهاز).
+    // ① إزالة هذا التوكن من أي ارتباط سابق (الجهاز انتقل لحساب آخر / إعادة تسجيل).
     await db.delete(playerFcmTokens).where(eq(playerFcmTokens.fcmToken, token));
+
+    // ② إزالة التكرار حسب الجهاز: نحذف توكنات نفس اللاعب من نفس الجهاز (deviceInfo)،
+    //    لمنع تكرار الإشعار الناتج عن إعادة إنشاء الاشتراك. يبقى دعم تعدّد الأجهزة
+    //    لأن أي جهاز مختلف له deviceInfo (User-Agent) مختلف.
+    if (deviceInfo) {
+      await db.delete(playerFcmTokens).where(
+        and(eq(playerFcmTokens.playerId, playerId), eq(playerFcmTokens.deviceInfo, deviceInfo))
+      );
+    }
+
     await db.insert(playerFcmTokens).values({
       playerId,
       fcmToken: token,
       deviceInfo,
       isActive: true,
     } as any);
-    console.log(`📱 FCM token registered for player #${playerId} (multi-device)`);
+    console.log(`📱 FCM token registered for player #${playerId} (per-device dedup)`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
   }

@@ -300,7 +300,8 @@ self.addEventListener('pushsubscriptionchange', (event) => {
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
           body: JSON.stringify({
             token: 'WEBPUSH::' + JSON.stringify(subscription.toJSON()),
-            deviceInfo: 'sw-resubscribe',
+            // نفس deviceInfo المستخدم في التطبيق (User-Agent) ليتم إزالة التكرار حسب الجهاز
+            deviceInfo: (self.navigator && self.navigator.userAgent ? self.navigator.userAgent.slice(0, 200) : 'sw-resubscribe'),
           }),
         });
         console.log('🔄 Push subscription renewed and re-registered with server');
