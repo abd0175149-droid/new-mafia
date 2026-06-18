@@ -9,7 +9,8 @@ import { matches, matchPlayers } from '../schemas/game.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
-import { processMatchRewards, calculateMatchXP, calculateMatchRR } from './progression.service.js';
+import { processMatchRewards, computeMatchReward } from './progression.service.js';
+import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 import type { GameState } from '../game/state.js';
 
 // ── إنشاء سجل مباراة عند بداية اللعبة ──────────────
@@ -52,6 +53,17 @@ export async function finalizeMatch(state: GameState): Promise<void> {
   }
 
   try {
+    // 🛡️ حارس ضد التكرار: إن كانت صفوف هذه المباراة محفوظة مسبقاً → لا تُعِد الإدراج/الاحتساب
+    // (يمنع العدّ المزدوج إذا استُدعي finalizeMatch مرتين لنفس المباراة)
+    const existing = await db.select({ id: matchPlayers.id })
+      .from(matchPlayers)
+      .where(eq(matchPlayers.matchId, state.matchId))
+      .limit(1);
+    if (existing.length > 0) {
+      console.log(`⏭️ [finalizeMatch] Match #${state.matchId} already finalized — skipping (no double count)`);
+      return;
+    }
+
     let isTestGame = false;
     if (state.activityId) {
       const activityInfo = await db.select({ isTest: locations.isTestLocation })
@@ -84,101 +96,47 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
     const totalRounds = state.round || 1;
 
+    // ── تحميل إعدادات التقدّم (نفس مصدر processMatchRewards لضمان تطابق المعروض والمطبَّق) ──
+    let cfg: any;
+    try { cfg = await getProgressionConfig(); } catch { cfg = DEFAULT_CONFIG; }
+    const elimBonusPerKill = cfg?.xp?.teamEliminationBonus || 15;
+
     const playerRows = state.players.map(p => {
       const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
       const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
       const dealOutcome = tracking.dealOutcomes.find(d => d.initiatorPhysicalId === p.physicalId);
       const abilityResults = tracking.abilityResults.filter(a => a.physicalId === p.physicalId);
-
       const playerIsMafia = isMafiaRole(p.role as any);
-      const isJester = p.role === 'JESTER';
 
-      // 🤡 المهرج: لا يستخدم منطق الفريقين
-      if (isJester) {
-        const jesterWon = state.winner === 'JESTER';
-        return {
-          matchId: state.matchId!,
-          playerId: p.playerId || null,
-          physicalId: p.physicalId,
-          playerName: p.name,
-          role: p.role || 'UNKNOWN',
-          survivedToEnd: p.isAlive,
-          eliminatedAtRound: elimEntry ? elimEntry.round : null,
-          eliminatedDuring: elimEntry ? (elimEntry.eliminatedBy === 'NIGHT_KILL' || elimEntry.eliminatedBy === 'SNIPER' ? 'NIGHT' : 'DAY') : null,
-          roundsSurvived,
-          dealInitiated: !!dealOutcome,
-          dealSuccess: dealOutcome ? dealOutcome.success : null,
-          abilityUsed: abilityResults.length > 0,
-          abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
-          xpEarned: 0, // سيتم حسابه في processMatchRewards
-          rrChange: 0,  // سيتم حسابه في processMatchRewards
-        };
-      }
-
-      // 🔪 السفّاح: منطق مستقل
-      const isAssassin = p.role === 'ASSASSIN';
-      if (isAssassin) {
-        return {
-          matchId: state.matchId!,
-          playerId: p.playerId || null,
-          physicalId: p.physicalId,
-          playerName: p.name,
-          role: p.role || 'UNKNOWN',
-          survivedToEnd: p.isAlive,
-          eliminatedAtRound: elimEntry ? elimEntry.round : null,
-          eliminatedDuring: elimEntry ? (elimEntry.eliminatedBy === 'NIGHT_KILL' || elimEntry.eliminatedBy === 'SNIPER' ? 'NIGHT' : 'DAY') : null,
-          roundsSurvived,
-          dealInitiated: false,
-          dealSuccess: null,
-          abilityUsed: true, // السفّاح يستخدم قدرته
-          abilityCorrect: null,
-          xpEarned: 0, // سيتم حسابه في processMatchRewards
-          rrChange: 0,
-        };
-      }
-
-      // عند فوز المهرج أو السفّاح — كل الفريقين يخسرون
-      const teamWon = (state.winner === 'JESTER' || state.winner === 'ASSASSIN') ? false
-        : (state.winner === 'MAFIA' && playerIsMafia) || (state.winner === 'CITIZEN' && !playerIsMafia);
-
-      // حساب مكافأة إقصاء الخصم
+      // مكافأة إقصاء الخصم (للأدوار العادية)
       let teamElimBonus = 0;
       for (const elim of tracking.eliminationLog) {
         if (elim.physicalId === p.physicalId) continue;
-        if (elim.team === 'MAFIA' && !playerIsMafia) teamElimBonus += 15;
-        if (elim.team === 'CITIZEN' && playerIsMafia) teamElimBonus += 15;
+        if (elim.team === 'MAFIA' && !playerIsMafia) teamElimBonus += elimBonusPerKill;
+        if (elim.team === 'CITIZEN' && playerIsMafia) teamElimBonus += elimBonusPerKill;
       }
 
       const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
       const abilityIncorrectCount = abilityResults.filter(a => !a.correct).length;
-
       const playerDeals = tracking.dealOutcomes.filter(d => d.initiatorPhysicalId === p.physicalId);
       const successfulDealsCount = playerDeals.filter(d => d.success).length;
-      const regularFailedDeals = playerDeals.filter(d => !d.success && !playerIsMafia).length;
+      const failedDealsCount = playerDeals.filter(d => !d.success && !playerIsMafia).length;
       const mafiaDealOnMafiaCount = playerDeals.filter(d => !d.success && playerIsMafia).length;
-      const failedDealsCount = regularFailedDeals;
 
-      const xpEarned = p.playerId ? (!isTestGame ? calculateMatchXP({
-        participated: true,
-        teamWon,
+      // 🎯 المصدر الموحّد لحساب النقاط (كل الأدوار بما فيها المحايدون) — نفس قيمة الإجمالي المطبَّق
+      const { xpEarned, rrChange } = computeMatchReward({
+        role: p.role || 'CITIZEN',
+        winner: state.winner ?? null,
+        survivedToEnd: !!p.isAlive,
         roundsSurvived,
-        abilityCorrectCount,
-        abilityIncorrectCount,
         successfulDealsCount,
         failedDealsCount,
         mafiaDealOnMafiaCount,
+        abilityCorrectCount,
+        abilityIncorrectCount,
         teamEliminationBonus: teamElimBonus,
-      }) : 0) : 0;
-
-      const rrChange = p.playerId ? (!isTestGame ? calculateMatchRR({
-        teamWon,
-        successfulDealsCount,
-        failedDealsCount,
-        mafiaDealOnMafiaCount,
-        survivedToEnd: !elimEntry,
-        abilityCorrectCount,
-        abilityIncorrectCount,
-      }) : 0) : 0;
+        assassinContractsCompleted: state.assassinState?.completedCount || 0,
+      }, cfg);
 
       return {
         matchId: state.matchId!,
@@ -190,12 +148,13 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         eliminatedAtRound: elimEntry ? elimEntry.round : null,
         eliminatedDuring: elimEntry ? (elimEntry.eliminatedBy === 'NIGHT_KILL' || elimEntry.eliminatedBy === 'SNIPER' ? 'NIGHT' : 'DAY') : null,
         roundsSurvived,
-        dealInitiated: !!dealOutcome,
+        dealInitiated: p.role === 'ASSASSIN' ? false : !!dealOutcome,
         dealSuccess: dealOutcome ? dealOutcome.success : null,
-        abilityUsed: abilityResults.length > 0,
+        abilityUsed: p.role === 'ASSASSIN' ? true : abilityResults.length > 0,
         abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
-        xpEarned,
-        rrChange,
+        // 💾 تُحفظ القيم لكل الأدوار (حتى المحايدين) — لا أصفار بعد الآن. تُتخطّى المباريات التجريبية فقط.
+        xpEarned: isTestGame ? 0 : xpEarned,
+        rrChange: isTestGame ? 0 : rrChange,
       };
     });
 

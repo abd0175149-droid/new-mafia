@@ -98,6 +98,76 @@ export function calculateMatchRR(params: {
   return rr;
 }
 
+// ══════════════════════════════════════════════════════
+// 🎯 المصدر الموحّد لحساب نقاط مباراة لاعب واحد (كل الأدوار)
+// يُستخدم في: حفظ سجل المباراة (match.service) + تطبيق الإجمالي (processMatchRewards)
+// + سكربت الباك-فيل. دالة نقية (لا تلمس قاعدة البيانات) لضمان التطابق التام.
+// ══════════════════════════════════════════════════════
+export function computeMatchReward(opts: {
+  role: string;
+  winner: string | null;
+  survivedToEnd: boolean;
+  roundsSurvived: number;
+  successfulDealsCount: number;
+  failedDealsCount: number;        // ديل مواطن فاشل
+  mafiaDealOnMafiaCount: number;   // ديل مافيا أضرّ بفريقه
+  abilityCorrectCount: number;
+  abilityIncorrectCount: number;
+  teamEliminationBonus: number;
+  assassinContractsCompleted: number;
+}, cfg?: any): { xpEarned: number; rrChange: number; won: boolean } {
+  const c = cfg || DEFAULT_CONFIG;
+  const role = opts.role;
+
+  // 🤡 المهرّج
+  if (role === 'JESTER') {
+    const won = opts.winner === 'JESTER';
+    return {
+      won,
+      xpEarned: Math.max(0, won ? (c.xp?.jesterWin ?? 50) : (c.xp?.jesterLoss ?? 0)),
+      rrChange: won ? (c.rr?.jesterWin ?? 30) : (c.rr?.jesterLoss ?? -10),
+    };
+  }
+
+  // 🔪 السفّاح
+  if (role === 'ASSASSIN') {
+    const won = opts.winner === 'ASSASSIN';
+    const contracts = opts.assassinContractsCompleted || 0;
+    const xp = Math.max(0, (won ? (c.xp?.assassinWin ?? 80) : (c.xp?.assassinLoss ?? 10)) + contracts * (c.xp?.assassinContractComplete ?? 15));
+    const rr = (won ? (c.rr?.assassinWin ?? 30) : (c.rr?.assassinLoss ?? -15)) + contracts * (c.rr?.assassinContractComplete ?? 10);
+    return { won, xpEarned: xp, rrChange: rr };
+  }
+
+  // 🔴🔵 المافيا/المواطنون
+  const playerIsMafia = isMafiaRole(role as any);
+  const won = (opts.winner === 'JESTER' || opts.winner === 'ASSASSIN') ? false
+    : (opts.winner === 'MAFIA' && playerIsMafia) || (opts.winner === 'CITIZEN' && !playerIsMafia);
+
+  const xpEarned = calculateMatchXP({
+    participated: true,
+    teamWon: won,
+    roundsSurvived: opts.roundsSurvived,
+    abilityCorrectCount: opts.abilityCorrectCount,
+    abilityIncorrectCount: opts.abilityIncorrectCount,
+    successfulDealsCount: opts.successfulDealsCount,
+    failedDealsCount: opts.failedDealsCount,
+    mafiaDealOnMafiaCount: opts.mafiaDealOnMafiaCount,
+    teamEliminationBonus: opts.teamEliminationBonus,
+  }, c);
+
+  const rrChange = calculateMatchRR({
+    teamWon: won,
+    successfulDealsCount: opts.successfulDealsCount,
+    failedDealsCount: opts.failedDealsCount,
+    mafiaDealOnMafiaCount: opts.mafiaDealOnMafiaCount,
+    survivedToEnd: opts.survivedToEnd,
+    abilityCorrectCount: opts.abilityCorrectCount,
+    abilityIncorrectCount: opts.abilityIncorrectCount,
+  }, c);
+
+  return { won, xpEarned, rrChange };
+}
+
 // ── تطبيق XP مع فحص Level Up ────────────────────────
 export async function applyXPAndLevel(playerId: number, xpEarned: number): Promise<{ newXP: number; newLevel: number; leveledUp: boolean }> {
   const db = getDB();
@@ -243,8 +313,10 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     // 🤡 المهرج: منطق مختلف تماماً عن الفريقين
     if (isJester) {
       const jesterWon = state.winner === 'JESTER';
-      const jesterXP = jesterWon ? (cfg?.xp?.jesterWin ?? 50) : (cfg?.xp?.jesterLoss ?? 0);
-      const jesterRR = jesterWon ? (cfg?.rr?.jesterWin ?? 30) : (cfg?.rr?.jesterLoss ?? -10);
+      const { xpEarned: jesterXP, rrChange: jesterRR } = computeMatchReward(
+        { role: 'JESTER', winner: state.winner ?? null, survivedToEnd: !!p.isAlive, roundsSurvived: 0, successfulDealsCount: 0, failedDealsCount: 0, mafiaDealOnMafiaCount: 0, abilityCorrectCount: 0, abilityIncorrectCount: 0, teamEliminationBonus: 0, assassinContractsCompleted: 0 },
+        cfg,
+      );
 
       try {
         const xpResult = await applyXPAndLevel(p.playerId, Math.max(0, jesterXP));
@@ -279,14 +351,10 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       const assassinWon = state.winner === 'ASSASSIN';
       const contractsCompleted = state.assassinState?.completedCount || 0;
 
-      const baseXP = assassinWon ? (cfg?.xp?.assassinWin ?? 80) : (cfg?.xp?.assassinLoss ?? 10);
-      const contractBonusXP = contractsCompleted * (cfg?.xp?.assassinContractComplete ?? 15);
-
-      const baseRR = assassinWon ? (cfg?.rr?.assassinWin ?? 30) : (cfg?.rr?.assassinLoss ?? -15);
-      const contractBonusRR = contractsCompleted * (cfg?.rr?.assassinContractComplete ?? 10);
-
-      const totalXP = Math.max(0, baseXP + contractBonusXP);
-      const totalRR = baseRR + contractBonusRR;
+      const { xpEarned: totalXP, rrChange: totalRR } = computeMatchReward(
+        { role: 'ASSASSIN', winner: state.winner ?? null, survivedToEnd: !!p.isAlive, roundsSurvived: 0, successfulDealsCount: 0, failedDealsCount: 0, mafiaDealOnMafiaCount: 0, abilityCorrectCount: 0, abilityIncorrectCount: 0, teamEliminationBonus: 0, assassinContractsCompleted: contractsCompleted },
+        cfg,
+      );
 
       try {
         const xpResult = await applyXPAndLevel(p.playerId, totalXP);
@@ -335,26 +403,18 @@ export async function processMatchRewards(state: GameState): Promise<void> {
     const abilityCorrectCount = abilityResults.filter(a => a.correct).length;
     const abilityIncorrectCount = abilityResults.filter(a => !a.correct).length;
 
-    const xpEarned = calculateMatchXP({
-      participated: true,
-      teamWon,
+    const { xpEarned, rrChange } = computeMatchReward({
+      role: p.role || 'CITIZEN',
+      winner: state.winner ?? null,
+      survivedToEnd: !!p.isAlive,
       roundsSurvived,
-      abilityCorrectCount,
-      abilityIncorrectCount,
       successfulDealsCount,
       failedDealsCount,
       mafiaDealOnMafiaCount,
+      abilityCorrectCount,
+      abilityIncorrectCount,
       teamEliminationBonus: teamElimBonusMap[p.physicalId] || 0,
-    }, cfg);
-
-    const rrChange = calculateMatchRR({
-      teamWon,
-      successfulDealsCount,
-      failedDealsCount,
-      mafiaDealOnMafiaCount,
-      survivedToEnd: p.isAlive,
-      abilityCorrectCount,
-      abilityIncorrectCount,
+      assassinContractsCompleted: 0,
     }, cfg);
 
     // تطبيق التقدم

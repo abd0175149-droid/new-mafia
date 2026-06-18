@@ -164,12 +164,24 @@ export async function getPlayerProfile(playerId: number) {
         role: matchPlayers.role,
         physicalId: matchPlayers.physicalId,
         survived: matchPlayers.survivedToEnd,
+        survivedToEnd: matchPlayers.survivedToEnd,
         matchWinner: matches.winner,
         matchDate: matches.createdAt,
         matchDuration: matches.durationSeconds,
         matchPlayerCount: matches.playerCount,
         xpEarned: matchPlayers.xpEarned,
         rrChange: matchPlayers.rrChange,
+        // ── حقول التفصيل (كانت ناقصة → لا يظهر تفصيل النقاط) ──
+        roundsSurvived: matchPlayers.roundsSurvived,
+        eliminatedAtRound: matchPlayers.eliminatedAtRound,
+        eliminatedDuring: matchPlayers.eliminatedDuring,
+        dealInitiated: matchPlayers.dealInitiated,
+        dealSuccess: matchPlayers.dealSuccess,
+        abilityUsed: matchPlayers.abilityUsed,
+        abilityCorrect: matchPlayers.abilityCorrect,
+        penaltyCount: matchPlayers.penaltyCount,
+        penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
+        bombRRChange: matchPlayers.bombRRChange,
       })
       .from(matchPlayers)
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -185,12 +197,23 @@ export async function getPlayerProfile(playerId: number) {
           role: matchPlayers.role,
           physicalId: matchPlayers.physicalId,
           survived: matchPlayers.survivedToEnd,
+          survivedToEnd: matchPlayers.survivedToEnd,
           matchWinner: matches.winner,
           matchDate: matches.createdAt,
           matchDuration: matches.durationSeconds,
           matchPlayerCount: matches.playerCount,
           xpEarned: matchPlayers.xpEarned,
           rrChange: matchPlayers.rrChange,
+          roundsSurvived: matchPlayers.roundsSurvived,
+          eliminatedAtRound: matchPlayers.eliminatedAtRound,
+          eliminatedDuring: matchPlayers.eliminatedDuring,
+          dealInitiated: matchPlayers.dealInitiated,
+          dealSuccess: matchPlayers.dealSuccess,
+          abilityUsed: matchPlayers.abilityUsed,
+          abilityCorrect: matchPlayers.abilityCorrect,
+          penaltyCount: matchPlayers.penaltyCount,
+          penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
+          bombRRChange: matchPlayers.bombRRChange,
         })
         .from(matchPlayers)
         .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
