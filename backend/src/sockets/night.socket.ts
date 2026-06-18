@@ -1362,11 +1362,19 @@ export function registerNightEvents(io: Server, socket: Socket) {
         message: 'انتهت الفعالية — شكراً لمشاركتكم!',
       });
 
-      // تنظيف: حذف من activeRooms + إغلاق DB Session
+      // تنظيف: حذف من activeRooms + إغلاق DB Session + إكمال النشاط المرتبط
       markRoomAsFinished(data.roomId);
       if (state.sessionId) {
         closeSession(state.sessionId).catch(() => {});
       }
+      // 🏁 تعليم النشاط المرتبط كـ"مكتمل" كي يختفي من فعاليات اللاعب القادمة
+      if (state.activityId) {
+        const { completeActivity } = await import('../services/session.service.js');
+        completeActivity(state.activityId).catch(() => {});
+      }
+      // حذف حالة Redis للغرفة (تنظيف كامل — لا تُعاد من rehydrate)
+      const { deleteGameState } = await import('../config/redis.js');
+      deleteGameState(data.roomId).catch(() => {});
 
       console.log(`🔒 Event closed for room ${data.roomId} by leader`);
       callback({ success: true });

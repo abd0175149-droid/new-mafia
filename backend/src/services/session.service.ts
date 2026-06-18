@@ -214,6 +214,25 @@ export async function closeSession(sessionId: number): Promise<boolean> {
   }
 }
 
+// ── إكمال النشاط المرتبط (عند إنهاء الفعالية) ─────
+// يحوّل حالة النشاط إلى 'completed' كي لا يظهر في قائمة الأنشطة القادمة للاعب.
+export async function completeActivity(activityId: number): Promise<boolean> {
+  const db = getDB();
+  if (!db) return false;
+
+  try {
+    await db.update(activities)
+      .set({ status: 'completed' } as any)
+      .where(eq(activities.id, activityId));
+
+    console.log(`🏁 Activity #${activityId} marked as completed (event ended)`);
+    return true;
+  } catch (err: any) {
+    console.error('❌ Failed to complete activity:', err.message);
+    return false;
+  }
+}
+
 // ── حذف الغرفة (Soft Delete — تبقى في DB للسجل) ─────
 export async function deleteSession(sessionId: number): Promise<boolean> {
   const db = getDB();
