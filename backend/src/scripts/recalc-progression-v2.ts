@@ -59,7 +59,7 @@ function applyXPInMemory(acc: PlayerAcc, xpEarned: number) {
 }
 
 async function main() {
-  console.log(`🔄 Recalc progression — mode: ${APPLY ? '⚠️  APPLY (writes)' : '🔍 DRY-RUN (report only)'}`);
+  console.log(`🔄 Recalc progression [HYBRID: stored for regulars + recompute neutrals] — mode: ${APPLY ? '⚠️  APPLY (writes)' : '🔍 DRY-RUN (report only)'}`);
   await connectDB();
   const db = getDB();
   if (!db) { console.error('❌ DB unavailable'); process.exit(1); }
@@ -85,6 +85,8 @@ async function main() {
     dealSuccess: matchPlayers.dealSuccess,
     abilityUsed: matchPlayers.abilityUsed,
     abilityCorrect: matchPlayers.abilityCorrect,
+    xpEarned: matchPlayers.xpEarned,
+    rrChange: matchPlayers.rrChange,
     matchId: matchPlayers.matchId,
     winner: matches.winner,
     isTestLocation: locations.isTestLocation,
@@ -119,19 +121,33 @@ async function main() {
         totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0 };
       accs.set(r.playerId, acc);
     }
-    const { xpEarned, rrChange, won } = computeMatchReward({
+    // ── النهج الهجين (دقّة ~99%) ──
+    // الأدوار العادية: القيم المخزّنة xpEarned/rrChange دقيقة 100% (تشمل مكافأة إقصاء الفريق
+    //   + الصفقات + القدرات + العقوبات + القنبلة — كلها مُدمجة وقت اللعب).
+    // المحايدون (مهرّج/سفّاح): الأساس لم يُخزَّن (كان صفراً) → نعيد حسابه، ونضيف ما خُزِّن
+    //   (عقوبات إن وُجدت، فهي مدمجة في rrChange المخزّن للمحايد).
+    const isNeutral = r.role === 'JESTER' || r.role === 'ASSASSIN';
+    const storedXp = r.xpEarned || 0;
+    const storedRr = r.rrChange || 0;
+
+    const base = computeMatchReward({
       role: r.role,
       winner: r.winner ?? null,
       survivedToEnd: !!r.survivedToEnd,
       roundsSurvived: r.roundsSurvived || 0,
       successfulDealsCount: r.dealSuccess ? 1 : 0,
       failedDealsCount: r.dealInitiated && r.dealSuccess === false ? 1 : 0,
-      mafiaDealOnMafiaCount: 0, // غير مخزّن في الصف — تقريب
+      mafiaDealOnMafiaCount: 0,
       abilityCorrectCount: r.abilityCorrect === true ? 1 : 0,
       abilityIncorrectCount: r.abilityCorrect === false ? 1 : 0,
-      teamEliminationBonus: 0,  // غير مخزّن — تقريب
-      assassinContractsCompleted: 0, // غير مخزّن — تقريب
+      teamEliminationBonus: 0,
+      // السفّاح الفائز أكمل العقود المطلوبة (الافتراضي 4)؛ الخاسر: غير معروف → 0
+      assassinContractsCompleted: (r.role === 'ASSASSIN' && r.winner === 'ASSASSIN') ? 4 : 0,
     }, cfg);
+
+    const won = base.won;
+    const xpEarned = isNeutral ? (base.xpEarned + storedXp) : storedXp;
+    const rrChange = isNeutral ? (base.rrChange + storedRr) : storedRr;
 
     applyXPInMemory(acc, xpEarned);
     applyRRInMemory(acc, rrChange);
