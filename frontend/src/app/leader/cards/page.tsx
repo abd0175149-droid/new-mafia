@@ -16,6 +16,11 @@ const ROLE_NAMES_AR: Record<string, string> = {
   POLICEWOMAN: 'الشرطية',
   NURSE: 'الممرضة',
   CITIZEN: 'مواطن صالح',
+  WITCH: 'الساحرة',
+  OLDER_BROTHER: 'الأخ الأكبر',
+  YOUNGER_BROTHER: 'الأخ الأصغر',
+  JESTER: 'المهرج',
+  ASSASSIN: 'السفّاح',
 };
 
 const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];

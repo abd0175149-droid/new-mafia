@@ -12,6 +12,7 @@ import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
 import { playGameSound } from '@/lib/soundManager';
+import { ROLE_NAMES } from '@/lib/constants';
 
 interface ActiveGame {
   roomId: string;
@@ -3801,7 +3802,7 @@ export default function LeaderPage() {
                           <div className="flex items-center gap-2">
                             <span className={`text-[9px] font-mono tracking-widest uppercase px-2 py-0.5 border ${
                               p.team === 'MAFIA' ? 'text-[#8A0303] border-[#8A0303]/30' : 'text-[#C5A059] border-[#C5A059]/30'
-                            }`}>{p.role}</span>
+                            }`}>{(ROLE_NAMES as Record<string, string>)[p.role] || p.role}</span>
                             {!p.survivedToEnd && <span className="text-[#8A0303] text-xs">💀</span>}
                           </div>
                         </div>

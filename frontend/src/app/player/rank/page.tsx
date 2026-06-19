@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
 import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS, RANK_RR_REQUIRED } from '@/lib/ranks';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
@@ -510,7 +511,7 @@ export default function RankPage() {
                 const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
                 return (
                   <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b border-white/5">
-                    <span className={won ? 'text-green-400' : 'text-red-400'}>{won ? '🏆' : '💀'} {m.role}</span>
+                    <span className={won ? 'text-green-400' : 'text-red-400'}>{won ? '🏆' : '💀'} {(ROLE_NAMES as Record<string, string>)[m.role] || m.role}</span>
                     <span className="text-gray-600">
                       {m.matchDate ? new Date(m.matchDate).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' }) : ''}
                     </span>

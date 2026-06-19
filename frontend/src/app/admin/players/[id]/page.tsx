@@ -23,9 +23,10 @@ async function apiFetch(path: string, opts?: RequestInit) {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  GODFATHER: 'الأب الروحي', SILENCER: 'المُسكِت', CHAMELEON: 'الحرباء', MAFIA_REGULAR: 'مافيا عادي',
-  CITIZEN: 'مواطن', SHERIFF: 'المحقق', DOCTOR: 'الطبيب', BODYGUARD: 'الحارس', SNIPER: 'القناص',
-  SURVIVOR: 'الناجي', JOURNALIST: 'الصحفي',
+  GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'حرباية المافيا', WITCH: 'الساحرة',
+  OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا عادي', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
+  SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', CITIZEN: 'مواطن صالح',
+  YOUNGER_BROTHER: 'الأخ الأصغر', JESTER: 'المهرج', ASSASSIN: 'السفّاح',
 };
 
 const RANK_MAP: Record<string, { label: string; icon: string; color: string }> = {

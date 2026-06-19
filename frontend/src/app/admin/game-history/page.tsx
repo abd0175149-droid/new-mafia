@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ROLE_NAMES } from '@/lib/constants';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -552,7 +553,7 @@ export default function GameHistoryPage() {
                       p.team === 'NEUTRAL' ? 'bg-purple-500/10 text-purple-400' :
                       'bg-blue-500/10 text-blue-400'
                     }`}>
-                      {p.role}
+                      {(ROLE_NAMES as Record<string, string>)[p.role] || p.role}
                     </span>
                     {!p.survivedToEnd && <span className="text-xs text-gray-600">💀</span>}
                   </div>

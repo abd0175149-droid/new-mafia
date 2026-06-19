@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ROLE_NAMES } from '@/lib/constants';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -446,7 +447,7 @@ export default function ProgressionPage() {
                             {won ? '🏆' : '💀'}
                           </div>
                           <div className="flex-1 min-w-[120px]">
-                            <p className="font-bold text-sm text-gray-200">الدور: {m.role}</p>
+                            <p className="font-bold text-sm text-gray-200">الدور: {(ROLE_NAMES as Record<string, string>)[m.role] || m.role}</p>
                             <p className="text-[11px] text-gray-500 mt-1">مباراة #{m.matchRoomCode} • {new Date(m.matchDate).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' })}</p>
                           </div>
                           <div className="flex gap-3 text-sm">

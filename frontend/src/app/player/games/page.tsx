@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
 import { useSearchParams } from 'next/navigation';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
@@ -400,7 +401,7 @@ function GamesContent() {
                       <span className={`text-xs font-medium ${won ? 'text-green-400' : 'text-red-400'}`}>
                         {won ? '🏆 فوز' : '💀 خسارة'}
                       </span>
-                      <span className="text-[10px] text-gray-600">{m.role}</span>
+                      <span className="text-[10px] text-gray-600">{(ROLE_NAMES as Record<string, string>)[m.role] || m.role}</span>
                     </div>
                     <p className="text-gray-500 text-[10px] mt-0.5">
                       {m.matchDate ? new Date(m.matchDate).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' }) : ''}
