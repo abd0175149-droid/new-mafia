@@ -618,7 +618,7 @@ router.get('/:id/bookings', authenticatePlayer, async (req: Request, res: Respon
     })
       .from(bookings)
       .innerJoin(activities, eq(bookings.activityId, activities.id))
-      .where(eq(bookings.playerId, playerId))
+      .where(and(eq(bookings.playerId, playerId), isNull(bookings.deletedAt)))
       .orderBy(desc(activities.date));
 
     res.json({ success: true, bookings: playerBookings });

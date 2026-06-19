@@ -49,7 +49,7 @@ function GamesContent() {
     if (!player) return;
     Promise.all([
       fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
-      fetch(`/api/player-app/${player.playerId}/bookings`).then(r => r.json()),
+      fetch(`/api/player-app/${player.playerId}/bookings`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
       fetch('/api/player-app/my-active-rooms', { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
     ]).then(([actData, bookData, profileData, roomsData]) => {
@@ -68,7 +68,7 @@ function GamesContent() {
       // جلب المتابَعين الحاجزين لكل نشاط
       if (actData.success && actData.activities) {
         actData.activities.forEach((act: any) => {
-          fetch(`/api/player-app/activities/${act.id}/following-bookers?playerId=${player!.playerId}`)
+          fetch(`/api/player-app/activities/${act.id}/following-bookers?playerId=${player!.playerId}`, { headers: { Authorization: `Bearer ${player!.token}` } })
             .then(r => r.json())
             .then(data => {
               if (data.success) {
