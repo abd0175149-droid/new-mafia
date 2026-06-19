@@ -22,6 +22,33 @@ router.get('/public/active', async (_req: Request, res: Response) => {
   }
 });
 
+// ── قائمة المواسم العادية (عام — للتنقّل في واجهة اللاعب) ──
+router.get('/public/list', async (_req: Request, res: Response) => {
+  try {
+    const all = await listSeasons();
+    const regular = all
+      .filter((s: any) => s.type === 'REGULAR')
+      .map((s: any) => ({ id: s.id, name: s.name, seasonNumber: s.seasonNumber, status: s.status, startedAt: s.startedAt, endedAt: s.endedAt }));
+    res.json({ success: true, seasons: regular });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── لوحة ترتيب موسم محدّد (عام — لواجهة اللاعب) ──
+router.get('/public/:id/leaderboard', async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const rows = await getSeasonLeaderboard(id, Math.min(parseInt(req.query.limit as string) || 100, 200));
+    // توحيد الشكل مع /leaderboard (playerId → id)
+    const leaderboard = rows.map((r: any) => ({ id: r.playerId, ...r }));
+    res.json({ success: true, leaderboard });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── قائمة كل المواسم ──
 router.get('/', authenticate, async (_req: Request, res: Response) => {
   try {

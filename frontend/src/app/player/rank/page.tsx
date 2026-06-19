@@ -12,7 +12,12 @@ type Tab = 'leaderboard' | 'coplayers' | 'howto';
 export default function RankPage() {
   const { player } = usePlayer();
   const [tab, setTab] = useState<Tab>('leaderboard');
-  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [liveLeaderboard, setLiveLeaderboard] = useState<any[]>([]);
+  const [seasons, setSeasons] = useState<any[]>([]);
+  const [activeSeasonId, setActiveSeasonId] = useState<number | null>(null);
+  const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null);
+  const [seasonBoard, setSeasonBoard] = useState<any[] | null>(null);
+  const [seasonLoading, setSeasonLoading] = useState(false);
   const [coPlayers, setCoPlayers] = useState<any[]>([]);
   const [myProfile, setMyProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -38,12 +43,19 @@ export default function RankPage() {
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
       fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/active').then(r => r.json()).catch(() => null),
-    ]).then(([lbData, cpData, profData, progCfg, seasonData]) => {
-      if (lbData.success) setLeaderboard(lbData.leaderboard || []);
+      fetch('/api/seasons/public/list').then(r => r.json()).catch(() => null),
+    ]).then(([lbData, cpData, profData, progCfg, seasonData, seasonsData]) => {
+      if (lbData.success) setLiveLeaderboard(lbData.leaderboard || []);
       if (cpData.success) setCoPlayers(cpData.coPlayers || []);
       if (profData.success) setMyProfile(profData);
       if (progCfg?.success) setProgressionConfig(progCfg.config);
-      if (seasonData?.success) setSeason(seasonData.season);
+      if (seasonData?.success) {
+        setSeason(seasonData.season);
+        const activeId = seasonData.season?.id ?? null;
+        setActiveSeasonId(activeId);
+        setSelectedSeasonId(prev => prev ?? activeId);
+      }
+      if (seasonsData?.success) setSeasons(seasonsData.seasons || []);
     }).finally(() => setLoading(false));
   }, [player]);
 
@@ -56,6 +68,19 @@ export default function RankPage() {
     const timer2 = setTimeout(() => setGlowing(false), 5000);
     return () => { clearTimeout(timer1); clearTimeout(timer2); };
   }, [loading, tab]);
+
+  // ── جلب ترتيب الموسم المختار (إن لم يكن الموسم النشط) ──
+  useEffect(() => {
+    if (!selectedSeasonId || selectedSeasonId === activeSeasonId) { setSeasonBoard(null); return; }
+    let cancelled = false;
+    setSeasonLoading(true);
+    fetch(`/api/seasons/public/${selectedSeasonId}/leaderboard`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled && d.success) setSeasonBoard(d.leaderboard || []); })
+      .catch(() => { if (!cancelled) setSeasonBoard([]); })
+      .finally(() => { if (!cancelled) setSeasonLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedSeasonId, activeSeasonId]);
 
   const handleFollow = async (targetId: number) => {
     if (!player) return;
@@ -92,8 +117,14 @@ export default function RankPage() {
   const isCoPlayer = (id: number) => coPlayers.some(p => p.id === id);
   const isFollowing = (id: number) => coPlayers.find(p => p.id === id)?.isFollowing || false;
 
+  // ── الموسم المعروض: النشط (مباشر) أو موسم مختار سابق ──
+  const viewingActive = !selectedSeasonId || selectedSeasonId === activeSeasonId;
+  const leaderboard = viewingActive ? liveLeaderboard : (seasonBoard || []);
+  const selectedSeasonName = seasons.find(s => s.id === selectedSeasonId)?.name || season?.name || '';
+
   // ── حساب الترتيب الخاص بي ──
   const myRank = leaderboard.findIndex(p => p.id === player?.playerId) + 1;
+  const myRow = leaderboard.find(p => p.id === player?.playerId);
 
   if (loading) {
     return (
@@ -166,15 +197,60 @@ export default function RankPage() {
 
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <h1 className="text-white text-lg font-bold">🏆 التصنيف والرتب</h1>
-        {season?.name && (
+        {seasons.length > 0 ? (
+          <select
+            value={selectedSeasonId ?? ''}
+            onChange={(e) => setSelectedSeasonId(Number(e.target.value))}
+            className="text-[12px] font-bold px-3 py-1.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 outline-none cursor-pointer max-w-[60%]"
+          >
+            {seasons.map((s) => (
+              <option key={s.id} value={s.id} className="bg-gray-900 text-white">
+                🗓️ {s.name}{s.id === activeSeasonId ? ' • الحالي' : ''}
+              </option>
+            ))}
+          </select>
+        ) : season?.name && (
           <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 whitespace-nowrap">
             🗓️ موسم: {season.name}
           </span>
         )}
       </div>
 
-      {/* ── رتبتي ── */}
-      {prog && (
+      {/* ── رتبتي في موسم سابق مختار ── */}
+      {!viewingActive && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl p-4 mb-4"
+          style={{ background: `linear-gradient(135deg, ${RANK_COLORS[myRow?.rankTier] || '#888'}15, rgba(5,5,5,0.9))`, border: `1px solid ${(RANK_COLORS[myRow?.rankTier] || '#888')}30` }}>
+          <p className="text-[10px] text-gray-500 mb-1">🗓️ موسم: {selectedSeasonName}</p>
+          {seasonLoading ? (
+            <div className="py-3 text-center text-gray-500 text-xs">جارٍ التحميل…</div>
+          ) : myRow ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-2xl">{RANK_BADGES[myRow.rankTier]}</span>
+                  <span className="text-white text-sm font-bold mr-2">{RANK_NAMES_AR[myRow.rankTier]}</span>
+                  {myRank > 0 && <span className="text-gray-500 text-xs">#{myRank}</span>}
+                </div>
+                <div className="text-left">
+                  <span className="text-xs text-gray-400">RR</span>
+                  <span className="text-lg font-bold mr-1" style={{ color: RANK_COLORS[myRow.rankTier] }}>{myRow.rankRR}</span>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-3 text-center">
+                <div className="flex-1 bg-white/5 rounded-lg py-1.5"><div className="text-white text-sm font-bold">{myRow.totalMatches || 0}</div><div className="text-gray-500 text-[9px]">مباراة</div></div>
+                <div className="flex-1 bg-white/5 rounded-lg py-1.5"><div className="text-green-400 text-sm font-bold">{myRow.totalWins || 0}</div><div className="text-gray-500 text-[9px]">فوز</div></div>
+                <div className="flex-1 bg-white/5 rounded-lg py-1.5"><div className="text-amber-400 text-sm font-bold">{myRow.level || 1}</div><div className="text-gray-500 text-[9px]">المستوى</div></div>
+              </div>
+            </>
+          ) : (
+            <p className="py-3 text-center text-gray-500 text-xs">لم تلعب في هذا الموسم</p>
+          )}
+        </motion.div>
+      )}
+
+      {/* ── رتبتي (الموسم الحالي) ── */}
+      {viewingActive && prog && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
