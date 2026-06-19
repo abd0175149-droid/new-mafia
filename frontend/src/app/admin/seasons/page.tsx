@@ -79,6 +79,14 @@ export default function SeasonsPage() {
     catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
+  async function rename(id: number, current: string) {
+    const name = (prompt('اسم الموسم الجديد:', current) || '').trim();
+    if (!name || name === current) return;
+    setBusy(true); setError('');
+    try { await apiFetch(`/api/seasons/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }); await load(); }
+    catch (e: any) { setError(e.message); } finally { setBusy(false); }
+  }
+
   async function openBoard(s: Season) {
     setBusy(true);
     try { const r = await apiFetch(`/api/seasons/${s.id}/leaderboard?limit=50`); setBoard({ season: s, rows: r.leaderboard || [] }); }
@@ -143,6 +151,7 @@ export default function SeasonsPage() {
                     <td className="p-3 text-[#888]">{s.matchCount}</td>
                     <td className="p-3 flex gap-2 justify-end">
                       <button onClick={() => openBoard(s)} className="text-[11px] text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-1 hover:bg-[#C5A059]/10">الترتيب</button>
+                      <button onClick={() => rename(s.id, s.name)} className="text-[11px] text-[#888] border border-[#333] rounded px-2 py-1 hover:bg-white/5">✏️ تسمية</button>
                       {s.status === 'ACTIVE' && <button onClick={() => endSeason(s.id, s.name)} className="text-[11px] text-[#ff6b6b] border border-[#8A0303]/30 rounded px-2 py-1 hover:bg-[#8A0303]/10">إنهاء</button>}
                     </td>
                   </tr>

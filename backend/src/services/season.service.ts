@@ -36,6 +36,25 @@ export async function getActiveRegularSeasonId(): Promise<number | null> {
   return row.id;
 }
 
+// ── جلب الموسم العادي النشط مع اسمه (للعرض العام في واجهة اللاعب) ──
+export async function getActiveRegularSeason(): Promise<{ id: number; name: string; seasonNumber: number } | null> {
+  const db = getDB();
+  if (!db) return null;
+  const [row] = await db.select({ id: seasons.id, name: seasons.name, seasonNumber: seasons.seasonNumber })
+    .from(seasons)
+    .where(and(eq(seasons.type, 'REGULAR'), eq(seasons.status, 'ACTIVE')))
+    .limit(1);
+  return row || null;
+}
+
+// ── إعادة تسمية موسم ──
+export async function renameSeason(id: number, name: string): Promise<boolean> {
+  const db = getDB();
+  if (!db) return false;
+  await db.update(seasons).set({ name } as any).where(eq(seasons.id, id));
+  return true;
+}
+
 // ── جلب بطولة نشطة لموقع محدّد (أو null) ──
 export async function getActiveTournamentForLocation(locationId: number | null): Promise<number | null> {
   if (!locationId) return null;

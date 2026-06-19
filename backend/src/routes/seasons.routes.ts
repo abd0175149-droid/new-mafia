@@ -5,12 +5,22 @@
 import { Router, type Request, type Response } from 'express';
 import { authenticate, managerOrAbove } from '../middleware/auth.js';
 import {
-  listSeasons, getSeasonLeaderboard, getActiveRegularSeasonId,
-  startRegularSeason, startTournamentSeason, endSeason,
+  listSeasons, getSeasonLeaderboard, getActiveRegularSeasonId, getActiveRegularSeason,
+  startRegularSeason, startTournamentSeason, endSeason, renameSeason,
 } from '../services/season.service.js';
 import { getActiveRooms } from '../sockets/lobby.socket.js';
 
 const router = Router();
+
+// ── الموسم العادي النشط (عام — لواجهة اللاعب، بلا مصادقة) ──
+router.get('/public/active', async (_req: Request, res: Response) => {
+  try {
+    const season = await getActiveRegularSeason();
+    res.json({ success: true, season });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── قائمة كل المواسم ──
 router.get('/', authenticate, async (_req: Request, res: Response) => {
@@ -77,6 +87,20 @@ router.post('/tournament/start', authenticate, managerOrAbove, async (req: Reque
     res.json({ success: true, season, message: 'تم بدء موسم البطولة' });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ── إعادة تسمية موسم ──
+router.patch('/:id', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+    const name = String(req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'اسم الموسم مطلوب' });
+    await renameSeason(id, name);
+    res.json({ success: true, message: 'تم تحديث اسم الموسم' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

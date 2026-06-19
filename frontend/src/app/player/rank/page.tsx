@@ -21,6 +21,7 @@ export default function RankPage() {
   const [selectedProfile, setSelectedProfile] = useState<any>(null);
   const [glowing, setGlowing] = useState(true);
   const [progressionConfig, setProgressionConfig] = useState<any>(null);
+  const [season, setSeason] = useState<any>(null);
   const myCardRef = useRef<HTMLDivElement>(null);
 
   // ── منع السكرول + swipe-to-close ──
@@ -36,11 +37,13 @@ export default function RankPage() {
       fetch(`/api/player-app/${player.playerId}/co-players`).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
       fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
-    ]).then(([lbData, cpData, profData, progCfg]) => {
+      fetch('/api/seasons/public/active').then(r => r.json()).catch(() => null),
+    ]).then(([lbData, cpData, profData, progCfg, seasonData]) => {
       if (lbData.success) setLeaderboard(lbData.leaderboard || []);
       if (cpData.success) setCoPlayers(cpData.coPlayers || []);
       if (profData.success) setMyProfile(profData);
       if (progCfg?.success) setProgressionConfig(progCfg.config);
+      if (seasonData?.success) setSeason(seasonData.season);
     }).finally(() => setLoading(false));
   }, [player]);
 
@@ -161,7 +164,14 @@ export default function RankPage() {
         }
       `}</style>
 
-      <h1 className="text-white text-lg font-bold mb-4">🏆 التصنيف والرتب</h1>
+      <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+        <h1 className="text-white text-lg font-bold">🏆 التصنيف والرتب</h1>
+        {season?.name && (
+          <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 whitespace-nowrap">
+            🗓️ موسم: {season.name}
+          </span>
+        )}
+      </div>
 
       {/* ── رتبتي ── */}
       {prog && (
