@@ -78,6 +78,11 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   // ── نظام التذاكر ──
   const [requireTicket, setRequireTicket] = useState(activity.requireTicket || false);
 
+  // ── قالب المقاعد (ربط/إلغاء الربط) ──
+  const [seatTemplateId, setSeatTemplateId] = useState<string>(activity.seatTemplateId ? String(activity.seatTemplateId) : '');
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+
   // ── UI ──
   const [submitting, setSubmitting] = useState(false);
   const [activeSection, setActiveSection] = useState<string | null>('basic');
@@ -98,9 +103,21 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     }
   }, [activity.date]);
 
+  // تحميل قائمة قوالب المقاعد المتاحة للربط
+  useEffect(() => {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    fetch(`${API_URL}/api/seat-templates`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : { templates: [] }))
+      .then(data => setTemplates(Array.isArray(data.templates) ? data.templates : []))
+      .catch(() => setTemplates([]))
+      .finally(() => setLoadingTemplates(false));
+  }, []);
+
   const selectedLocation = locations.find(l => l.id === Number(locationId));
   const locationOffers: any[] = selectedLocation?.offers || [];
   const hasOffers = enabledOfferIds.length > 0;
+  const selectedTemplate = templates.find(t => t.id === Number(seatTemplateId));
 
   function handleLocationChange(newId: string) { setLocationId(newId); setEnabledOfferIds([]); }
   function toggleOffer(offerId: number) {
@@ -118,6 +135,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     if (driveLink !== (activity.driveLink || '')) return true;
     if (JSON.stringify(enabledOfferIds) !== JSON.stringify(activity.enabledOfferIds || [])) return true;
     if (requireTicket !== (activity.requireTicket || false)) return true;
+    if (seatTemplateId !== (activity.seatTemplateId ? String(activity.seatTemplateId) : '')) return true;
     return false;
   })();
 
@@ -132,6 +150,7 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         enabledOfferIds: hasOffers ? enabledOfferIds : [],
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, requireTicket,
+        seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
       });
     } finally { setSubmitting(false); }
   }
@@ -201,6 +220,35 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
               </div>
             </div>
           </div>
+        </Section>
+
+        {/* قسم: ربط قالب المقاعد */}
+        <Section id="template" title="قالب المقاعد" icon="📐" activeSection={activeSection} setActiveSection={setActiveSection}>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">القالب المرتبط بالنشاط</label>
+            <select value={seatTemplateId} onChange={e => setSeatTemplateId(e.target.value)} disabled={loadingTemplates}
+              className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm disabled:opacity-50">
+              <option value="">بدون قالب — إلغاء الربط</option>
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>{t.name} — {t.totalSeats} مقعد</option>
+              ))}
+            </select>
+            {loadingTemplates && <p className="text-xs text-gray-500 mt-1.5">جارٍ تحميل القوالب...</p>}
+            {!loadingTemplates && templates.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1.5">لا توجد قوالب — أنشئ قالباً من صفحة قوالب المقاعد أولاً.</p>
+            )}
+          </div>
+          {selectedTemplate ? (
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 text-xs text-emerald-300 space-y-1.5">
+              <p className="flex items-center gap-2">📐 العدد الكلي للمقاعد: <strong className="text-white">{selectedTemplate.totalSeats}</strong></p>
+              <p className="flex items-center gap-2">🪑 المقاعد المؤخّرة: <strong className="text-white">{selectedTemplate.reservedTailCount ?? 0}</strong></p>
+              <p className="text-emerald-400/70 leading-relaxed">عند ربط قالب تُؤخذ سعة المقاعد منه مباشرةً — حقل "السعة القصوى" لا يُستخدم لتوزيع المقاعد طالما القالب مرتبط.</p>
+            </div>
+          ) : (
+            <div className="bg-gray-900/40 border border-gray-700/30 rounded-xl p-3 text-xs text-gray-500 leading-relaxed">
+              لا يوجد قالب مرتبط — يُستخدم التوزيع الدائري الافتراضي بسعة {maxCapacity} لاعب.
+            </div>
+          )}
         </Section>
 
         {/* القسم 3: المكان والأسعار */}
