@@ -1613,6 +1613,51 @@ export default function LeaderPage() {
                   </motion.div>
                 );
               })()}
+
+              {/* ═══ المقاعد المثبّتة من القالب (Pinned Seats) ═══ */}
+              {(() => {
+                const pinned = (((gameState as any).pinnedSeats) || []) as any[];
+                const tail = ((gameState as any).reservedTailSeats) || 0;
+                if (pinned.length === 0 && !tail) return null;
+                return (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-6 bg-black/40 border border-purple-500/20 rounded-xl p-4 relative overflow-hidden"
+                  >
+                    <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" />
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-purple-400">📌</span>
+                        <span className="text-white text-xs font-bold" style={{ fontFamily: 'Amiri, serif' }}>المقاعد المثبّتة من القالب ({pinned.length})</span>
+                      </div>
+                      {tail > 0 && <span className="text-[#808080] text-[8px] font-mono tracking-widest uppercase">TAIL {tail}</span>}
+                    </div>
+                    {pinned.length === 0 ? (
+                      <p className="text-[#808080] text-[10px] font-mono">لا مقاعد مثبّتة — {tail} مقاعد مؤخّرة محجوزة في التوزيع</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {pinned.slice().sort((a: any, b: any) => Number(a.seatNumber) - Number(b.seatNumber)).map((ps: any) => {
+                          const occupant = gameState.players.find((p: any) => p.physicalId === Number(ps.seatNumber));
+                          const filled = !!occupant;
+                          return (
+                            <div key={ps.seatNumber} className="flex items-center justify-between bg-[#0a0a0a] border border-[#2a2a2a] rounded-lg px-3 py-2">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-mono font-bold text-sm ${filled ? 'bg-green-500/10 border border-green-500/30 text-green-400' : 'bg-purple-500/10 border border-purple-500/30 text-purple-400'}`}>{ps.seatNumber}</div>
+                                <div>
+                                  <p className="text-white text-xs font-medium">{ps.playerName || 'محجوز'}</p>
+                                  <p className="text-[9px] font-mono" style={{ color: filled ? '#4ade80' : '#a78bfa' }}>{filled ? 'حاضر ✓' : 'محجوز — بانتظار اللاعب'}</p>
+                                </div>
+                              </div>
+                              <span className="text-[#555] text-[8px] font-mono uppercase tracking-widest">{ps.phone || (ps.playerId ? `#${ps.playerId}` : '')}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })()}
             </div>
 
             {/* ══════ مودال تعديل الأرقام ══════ */}

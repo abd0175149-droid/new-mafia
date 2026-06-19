@@ -13,38 +13,12 @@ import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// ── تحديث maxPlayers في الغرفة حسب عدد الأشخاص الحاجزين ──
-async function syncSessionMaxPlayers(activityId: number) {
-  const db = getDB();
-  if (!db) return;
-
-  try {
-    // جلب sessionId من النشاط
-    const [act] = await db.select({ sessionId: activities.sessionId })
-      .from(activities)
-      .where(eq(activities.id, activityId))
-      .limit(1);
-
-    if (!act?.sessionId) return;
-
-    // حساب مجموع الأشخاص (ليس عدد الحجوزات)
-    const result = await db.select({
-      totalPeople: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-    })
-      .from(bookings)
-      .where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
-
-    const totalPeople = result[0]?.totalPeople || 0;
-    const newMax = Math.max(totalPeople, 6); // حد أدنى 6
-
-    await db.update(sessions)
-      .set({ maxPlayers: newMax } as any)
-      .where(eq(sessions.id, act.sessionId));
-
-    console.log(`🔄 Session #${act.sessionId} maxPlayers updated to ${newMax} (${totalPeople} people booked)`);
-  } catch (err: any) {
-    console.error('❌ syncSessionMaxPlayers failed:', err.message);
-  }
+// ── (مُعطّلة عمداً) عدد المقاعد لم يعد مربوطاً بعدد الحاجزين ──
+// السعة تأتي الآن من قالب المقاعد (totalSeats) إن وُجد، وإلا الافتراضي 27 (قابل للتعديل من الليدر).
+// الحجز مفتوح بلا سقف: قد يحجز عددٌ أكبر من المقاعد لأن اللاعبين يتناوبون.
+// نُبقي الدالة (no-op) لتجنّب تعديل كل مواضع الاستدعاء.
+async function syncSessionMaxPlayers(_activityId: number) {
+  return;
 }
 
 // GET /api/bookings?activityId=&status=&search=

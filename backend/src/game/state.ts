@@ -334,7 +334,7 @@ export async function createRoom(
       maxJustifications,
       currentJustification: 0,
       gameName,
-      maxPlayers: Math.min(Math.max(maxPlayers, 6), 27),
+      maxPlayers: Math.min(Math.max(maxPlayers, 6), 50),
       displayPin: displayPin || generateDisplayPin(),
       allowMafiaReveal: true,
       nightMode: 'manual',

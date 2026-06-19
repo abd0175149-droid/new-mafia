@@ -171,7 +171,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
-      const maxPlayers = Math.min(Math.max(data.maxPlayers || 10, 6), 27);
+      // الافتراضي 27 (قابل للتعديل) — وتُحسم لاحقاً من قالب المقاعد إن وُجد. مفصول عن عدد الحجوزات.
+      const maxPlayers = Math.min(Math.max(data.maxPlayers || 27, 6), 50);
 
       // إذا فيه sessionCode من DB → نستخدمه ككود للغرفة (توحيد الأكواد)
       const overrideCode = data.existingSessionId && data.sessionCode
@@ -391,9 +392,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'لم يتم العثور على لعبة بهذا الكود' });
       }
 
-      // ── جلب أحدث maxPlayers + requireTicket من DB ──
+      // ── جلب requireTicket فقط (السعة لم تعد من maxCapacity — بل من القالب/الافتراضي 27) ──
       let requireTicket = false;
-      let latestMaxPlayers = state.config.maxPlayers;
       if (state.activityId) {
         try {
           const { getDB } = await import('../config/db.js');
@@ -403,19 +403,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           if (db) {
             const [act] = await db.select({
               requireTicket: activities.requireTicket,
-              maxCapacity: activities.maxCapacity,
             }).from(activities).where(eq(activities.id, state.activityId)).limit(1);
             if (act) {
               requireTicket = act.requireTicket ?? false;
-              latestMaxPlayers = act.maxCapacity ?? state.config.maxPlayers;
             }
           }
         } catch (e) { /* DB unavailable */ }
-      }
-      // تحديث maxPlayers في Redis إن تغير
-      if (latestMaxPlayers !== state.config.maxPlayers) {
-        state.config.maxPlayers = latestMaxPlayers;
-        await updateRoom(state.roomId, { config: state.config });
       }
 
       callback({
@@ -521,7 +514,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         });
       }
 
-      // ── 1. جلب أحدث maxPlayers + constraints + requireTicket من DB ──
+      // ── 1. جلب constraints + requireTicket من DB (السعة تُحسم لاحقاً من القالب/الافتراضي) ──
       let constraints: SeatConstraints | null = null;
       let requireTicket = false;
       if (state.activityId) {
@@ -532,7 +525,6 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           const db = getDB();
           if (db) {
             const [act] = await db.select({
-              maxCapacity: activities.maxCapacity,
               requireTicket: activities.requireTicket,
               seatConstraints: activities.seatConstraints,
               basePrice: activities.basePrice,
@@ -541,11 +533,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             if (act) {
               requireTicket = act.requireTicket ?? false;
               constraints = act.seatConstraints as SeatConstraints | null;
-              const latestMax = act.maxCapacity ?? state.config.maxPlayers;
-              if (latestMax !== state.config.maxPlayers) {
-                state.config.maxPlayers = latestMax;
-                await updateRoom(data.roomId, { config: state.config });
-              }
+              // ملاحظة: السعة لا تُحسم من maxCapacity — بل من قالب المقاعد (totalSeats) إن وُجد،
+              // وإلا تبقى السعة الحالية (افتراضي 27 عند الإنشاء، أو ما عدّله الليدر). مفصولة عن الحجز.
 
               // ── دمج الأزواج الممنوعة العالمية من جدول blocked_pairs ──
               try {
@@ -804,35 +793,42 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
-      // ── 3. حماية: فحص هل اللاعب في غرفة أخرى نشطة ──
+      // ── 3. حماية: فحص هل اللاعب في غرفة أخرى *نشطة فعلاً* ──
+      // نتجاهل الغرف المنتهية/المغلقة/القديمة (التي تبقى في Redis بمهلة 24 ساعة) حتى لا يعلق اللاعب.
+      // أي حالة (حيّ أو مُقصى) قابلة للحلّ: تأكيد ثم إزالة تلقائية من الغرفة القديمة (forceJoin).
       if (data.playerId) {
         const { getAllGameStates } = await import('../config/redis.js');
         const allStates = await getAllGameStates();
         for (const otherState of allStates) {
           if (!otherState || otherState.roomId === data.roomId) continue;
           const existing = otherState.players?.find((p: any) => p.playerId === data.playerId);
-          if (existing) {
-            if (otherState.phase === 'GAME_OVER') continue;
-            if (!existing.isAlive) {
-              return callback({ success: false, error: 'أنت في غرفة أخرى نشطة (كلاعب مُقصى)، يرجى الدخول إليها ومغادرتها أولاً' });
-            }
-            if (!data.forceJoin) {
-              return callback({
-                success: false,
-                requiresConfirmation: true,
-                error: 'أنت متواجد بالفعل في غرفة أخرى نشطة، هل تريد مغادرتها والانضمام إلى هذه الغرفة؟'
-              });
-            }
-            // إزالة اللاعب من الغرفة السابقة
-            const oldState = await getGameState(otherState.roomId);
-            if (oldState) {
-              const pIndex = oldState.players.findIndex((p: any) => p.playerId === data.playerId);
-              if (pIndex !== -1) {
-                oldState.players.splice(pIndex, 1);
-                await setGameState(otherState.roomId, oldState);
-                io.to(otherState.roomId).emit('game:state-sync', oldState);
-                console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId}`);
-              }
+          if (!existing) continue;
+
+          // غرفة منتهية أو غير حيّة (ليست في activeRooms) → تجاهلها تماماً (لا تحجب الدخول)
+          const isLive = otherState.phase !== 'GAME_OVER' && activeRooms.has(otherState.roomId);
+          if (!isLive) continue;
+
+          // غرفة نشطة فعلاً → تأكيد ثم إزالة (سواء كان حيّاً أو مُقصى)
+          if (!data.forceJoin) {
+            return callback({
+              success: false,
+              requiresConfirmation: true,
+              error: existing.isAlive
+                ? 'أنت متواجد بالفعل في غرفة أخرى نشطة، هل تريد مغادرتها والانضمام إلى هذه الغرفة؟'
+                : 'أنت في غرفة أخرى نشطة (كلاعب مُقصى)، هل تريد مغادرتها والانضمام إلى هذه الغرفة؟',
+            });
+          }
+          // forceJoin → إزالة اللاعب من الغرفة السابقة
+          const oldState = await getGameState(otherState.roomId);
+          if (oldState) {
+            const pIndex = oldState.players.findIndex((p: any) => p.playerId === data.playerId);
+            if (pIndex !== -1) {
+              oldState.players.splice(pIndex, 1);
+              await setGameState(otherState.roomId, oldState);
+              io.to(otherState.roomId).emit('game:state-sync', oldState);
+              const oldRoom = activeRooms.get(otherState.roomId);
+              if (oldRoom) oldRoom.playerCount = oldState.players.filter((p: any) => !p.seatHeld).length;
+              console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId}`);
             }
           }
         }
@@ -913,18 +909,38 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           const [actRow] = await db.execute(sql`
             SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1
           `).then((r: any) => (r.rows || r || []));
+          let templateTotalSeats = 0;
           if (actRow?.seat_template_id) {
             hasTemplate = true;
             const [tplRow] = await db.execute(sql`
-              SELECT pinned_seats, reserved_tail_count FROM seat_templates
+              SELECT pinned_seats, reserved_tail_count, total_seats FROM seat_templates
               WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
             `).then((r: any) => (r.rows || r || []));
             if (tplRow) {
               pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
               reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
-              console.log(`🎯 Loaded seat template ID #${actRow.seat_template_id} for room ${state.roomId}: ${pinnedSeatsFromTemplate.length} pinned seats`);
+              templateTotalSeats = Number(tplRow.total_seats || 0);
+              console.log(`🎯 Loaded seat template ID #${actRow.seat_template_id} for room ${state.roomId}: ${pinnedSeatsFromTemplate.length} pinned, totalSeats=${templateTotalSeats}`);
+            } else {
+              hasTemplate = false; // القالب محذوف — تجاهله
             }
           }
+
+          // ── حسم عدد المقاعد: القالب (totalSeats) أولاً، وإلا تبقى السعة الحالية (لا من الحجز) ──
+          // فقط القالب يفرض السعة؛ بدون قالب نحترم القيمة الحالية (27 افتراضياً أو ما عدّله الليدر).
+          if (hasTemplate && templateTotalSeats >= 6) {
+            const targetMax = Math.min(templateTotalSeats, 50);
+            if (targetMax !== state.config.maxPlayers) {
+              state.config.maxPlayers = targetMax;
+              const r = activeRooms.get(state.roomId);
+              if (r) r.maxPlayers = targetMax;
+            }
+          }
+
+          // ── حفظ بيانات القالب على حالة الغرفة لعرض «المقاعد المحجوزة» في واجهة الليدر ──
+          (state as any).pinnedSeats = pinnedSeatsFromTemplate;
+          (state as any).reservedTailSeats = reservedTailFromTemplate;
+          await setGameState(state.roomId, state);
         } catch (e: any) {
           console.warn('⚠️ Seat template load failed:', e.message);
         }
@@ -986,14 +1002,87 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           enrichedPlayers.push(enriched);
         }
 
-        // جلب تاريخ جيران المعاقبين
+        // ── حقن اللاعبين المثبّتين (من القالب) كشاغلين افتراضيين للمقاعد ──
+        // الهدف: تُفحَص الشروط (مثل «لا يجلس بجانب X») ضدّ مقعد X المثبّت حتى لو لم يدخل X بعد.
+        if (pinnedSeatsFromTemplate.length > 0) {
+          const normPin = (p: string) => {
+            if (!p) return '';
+            let c = p.replace(/[\s\-()+]/g, '');
+            if (c.startsWith('00962')) c = c.slice(5); else if (c.startsWith('962')) c = c.slice(3);
+            return c.startsWith('0') ? c : '0' + c;
+          };
+          const normJoin = normPin(data.phone || '');
+          for (const pin of pinnedSeatsFromTemplate) {
+            const seatNum = Number(pin.seatNumber);
+            if (!seatNum || seatNum < 1 || seatNum > state.config.maxPlayers) continue;
+            // المقعد مشغول فعلاً بلاعب حقيقي؟ تخطّاه
+            if (enrichedPlayers.some((p: any) => p.physicalId === seatNum)) continue;
+            // المثبّت هو اللاعب الداخل نفسه؟ سيأخذ مقعده عبر المسار المباشر — لا تحجزه افتراضياً
+            const pinPhone = normPin(pin.phone || '');
+            const isJoiner =
+              (pin.playerId && data.playerId && Number(pin.playerId) === Number(data.playerId)) ||
+              (pinPhone && normJoin && pinPhone === normJoin) ||
+              (pin.playerName && data.name && String(pin.playerName).trim().toLowerCase() === data.name.trim().toLowerCase());
+            if (isJoiner) continue;
+
+            const v: any = {
+              physicalId: seatNum,
+              phone: pin.phone || '',
+              gender: 'MALE',
+              seatHeld: false,
+              playerId: pin.playerId || null,
+              name: pin.playerName || `محجوز #${seatNum}`,
+              totalMatches: 0, activityCount: 0, rankRR: 0, rankTier: 'INFORMANT',
+              genderConstraint: 'NONE',
+              _virtualPinned: true,
+            };
+            if (db && (pin.playerId || pin.phone)) {
+              try {
+                const { players: playersTable } = await import('../schemas/player.schema.js');
+                const cond = pin.playerId
+                  ? eq(playersTable.id, Number(pin.playerId))
+                  : eq(playersTable.phone, pin.phone);
+                const [dbp] = await db.select({
+                  id: playersTable.id,
+                  gender: playersTable.gender,
+                  rankRR: playersTable.rankRR,
+                  rankTier: playersTable.rankTier,
+                  genderConstraint: playersTable.genderConstraint,
+                  lifetimeMatches: playersTable.lifetimeMatches,
+                }).from(playersTable).where(cond).limit(1);
+                if (dbp) {
+                  v.playerId = dbp.id;
+                  v.gender = dbp.gender || 'MALE';
+                  v.rankRR = dbp.rankRR || 0;
+                  v.rankTier = dbp.rankTier || 'INFORMANT';
+                  v.genderConstraint = dbp.genderConstraint || 'NONE';
+                  v.totalMatches = dbp.lifetimeMatches || 0;
+                }
+              } catch {}
+            }
+            enrichedPlayers.push(v);
+            console.log(`📌 Virtual pinned occupant: ${v.name} @ seat #${seatNum} (constraints will respect it)`);
+          }
+        }
+
+        // جلب تاريخ جيران المعاقبين — يقتصر على آخر 3 مباريات للّاعب الداخل (عبر كل الجلسات).
+        // الفكرة: إن عوقب اللاعب وكان X بجانبه ضمن آخر 3 مباريات، يُمنع جلوسه بجانب X الآن.
         penaltyNeighborHistory = new Map();
-        if (db && state.sessionId) {
+        if (db && data.playerId) {
           try {
             const rows = await db.execute(sql`
+              WITH last3 AS (
+                SELECT m.id
+                FROM matches m
+                JOIN match_players mp ON mp.match_id = m.id
+                WHERE mp.player_id = ${data.playerId}
+                ORDER BY m.created_at DESC
+                LIMIT 3
+              )
               SELECT player_a_id, player_b_id, COUNT(*) as cnt
               FROM penalty_neighbor_history
-              WHERE session_id = ${state.sessionId}
+              WHERE match_id IN (SELECT id FROM last3)
+                AND (player_a_id = ${data.playerId} OR player_b_id = ${data.playerId})
               GROUP BY player_a_id, player_b_id
             `);
             for (const row of (rows as any).rows || rows || []) {
@@ -1001,7 +1090,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               const bId = Math.max(Number(row.player_a_id), Number(row.player_b_id));
               penaltyNeighborHistory.set(`${aId}-${bId}`, Number(row.cnt));
             }
-          } catch {}
+          } catch (e: any) {
+            console.warn('⚠️ Failed to load penalty-neighbor history (last 3 matches):', e.message);
+          }
         }
 
         // جلب بيانات اللاعب الجديد
@@ -1021,7 +1112,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           try {
             const { players: playersTable } = await import('../schemas/player.schema.js');
             const [dbPlayer] = await db.select({
-              totalMatches: playersTable.totalMatches,
+              totalMatches: playersTable.lifetimeMatches,  // 🏆 مدى الحياة (متّسق مع اللاعبين الجالسين) — لكشف الجديد
               rankRR: playersTable.rankRR,
               rankTier: playersTable.rankTier,
               genderConstraint: playersTable.genderConstraint,
@@ -2496,6 +2587,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       state.round = 1;
       const matchId = await createMatch(state);
       if (matchId) state.matchId = matchId;
+      else console.warn(`⚠️ createMatch returned null — penalty-neighbor tracking unavailable for room ${state.roomId} (match_id will be NULL)`);
 
       // ── تشغيل مؤقت اللعبة (إن كان مفعّلاً) ──
       if (state.config.gameTimerEnabled && state.config.gameTimerMinutes > 0) {
