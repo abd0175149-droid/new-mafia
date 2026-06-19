@@ -13,7 +13,7 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
-import { initTwinState } from '../game/twin-engine.js';
+import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
@@ -1372,6 +1372,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
       }
 
+      // 👥 تعارف الأخوين (إعادة التسليم عند rejoin)
+      const siblingData = shouldShowRole ? getSiblingInfoFor(state, player.physicalId) : null;
+
       // بيانات التصويت للاستعادة الفورية عند rejoin
       const votingData = state.phase === Phase.DAY_VOTING && state.votingState?.candidates?.length > 0 ? {
         candidates: state.votingState.candidates,
@@ -1408,6 +1411,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           penalties: player.penalties || 0,
         },
         mafiaTeam: mafiaTeamData || [],
+        sibling: siblingData,
         assassinContracts: assassinContractsData,
         phase: state.phase,
         gameName: state.config?.gameName || '',
@@ -2401,6 +2405,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                 .filter((m: any) => m.physicalId !== player.physicalId)
                 .map((m: any) => ({ physicalId: m.physicalId, name: m.name, role: m.role, avatarUrl: m.avatarUrl || null }));
             }
+            // 👥 تعارف الأخوين — قناة خاصة منفصلة عن فريق المافيا
+            // (الأخ الأصغر مواطن يبقى مخفياً عن باقي المافيا؛ كلٌّ يرى أخاه فقط)
+            const sibling = getSiblingInfoFor(state, player.physicalId);
+            if (sibling) roleData.sibling = sibling;
             s.emit('player:role-assigned', roleData);
           }
         }
@@ -2433,6 +2441,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         response.mafiaTeam = state.players
           .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== player.physicalId)
           .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }));
+      }
+      // 👥 تعارف الأخوين (إعادة التسليم عند الاستعلام) — null لغير الأخوين (نفس بقية المسارات)
+      if (player?.role && (state.rolesConfirmed || false)) {
+        response.sibling = getSiblingInfoFor(state, data.physicalId);
       }
       callback(response);
     } catch {
@@ -2520,6 +2532,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           completedCount: state.assassinState.completedCount,
           totalRequired: state.assassinState.totalRequired,
         } : null,
+        // 👥 تعارف الأخوين (إعادة التسليم عند جلب الحالة الكاملة)
+        sibling: shouldShowRole ? getSiblingInfoFor(state, player.physicalId) : null,
         // نتيجة اللعبة
         winner: state.phase === 'GAME_OVER' ? state.winner || null : null,
         // معلومات قائمة اللاعبين للمفكرة وغيرها

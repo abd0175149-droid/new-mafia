@@ -13,7 +13,7 @@ import {
   type InteractionRuleDef,
 } from './definition-service.js';
 import { isNeutralRole, Role } from './roles.js';
-import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
+import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 
 // ── أنواع ────────────────────────────────────────────
@@ -402,16 +402,8 @@ export async function resolveNightDynamic(
 
   // ═══ 👥 معالجة ارتباط التوأمين (قبل الإرجاع) ═══
   if (state.twinState) {
-    const nightDeaths = events
-      .filter(e => ['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(e.type))
-      .map(e => e.targetPhysicalId);
-
-    // القناص يموت أيضاً عند قنص مواطن
-    const sniperDeathEvent = events.find(e => e.type === 'SNIPE_CITIZEN');
-    if (sniperDeathEvent) {
-      const sniper = state.players.find(p => p.role === 'SNIPER' || p.role === Role.SNIPER);
-      if (sniper) nightDeaths.push(sniper.physicalId);
-    }
+    // كشف موت الأخوين بالحالة الفعلية (isAlive) لا بنوع الحدث — مستقل عن effect_on_success
+    const nightDeaths = detectTwinDeaths(state);
 
     for (const deadId of nightDeaths) {
       const twinResult = processTwinBond(state, deadId, 'NIGHT_DYNAMIC');

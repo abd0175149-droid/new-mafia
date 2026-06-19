@@ -159,6 +159,24 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     }
   };
 
+  // 👥 الأخ (تعارف الأخوين — قناة خاصة منفصلة عن فريق المافيا)
+  const [sibling, setSiblingRaw] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null; isAlive: boolean; recipientIsMafia: boolean} | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = localStorage.getItem('mafia_sibling');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+
+  const setSibling = (s: {physicalId: number; name: string; role: string; avatarUrl?: string | null; isAlive: boolean; recipientIsMafia: boolean} | null) => {
+    setSiblingRaw(s);
+    if (s) {
+      localStorage.setItem('mafia_sibling', JSON.stringify(s));
+    } else {
+      localStorage.removeItem('mafia_sibling');
+    }
+  };
+
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [assassinContracts, setAssassinContracts] = useState<any>(null);
   const [switchConfirm, setSwitchConfirm] = useState<{
@@ -345,6 +363,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           }
           if (res.mafiaTeam !== undefined) {
             setMafiaTeam(res.mafiaTeam);
+          }
+          if (res.sibling !== undefined) {
+            setSibling(res.sibling); // 👥 الأخ
           }
           if (res.assassinContracts) {
             setAssassinContracts(res.assassinContracts);
@@ -534,6 +555,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       localStorage.removeItem('mafia_playerVotes');
       localStorage.removeItem('mafia_lastVoteTime');
       localStorage.removeItem('mafia_mafiaTeam');
+      localStorage.removeItem('mafia_sibling');
 
       if (data?.reason) {
         setIsExpelled(true);
@@ -702,12 +724,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
     // استقبال الدور من الليدر (عند تأكيد الأدوار)
-    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[] }) => {
+    const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[]; sibling?: any }) => {
       setAssignedRole(data.role);
       setCardFlipped(false);
       setRoleAlert(true);
       setIsPlayerDead(false); // ← reset: لعبة جديدة = حي
       if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
+      setSibling(data.sibling || null); // 👥 الأخ (null لغير الأخوين)
       if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
@@ -975,7 +998,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       
       // مسح أدوار المافيا + الملاحظات عند بدء جولة جديدة لتجنب تسريبها
       if (data.phase === 'LOBBY' || data.phase === 'ROLE_GENERATION' || data.phase === 'ROLE_BINDING') {
-        setMafiaTeam([]);
+        setMafiaTeam([]); setSibling(null);
         setAssignedRole(null);
         // مسح الملاحظات تلقائياً عند بدء لعبة جديدة أو العودة للغرفة
         if (roomId && physicalId) {
@@ -1032,7 +1055,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setPlayerVotes({});
       setTotalVotesCast(0);
       setLastVoteTime(null);
-      setMafiaTeam([]);
+      setMafiaTeam([]); setSibling(null);
       if (roomId && physicalId) {
         localStorage.removeItem(`mafia_notes_${roomId}_${physicalId}`);
         setNotepadNotes({});
@@ -1055,7 +1078,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setGamePhase(null);
       setAssignedRole(null);
       setIsPlayerDead(false);
-      setMafiaTeam([]);
+      setMafiaTeam([]); setSibling(null);
       setCardFlipped(false);
       setRoleAlert(false);
       setVotingCandidates([]);
@@ -1078,7 +1101,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setGamePhase(null);
       setAssignedRole(null);
       setIsPlayerDead(false);
-      setMafiaTeam([]);
+      setMafiaTeam([]); setSibling(null);
       setCardFlipped(false);
       setRoleAlert(false);
       setVotingCandidates([]);
@@ -1105,7 +1128,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setGamePhase(null);
       setAssignedRole(null);
       setIsPlayerDead(false);
-      setMafiaTeam([]);
+      setMafiaTeam([]); setSibling(null);
       setCardFlipped(false);
       setRoleAlert(false);
       setVotingCandidates([]);
@@ -1510,6 +1533,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           setPlayerId(pid);
           if (res.player.role) setAssignedRole(res.player.role);
           if (res.mafiaTeam !== undefined) setMafiaTeam(res.mafiaTeam);
+          if (res.sibling !== undefined) setSibling(res.sibling); // 👥 الأخ
           if (res.assassinContracts) setAssassinContracts(res.assassinContracts);
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
@@ -3248,6 +3272,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         isOpen={isGalleryOpen}
         onClose={() => setIsGalleryOpen(false)}
         team={mafiaTeam}
+        sibling={sibling}
         isAssassin={assignedRole === 'ASSASSIN'}
         assassinContracts={assassinContracts}
       />

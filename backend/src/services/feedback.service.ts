@@ -169,13 +169,16 @@ export async function getPendingSessions(playerId: number): Promise<PendingSessi
 export async function countBlockingPending(playerId: number): Promise<number> {
   const db = getDB();
   if (!db) return 0;
-  const cutoff = new Date(Date.now() - FEEDBACK_GRACE_MS);
+  const graceCutoff = new Date(Date.now() - FEEDBACK_GRACE_MS);
   const [r] = await db.select({ c: sql<number>`COUNT(*)::int` })
     .from(roomFeedback)
     .where(and(
       eq(roomFeedback.playerId, playerId),
       isNull(roomFeedback.submittedAt),
-      lte(roomFeedback.createdAt, cutoff),
+      // نفس الحد الأدنى المستخدم في getPendingSessions: لا نَحجب على استبيانات
+      // أقدم من التاريخ الفاصل (وإلا حُجب اللاعب على استبيان لا يظهر له في القائمة)
+      gte(roomFeedback.createdAt, FEEDBACK_CUTOFF),
+      lte(roomFeedback.createdAt, graceCutoff),
     ));
   return r?.c || 0;
 }

@@ -15,6 +15,15 @@ interface AssassinContract {
   completedAtRound?: number;
 }
 
+interface SiblingInfo {
+  physicalId: number;
+  name: string;
+  role: string;
+  avatarUrl?: string | null;
+  isAlive: boolean;
+  recipientIsMafia: boolean;
+}
+
 interface MafiaTeamGalleryProps {
   isOpen: boolean;
   onClose: () => void;
@@ -24,6 +33,8 @@ interface MafiaTeamGalleryProps {
     role: string;
     avatarUrl?: string | null;
   }[];
+  // 👥 الأخ (تعارف الأخوين — قناة خاصة)
+  sibling?: SiblingInfo | null;
   // 🔪 بيانات السفّاح
   isAssassin?: boolean;
   assassinContracts?: {
@@ -42,7 +53,7 @@ function getRoleName(role: string): string {
   return ROLE_NAMES[role as Role] || role;
 }
 
-export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, assassinContracts }: MafiaTeamGalleryProps) {
+export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAssassin, assassinContracts }: MafiaTeamGalleryProps) {
   React.useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -81,6 +92,51 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, isAssassin, as
             >
               <X size={24} />
             </button>
+
+            {/* ══ 👥 رابط الدم: تعارف الأخوين (قناة خاصة، تظهر لكلٍّ من الأخوين فقط) ══ */}
+            {sibling && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full mb-5 rounded-2xl border border-purple-500/40 bg-gradient-to-b from-[#1a0820] to-[#0d0212] p-4 shadow-[0_0_20px_rgba(124,58,237,0.25)]"
+              >
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <span className="text-lg">🩸</span>
+                  <h3 className="text-base font-bold text-purple-300 tracking-wide" style={{ fontFamily: 'Amiri, serif' }}>
+                    رابط الدم
+                  </h3>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    {sibling.avatarUrl ? (
+                      <img
+                        src={sibling.avatarUrl}
+                        alt={sibling.name}
+                        className={`w-16 h-16 rounded-full object-cover border-2 border-purple-500/60 ${!sibling.isAlive ? 'grayscale opacity-60' : ''}`}
+                      />
+                    ) : (
+                      <div className={`w-16 h-16 rounded-full bg-[#0d0212] border-2 border-purple-500/60 flex items-center justify-center text-2xl ${!sibling.isAlive ? 'grayscale opacity-60' : ''}`}>
+                        {getRoleIcon(sibling.role)}
+                      </div>
+                    )}
+                    <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-purple-600 flex items-center justify-center shadow-lg">
+                      <span className="text-white text-[10px] font-black font-mono">{sibling.physicalId}</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 text-right" dir="rtl">
+                    <p className="text-white text-sm font-bold truncate">{sibling.name}</p>
+                    <span className="inline-block text-purple-300 text-[11px] font-mono mt-0.5 px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30">
+                      {getRoleName(sibling.role)}{!sibling.isAlive ? ' (متوفّى)' : ''}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-purple-200/70 text-[11px] leading-relaxed mt-3 text-center" dir="rtl">
+                  {sibling.recipientIsMafia
+                    ? 'هذا أخوك الأصغر (مواطن) — لا يعرفه باقي المافيا. إن قُتل، تنتحر حزناً عليه.'
+                    : 'هذا أخوك الأكبر (من المافيا) — يربطكما رابط الدم. إن قُتل، تنهض وتنضمّ إلى المافيا.'}
+                </p>
+              </motion.div>
+            )}
 
             {/* ══ عرض السفّاح: المهام ══ */}
             {isAssassin && assassinContracts ? (

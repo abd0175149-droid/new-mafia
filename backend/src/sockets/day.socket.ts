@@ -1169,6 +1169,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
                 const suicideEvent = applySuicide(state, twinResult);
                 if (suicideEvent) {
                   checkPolicewomanTrigger(state, twinResult.suicidePhysicalId!);
+                  // إضافة الأخ الأكبر المنتحر لقائمة المُقصين كي يظهر في ملخص الإقصاء
+                  // (مطابق لمسار التصويت العادي في vote-engine.ts)
+                  eliminated.push(twinResult.suicidePhysicalId!);
+                  revealedRoles.push({ physicalId: twinResult.suicidePhysicalId!, role: 'OLDER_BROTHER' });
                   io.to(data.roomId).emit('display:morning-event', {
                     type: 'TWIN_SUICIDE',
                     targetPhysicalId: twinResult.suicidePhysicalId,

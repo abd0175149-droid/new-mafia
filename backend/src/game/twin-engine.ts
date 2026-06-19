@@ -119,6 +119,78 @@ export function processTwinBond(
 }
 
 // ══════════════════════════════════════════════════════
+// 🩸 كشف موت الأخوين بناءً على الحالة الفعلية (isAlive)
+// أكثر متانة من فلترة أنواع الأحداث: يُمسك أي مسار قتل (اغتيال/قنص/سفّاح/أي قدرة)
+// ولا يتأثر بقيمة effect_on_success في قاعدة البيانات.
+// يُعيد أرقام الأخوين الذين ماتوا فعلياً هذه الجولة (الأصغر أولاً ثم الأكبر).
+// ══════════════════════════════════════════════════════
+
+export function detectTwinDeaths(state: GameState): number[] {
+  if (!state.twinState) return [];
+  const twin = state.twinState;
+  if (twin.suicideTriggered || twin.transformed) return [];
+
+  const deaths: number[] = [];
+  const younger = state.players.find(p => p.physicalId === twin.youngerBrotherPhysicalId);
+  const older = state.players.find(p => p.physicalId === twin.olderBrotherPhysicalId);
+
+  // الأصغر أولاً (سيناريو الانتحار)، ثم الأكبر (سيناريو التحول)
+  if (younger && younger.isAlive === false && twin.youngerAlive) deaths.push(twin.youngerBrotherPhysicalId);
+  if (older && older.isAlive === false && twin.olderAlive) deaths.push(twin.olderBrotherPhysicalId);
+
+  return deaths;
+}
+
+// ══════════════════════════════════════════════════════
+// 👥 معلومات الأخ — للتعارف الخاص بين الأخوين فقط
+// منفصل تماماً عن "فريق المافيا": الأخ الأصغر (مواطن) يبقى مخفياً عن باقي المافيا،
+// وكلٌّ من الأخوين يرى الآخر فقط بصياغة مناسبة لفريقه.
+// يعمل وقت تأكيد الأدوار (قبل تهيئة twinState) بالاعتماد على الأدوار الحالية،
+// ويستخدم twinState عند توفّره (لحلّ الزوج حتى بعد التحوّل).
+// ══════════════════════════════════════════════════════
+
+export interface SiblingInfo {
+  physicalId: number;
+  name: string;
+  role: string;
+  avatarUrl: string | null;
+  isAlive: boolean;
+  recipientIsMafia: boolean;   // فريق المستلِم — لاختيار الصياغة المناسبة
+}
+
+export function getSiblingInfoFor(state: GameState, physicalId: number): SiblingInfo | null {
+  let olderId: number | undefined;
+  let youngerId: number | undefined;
+
+  if (state.twinState) {
+    olderId = state.twinState.olderBrotherPhysicalId;
+    youngerId = state.twinState.youngerBrotherPhysicalId;
+  } else {
+    olderId = state.players.find(p => p.role === Role.OLDER_BROTHER)?.physicalId;
+    youngerId = state.players.find(p => p.role === Role.YOUNGER_BROTHER)?.physicalId;
+  }
+  if (olderId == null || youngerId == null) return null;
+  if (physicalId !== olderId && physicalId !== youngerId) return null;
+
+  // الأخ المُقابل للمستلِم
+  const sibId = physicalId === olderId ? youngerId : olderId;
+  const sib = state.players.find(p => p.physicalId === sibId);
+  if (!sib) return null;
+
+  // الأخ الأكبر دائماً مافيا والأصغر دائماً مواطن → فريق المستلِم يُشتق من هويّته
+  const recipientIsMafia = physicalId === olderId;
+
+  return {
+    physicalId: sib.physicalId,
+    name: sib.name,
+    role: (sib.role as string) || 'UNKNOWN',
+    avatarUrl: (sib as any).avatarUrl || null,
+    isAlive: sib.isAlive !== false,
+    recipientIsMafia,
+  };
+}
+
+// ══════════════════════════════════════════════════════
 // 🔄 خوارزمية وراثة الدور عند التحول
 // يبحث في أموات المافيا ويمنح أول دور ميت حسب الأولوية
 // ══════════════════════════════════════════════════════

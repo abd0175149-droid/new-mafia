@@ -13,7 +13,7 @@ import { getGameState, setGameState } from '../config/redis.js';
 import { Role, isMafiaRole, isNeutralRole } from './roles.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
-import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
+import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
 
 export interface NightResolution {
   events: MorningEvent[];
@@ -333,17 +333,8 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
 
   // ═══ 👥 معالجة ارتباط التوأمين (قبل فحص الفوز) ═══
   if (state.twinState) {
-    // جمع كل اللاعبين الذين ماتوا هذه الليلة
-    const nightDeaths = events
-      .filter(e => ['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(e.type))
-      .map(e => e.targetPhysicalId);
-
-    // القناص يموت أيضاً عند قنص مواطن
-    const sniperDeathEvent = events.find(e => e.type === 'SNIPE_CITIZEN');
-    if (sniperDeathEvent) {
-      const sniper = state.players.find(p => p.role === Role.SNIPER);
-      if (sniper) nightDeaths.push(sniper.physicalId);
-    }
+    // كشف موت الأخوين بالحالة الفعلية (isAlive) لا بنوع الحدث — يُمسك كل مسارات القتل
+    const nightDeaths = detectTwinDeaths(state);
 
     for (const deadId of nightDeaths) {
       const twinResult = processTwinBond(state, deadId, 'NIGHT');
