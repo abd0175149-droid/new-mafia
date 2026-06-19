@@ -5,7 +5,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, and, gte, lte, sql, desc, isNotNull, ne, type SQL } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, managerOrAbove } from '../middleware/auth.js';
 import { roomFeedback } from '../schemas/feedback.schema.js';
 import { activities, locations, staff } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -21,9 +21,10 @@ function buildFilters(req: Request): SQL[] {
   const { from, to, locationId, leaderId, activityId } = req.query as Record<string, string>;
   if (from) conds.push(gte(roomFeedback.playedAt, new Date(from)));
   if (to) conds.push(lte(roomFeedback.playedAt, new Date(to)));
-  if (locationId) conds.push(eq(roomFeedback.locationId, parseInt(locationId)));
-  if (leaderId) conds.push(eq(roomFeedback.leaderStaffId, parseInt(leaderId)));
-  if (activityId) conds.push(eq(roomFeedback.activityId, parseInt(activityId)));
+  const loc = parseInt(locationId), led = parseInt(leaderId), act = parseInt(activityId);
+  if (Number.isFinite(loc)) conds.push(eq(roomFeedback.locationId, loc));
+  if (Number.isFinite(led)) conds.push(eq(roomFeedback.leaderStaffId, led));
+  if (Number.isFinite(act)) conds.push(eq(roomFeedback.activityId, act));
   return conds;
 }
 
@@ -43,7 +44,7 @@ const avgExpr = {
 };
 
 // ── GET /summary — كل ما تحتاجه اللوحة في طلب واحد ──
-router.get('/summary', authenticate, async (req: Request, res: Response) => {
+router.get('/summary', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   const conds = buildFilters(req);
@@ -143,6 +144,27 @@ router.get('/summary', authenticate, async (req: Request, res: Response) => {
       .orderBy(desc(roomFeedback.createdAt))
       .limit(100);
 
+    // قائمة كل من عبّأ الاستبيان (بالاسم) ضمن الفلتر الحالي — للعرض في اللوحة
+    const respondents = await db.select({
+      playerId: roomFeedback.playerId,
+      playerName: players.name,
+      overall: roomFeedback.overall,
+      recommend: roomFeedback.recommend,
+      playedAt: roomFeedback.playedAt,
+      submittedAt: roomFeedback.submittedAt,
+      activityName: activities.name,
+      locationName: locations.name,
+      leaderName: staff.displayName,
+      notes: roomFeedback.notes,
+    }).from(roomFeedback)
+      .leftJoin(players, eq(players.id, roomFeedback.playerId))
+      .leftJoin(activities, eq(activities.id, roomFeedback.activityId))
+      .leftJoin(locations, eq(locations.id, roomFeedback.locationId))
+      .leftJoin(staff, eq(staff.id, roomFeedback.leaderStaffId))
+      .where(where)
+      .orderBy(desc(roomFeedback.submittedAt))
+      .limit(500);
+
     res.json({
       success: true,
       questions: FEEDBACK_QUESTIONS,
@@ -160,9 +182,32 @@ router.get('/summary', authenticate, async (req: Request, res: Response) => {
       byActivity,
       trend,
       comments,
+      respondents,
     });
   } catch (err: any) {
     console.error('❌ feedback summary:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /activities — قائمة الفعاليات التي لها تقييمات مُعبّأة (لقائمة الاختيار) ──
+router.get('/activities', authenticate, managerOrAbove, async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const rows = await db.select({
+      activityId: roomFeedback.activityId,
+      name: activities.name,
+      date: activities.date,
+      count: sql<number>`COUNT(*)::int`,
+    }).from(roomFeedback)
+      .leftJoin(activities, eq(activities.id, roomFeedback.activityId))
+      .where(and(isNotNull(roomFeedback.submittedAt), isNotNull(roomFeedback.activityId)))
+      .groupBy(roomFeedback.activityId, activities.name, activities.date)
+      .orderBy(desc(activities.date));
+    res.json({ success: true, activities: rows });
+  } catch (err: any) {
+    console.error('❌ feedback activities:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

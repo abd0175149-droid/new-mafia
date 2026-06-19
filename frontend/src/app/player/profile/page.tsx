@@ -221,7 +221,11 @@ export default function PlayerProfilePage(){
   }, [guideOpen, rolesModalOpen]);
 
   const getAuthHeaders=useCallback(():Record<string,string>=>{
-    const token=localStorage.getItem('mafia_player_token');
+    let token=localStorage.getItem('mafia_player_token');
+    if(!token){
+      // احتياط: التوكن قد يكون مخزّناً ضمن جلسة الـ context الجديدة (mafia_player_auth)
+      try{token=JSON.parse(localStorage.getItem('mafia_player_auth')||'{}')?.token||null;}catch{}
+    }
     return token?{'Authorization':`Bearer ${token}`}:{};
   },[]);
 
@@ -232,7 +236,7 @@ export default function PlayerProfilePage(){
     let playerId: string | null = null;
     const newAuth = localStorage.getItem('mafia_player_auth');
     if (newAuth) {
-      try { playerId = String(JSON.parse(newAuth).playerId); } catch {}
+      try { const pid = JSON.parse(newAuth)?.playerId; if (pid != null) playerId = String(pid); } catch {}
     }
     if (!playerId) playerId = localStorage.getItem('mafia_playerId');
     if(!playerId){setError('لم يتم العثور على حساب');setLoading(false);return;}

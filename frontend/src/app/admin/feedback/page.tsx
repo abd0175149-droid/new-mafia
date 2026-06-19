@@ -27,6 +27,8 @@ export default function AdminFeedbackPage() {
   const [loading, setLoading] = useState(true);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [activityId, setActivityId] = useState('');
+  const [activities, setActivities] = useState<any[]>([]);
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   const load = useCallback(async () => {
@@ -36,13 +38,43 @@ export default function AdminFeedbackPage() {
       const qs = new URLSearchParams();
       if (from) qs.set('from', from);
       if (to) qs.set('to', to);
+      if (activityId) qs.set('activityId', activityId);
       const res = await fetch(`/api/feedback/summary?${qs.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await res.json();
       if (d.success) setData(d);
     } catch {} finally { setLoading(false); }
-  }, [token, from, to]);
+  }, [token, from, to, activityId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // قائمة الفعاليات التي لها تقييمات مُعبّأة (لقائمة الاختيار) — تُجلب مرة واحدة
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/feedback/activities', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (d.success) setActivities(d.activities || []); })
+      .catch(() => {});
+  }, [token]);
+
+  const selectedActivityName = useMemo(
+    () => activities.find((a: any) => String(a.activityId) === activityId)?.name || '',
+    [activities, activityId],
+  );
+
+  // أسماء الأشخاص الذين عبّأوا — مُزال منها التكرار حسب اللاعب (أحدث تقييم لكل شخص)
+  // respondents مُرتّبة تنازلياً حسب submittedAt، فأول ظهور لكل لاعب هو الأحدث.
+  const respondentsByPerson = useMemo(() => {
+    const seen = new Set<number>();
+    const out: any[] = [];
+    for (const r of (data?.respondents || [])) {
+      if (r.playerId != null) {
+        if (seen.has(r.playerId)) continue;
+        seen.add(r.playerId);
+      }
+      out.push(r);
+    }
+    return out;
+  }, [data]);
 
   // خريطة المفتاح → التسمية العربية القصيرة
   const dimLabel = useMemo(() => {
@@ -60,11 +92,27 @@ export default function AdminFeedbackPage() {
     <div dir="rtl" style={{ maxWidth: 1000, margin: '0 auto', color: '#fff' }}>
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>📋 تقييمات اللاعبين</h1>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 4 }}>تحليل رضى اللاعبين بعد كل غرفة (مقياس 1–5)</p>
+        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 4 }}>
+          {activityId
+            ? <>تقييمات فعالية: <span style={{ color: '#f59e0b', fontWeight: 700 }}>{selectedActivityName || `#${activityId}`}</span></>
+            : 'العرض العام لكل الفعاليات — رضى اللاعبين بعد كل غرفة (مقياس 1–5)'}
+        </p>
       </div>
 
-      {/* فلاتر التاريخ */}
+      {/* الفلاتر: الفعالية + التاريخ */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 220 }}>
+          <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', display: 'block', marginBottom: 4 }}>الفعالية</label>
+          <select value={activityId} onChange={e => setActivityId(e.target.value)}
+            style={{ width: '100%', padding: '9px 12px', background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#fff', cursor: 'pointer' }}>
+            <option value="">كل الفعاليات</option>
+            {activities.map((a: any) => (
+              <option key={a.activityId} value={a.activityId}>
+                {(a.name || `نشاط #${a.activityId}`)} ({a.count})
+              </option>
+            ))}
+          </select>
+        </div>
         <div>
           <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', display: 'block', marginBottom: 4 }}>من</label>
           <input type="date" value={from} onChange={e => setFrom(e.target.value)}
@@ -174,6 +222,34 @@ export default function AdminFeedbackPage() {
             {(data.byActivity || []).map((a: any, i: number) => (
               <Row key={i} name={a.name || 'غير محدد'} count={a.count} value={a.avgOverall} />
             ))}
+          </div>
+
+          {/* من قام بتعبئة الاستبيان (الأسماء) */}
+          <div style={{ ...card, marginBottom: 14 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
+              👥 من قام بتعبئة الاستبيان ({respondentsByPerson.length})
+              {activityId && selectedActivityName ? <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 400, fontSize: 12 }}> — {selectedActivityName}</span> : null}
+            </h3>
+            {respondentsByPerson.length === 0 ? (
+              <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, padding: 12 }}>لا أحد بعد</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 8 }}>
+                {respondentsByPerson.map((r: any, i: number) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: '8px 10px' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {r.notes ? '📝 ' : ''}{r.playerName || 'لاعب'}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {!activityId && r.activityName ? `${r.activityName} · ` : ''}
+                        {r.playedAt ? new Date(r.playedAt).toLocaleDateString('ar-JO', { day: 'numeric', month: 'short' }) : ''}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: ratingColor(r.overall), flexShrink: 0 }}>{r.overall ?? '—'}/5</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* الملاحظات */}

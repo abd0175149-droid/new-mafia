@@ -3,6 +3,13 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { reconnectSocketAuth } from '@/lib/socket';
 
+// مسح كل مفاتيح جلسة اللاعب (المُهيكلة + المسطّحة) معاً — مصدر واحد لإبقائها متزامنة
+function clearPlayerStorage() {
+  localStorage.removeItem('mafia_player_auth');
+  localStorage.removeItem('mafia_player_token');
+  localStorage.removeItem('mafia_playerId');
+}
+
 // ── سياق اللاعب ──
 interface PlayerData {
   playerId: number;
@@ -64,6 +71,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 token: parsed.token,
               });
 
+              // توافق: مزامنة المفاتيح المسطّحة التي تقرأها صفحات أخرى (السجل، الهوم، السوكِت)
+              localStorage.setItem('mafia_player_token', parsed.token);
+              localStorage.setItem('mafia_playerId', String(data.player.id));
+
               // ── تخزين بيانات الموظف المرتبط (Auto-login) ──
               if (data.staffInfo && data.staffToken) {
                 setStaffInfo(data.staffInfo);
@@ -82,13 +93,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 try { reconnectSocketAuth(); } catch {}
               }
             } else {
-              localStorage.removeItem('mafia_player_auth');
+              clearPlayerStorage();
             }
           })
-          .catch(() => localStorage.removeItem('mafia_player_auth'))
+          .catch(() => clearPlayerStorage())
           .finally(() => setIsLoading(false));
       } catch {
-        localStorage.removeItem('mafia_player_auth');
+        clearPlayerStorage();
         setIsLoading(false);
       }
     } else {
@@ -100,15 +111,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPlayerState(p);
     if (p) {
       localStorage.setItem('mafia_player_auth', JSON.stringify(p));
+      // توافق: صفحات أخرى تقرأ المفاتيح المسطّحة (mafia_player_token / mafia_playerId)
+      localStorage.setItem('mafia_player_token', p.token);
+      localStorage.setItem('mafia_playerId', String(p.playerId));
     } else {
-      localStorage.removeItem('mafia_player_auth');
+      clearPlayerStorage();
     }
   };
 
   const logout = () => {
     setPlayerState(null);
     setStaffInfo(null);
-    localStorage.removeItem('mafia_player_auth');
+    clearPlayerStorage();
     // لا نمسح staff tokens هنا — المستخدم قد يريد البقاء مسجلاً في الداشبورد
   };
 
