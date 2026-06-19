@@ -4,6 +4,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import Image from 'next/image';
+import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
+
+// تسمية دور اللاعب بالعربية + لون الفريق (للعرض في لوحة العقوبات)
+function roleLabel(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
+  if (!role) return null;
+  const text = (ROLE_NAMES as Record<string, string>)[role] || role;
+  const icon = (ROLE_ICONS as Record<string, string>)[role] || '🎭';
+  const mafia = (MAFIA_ROLES as string[]).includes(role as Role);
+  return { text, icon, mafia };
+}
 
 interface LeaderDayViewProps {
   gameState: any;
@@ -300,6 +310,17 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                             {player.name}
                             {isDead && <span className="text-[8px] bg-red-500/15 text-red-400/70 px-1.5 py-0.5 rounded font-mono">مُقصى</span>}
                           </p>
+                          {/* دور اللاعب */}
+                          {(() => {
+                            const rl = roleLabel(player.role);
+                            return rl ? (
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold mt-0.5 px-1.5 py-0.5 rounded ${rl.mafia ? 'bg-[#8A0303]/20 text-red-400' : 'bg-cyan-500/10 text-cyan-300'}`}>
+                                {rl.icon} {rl.text}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-gray-600 font-mono mt-0.5 block">بلا دور بعد</span>
+                            );
+                          })()}
                           {/* Penalty Dots */}
                           <div className="flex gap-1 mt-1.5">
                             {Array.from({ length: gameState.config.maxPenalties || 3 }).map((_, idx) => (
