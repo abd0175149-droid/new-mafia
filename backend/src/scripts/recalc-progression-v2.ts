@@ -11,11 +11,12 @@
 //   tsx src/scripts/recalc-progression-v2.ts --apply    → يطبّق التغييرات فعلياً
 // ══════════════════════════════════════════════════════
 
-import { eq, asc, sql } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { connectDB, getDB } from '../config/db.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
+import { playerSeasonStats } from '../schemas/season.schema.js';
 import {
   computeMatchReward, xpForNextLevel, RANK_TIERS, RANK_RR_REQUIRED,
   applyProgressionConfig, DEMOTION_RETURN_PERCENT,
@@ -193,16 +194,63 @@ async function main() {
     process.exit(0);
   }
 
-  console.log('⚠️  Applying changes...');
-  // تصفير اللاعبين الذين لهم سجلات محسوبة فقط (لا نلمس من لا سجل له)
-  for (const acc of accs.values()) {
+  // هل الموسم المستهدف هو الموسم العادي النشط؟ (players.* تعكس الموسم العادي النشط فقط)
+  const { getActiveRegularSeasonId } = await import('../services/season.service.js');
+  const activeRegularId = await getActiveRegularSeasonId();
+  const isActiveRegular = targetSeasonId != null && targetSeasonId === activeRegularId;
+
+  console.log(`⚠️  Applying changes... (target season: ${targetSeasonId ?? 'ALL'}, active regular: ${activeRegularId ?? '-'}, isActiveRegular: ${isActiveRegular})`);
+
+  // ── (أ) players.* — تعكس الموسم العادي النشط فقط ──
+  // إن كان الهدف هو الموسم العادي النشط: نصفّر تقدّم الجميع ثم نعيد البناء من مباريات
+  // الموسم المستهدف فقط (lifetime_matches لا يُلمس). هكذا تعكس players.* الموسم الحالي بدقة.
+  if (isActiveRegular) {
     await db.update(players).set({
-      xp: acc.xp, level: acc.level, rankRR: acc.rr, rankTier: RANK_TIERS[acc.tierIdx],
-      totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
-      totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals,
-    } as any).where(eq(players.id, acc.playerId));
+      xp: 0, level: 1, rankTier: 'INFORMANT', rankRR: 0,
+      totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0,
+    } as any);
+    for (const acc of accs.values()) {
+      await db.update(players).set({
+        xp: acc.xp, level: acc.level, rankRR: acc.rr, rankTier: RANK_TIERS[acc.tierIdx],
+        totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
+        totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals,
+      } as any).where(eq(players.id, acc.playerId));
+    }
+    console.log(`✅ players.* rebuilt for active regular season — ${accs.size} players (others reset to 0).`);
+  } else if (targetSeasonId == null) {
+    // وضع "كل المواسم" (نادر): السلوك القديم — players.* فقط، بلا لمس player_season_stats
+    for (const acc of accs.values()) {
+      await db.update(players).set({
+        xp: acc.xp, level: acc.level, rankRR: acc.rr, rankTier: RANK_TIERS[acc.tierIdx],
+        totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
+        totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals,
+      } as any).where(eq(players.id, acc.playerId));
+    }
+    console.log(`✅ players.* updated (all-seasons mode) — ${accs.size} players. (player_season_stats not touched)`);
+  } else {
+    console.log(`ℹ️  Target season #${targetSeasonId} is NOT the active regular season → players.* left untouched.`);
   }
-  console.log(`✅ Applied to ${accs.size} players.`);
+
+  // ── (ب) player_season_stats — كاش لكل (لاعب، موسم) ──
+  // يُصلح لوحات المواسم السابقة + يضمن أن الموسم الحالي يبقى صحيحاً عند انتهائه.
+  // upsert عبر القيد الفريد (player_id, season_id).
+  if (targetSeasonId != null) {
+    for (const acc of accs.values()) {
+      await db.insert(playerSeasonStats)
+        .values({ playerId: acc.playerId, seasonId: targetSeasonId } as any)
+        .onConflictDoNothing();
+      await db.update(playerSeasonStats).set({
+        xp: acc.xp, level: acc.level, rankTier: RANK_TIERS[acc.tierIdx], rankRR: acc.rr,
+        totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
+        totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals, updatedAt: new Date(),
+      } as any).where(and(
+        eq(playerSeasonStats.playerId, acc.playerId),
+        eq(playerSeasonStats.seasonId, targetSeasonId),
+      ));
+    }
+    console.log(`✅ player_season_stats rebuilt for season #${targetSeasonId} — ${accs.size} players.`);
+  }
+
   process.exit(0);
 }
 
