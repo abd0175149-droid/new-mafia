@@ -55,6 +55,7 @@ export interface AllocateParams {
   // ── بيانات القالب ──
   pinnedSeats?: PinnedSeat[];
   reservedTailSeats?: number;
+  doorSeats?: number[];
 }
 
 // ── دالة الجوار الدائري (مربع) ──
@@ -84,10 +85,11 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
 
   // ═══ المحرك الذكي الجديد ═══
   // يُفعَّل إذا: engineEnabled = true أو توفرت بيانات إضافية أو وجود مقاعد مثبتة في التمبلت
-  const useNewEngine = constraints?.engineEnabled || 
+  const useNewEngine = constraints?.engineEnabled ||
     (constraints?.constraints && constraints.constraints.length > 0) ||
     params.penaltyNeighborHistory ||
-    (params.pinnedSeats && params.pinnedSeats.length > 0);
+    (params.pinnedSeats && params.pinnedSeats.length > 0) ||
+    (params.doorSeats && params.doorSeats.length > 0);
 
   if (useNewEngine) {
     // تحويل بيانات اللاعبين للصيغة الجديدة
@@ -136,6 +138,7 @@ export function allocateSeat(params: AllocateParams): { seat: number; constraint
       constraintParams: {},
       pinnedSeats: params.pinnedSeats || [],
       reservedTailSeats: params.reservedTailSeats ?? 0,
+      doorSeats: params.doorSeats || [],
     };
 
     const result = allocateSeatWithConstraints({

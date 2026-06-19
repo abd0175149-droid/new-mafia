@@ -71,6 +71,7 @@ router.post('/', authenticate, leaderOrAbove, async (req: Request, res: Response
     pinnedSeats,
     constraintsConfig,
     seatPositions,
+    layoutConfig,
     isDefault,
   } = req.body;
 
@@ -103,6 +104,7 @@ router.post('/', authenticate, leaderOrAbove, async (req: Request, res: Response
       pinnedSeats: pinnedSeats || [],
       constraintsConfig: constraintsConfig || [],
       seatPositions: seatPositions || null,
+      layoutConfig: layoutConfig || null,
       isDefault: isDefault || false,
       createdBy: staffId,
     }).returning();
@@ -129,6 +131,7 @@ router.put('/:id', authenticate, leaderOrAbove, async (req: Request, res: Respon
     pinnedSeats,
     constraintsConfig,
     seatPositions,
+    layoutConfig,
     isDefault,
   } = req.body;
 
@@ -151,6 +154,7 @@ router.put('/:id', authenticate, leaderOrAbove, async (req: Request, res: Respon
     if (pinnedSeats !== undefined) updateData.pinnedSeats = pinnedSeats;
     if (constraintsConfig !== undefined) updateData.constraintsConfig = constraintsConfig;
     if (seatPositions !== undefined) updateData.seatPositions = seatPositions;
+    if (layoutConfig !== undefined) updateData.layoutConfig = layoutConfig;
     if (isDefault !== undefined) updateData.isDefault = isDefault;
 
     const [updated] = await db.update(seatTemplates)

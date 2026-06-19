@@ -135,6 +135,21 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       ON blocked_pairs (LEAST(player1_id, player2_id), GREATEST(player1_id, player2_id))
     `);
 
+    // ── 4.5 🪑 عمود إعدادات التخطيط المستطيل (3D) في قوالب المقاعد ──
+    try {
+      const tblExists = await client.query(`SELECT to_regclass('public.seat_templates') AS t`);
+      if (tblExists.rows[0]?.t) {
+        const checkLayoutConfigCol = await client.query(`
+          SELECT column_name FROM information_schema.columns
+          WHERE table_name = 'seat_templates' AND column_name = 'layout_config'
+        `);
+        if (checkLayoutConfigCol.rows.length === 0) {
+          await client.query(`ALTER TABLE seat_templates ADD COLUMN layout_config JSONB DEFAULT NULL`);
+          console.log('🔄 Migration: Added layout_config column to seat_templates table');
+        }
+      }
+    } catch (e: any) { console.warn('⚠️ layout_config migration skipped:', e.message); }
+
     // ── 5. 🏆 نظام المواسم: الجداول + الأعمدة + باك-فيل Season 1 ──
     await client.query(`
       CREATE TABLE IF NOT EXISTS seasons (

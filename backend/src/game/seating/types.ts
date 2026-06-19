@@ -44,6 +44,8 @@ export interface EvaluationContext {
   pinnedSeats?: PinnedSeat[];
   // ── عدد المقاعد المؤخرة (لا تُملأ إلا عند الحاجة) ──
   reservedTailSeats?: number;
+  // ── أرقام المقاعد المجاورة للأبواب (من القالب) — لتجنّبها في التوزيع ──
+  doorSeats?: number[];
 }
 
 // ── واجهة القيد (Strategy Pattern) ─────────────────

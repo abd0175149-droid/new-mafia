@@ -902,6 +902,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // ── تحميل بيانات القالب (إذا الفعالية مرتبطة بقالب) ──
       let pinnedSeatsFromTemplate: any[] = [];
       let reservedTailFromTemplate = 0;
+      let doorSeatsFromTemplate: number[] = [];
+      let doorsFromTemplate: any[] = [];
       let hasTemplate = false;
 
       if (activityId && db) {
@@ -913,14 +915,24 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           if (actRow?.seat_template_id) {
             hasTemplate = true;
             const [tplRow] = await db.execute(sql`
-              SELECT pinned_seats, reserved_tail_count, total_seats FROM seat_templates
+              SELECT pinned_seats, reserved_tail_count, total_seats, layout_config FROM seat_templates
               WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
             `).then((r: any) => (r.rows || r || []));
             if (tplRow) {
               pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
               reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
               templateTotalSeats = Number(tplRow.total_seats || 0);
-              console.log(`🎯 Loaded seat template ID #${actRow.seat_template_id} for room ${state.roomId}: ${pinnedSeatsFromTemplate.length} pinned, totalSeats=${templateTotalSeats}`);
+              // إعدادات التخطيط المستطيل: الأبواب + المقاعد المجاورة لها
+              const layout = typeof tplRow.layout_config === 'string'
+                ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null)
+                : tplRow.layout_config;
+              if (layout) {
+                doorsFromTemplate = Array.isArray(layout.doors) ? layout.doors : [];
+                doorSeatsFromTemplate = Array.isArray(layout.doorSeats)
+                  ? layout.doorSeats.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n))
+                  : [];
+              }
+              console.log(`🎯 Loaded seat template ID #${actRow.seat_template_id} for room ${state.roomId}: ${pinnedSeatsFromTemplate.length} pinned, totalSeats=${templateTotalSeats}, doorSeats=[${doorSeatsFromTemplate.join(',')}]`);
             } else {
               hasTemplate = false; // القالب محذوف — تجاهله
             }
@@ -937,9 +949,22 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             }
           }
 
-          // ── حفظ بيانات القالب على حالة الغرفة لعرض «المقاعد المحجوزة» في واجهة الليدر ──
+          // ── إدراج قيد «تجنّب الأبواب» تلقائياً عند وجود أبواب (مثل دمج blocked_pairs) ──
+          if (doorSeatsFromTemplate.length > 0) {
+            if (!constraints) constraints = { genderSeparation: false, noAdjacentPairs: [] } as any;
+            (constraints as any).engineEnabled = true;
+            if (!(constraints as any).constraints) (constraints as any).constraints = [];
+            const hasDoor = (constraints as any).constraints.some((c: any) => c.type === 'DOOR_PROXIMITY_AVOIDANCE');
+            if (!hasDoor) {
+              (constraints as any).constraints.push({ type: 'DOOR_PROXIMITY_AVOIDANCE', enabled: true, priority: 5, params: {} });
+            }
+          }
+
+          // ── حفظ بيانات القالب على حالة الغرفة لعرض «المقاعد المحجوزة/الأبواب» في واجهة الليدر ──
           (state as any).pinnedSeats = pinnedSeatsFromTemplate;
           (state as any).reservedTailSeats = reservedTailFromTemplate;
+          (state as any).doors = doorsFromTemplate;
+          (state as any).doorSeats = doorSeatsFromTemplate;
           await setGameState(state.roomId, state);
         } catch (e: any) {
           console.warn('⚠️ Seat template load failed:', e.message);
@@ -1151,6 +1176,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           sessionId: state.sessionId,
           pinnedSeats: pinnedSeatsFromTemplate,
           reservedTailSeats: reservedTailFromTemplate,
+          doorSeats: doorSeatsFromTemplate,
         });
         var assignedSeat = assignedSeatResult;
         var constraintViolation = cvResult;

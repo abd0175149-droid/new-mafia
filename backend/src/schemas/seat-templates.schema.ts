@@ -18,6 +18,9 @@ export const seatTemplates = pgTable('seat_templates', {
   pinnedSeats: jsonb('pinned_seats').default([]),                    // [{seatNumber, playerId?, phone?, playerName}]
   constraintsConfig: jsonb('constraints_config').default([]),        // إعدادات القيود الافتراضية
   seatPositions: jsonb('seat_positions').default(null),              // مواقع المقاعد البصرية [{id, x, y}]
+  // ── إعدادات التخطيط المستطيل (ثلاثي الأبعاد) ──
+  // { shape:'rectangle', sides:{top,right,bottom,left}, numbering:{startCorner,direction}, doors:[{side,offset,type}], doorSeats:number[] }
+  layoutConfig: jsonb('layout_config').default(null),
   isDefault: boolean('is_default').default(false),
   createdBy: integer('created_by').references(() => staff.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),

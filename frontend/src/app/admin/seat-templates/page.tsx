@@ -1,10 +1,19 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+  computeRectSeats, computeDoorSeats, seatsTo2D, totalFromSides,
+  type Sides, type Numbering, type RectDoor, type Side, type Corner,
+} from '@/lib/rectLayout';
+
+const Editor3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
+  ssr: false,
+  loading: () => <div className="h-[460px] flex items-center justify-center text-gray-600 bg-gray-900/60 rounded-2xl">⏳ تحميل المحرّر ثلاثي الأبعاد...</div>,
+});
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -17,552 +26,138 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-// ══════════════════════════════════════════════════════
-// الأنواع
-// ══════════════════════════════════════════════════════
-
-interface PinnedSeat {
-  seatNumber: number;
-  playerId?: number;
-  phone?: string;
-  playerName: string;
-}
-
-interface SeatPosition {
-  id: number;
-  x: number;
-  y: number;
-}
-
+interface PinnedSeat { seatNumber: number; playerId?: number; phone?: string; playerName: string }
+interface SeatPosition { id: number; x: number; y: number }
+interface LayoutConfig { shape: 'rectangle'; sides: Sides; numbering: Numbering; doors: RectDoor[]; doorSeats: number[] }
 interface SeatTemplate {
-  id: number;
-  name: string;
-  layoutType: string;
-  totalSeats: number;
-  reservedTailCount: number;
-  pinnedSeats: PinnedSeat[];
-  constraintsConfig: any[];
-  seatPositions: SeatPosition[] | null;
-  isDefault: boolean;
-  createdAt: string;
+  id: number; name: string; layoutType: string; totalSeats: number; reservedTailCount: number;
+  pinnedSeats: PinnedSeat[]; constraintsConfig: any[]; seatPositions: SeatPosition[] | null;
+  layoutConfig: LayoutConfig | null; isDefault: boolean; createdAt: string;
 }
 
-// ══════════════════════════════════════════════════════
-// 🔵 توليد المواقع حسب الشكل
-// ══════════════════════════════════════════════════════
+// ── توزيع عدد افتراضي على 4 أضلاع ──
+function defaultSides(total: number): Sides {
+  const s: Sides = { top: 0, right: 0, bottom: 0, left: 0 };
+  const order: (keyof Sides)[] = ['top', 'bottom', 'right', 'left'];
+  let rem = Math.max(6, total);
+  let i = 0;
+  while (rem > 0) { s[order[i % 4]]++; rem--; i++; }
+  return s;
+}
 
+const SIDE_LABEL: Record<Side, string> = { top: 'أعلى', right: 'يمين', bottom: 'أسفل', left: 'يسار' };
+const CORNER_LABEL: Record<Corner, string> = { TL: '↖ أعلى-يسار', TR: '↗ أعلى-يمين', BR: '↘ أسفل-يمين', BL: '↙ أسفل-يسار' };
+
+// ══════════════════════════════════════════════════════
+// محرّر 2D القديم (للدائري والصفوف فقط)
+// ══════════════════════════════════════════════════════
 function generatePositions(totalSeats: number, layout: string, width: number, height: number): SeatPosition[] {
   const positions: SeatPosition[] = [];
   const padding = 40;
-
   if (layout === 'circle') {
-    const cx = width / 2;
-    const cy = height / 2;
-    const radius = Math.min(cx, cy) - padding;
+    const cx = width / 2, cy = height / 2, radius = Math.min(cx, cy) - padding;
     for (let i = 0; i < totalSeats; i++) {
-      // مع عقارب الساعة: نبدأ من أعلى المنتصف (شمال) وندور CW
       const angle = (2 * Math.PI * i) / totalSeats - Math.PI / 2;
-      positions.push({
-        id: i + 1,
-        x: cx + radius * Math.cos(angle),
-        y: cy + radius * Math.sin(angle),
-      });
-    }
-  } else if (layout === 'rectangle') {
-    // توزيع متساوي على 4 أضلاع مع عقارب الساعة
-    // Top(يسار→يمين) → Right(أعلى→أسفل) → Bottom(يمين→يسار) → Left(أسفل→أعلى)
-    const sides = [0, 0, 0, 0];
-    let remaining = totalSeats;
-    for (let s = 0; remaining > 0; s = (s + 1) % 4) {
-      sides[s]++;
-      remaining--;
-    }
-
-    const w = width - padding * 2;
-    const h = height - padding * 2;
-    let placed = 0;
-
-    // Top: يسار → يمين
-    for (let i = 0; i < sides[0]; i++, placed++) {
-      positions.push({
-        id: placed + 1,
-        x: padding + (w / (sides[0] + 1)) * (i + 1),
-        y: padding,
-      });
-    }
-    // Right: أعلى → أسفل
-    for (let i = 0; i < sides[1]; i++, placed++) {
-      positions.push({
-        id: placed + 1,
-        x: width - padding,
-        y: padding + (h / (sides[1] + 1)) * (i + 1),
-      });
-    }
-    // Bottom: يمين → يسار
-    for (let i = 0; i < sides[2]; i++, placed++) {
-      positions.push({
-        id: placed + 1,
-        x: width - padding - (w / (sides[2] + 1)) * (i + 1),
-        y: height - padding,
-      });
-    }
-    // Left: أسفل → أعلى
-    for (let i = 0; i < sides[3]; i++, placed++) {
-      positions.push({
-        id: placed + 1,
-        x: padding,
-        y: height - padding - (h / (sides[3] + 1)) * (i + 1),
-      });
+      positions.push({ id: i + 1, x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
     }
   } else {
-    // rows
     const cols = Math.ceil(Math.sqrt(totalSeats * 1.5));
     const rows = Math.ceil(totalSeats / cols);
-    const cellW = (width - padding * 2) / cols;
-    const cellH = (height - padding * 2) / rows;
+    const cellW = (width - padding * 2) / cols, cellH = (height - padding * 2) / rows;
     let placed = 0;
-
-    for (let r = 0; r < rows && placed < totalSeats; r++) {
-      for (let c = 0; c < cols && placed < totalSeats; c++, placed++) {
-        positions.push({
-          id: placed + 1,
-          x: padding + cellW * c + cellW / 2,
-          y: padding + cellH * r + cellH / 2,
-        });
-      }
-    }
+    for (let r = 0; r < rows && placed < totalSeats; r++)
+      for (let c = 0; c < cols && placed < totalSeats; c++, placed++)
+        positions.push({ id: placed + 1, x: padding + cellW * c + cellW / 2, y: padding + cellH * r + cellH / 2 });
   }
-
   return positions;
 }
 
-// إعادة ترقيم المقاعد بحيث يصبح seatId هو #1 والباقي يتتابع مع عقارب الساعة
-function renumberFromSeat(
-  positions: SeatPosition[],
-  startSeatId: number,
-  pinnedSeats: PinnedSeat[],
-): { newPositions: SeatPosition[]; newPinned: PinnedSeat[] } {
-  const total = positions.length;
-  const startIdx = positions.findIndex(p => p.id === startSeatId);
-  if (startIdx === -1) return { newPositions: positions, newPinned: pinnedSeats };
-
-  // خريطة التحويل: oldId → newId
-  const idMap = new Map<number, number>();
-  for (let i = 0; i < total; i++) {
-    const oldIdx = (startIdx + i) % total;
-    idMap.set(positions[oldIdx].id, i + 1);
-  }
-
-  const newPositions = positions.map(p => ({
-    ...p,
-    id: idMap.get(p.id) || p.id,
-  }));
-
-  // تحديث المقاعد المثبتة
-  const newPinned = pinnedSeats.map(pin => ({
-    ...pin,
-    seatNumber: idMap.get(pin.seatNumber) || pin.seatNumber,
-  }));
-
-  return { newPositions, newPinned };
-}
-
-// ══════════════════════════════════════════════════════
-// 🪑 مكون المقعد الواحد (قابل للسحب)
-// ══════════════════════════════════════════════════════
-
-function SeatNode({
-  seat,
-  position,
-  isPinned,
-  pinnedInfo,
-  isTail,
-  isSelected,
-  isDragging,
-  onMouseDown,
-  onClick,
-  onSetAsFirst,
-}: {
-  seat: number;
-  position: SeatPosition;
-  isPinned: boolean;
-  pinnedInfo?: PinnedSeat;
-  isTail: boolean;
-  isSelected: boolean;
-  isDragging: boolean;
-  onMouseDown: (e: React.MouseEvent) => void;
-  onClick: () => void;
-  onSetAsFirst: () => void;
+function Svg2DEditor({ totalSeats, layoutType, reservedTailCount, pinnedSeats, selectedSeat, onSelectSeat }: {
+  totalSeats: number; layoutType: string; reservedTailCount: number; pinnedSeats: PinnedSeat[];
+  selectedSeat: number | null; onSelectSeat: (n: number | null) => void;
 }) {
-  const size = 42;
-  const half = size / 2;
-
-  let bgColor = 'rgba(16, 185, 129, 0.15)';
-  let borderColor = 'rgba(16, 185, 129, 0.3)';
-  let textColor = '#10b981';
-  let glowColor = '';
-
-  if (isPinned) {
-    bgColor = 'rgba(245, 158, 11, 0.2)';
-    borderColor = 'rgba(245, 158, 11, 0.5)';
-    textColor = '#f59e0b';
-    glowColor = '0 0 12px rgba(245, 158, 11, 0.3)';
-  } else if (isTail) {
-    bgColor = 'rgba(107, 114, 128, 0.1)';
-    borderColor = 'rgba(107, 114, 128, 0.25)';
-    textColor = '#6b7280';
-  }
-
-  if (isSelected) {
-    borderColor = '#3b82f6';
-    glowColor = '0 0 16px rgba(59, 130, 246, 0.4)';
-  }
-
-  return (
-    <g
-      transform={`translate(${position.x - half}, ${position.y - half})`}
-      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-      onMouseDown={onMouseDown}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onSetAsFirst(); }}
-    >
-      <rect
-        width={size}
-        height={size}
-        rx={12}
-        fill={bgColor}
-        stroke={borderColor}
-        strokeWidth={isSelected ? 2.5 : 1.5}
-        style={{ filter: glowColor ? `drop-shadow(${glowColor})` : undefined }}
-      />
-      <text
-        x={half}
-        y={half - (isPinned ? 4 : 0)}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill={textColor}
-        fontSize={isPinned ? 13 : 15}
-        fontWeight="bold"
-        style={{ pointerEvents: 'none', userSelect: 'none' }}
-      >
-        {seat}
-      </text>
-      {isPinned && pinnedInfo && (
-        <>
-          <text
-            x={half}
-            y={half + 10}
-            textAnchor="middle"
-            dominantBaseline="central"
-            fill="#f59e0b"
-            fontSize={8}
-            style={{ pointerEvents: 'none', userSelect: 'none' }}
-          >
-            📌
-          </text>
-          <title>{`مثبت: ${pinnedInfo.playerName}`}</title>
-        </>
-      )}
-      {isTail && !isPinned && (
-        <text
-          x={half}
-          y={half + 14}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fill="#6b7280"
-          fontSize={7}
-          style={{ pointerEvents: 'none', userSelect: 'none' }}
-        >
-          مؤخر
-        </text>
-      )}
-    </g>
-  );
-}
-
-// ══════════════════════════════════════════════════════
-// 🎨 المحرر البصري التفاعلي
-// ══════════════════════════════════════════════════════
-
-function SeatEditor({
-  totalSeats,
-  layoutType,
-  reservedTailCount,
-  pinnedSeats,
-  seatPositions,
-  onPositionsChange,
-  onPinnedSeatsChange,
-  selectedSeat,
-  onSelectSeat,
-  onRenumberFrom,
-}: {
-  totalSeats: number;
-  layoutType: string;
-  reservedTailCount: number;
-  pinnedSeats: PinnedSeat[];
-  seatPositions: SeatPosition[] | null;
-  onPositionsChange: (positions: SeatPosition[]) => void;
-  onPinnedSeatsChange: (pinned: PinnedSeat[]) => void;
-  selectedSeat: number | null;
-  onSelectSeat: (seat: number | null) => void;
-  onRenumberFrom: (seatId: number) => void;
-}) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [dragging, setDragging] = useState<number | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-
-  const canvasW = 600;
-  const canvasH = 450;
-
-  // مواقع المقاعد (مولّدة أو محفوظة)
-  const positions = seatPositions && seatPositions.length === totalSeats
-    ? seatPositions
-    : generatePositions(totalSeats, layoutType, canvasW, canvasH);
-
-  // المقاعد المؤخرة
+  const W = 600, H = 420;
+  const positions = generatePositions(totalSeats, layoutType, W, H);
   const tailStart = totalSeats - reservedTailCount + 1;
-
-  // بدء السحب
-  const handleMouseDown = useCallback((seatId: number, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const svg = svgRef.current;
-    if (!svg) return;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse());
-    const pos = positions.find(p => p.id === seatId);
-    if (!pos) return;
-    setDragOffset({ x: svgP.x - pos.x, y: svgP.y - pos.y });
-    setDragging(seatId);
-  }, [positions]);
-
-  // أثناء السحب
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (dragging === null) return;
-    const svg = svgRef.current;
-    if (!svg) return;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse());
-    
-    const newPositions = positions.map(p =>
-      p.id === dragging
-        ? { ...p, x: Math.max(20, Math.min(canvasW - 20, svgP.x - dragOffset.x)), y: Math.max(20, Math.min(canvasH - 20, svgP.y - dragOffset.y)) }
-        : p
-    );
-    onPositionsChange(newPositions);
-  }, [dragging, positions, dragOffset, onPositionsChange, canvasW, canvasH]);
-
-  // إنهاء السحب
-  const handleMouseUp = useCallback(() => {
-    setDragging(null);
-  }, []);
-
   return (
-    <div className="relative bg-gray-900/70 border border-gray-700/30 rounded-2xl overflow-hidden">
-      {/* شريط أدوات صغير */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800/50 border-b border-gray-700/20 flex-wrap gap-2">
-        <span className="text-xs text-gray-500">🖱️ اسحب المقاعد • اضغط لتثبيت لاعب • <span className="text-cyan-400">كليك يمين = تعيين كرقم 1</span></span>
-        <button
-          onClick={() => onPositionsChange(generatePositions(totalSeats, layoutType, canvasW, canvasH))}
-          className="text-xs px-3 py-1 rounded-lg bg-gray-700/50 text-gray-400 hover:text-white hover:bg-gray-600/50 transition"
-        >
-          🔄 إعادة ترتيب تلقائي
-        </button>
-      </div>
-
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${canvasW} ${canvasH}`}
-        className="w-full"
-        style={{ height: 'auto', maxHeight: '450px' }}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onClick={() => onSelectSeat(null)}
-      >
-        {/* خطوط ربط خافتة بين المقاعد المتتالية */}
-        {positions.map((pos, i) => {
-          const next = positions[(i + 1) % totalSeats];
-          return (
-            <line
-              key={`line-${i}`}
-              x1={pos.x}
-              y1={pos.y}
-              x2={next.x}
-              y2={next.y}
-              stroke="rgba(75, 85, 99, 0.15)"
-              strokeWidth={1}
-              strokeDasharray="4 4"
-            />
-          );
-        })}
-
-        {/* المقاعد */}
-        {positions.map((pos) => {
-          const pinned = pinnedSeats.find(p => p.seatNumber === pos.id);
-          const isTail = pos.id >= tailStart;
-          return (
-            <SeatNode
-              key={pos.id}
-              seat={pos.id}
-              position={pos}
-              isPinned={!!pinned}
-              pinnedInfo={pinned}
-              isTail={isTail}
-              isSelected={selectedSeat === pos.id}
-              isDragging={dragging === pos.id}
-              onMouseDown={(e) => handleMouseDown(pos.id, e)}
-              onClick={() => onSelectSeat(selectedSeat === pos.id ? null : pos.id)}
-              onSetAsFirst={() => onRenumberFrom(pos.id)}
-            />
-          );
-        })}
-      </svg>
-
-      {/* مفتاح الألوان */}
-      <div className="flex items-center gap-4 px-4 py-2 bg-gray-800/30 border-t border-gray-700/20">
-        <span className="flex items-center gap-1.5 text-[10px] text-emerald-400">
-          <span className="w-3 h-3 rounded bg-emerald-500/20 border border-emerald-500/30 inline-block" /> عادي
-        </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-amber-400">
-          <span className="w-3 h-3 rounded bg-amber-500/20 border border-amber-500/40 inline-block" /> 📌 مثبت
-        </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-gray-500">
-          <span className="w-3 h-3 rounded bg-gray-500/10 border border-gray-500/25 inline-block" /> مؤخر
-        </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-blue-400">
-          <span className="w-3 h-3 rounded bg-blue-500/20 border-2 border-blue-500 inline-block" /> محدد
-        </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-cyan-400">
-          🖱️ كليك يمين = #1
-        </span>
-      </div>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full bg-gray-900/70 rounded-2xl border border-gray-700/30" style={{ maxHeight: 420 }} onClick={() => onSelectSeat(null)}>
+      {positions.map(pos => {
+        const pinned = pinnedSeats.find(p => p.seatNumber === pos.id);
+        const isTail = pos.id >= tailStart && reservedTailCount > 0;
+        const sel = selectedSeat === pos.id;
+        const color = sel ? '#3b82f6' : pinned ? '#f59e0b' : isTail ? '#6b7280' : '#10b981';
+        return (
+          <g key={pos.id} transform={`translate(${pos.x - 21},${pos.y - 21})`} style={{ cursor: 'pointer' }}
+            onClick={(e) => { e.stopPropagation(); onSelectSeat(sel ? null : pos.id); }}>
+            <rect width={42} height={42} rx={12} fill={`${color}26`} stroke={color} strokeWidth={sel ? 2.5 : 1.5} />
+            <text x={21} y={21} textAnchor="middle" dominantBaseline="central" fill={color} fontSize={15} fontWeight="bold">{pos.id}</text>
+            {pinned && <text x={21} y={34} textAnchor="middle" fill="#f59e0b" fontSize={8}>📌</text>}
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
 // ══════════════════════════════════════════════════════
-// 📌 لوحة تثبيت المقعد المحدد
+// لوحة تثبيت لاعب في مقعد
 // ══════════════════════════════════════════════════════
-
-function PinSeatPanel({
-  selectedSeat,
-  pinnedSeats,
-  players,
-  onPin,
-  onUnpin,
-  onClose,
-}: {
-  selectedSeat: number;
-  pinnedSeats: PinnedSeat[];
-  players: any[];
-  onPin: (seat: number, player: { id?: number; phone?: string; name: string }) => void;
-  onUnpin: (seat: number) => void;
-  onClose: () => void;
+function PinSeatPanel({ selectedSeat, pinnedSeats, players, onPin, onUnpin, onClose }: {
+  selectedSeat: number; pinnedSeats: PinnedSeat[]; players: any[];
+  onPin: (seat: number, p: { id?: number; phone?: string; name: string }) => void;
+  onUnpin: (seat: number) => void; onClose: () => void;
 }) {
   const existing = pinnedSeats.find(p => p.seatNumber === selectedSeat);
   const [search, setSearch] = useState('');
   const [manualName, setManualName] = useState('');
   const [manualPhone, setManualPhone] = useState('');
-
-  const filteredPlayers = players.filter(p =>
-    (p.name || '').includes(search) || (p.phone || '').includes(search)
-  ).slice(0, 8);
-
+  const filtered = players.filter(p => (p.name || '').includes(search) || (p.phone || '').includes(search)).slice(0, 8);
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-gray-800/80 border border-blue-500/30 rounded-xl p-4 space-y-3"
-    >
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-gray-800/80 border border-blue-500/30 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-bold text-white flex items-center gap-2">
           🪑 مقعد #{selectedSeat}
-          {existing && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">📌 مثبت لـ {existing.playerName}</span>}
+          {existing && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">📌 {existing.playerName}</span>}
         </h4>
         <button onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
       </div>
-
       {existing ? (
         <div className="space-y-2">
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-center">
             <p className="text-amber-400 font-bold">{existing.playerName}</p>
             <p className="text-xs text-gray-500 font-mono" dir="ltr">{existing.phone || '—'}</p>
           </div>
-          <button
-            onClick={() => onUnpin(selectedSeat)}
-            className="w-full py-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg text-xs hover:bg-rose-500/20 transition"
-          >
-            🗑️ إلغاء التثبيت
-          </button>
+          <button onClick={() => onUnpin(selectedSeat)} className="w-full py-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg text-xs hover:bg-rose-500/20 transition">🗑️ إلغاء التثبيت</button>
         </div>
       ) : (
         <div className="space-y-3">
-          {/* بحث لاعب */}
-          <input
-            type="text"
-            placeholder="ابحث عن لاعب..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500/50 focus:outline-none"
-          />
-          {search && filteredPlayers.length > 0 && (
+          <input type="text" placeholder="ابحث عن لاعب..." value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-blue-500/50 focus:outline-none" />
+          {search && filtered.length > 0 && (
             <div className="max-h-40 overflow-y-auto space-y-1">
-              {filteredPlayers.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => onPin(selectedSeat, { id: p.id, phone: p.phone, name: p.name })}
-                  className="w-full flex items-center gap-2 bg-gray-900/50 border border-gray-700/20 rounded-lg px-3 py-2 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-right"
-                >
+              {filtered.map(p => (
+                <button key={p.id} onClick={() => onPin(selectedSeat, { id: p.id, phone: p.phone, name: p.name })}
+                  className="w-full flex items-center gap-2 bg-gray-900/50 border border-gray-700/20 rounded-lg px-3 py-2 hover:border-amber-500/30 hover:bg-amber-500/5 transition text-right">
                   <span className="text-sm text-white font-bold">{p.name}</span>
                   <span className="text-[10px] text-gray-500 font-mono mr-auto" dir="ltr">{p.phone || '—'}</span>
                 </button>
               ))}
             </div>
           )}
-
-          {/* إدخال يدوي */}
           <div className="border-t border-gray-700/20 pt-3 space-y-2">
             <p className="text-[10px] text-gray-600">أو أدخل يدوياً:</p>
-            <input
-              type="text"
-              placeholder="اسم اللاعب"
-              value={manualName}
-              onChange={(e) => setManualName(e.target.value)}
-              className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none"
-            />
-            <input
-              type="text"
-              placeholder="الهاتف (اختياري)"
-              value={manualPhone}
-              onChange={(e) => setManualPhone(e.target.value)}
-              dir="ltr"
-              className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none"
-            />
-            <button
-              onClick={() => {
-                if (!manualName.trim()) return;
-                // التحقق مما إذا كان اللاعب موجوداً في قاعدة البيانات لربطه مباشرة
-                const matchedPlayer = players.find(
-                  (p) => (p.name || '').trim().toLowerCase() === manualName.trim().toLowerCase()
-                );
-                if (matchedPlayer) {
-                  onPin(selectedSeat, { id: matchedPlayer.id, phone: matchedPlayer.phone || manualPhone, name: matchedPlayer.name });
-                } else {
-                  onPin(selectedSeat, { phone: manualPhone, name: manualName });
-                }
-                setManualName('');
-                setManualPhone('');
-              }}
-              disabled={!manualName.trim()}
-              className="w-full py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-500/25 transition disabled:opacity-40"
-            >
-              📌 تثبيت
-            </button>
+            <input type="text" placeholder="اسم اللاعب" value={manualName} onChange={e => setManualName(e.target.value)}
+              className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none" />
+            <input type="text" placeholder="الهاتف (اختياري)" value={manualPhone} onChange={e => setManualPhone(e.target.value)} dir="ltr"
+              className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none" />
+            <button onClick={() => {
+              if (!manualName.trim()) return;
+              const m = players.find(p => (p.name || '').trim().toLowerCase() === manualName.trim().toLowerCase());
+              if (m) onPin(selectedSeat, { id: m.id, phone: m.phone || manualPhone, name: m.name });
+              else onPin(selectedSeat, { phone: manualPhone, name: manualName });
+              setManualName(''); setManualPhone('');
+            }} disabled={!manualName.trim()}
+              className="w-full py-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-lg text-xs font-bold hover:bg-amber-500/25 transition disabled:opacity-40">📌 تثبيت</button>
           </div>
         </div>
       )}
@@ -571,433 +166,327 @@ function PinSeatPanel({
 }
 
 // ══════════════════════════════════════════════════════
-// 📐 الصفحة الرئيسية — قوالب المقاعد
+// 📐 الصفحة الرئيسية
 // ══════════════════════════════════════════════════════
-
 export default function SeatTemplatesPage() {
   const [templates, setTemplates] = useState<SeatTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [showEditor, setShowEditor] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<SeatTemplate | null>(null);
 
-  // حقول الإنشاء/التعديل
   const [name, setName] = useState('');
-  const [layoutType, setLayoutType] = useState('rectangle');
+  const [layoutType, setLayoutType] = useState<'rectangle' | 'circle' | 'rows'>('rectangle');
   const [totalSeats, setTotalSeats] = useState(20);
   const [reservedTailCount, setReservedTailCount] = useState(5);
   const [pinnedSeats, setPinnedSeats] = useState<PinnedSeat[]>([]);
-  const [seatPositions, setSeatPositions] = useState<SeatPosition[] | null>(null);
   const [isDefault, setIsDefault] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // قائمة اللاعبين (للبحث عند التثبيت)
   const [players, setPlayers] = useState<any[]>([]);
 
-  // تحميل القوالب
+  // ── حالة المستطيل ──
+  const [sides, setSides] = useState<Sides>({ top: 6, right: 4, bottom: 6, left: 4 });
+  const [numbering, setNumbering] = useState<Numbering>({ startCorner: 'TL', direction: 'cw' });
+  const [doors, setDoors] = useState<RectDoor[]>([]);
+
+  const rectTotal = useMemo(() => totalFromSides(sides), [sides]);
+  const effectiveTotal = layoutType === 'rectangle' ? rectTotal : totalSeats;
+
   const fetchTemplates = useCallback(async () => {
     setLoading(true);
-    try {
-      const res = await apiFetch('/api/seat-templates');
-      setTemplates(res.templates || []);
-    } catch (err: any) {
-      console.error('Failed to load seat templates:', err);
-    } finally {
-      setLoading(false);
-    }
+    try { const res = await apiFetch('/api/seat-templates'); setTemplates(res.templates || []); }
+    catch (e) { console.error(e); } finally { setLoading(false); }
   }, []);
-
-  // تحميل اللاعبين
   const fetchPlayers = useCallback(async () => {
-    try {
-      const res = await apiFetch('/api/player/all');
-      setPlayers(Array.isArray(res) ? res : res.players || []);
-    } catch { }
+    try { const res = await apiFetch('/api/player/all'); setPlayers(Array.isArray(res) ? res : res.players || []); } catch {}
   }, []);
+  useEffect(() => { fetchTemplates(); fetchPlayers(); }, [fetchTemplates, fetchPlayers]);
 
-  useEffect(() => {
-    fetchTemplates();
-    fetchPlayers();
-  }, [fetchTemplates, fetchPlayers]);
-
-  // فتح محرر جديد
   const openNew = () => {
-    setEditingTemplate(null);
-    setName('');
-    setLayoutType('rectangle');
-    setTotalSeats(20);
-    setReservedTailCount(5);
-    setPinnedSeats([]);
-    setSeatPositions(null);
-    setIsDefault(false);
-    setSelectedSeat(null);
+    setEditingTemplate(null); setName(''); setLayoutType('rectangle'); setTotalSeats(20);
+    setReservedTailCount(5); setPinnedSeats([]); setIsDefault(false); setSelectedSeat(null);
+    setSides({ top: 6, right: 4, bottom: 6, left: 4 }); setNumbering({ startCorner: 'TL', direction: 'cw' }); setDoors([]);
     setShowEditor(true);
   };
 
-  // فتح محرر تعديل
   const openEdit = (t: SeatTemplate) => {
-    setEditingTemplate(t);
-    setName(t.name);
-    setLayoutType(t.layoutType);
-    setTotalSeats(t.totalSeats);
-    setReservedTailCount(t.reservedTailCount);
-    setPinnedSeats(t.pinnedSeats || []);
-    setSeatPositions(t.seatPositions || null);
-    setIsDefault(t.isDefault);
-    setSelectedSeat(null);
+    setEditingTemplate(t); setName(t.name);
+    setLayoutType((t.layoutType as any) || 'rectangle');
+    setTotalSeats(t.totalSeats); setReservedTailCount(t.reservedTailCount);
+    setPinnedSeats(t.pinnedSeats || []); setIsDefault(t.isDefault); setSelectedSeat(null);
+    if (t.layoutConfig?.shape === 'rectangle') {
+      setSides(t.layoutConfig.sides);
+      setNumbering(t.layoutConfig.numbering || { startCorner: 'TL', direction: 'cw' });
+      setDoors(t.layoutConfig.doors || []);
+    } else {
+      setSides(defaultSides(t.totalSeats)); setNumbering({ startCorner: 'TL', direction: 'cw' }); setDoors([]);
+    }
     setShowEditor(true);
   };
 
-  // حفظ
   const handleSave = async () => {
     if (!name.trim()) return;
+    if (effectiveTotal < 6 || effectiveTotal > 50) { alert('عدد المقاعد يجب أن يكون بين 6 و 50'); return; }
     setSaving(true);
     try {
-      const body = {
-        name,
-        layoutType,
-        totalSeats,
-        reservedTailCount,
-        pinnedSeats,
-        seatPositions,
-        isDefault,
-      };
-
-      if (editingTemplate) {
-        await apiFetch(`/api/seat-templates/${editingTemplate.id}`, {
-          method: 'PUT',
-          body: JSON.stringify(body),
-        });
-      } else {
-        await apiFetch('/api/seat-templates', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
+      let layoutConfig: LayoutConfig | null = null;
+      let seatPositions: SeatPosition[] | null = null;
+      if (layoutType === 'rectangle') {
+        const seats = computeRectSeats(sides, numbering);
+        layoutConfig = { shape: 'rectangle', sides, numbering, doors, doorSeats: computeDoorSeats(sides, seats, doors) };
+        seatPositions = seatsTo2D(seats);
       }
-
-      setShowEditor(false);
-      fetchTemplates();
-    } catch (err: any) {
-      alert('فشل الحفظ: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
+      const body = {
+        name, layoutType, totalSeats: effectiveTotal, reservedTailCount,
+        pinnedSeats: pinnedSeats.filter(p => p.seatNumber <= effectiveTotal),
+        seatPositions, layoutConfig, isDefault,
+      };
+      if (editingTemplate) await apiFetch(`/api/seat-templates/${editingTemplate.id}`, { method: 'PUT', body: JSON.stringify(body) });
+      else await apiFetch('/api/seat-templates', { method: 'POST', body: JSON.stringify(body) });
+      setShowEditor(false); fetchTemplates();
+    } catch (e: any) { alert('فشل الحفظ: ' + e.message); } finally { setSaving(false); }
   };
 
-  // حذف
   const handleDelete = async (id: number) => {
-    if (!confirm('⚠️ هل تريد حذف هذا القالب نهائياً؟')) return;
-    try {
-      await apiFetch(`/api/seat-templates/${id}`, { method: 'DELETE' });
-      fetchTemplates();
-    } catch (err: any) {
-      alert('فشل الحذف: ' + err.message);
-    }
+    if (!confirm('⚠️ حذف هذا القالب نهائياً؟')) return;
+    try { await apiFetch(`/api/seat-templates/${id}`, { method: 'DELETE' }); fetchTemplates(); }
+    catch (e: any) { alert('فشل الحذف: ' + e.message); }
   };
 
-  // تثبيت مقعد
-  const handlePinSeat = (seatNumber: number, player: { id?: number; phone?: string; name: string }) => {
-    setPinnedSeats(prev => [
-      ...prev.filter(p => p.seatNumber !== seatNumber),
-      { seatNumber, playerId: player.id, phone: player.phone, playerName: player.name },
-    ]);
+  const handlePin = (seatNumber: number, p: { id?: number; phone?: string; name: string }) => {
+    setPinnedSeats(prev => [...prev.filter(x => x.seatNumber !== seatNumber), { seatNumber, playerId: p.id, phone: p.phone, playerName: p.name }]);
     setSelectedSeat(null);
   };
+  const handleUnpin = (seatNumber: number) => { setPinnedSeats(prev => prev.filter(x => x.seatNumber !== seatNumber)); setSelectedSeat(null); };
 
-  // إلغاء تثبيت
-  const handleUnpinSeat = (seatNumber: number) => {
-    setPinnedSeats(prev => prev.filter(p => p.seatNumber !== seatNumber));
-    setSelectedSeat(null);
+  const setSide = (side: Side, delta: number) => {
+    setSides(prev => {
+      const next = { ...prev, [side]: Math.max(0, prev[side] + delta) };
+      if (totalFromSides(next) > 50) return prev;
+      return next;
+    });
+  };
+  const addDoor = (side: Side, offset: number) => {
+    setDoors(prev => [...prev, { id: 'd' + Date.now(), side, offset, type: 'entry' }]);
   };
 
-  // عند تغيير عدد المقاعد أو الشكل → إعادة توليد المواقع
+  // مزامنة totalSeats مع الأضلاع في وضع المستطيل + تنظيف المثبت الزائد
   useEffect(() => {
-    if (showEditor) {
-      setSeatPositions(null);
-      setPinnedSeats(prev => prev.filter(p => p.seatNumber <= totalSeats));
-    }
-  }, [totalSeats, layoutType]);
+    if (layoutType === 'rectangle') setTotalSeats(rectTotal);
+  }, [rectTotal, layoutType]);
+  useEffect(() => {
+    setPinnedSeats(prev => prev.filter(p => p.seatNumber <= effectiveTotal));
+    if (selectedSeat && selectedSeat > effectiveTotal) setSelectedSeat(null);
+  }, [effectiveTotal]); // eslint-disable-line
 
-  const LAYOUT_OPTIONS = [
-    { value: 'rectangle', label: '🔳 مستطيل', desc: 'مقاعد على شكل مستطيل' },
-    { value: 'circle', label: '⭕ دائري', desc: 'مقاعد على شكل دائرة' },
-    { value: 'rows', label: '📊 صفوف', desc: 'مقاعد بصفوف أفقية' },
-  ];
+  const LAYOUTS = [
+    { v: 'rectangle', l: '🔳 مستطيل (3D)' },
+    { v: 'circle', l: '⭕ دائري' },
+    { v: 'rows', l: '📊 صفوف' },
+  ] as const;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 pb-10" dir="rtl">
-      {/* ══ Header ══ */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            📐 قوالب المقاعد
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">تصميم وإدارة ترتيبات المقاعد المختلفة للفعاليات</p>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3">📐 قوالب المقاعد</h1>
+          <p className="text-sm text-gray-500 mt-1">صمّم القاعة ثلاثية الأبعاد: أضلاع، أبواب، ترقيم، وتثبيت لاعبين</p>
         </div>
-        <button
-          onClick={openNew}
-          className="px-4 py-2.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-xl text-sm font-bold hover:bg-amber-500/25 transition flex items-center gap-2"
-        >
-          ✨ قالب جديد
-        </button>
+        <button onClick={openNew} className="px-4 py-2.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-xl text-sm font-bold hover:bg-amber-500/25 transition flex items-center gap-2">✨ قالب جديد</button>
       </div>
 
-      {/* ══ قائمة القوالب ══ */}
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" />
-        </div>
+        <div className="flex justify-center py-16"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>
       ) : templates.length === 0 ? (
         <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-16 text-center">
           <span className="text-5xl block mb-4 opacity-30">📐</span>
           <p className="text-gray-500 text-sm mb-4">لا توجد قوالب حتى الآن</p>
-          <button
-            onClick={openNew}
-            className="px-4 py-2 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-xl text-sm font-bold hover:bg-amber-500/25 transition"
-          >
-            ✨ إنشاء أول قالب
-          </button>
+          <button onClick={openNew} className="px-4 py-2 bg-amber-500/15 border border-amber-500/30 text-amber-400 rounded-xl text-sm font-bold hover:bg-amber-500/25 transition">✨ إنشاء أول قالب</button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {templates.map((t) => (
-            <motion.div
-              key={t.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5 hover:border-amber-500/20 transition group"
-            >
+          {templates.map(t => (
+            <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+              className="bg-gray-800/50 border border-gray-700/40 rounded-2xl p-5 hover:border-amber-500/20 transition group">
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <h3 className="text-white font-bold flex items-center gap-2">
-                    {t.name}
-                    {t.isDefault && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
-                        افتراضي
-                      </span>
-                    )}
-                  </h3>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {t.totalSeats} مقعد • {LAYOUT_OPTIONS.find(l => l.value === t.layoutType)?.label || t.layoutType}
-                  </p>
+                  <h3 className="text-white font-bold flex items-center gap-2">{t.name}
+                    {t.isDefault && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">افتراضي</span>}</h3>
+                  <p className="text-xs text-gray-500 mt-1">{t.totalSeats} مقعد • {t.layoutType === 'circle' ? '⭕ دائري' : t.layoutType === 'rows' ? '📊 صفوف' : '🔳 مستطيل'}</p>
                 </div>
-                <span className="text-2xl opacity-20 group-hover:opacity-40 transition">
-                  {t.layoutType === 'circle' ? '⭕' : t.layoutType === 'rectangle' ? '🔳' : '📊'}
-                </span>
+                <span className="text-2xl opacity-20 group-hover:opacity-40 transition">{t.layoutType === 'circle' ? '⭕' : t.layoutType === 'rows' ? '📊' : '🔳'}</span>
               </div>
-
-              {/* إحصائيات سريعة */}
-              <div className="grid grid-cols-3 gap-2 mb-4">
-                <div className="bg-gray-900/50 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold text-white">{t.totalSeats}</p>
-                  <p className="text-[10px] text-gray-600">مقعد</p>
-                </div>
-                <div className="bg-gray-900/50 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold text-amber-400">{(t.pinnedSeats || []).length}</p>
-                  <p className="text-[10px] text-gray-600">مثبت</p>
-                </div>
-                <div className="bg-gray-900/50 rounded-lg p-2 text-center">
-                  <p className="text-lg font-bold text-gray-400">{t.reservedTailCount}</p>
-                  <p className="text-[10px] text-gray-600">مؤخر</p>
-                </div>
+              <div className="grid grid-cols-4 gap-2 mb-4">
+                <div className="bg-gray-900/50 rounded-lg p-2 text-center"><p className="text-lg font-bold text-white">{t.totalSeats}</p><p className="text-[10px] text-gray-600">مقعد</p></div>
+                <div className="bg-gray-900/50 rounded-lg p-2 text-center"><p className="text-lg font-bold text-amber-400">{(t.pinnedSeats || []).length}</p><p className="text-[10px] text-gray-600">مثبت</p></div>
+                <div className="bg-gray-900/50 rounded-lg p-2 text-center"><p className="text-lg font-bold text-rose-400">{(t.layoutConfig?.doors || []).length}</p><p className="text-[10px] text-gray-600">باب</p></div>
+                <div className="bg-gray-900/50 rounded-lg p-2 text-center"><p className="text-lg font-bold text-gray-400">{t.reservedTailCount}</p><p className="text-[10px] text-gray-600">مؤخر</p></div>
               </div>
-
-              {/* أزرار */}
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => openEdit(t)}
-                  className="flex-1 py-2 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-500/20 transition"
-                >
-                  ✏️ تعديل
-                </button>
-                <button
-                  onClick={() => handleDelete(t.id)}
-                  className="px-3 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg text-xs hover:bg-rose-500/20 transition"
-                >
-                  🗑️
-                </button>
+                <button onClick={() => openEdit(t)} className="flex-1 py-2 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-500/20 transition">✏️ تعديل</button>
+                <button onClick={() => handleDelete(t.id)} className="px-3 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-lg text-xs hover:bg-rose-500/20 transition">🗑️</button>
               </div>
             </motion.div>
           ))}
         </div>
       )}
 
-      {/* ══ Modal — المحرر البصري ══ */}
+      {/* ══ Modal ══ */}
       <AnimatePresence>
         {showEditor && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowEditor(false)}>
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-gray-900 border border-gray-700/50 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between p-5 border-b border-gray-700/30">
-                <h2 className="text-lg font-bold text-white">
-                  {editingTemplate ? '✏️ تعديل القالب' : '✨ قالب مقاعد جديد'}
-                </h2>
-                <button onClick={() => setShowEditor(false)} className="text-gray-500 hover:text-white text-xl transition">✕</button>
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto" onClick={() => setShowEditor(false)}>
+            <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
+              onClick={e => e.stopPropagation()} className="bg-gray-900 border border-gray-700/50 rounded-2xl w-full max-w-5xl my-6">
+              <div className="flex items-center justify-between p-5 border-b border-gray-700/30 sticky top-0 bg-gray-900 z-10 rounded-t-2xl">
+                <h2 className="text-lg font-bold text-white">{editingTemplate ? '✏️ تعديل القالب' : '✨ قالب مقاعد جديد'}</h2>
+                <button onClick={() => setShowEditor(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
               </div>
 
-              <div className="p-5 space-y-6">
-                {/* ── صف 1: الاسم والشكل ── */}
+              <div className="p-5 space-y-5">
+                {/* الاسم + الشكل */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-gray-400 block mb-1.5">اسم القالب *</label>
-                    <input
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="مثال: قالب 20 لاعب — دائري"
-                      className="w-full bg-gray-800/70 border border-gray-700/30 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none"
-                    />
+                    <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="مثال: قاعة المزاج — مستطيل"
+                      className="w-full bg-gray-800/70 border border-gray-700/30 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none" />
                   </div>
                   <div>
                     <label className="text-xs text-gray-400 block mb-1.5">شكل الترتيب</label>
                     <div className="flex gap-2">
-                      {LAYOUT_OPTIONS.map(opt => (
-                        <button
-                          key={opt.value}
-                          onClick={() => setLayoutType(opt.value)}
-                          className={`flex-1 py-2 rounded-xl text-xs font-bold border transition ${
-                            layoutType === opt.value
-                              ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
-                              : 'bg-gray-800/50 text-gray-500 border-gray-700/20 hover:text-white'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
+                      {LAYOUTS.map(o => (
+                        <button key={o.v} onClick={() => setLayoutType(o.v as any)}
+                          className={`flex-1 py-2 rounded-xl text-xs font-bold border transition ${layoutType === o.v ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-800/50 text-gray-500 border-gray-700/20 hover:text-white'}`}>{o.l}</button>
                       ))}
                     </div>
                   </div>
                 </div>
 
-                {/* ── صف 2: عدد المقاعد + المؤخرة ── */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-gray-400 block mb-1.5">
-                      عدد المقاعد: <span className="text-amber-400 font-bold text-sm">{totalSeats}</span>
-                    </label>
-                    <input
-                      type="range"
-                      min={6}
-                      max={50}
-                      value={totalSeats}
-                      onChange={(e) => setTotalSeats(Number(e.target.value))}
-                      className="w-full accent-amber-500"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-600 mt-1">
-                      <span>6</span>
-                      <span>50</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 block mb-1.5">
-                      المقاعد المؤخرة: <span className="text-gray-300 font-bold text-sm">{reservedTailCount}</span>
-                      <span className="text-[10px] text-gray-600 mr-2">(تُملأ أخيراً)</span>
-                    </label>
-                    <input
-                      type="range"
-                      min={0}
-                      max={Math.floor(totalSeats / 2)}
-                      value={reservedTailCount}
-                      onChange={(e) => setReservedTailCount(Number(e.target.value))}
-                      className="w-full accent-gray-500"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-600 mt-1">
-                      <span>0</span>
-                      <span>{Math.floor(totalSeats / 2)}</span>
-                    </div>
-                  </div>
-                </div>
+                {layoutType === 'rectangle' ? (
+                  <>
+                    {/* عناصر تحكّم المستطيل */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      {/* عدد المقاعد لكل ضلع */}
+                      <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4">
+                        <p className="text-xs text-gray-400 mb-3 font-bold">عدد المقاعد في كل ضلع <span className="text-amber-400">(الإجمالي {rectTotal})</span></p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(['top', 'right', 'bottom', 'left'] as Side[]).map(side => (
+                            <div key={side} className="bg-gray-900/50 rounded-lg p-2">
+                              <p className="text-[10px] text-gray-500 mb-1 text-center">{SIDE_LABEL[side]}</p>
+                              <div className="flex items-center justify-between">
+                                <button onClick={() => setSide(side, -1)} className="w-6 h-6 rounded bg-gray-700/60 text-white text-sm hover:bg-gray-600">−</button>
+                                <span className="text-white font-bold text-sm w-6 text-center">{sides[side]}</span>
+                                <button onClick={() => setSide(side, 1)} className="w-6 h-6 rounded bg-amber-500/30 text-amber-300 text-sm hover:bg-amber-500/50">+</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {rectTotal >= 50 && <p className="text-[10px] text-rose-400 mt-2">⚠️ بلغت الحدّ الأقصى 50</p>}
+                      </div>
 
-                {/* ── المحرر البصري ── */}
-                <SeatEditor
-                  totalSeats={totalSeats}
-                  layoutType={layoutType}
-                  reservedTailCount={reservedTailCount}
-                  pinnedSeats={pinnedSeats}
-                  seatPositions={seatPositions}
-                  onPositionsChange={setSeatPositions}
-                  onPinnedSeatsChange={setPinnedSeats}
-                  selectedSeat={selectedSeat}
-                  onSelectSeat={setSelectedSeat}
-                  onRenumberFrom={(seatId) => {
-                    const currentPositions = seatPositions && seatPositions.length === totalSeats
-                      ? seatPositions
-                      : generatePositions(totalSeats, layoutType, 600, 450);
-                    const { newPositions, newPinned } = renumberFromSeat(currentPositions, seatId, pinnedSeats);
-                    setSeatPositions(newPositions);
-                    setPinnedSeats(newPinned);
-                  }}
-                />
+                      {/* الترقيم */}
+                      <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4">
+                        <p className="text-xs text-gray-400 mb-3 font-bold">بداية الترقيم</p>
+                        <div className="grid grid-cols-2 gap-1.5 mb-3">
+                          {(['TL', 'TR', 'BL', 'BR'] as Corner[]).map(c => (
+                            <button key={c} onClick={() => setNumbering(n => ({ ...n, startCorner: c }))}
+                              className={`py-2 rounded-lg text-[11px] font-bold border transition ${numbering.startCorner === c ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-gray-900/50 text-gray-500 border-gray-700/20 hover:text-white'}`}>{CORNER_LABEL[c]}</button>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => setNumbering(n => ({ ...n, direction: 'cw' }))}
+                            className={`flex-1 py-2 rounded-lg text-[11px] font-bold border transition ${numbering.direction === 'cw' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-gray-900/50 text-gray-500 border-gray-700/20'}`}>↻ مع العقارب</button>
+                          <button onClick={() => setNumbering(n => ({ ...n, direction: 'ccw' }))}
+                            className={`flex-1 py-2 rounded-lg text-[11px] font-bold border transition ${numbering.direction === 'ccw' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-gray-900/50 text-gray-500 border-gray-700/20'}`}>↺ عكسها</button>
+                        </div>
+                      </div>
 
-                {/* ── لوحة تثبيت المقعد المحدد ── */}
+                      {/* الأبواب */}
+                      <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4">
+                        <p className="text-xs text-gray-400 mb-2 font-bold">الأبواب 🚪 <span className="text-gray-600 font-normal">({doors.length})</span></p>
+                        <p className="text-[10px] text-gray-600 mb-2">اضغط على أيّ جدار في المشهد لإضافة باب</p>
+                        <div className="space-y-1.5 max-h-28 overflow-y-auto">
+                          {doors.length === 0 && <p className="text-[10px] text-gray-600 text-center py-2">لا أبواب بعد</p>}
+                          {doors.map((d, i) => (
+                            <div key={d.id} className="flex items-center gap-1.5 bg-gray-900/50 rounded-lg px-2 py-1.5">
+                              <span className="text-[10px] text-gray-400 flex-1">{SIDE_LABEL[d.side]}</span>
+                              <button onClick={() => setDoors(prev => prev.map(x => x.id === d.id ? { ...x, type: x.type === 'entry' ? 'exit' : 'entry' } : x))}
+                                className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${d.type === 'entry' ? 'bg-green-500/15 text-green-400' : 'bg-rose-500/15 text-rose-400'}`}>{d.type === 'entry' ? 'دخول' : 'خروج'}</button>
+                              <button onClick={() => setDoors(prev => prev.filter(x => x.id !== d.id))} className="text-gray-600 hover:text-rose-400 text-xs">✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* المؤخرة */}
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1.5">المقاعد المؤخرة: <span className="text-gray-300 font-bold">{reservedTailCount}</span> <span className="text-[10px] text-gray-600">(تُملأ أخيراً)</span></label>
+                      <input type="range" min={0} max={Math.floor(rectTotal / 2)} value={reservedTailCount} onChange={e => setReservedTailCount(Number(e.target.value))} className="w-full accent-gray-500" />
+                    </div>
+
+                    {/* المحرّر 3D */}
+                    <Editor3D sides={sides} numbering={numbering} doors={doors} pinnedSeats={pinnedSeats}
+                      reservedTailCount={reservedTailCount} selectedSeat={selectedSeat} onSelectSeat={setSelectedSeat} onAddDoor={addDoor} />
+                    <div className="flex items-center gap-4 text-[10px] flex-wrap text-gray-500">
+                      <span className="text-emerald-400">■ عادي</span>
+                      <span className="text-amber-400">■ 📌 مثبت</span>
+                      <span className="text-rose-400">■ بجانب باب</span>
+                      <span className="text-gray-400">■ مؤخر</span>
+                      <span className="text-blue-400">■ محدد</span>
+                      <span>🖱️ اسحب للدوران · انقر كرسياً للتثبيت · انقر جداراً لإضافة باب</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* الدائري/الصفوف — محرّر 2D القديم */}
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1.5">عدد المقاعد: <span className="text-amber-400 font-bold">{totalSeats}</span></label>
+                      <input type="range" min={6} max={50} value={totalSeats} onChange={e => setTotalSeats(Number(e.target.value))} className="w-full accent-amber-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1.5">المقاعد المؤخرة: <span className="text-gray-300 font-bold">{reservedTailCount}</span></label>
+                      <input type="range" min={0} max={Math.floor(totalSeats / 2)} value={reservedTailCount} onChange={e => setReservedTailCount(Number(e.target.value))} className="w-full accent-gray-500" />
+                    </div>
+                    <Svg2DEditor totalSeats={totalSeats} layoutType={layoutType} reservedTailCount={reservedTailCount}
+                      pinnedSeats={pinnedSeats} selectedSeat={selectedSeat} onSelectSeat={setSelectedSeat} />
+                    <p className="text-[10px] text-gray-600">🖱️ انقر مقعداً لتثبيت لاعب فيه</p>
+                  </>
+                )}
+
+                {/* لوحة التثبيت */}
                 <AnimatePresence>
                   {selectedSeat && (
-                    <PinSeatPanel
-                      selectedSeat={selectedSeat}
-                      pinnedSeats={pinnedSeats}
-                      players={players}
-                      onPin={handlePinSeat}
-                      onUnpin={handleUnpinSeat}
-                      onClose={() => setSelectedSeat(null)}
-                    />
+                    <PinSeatPanel selectedSeat={selectedSeat} pinnedSeats={pinnedSeats} players={players}
+                      onPin={handlePin} onUnpin={handleUnpin} onClose={() => setSelectedSeat(null)} />
                   )}
                 </AnimatePresence>
 
-                {/* ── المقاعد المثبتة ── */}
+                {/* قائمة المثبتين */}
                 {pinnedSeats.length > 0 && (
                   <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
                     <h4 className="text-xs text-amber-400 font-bold mb-2">📌 المقاعد المثبتة ({pinnedSeats.length})</h4>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {pinnedSeats.sort((a, b) => a.seatNumber - b.seatNumber).map((p) => (
+                      {[...pinnedSeats].sort((a, b) => a.seatNumber - b.seatNumber).map(p => (
                         <div key={p.seatNumber} className="flex items-center gap-2 bg-gray-800/50 rounded-lg px-3 py-2">
                           <span className="text-amber-400 font-bold text-sm">#{p.seatNumber}</span>
                           <span className="text-xs text-white truncate flex-1">{p.playerName}</span>
-                          <button
-                            onClick={() => handleUnpinSeat(p.seatNumber)}
-                            className="text-gray-600 hover:text-rose-400 text-xs transition"
-                          >
-                            ✕
-                          </button>
+                          <button onClick={() => handleUnpin(p.seatNumber)} className="text-gray-600 hover:text-rose-400 text-xs">✕</button>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {/* ── قالب افتراضي ── */}
+                {/* افتراضي */}
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setIsDefault(!isDefault)}
-                    className={`text-xs px-4 py-2 rounded-lg border transition ${
-                      isDefault
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                        : 'bg-gray-800/50 text-gray-500 border-gray-700/20'
-                    }`}
-                  >
-                    {isDefault ? '⭐ قالب افتراضي' : 'تعيين كافتراضي'}
-                  </button>
-                  <span className="text-[10px] text-gray-600">يُستخدم تلقائياً عند إنشاء فعالية بدون تحديد قالب</span>
+                  <button onClick={() => setIsDefault(!isDefault)} className={`text-xs px-4 py-2 rounded-lg border transition ${isDefault ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-gray-800/50 text-gray-500 border-gray-700/20'}`}>{isDefault ? '⭐ قالب افتراضي' : 'تعيين كافتراضي'}</button>
+                  <span className="text-[10px] text-gray-600">يُستخدم عند إنشاء فعالية بدون تحديد قالب</span>
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-700/30">
-                <button
-                  onClick={() => setShowEditor(false)}
-                  className="px-5 py-2.5 rounded-xl border border-gray-600/30 text-gray-400 hover:text-white text-sm transition"
-                >
-                  إلغاء
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving || !name.trim()}
-                  className="px-6 py-2.5 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-xl text-sm font-bold hover:bg-amber-500/30 transition disabled:opacity-50"
-                >
+              <div className="flex items-center justify-end gap-3 p-5 border-t border-gray-700/30 sticky bottom-0 bg-gray-900 rounded-b-2xl">
+                <button onClick={() => setShowEditor(false)} className="px-5 py-2.5 rounded-xl border border-gray-600/30 text-gray-400 hover:text-white text-sm transition">إلغاء</button>
+                <button onClick={handleSave} disabled={saving || !name.trim()} className="px-6 py-2.5 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-xl text-sm font-bold hover:bg-amber-500/30 transition disabled:opacity-50">
                   {saving ? '⏳ جارٍ الحفظ...' : editingTemplate ? '✅ حفظ التعديلات' : '✅ إنشاء القالب'}
                 </button>
               </div>

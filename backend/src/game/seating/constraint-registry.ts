@@ -10,6 +10,7 @@ import { HighRankSeparationConstraint } from './constraints/high-rank-separation
 import { GenderSeparationConstraint } from './constraints/gender-separation.constraint.js';
 import { NoAdjacentPairsConstraint } from './constraints/no-adjacent-pairs.constraint.js';
 import { PlayerGenderConstraint } from './constraints/player-gender.constraint.js';
+import { DoorProximityConstraint } from './constraints/door-proximity.constraint.js';
 
 // ── نوع مصنع القيد ──────────────────────────────
 type ConstraintFactory = (config: { enabled?: boolean; priority?: number; params?: Record<string, any> }) => SeatingConstraint;
@@ -22,6 +23,7 @@ const FACTORIES: Record<string, ConstraintFactory> = {
   GENDER_SEPARATION: (c) => new GenderSeparationConstraint(c),
   NO_ADJACENT_PAIRS: (c) => new NoAdjacentPairsConstraint(c),
   PLAYER_GENDER_CONSTRAINT: (c) => new PlayerGenderConstraint(c),
+  DOOR_PROXIMITY_AVOIDANCE: (c) => new DoorProximityConstraint(c),
 };
 
 // ── وصف القيود المتاحة (للعرض في الواجهة) ──────
@@ -79,6 +81,15 @@ export const CONSTRAINT_TYPES = [
     defaultPriority: 8,
     defaultEnabled: false,
     paramsSchema: {},
+  },
+  {
+    type: 'DOOR_PROXIMITY_AVOIDANCE',
+    nameAr: 'تجنّب القرب من الأبواب',
+    icon: '🚪',
+    description: 'اللاعبون (خاصة الجدد) يتجنّبون المقاعد المجاورة لأبواب الدخول/الخروج',
+    defaultPriority: 5,
+    defaultEnabled: true,
+    paramsSchema: { newPlayerThreshold: 'number' },
   },
 ];
 

@@ -1618,7 +1618,9 @@ export default function LeaderPage() {
               {(() => {
                 const pinned = (((gameState as any).pinnedSeats) || []) as any[];
                 const tail = ((gameState as any).reservedTailSeats) || 0;
-                if (pinned.length === 0 && !tail) return null;
+                const doors = (((gameState as any).doors) || []) as any[];
+                const SIDE_AR: Record<string, string> = { top: 'أعلى', right: 'يمين', bottom: 'أسفل', left: 'يسار' };
+                if (pinned.length === 0 && !tail && doors.length === 0) return null;
                 return (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -1633,8 +1635,21 @@ export default function LeaderPage() {
                       </div>
                       {tail > 0 && <span className="text-[#808080] text-[8px] font-mono tracking-widest uppercase">TAIL {tail}</span>}
                     </div>
+
+                    {/* الأبواب */}
+                    {doors.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap mb-3 pb-3 border-b border-[#1a1a1a]">
+                        <span className="text-[10px] text-gray-500 ml-1">الأبواب:</span>
+                        {doors.map((d: any, i: number) => (
+                          <span key={i} className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${d.type === 'entry' ? 'bg-green-500/15 text-green-400' : 'bg-rose-500/15 text-rose-400'}`}>
+                            🚪 {SIDE_AR[d.side] || d.side} · {d.type === 'entry' ? 'دخول' : 'خروج'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     {pinned.length === 0 ? (
-                      <p className="text-[#808080] text-[10px] font-mono">لا مقاعد مثبّتة — {tail} مقاعد مؤخّرة محجوزة في التوزيع</p>
+                      <p className="text-[#808080] text-[10px] font-mono">{doors.length > 0 ? 'لا مقاعد مثبّتة' : `لا مقاعد مثبّتة — ${tail} مقاعد مؤخّرة محجوزة في التوزيع`}</p>
                     ) : (
                       <div className="space-y-2">
                         {pinned.slice().sort((a: any, b: any) => Number(a.seatNumber) - Number(b.seatNumber)).map((ps: any) => {
