@@ -144,11 +144,20 @@ router.get('/summary', authenticate, managerOrAbove, async (req: Request, res: R
       .orderBy(desc(roomFeedback.createdAt))
       .limit(100);
 
-    // قائمة كل من عبّأ الاستبيان (بالاسم) ضمن الفلتر الحالي — للعرض في اللوحة
+    // قائمة كل من عبّأ الاستبيان (بالاسم + تقييم كل بُعد) ضمن الفلتر الحالي — للعرض القابل للتوسّع
     const respondents = await db.select({
       playerId: roomFeedback.playerId,
       playerName: players.name,
       overall: roomFeedback.overall,
+      venue: roomFeedback.venue,
+      gameplay: roomFeedback.gameplay,
+      clarity: roomFeedback.clarity,
+      pacing: roomFeedback.pacing,
+      seating: roomFeedback.seating,
+      leader: roomFeedback.leader,
+      fairness: roomFeedback.fairness,
+      atmosphere: roomFeedback.atmosphere,
+      value: roomFeedback.value,
       recommend: roomFeedback.recommend,
       playedAt: roomFeedback.playedAt,
       submittedAt: roomFeedback.submittedAt,
