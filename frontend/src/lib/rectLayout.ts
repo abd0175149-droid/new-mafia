@@ -91,9 +91,8 @@ export function computeDoorSeats(sides: Sides, seats: RectSeat[], doors: RectDoo
 
 // ── تحويل إحداثيات 3D (x,z) إلى مواقع 2D للحفظ التوافقي (seatPositions) ──
 export function seatsTo2D(seats: RectSeat[]): { id: number; x: number; y: number }[] {
-  const { halfW, halfD } = rectDims({ top: 0, right: 0, bottom: 0, left: 0 }); // غير مستخدم — placeholder
-  void halfW; void halfD;
-  // قياس بسيط إلى لوحة 600×450
+  if (seats.length === 0) return [];
+  // قياس بسيط إلى لوحة 600×450 (للعرض التوافقي فقط)
   const xs = seats.map(s => s.x), zs = seats.map(s => s.z);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minZ = Math.min(...zs), maxZ = Math.max(...zs);
