@@ -6,7 +6,7 @@
 import { eq, and, isNull, isNotNull, gte, lte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { roomFeedback } from '../schemas/feedback.schema.js';
-import { sessions, sessionPlayers } from '../schemas/game.schema.js';
+import { sessions, sessionPlayers, matches, matchPlayers } from '../schemas/game.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 
 // ── الأسئلة (مصدر وحيد — تُرجَع للواجهة لتُعرض) ──
@@ -102,11 +102,19 @@ export async function createPendingForSession(sessionId: number): Promise<number
   const refDate = activityDate || ses.createdAt;
   if (refDate && refDate.getTime() < FEEDBACK_CUTOFF.getTime()) return [];
 
-  // مشاركو الغرفة (لاعبون لهم حساب)
-  const parts = await db.select({ playerId: sessionPlayers.playerId })
+  // مشاركو الغرفة (لاعبون لهم حساب).
+  // نوحّد مصدرين: session_players (الروستر) + match_players (من لعبوا فعلاً) — لأن الروستر
+  // قد يكون ناقصاً (لاعبون أُضيفوا للمباريات دون كتابتهم في session_players) فلا يفوتنا أحد.
+  const fromRoster = await db.select({ playerId: sessionPlayers.playerId })
     .from(sessionPlayers)
     .where(and(eq(sessionPlayers.sessionId, sessionId), isNotNull(sessionPlayers.playerId)));
-  const playerIds = Array.from(new Set(parts.map(p => p.playerId!).filter(Boolean)));
+  const fromMatches = await db.select({ playerId: matchPlayers.playerId })
+    .from(matchPlayers)
+    .innerJoin(matches, eq(matches.id, matchPlayers.matchId))
+    .where(and(eq(matches.sessionId, sessionId), isNotNull(matchPlayers.playerId)));
+  const playerIds = Array.from(new Set(
+    [...fromRoster, ...fromMatches].map(p => p.playerId!).filter(Boolean)
+  ));
   if (playerIds.length === 0) return [];
 
   const now = new Date();
