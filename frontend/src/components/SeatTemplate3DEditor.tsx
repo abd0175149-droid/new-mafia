@@ -2,44 +2,43 @@
 
 // ══════════════════════════════════════════════════════
 // 🪑🚪 محرّر القاعة ثلاثي الأبعاد — Rectangular Venue 3D Editor
-// الكراسي تواجه مركز المستطيل دائماً. الأبواب بعرض محدّد مرتبطة بمقعد.
-// زر «وضع العرض»: مفعّل = دوران بالكاميرا · مُوقف = النقر على المقاعد للتعديل.
+// الكراسي مستقيمة على كل ضلع، وجهها عموديّ نحو الداخل.
+// الباب يحلّ محلّ كرسي (في الموضع نفسه، فارغ من الكرسي) بعرض كرسي.
+// زر «وضع العرض»: مفعّل = دوران الكاميرا · مُوقف = النقر على المقاعد/الأبواب.
 // يُستورد ديناميكياً مع ssr:false.
 // ══════════════════════════════════════════════════════
 
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Html, RoundedBox } from '@react-three/drei';
-import { rectDims, SPACING, type Sides, type RectDoor, type RectSeat } from '@/lib/rectLayout';
-
-interface PinnedSeat { seatNumber: number; playerName: string }
+import { rectDims, type Sides, type RectSeat, type DoorNode } from '@/lib/rectLayout';
 
 interface Props {
   sides: Sides;
   seats: RectSeat[];
-  doors: RectDoor[];
-  pinnedSeats: PinnedSeat[];
+  doorNodes: DoorNode[];
+  pinnedNameBySlot: Record<number, string>;
   reservedTailCount: number;
-  viewMode: boolean;        // true = دوران الكاميرا · false = نقر المقاعد
-  selectedSeat: number | null;
+  viewMode: boolean;
+  selectedSeat: number | null;      // seatNum
+  selectedDoorSlot: number | null;  // slotIndex
   onSelectSeat: (n: number) => void;
+  onSelectDoor: (slotIndex: number) => void;
 }
 
-const C = { normal: '#10b981', pinned: '#f59e0b', door: '#fb7185', tail: '#6b7280', selected: '#3b82f6' };
+const C = { normal: '#10b981', pinned: '#f59e0b', tail: '#6b7280', selected: '#3b82f6' };
 
 function Chair({ seat, color, pinnedName, clickable, onClick }: {
   seat: RectSeat; color: string; pinnedName?: string; clickable: boolean; onClick: () => void;
 }) {
   return (
     <group position={[seat.x, 0, seat.z]} rotation={[0, seat.rotationY, 0]}>
-      <RoundedBox
-        args={[0.85, 0.45, 0.85]} radius={0.12} smoothness={4} position={[0, 0.23, 0]}
+      <RoundedBox args={[0.85, 0.45, 0.85]} radius={0.12} smoothness={4} position={[0, 0.23, 0]}
         onClick={clickable ? (e) => { e.stopPropagation(); onClick(); } : undefined}
         onPointerOver={clickable ? (e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; } : undefined}
-        onPointerOut={clickable ? () => { document.body.style.cursor = 'auto'; } : undefined}
-      >
+        onPointerOut={clickable ? () => { document.body.style.cursor = 'auto'; } : undefined}>
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.1} emissive={color} emissiveIntensity={0.18} />
       </RoundedBox>
-      {/* مسند الظهر — للخارج (الكرسي يواجه المركز) */}
+      {/* مسند الظهر للخارج (الكرسي يواجه الداخل) */}
       <RoundedBox args={[0.85, 0.6, 0.14]} radius={0.06} position={[0, 0.5, -0.36]}>
         <meshStandardMaterial color={color} roughness={0.6} emissive={color} emissiveIntensity={0.1} />
       </RoundedBox>
@@ -53,33 +52,37 @@ function Chair({ seat, color, pinnedName, clickable, onClick }: {
   );
 }
 
-function Door({ seat, dims, type }: { seat: RectSeat; dims: ReturnType<typeof rectDims>; type: 'entry' | 'exit' }) {
-  const color = type === 'entry' ? '#22c55e' : '#ef4444';
-  const wDoor = SPACING * 1.15;
-  const { halfW, halfD } = dims;
-  let pos: [number, number, number]; let args: [number, number, number];
-  if (seat.side === 'top') { pos = [seat.x, 0.85, -halfD - 0.18]; args = [wDoor, 1.7, 0.32]; }
-  else if (seat.side === 'bottom') { pos = [seat.x, 0.85, halfD + 0.18]; args = [wDoor, 1.7, 0.32]; }
-  else if (seat.side === 'left') { pos = [-halfW - 0.18, 0.85, seat.z]; args = [0.32, 1.7, wDoor]; }
-  else { pos = [halfW + 0.18, 0.85, seat.z]; args = [0.32, 1.7, wDoor]; }
+function Door({ door, selected, clickable, onClick }: {
+  door: DoorNode; selected: boolean; clickable: boolean; onClick: () => void;
+}) {
+  const color = door.type === 'entry' ? '#22c55e' : '#ef4444';
   return (
-    <group>
-      <mesh position={pos}>
-        <boxGeometry args={args} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.55} roughness={0.3} />
+    <group position={[door.x, 0, door.z]} rotation={[0, door.rotationY, 0]}>
+      {/* إطار الباب */}
+      <mesh position={[0, 0.95, 0]}
+        onClick={clickable ? (e) => { e.stopPropagation(); onClick(); } : undefined}
+        onPointerOver={clickable ? (e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; } : undefined}
+        onPointerOut={clickable ? () => { document.body.style.cursor = 'auto'; } : undefined}>
+        <boxGeometry args={[0.9, 1.9, 0.18]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={selected ? 0.9 : 0.5} roughness={0.3} />
       </mesh>
-      <Html position={[pos[0], 1.95, pos[2]]} center distanceFactor={11} style={{ pointerEvents: 'none' }}>
-        <div style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{type === 'entry' ? '🚪⬇️' : '🚪⬆️'}</div>
+      {/* عتبة على الأرض تبيّن أن الموضع فارغ من الكرسي */}
+      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[0.9, 0.9]} />
+        <meshStandardMaterial color={color} transparent opacity={0.15} />
+      </mesh>
+      <Html position={[0, 2.15, 0]} center distanceFactor={11} style={{ pointerEvents: 'none' }}>
+        <div style={{ fontSize: 13, whiteSpace: 'nowrap', textAlign: 'center' }}>
+          {door.type === 'entry' ? '🚪 دخول' : '🚪 خروج'}
+        </div>
       </Html>
     </group>
   );
 }
 
-function Scene({ sides, seats, doors, pinnedSeats, reservedTailCount, viewMode, selectedSeat, onSelectSeat }: Props) {
-  const total = seats.length;
-  const doorSlots = new Set(doors.map(d => d.slotIndex));
-  const pinnedMap = new Map(pinnedSeats.map(p => [p.seatNumber, p.playerName]));
-  const tailStart = total - reservedTailCount + 1;
+function Scene({ sides, seats, doorNodes, pinnedNameBySlot, reservedTailCount, viewMode, selectedSeat, selectedDoorSlot, onSelectSeat, onSelectDoor }: Props) {
+  const totalChairs = seats.length;
+  const tailStart = totalChairs - reservedTailCount + 1;
   const dims = rectDims(sides);
   const { halfW, halfD } = dims;
 
@@ -95,7 +98,6 @@ function Scene({ sides, seats, doors, pinnedSeats, reservedTailCount, viewMode, 
       </mesh>
       <gridHelper args={[Math.max(halfW, halfD) * 4, 24, '#1f2937', '#141a24']} />
 
-      {/* الطاولة */}
       <RoundedBox args={[Math.max(halfW * 1.2, 1.5), 0.5, Math.max(halfD * 1.2, 1.5)]} radius={0.1} position={[0, 0.25, 0]}>
         <meshStandardMaterial color="#15202e" roughness={0.4} metalness={0.3} />
       </RoundedBox>
@@ -104,34 +106,21 @@ function Scene({ sides, seats, doors, pinnedSeats, reservedTailCount, viewMode, 
         <meshStandardMaterial color="#1a2738" roughness={0.3} metalness={0.4} emissive="#f59e0b" emissiveIntensity={0.05} />
       </mesh>
 
-      {/* الكراسي */}
       {seats.map(s => {
         const isSel = selectedSeat === s.seatNum;
-        const isPinned = pinnedMap.has(s.seatNum);
-        const isDoor = doorSlots.has(s.slotIndex);
+        const isPinned = !!pinnedNameBySlot[s.slotIndex];
         const isTail = s.seatNum >= tailStart && reservedTailCount > 0;
-        const color = isSel ? C.selected : isPinned ? C.pinned : isDoor ? C.door : isTail ? C.tail : C.normal;
-        return (
-          <Chair key={s.slotIndex} seat={s} color={color} pinnedName={pinnedMap.get(s.seatNum)}
-            clickable={!viewMode} onClick={() => onSelectSeat(s.seatNum)} />
-        );
+        const color = isSel ? C.selected : isPinned ? C.pinned : isTail ? C.tail : C.normal;
+        return <Chair key={s.slotIndex} seat={s} color={color} pinnedName={pinnedNameBySlot[s.slotIndex]} clickable={!viewMode} onClick={() => onSelectSeat(s.seatNum)} />;
       })}
 
-      {/* الأبواب */}
-      {doors.map(d => {
-        const seat = seats.find(s => s.slotIndex === d.slotIndex);
-        if (!seat) return null;
-        return <Door key={d.id} seat={seat} dims={dims} type={d.type} />;
-      })}
+      {doorNodes.map(d => (
+        <Door key={d.id} door={d} selected={selectedDoorSlot === d.slotIndex} clickable={!viewMode} onClick={() => onSelectDoor(d.slotIndex)} />
+      ))}
 
-      <OrbitControls
-        enabled={viewMode}
-        enablePan={false}
-        minDistance={Math.max(halfW, halfD) + 3}
-        maxDistance={Math.max(halfW, halfD) * 4 + 12}
-        maxPolarAngle={Math.PI / 2.15}
-        target={[0, 0, 0]}
-      />
+      <OrbitControls enabled={viewMode} enablePan={false}
+        minDistance={Math.max(halfW, halfD) + 3} maxDistance={Math.max(halfW, halfD) * 4 + 12}
+        maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0]} />
     </>
   );
 }
