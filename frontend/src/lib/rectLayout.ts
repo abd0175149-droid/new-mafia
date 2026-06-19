@@ -1,16 +1,17 @@
 // ══════════════════════════════════════════════════════
 // 📐 هندسة التخطيط المستطيل — Rectangle Layout Math (نقي، بلا three)
-// مصدر واحد لحساب: مواقع المقاعد، الترقيم، نقاط الأبواب، والمقاعد المجاورة للأبواب.
-// يُستخدم من محرّر 3D ومن صفحة الحفظ معاً.
+// مصدر واحد: مواقع المقاعد، اتجاه كل كرسي نحو المركز، الترقيم (من أي مقعد)،
+// والأبواب المرتبطة بموقع مقعد (slot) مع المقاعد المجاورة لها.
 // ══════════════════════════════════════════════════════
 
 export type Side = 'top' | 'right' | 'bottom' | 'left';
-export type Corner = 'TL' | 'TR' | 'BR' | 'BL';
 
 export interface Sides { top: number; right: number; bottom: number; left: number }
-export interface Numbering { startCorner: Corner; direction: 'cw' | 'ccw' }
-export interface RectDoor { id: string; side: Side; offset: number; type: 'entry' | 'exit' }
-export interface RectSeat { seatNum: number; x: number; z: number; side: Side; slotIndex: number }
+// الترقيم يبدأ من «خانة» محدّدة (موقع فيزيائي حول المحيط) باتجاه معيّن
+export interface Numbering { startIndex: number; direction: 'cw' | 'ccw' }
+// الباب مرتبط بموقع مقعد فيزيائي (slotIndex) كي لا يتحرّك عند إعادة الترقيم
+export interface RectDoor { id: string; slotIndex: number; seatNumber?: number; type: 'entry' | 'exit' }
+export interface RectSeat { seatNum: number; slotIndex: number; x: number; z: number; side: Side; rotationY: number }
 
 export const SPACING = 1.5;
 
@@ -26,10 +27,10 @@ export function rectDims(sides: Sides) {
   return { W, D, halfW: W / 2, halfD: D / 2 };
 }
 
-// ── حساب المقاعد: مواقع (x,z) + رقم كل مقعد حسب زاوية البداية والاتجاه ──
+// ── المقاعد: مواقع (x,z) + اتجاه نحو المركز + رقم كل مقعد بدءاً من خانة معيّنة ──
 export function computeRectSeats(sides: Sides, numbering: Numbering): RectSeat[] {
   const { W, D, halfW, halfD } = rectDims(sides);
-  // قائمة «الخانات» بالترتيب الطبيعي مع عقارب الساعة بدءاً من أعلى-يسار:
+  // الخانات بالترتيب الطبيعي مع عقارب الساعة بدءاً من أعلى-يسار:
   // أعلى (يسار→يمين) ← يمين (أعلى→أسفل) ← أسفل (يمين→يسار) ← يسار (أسفل→أعلى)
   const slots: { x: number; z: number; side: Side }[] = [];
   for (let i = 0; i < sides.top; i++) slots.push({ side: 'top', x: -halfW + (W * (i + 1)) / (sides.top + 1), z: -halfD });
@@ -38,61 +39,49 @@ export function computeRectSeats(sides: Sides, numbering: Numbering): RectSeat[]
   for (let i = 0; i < sides.left; i++) slots.push({ side: 'left', x: -halfW, z: halfD - (D * (i + 1)) / (sides.left + 1) });
 
   const total = slots.length;
-  const arr: RectSeat[] = slots.map((s, slotIndex) => ({ ...s, slotIndex, seatNum: 0 }));
+  const arr: RectSeat[] = slots.map((s, slotIndex) => ({
+    ...s, slotIndex, seatNum: 0,
+    // اتجاه الكرسي نحو مركز المستطيل (الكرسي يواجه +Z افتراضياً)
+    rotationY: Math.atan2(-s.x, -s.z),
+  }));
   if (total === 0) return arr;
 
-  const startIndex =
-    numbering.startCorner === 'TL' ? 0 :
-    numbering.startCorner === 'TR' ? sides.top :
-    numbering.startCorner === 'BR' ? sides.top + sides.right :
-    sides.top + sides.right + sides.bottom; // BL
-
+  const start = ((numbering.startIndex % total) + total) % total;
   for (let i = 0; i < total; i++) {
     const idx = numbering.direction === 'cw'
-      ? (startIndex + i) % total
-      : ((startIndex - i) % total + total) % total;
+      ? (start + i) % total
+      : ((start - i) % total + total) % total;
     arr[idx].seatNum = i + 1;
   }
   return arr.sort((a, b) => a.seatNum - b.seatNum);
 }
 
-// ── إحداثيات الباب على الجدار حسب الضلع والإزاحة (0..1) ──
-export function doorPoint(sides: Sides, door: RectDoor): { x: number; z: number } {
-  const { W, D, halfW, halfD } = rectDims(sides);
-  const o = Math.max(0, Math.min(1, door.offset));
-  switch (door.side) {
-    case 'top': return { x: -halfW + W * o, z: -halfD };
-    case 'bottom': return { x: halfW - W * o, z: halfD };
-    case 'right': return { x: halfW, z: -halfD + D * o };
-    case 'left': return { x: -halfW, z: halfD - D * o };
-  }
-}
-
-// ── المقاعد المجاورة للأبواب: أقرب مقعد لكل باب + جاريه على الحلقة ──
-export function computeDoorSeats(sides: Sides, seats: RectSeat[], doors: RectDoor[]): number[] {
+// ── المقاعد المجاورة للأبواب: مقعد الباب + جاريه على الحلقة ──
+export function computeDoorSeats(seats: RectSeat[], doors: RectDoor[]): number[] {
   const total = seats.length;
   const set = new Set<number>();
   if (total === 0) return [];
   for (const d of doors) {
-    const p = doorPoint(sides, d);
-    let best = seats[0]; let bestDist = Infinity;
-    for (const s of seats) {
-      const dd = (s.x - p.x) ** 2 + (s.z - p.z) ** 2;
-      if (dd < bestDist) { bestDist = dd; best = s; }
-    }
-    if (best) {
-      set.add(best.seatNum);
-      set.add(best.seatNum === 1 ? total : best.seatNum - 1);
-      set.add(best.seatNum === total ? 1 : best.seatNum + 1);
-    }
+    const seat = seats.find(s => s.slotIndex === d.slotIndex);
+    if (!seat) continue;
+    set.add(seat.seatNum);
+    set.add(seat.seatNum === 1 ? total : seat.seatNum - 1);
+    set.add(seat.seatNum === total ? 1 : seat.seatNum + 1);
   }
   return Array.from(set).sort((a, b) => a - b);
 }
 
-// ── تحويل إحداثيات 3D (x,z) إلى مواقع 2D للحفظ التوافقي (seatPositions) ──
+// ── ختم رقم المقعد الحالي على كل باب (للعرض في واجهة الليدر) ──
+export function stampDoorSeatNumbers(seats: RectSeat[], doors: RectDoor[]): RectDoor[] {
+  return doors.map(d => {
+    const s = seats.find(x => x.slotIndex === d.slotIndex);
+    return { ...d, seatNumber: s?.seatNum };
+  });
+}
+
+// ── تحويل لمواقع 2D (seatPositions) للحفظ التوافقي ──
 export function seatsTo2D(seats: RectSeat[]): { id: number; x: number; y: number }[] {
   if (seats.length === 0) return [];
-  // قياس بسيط إلى لوحة 600×450 (للعرض التوافقي فقط)
   const xs = seats.map(s => s.x), zs = seats.map(s => s.z);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minZ = Math.min(...zs), maxZ = Math.max(...zs);

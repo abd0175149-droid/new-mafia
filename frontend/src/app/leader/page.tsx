@@ -1619,7 +1619,6 @@ export default function LeaderPage() {
                 const pinned = (((gameState as any).pinnedSeats) || []) as any[];
                 const tail = ((gameState as any).reservedTailSeats) || 0;
                 const doors = (((gameState as any).doors) || []) as any[];
-                const SIDE_AR: Record<string, string> = { top: 'أعلى', right: 'يمين', bottom: 'أسفل', left: 'يسار' };
                 if (pinned.length === 0 && !tail && doors.length === 0) return null;
                 return (
                   <motion.div
@@ -1642,7 +1641,7 @@ export default function LeaderPage() {
                         <span className="text-[10px] text-gray-500 ml-1">الأبواب:</span>
                         {doors.map((d: any, i: number) => (
                           <span key={i} className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${d.type === 'entry' ? 'bg-green-500/15 text-green-400' : 'bg-rose-500/15 text-rose-400'}`}>
-                            🚪 {SIDE_AR[d.side] || d.side} · {d.type === 'entry' ? 'دخول' : 'خروج'}
+                            🚪 {d.seatNumber ? `بجانب #${d.seatNumber}` : 'باب'} · {d.type === 'entry' ? 'دخول' : 'خروج'}
                           </span>
                         ))}
                       </div>
