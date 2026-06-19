@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   computeRectLayout, seatsTo2D, totalFromSides,
-  type Sides, type Numbering, type RectDoor,
+  type Sides, type Numbering, type RectDoor, type Side,
 } from '@/lib/rectLayout';
 
 const Editor3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
@@ -22,9 +22,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-interface PinSlot { slotIndex: number; playerId?: number; phone?: string; playerName: string }
+type PinVal = { playerId?: number; phone?: string; playerName: string };
 const SIDE_LABEL: Record<string, string> = { top: 'أعلى', right: 'يمين', bottom: 'أسفل', left: 'يسار' };
-const MIN_CHAIRS = 6;
+const rectKey = (side: Side, sideIndex: number) => `r:${side}:${sideIndex}`;
 
 function defaultSides(total: number): Sides {
   const s: Sides = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -57,28 +57,37 @@ function EditorInner() {
   const [name, setName] = useState('');
   const [layoutType, setLayoutType] = useState<'rectangle' | 'circle' | 'rows'>('rectangle');
   const [sides, setSides] = useState<Sides>({ top: 6, right: 4, bottom: 6, left: 4 });
-  const [numbering, setNumbering] = useState<Numbering>({ startIndex: 0, direction: 'cw' });
+  const [numbering, setNumbering] = useState<Numbering>({ start: null, direction: 'cw' });
   const [doors, setDoors] = useState<RectDoor[]>([]);
   const [reservedTailCount, setReservedTailCount] = useState(5);
-  const [pinnedSlots, setPinnedSlots] = useState<PinSlot[]>([]); // slotIndex (مستطيل) أو seatNumber (دائري/صفوف)
+  const [pinned, setPinned] = useState<Record<string, PinVal>>({}); // key: r:side:idx (مستطيل) أو s:seatNum (دائري/صفوف)
   const [isDefault, setIsDefault] = useState(false);
-  const [totalSeats, setTotalSeats] = useState(20); // للدائري/الصفوف
+  const [totalSeats, setTotalSeats] = useState(20);
 
   const [viewMode, setViewMode] = useState(false);
-  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);   // seatNum
-  const [selectedDoorSlot, setSelectedDoorSlot] = useState<number | null>(null);
+  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  const [selectedDoorId, setSelectedDoorId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [manualName, setManualName] = useState('');
 
   const isRect = layoutType === 'rectangle';
   const layout = useMemo(() => isRect ? computeRectLayout(sides, numbering, doors) : null, [isRect, sides, numbering, doors]);
-  const totalChairs = layout?.totalChairs ?? 0;
+  const totalChairs = layout?.totalChairs ?? totalFromSides(sides);
   const effectiveTotal = isRect ? totalChairs : totalSeats;
   const selectedSeatObj = useMemo(() => layout?.seats.find(s => s.seatNum === selectedSeat), [layout, selectedSeat]);
-  const selectedDoor = useMemo(() => doors.find(d => d.slotIndex === selectedDoorSlot), [doors, selectedDoorSlot]);
-  const pinnedNameBySlot = useMemo(() => {
-    const m: Record<number, string> = {}; pinnedSlots.forEach(p => { m[p.slotIndex] = p.playerName; }); return m;
-  }, [pinnedSlots]);
+  const selectedDoor = useMemo(() => doors.find(d => d.id === selectedDoorId), [doors, selectedDoorId]);
+
+  const pinnedByChair = useMemo(() => {
+    const m: Record<string, string> = {};
+    Object.entries(pinned).forEach(([k, v]) => { if (k.startsWith('r:')) m[k.slice(2)] = v.playerName; });
+    return m;
+  }, [pinned]);
+  const pinned2DSet = useMemo(() => new Set(Object.keys(pinned).filter(k => k.startsWith('s:')).map(k => Number(k.slice(2)))), [pinned]);
+
+  // المفتاح الحالي للتثبيت حسب المقعد المحدّد
+  const pinKey = isRect
+    ? (selectedSeatObj ? rectKey(selectedSeatObj.side, selectedSeatObj.sideIndex) : null)
+    : (selectedSeat != null ? `s:${selectedSeat}` : null);
 
   useEffect(() => { apiFetch('/api/player/all').then(r => setPlayers(Array.isArray(r) ? r : r.players || [])).catch(() => {}); }, []);
 
@@ -90,22 +99,25 @@ function EditorInner() {
       if (t.layoutType === 'rectangle' && t.layoutConfig?.shape === 'rectangle') {
         const lc = t.layoutConfig;
         setSides(lc.sides);
-        let num: Numbering = { startIndex: 0, direction: 'cw' };
-        if (typeof lc.numbering?.startIndex === 'number') num = { startIndex: lc.numbering.startIndex, direction: lc.numbering.direction || 'cw' };
-        else if (lc.numbering?.startCorner) { const s = lc.sides; const map: any = { TL: 0, TR: s.top, BR: s.top + s.right, BL: s.top + s.right + s.bottom }; num = { startIndex: map[lc.numbering.startCorner] ?? 0, direction: lc.numbering.direction || 'cw' }; }
+        const num: Numbering = { start: lc.numbering?.start ?? null, direction: lc.numbering?.direction || 'cw' };
         setNumbering(num);
-        const dz: RectDoor[] = (lc.doors || []).filter((d: any) => typeof d.slotIndex === 'number').map((d: any) => ({ id: d.id || 'd' + d.slotIndex, slotIndex: d.slotIndex, type: d.type || 'entry' }));
+        const dz: RectDoor[] = (lc.doors || []).filter((d: any) => d && d.side && typeof d.pos === 'number')
+          .map((d: any) => ({ id: d.id || 'd' + Math.random().toString(36).slice(2), side: d.side, pos: d.pos, type: d.type || 'entry' }));
         setDoors(dz);
         const lay = computeRectLayout(lc.sides, num, dz);
-        setPinnedSlots((t.pinnedSeats || []).map((p: any) => { const seat = lay.seats.find(s => s.seatNum === p.seatNumber); return seat ? { slotIndex: seat.slotIndex, playerId: p.playerId, phone: p.phone, playerName: p.playerName } : null; }).filter(Boolean));
+        const pm: Record<string, PinVal> = {};
+        (t.pinnedSeats || []).forEach((p: any) => { const seat = lay.seats.find(s => s.seatNum === p.seatNumber); if (seat) pm[rectKey(seat.side, seat.sideIndex)] = { playerId: p.playerId, phone: p.phone, playerName: p.playerName }; });
+        setPinned(pm);
       } else {
-        setSides(defaultSides(t.totalSeats)); setNumbering({ startIndex: 0, direction: 'cw' }); setDoors([]);
-        setPinnedSlots((t.pinnedSeats || []).map((p: any) => ({ slotIndex: p.seatNumber, playerId: p.playerId, phone: p.phone, playerName: p.playerName })));
+        setSides(defaultSides(t.totalSeats)); setNumbering({ start: null, direction: 'cw' }); setDoors([]);
+        const pm: Record<string, PinVal> = {};
+        (t.pinnedSeats || []).forEach((p: any) => { pm[`s:${p.seatNumber}`] = { playerId: p.playerId, phone: p.phone, playerName: p.playerName }; });
+        setPinned(pm);
       }
     }).catch(() => alert('تعذّر تحميل القالب')).finally(() => setLoading(false));
   }, [editId]);
 
-  const clearSel = () => { setSelectedSeat(null); setSelectedDoorSlot(null); setSearch(''); setManualName(''); };
+  const clearSel = () => { setSelectedSeat(null); setSelectedDoorId(null); setSearch(''); setManualName(''); };
 
   const setSide = (side: keyof Sides, delta: number) => setSides(prev => {
     const next = { ...prev, [side]: Math.max(0, prev[side] + delta) };
@@ -113,38 +125,39 @@ function EditorInner() {
     return next;
   });
 
-  const startNumberingHere = () => { if (selectedSeatObj) { setNumbering(n => ({ ...n, startIndex: selectedSeatObj.slotIndex })); clearSel(); } };
+  const startNumberingHere = () => { if (selectedSeatObj) { setNumbering(n => ({ ...n, start: { side: selectedSeatObj.side, sideIndex: selectedSeatObj.sideIndex } })); clearSel(); } };
   const putDoorHere = () => {
     if (!selectedSeatObj) return;
-    if (totalChairs - 1 < MIN_CHAIRS) { alert(`يجب أن يبقى ${MIN_CHAIRS} كراسي على الأقل`); return; }
-    const slot = selectedSeatObj.slotIndex;
-    setDoors(prev => [...prev, { id: 'd' + Date.now(), slotIndex: slot, type: 'entry' }]);
-    setPinnedSlots(prev => prev.filter(p => p.slotIndex !== slot)); // الكرسي اختفى
+    setDoors(prev => [...prev, { id: 'd' + Date.now(), side: selectedSeatObj.side, pos: selectedSeatObj.sideIndex + 1, type: 'entry' }]);
     clearSel();
   };
-  const removeDoor = (slot: number) => { setDoors(prev => prev.filter(d => d.slotIndex !== slot)); clearSel(); };
-  const setDoorType = (slot: number, type: 'entry' | 'exit') => setDoors(prev => prev.map(d => d.slotIndex === slot ? { ...d, type } : d));
+  const removeDoor = (id: string) => { setDoors(prev => prev.filter(d => d.id !== id)); clearSel(); };
+  const setDoorType = (id: string, type: 'entry' | 'exit') => setDoors(prev => prev.map(d => d.id === id ? { ...d, type } : d));
 
-  const pinSlotIndex = isRect ? selectedSeatObj?.slotIndex : selectedSeat;
   const pinPlayer = (p: { id?: number; phone?: string; name: string }) => {
-    if (pinSlotIndex == null) return;
-    setPinnedSlots(prev => [...prev.filter(x => x.slotIndex !== pinSlotIndex), { slotIndex: pinSlotIndex, playerId: p.id, phone: p.phone, playerName: p.name }]);
+    if (!pinKey) return;
+    setPinned(prev => ({ ...prev, [pinKey]: { playerId: p.id, phone: p.phone, playerName: p.name } }));
     setSearch(''); setManualName('');
   };
-  const unpin = (slot: number) => setPinnedSlots(prev => prev.filter(x => x.slotIndex !== slot));
+  const unpinKey = (key: string) => setPinned(prev => { const n = { ...prev }; delete n[key]; return n; });
 
   const handleSave = async () => {
     if (!name.trim()) { alert('الاسم مطلوب'); return; }
-    if (effectiveTotal < MIN_CHAIRS || effectiveTotal > 50) { alert('عدد الكراسي بين 6 و 50'); return; }
+    if (effectiveTotal < 6 || effectiveTotal > 50) { alert('عدد الكراسي بين 6 و 50'); return; }
     setSaving(true);
     try {
       let layoutConfig: any = null; let seatPositions: any = null; let pinnedSeats: any[] = [];
       if (isRect && layout) {
-        pinnedSeats = pinnedSlots.map(p => { const seat = layout.seats.find(s => s.slotIndex === p.slotIndex); return seat ? { seatNumber: seat.seatNum, playerId: p.playerId, phone: p.phone, playerName: p.playerName } : null; }).filter(Boolean) as any[];
+        Object.entries(pinned).forEach(([k, v]) => {
+          if (!k.startsWith('r:')) return;
+          const [, side, idxStr] = k.split(':');
+          const seat = layout.seats.find(s => s.side === side && s.sideIndex === Number(idxStr));
+          if (seat) pinnedSeats.push({ seatNumber: seat.seatNum, playerId: v.playerId, phone: v.phone, playerName: v.playerName });
+        });
         layoutConfig = { shape: 'rectangle', sides, numbering, doors, doorSeats: layout.doorSeats };
         seatPositions = seatsTo2D(layout.seats);
       } else {
-        pinnedSeats = pinnedSlots.filter(p => p.slotIndex <= totalSeats).map(p => ({ seatNumber: p.slotIndex, playerId: p.playerId, phone: p.phone, playerName: p.playerName }));
+        Object.entries(pinned).forEach(([k, v]) => { if (k.startsWith('s:')) { const n = Number(k.slice(2)); if (n <= totalSeats) pinnedSeats.push({ seatNumber: n, playerId: v.playerId, phone: v.phone, playerName: v.playerName }); } });
       }
       const body = { name, layoutType, totalSeats: effectiveTotal, reservedTailCount, pinnedSeats, seatPositions, layoutConfig, isDefault };
       if (editId) await apiFetch(`/api/seat-templates/${editId}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -154,7 +167,8 @@ function EditorInner() {
   };
 
   const filteredPlayers = players.filter(p => (p.name || '').includes(search) || (p.phone || '').includes(search)).slice(0, 6);
-  const selectedPinned = pinSlotIndex != null ? pinnedSlots.find(p => p.slotIndex === pinSlotIndex) : undefined;
+  const selectedPinned = pinKey ? pinned[pinKey] : undefined;
+  const doorCount = doors.length;
 
   if (loading) return <div className="flex justify-center py-24"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
 
@@ -175,8 +189,7 @@ function EditorInner() {
           <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4 space-y-3">
             <div>
               <label className="text-xs text-gray-400 block mb-1.5">اسم القالب *</label>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="مثال: قاعة المزاج"
-                className="w-full bg-gray-900/70 border border-gray-700/30 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none" />
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="مثال: قاعة المزاج" className="w-full bg-gray-900/70 border border-gray-700/30 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500/50 focus:outline-none" />
             </div>
             <div>
               <label className="text-xs text-gray-400 block mb-1.5">الشكل</label>
@@ -191,8 +204,8 @@ function EditorInner() {
           {isRect ? (
             <>
               <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4">
-                <p className="text-xs text-gray-400 mb-1 font-bold">المواضع لكل ضلع</p>
-                <p className="text-[10px] text-gray-600 mb-3">كراسي: <span className="text-emerald-400 font-bold">{totalChairs}</span> · أبواب: <span className="text-rose-400 font-bold">{doors.length}</span> · مواضع: {layout?.totalSlots ?? 0}</p>
+                <p className="text-xs text-gray-400 mb-1 font-bold">عدد الكراسي لكل ضلع</p>
+                <p className="text-[10px] text-gray-600 mb-3">كراسي: <span className="text-emerald-400 font-bold">{totalChairs}</span> · أبواب: <span className="text-rose-400 font-bold">{doorCount}</span> <span className="text-gray-700">(الباب موضع إضافي لا ينقص الكراسي)</span></p>
                 <div className="grid grid-cols-2 gap-2">
                   {(['top', 'right', 'bottom', 'left'] as (keyof Sides)[]).map(side => (
                     <div key={side} className="bg-gray-900/50 rounded-lg p-2">
@@ -205,16 +218,17 @@ function EditorInner() {
                     </div>
                   ))}
                 </div>
-                {(layout?.totalSlots ?? 0) >= 50 && <p className="text-[10px] text-rose-400 mt-2">⚠️ بلغت الحدّ الأقصى 50</p>}
+                {totalChairs >= 50 && <p className="text-[10px] text-rose-400 mt-2">⚠️ بلغت الحدّ الأقصى 50</p>}
               </div>
 
               <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4">
-                <p className="text-xs text-gray-400 mb-1 font-bold">الترقيم</p>
+                <p className="text-xs text-gray-400 mb-1 font-bold">الترقيم {numbering.start && <span className="text-blue-400 font-normal">(يبدأ من مقعد محدّد)</span>}</p>
                 <p className="text-[10px] text-gray-600 mb-2">وضع التعديل: انقر كرسياً ← «بدء الترقيم من هنا»</p>
                 <div className="flex gap-1.5">
                   <button onClick={() => setNumbering(n => ({ ...n, direction: 'cw' }))} className={`flex-1 py-2 rounded-lg text-[11px] font-bold border ${numbering.direction === 'cw' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-gray-900/50 text-gray-500 border-gray-700/20'}`}>↻ مع العقارب</button>
                   <button onClick={() => setNumbering(n => ({ ...n, direction: 'ccw' }))} className={`flex-1 py-2 rounded-lg text-[11px] font-bold border ${numbering.direction === 'ccw' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' : 'bg-gray-900/50 text-gray-500 border-gray-700/20'}`}>↺ عكسها</button>
                 </div>
+                {numbering.start && <button onClick={() => setNumbering(n => ({ ...n, start: null }))} className="mt-2 text-[10px] text-gray-500 hover:text-white">↺ إعادة للبداية الافتراضية</button>}
               </div>
 
               <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4">
@@ -231,18 +245,17 @@ function EditorInner() {
             </div>
           )}
 
-          {/* لوحة المقعد المحدّد */}
           <AnimatePresence>
-            {(selectedSeat || selectedDoorSlot != null) && (
+            {(selectedSeat != null || selectedDoorId) && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-gray-800/80 border border-blue-500/30 rounded-xl p-4 space-y-3">
-                {selectedDoorSlot != null && selectedDoor ? (
+                {selectedDoorId && selectedDoor ? (
                   <>
-                    <div className="flex items-center justify-between"><h4 className="text-sm font-bold text-white">🚪 باب</h4><button onClick={clearSel} className="text-gray-500 hover:text-white">✕</button></div>
+                    <div className="flex items-center justify-between"><h4 className="text-sm font-bold text-white">🚪 باب — {SIDE_LABEL[selectedDoor.side]}</h4><button onClick={clearSel} className="text-gray-500 hover:text-white">✕</button></div>
                     <div className="flex gap-1.5">
-                      <button onClick={() => setDoorType(selectedDoor.slotIndex, 'entry')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${selectedDoor.type === 'entry' ? 'bg-green-500/20 text-green-400' : 'bg-gray-900/50 text-gray-500'}`}>دخول</button>
-                      <button onClick={() => setDoorType(selectedDoor.slotIndex, 'exit')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${selectedDoor.type === 'exit' ? 'bg-rose-500/20 text-rose-400' : 'bg-gray-900/50 text-gray-500'}`}>خروج</button>
+                      <button onClick={() => setDoorType(selectedDoor.id, 'entry')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${selectedDoor.type === 'entry' ? 'bg-green-500/20 text-green-400' : 'bg-gray-900/50 text-gray-500'}`}>دخول</button>
+                      <button onClick={() => setDoorType(selectedDoor.id, 'exit')} className={`flex-1 py-2 rounded-lg text-[11px] font-bold ${selectedDoor.type === 'exit' ? 'bg-rose-500/20 text-rose-400' : 'bg-gray-900/50 text-gray-500'}`}>خروج</button>
                     </div>
-                    <button onClick={() => removeDoor(selectedDoor.slotIndex)} className="w-full py-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg text-xs hover:bg-rose-500/20">🗑️ إزالة الباب (يعود كرسي)</button>
+                    <button onClick={() => removeDoor(selectedDoor.id)} className="w-full py-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-lg text-xs hover:bg-rose-500/20">🗑️ إزالة الباب</button>
                   </>
                 ) : (
                   <>
@@ -250,13 +263,13 @@ function EditorInner() {
                     {isRect && (
                       <div className="grid grid-cols-1 gap-1.5">
                         <button onClick={startNumberingHere} className="py-2 rounded-lg text-xs font-bold bg-blue-500/10 border border-blue-500/25 text-blue-300 hover:bg-blue-500/20">① بدء الترقيم من هذا المقعد</button>
-                        <button onClick={putDoorHere} className="py-2 rounded-lg text-xs font-bold bg-rose-500/10 border border-rose-500/25 text-rose-300 hover:bg-rose-500/20">🚪 ضع باباً مكانه (يحلّ محلّ الكرسي)</button>
+                        <button onClick={putDoorHere} className="py-2 rounded-lg text-xs font-bold bg-rose-500/10 border border-rose-500/25 text-rose-300 hover:bg-rose-500/20">🚪 ضع باباً بجانبه (موضع إضافي)</button>
                       </div>
                     )}
                     {selectedPinned ? (
                       <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-2 flex items-center justify-between">
                         <span className="text-amber-400 text-xs font-bold">📌 {selectedPinned.playerName}</span>
-                        <button onClick={() => { if (pinSlotIndex != null) unpin(pinSlotIndex); }} className="text-rose-400 text-xs">إلغاء التثبيت</button>
+                        <button onClick={() => { if (pinKey) unpinKey(pinKey); }} className="text-rose-400 text-xs">إلغاء التثبيت</button>
                       </div>
                     ) : (
                       <div className="space-y-2 border-t border-gray-700/20 pt-2">
@@ -278,18 +291,16 @@ function EditorInner() {
             )}
           </AnimatePresence>
 
-          {/* ملخّص */}
-          {(pinnedSlots.length > 0 || doors.length > 0) && (
+          {(Object.keys(pinned).length > 0 || doorCount > 0) && (
             <div className="bg-gray-800/40 border border-gray-700/30 rounded-xl p-4 space-y-2">
-              {doors.length > 0 && <p className="text-[11px] text-rose-300">🚪 {doors.length} أبواب · المقاعد المجاورة: {layout?.doorSeats.join('، ') || '—'}</p>}
-              {pinnedSlots.length > 0 && <p className="text-[11px] text-amber-400">📌 {pinnedSlots.length} لاعب مثبّت</p>}
+              {doorCount > 0 && <p className="text-[11px] text-rose-300">🚪 {doorCount} أبواب · المقاعد المجاورة: {layout?.doorSeats.join('، ') || '—'}</p>}
+              {Object.keys(pinned).length > 0 && <p className="text-[11px] text-amber-400">📌 {Object.keys(pinned).length} لاعب مثبّت</p>}
             </div>
           )}
 
           <button onClick={() => setIsDefault(!isDefault)} className={`text-xs px-4 py-2 rounded-lg border ${isDefault ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-gray-800/50 text-gray-500 border-gray-700/20'}`}>{isDefault ? '⭐ قالب افتراضي' : 'تعيين كافتراضي'}</button>
         </div>
 
-        {/* المشهد */}
         <div className="lg:sticky lg:top-16 h-fit">
           {isRect && layout ? (
             <div className="relative rounded-2xl overflow-hidden border border-gray-700/40" style={{ height: '72vh', minHeight: 420 }}>
@@ -300,16 +311,14 @@ function EditorInner() {
                 <span className="text-emerald-400">■ كرسي</span><span className="text-amber-400">■ 📌</span><span className="text-rose-400">■ باب</span><span className="text-gray-400">■ مؤخر</span><span className="text-blue-400">■ محدد</span>
                 <span>{viewMode ? '🖱️ اسحب للدوران' : '🖱️ انقر كرسياً/باباً'}</span>
               </div>
-              <Editor3D sides={sides} seats={layout.seats} doorNodes={layout.doorNodes} pinnedNameBySlot={pinnedNameBySlot}
+              <Editor3D dims={layout.dims} seats={layout.seats} doorNodes={layout.doorNodes} pinnedByChair={pinnedByChair}
                 reservedTailCount={reservedTailCount} viewMode={viewMode}
-                selectedSeat={selectedSeat} selectedDoorSlot={selectedDoorSlot}
-                onSelectSeat={(n) => { setSelectedSeat(n); setSelectedDoorSlot(null); }}
-                onSelectDoor={(s) => { setSelectedDoorSlot(s); setSelectedSeat(null); }} />
+                selectedSeat={selectedSeat} selectedDoorId={selectedDoorId}
+                onSelectSeat={(n) => { setSelectedSeat(n); setSelectedDoorId(null); }}
+                onSelectDoor={(id) => { setSelectedDoorId(id); setSelectedSeat(null); }} />
             </div>
           ) : (
-            <Svg2D total={totalSeats} layout={layoutType} reservedTailCount={reservedTailCount}
-              pinnedSet={new Set(pinnedSlots.map(p => p.slotIndex))} selectedSeat={selectedSeat}
-              onSelect={(n) => { setSelectedSeat(n); setSelectedDoorSlot(null); }} />
+            <Svg2D total={totalSeats} layout={layoutType} reservedTailCount={reservedTailCount} pinnedSet={pinned2DSet} selectedSeat={selectedSeat} onSelect={(n) => { setSelectedSeat(n); setSelectedDoorId(null); }} />
           )}
         </div>
       </div>
