@@ -506,7 +506,7 @@ export default function RankPage() {
 
               {/* آخر مباريات */}
               {selectedProfile.matchHistory?.slice(0, 5).map((m: any, i: number) => {
-                const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(m.role || '');
+                const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(m.role || '');
                 const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
                 return (
                   <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b border-white/5">

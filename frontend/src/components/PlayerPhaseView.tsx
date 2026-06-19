@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 
 interface PlayerPhaseViewProps {
   gamePhase: string | null;
@@ -1118,8 +1119,8 @@ export default function PlayerPhaseView({
                 }`}>
                 <p className="text-white text-xs font-bold">#{p.physicalId}</p>
                 <p className="text-[#999] text-[10px] truncate">{p.name}</p>
-                <p className={`text-[10px] font-mono mt-1 ${p.role && (p.role.includes('MAFIA') || p.role === 'GODFATHER' || p.role === 'SILENCER' || p.role === 'CHAMELEON') ? 'text-red-400' : 'text-green-400'}`}>
-                  {p.role || '?'}
+                <p className={`text-[10px] mt-1 ${p.role && (MAFIA_ROLES as string[]).includes(p.role) ? 'text-red-400' : 'text-green-400'}`}>
+                  {p.role ? ((ROLE_NAMES as Record<string, string>)[p.role] || p.role) : '?'}
                 </p>
                 {!p.isAlive && <span className="text-red-500 text-[8px]">💀</span>}
               </motion.div>

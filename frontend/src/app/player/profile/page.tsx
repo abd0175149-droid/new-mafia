@@ -10,7 +10,7 @@ const ROLE_NAMES_AR: Record<string,string> = {
   MAFIA_REGULAR:'مافيا عادي',SHERIFF:'الشريف',DOCTOR:'الطبيب',
   SNIPER:'القناص',POLICEWOMAN:'الشرطية',NURSE:'الممرضة',CITIZEN:'مواطن صالح',
 };
-const MAFIA_ROLES = ['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'];
+const MAFIA_ROLES = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'];
 
 const RANK_TIERS_ORDER = ['INFORMANT','SOLDIER','CAPO','UNDERBOSS','GODFATHER'];
 
@@ -67,7 +67,7 @@ function cropAndResizeImage(file: File, targetSize = 512): Promise<string> {
 // ══════════════════════════════════════════════
 function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const MAFIA = ['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'];
+  const MAFIA = ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'];
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.5}}

@@ -387,7 +387,7 @@ function GamesContent() {
               <p className="text-gray-600 text-sm text-center py-8">لم تلعب أي مباراة بعد</p>
             )}
             {matchHistory.slice(0, 20).map((m: any, i: number) => {
-              const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(m.role || '');
+              const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(m.role || '');
               const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
 
               return (

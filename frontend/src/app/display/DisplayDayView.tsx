@@ -1061,7 +1061,7 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
   revealedRoles: any[];
   revealType: string;
 }) {
-  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
   const CARD_DELAY = 5; // ثوانٍ بين كل لاعب
 
   // مراحل الأنيميشن لكل لاعب
@@ -1297,7 +1297,7 @@ function BombCeremony({ players, bombData }: {
   players: any[];
   bombData: { bombEliminated: number[]; bombRevealedRoles: { physicalId: number; role: string }[] };
 }) {
-  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+  const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
   const CARD_DELAY = 4; // ثوانٍ بين كل لاعب
 
   const [bombStage, setBombStage] = useState<'explosion' | 'revealing' | 'done'>('explosion');

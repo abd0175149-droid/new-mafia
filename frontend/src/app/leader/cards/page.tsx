@@ -18,7 +18,7 @@ const ROLE_NAMES_AR: Record<string, string> = {
   CITIZEN: 'مواطن صالح',
 };
 
-const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+const MAFIA_ROLES = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
 
 interface PlayerData {
   physicalId: number;

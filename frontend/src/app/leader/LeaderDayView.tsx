@@ -701,7 +701,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     if (!showDecision && canJustifyList.length > 0) {
       const currentAccused = canJustifyList[justCurrentIdx];
       if (currentAccused) {
-        const isMafiaRole = currentAccused.role?.includes('MAFIA') || currentAccused.role === 'GODFATHER' || currentAccused.role === 'SILENCER' || currentAccused.role === 'CHAMELEON';
+        const isMafiaRole = !!currentAccused.role && (MAFIA_ROLES as string[]).includes(currentAccused.role);
         const accusedPlayer = gameState.players.find((p: any) => p.physicalId === currentAccused.targetPhysicalId);
         const accusedPenalties = accusedPlayer?.penalties || 0;
         return renderContent(
@@ -758,11 +758,11 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                     VOTES: {gameState.justificationData?.topVotes} • DEFENSE {currentAccused.justificationCount}/{maxJustifications}
                   </p>
                   {currentAccused.role && (
-                    <p className="mt-2 text-sm font-mono font-bold px-3 py-1 inline-block border rounded" style={{
+                    <p className="mt-2 text-sm font-bold px-3 py-1 inline-block border rounded" style={{
                       color: isMafiaRole ? '#ff4444' : '#44ff44',
                       borderColor: isMafiaRole ? '#ff4444' : '#44ff44',
                     }}>
-                      🔒 {currentAccused.role}
+                      🔒 {roleLabel(currentAccused.role)?.text || currentAccused.role}
                     </p>
                   )}
                 </div>
@@ -906,8 +906,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                         </div>
                       )}
                     </div>
-                    <p className="text-xs font-mono" style={{ color: acc.role?.includes('MAFIA') || acc.role === 'GODFATHER' || acc.role === 'SILENCER' || acc.role === 'CHAMELEON' ? '#ff4444' : '#44ff44' }}>
-                      🔒 {acc.role || 'UNKNOWN'}
+                    <p className="text-xs" style={{ color: (acc.role && (MAFIA_ROLES as string[]).includes(acc.role)) ? '#ff4444' : '#44ff44' }}>
+                      🔒 {roleLabel(acc.role)?.text || acc.role || 'UNKNOWN'}
                     </p>
                     <p className="text-[#555] text-[9px] font-mono mt-1">
                       مرات التبرير: {acc.justificationCount || 0}/{gameState.justificationData?.maxJustifications || 2}
@@ -1810,8 +1810,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const isComplete = totalVotes >= votingAliveCount;
 
     // عداد الفرق
-    const citizenCount = alivePlayers.filter((p: any) => !['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'].includes(p.role)).length;
-    const mafiaCount = alivePlayers.filter((p: any) => ['GODFATHER','SILENCER','CHAMELEON','MAFIA_REGULAR'].includes(p.role)).length;
+    const citizenCount = alivePlayers.filter((p: any) => !['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'].includes(p.role)).length;
+    const mafiaCount = alivePlayers.filter((p: any) => ['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'].includes(p.role)).length;
 
     // حالة التصويت (عادي / إعادة / حسم)
     const votingLabel = gameState.votingState?.tieBreakerLevel >= 2 ? 'NARROWED' 

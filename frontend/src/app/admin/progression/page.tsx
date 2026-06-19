@@ -436,7 +436,7 @@ export default function ProgressionPage() {
                   <div className="space-y-3">
                     {playerMatches.length === 0 ? <p className="text-gray-500 text-sm text-center py-10">لم يلعب أي مباراة بعد.</p> : null}
                     {playerMatches.map((m: any) => {
-                      const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(m.role || '');
+                      const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(m.role || '');
                       const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
                       const isSelected = selMatch?.mpId === m.mpId;
                       return (
@@ -483,7 +483,7 @@ export default function ProgressionPage() {
                             <span className="text-amber-400" dir="ltr">+{config?.xp?.participation || 0} XP</span>
                           </div>
                           {(() => {
-                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(selMatch.role || '');
+                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(selMatch.role || '');
                             const won = (isMafia && selMatch.matchWinner === 'MAFIA') || (!isMafia && selMatch.matchWinner === 'CITIZEN');
                             return (
                               <div className="flex justify-between text-gray-300">
@@ -508,7 +508,7 @@ export default function ProgressionPage() {
                           )}
                           {/* Deals */}
                           {selMatch.dealInitiated && (() => {
-                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(selMatch.role || '');
+                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(selMatch.role || '');
                             let xp = 0; let rr = 0;
                             if (isMafia) {
                               if (!selMatch.dealSuccess) { xp = config?.xp?.mafiaDealOnMafia || 0; rr = config?.rr?.mafiaDealOnMafia || 0; }

@@ -152,7 +152,7 @@ export function playEventSound(eventKey: string, durationMs: number = 3000): voi
 // ══════════════════════════════════════════════════════
 // 💀 تشغيل صوت الإقصاء حسب الدور (مع Fallback للفريق)
 // ══════════════════════════════════════════════════════
-const MAFIA_ROLE_KEYS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'];
+const MAFIA_ROLE_KEYS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
 
 export function playEliminationSound(role: string | null): void {
   if (!role) {

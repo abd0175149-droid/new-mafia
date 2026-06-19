@@ -392,7 +392,7 @@ export default function PlayerProfilePage() {
           <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">📜 سجل المباريات <span className="text-xs text-gray-500 font-normal">({data.matchHistory.length})</span></h3>
           <div className="space-y-1.5 max-h-72 overflow-y-auto">
             {data.matchHistory.slice(0, 30).map((m: any, i: number) => {
-              const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR'].includes(m.role);
+              const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(m.role);
               const won = (isMafia && m.matchWinner === 'MAFIA') || (!isMafia && m.matchWinner === 'CITIZEN');
               return (
                 <motion.div
