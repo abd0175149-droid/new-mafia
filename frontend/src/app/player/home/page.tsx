@@ -52,7 +52,7 @@ export default function HomePage() {
     const token = localStorage.getItem('mafia_player_token');
     Promise.all([
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
-      fetch(`/api/player-app/${player.playerId}/following-feed`).then(r => r.json()),
+      fetch(`/api/player-app/${player.playerId}/following-feed`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch(`/api/player-app/activities/upcoming?playerId=${player.playerId}`).then(r => r.json()),
       token ? fetch('/api/player-app/my-active-rooms', {
         headers: { 'Authorization': `Bearer ${token}` },

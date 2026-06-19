@@ -34,7 +34,7 @@ export default function RankPage() {
     if (!player) return;
     Promise.all([
       fetch('/api/player-app/leaderboard').then(r => r.json()),
-      fetch(`/api/player-app/${player.playerId}/co-players`).then(r => r.json()),
+      fetch(`/api/player-app/${player.playerId}/co-players`, { headers: { Authorization: `Bearer ${player.token}` } }).then(r => r.json()),
       fetch(`/api/player/${player.playerId}/profile`).then(r => r.json()),
       fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/active').then(r => r.json()).catch(() => null),
@@ -61,7 +61,7 @@ export default function RankPage() {
     if (!player) return;
     setFollowLoading(targetId);
     try {
-      const res = await fetch(`/api/player-app/${player.playerId}/follow/${targetId}`, { method: 'POST' });
+      const res = await fetch(`/api/player-app/${player.playerId}/follow/${targetId}`, { method: 'POST', headers: { Authorization: `Bearer ${player.token}` } });
       const data = await res.json();
       if (data.success || res.status === 200) {
         setCoPlayers(prev => prev.map(p => p.id === targetId ? { ...p, isFollowing: true } : p));
@@ -74,7 +74,7 @@ export default function RankPage() {
     if (!player) return;
     setFollowLoading(targetId);
     try {
-      await fetch(`/api/player-app/${player.playerId}/follow/${targetId}`, { method: 'DELETE' });
+      await fetch(`/api/player-app/${player.playerId}/follow/${targetId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${player.token}` } });
       setCoPlayers(prev => prev.map(p => p.id === targetId ? { ...p, isFollowing: false } : p));
     } catch {}
     setFollowLoading(null);
