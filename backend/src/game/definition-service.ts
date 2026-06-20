@@ -126,6 +126,19 @@ export function invalidateCache(): void {
   console.log('🔄 Definition cache invalidated');
 }
 
+// 🧪 حقن تعريفات للاختبار فقط — يملأ الكاش بلا قاعدة بيانات (لا يُستدعى في الإنتاج).
+// يتيح تشغيل المحرك الديناميكي الحقيقي محلياً بإعدادات الإنتاج المُحمّلة كـ fixtures.
+export function __primeDefsForTest(defs: {
+  abilities?: AbilityDef[]; roles?: RoleDef[]; interactions?: InteractionRuleDef[]; cards?: CardTemplateDef[];
+}): void {
+  if (defs.abilities) _abilities = defs.abilities;
+  if (defs.roles) _roles = defs.roles;
+  if (defs.interactions) _interactions = defs.interactions;
+  if (defs.cards) _cards = defs.cards;
+  // صلاحية بعيدة كي لا ينتهي الكاش أثناء الاختبار
+  _lastLoad = Date.now() + 10 * 365 * 24 * 3600_000;
+}
+
 // ── قراءة البيانات ───────────────────────────────────
 
 export async function getAbilityDefs(): Promise<AbilityDef[]> {

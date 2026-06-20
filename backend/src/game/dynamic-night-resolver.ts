@@ -180,51 +180,11 @@ export async function resolveNightDynamic(
   // تتبع الإجراءات الملغاة
   const cancelledActions = new Set<string>();
 
-  // فحص قواعد التفاعل
-  for (const rule of rules) {
-    const actionA = actions.find(a => a.abilityId === rule.abilityA);
-    const actionB = actions.find(a => a.abilityId === rule.abilityB);
-
-    if (!actionA || !actionB) continue;
-
-    let applies = false;
-    switch (rule.condition) {
-      case 'SAME_TARGET':
-        applies = actionA.targetPhysicalId === actionB.targetPhysicalId;
-        break;
-      case 'ALWAYS':
-        applies = true;
-        break;
-    }
-
-    if (!applies) continue;
-
-    switch (rule.resolution) {
-      case 'B_CANCELS_A':
-        cancelledActions.add(actionA.abilityId);
-        const targetA = state.players.find(p => p.physicalId === actionA.targetPhysicalId);
-        if (targetA) {
-          events.push({
-            type: rule.resultEvent as any,
-            targetPhysicalId: targetA.physicalId,
-            targetName: targetA.name,
-            revealed: false,
-          });
-        }
-        break;
-      case 'A_CANCELS_B':
-        cancelledActions.add(actionB.abilityId);
-        break;
-      case 'BOTH_CANCEL':
-        cancelledActions.add(actionA.abilityId);
-        cancelledActions.add(actionB.abilityId);
-        break;
-    }
-  }
-
-  // ═══ 🧙‍♀️ معالجة التعطيل أولاً ═══
+  // ═══ 🧙‍♀️ معالجة التعطيل أولاً (قبل قواعد التفاعل) ═══
+  // يجب تعطيل اللاعب وإلغاء إجراؤه قبل تقييم قواعد التفاعل — وإلا قد تُلغي حمايةٌ
+  // مُعطَّلة اغتيالاً صحيحاً (مثال: الساحرة تُعطّل الطبيب، لكن قاعدة KILL+PROTECT كانت
+  // تُلغي الاغتيال قبل أن يُلغى PROTECT المُعطَّل → كان التعطيل بلا أثر).
   for (const action of actions) {
-    if (cancelledActions.has(action.abilityId)) continue;
     const ability = allAbilities.find(a => a.id === action.abilityId);
     if ((ability?.effectType as string) !== 'DISABLE') continue;
 
@@ -254,11 +214,56 @@ export async function resolveNightDynamic(
     console.log(`🧙‍♀️ Witch disabled ${target.name} (${target.role}) until round ${target.disabledUntilRound}`);
   }
 
-  // ═══ إلغاء أحداث اللاعبين المعطّلين ═══
+  // ═══ إلغاء إجراءات اللاعبين المعطّلين (قبل قواعد التفاعل) ═══
   for (const action of actions) {
     const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
     if (performer?.disabledUntilRound != null && performer.disabledUntilRound >= (state.round || 1)) {
       cancelledActions.add(action.abilityId);
+    }
+  }
+
+  // ═══ فحص قواعد التفاعل (تتجاهل الإجراءات المُلغاة مسبقاً، كحماية مُعطَّلة بالساحرة) ═══
+  for (const rule of rules) {
+    const actionA = actions.find(a => a.abilityId === rule.abilityA);
+    const actionB = actions.find(a => a.abilityId === rule.abilityB);
+
+    if (!actionA || !actionB) continue;
+    // إن كان أحد الإجراءين مُلغى أصلاً (مثلاً PROTECT مُعطَّل) فالقاعدة لا تنطبق
+    if (cancelledActions.has(actionA.abilityId) || cancelledActions.has(actionB.abilityId)) continue;
+
+    let applies = false;
+    switch (rule.condition) {
+      case 'SAME_TARGET':
+        applies = actionA.targetPhysicalId === actionB.targetPhysicalId;
+        break;
+      case 'ALWAYS':
+        applies = true;
+        break;
+    }
+
+    if (!applies) continue;
+
+    switch (rule.resolution) {
+      case 'B_CANCELS_A': {
+        cancelledActions.add(actionA.abilityId);
+        const targetA = state.players.find(p => p.physicalId === actionA.targetPhysicalId);
+        if (targetA) {
+          events.push({
+            type: rule.resultEvent as any,
+            targetPhysicalId: targetA.physicalId,
+            targetName: targetA.name,
+            revealed: false,
+          });
+        }
+        break;
+      }
+      case 'A_CANCELS_B':
+        cancelledActions.add(actionB.abilityId);
+        break;
+      case 'BOTH_CANCEL':
+        cancelledActions.add(actionA.abilityId);
+        cancelledActions.add(actionB.abilityId);
+        break;
     }
   }
 
@@ -399,6 +404,28 @@ export async function resolveNightDynamic(
     // تحديث آخر هدف
     dynamicNight.lastTargets[action.abilityId] = action.targetPhysicalId!;
   }
+
+  // ═══ 👮‍♀️ فحص تفعيل الشرطية لكل من مات هذه الليلة (مطابق للمحرك القديم) ═══
+  // (كان مفقوداً في المحرك الديناميكي — فلم تكن تُفعّل الشرطية عند قتلها ليلاً ولا تُحتسب
+  //  وفيات المواطنين نحو عتبتها. هذا إصلاح لتطابق سلوك المحرك القديم.)
+  const deadThisNight: number[] = [];
+  for (const ev of events) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(ev.type)) {
+      deadThisNight.push(ev.targetPhysicalId);
+      if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {
+        deadThisNight.push(ev.extra.sniperPhysicalId as number);
+      }
+    }
+  }
+  // الشرطية أولاً كي تُفعّل صلاحيتها وتُحسب وفيات نفس الليلة
+  deadThisNight.sort((a, b) => {
+    const ra = state.players.find(p => p.physicalId === a)?.role;
+    const rb = state.players.find(p => p.physicalId === b)?.role;
+    if (ra === Role.POLICEWOMAN) return -1;
+    if (rb === Role.POLICEWOMAN) return 1;
+    return 0;
+  });
+  for (const pid of deadThisNight) checkPolicewomanTrigger(state, pid);
 
   // ═══ 👥 معالجة ارتباط التوأمين (قبل الإرجاع) ═══
   if (state.twinState) {
