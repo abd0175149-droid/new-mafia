@@ -83,7 +83,9 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     const endTime = Date.now();
     const durationSeconds = startTime > 0 ? Math.floor((endTime - startTime) / 1000) : null;
 
-    await db.update(matches)
+    // 🔒 مطالبة ذرّية (atomic claim): نحدّث الصف فقط إن كان is_active=true، ونلتقط النتيجة.
+    // إن أعاد 0 صفوف → استدعاء آخر التقطها بالفعل (سباق/نقر مزدوج) → نتوقّف بلا احتساب مزدوج.
+    const claimed = await db.update(matches)
       .set({
         isActive: false,
         winner: (state.winner as 'MAFIA' | 'CITIZEN' | 'JESTER' | null) ?? null,
@@ -91,7 +93,12 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         durationSeconds,
         endedAt: new Date(),
       } as any)
-      .where(eq(matches.id, state.matchId));
+      .where(and(eq(matches.id, state.matchId), eq(matches.isActive, true)))
+      .returning({ id: matches.id });
+    if (claimed.length === 0) {
+      console.log(`⏭️ [finalizeMatch] Match #${state.matchId} already claimed/finalized (race) — skipping`);
+      return;
+    }
 
 
     const tracking = state.performanceTracking || { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
@@ -271,6 +278,26 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     console.log(`📦 Match #${state.matchId} finalized — Winner: ${state.winner}, Duration: ${durationSeconds}s, Stats + Progression updated`);
   } catch (err: any) {
     console.error('❌ Failed to finalize match:', err.message);
+  }
+}
+
+// ── احتساب النتيجة إن لم تُحتسب بعد (شبكة أمان لمسارات إنهاء/إعادة الغرفة) ──
+// يُستدعى قبل أي تصفير/حذف للحالة عند: العودة للغرفة، لعبة جديدة، إنهاء الفعالية،
+// إغلاق/حذف الغرفة. آمن للتكرار: finalizeMatch يتجاهل المباريات المُحتسبة مسبقاً
+// (حارس match_players + المطالبة الذرّية)، فلن يحدث احتساب مزدوج.
+// يحتسب فقط إذا تقرّر فائز (winner أو pendingWinner) ووُجد matchId.
+export async function finalizeIfDecided(state: GameState): Promise<boolean> {
+  if (!state || !state.matchId) return false;
+  const decided = (state.winner ?? (state as any).pendingWinner) ?? null;
+  if (!decided) return false;
+  state.winner = decided as any;
+  try {
+    await finalizeMatch(state);
+    console.log(`🧮 [finalizeIfDecided] Ensured match #${state.matchId} is counted (winner: ${decided}) before room teardown/reset`);
+    return true;
+  } catch (err: any) {
+    console.error(`⚠️ [finalizeIfDecided] Failed to finalize match #${state.matchId}:`, err.message);
+    return false;
   }
 }
 

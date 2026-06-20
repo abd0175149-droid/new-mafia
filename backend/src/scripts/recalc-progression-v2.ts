@@ -199,6 +199,15 @@ async function main() {
   const activeRegularId = await getActiveRegularSeasonId();
   const isActiveRegular = targetSeasonId != null && targetSeasonId === activeRegularId;
 
+  // 🛡️ حارس أمان: لا نصفّر players.* للموسم العادي النشط إذا لم يُحسب أي لاعب.
+  // (يمنع كارثة "تصفير الجميع" عند فلتر موسم خاطئ أو مباريات بلا season_id — وهو السبب
+  //  الأرجح لخلل الموسم 2 سابقاً: تصفير بلا إعادة بناء.)
+  if (isActiveRegular && accs.size === 0) {
+    console.error('❌ Aborting: 0 players computed for the ACTIVE regular season — refusing to zero players.* '
+      + '(likely a wrong --season target or matches with NULL season_id). No changes written.');
+    process.exit(1);
+  }
+
   console.log(`⚠️  Applying changes... (target season: ${targetSeasonId ?? 'ALL'}, active regular: ${activeRegularId ?? '-'}, isActiveRegular: ${isActiveRegular})`);
 
   // ── (أ) players.* — تعكس الموسم العادي النشط فقط ──

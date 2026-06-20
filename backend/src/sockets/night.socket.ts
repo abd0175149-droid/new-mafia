@@ -17,7 +17,7 @@ import {
   createDynamicNightState,
   type DynamicNightAction,
 } from '../game/dynamic-night-resolver.js';
-import { finalizeMatch } from '../services/match.service.js';
+import { finalizeMatch, finalizeIfDecided } from '../services/match.service.js';
 import { initTwinState, getTwinTransformNotification } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer } from '../game/game-timer.js';
@@ -1356,6 +1356,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // 🧮 شبكة أمان: إن انتهت لعبة (تقرّر فائز) ولم تُحتسب بعد، نحتسبها الآن قبل حذف الحالة.
+      // (مثلاً ضغط الليدر "إنهاء الفعالية" دون "عرض النتيجة" — وإلا ضاعت النقاط نهائياً مع حذف Redis.)
+      await finalizeIfDecided(state);
 
       // إبلاغ الجميع بإغلاق الفعالية
       io.to(data.roomId).emit('event:closed', {

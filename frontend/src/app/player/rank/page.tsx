@@ -35,7 +35,7 @@ export default function RankPage() {
     onClose: () => { setSelectedProfile(null); setSelectedPlayer(null); },
   });
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     if (!player) return;
     Promise.all([
       fetch('/api/player-app/leaderboard').then(r => r.json()),
@@ -58,6 +58,20 @@ export default function RankPage() {
       if (seasonsData?.success) setSeasons(seasonsData.seasons || []);
     }).finally(() => setLoading(false));
   }, [player]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // 🔄 إعادة الجلب عند عودة اللاعب للصفحة (تبديل تبويب/نافذة) — تعكس آخر نتائج الرانك فوراً
+  useEffect(() => {
+    if (!player) return;
+    const refetch = () => { if (document.visibilityState === 'visible') loadData(); };
+    document.addEventListener('visibilitychange', refetch);
+    window.addEventListener('focus', refetch);
+    return () => {
+      document.removeEventListener('visibilitychange', refetch);
+      window.removeEventListener('focus', refetch);
+    };
+  }, [player, loadData]);
 
   // ── Auto-scroll to my card + glowing timer ──
   useEffect(() => {

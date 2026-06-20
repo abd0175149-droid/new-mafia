@@ -10,7 +10,7 @@ import type { SeatConstraints } from '../game/seat-allocator.js';
 import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
-import { createMatch } from '../services/match.service.js';
+import { createMatch, finalizeIfDecided } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
@@ -2846,6 +2846,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const state = await getGameState(data.roomId);
 
+      // 🧮 احتساب نتيجة اللعبة المنتهية (إن لم تُحتسب) قبل إغلاق الغرفة
+      if (state) await finalizeIfDecided(state);
+
       await setPhase(data.roomId, Phase.GAME_OVER);
       activeRooms.delete(data.roomId);
 
@@ -2876,6 +2879,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const sessionId = state.sessionId;
       const activityId = state.activityId;
+
+      // 🧮 احتساب نتيجة اللعبة المنتهية (إن لم تُحتسب) قبل حذف الغرفة نهائياً
+      await finalizeIfDecided(state);
 
       // 1. حذف من Redis
       await deleteGameState(data.roomId);
@@ -3006,6 +3012,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
+      // 🧮 احتساب نتيجة اللعبة المنتهية (إن لم تُحتسب) قبل إعادة الغرفة للوبي
+      // (زر "العودة للغرفة" — كي تنعكس النقاط في الرانك حتى لو لم يضغط الليدر "عرض النتيجة")
+      await finalizeIfDecided(state);
+
       resetRoomState(state, [], data.resetPenalties ?? true);
       await setGameState(data.roomId, state);
 
@@ -3069,6 +3079,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           await removePlayerFromSession(state.sessionId, pid);
         }
       }
+
+      // 🧮 احتساب نتيجة اللعبة المنتهية (إن لم تُحتسب) قبل بدء لعبة جديدة
+      // (state.players لا يزال كاملاً هنا — الاحتساب يشمل كل اللاعبين قبل أي استبعاد)
+      await finalizeIfDecided(state);
 
       // إعادة تعيين الحالة باستخدام الدالة المشتركة
       resetRoomState(state, excludeIds, data.resetPenalties ?? true);
