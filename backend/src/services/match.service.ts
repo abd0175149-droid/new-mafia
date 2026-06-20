@@ -281,15 +281,45 @@ export async function finalizeMatch(state: GameState): Promise<void> {
   }
 }
 
-// ── احتساب النتيجة إن لم تُحتسب بعد (شبكة أمان لمسارات إنهاء/إعادة الغرفة) ──
+// ── إلغاء مباراة لم تُحتسب (لا فائز فيها) — تُحذف بلا أي أثر/نقاط ──
+// أمان مزدوج: لا نحذف إلا إذا (1) لا توجد صفوف match_players (غير محتسبة) و(2) is_active=true
+// (صف أُنشئ عند البدء ولم يُنهَ). هكذا يستحيل أن نمسّ مباراة محتسبة فعلاً.
+export async function cancelMatch(matchId: number): Promise<boolean> {
+  const db = getDB();
+  if (!db || !matchId) return false;
+  try {
+    const counted = await db.select({ id: matchPlayers.id })
+      .from(matchPlayers).where(eq(matchPlayers.matchId, matchId)).limit(1);
+    if (counted.length > 0) return false; // محتسبة بالفعل → لا تُلغى
+    const deleted = await db.delete(matches)
+      .where(and(eq(matches.id, matchId), eq(matches.isActive, true)))
+      .returning({ id: matches.id });
+    if (deleted.length > 0) {
+      console.log(`🗑️ [cancelMatch] Match #${matchId} cancelled (no winner) — discarded, no points recorded`);
+      return true;
+    }
+    return false;
+  } catch (err: any) {
+    console.error(`⚠️ [cancelMatch] Failed to cancel match #${matchId}:`, err.message);
+    return false;
+  }
+}
+
+// ── تسوية المباراة عند إنهاء/إعادة الغرفة (شبكة أمان) ──
 // يُستدعى قبل أي تصفير/حذف للحالة عند: العودة للغرفة، لعبة جديدة، إنهاء الفعالية،
-// إغلاق/حذف الغرفة. آمن للتكرار: finalizeMatch يتجاهل المباريات المُحتسبة مسبقاً
-// (حارس match_players + المطالبة الذرّية)، فلن يحدث احتساب مزدوج.
-// يحتسب فقط إذا تقرّر فائز (winner أو pendingWinner) ووُجد matchId.
+// إغلاق/حذف الغرفة.
+//   • إذا تقرّر فائز (winner أو pendingWinner) → تُحتسب النقاط (finalizeMatch).
+//     آمن للتكرار: حارس match_players + المطالبة الذرّية يمنعان الاحتساب المزدوج.
+//   • إذا لا فائز (لعبة ملغاة/غير مكتملة — الليدر رجع للوبي بسبب مشكلة) → تُلغى المباراة
+//     ولا تُسجَّل أي نقاط إطلاقاً.
 export async function finalizeIfDecided(state: GameState): Promise<boolean> {
   if (!state || !state.matchId) return false;
   const decided = (state.winner ?? (state as any).pendingWinner) ?? null;
-  if (!decided) return false;
+  if (!decided) {
+    // 🚫 لا فائز → لعبة ملغاة: لا تُحتسب نقاطها، وتُحذف كي لا تترك أثراً
+    await cancelMatch(state.matchId).catch(() => {});
+    return false;
+  }
   state.winner = decided as any;
   try {
     await finalizeMatch(state);
