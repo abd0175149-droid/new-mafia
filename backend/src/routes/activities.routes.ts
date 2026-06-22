@@ -446,56 +446,14 @@ router.patch('/:id/rooms/:sessionId/close', authenticate, async (req: Request, r
     const db = getDB();
     if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-    // جلب كود الغرفة قبل الإغلاق لمسحها من الذاكرة
-    const [sessionData] = await db.select({ sessionCode: sessions.sessionCode })
-      .from(sessions).where(eq(sessions.id, sessionId)).limit(1);
-    const sessionCode = sessionData?.sessionCode;
+    // 🔒 مسار موحّد: إغلاق الجلسة + إكمال النشاط + استبيانات التقييم + طرد كل اللاعبين
+    // + تنظيف Redis/activeRooms (موثوق حتى لو حُذفت حالة Redis مسبقاً).
+    const { endActivityRoom } = await import('../services/session.service.js');
+    const result = await endActivityRoom(sessionId, req.app.get('io'));
+    if (!result.closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
 
-    const closed = await closeSession(sessionId);
-    if (!closed) return res.status(500).json({ error: 'فشل إغلاق الغرفة' });
-
-    // 📋 استبيان الرضى على مستوى الغرفة: إنشاء استبيانات معلّقة للمشاركين + إشعار لحظي
-    import('../services/feedback.service.js').then(async ({ createPendingForSession }) => {
-      const newPlayerIds = await createPendingForSession(sessionId);
-      if (newPlayerIds.length > 0) {
-        const { sendPushToPlayers } = await import('../services/fcm.service.js');
-        await sendPushToPlayers(
-          newPlayerIds,
-          '📋 رأيك يهمّنا',
-          'قيّم تجربتك في الفعالية (أقل من دقيقة) — مطلوب قبل حجزك القادم',
-          'feedback_survey',
-          { sessionId, url: `/player/feedback?sessionId=${sessionId}` },
-        );
-        console.log(`📋 Feedback surveys created + notified for ${newPlayerIds.length} players (session #${sessionId})`);
-      }
-    }).catch((err: any) => console.warn('⚠️ feedback on close failed:', err?.message || err));
-
-    // تفريغ الذاكرة وإرسال حدث طرد للـ Leader واللاعبين
-    if (sessionCode) {
-      try {
-        const { getRoomByCode } = await import('../game/state.js');
-        const { deleteGameState } = await import('../config/redis.js');
-        const { activeRooms } = await import('../sockets/lobby.socket.js');
-        
-        const existingState = await getRoomByCode(sessionCode);
-        if (existingState) {
-           const io = req.app.get('io');
-           if (io) {
-             io.to(existingState.roomId).emit('game:kicked', { reason: 'تم إنهاء الفعالية وإغلاق الغرفة من قبل الإدارة.' });
-           }
-
-           await deleteGameState(existingState.roomId);
-           await deleteGameState(`code:${sessionCode}`);
-           activeRooms.delete(existingState.roomId);
-           console.log(`🧹 Cleared Session #${sessionId} (${sessionCode}) from Redis and activeRooms after close`);
-        }
-      } catch (e: any) {
-        console.warn('⚠️ Could not clear Redis room on close:', e.message);
-      }
-    }
-
-    console.log(`🔒 Activity: Closed Room #${sessionId}`);
-    res.json({ success: true });
+    console.log(`🔒 Activity: Closed Room #${sessionId} (room ${result.roomId || 'n/a'}, feedback ${result.feedbackCount})`);
+    res.json({ success: true, roomId: result.roomId, feedbackCount: result.feedbackCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

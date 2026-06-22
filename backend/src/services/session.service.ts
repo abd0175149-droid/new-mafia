@@ -233,6 +233,89 @@ export async function completeActivity(activityId: number): Promise<boolean> {
   }
 }
 
+// ── إنهاء غرفة فعالية بالكامل (مسار موحّد للوحة التحكم وواجهة الليدر) ─────
+// يضمن منطقاً متكاملاً عند إنهاء الفعالية: احتساب أي لعبة محسومة + إغلاق الجلسة +
+// إكمال النشاط + إنشاء استبيانات التقييم وإشعارها + طرد كل اللاعبين من الغرفة +
+// تنظيف Redis/activeRooms — بصرف النظر عن وجود حالة Redis (roomId يُشتق من Redis أو
+// من جدول المباريات كبديل، فلا يبقى لاعبون عالقون حتى لو حُذفت الحالة مسبقاً).
+export async function endActivityRoom(
+  sessionId: number,
+  io?: any,
+): Promise<{ closed: boolean; roomId: string | null; feedbackCount: number }> {
+  const db = getDB();
+  if (!db) return { closed: false, roomId: null, feedbackCount: 0 };
+
+  const [ses] = await db.select({ sessionCode: sessions.sessionCode, activityId: sessions.activityId })
+    .from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (!ses) return { closed: false, roomId: null, feedbackCount: 0 };
+  const sessionCode = ses.sessionCode;
+  const activityId = ses.activityId;
+
+  // 1) إيجاد roomId + الحالة الحيّة (Redis أولاً، ثم آخر مباراة للجلسة كبديل)
+  let roomId: string | null = null;
+  let liveState: any = null;
+  try {
+    const { getRoomByCode } = await import('../game/state.js');
+    if (sessionCode) liveState = await getRoomByCode(sessionCode);
+    roomId = liveState?.roomId || null;
+  } catch { /* ignore */ }
+  if (!roomId) {
+    try {
+      const { matches } = await import('../schemas/game.schema.js');
+      const [m] = await db.select({ roomId: matches.roomId }).from(matches)
+        .where(eq(matches.sessionId, sessionId)).orderBy(desc(matches.id)).limit(1);
+      roomId = m?.roomId || null;
+    } catch { /* ignore */ }
+  }
+
+  // 2) احتساب أي لعبة محسومة لم تُحتسب قبل التفكيك
+  if (liveState) {
+    try { const { finalizeIfDecided } = await import('./match.service.js'); await finalizeIfDecided(liveState); } catch { /* ignore */ }
+  }
+
+  // 3) إغلاق الجلسة + إكمال النشاط
+  const closed = await closeSession(sessionId);
+  if (activityId) await completeActivity(activityId).catch(() => false);
+
+  // 4) استبيانات التقييم لكل المشاركين + إشعار (من DB — يعمل دائماً)
+  let feedbackCount = 0;
+  try {
+    const { createPendingForSession } = await import('./feedback.service.js');
+    const newPlayerIds = await createPendingForSession(sessionId);
+    feedbackCount = newPlayerIds.length;
+    if (newPlayerIds.length > 0) {
+      const { sendPushToPlayers } = await import('./fcm.service.js');
+      await sendPushToPlayers(
+        newPlayerIds, '📋 رأيك يهمّنا',
+        'قيّم تجربتك في الفعالية (أقل من دقيقة) — مطلوب قبل حجزك القادم',
+        'feedback_survey', { sessionId, url: `/player/feedback?sessionId=${sessionId}` },
+      );
+    }
+  } catch (e: any) { console.warn('⚠️ endActivityRoom feedback failed:', e?.message || e); }
+
+  // 5) طرد كل اللاعبين من الغرفة (حدثان للتوافق) + إخراج قسري من غرفة السوكِت
+  if (roomId && io) {
+    try {
+      const payload = { message: 'انتهت الفعالية — شكراً لمشاركتكم!', reason: 'تم إنهاء الفعالية وإغلاق الغرفة.' };
+      io.to(roomId).emit('event:closed', payload);
+      io.to(roomId).emit('game:kicked', payload);
+      io.in(roomId).socketsLeave(roomId);
+    } catch (e: any) { console.warn('⚠️ endActivityRoom kick failed:', e?.message || e); }
+  }
+
+  // 6) تنظيف Redis + activeRooms
+  try {
+    const { deleteGameState } = await import('../config/redis.js');
+    if (roomId) await deleteGameState(roomId);
+    if (sessionCode) await deleteGameState(`code:${sessionCode}`);
+    const { activeRooms } = await import('../sockets/lobby.socket.js');
+    if (roomId) activeRooms.delete(roomId);
+  } catch (e: any) { console.warn('⚠️ endActivityRoom redis cleanup failed:', e?.message || e); }
+
+  console.log(`🔒 endActivityRoom: session #${sessionId} (room ${roomId || 'n/a'}) ended — closed=${closed}, feedback=${feedbackCount}`);
+  return { closed, roomId, feedbackCount };
+}
+
 // ── حذف الغرفة (Soft Delete — تبقى في DB للسجل) ─────
 export async function deleteSession(sessionId: number): Promise<boolean> {
   const db = getDB();

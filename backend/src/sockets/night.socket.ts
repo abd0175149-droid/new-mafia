@@ -1361,24 +1361,20 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // (مثلاً ضغط الليدر "إنهاء الفعالية" دون "عرض النتيجة" — وإلا ضاعت النقاط نهائياً مع حذف Redis.)
       await finalizeIfDecided(state);
 
-      // إبلاغ الجميع بإغلاق الفعالية
-      io.to(data.roomId).emit('event:closed', {
-        message: 'انتهت الفعالية — شكراً لمشاركتكم!',
-      });
-
-      // تنظيف: حذف من activeRooms + إغلاق DB Session + إكمال النشاط المرتبط
-      markRoomAsFinished(data.roomId);
       if (state.sessionId) {
-        closeSession(state.sessionId).catch(() => {});
+        // مسار موحّد كامل: إغلاق الجلسة + إكمال النشاط + استبيانات التقييم + طرد كل
+        // اللاعبين (event:closed + game:kicked + socketsLeave) + تنظيف Redis/activeRooms.
+        const { endActivityRoom } = await import('../services/session.service.js');
+        await endActivityRoom(state.sessionId, io);
+      } else {
+        // غرفة مستقلة بلا جلسة → تفكيك مباشر مع طرد اللاعبين
+        io.to(data.roomId).emit('event:closed', { message: 'انتهت الفعالية — شكراً لمشاركتكم!', reason: 'تم إنهاء الفعالية وإغلاق الغرفة.' });
+        io.to(data.roomId).emit('game:kicked', { reason: 'تم إنهاء الفعالية وإغلاق الغرفة.' });
+        try { io.in(data.roomId).socketsLeave(data.roomId); } catch { /* ignore */ }
+        markRoomAsFinished(data.roomId);
+        const { deleteGameState } = await import('../config/redis.js');
+        deleteGameState(data.roomId).catch(() => {});
       }
-      // 🏁 تعليم النشاط المرتبط كـ"مكتمل" كي يختفي من فعاليات اللاعب القادمة
-      if (state.activityId) {
-        const { completeActivity } = await import('../services/session.service.js');
-        completeActivity(state.activityId).catch(() => {});
-      }
-      // حذف حالة Redis للغرفة (تنظيف كامل — لا تُعاد من rehydrate)
-      const { deleteGameState } = await import('../config/redis.js');
-      deleteGameState(data.roomId).catch(() => {});
 
       console.log(`🔒 Event closed for room ${data.roomId} by leader`);
       callback({ success: true });

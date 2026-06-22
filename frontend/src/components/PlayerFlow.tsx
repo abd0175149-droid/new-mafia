@@ -1116,15 +1116,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setApiError('تم إغلاق الغرفة');
     });
 
-    // الطرد من السيرفر (إغلاق قسري)
-    const cleanupKicked = on('game:kicked', (data: any) => {
-      console.log('🚪 Game kicked — full cleanup + redirect');
+    // تنظيف كامل وإعادة لشاشة الدخول — مشترك بين game:kicked و event:closed
+    const leaveAndReset = (reason?: string) => {
+      console.log('🚪 Room ended/kicked — full cleanup + redirect');
       localStorage.removeItem('mafia_session');
       localStorage.removeItem('mafia_gamePhase');
       localStorage.removeItem('mafia_votingCandidates');
       localStorage.removeItem('mafia_votingPlayersInfo');
       localStorage.removeItem('mafia_myVote');
       localStorage.removeItem('mafia_playerVotes');
+      localStorage.removeItem('mafia_mafiaTeam');
+      localStorage.removeItem('mafia_sibling');
       setGamePhase(null);
       setAssignedRole(null);
       setIsPlayerDead(false);
@@ -1140,8 +1142,13 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setRoomId('');
       setRoomCode('');
       setStep(initialRoomCode ? 'phone' : 'code');
-      setApiError(data?.reason || 'تم إغلاق الغرفة');
-    });
+      setApiError(reason || 'تم إنهاء الفعالية وإغلاق الغرفة');
+    };
+
+    // الطرد من السيرفر (إغلاق قسري من الإدارة)
+    const cleanupKicked = on('game:kicked', (data: any) => leaveAndReset(data?.reason));
+    // إنهاء الفعالية (يُبثّ للغرفة عند إغلاقها من اللوحة أو واجهة الليدر)
+    const cleanupEventClosed = on('event:closed', (data: any) => leaveAndReset(data?.reason || data?.message));
 
     return () => {
       cleanupVotingStarted();
@@ -1154,6 +1161,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       cleanupClosed();
       cleanupRoomDeleted();
       cleanupKicked();
+      cleanupEventClosed();
     };
   }, [step, on, physicalId]);
 
