@@ -142,11 +142,18 @@ export function detectTwinDeaths(state: GameState): number[] {
 }
 
 // ══════════════════════════════════════════════════════
-// 👥 معلومات الأخ — للتعارف الخاص بين الأخوين فقط
-// منفصل تماماً عن "فريق المافيا": الأخ الأصغر (مواطن) يبقى مخفياً عن باقي المافيا،
-// وكلٌّ من الأخوين يرى الآخر فقط بصياغة مناسبة لفريقه.
+// 👥 معلومات الأخ — تعارف أحادي الاتجاه (الأخ الأكبر فقط)
+// ──────────────────────────────────────────────────────
+// 🔒 قاعدة المنطق المفروضة: التعارف من جهة واحدة فقط — الأخ الأكبر (مافيا) يرى أخاه
+//    الأصغر؛ أمّا الأخ الأصغر (مواطن) فلا يُكشف له أخوه الأكبر إطلاقاً.
+// السبب: لو عرف الأخ الأصغر أنّ أخاه الأكبر من المافيا (وأنّ موته يحوّله هو إلى مافيا)،
+//    لأمكنه تعمّد إخراجه ليتحوّل بدلاً منه — تعارض مصالح يكسر السيناريو المفروض.
+// لذلك يلعب الأخ الأصغر كمواطن أعمى تماماً، ولا يكتشف الرابط إلّا لحظة التحوّل بعد
+//    موت أخيه الأكبر (عبر مسار TWIN_TRANSFORM وإشعار انضمامه للمافيا).
+// الأخ الأكبر معرفته بأخيه آمنة: حافزه محاذٍ (موت الأصغر يقتله انتحاراً، فهو يحميه)،
+//    والأصغر يبقى مخفياً عن باقي المافيا (قناة خاصة، ليست ضمن فريق المافيا).
 // يعمل وقت تأكيد الأدوار (قبل تهيئة twinState) بالاعتماد على الأدوار الحالية،
-// ويستخدم twinState عند توفّره (لحلّ الزوج حتى بعد التحوّل).
+//    ويستخدم twinState عند توفّره.
 // ══════════════════════════════════════════════════════
 
 export interface SiblingInfo {
@@ -155,7 +162,7 @@ export interface SiblingInfo {
   role: string;
   avatarUrl: string | null;
   isAlive: boolean;
-  recipientIsMafia: boolean;   // فريق المستلِم — لاختيار الصياغة المناسبة
+  recipientIsMafia: boolean;   // دائماً true الآن (المستلِم هو الأخ الأكبر/المافيا فقط)
 }
 
 export function getSiblingInfoFor(state: GameState, physicalId: number): SiblingInfo | null {
@@ -170,15 +177,14 @@ export function getSiblingInfoFor(state: GameState, physicalId: number): Sibling
     youngerId = state.players.find(p => p.role === Role.YOUNGER_BROTHER)?.physicalId;
   }
   if (olderId == null || youngerId == null) return null;
-  if (physicalId !== olderId && physicalId !== youngerId) return null;
 
-  // الأخ المُقابل للمستلِم
-  const sibId = physicalId === olderId ? youngerId : olderId;
-  const sib = state.players.find(p => p.physicalId === sibId);
+  // 🔒 تعارف أحادي الاتجاه: المستلِم يجب أن يكون الأخ الأكبر (مافيا) فقط.
+  // الأخ الأصغر (مواطن) — وأي لاعب آخر — لا يحصل على شيء.
+  if (physicalId !== olderId) return null;
+
+  // الأخ الأكبر يرى أخاه الأصغر
+  const sib = state.players.find(p => p.physicalId === youngerId);
   if (!sib) return null;
-
-  // الأخ الأكبر دائماً مافيا والأصغر دائماً مواطن → فريق المستلِم يُشتق من هويّته
-  const recipientIsMafia = physicalId === olderId;
 
   return {
     physicalId: sib.physicalId,
@@ -186,7 +192,7 @@ export function getSiblingInfoFor(state: GameState, physicalId: number): Sibling
     role: (sib.role as string) || 'UNKNOWN',
     avatarUrl: (sib as any).avatarUrl || null,
     isAlive: sib.isAlive !== false,
-    recipientIsMafia,
+    recipientIsMafia: true,
   };
 }
 
