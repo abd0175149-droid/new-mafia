@@ -31,6 +31,17 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
 
 function safeDate(d: any) { return d ? new Date(d) : new Date(); }
 
+// نتيجة المباراة للعرض — تدعم كل الفائزين (مافيا/مواطن/مهرج/سفّاح)؛ "جارية" فقط حين لا فائز
+function matchResult(winner: string | null | undefined): { icon: string; label: string; iconCls: string; badgeCls: string } {
+  switch (winner) {
+    case 'MAFIA':    return { icon: '🔴', label: 'فازت المافيا',  iconCls: 'bg-rose-500/15 text-rose-400',    badgeCls: 'bg-rose-500/10 text-rose-400' };
+    case 'CITIZEN':  return { icon: '🟢', label: 'فاز المواطنون', iconCls: 'bg-emerald-500/15 text-emerald-400', badgeCls: 'bg-emerald-500/10 text-emerald-400' };
+    case 'JESTER':   return { icon: '🤡', label: 'فاز المهرج',    iconCls: 'bg-amber-500/15 text-amber-400',   badgeCls: 'bg-amber-500/10 text-amber-400' };
+    case 'ASSASSIN': return { icon: '🔪', label: 'فاز السفّاح',    iconCls: 'bg-purple-500/15 text-purple-400', badgeCls: 'bg-purple-500/10 text-purple-400' };
+    default:         return { icon: '⏳', label: 'جارية',         iconCls: 'bg-gray-500/15 text-gray-400',     badgeCls: 'bg-gray-500/10 text-gray-400' };
+  }
+}
+
 // ── CSS Donut Chart ──
 function DonutChart({ data, size = 140 }: { data: { name: string; value: number; color: string }[]; size?: number }) {
   const total = data.reduce((s, d) => s + d.value, 0);
@@ -357,8 +368,8 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                           className="flex items-center justify-between bg-gray-800/40 border border-gray-700/20 rounded-lg px-3 py-2 cursor-pointer hover:border-amber-500/20 transition"
                         >
                           <div className="flex items-center gap-2.5">
-                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${match.winner === 'MAFIA' ? 'bg-rose-500/15 text-rose-400' : match.winner === 'CITIZEN' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
-                              {match.winner === 'MAFIA' ? '🔴' : match.winner === 'CITIZEN' ? '🟢' : '⏳'}
+                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm ${matchResult(match.winner).iconCls}`}>
+                              {matchResult(match.winner).icon}
                             </span>
                             <div>
                               <p className="text-xs text-white font-medium">لعبة {mi + 1}</p>
@@ -366,8 +377,8 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${match.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : match.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}`}>
-                              {match.winner === 'MAFIA' ? 'فازت المافيا' : match.winner === 'CITIZEN' ? 'فاز المواطنون' : 'جارية'}
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${matchResult(match.winner).badgeCls}`}>
+                              {matchResult(match.winner).label}
                             </span>
                             {match.endedAt && <span className="text-[10px] text-gray-600">{fmtDate(match.endedAt)}</span>}
                           </div>
@@ -398,8 +409,8 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
               <h3 className="text-lg font-bold text-white">تفاصيل اللعبة</h3>
               <button onClick={() => setSelectedMatch(null)} className="text-gray-500 hover:text-white text-lg">✕</button>
             </div>
-            <div className={`rounded-xl p-3 mb-4 text-center font-bold ${selectedMatch.winner === 'MAFIA' ? 'bg-rose-500/10 text-rose-400' : selectedMatch.winner === 'CITIZEN' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-700/30 text-gray-400'}`}>
-              {selectedMatch.winner === 'MAFIA' ? '🔴 فازت المافيا' : selectedMatch.winner === 'CITIZEN' ? '🟢 فاز المواطنون' : '⏳ بدون نتيجة'}
+            <div className={`rounded-xl p-3 mb-4 text-center font-bold ${matchResult(selectedMatch.winner).badgeCls}`}>
+              {matchResult(selectedMatch.winner).icon} {matchResult(selectedMatch.winner).label}
             </div>
             <div className="grid grid-cols-3 gap-3">
               {[
