@@ -324,10 +324,43 @@ export async function finalizeIfDecided(state: GameState): Promise<boolean> {
   try {
     await finalizeMatch(state);
     console.log(`🧮 [finalizeIfDecided] Ensured match #${state.matchId} is counted (winner: ${decided}) before room teardown/reset`);
+    // 🔄 مصالحة فورية لرانك لاعبي هذه المباراة من match_players (مصدر الحقيقة).
+    // تُحدّث الرانك بدقة عند نهاية كل لعبة، مناعةً ضد أي إخفاق في الاحتساب الحيّ (updatePlayerStats/
+    // processMatchRewards). تعمل حتى لو تخطّى finalizeMatch إعادة الإدراج (الحارس)، لأنها بعد الاستدعاء.
+    await reconcileMatchPlayersRank(state);
     return true;
   } catch (err: any) {
     console.error(`⚠️ [finalizeIfDecided] Failed to finalize match #${state.matchId}:`, err.message);
     return false;
+  }
+}
+
+// 🔄 مصالحة رانك لاعبي مباراة واحدة من match_players (مصدر الحقيقة) — مستهدفة بلا تصفير عام.
+// تُستدعى بعد كل احتساب مباراة، فيتحدّث الرانك على نهاية كل لعبة داخل الغرفة بدقة.
+export async function reconcileMatchPlayersRank(state: GameState): Promise<void> {
+  try {
+    const db = getDB();
+    if (!db) return;
+    const playerIds = state.players.map(p => p.playerId).filter((id): id is number => !!id);
+    if (playerIds.length === 0) return;
+
+    // تخطّي مواقع الاختبار — لا رانك لها
+    if (state.activityId) {
+      const [info] = await db.select({ isTest: locations.isTestLocation })
+        .from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
+        .where(eq(activities.id, state.activityId)).limit(1);
+      if (info?.isTest) return;
+    }
+
+    const { resolveSeasonForActivity } = await import('./season.service.js');
+    const { reconcileSeasonProgression } = await import('./reconcile.service.js');
+    const { seasonId } = await resolveSeasonForActivity(state.activityId);
+    if (!seasonId) return;
+
+    const res = await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: playerIds });
+    console.log(`🔄 [finalizeIfDecided] Rank reconciled for ${playerIds.length} players of match #${state.matchId} (season ${seasonId}) — applied=${res.applied}`);
+  } catch (e: any) {
+    console.warn(`⚠️ [finalizeIfDecided] post-finalize rank reconcile failed for match #${state.matchId}:`, e?.message || e);
   }
 }
 

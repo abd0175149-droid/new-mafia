@@ -12,7 +12,7 @@
 // التجميعة من match_players فتتجاوز أي مقاطعة. (انظر unified-mafia-deploy-and-rank-facts)
 // ══════════════════════════════════════════════════════
 
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, asc, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
@@ -70,29 +70,40 @@ export interface ReconcileResult {
   reason?: 'dry-run' | 'mass-zero-guard' | 'applied' | 'no-db';
 }
 
+export interface ReconcileOptions {
+  // 🎯 مصالحة مستهدفة (لكل لعبة): تكتب فقط هؤلاء اللاعبين بقيَم مطلقة من مصدر الحقيقة،
+  // بلا تصفير الجميع → لا وميض ولا تسابق بين غرف متزامنة. تُستخدم بعد كل مباراة (finalizeIfDecided).
+  onlyPlayerIds?: number[];
+}
+
 /**
  * يعيد اشتقاق تقدّم الموسم من match_players (مصدر الحقيقة).
  * @param targetSeasonId رقم الموسم؛ null ⇒ الموسم العادي النشط.
  * @param apply false ⇒ تقرير فقط (لا كتابة)؛ true ⇒ يطبّق.
  * @param log دالة تسجيل اختيارية (الـCLI يمرّر console.log؛ السيرفر يمرّر شيئاً صامتاً/مختصراً).
+ * @param opts onlyPlayerIds ⇒ مصالحة مستهدفة لهؤلاء فقط (بلا تصفير عام).
  */
 export async function reconcileSeasonProgression(
   targetSeasonId: number | null,
   apply: boolean,
   log: (msg: string) => void = () => {},
+  opts: ReconcileOptions = {},
 ): Promise<ReconcileResult> {
   const db = getDB();
   if (!db) {
     return { counted: 0, skipped: 0, players: 0, mismatches: 0, applied: false, isActiveRegular: false, targetSeasonId, reason: 'no-db' };
   }
+  const onlyPlayerIds = opts.onlyPlayerIds && opts.onlyPlayerIds.length > 0
+    ? new Set(opts.onlyPlayerIds) : null;
 
   // 1) تحميل إعدادات التقدّم + ضبط عتبات الرتب (مثل processMatchRewards)
   let cfg: any;
   try { cfg = await getProgressionConfig(); } catch { cfg = undefined; }
   applyProgressionConfig(cfg);
 
-  // 2) سحب كل صفوف match_players مع الفائز + علم موقع الاختبار (عبر session→activity→location)
-  const rows = await db.select({
+  // 2) سحب صفوف match_players مع الفائز + علم موقع الاختبار (عبر session→activity→location)
+  // المصالحة المستهدفة (لكل لعبة) تقصر السحب على لاعبي المباراة فقط — أخفّ بكثير لكل نهاية لعبة.
+  const sel = db.select({
     playerId: matchPlayers.playerId,
     playerName: matchPlayers.playerName,
     role: matchPlayers.role,
@@ -113,8 +124,12 @@ export async function reconcileSeasonProgression(
     .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
     .leftJoin(sessions, eq(matches.sessionId, sessions.id))
     .leftJoin(activities, eq(sessions.activityId, activities.id))
-    .leftJoin(locations, eq(activities.locationId, locations.id))
-    .orderBy(asc(matchPlayers.matchId), asc(matchPlayers.id));
+    .leftJoin(locations, eq(activities.locationId, locations.id));
+
+  const rows = await (onlyPlayerIds
+    ? sel.where(inArray(matchPlayers.playerId, [...onlyPlayerIds]))
+    : sel
+  ).orderBy(asc(matchPlayers.matchId), asc(matchPlayers.id));
 
   log(`📊 Fetched ${rows.length} match_player rows.`);
 
@@ -189,22 +204,24 @@ export async function reconcileSeasonProgression(
   const activeRegularId = await getActiveRegularSeasonId();
   const isActiveRegular = targetSeasonId != null && targetSeasonId === activeRegularId;
 
-  // 5) تقرير المقارنة (المخزّن مقابل المحسوب)
+  // 5) تقرير المقارنة (المخزّن مقابل المحسوب) — يُتخطّى في المصالحة المستهدفة (لكل لعبة) لتوفير الوقت
   let mismatches = 0;
-  for (const acc of accs.values()) {
-    const [cur] = await db.select({
-      totalMatches: players.totalMatches, rankRR: players.rankRR, rankTier: players.rankTier,
-    }).from(players).where(eq(players.id, acc.playerId)).limit(1);
-    const newTier = RANK_TIERS[acc.tierIdx];
-    const storedMatches = cur?.totalMatches ?? 0;
-    if (storedMatches !== acc.totalMatches || (cur?.rankTier ?? 'INFORMANT') !== newTier) {
-      mismatches++;
-      if (mismatches <= 30) {
-        log(`  #${acc.playerId} ${acc.name}: matches ${storedMatches}→${acc.totalMatches} | tier ${cur?.rankTier ?? '-'}→${newTier} | RR ${cur?.rankRR ?? 0}→${acc.rr} | L${acc.level}`);
+  if (!onlyPlayerIds) {
+    for (const acc of accs.values()) {
+      const [cur] = await db.select({
+        totalMatches: players.totalMatches, rankRR: players.rankRR, rankTier: players.rankTier,
+      }).from(players).where(eq(players.id, acc.playerId)).limit(1);
+      const newTier = RANK_TIERS[acc.tierIdx];
+      const storedMatches = cur?.totalMatches ?? 0;
+      if (storedMatches !== acc.totalMatches || (cur?.rankTier ?? 'INFORMANT') !== newTier) {
+        mismatches++;
+        if (mismatches <= 30) {
+          log(`  #${acc.playerId} ${acc.name}: matches ${storedMatches}→${acc.totalMatches} | tier ${cur?.rankTier ?? '-'}→${newTier} | RR ${cur?.rankRR ?? 0}→${acc.rr} | L${acc.level}`);
+        }
       }
     }
+    log(`🔎 Players with differences: ${mismatches}`);
   }
-  log(`🔎 Players with differences: ${mismatches}`);
 
   // 6) التطبيق (فقط مع apply)
   if (!apply) {
@@ -213,57 +230,62 @@ export async function reconcileSeasonProgression(
   }
 
   // 🛡️ حارس أمان: لا نصفّر players.* للموسم العادي النشط إذا لم يُحسب أي لاعب.
-  if (isActiveRegular && accs.size === 0) {
+  // (لا ينطبق على المصالحة المستهدفة — فهي لا تصفّر الجميع أصلاً.)
+  if (isActiveRegular && accs.size === 0 && !onlyPlayerIds) {
     log('❌ Aborting: 0 players computed for the ACTIVE regular season — refusing to zero players.* No changes written.');
     return { counted: counted.length, skipped, players: 0, mismatches, applied: false, isActiveRegular, targetSeasonId, reason: 'mass-zero-guard' };
   }
 
-  log(`⚠️  Applying... (target season: ${targetSeasonId ?? 'ALL'}, active regular: ${activeRegularId ?? '-'}, isActiveRegular: ${isActiveRegular})`);
+  // قيَم players.* / PSS المطلقة المشتقّة من acc (أو أصفار لمن لا مباريات له في الموسم)
+  const setFor = (acc: PlayerAcc | undefined) => acc ? {
+    xp: acc.xp, level: acc.level, rankRR: acc.rr, rankTier: RANK_TIERS[acc.tierIdx],
+    totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
+    totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals,
+  } : {
+    xp: 0, level: 1, rankRR: 0, rankTier: 'INFORMANT',
+    totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0,
+  };
+
+  log(`⚠️  Applying... (season: ${targetSeasonId ?? 'ALL'}, activeRegular: ${isActiveRegular}, mode: ${onlyPlayerIds ? `targeted×${onlyPlayerIds.size}` : 'full'})`);
+
+  // المعرّفات المراد كتابتها: المستهدفون فقط (لكل لعبة) أو كل المحسوبين (مصالحة كاملة)
+  const idsToWrite: number[] = onlyPlayerIds ? [...onlyPlayerIds] : [...accs.keys()];
 
   // ── (أ) players.* — تعكس الموسم العادي النشط فقط ──
-  if (isActiveRegular) {
-    await db.update(players).set({
-      xp: 0, level: 1, rankTier: 'INFORMANT', rankRR: 0,
-      totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0,
-    } as any);
-    for (const acc of accs.values()) {
+  if (isActiveRegular || targetSeasonId == null) {
+    // المصالحة الكاملة فقط تصفّر الجميع أولاً؛ المستهدفة تكتب اللاعبين المعنيين بقيَم مطلقة بلا تصفير
+    if (!onlyPlayerIds && isActiveRegular) {
       await db.update(players).set({
-        xp: acc.xp, level: acc.level, rankRR: acc.rr, rankTier: RANK_TIERS[acc.tierIdx],
-        totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
-        totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals,
-      } as any).where(eq(players.id, acc.playerId));
+        xp: 0, level: 1, rankTier: 'INFORMANT', rankRR: 0,
+        totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0,
+      } as any);
     }
-    log(`✅ players.* rebuilt for active regular season — ${accs.size} players (others reset to 0).`);
-  } else if (targetSeasonId == null) {
-    for (const acc of accs.values()) {
-      await db.update(players).set({
-        xp: acc.xp, level: acc.level, rankRR: acc.rr, rankTier: RANK_TIERS[acc.tierIdx],
-        totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
-        totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals,
-      } as any).where(eq(players.id, acc.playerId));
+    for (const pid of idsToWrite) {
+      await db.update(players).set(setFor(accs.get(pid)) as any).where(eq(players.id, pid));
     }
-    log(`✅ players.* updated (all-seasons mode) — ${accs.size} players.`);
+    log(`✅ players.* ${onlyPlayerIds ? 'targeted-reconciled' : (isActiveRegular ? 'rebuilt (others reset to 0)' : 'updated (all-seasons)')} — ${idsToWrite.length} players.`);
   } else {
     log(`ℹ️  Target season #${targetSeasonId} is NOT the active regular season → players.* left untouched.`);
   }
 
   // ── (ب) player_season_stats — كاش لكل (لاعب، موسم) ──
   if (targetSeasonId != null) {
-    for (const acc of accs.values()) {
+    for (const pid of idsToWrite) {
+      const set = setFor(accs.get(pid));
       await db.insert(playerSeasonStats)
-        .values({ playerId: acc.playerId, seasonId: targetSeasonId } as any)
+        .values({ playerId: pid, seasonId: targetSeasonId } as any)
         .onConflictDoNothing();
       await db.update(playerSeasonStats).set({
-        xp: acc.xp, level: acc.level, rankTier: RANK_TIERS[acc.tierIdx], rankRR: acc.rr,
-        totalMatches: acc.totalMatches, totalWins: acc.totalWins, totalSurvived: acc.totalSurvived,
-        totalDeals: acc.totalDeals, successfulDeals: acc.successfulDeals, updatedAt: new Date(),
+        xp: set.xp, level: set.level, rankTier: set.rankTier, rankRR: set.rankRR,
+        totalMatches: set.totalMatches, totalWins: set.totalWins, totalSurvived: set.totalSurvived,
+        totalDeals: set.totalDeals, successfulDeals: set.successfulDeals, updatedAt: new Date(),
       } as any).where(and(
-        eq(playerSeasonStats.playerId, acc.playerId),
+        eq(playerSeasonStats.playerId, pid),
         eq(playerSeasonStats.seasonId, targetSeasonId),
       ));
     }
-    log(`✅ player_season_stats rebuilt for season #${targetSeasonId} — ${accs.size} players.`);
+    log(`✅ player_season_stats ${onlyPlayerIds ? 'targeted-reconciled' : 'rebuilt'} for season #${targetSeasonId} — ${idsToWrite.length} players.`);
   }
 
-  return { counted: counted.length, skipped, players: accs.size, mismatches, applied: true, isActiveRegular, targetSeasonId, reason: 'applied' };
+  return { counted: counted.length, skipped, players: idsToWrite.length, mismatches, applied: true, isActiveRegular, targetSeasonId, reason: 'applied' };
 }
