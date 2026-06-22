@@ -312,6 +312,20 @@ export async function endActivityRoom(
     if (roomId) activeRooms.delete(roomId);
   } catch (e: any) { console.warn('⚠️ endActivityRoom redis cleanup failed:', e?.message || e); }
 
+  // 7) 🔄 مصالحة الرانك من مصدر الحقيقة (match_players) — شبكة أمان ضد فقدان الاحتساب الحيّ.
+  // الاحتساب الحيّ (finalizeMatch) ليس ذرّياً؛ أي مقاطعة بين تسجيل المباراة وتطبيق التجميعة
+  // تترك الرانك ناقصاً ولا يُصلَح. هنا نعيد اشتقاق تجميعة موسم النشاط من match_players فيُضمَن
+  // احتساب كل مباريات الفعالية المنتهية بدقة. (انظر unified-mafia-deploy-and-rank-facts)
+  try {
+    const { resolveSeasonForActivity } = await import('./season.service.js');
+    const { reconcileSeasonProgression } = await import('./reconcile.service.js');
+    const { seasonId } = await resolveSeasonForActivity(activityId);
+    if (seasonId) {
+      const res = await reconcileSeasonProgression(seasonId, true);
+      console.log(`🔄 endActivityRoom: reconciled season #${seasonId} — players=${res.players}, mismatches=${res.mismatches}, applied=${res.applied}, reason=${res.reason}`);
+    }
+  } catch (e: any) { console.warn('⚠️ endActivityRoom rank reconcile failed:', e?.message || e); }
+
   console.log(`🔒 endActivityRoom: session #${sessionId} (room ${roomId || 'n/a'}) ended — closed=${closed}, feedback=${feedbackCount}`);
   return { closed, roomId, feedbackCount };
 }
