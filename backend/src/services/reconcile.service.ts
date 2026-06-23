@@ -164,9 +164,7 @@ export async function reconcileSeasonProgression(
         totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0 };
       accs.set(r.playerId, acc);
     }
-    // ── النهج الهجين (دقّة ~99%) ──
-    // الأدوار العادية: القيم المخزّنة xpEarned/rrChange دقيقة 100%.
-    // المحايدون (مهرّج/سفّاح): الأساس لم يُخزَّن → نعيد حسابه ونضيف ما خُزِّن.
+    // القيم المخزّنة xpEarned/rrChange دقيقة 100% لكل الأدوار (تطابق الاحتساب الحيّ).
     const isNeutral = r.role === 'JESTER' || r.role === 'ASSASSIN';
     const storedXp = r.xpEarned || 0;
     const storedRr = r.rrChange || 0;
@@ -186,8 +184,15 @@ export async function reconcileSeasonProgression(
     }, cfg);
 
     const won = base.won;
-    const xpEarned = isNeutral ? (base.xpEarned + storedXp) : storedXp;
-    const rrChange = isNeutral ? (base.rrChange + storedRr) : storedRr;
+    // 🔧 إصلاح التضخيم: القيم المخزّنة في match_players هي القيمة النهائية الكاملة لكل الأدوار
+    // (بما فيها المحايدون — finalizeMatch يخزّنها كلها، تماماً كما يطبّقها processMatchRewards الحيّ).
+    // سابقاً كان المحايد يُحسب base+stored فتُحتسب مكافأته/عقوبته مرّتين (مهرّج فائز: 100xp/60rr بدل
+    // 50/30؛ خاسر: −20rr بدل −10) → تضخيم رتبة من لعب محايداً. الآن نستخدم المخزّن لكل الأدوار.
+    // الاستثناء: صفّ محايد قديم لم يُخزَّن (0,0 بالضبط — مستحيل لمحايد حقيقي؛ الخاسر دائماً rr سالب)
+    // → نعيد حسابه من base.
+    const isLegacyUnstoredNeutral = isNeutral && storedXp === 0 && storedRr === 0;
+    const xpEarned = isLegacyUnstoredNeutral ? base.xpEarned : storedXp;
+    const rrChange = isLegacyUnstoredNeutral ? base.rrChange : storedRr;
 
     applyXPInMemory(acc, xpEarned);
     applyRRInMemory(acc, rrChange);
