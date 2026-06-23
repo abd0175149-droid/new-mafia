@@ -17,7 +17,7 @@ import { reconcileSeasonProgression } from '../services/reconcile.service.js';
 const APPLY = process.argv.includes('--apply');
 
 async function main() {
-  console.log(`🔄 Recalc progression [HYBRID: stored for regulars + recompute neutrals] — mode: ${APPLY ? '⚠️  APPLY (writes)' : '🔍 DRY-RUN (report only)'}`);
+  console.log(`🔄 Recalc progression [stored xp/rr for ALL roles from match_players] — mode: ${APPLY ? '⚠️  APPLY (writes)' : '🔍 DRY-RUN (report only)'}`);
   await connectDB();
   if (!getDB()) { console.error('❌ DB unavailable'); process.exit(1); }
 
