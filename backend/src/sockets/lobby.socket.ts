@@ -23,6 +23,58 @@ import { eq, sql, and } from 'drizzle-orm';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
+// 📐 تحميل مقاعد قالب الفعالية إلى حالة الغرفة (المقاعد المثبّتة + المؤخّرة + الأبواب + سعة المقاعد).
+// يُستدعى عند إنشاء الغرفة لتظهر «المقاعد المحجوزة» فوراً في الغرفة الفارغة (قبل جلوس أي لاعب) —
+// بدلاً من تحميلها كسولاً عند أول توزيع مقعد. الاستدعاء idempotent. لا يحفظ الحالة (المُستدعي يحفظ).
+async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
+  const db = getDB();
+  const activityId = state?.activityId;
+  if (!activityId || !db) return false;
+  try {
+    const [actRow] = await db.execute(sql`
+      SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1
+    `).then((r: any) => (r.rows || r || []));
+    if (!actRow?.seat_template_id) return false;
+    const [tplRow] = await db.execute(sql`
+      SELECT pinned_seats, reserved_tail_count, total_seats, layout_config FROM seat_templates
+      WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
+    `).then((r: any) => (r.rows || r || []));
+    if (!tplRow) return false;
+    const pinnedSeats = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+    const reservedTailSeats = Number(tplRow.reserved_tail_count || 0);
+    const templateTotalSeats = Number(tplRow.total_seats || 0);
+    let doors: any[] = [];
+    let doorSeats: number[] = [];
+    const layout = typeof tplRow.layout_config === 'string'
+      ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null)
+      : tplRow.layout_config;
+    if (layout) {
+      doors = Array.isArray(layout.doors) ? layout.doors : [];
+      doorSeats = Array.isArray(layout.doorSeats)
+        ? layout.doorSeats.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n))
+        : [];
+    }
+    // سعة المقاعد من القالب (القالب يفرض السعة)
+    if (templateTotalSeats >= 6) {
+      const targetMax = Math.min(templateTotalSeats, 50);
+      if (targetMax !== state.config.maxPlayers) {
+        state.config.maxPlayers = targetMax;
+        const r = activeRooms.get(state.roomId);
+        if (r) r.maxPlayers = targetMax;
+      }
+    }
+    state.pinnedSeats = pinnedSeats;
+    state.reservedTailSeats = reservedTailSeats;
+    state.doors = doors;
+    state.doorSeats = doorSeats;
+    console.log(`📐 [template] Preloaded seat template #${actRow.seat_template_id} into room ${state.roomId}: ${pinnedSeats.length} pinned, ${reservedTailSeats} tail, ${doorSeats.length} doorSeats`);
+    return true;
+  } catch (e: any) {
+    console.warn('⚠️ loadSeatTemplateIntoState failed:', e.message);
+    return false;
+  }
+}
+
 export function getActiveRooms() {
   return Array.from(activeRooms.values());
 }
@@ -190,7 +242,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           socket.join(existingState.roomId);
           if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
           socket.data.roomId = existingState.roomId;
-          
+
+          // 📐 تأكد من تحميل مقاعد القالب (لرومات أُنشئت قبل هذا الإصلاح ولم يُحمَّل لها القالب بعد)
+          if (existingState.activityId && (existingState as any).pinnedSeats === undefined) {
+            if (await loadSeatTemplateIntoState(existingState)) await setGameState(existingState.roomId, existingState);
+          }
+
           return callback({
             success: true,
             roomId: existingState.roomId,
@@ -266,6 +323,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         activityId: data.activityId || undefined,
       });
 
+      // 📐 تحميل مقاعد القالب فوراً عند إنشاء الغرفة — تظهر «المقاعد المحجوزة» في الغرفة الفارغة مباشرةً
+      // (قبل هذا الإصلاح كانت تُحمَّل كسولاً عند أول توزيع مقعد، فلا تظهر لحظة دخول الليدر للغرفة الفارغة).
+      if (state.activityId) {
+        if (await loadSeatTemplateIntoState(state)) await setGameState(state.roomId, state);
+      }
+
       // جلب اسم النشاط وتحديث activeRooms
       if (data.activityId) {
         import('../config/db.js').then(async ({ getDB }) => {
@@ -289,9 +352,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         gameName,
         sessionId: sessionId || undefined,
         activityId: data.activityId || undefined,
-        maxPlayers,
+        maxPlayers: state.config.maxPlayers,
       });
-      console.log(`🏠 Room created: ${state.roomId} (code: ${state.roomCode}, session: #${sessionId}, activity: ${data.activityId || 'none'}) — empty, max ${maxPlayers}`);
+      console.log(`🏠 Room created: ${state.roomId} (code: ${state.roomCode}, session: #${sessionId}, activity: ${data.activityId || 'none'}) — empty, max ${state.config.maxPlayers}`);
 
       // ── إشعار اللاعبين الحاجزين عند وقت النشاط ──
       if (data.activityId) {
