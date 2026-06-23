@@ -8,7 +8,7 @@ import MafiaCard from './MafiaCard';
 import PlayerPhaseView from './PlayerPhaseView';
 import RolesInfoModal from './RolesInfoModal';
 import { useGameState } from '@/hooks/useGameState';
-import { ROLE_NAMES } from '@/lib/constants';
+import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import PlayerNotepad from './PlayerNotepad';
@@ -729,7 +729,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       setCardFlipped(false);
       setRoleAlert(true);
       setIsPlayerDead(false); // ← reset: لعبة جديدة = حي
-      if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
+      // 👥 نطبّق دائماً (لا شرط): إن لم يكن اللاعب مافيا في هذه اللعبة (مثل الأخ الأصغر/المواطن)
+      // يجب مسح أي فريق مافيا قديم محفوظ من لعبة سابقة — وإلّا رآه الأخ الأصغر قبل تحوّله.
+      setMafiaTeam(data.mafiaTeam || []);
       setSibling(data.sibling || null); // 👥 الأخ (null لغير الأخوين)
       if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
@@ -3279,8 +3281,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       <MafiaTeamGallery
         isOpen={isGalleryOpen}
         onClose={() => setIsGalleryOpen(false)}
-        team={mafiaTeam}
-        sibling={sibling}
+        /* 👥 دفاع: لا تُعرض قائمة المافيا إلا إذا كان دور اللاعب الحالي مافيا فعلاً —
+           يمنع تسرّب فريق محفوظ من لعبة سابقة للأخ الأصغر/المواطن حتى لو بقي في الحالة لحظياً.
+           بعد تحوّل الأخ الأصغر يصبح دوره مافياوياً فتظهر القائمة طبيعياً. */
+        team={assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? mafiaTeam : []}
+        /* بطاقة التعارف للأخ الأكبر (مافيا) فقط — نفس الحماية ضد بقايا لعبة سابقة */
+        sibling={assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? sibling : null}
         isAssassin={assignedRole === 'ASSASSIN'}
         assassinContracts={assassinContracts}
       />
