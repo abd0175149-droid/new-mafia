@@ -234,6 +234,52 @@ async function resolveAutoNight(io: Server, roomId: string) {
 }
 
 // ── تجهيز الخطوة التالية (بدون إرسال للاعبين — ينتظر الليدر) ──
+// ══════════════════════════════════════════════════════
+// 🌙 إعادة بثّ حالة الليل الحالية للّيدر بعد إعادة تحميل الصفحة / إعادة الاتصال — بلا تصفير.
+// يدعم الوضعين: اليدوي/الديناميكي (currentNightStep) والأوتو (يعيد بثّ الأحداث المناسبة حسب
+// المرحلة الفرعية: جاهزة / مُرسَلة / بانتظار الموافقة) مع حساب الوقت المتبقي من deadline مخزّن.
+// ══════════════════════════════════════════════════════
+function emitNightResumeState(socket: any, state: any) {
+  if (!state) return;
+  if (state.nightComplete) { socket.emit('night:queue-complete'); return; }
+
+  if (state.config?.nightMode === 'auto') {
+    const step = state.nightStep;
+    if (!step) return; // لا خطوة جاهزة بعد (أول الليل) — الواجهة تنتظر night:auto-step-ready الطبيعي
+    const fullTimeout = state.config.autoNightTime || 15;
+    // 1) الخطوة الجاهزة — تبني autoNightStep على واجهة الليدر
+    socket.emit('night:auto-step-ready', {
+      roleName: step.roleName, role: step.role, performerName: step.performerName,
+      performerPhysicalId: step.performerPhysicalId, canSkip: step.canSkip, timeoutSeconds: fullTimeout,
+    });
+    if (state.autoNightStepApproval) {
+      // 2أ) مرحلة الموافقة — الليدر يراجع الاختيارات
+      socket.emit('night:auto-step-approval', {
+        choices: state.autoNightChoices || [],
+        nextIndex: (state as any).autoNightApprovalNextIndex ?? -1,
+      });
+    } else if (state.autoNightStepDispatched) {
+      // 2ب) جارٍ جمع اختيارات اللاعبين — الوقت المتبقي من الـdeadline المخزّن
+      const deadline = (state as any).autoNightStepDeadline;
+      const remaining = deadline ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : fullTimeout;
+      socket.emit('night:auto-step-started', { roleName: step.roleName, timeoutSeconds: remaining });
+      const alive = state.players.filter((p: any) => p.isAlive);
+      const submitted = state.playerNightActions?.submitted || {};
+      const submittedCount = alive.filter((p: any) => submitted[p.physicalId] || submitted[String(p.physicalId)]).length;
+      socket.emit('night:auto-progress', {
+        total: alive.length,
+        submitted: submittedCount,
+        missingPlayers: alive.filter((p: any) => !(submitted[p.physicalId] || submitted[String(p.physicalId)])).map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
+        choices: state.autoNightChoices || [],
+      });
+    }
+    return;
+  }
+
+  // اليدوي/الديناميكي
+  if (state.currentNightStep) socket.emit('night:queue-step', state.currentNightStep);
+}
+
 async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: number) {
   const state = await getGameState(roomId);
   if (!state) return;
@@ -251,6 +297,9 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
   state.autoNightPerformerId = nextStep.performerPhysicalId;
   state.nightStep = nextStep;
   state.autoNightStepDispatched = false; // الليدر لم يبدأ هذه الخطوة بعد
+  state.autoNightStepApproval = false;                  // 🌙 تصفير حالة الموافقة للخطوة الجديدة
+  (state as any).autoNightStepDeadline = null;          // 🌙 لا مهلة قبل بدء الخطوة
+  (state as any).autoNightApprovalNextIndex = null;
   await setGameState(roomId, state);
 
   // إعلام الليدر بالخطوة الجاهزة (ينتظر زره لبدئها)
@@ -275,12 +324,13 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
   if (!state || !state.nightStep) return;
 
   const nextStep = state.nightStep;
+  const timeoutSeconds = durationSeconds || state.config.autoNightTime || 15;
   state.autoNightStepDispatched = true;
+  state.autoNightStepApproval = false;
   state.playerNightActions = { submitted: {} };
   state.autoNightChoices = []; // Reset choices for new step
+  (state as any).autoNightStepDeadline = Date.now() + timeoutSeconds * 1000; // 🌙 موعد انتهاء المهلة — لحساب الوقت المتبقي عند reload
   await setGameState(roomId, state);
-
-  const timeoutSeconds = durationSeconds || state.config.autoNightTime || 15;
   const alivePlayers = state.players.filter((p: any) => p.isAlive);
   const stepActionType = getAutoActionType(nextStep.role);
 
@@ -420,9 +470,10 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
 
     const effectiveRole = nextStep.role === Role.NURSE ? Role.DOCTOR : nextStep.role;
     const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole);
-    
+
     // بدلاً من تجهيز الخطوة التالية، نذهب لشاشة المراجعة لليدر
     latestState.autoNightStepApproval = true;
+    (latestState as any).autoNightApprovalNextIndex = newIndex; // 🌙 لاستئناف شاشة الموافقة عند reload
     
     // 💡 إضافة اختيارات عشوائية (وهمية) لجميع اللاعبين الأحياء الذين لم يرسلوا خياراتهم (بمن فيهم أصحاب الأدوار الوهمية)
     if (!latestState.autoNightChoices) latestState.autoNightChoices = [];
@@ -490,13 +541,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // 🛡️ استئناف بدل التصفير: إن كنا في الليل وطابور قيد التقدّم، أعد إرسال الخطوة الحالية ولا
       // نُعِد بناء الطابور (يمنع إعادة الطابور من الصفر عند إعادة تحميل الصفحة / انقطاع ثم استئناف).
       const existing = await getGameState(data.roomId);
-      if (existing && existing.phase === Phase.NIGHT && !existing.nightComplete) {
-        if (existing.currentNightStep) socket.emit('night:queue-step', existing.currentNightStep);
-        console.log(`🌙 [night:start] Mid-night already in progress — resumed current step (room ${data.roomId})`);
-        return callback({ success: true, resumed: true, round: existing.round });
-      }
-      if (existing && existing.phase === Phase.NIGHT && existing.nightComplete) {
-        socket.emit('night:queue-complete');
+      if (existing && existing.phase === Phase.NIGHT) {
+        emitNightResumeState(socket, existing);
+        console.log(`🌙 [night:start] Mid-night already in progress — resumed instead of restarting (room ${data.roomId})`);
         return callback({ success: true, resumed: true, round: existing.round });
       }
 
@@ -793,14 +840,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       if (socket.data.authStaff) socket.data.role = 'leader';
       const state = await getGameState(data.roomId);
       if (!state || state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'ليس في مرحلة الليل' });
-      if (state.nightComplete) {
-        socket.emit('night:queue-complete');
-        return callback?.({ success: true, nightComplete: true });
-      }
-      if (state.currentNightStep) {
-        socket.emit('night:queue-step', state.currentNightStep);
-        return callback?.({ success: true, step: state.currentNightStep });
-      }
+      emitNightResumeState(socket, state);
       return callback?.({ success: true });
     } catch (err: any) { callback?.({ success: false, error: err.message }); }
   });
@@ -1864,8 +1904,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
         
         const effectiveRole = stepRole === Role.NURSE ? Role.DOCTOR : stepRole;
         const newIndex = NIGHT_QUEUE_ORDER.indexOf(effectiveRole as any);
-        
+
         state.autoNightStepApproval = true;
+        (state as any).autoNightApprovalNextIndex = newIndex; // 🌙 لاستئناف شاشة الموافقة عند reload
         await setGameState(data.roomId, state);
         
         io.to(data.roomId).emit('night:auto-step-approval', {
@@ -1883,6 +1924,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ══════════════════════════════════════════════════════
   socket.on('night:auto-advance-step', async (data: { roomId: string, durationSeconds?: number }, callback) => {
     try {
+      if (socket.data.authStaff) socket.data.role = 'leader';
       if (socket.data.role !== 'leader') {
         return callback?.({ success: false, error: 'Only leader' });
       }
@@ -1908,6 +1950,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ══════════════════════════════════════════════════════
   socket.on('night:auto-approve-step', async (data: { roomId: string, modifiedChoices?: any[], nextIndex: number }, callback) => {
     try {
+      if (socket.data.authStaff) socket.data.role = 'leader';
       if (socket.data.role !== 'leader') return callback?.({ success: false, error: 'Only leader' });
       
       const state = await getGameState(data.roomId);
