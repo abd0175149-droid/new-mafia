@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import WhatsAppButton from '@/components/WhatsAppButton';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -250,7 +251,12 @@ export default function PlayersManagementPage() {
                         </div>
                       </td>
                       {/* Phone */}
-                      <td className="px-4 py-3 text-center font-mono text-gray-300 text-xs" dir="ltr">{p.phone}</td>
+                      <td className="px-4 py-3 text-center font-mono text-gray-300 text-xs" dir="ltr">
+                        <span className="inline-flex items-center justify-center gap-2">
+                          {p.phone}
+                          <WhatsAppButton phone={p.phone} size={14} />
+                        </span>
+                      </td>
                       {/* Matches */}
                       <td className="px-4 py-3 text-center">
                         <span className="text-white font-bold">{p.totalMatches || 0}</span>

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
+import WhatsAppButton from '@/components/WhatsAppButton';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -465,7 +466,10 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
                     <div key={i} className="bg-gray-800/80 border border-rose-500/20 rounded-xl p-3 flex justify-between items-center">
                       <div>
                         <p className="text-white font-bold">{p.player_name}</p>
-                        <p className="text-xs text-gray-500 font-mono mt-0.5" dir="ltr">{p.phone || '—'}</p>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5 flex items-center gap-2" dir="ltr">
+                          {p.phone || '—'}
+                          <WhatsAppButton phone={p.phone} size={13} />
+                        </p>
                       </div>
                       <button
                         onClick={() => handleAutoBook([p])}
@@ -1267,7 +1271,12 @@ export default function ActivityDetailPage() {
                           </td>
                           <td className="px-3 py-2.5 text-gray-600 text-xs font-mono">{i + 1}</td>
                           <td className="px-3 py-2.5 text-white font-medium">{b.name}</td>
-                          <td className="px-3 py-2.5 text-gray-400 text-xs" dir="ltr">{b.phone || '—'}</td>
+                          <td className="px-3 py-2.5 text-gray-400 text-xs" dir="ltr">
+                            <span className="inline-flex items-center gap-2">
+                              {b.phone || '—'}
+                              <WhatsAppButton phone={b.phone} size={13} />
+                            </span>
+                          </td>
                           <td className="px-3 py-2.5 text-center">
                             <span className="bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded text-xs font-bold">{b.count || 1}</span>
                           </td>
