@@ -2614,12 +2614,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // ── 👥 تهيئة رابطة التوأمين فور اعتماد الأدوار (قبل أول نهار) ──
       // مهم: التهيئة هنا (لا عند بدء الليل) لتعمل الرابطة حتى لو أُقصي توأم في تصويت اليوم الأول.
-      if (!state.twinState) {
-        const twinState = initTwinState(state);
-        if (twinState) {
-          state.twinState = twinState;
-          console.log(`👥 Twin Bond initialized at binding for room ${data.roomId}: Older #${twinState.olderBrotherPhysicalId} ↔ Younger #${twinState.youngerBrotherPhysicalId}`);
-        }
+      // 🔧 نُعيد الحساب دائماً (لا نعتمد على !state.twinState): إعادة استخدام نفس الغرفة للعبة جديدة
+      // قد تترك twinState من لعبة سابقة (مقاعد/أعلام قديمة، suicideTriggered=true) فلا يتحوّل التوأم
+      // ولا تظهر بطاقة التعارف. اعتماد الأدوار هنا يحدّد أخوي هذه اللعبة → نحسبها من جديد دائماً
+      // (initTwinState يُرجع null إن لا يوجد أخوان، فتُصفَّر الحالة القديمة تلقائياً).
+      state.twinState = initTwinState(state);
+      if (state.twinState) {
+        console.log(`👥 Twin Bond initialized at binding for room ${data.roomId}: Older #${state.twinState.olderBrotherPhysicalId} ↔ Younger #${state.twinState.youngerBrotherPhysicalId}`);
       }
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──
@@ -2993,6 +2994,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     state.performanceTracking = null;
     delete state.assassinState;
     delete state.dynamicNightState;
+    // 👥 تصفير رابطة التوأمين — مهم عند إعادة استخدام نفس الغرفة للعبة جديدة، وإلا بقيت حالة
+    // اللعبة السابقة (مقاعد/أعلام قديمة) فلا يُعاد التهيئة ولا يتحوّل التوأم ولا تظهر بطاقة التعارف.
+    state.twinState = null;
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);
