@@ -248,6 +248,8 @@ export default function LeaderPage() {
           // إعادة الانضمام للغرفة عبر Socket
           const socket = (await import('@/lib/socket')).getSocket();
           socket.emit('room:rejoin-leader', { roomId: savedRoomId });
+          // 🌙 استئناف طابور الليل دون تصفير (يعيد الخطوة الحالية من الخادم)
+          if (phase === 'NIGHT') socket.emit('night:resume', { roomId: savedRoomId });
           console.log(`♻️ Leader auto-rejoined room: ${savedRoomId}`);
         } else {
           // الغرفة مش موجودة → مسح
@@ -460,6 +462,8 @@ export default function LeaderPage() {
             nightStep: st.currentNightStep || prev.nightStep || null,
             nightComplete: st.nightComplete || false,
           } : st);
+          // 🌙 استئناف طابور الليل دون تصفير (يعيد إرسال الخطوة الحالية من الخادم)
+          if (st.phase === 'NIGHT') emit('night:resume', { roomId: gameState.roomId });
         }
       } catch {}
     });

@@ -482,8 +482,22 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ── بدء مرحلة الليل ──────────────────────────
   socket.on('night:start', async (data: { roomId: string }, callback) => {
     try {
+      if (socket.data.authStaff) socket.data.role = 'leader';
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
+      }
+
+      // 🛡️ استئناف بدل التصفير: إن كنا في الليل وطابور قيد التقدّم، أعد إرسال الخطوة الحالية ولا
+      // نُعِد بناء الطابور (يمنع إعادة الطابور من الصفر عند إعادة تحميل الصفحة / انقطاع ثم استئناف).
+      const existing = await getGameState(data.roomId);
+      if (existing && existing.phase === Phase.NIGHT && !existing.nightComplete) {
+        if (existing.currentNightStep) socket.emit('night:queue-step', existing.currentNightStep);
+        console.log(`🌙 [night:start] Mid-night already in progress — resumed current step (room ${data.roomId})`);
+        return callback({ success: true, resumed: true, round: existing.round });
+      }
+      if (existing && existing.phase === Phase.NIGHT && existing.nightComplete) {
+        socket.emit('night:queue-complete');
+        return callback({ success: true, resumed: true, round: existing.round });
       }
 
       const state = await resetNightActions(data.roomId);
@@ -771,6 +785,26 @@ export function registerNightEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── 🌙 استئناف الطابور بعد إعادة تحميل الصفحة / إعادة الاتصال ──
+  // يعيد إرسال الخطوة الحالية المحفوظة (currentNightStep) دون أي تصفير أو إعادة بناء.
+  socket.on('night:resume', async (data: { roomId: string }, callback) => {
+    try {
+      socket.join(data.roomId);
+      if (socket.data.authStaff) socket.data.role = 'leader';
+      const state = await getGameState(data.roomId);
+      if (!state || state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'ليس في مرحلة الليل' });
+      if (state.nightComplete) {
+        socket.emit('night:queue-complete');
+        return callback?.({ success: true, nightComplete: true });
+      }
+      if (state.currentNightStep) {
+        socket.emit('night:queue-step', state.currentNightStep);
+        return callback?.({ success: true, step: state.currentNightStep });
+      }
+      return callback?.({ success: true });
+    } catch (err: any) { callback?.({ success: false, error: err.message }); }
+  });
+
   // ── تسجيل اختيار الليدر لهدف الدور الحالي ──
   socket.on('night:submit-action', async (data: {
     roomId: string;
@@ -778,6 +812,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
     targetPhysicalId: number;
   }, callback) => {
     try {
+      if (socket.data.authStaff) socket.data.role = 'leader';
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
@@ -791,6 +826,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
         const dynamicNight = state.dynamicNightState;
         const queue = (state as any).dynamicQueue as {abilityId: string; performerPhysicalId: number; nameAr: string}[];
         let queueIndex = (state as any).dynamicQueueIndex as number;
+
+        // 🛡️ idempotency: تجاهل إرسالاً قديماً/مكرّراً (بعد إعادة اتصال مثلاً). إن لم يطابق الدور
+        // المُرسَل خطوة الطابور الحالية، أعد إرسال الخطوة الحالية بلا تقدّم (يمنع تخطّي خطوة أو عدّاً مزدوجاً).
+        if (queue[queueIndex]?.abilityId !== abilityId) {
+          if (queueIndex < queue.length && state.currentNightStep) socket.emit('night:queue-step', state.currentNightStep);
+          else if (queueIndex >= queue.length) socket.emit('night:queue-complete');
+          return callback({ success: true, resynced: true });
+        }
 
         // تسجيل الإجراء
         dynamicNight.actions[abilityId] = {
@@ -972,6 +1015,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
     role: Role;
   }, callback) => {
     try {
+      if (socket.data.authStaff) socket.data.role = 'leader';
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
@@ -999,6 +1043,13 @@ export function registerNightEvents(io: Server, socket: Socket) {
         const dynamicNight = state.dynamicNightState;
         const queue = (state as any).dynamicQueue as {abilityId: string; performerPhysicalId: number; nameAr: string}[];
         let queueIndex = (state as any).dynamicQueueIndex as number;
+
+        // 🛡️ idempotency: تجاهل تخطّياً قديماً/مكرّراً لا يطابق الخطوة الحالية (يمنع تخطّي خطوة)
+        if (queue[queueIndex]?.abilityId !== abilityId) {
+          if (queueIndex < queue.length && state.currentNightStep) socket.emit('night:queue-step', state.currentNightStep);
+          else if (queueIndex >= queue.length) socket.emit('night:queue-complete');
+          return callback({ success: true, resynced: true });
+        }
 
         // تسجيل التخطي
         dynamicNight.actions[abilityId] = {
@@ -1107,6 +1158,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
   // ── معالجة التقاطعات (بعد إنهاء الطابور) ────
   socket.on('night:resolve', async (data: { roomId: string }, callback) => {
     try {
+      if (socket.data.authStaff) socket.data.role = 'leader';
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }

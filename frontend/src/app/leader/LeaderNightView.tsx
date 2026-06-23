@@ -289,19 +289,46 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
     }
   }, [peekedCard, gameState.config?.nightMode]);
 
-  // تصفير الاختيار عند تغير الخطوة
+  // تصفير الاختيار عند تغير الخطوة — مع استرجاع اختيار جارٍ محفوظ محلياً لنفس الخطوة
+  // (ينجو الاختيار غير المؤكَّد من إعادة تحميل الصفحة / انقطاع الإنترنت)
   useEffect(() => {
-    setSelectedTarget(null);
+    let restored: number | null = null;
+    try {
+      const saved = localStorage.getItem('mafia_leader_night_sel');
+      if (saved) {
+        const s = JSON.parse(saved);
+        if (s.roomId === gameState.roomId && s.role === gameState.nightStep?.role
+          && s.performerPhysicalId === gameState.nightStep?.performerPhysicalId && typeof s.target === 'number') {
+          restored = s.target;
+        }
+      }
+    } catch { /* ignore */ }
+    setSelectedTarget(restored);
     setPeekedCard(null);
     if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-  }, [gameState.nightStep?.role]);
+  }, [gameState.nightStep?.role, gameState.nightStep?.performerPhysicalId, gameState.roomId]);
+
+  // 💾 حفظ الاختيار الجاري محلياً (قبل التأكيد) — لاستعادته بعد إعادة التحميل
+  useEffect(() => {
+    try {
+      if (selectedTarget !== null && gameState.nightStep) {
+        localStorage.setItem('mafia_leader_night_sel', JSON.stringify({
+          roomId: gameState.roomId,
+          role: gameState.nightStep.role,
+          performerPhysicalId: gameState.nightStep.performerPhysicalId,
+          target: selectedTarget,
+        }));
+      }
+    } catch { /* ignore */ }
+  }, [selectedTarget, gameState.nightStep?.role, gameState.roomId]);
 
   // تصفير الأحداث المكشوفة عند دخول morning recap
   useEffect(() => {
     if (gameState.phase === 'MORNING_RECAP') {
       setRevealedEvents(new Set());
       setSheriffOverlay(null);
+      try { localStorage.removeItem('mafia_leader_night_sel'); } catch { /* ignore */ } // 💾 لا نُبقي اختياراً جارياً بعد انتهاء الليل
     }
   }, [gameState.phase]);
 
@@ -353,6 +380,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
         role: nightStep.role,
         targetPhysicalId: selectedTarget,
       });
+      try { localStorage.removeItem('mafia_leader_night_sel'); } catch { /* ignore */ }
       setSelectedTarget(null);
     } catch (err: any) {
       setError(err.message);
@@ -370,6 +398,7 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
         roomId: gameState.roomId,
         role: nightStep.role,
       });
+      try { localStorage.removeItem('mafia_leader_night_sel'); } catch { /* ignore */ }
     } catch (err: any) {
       setError(err.message);
     } finally {
