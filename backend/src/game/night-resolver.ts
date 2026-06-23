@@ -153,9 +153,10 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
       silenced.isSilenced = true;
       const silencer = state.players.find(p => p.role === Role.SILENCER && p.isAlive);
       events.push({ type: 'SILENCED', targetPhysicalId: silenced.physicalId, targetName: silenced.name, performerPhysicalId: silencer?.physicalId, performerName: silencer?.name, wasRandom: !!nightActions.randomSelections?.['SILENCER'], revealed: false });
-      // 🎭 القص: إسكات غير مافيا = مفيد (صحيح)؛ إسكات حليف مافيا = غير مفيد (خاطئ)
-      if (silencer) {
-        pt.abilityResults.push({ physicalId: silencer.physicalId, role: 'SILENCER', correct: !(silenced.role && isMafiaRole(silenced.role)) });
+      // 🎭 القص: إسكات غير مافيا = هدف صحيح (يكسب نقاط). إسكات حليف مافيا ليس هدفاً صحيحاً
+      // → محايد: لا يكسب ولا يخسر (لا نسجّل أي نتيجة قدرة، فلا تُحتسب صحيحة ولا خاطئة).
+      if (silencer && !(silenced.role && isMafiaRole(silenced.role))) {
+        pt.abilityResults.push({ physicalId: silencer.physicalId, role: 'SILENCER', correct: true });
       }
     }
   }
