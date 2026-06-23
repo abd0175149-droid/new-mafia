@@ -2997,6 +2997,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     // 👥 تصفير رابطة التوأمين — مهم عند إعادة استخدام نفس الغرفة للعبة جديدة، وإلا بقيت حالة
     // اللعبة السابقة (مقاعد/أعلام قديمة) فلا يُعاد التهيئة ولا يتحوّل التوأم ولا تظهر بطاقة التعارف.
     state.twinState = null;
+    state.luckyDraw = null;   // 🎁 تصفير سحب الهدايا عند لعبة جديدة
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);
@@ -3058,6 +3059,91 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   socket.on('display:hide-replay', (data: { roomId: string }, callback?) => {
     io.to(data.roomId).emit('display:replay-hidden');
     callback?.({ success: true });
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 🎁 سحب «اختيار رابح» (هدايا الفعالية) — منفصل تماماً عن منطق اللعبة/الرانك
+  // الخادم مصدر العشوائية (عدالة + مصدر حقيقة واحد). النتيجة تُحدَّد مسبقاً ثم تُكشف بأنيميشن
+  // تجميلي على شاشة العرض. مسموح فقط في اللوبي (حيث شاشة العرض تعرض شبكة كل اللاعبين).
+  // ══════════════════════════════════════════════════════
+  socket.on('room:lucky-draw:draw', async (data: { roomId: string; count: number }, callback) => {
+    try {
+      socket.join(data.roomId);
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
+      socket.data.role = 'leader';
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.LOBBY) return callback({ success: false, error: 'السحب متاح فقط في غرفة اللوبي' });
+
+      // المرشّحون = اللاعبون الحاضرون (نفس فلتر شبكة شاشة العرض)
+      const pool = state.players.filter((p: any) => !p.seatHeld && !p.frozen).map((p: any) => p.physicalId);
+      const count = Math.floor(Number(data.count) || 0);
+      if (count < 1 || count > pool.length) {
+        return callback({ success: false, error: `العدد يجب أن يكون بين 1 و ${pool.length}` });
+      }
+
+      // خلط Fisher–Yates ثم أخذ أول count (فائزون بلا تكرار)
+      const shuffled = [...pool];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const winners = shuffled.slice(0, count);
+
+      state.luckyDraw = { status: 'drawn', count, winners, pool };
+      await setGameState(data.roomId, state);
+
+      // لا نبثّ الفائزين الآن — فقط للّيدر — حفاظاً على المفاجأة حتى الكشف
+      callback({ success: true, winners, pool });
+      console.log(`🎁 Lucky draw drawn in room ${data.roomId}: ${count} from ${pool.length} → [${winners.join(', ')}]`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  socket.on('room:lucky-draw:reveal', async (data: { roomId: string }, callback) => {
+    try {
+      socket.join(data.roomId);
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
+      socket.data.role = 'leader';
+
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (!state.luckyDraw) return callback({ success: false, error: 'لا يوجد سحب لكشفه — اسحب أولاً' });
+
+      // أبقِ الفائزين الحاضرين فقط (قد يكون أحدهم غادر بعد السحب)
+      const present = new Set(state.players.filter((p: any) => !p.seatHeld && !p.frozen).map((p: any) => p.physicalId));
+      const winners = state.luckyDraw.winners.filter((id) => present.has(id));
+      if (winners.length === 0) return callback({ success: false, error: 'لم يعد الفائزون موجودين — أعد السحب' });
+
+      state.luckyDraw.winners = winners;
+      state.luckyDraw.status = 'revealed';
+      state.luckyDraw.revealedAt = Date.now();
+      await setGameState(data.roomId, state);
+
+      io.to(data.roomId).emit('display:lucky-draw', { winners, pool: state.luckyDraw.pool, spinMs: 4500 });
+
+      callback({ success: true, winners });
+      console.log(`🎁 Lucky draw revealed in room ${data.roomId} → [${winners.join(', ')}]`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  socket.on('room:lucky-draw:clear', async (data: { roomId: string }, callback) => {
+    try {
+      socket.join(data.roomId);
+      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
+      socket.data.role = 'leader';
+
+      const state = await getGameState(data.roomId);
+      if (state) { state.luckyDraw = null; await setGameState(data.roomId, state); }
+      io.to(data.roomId).emit('display:lucky-draw:clear');
+      callback?.({ success: true });
+    } catch (err: any) {
+      callback?.({ success: false, error: err.message });
+    }
   });
 
   // ── لعبة جديدة في نفس الغرفة — reset بدل create ────────────

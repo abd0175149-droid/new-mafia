@@ -184,6 +184,15 @@ export interface TwinState {
   suicideTriggered: boolean;           // هل انتحر الأكبر؟
 }
 
+// 🎁 حالة سحب «اختيار رابح» (هدايا الفعالية) — لا علاقة لها بمنطق اللعبة
+export interface LuckyDrawState {
+  status: 'drawn' | 'revealed';   // drawn: سُحب وينتظر الكشف / revealed: كُشف على الشاشة
+  count: number;                  // عدد الفائزين المطلوب
+  winners: number[];              // physicalIds الفائزون (مُحدَّدون مسبقاً)
+  pool: number[];                 // physicalIds المرشّحون وقت السحب
+  revealedAt?: number;            // وقت الكشف (للمزامنة عند إعادة الاتصال)
+}
+
 export interface GameConfig {
   maxJustifications: number;
   currentJustification: number;
@@ -278,6 +287,8 @@ export interface GameState {
   witchPreviousTargets?: number[];
   // 👥 حالة التوأمين
   twinState?: TwinState | null;
+  // 🎁 سحب «اختيار رابح» — توزيع هدايا الفعالية (منفصل تماماً عن منطق اللعبة/الرانك)
+  luckyDraw?: LuckyDrawState | null;
   // ── حالة خطوة الليل الحالية ──
   currentNightStep?: any;
   nightComplete?: boolean;

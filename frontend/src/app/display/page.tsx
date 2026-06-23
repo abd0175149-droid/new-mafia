@@ -87,6 +87,9 @@ function DisplayPageContent() {
   const [discussionState, setDiscussionState] = useState<any>(null);
   const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number}>({citizenAlive: 0, mafiaAlive: 0});
   const [replayData, setReplayData] = useState<any>(null);
+  // 🎁 سحب «اختيار رابح» — أنيميشن الكشف على شاشة العرض
+  const [lucky, setLucky] = useState<{ phase: 'spinning' | 'revealed'; winners: number[]; pool: number[]; activeId: number | null } | null>(null);
+  const luckyTimersRef = useRef<NodeJS.Timeout[]>([]);
   const [adminReveal, setAdminReveal] = useState<{physicalId: number; playerName: string; role: string} | null>(null);
   const adminRevealTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasAutoRejoined = useRef(false);
@@ -243,6 +246,15 @@ function DisplayPageContent() {
         setGameTimerData(null);
         setGameTimerRemaining(0);
       }
+      // 🎁 مزامنة سحب الهدايا عند إعادة الاتصال — اعرض النتيجة النهائية دون إعادة الدوران،
+      // ولا تُلغِ أنيميشناً جارياً (prev غير null).
+      setLucky((prev) => {
+        if (prev) return prev;
+        if (state.luckyDraw && state.luckyDraw.status === 'revealed' && Array.isArray(state.luckyDraw.winners) && state.luckyDraw.winners.length > 0) {
+          return { phase: 'revealed', winners: state.luckyDraw.winners, pool: state.luckyDraw.pool || state.luckyDraw.winners, activeId: null };
+        }
+        return null;
+      });
     };
 
     // ── الانضمام لغرفة السوكت — مع callback لمزامنة الحالة الأولية ──
@@ -529,8 +541,41 @@ function DisplayPageContent() {
     socket.on('admin:hide-reveal', onHideReveal);
     socket.on('game:penalty-recorded', onPenaltyRecorded);
 
+    // ── 🎁 سحب «اختيار رابح» — دوران ثم هبوط ثم كشف مكبّر ──
+    const clearLuckyTimers = () => { luckyTimersRef.current.forEach((t) => clearTimeout(t)); luckyTimersRef.current = []; };
+    const onLuckyDraw = (data: { winners: number[]; pool: number[]; spinMs?: number }) => {
+      const winners = data.winners || [];
+      const pool = (data.pool && data.pool.length > 0) ? data.pool : winners;
+      if (!winners.length || !pool.length) return;
+      clearLuckyTimers();
+      const spinMs = data.spinMs || 4500;
+      const startedAt = Date.now();
+      setLucky({ phase: 'spinning', winners, pool, activeId: pool[0] });
+      let delay = 70; // يتباطأ تصاعدياً (تأثير ماكينة الحظ)
+      const step = () => {
+        if (Date.now() - startedAt >= spinMs) {
+          setLucky((l) => (l ? { ...l, activeId: winners[0] } : l)); // الهبوط على فائز
+          const t = setTimeout(() => setLucky((l) => (l ? { ...l, phase: 'revealed', activeId: null } : l)), 550);
+          luckyTimersRef.current.push(t);
+          return;
+        }
+        const nextId = pool[Math.floor(Math.random() * pool.length)];
+        setLucky((l) => (l ? { ...l, activeId: nextId } : l));
+        delay = Math.min(430, delay * 1.06);
+        const t = setTimeout(step, delay);
+        luckyTimersRef.current.push(t);
+      };
+      luckyTimersRef.current.push(setTimeout(step, delay));
+    };
+    const onLuckyClear = () => { clearLuckyTimers(); setLucky(null); };
+    socket.on('display:lucky-draw', onLuckyDraw);
+    socket.on('display:lucky-draw:clear', onLuckyClear);
+
     // ── تنظيف ──
     return () => {
+      clearLuckyTimers();
+      socket.off('display:lucky-draw', onLuckyDraw);
+      socket.off('display:lucky-draw:clear', onLuckyClear);
       socket.off('connect', onReconnect);
       socket.off('game:state-sync', onStateSync);
       socket.off('game:state-updated', onStateSync);
@@ -1068,6 +1113,52 @@ function DisplayPageContent() {
                 </div>
               </div>
 
+              {/* 🎁 طبقة كشف الفائزين (سحب اختيار رابح) — تُكبّر الكارد(ات) في المنتصف */}
+              {lucky?.phase === 'revealed' && (
+                <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(197,160,89,0.25),transparent_60%)] pointer-events-none" />
+                  <motion.h2
+                    initial={{ opacity: 0, y: -30, scale: 0.8 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: 'spring', damping: 12, stiffness: 120 }}
+                    className="text-5xl font-black text-[#C5A059] mb-10 drop-shadow-[0_0_30px_rgba(197,160,89,0.6)]"
+                    style={{ fontFamily: 'Amiri, serif' }}
+                  >
+                    🎁 {lucky.winners.length > 1 ? 'الفائزون' : 'الفائز'} 🎁
+                  </motion.h2>
+                  <div className="flex flex-wrap items-center justify-center gap-10 px-8">
+                    {lucky.winners.map((id, idx) => {
+                      const wp = players.find((pp) => pp.physicalId === id);
+                      if (!wp) return null;
+                      return (
+                        <motion.div
+                          key={id}
+                          initial={{ opacity: 0, scale: 0.3, rotateY: 90 }}
+                          animate={{ opacity: 1, scale: 1, rotateY: 0 }}
+                          transition={{ type: 'spring', damping: 14, stiffness: 120, delay: idx * 0.25 }}
+                          className="relative"
+                        >
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[440px] bg-[#C5A059]/40 blur-[70px] rounded-full pointer-events-none -z-10" />
+                          <MafiaCard
+                            playerNumber={wp.physicalId}
+                            playerName={wp.name}
+                            role={null}
+                            gender={wp.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                            isFlipped={false}
+                            flippable={false}
+                            isAlive={true}
+                            size="lg"
+                            avatarUrl={wp.avatarUrl}
+                            rankTier={wp.rankTier}
+                            className="shadow-[0_0_70px_rgba(197,160,89,0.7)] border-2 border-[#C5A059] rounded-2xl"
+                          />
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* القسم الأيسر: شبكة اللاعبين المرنة باستخدام MafiaCard */}
               <div className="w-full flex-1">
                 <div className="flex items-center justify-between border-b border-[#2a2a2a] pb-2 mb-6">
@@ -1078,15 +1169,28 @@ function DisplayPageContent() {
                 {players.length > 0 ? (
                   <div className="flex flex-wrap justify-center gap-6 w-full pb-12 overflow-visible">
                     <AnimatePresence mode="popLayout">
-                      {players.filter((p: any) => p.isAlive !== false).slice().reverse().map((p: any, i: number) => (
+                      {players.filter((p: any) => p.isAlive !== false).slice().reverse().map((p: any, i: number) => {
+                        // 🎁 تأثير سحب «اختيار رابح» أثناء الدوران: وهج على الكارد النشط، تعتيم الباقي
+                        const luckySpin = lucky?.phase === 'spinning';
+                        const luckyActive = luckySpin && lucky?.activeId === p.physicalId;
+                        return (
                         <motion.div
                           key={p.physicalId}
                           layout
                           initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          transition={{ delay: i * 0.05 }}
+                          animate={luckySpin ? {
+                            opacity: luckyActive ? 1 : 0.25,
+                            scale: luckyActive ? 1.15 : 0.9,
+                            filter: luckyActive ? 'none' : 'blur(3px) grayscale(70%)',
+                            y: 0,
+                          } : { opacity: 1, scale: 1, y: 0, filter: 'none' }}
+                          transition={luckySpin ? { duration: 0.12, ease: 'easeOut' } : { delay: i * 0.05 }}
+                          style={{ zIndex: luckyActive ? 50 : 1 }}
                           className="relative"
                         >
+                          {luckyActive && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[250px] h-[350px] bg-[#C5A059]/40 blur-[50px] rounded-full pointer-events-none -z-10" />
+                          )}
                           <MafiaCard
                             playerNumber={p.physicalId}
                             playerName={p.name}
@@ -1099,6 +1203,7 @@ function DisplayPageContent() {
                             size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
                             avatarUrl={p.avatarUrl}
                             rankTier={p.rankTier}
+                            className={luckyActive ? 'shadow-[0_0_50px_rgba(197,160,89,0.6)] border-2 border-[#C5A059] rounded-2xl' : ''}
                           />
                           {/* نقاط العقوبات */}
                           {(p.penalties || 0) > 0 && (
@@ -1114,7 +1219,8 @@ function DisplayPageContent() {
                             </div>
                           )}
                         </motion.div>
-                      ))}
+                        );
+                      })}
                     </AnimatePresence>
                   </div>
                 ) : (
