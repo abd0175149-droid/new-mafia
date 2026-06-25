@@ -205,6 +205,7 @@ export interface GameConfig {
   gameTimerMinutes: number;      // مدة المؤقت بالدقائق (30, 60, 90)
   useDynamicEngine: boolean;     // 🧩 هل نستخدم المحرك الديناميكي (Data-Driven)
   maxPenalties?: number;         // أقصى عدد عقوبات مسموح به (الافتراضي 3)
+  maxPlayersManual?: boolean;    // 👑 هل عدّل الليدر السعة يدوياً؟ (إن نعم، لا يتجاوزها قالب المقاعد)
   penaltyScope?: 'game' | 'room'; // مستوى العقوبات: 'game' = تصفير كل لعبة / 'room' = تستمر طول الغرفة (الافتراضي 'room')
   bombEnabled?: boolean;          // 💣 هل قدرة القنبلة لشيخ المافيا مفعلة (الافتراضي true)
   assassinContractCount?: number;  // 🔪 عدد عقود السفّاح (الافتراضي 4، المدى 2-6)

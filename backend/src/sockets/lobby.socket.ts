@@ -54,8 +54,8 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
         ? layout.doorSeats.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n))
         : [];
     }
-    // سعة المقاعد من القالب (القالب يفرض السعة)
-    if (templateTotalSeats >= 6) {
+    // سعة المقاعد من القالب (القالب يفرض السعة الافتراضية) — إلا إذا عدّلها الليدر يدوياً
+    if (templateTotalSeats >= 6 && !state.config.maxPlayersManual) {
       const targetMax = Math.min(templateTotalSeats, 50);
       if (targetMax !== state.config.maxPlayers) {
         state.config.maxPlayers = targetMax;
@@ -1002,8 +1002,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
 
           // ── حسم عدد المقاعد: القالب (totalSeats) أولاً، وإلا تبقى السعة الحالية (لا من الحجز) ──
-          // فقط القالب يفرض السعة؛ بدون قالب نحترم القيمة الحالية (27 افتراضياً أو ما عدّله الليدر).
-          if (hasTemplate && templateTotalSeats >= 6) {
+          // فقط القالب يفرض السعة الافتراضية؛ وإذا عدّلها الليدر يدوياً لا يتجاوزها القالب.
+          if (hasTemplate && templateTotalSeats >= 6 && !state.config.maxPlayersManual) {
             const targetMax = Math.min(templateTotalSeats, 50);
             if (targetMax !== state.config.maxPlayers) {
               state.config.maxPlayers = targetMax;
@@ -1983,7 +1983,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const newMax = Math.min(Math.max(data.maxPlayers, 6), 50);
       const oldMax = state.config.maxPlayers;
 
+      // 👑 الليدر عدّل السعة يدوياً → لا يَفرض قالب المقاعد سعته بعد الآن (يسمح بتجاوز عدد التمبلت)
+      state.config.maxPlayersManual = true;
+
       if (newMax === oldMax) {
+        await updateRoom(data.roomId, { config: state.config });
         return callback({ success: true });
       }
 

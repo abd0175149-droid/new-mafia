@@ -265,10 +265,10 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
             <button
               onClick={async () => {
                 const newMax = gameState.config.maxPlayers + 1;
-                if (newMax > 27) return;
+                if (newMax > 50) return;
                 try { await emit('room:update-max-players', { roomId: gameState.roomId, maxPlayers: newMax }); } catch (err: any) { setError(err.message); }
               }}
-              disabled={gameState.config.maxPlayers >= 27}
+              disabled={gameState.config.maxPlayers >= 50}
               className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed text-lg"
             >+</button>
           </div>
