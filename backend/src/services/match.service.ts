@@ -479,6 +479,24 @@ export async function getMatchDetails(matchId: number) {
   }
 }
 
+// ── 📊 ملخص نقاط لاعب من صفّ match_players (دالة نقية بلا DB) ──
+// تُستخدم في getMatchPlayerPoints وفي الاختبار. تعتمد buildDisplayBreakdown (نفس منطق العرض في
+// السجل): الكسب = مجموع البنود الموجبة، الخسارة = مجموع البنود السالبة، المجموع = صافي rr_change.
+// ثابت أساسي: rrGained + rrLost === rrTotal (لأن سطر «التسوية» يضمن أن مجموع البنود = الإجمالي المخزّن).
+export function summarizeMatchPlayerPoints(row: any, cfg?: any) {
+  const bd = buildDisplayBreakdown(row, cfg);
+  const sumPos = (lines: any[]) => lines.filter((l) => l.value > 0).reduce((s, l) => s + l.value, 0);
+  const sumNeg = (lines: any[]) => lines.filter((l) => l.value < 0).reduce((s, l) => s + l.value, 0);
+  return {
+    team: bd.team,
+    won: bd.won,
+    rrGained: sumPos(bd.rr), rrLost: sumNeg(bd.rr), rrTotal: bd.rrTotal,
+    xpGained: sumPos(bd.xp), xpLost: sumNeg(bd.xp), xpTotal: bd.xpTotal,
+    rrBreakdown: bd.rr,
+    xpBreakdown: bd.xp,
+  };
+}
+
 // ── 📊 نقاط الرانك لكل لاعب في مباراة محددة (لمودال ملخص نهاية اللعبة في واجهة الليدر) ──
 // يعيد لكل لاعب: المكتسب (rrGained) + المخصوم (rrLost) + الصافي (rrTotal) + تفصيل البنود + matchPlayerId للتعديل.
 export async function getMatchPlayerPoints(matchId: number) {
@@ -490,30 +508,33 @@ export async function getMatchPlayerPoints(matchId: number) {
     applyProgressionConfig(cfg);
     const [match] = await db.select({ winner: matches.winner }).from(matches).where(eq(matches.id, matchId)).limit(1);
     const rows = await db.select().from(matchPlayers).where(eq(matchPlayers.matchId, matchId));
-    return rows.map((r: any) => {
-      const bd = buildDisplayBreakdown({ ...r, matchWinner: match?.winner ?? null }, cfg);
-      const rrGained = bd.rr.filter((l: any) => l.value > 0).reduce((s: number, l: any) => s + l.value, 0);
-      const rrLost = bd.rr.filter((l: any) => l.value < 0).reduce((s: number, l: any) => s + l.value, 0);
-      const xpGained = bd.xp.filter((l: any) => l.value > 0).reduce((s: number, l: any) => s + l.value, 0);
-      const xpLost = bd.xp.filter((l: any) => l.value < 0).reduce((s: number, l: any) => s + l.value, 0);
-      return {
-        matchPlayerId: r.id,
-        playerId: r.playerId,
-        physicalId: r.physicalId,
-        playerName: r.playerName,
-        role: r.role,
-        team: bd.team,
-        won: bd.won,
-        rrGained, rrLost, rrTotal: bd.rrTotal,
-        xpGained, xpLost, xpTotal: bd.xpTotal,
-        rrBreakdown: bd.rr,
-        xpBreakdown: bd.xp,
-      };
-    });
+    return rows.map((r: any) => ({
+      matchPlayerId: r.id,
+      playerId: r.playerId,
+      physicalId: r.physicalId,
+      playerName: r.playerName,
+      role: r.role,
+      ...summarizeMatchPlayerPoints({ ...r, matchWinner: match?.winner ?? null }, cfg),
+    }));
   } catch (err: any) {
     console.error('❌ Failed to fetch match player points:', err.message);
     return [];
   }
+}
+
+// ── 🔧 حساب القيم بعد التعديل اليدوي (دالة نقية للاختبار) — يطابق منطق adjustMatchPlayerPoints ──
+// match_players: دلتا بسيطة. players.*: دلتا بحدّ أدنى 0 (GREATEST(0, ...)).
+export function computeAdjustedValues(
+  cur: { mpXp: number; mpRr: number; playerXp: number; playerRr: number },
+  xpDelta: number,
+  rrDelta: number,
+) {
+  return {
+    mpXp: cur.mpXp + xpDelta,
+    mpRr: cur.mpRr + rrDelta,
+    playerXp: Math.max(0, cur.playerXp + xpDelta),
+    playerRr: Math.max(0, cur.playerRr + rrDelta),
+  };
 }
 
 // ── 🔧 تعديل يدوي لنقاط لاعب في مباراة محددة (نفس منطق التعديل اليدوي في صفحة نظام التقدم) ──
