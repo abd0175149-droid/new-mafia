@@ -10,7 +10,7 @@ import { players } from '../schemas/player.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
 import { isMafiaRole } from '../game/roles.js';
 import { updatePlayerStats } from './player.service.js';
-import { processMatchRewards, computeMatchReward, computeMatchBreakdown, applyProgressionConfig } from './progression.service.js';
+import { processMatchRewards, computeMatchReward, computeMatchBreakdown, applyProgressionConfig, buildDisplayBreakdown } from './progression.service.js';
 import { getProgressionConfig, DEFAULT_CONFIG } from '../routes/progression-settings.routes.js';
 import type { GameState } from '../game/state.js';
 
@@ -477,4 +477,77 @@ export async function getMatchDetails(matchId: number) {
     console.error('❌ Failed to fetch match details:', err.message);
     return null;
   }
+}
+
+// ── 📊 نقاط الرانك لكل لاعب في مباراة محددة (لمودال ملخص نهاية اللعبة في واجهة الليدر) ──
+// يعيد لكل لاعب: المكتسب (rrGained) + المخصوم (rrLost) + الصافي (rrTotal) + تفصيل البنود + matchPlayerId للتعديل.
+export async function getMatchPlayerPoints(matchId: number) {
+  const db = getDB();
+  if (!db) return [];
+  try {
+    let cfg: any;
+    try { cfg = await getProgressionConfig(); } catch { cfg = DEFAULT_CONFIG; }
+    applyProgressionConfig(cfg);
+    const [match] = await db.select({ winner: matches.winner }).from(matches).where(eq(matches.id, matchId)).limit(1);
+    const rows = await db.select().from(matchPlayers).where(eq(matchPlayers.matchId, matchId));
+    return rows.map((r: any) => {
+      const bd = buildDisplayBreakdown({ ...r, matchWinner: match?.winner ?? null }, cfg);
+      const rrGained = bd.rr.filter((l: any) => l.value > 0).reduce((s: number, l: any) => s + l.value, 0);
+      const rrLost = bd.rr.filter((l: any) => l.value < 0).reduce((s: number, l: any) => s + l.value, 0);
+      const xpGained = bd.xp.filter((l: any) => l.value > 0).reduce((s: number, l: any) => s + l.value, 0);
+      const xpLost = bd.xp.filter((l: any) => l.value < 0).reduce((s: number, l: any) => s + l.value, 0);
+      return {
+        matchPlayerId: r.id,
+        playerId: r.playerId,
+        physicalId: r.physicalId,
+        playerName: r.playerName,
+        role: r.role,
+        team: bd.team,
+        won: bd.won,
+        rrGained, rrLost, rrTotal: bd.rrTotal,
+        xpGained, xpLost, xpTotal: bd.xpTotal,
+        rrBreakdown: bd.rr,
+        xpBreakdown: bd.xp,
+      };
+    });
+  } catch (err: any) {
+    console.error('❌ Failed to fetch match player points:', err.message);
+    return [];
+  }
+}
+
+// ── 🔧 تعديل يدوي لنقاط لاعب في مباراة محددة (نفس منطق التعديل اليدوي في صفحة نظام التقدم) ──
+// دلتا تُضاف لـ match_players (المصدر) + players.* (مع حد أدنى 0). تُعيد لقطة اللاعب المحدّثة.
+export async function adjustMatchPlayerPoints(
+  matchPlayerId: number,
+  opts: { xpDelta?: number; rrDelta?: number; reason?: string; by?: string },
+): Promise<{ player: any; matchPlayerId: number } | null> {
+  const db = getDB();
+  if (!db) return null;
+  const [mp] = await db.select({ id: matchPlayers.id, playerId: matchPlayers.playerId, xpEarned: matchPlayers.xpEarned, rrChange: matchPlayers.rrChange, playerName: matchPlayers.playerName })
+    .from(matchPlayers).where(eq(matchPlayers.id, matchPlayerId)).limit(1);
+  if (!mp) return null;
+
+  const xpDelta = Math.trunc(Number(opts.xpDelta || 0));
+  const rrDelta = Math.trunc(Number(opts.rrDelta || 0));
+
+  // 1) match_players (المصدر — دلتا)
+  const mpUpdates: any = {};
+  if (xpDelta) mpUpdates.xpEarned = (mp.xpEarned || 0) + xpDelta;
+  if (rrDelta) mpUpdates.rrChange = (mp.rrChange || 0) + rrDelta;
+  if (Object.keys(mpUpdates).length) await db.update(matchPlayers).set(mpUpdates).where(eq(matchPlayers.id, matchPlayerId));
+
+  // 2) players.* (دلتا، بحد أدنى 0) — للاعبين المسجّلين فقط
+  let player: any = null;
+  if (mp.playerId) {
+    const pUpdates: any = {};
+    if (xpDelta) pUpdates.xp = sql`GREATEST(0, COALESCE(${players.xp}, 0) + ${xpDelta})`;
+    if (rrDelta) pUpdates.rankRR = sql`GREATEST(0, COALESCE(${players.rankRR}, 0) + ${rrDelta})`;
+    if (Object.keys(pUpdates).length) await db.update(players).set(pUpdates).where(eq(players.id, mp.playerId));
+    [player] = await db.select({ xp: players.xp, level: players.level, rankTier: players.rankTier, rankRR: players.rankRR })
+      .from(players).where(eq(players.id, mp.playerId)).limit(1);
+  }
+
+  console.log(`🔧 [leader] adjusted matchPlayer #${matchPlayerId} (player ${mp.playerId} — ${mp.playerName}): XP${xpDelta >= 0 ? '+' : ''}${xpDelta}, RR${rrDelta >= 0 ? '+' : ''}${rrDelta} — ${opts.reason || 'no reason'} by ${opts.by || 'leader'}`);
+  return { player, matchPlayerId };
 }

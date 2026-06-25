@@ -82,6 +82,7 @@ async function expireGameByTimeout(io: Server, roomId: string): Promise<void> {
     io.to(roomId).emit('game:timer-expired', { winner: 'MAFIA' });
     io.to(roomId).emit('game:over', {
       winner: 'MAFIA',
+      matchId: state.matchId,
       players: state.players,
       reason: 'TIMEOUT',
     });

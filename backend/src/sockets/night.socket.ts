@@ -1409,6 +1409,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       // إبلاغ الجميع بنتيجة اللعبة
       const gameOverPayload: any = {
         winner: winner,
+        matchId: state.matchId,
         players: state.players,
       };
       // 🧩 إذا المحرك الديناميكي مفعّل → أرفق نتائج المحايدين
@@ -1525,6 +1526,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         const winner = state.pendingWinner;
         const gameOverPayload: any = {
           winner,
+          matchId: state.matchId,
           players: state.players,
         };
         if (state.config.useDynamicEngine) {

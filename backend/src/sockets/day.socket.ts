@@ -1606,7 +1606,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.GAME_OVER);
         clearGameTimer(data.roomId);
-        const gameOverData: any = { winner, players: state.players };
+        const gameOverData: any = { winner, matchId: state.matchId, players: state.players };
         // 🧩 نتائج المحايدين (إذا المحرك الديناميكي مفعّل)
         if (state.config.useDynamicEngine) {
           try {

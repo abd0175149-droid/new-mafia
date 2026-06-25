@@ -11,6 +11,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
 const WHATSAPP_NUMBER = '962793390966';
+const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
 const SNAPCHAT_URL = 'https://www.snapchat.com/add/mafia_club26';
 
@@ -32,6 +33,8 @@ export default function HomePage() {
   const [activeRooms, setActiveRooms] = useState<any[]>([]);
   const [roomSelectActivity, setRoomSelectActivity] = useState<any>(null);
   const [staffPanelOpen, setStaffPanelOpen] = useState(false);
+  // 💬 تنبيه الانضمام لمجموعة الواتساب — يظهر مرة واحدة لكل مستخدم (مفتاح جديد ⇒ يظهر للجميع بعد النشر)
+  const [waGroupPrompt, setWaGroupPrompt] = useState(false);
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
@@ -65,6 +68,16 @@ export default function HomePage() {
     }).finally(() => setLoading(false));
   }, [player]);
 
+  // 💬 إظهار تنبيه مجموعة الواتساب مرة واحدة (أول دخول بعد النشر)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try { if (!localStorage.getItem('mafia_wa_group_prompt_v1')) setWaGroupPrompt(true); } catch { /* ignore */ }
+  }, []);
+  const dismissWaGroupPrompt = () => {
+    try { localStorage.setItem('mafia_wa_group_prompt_v1', '1'); } catch { /* ignore */ }
+    setWaGroupPrompt(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -82,6 +95,43 @@ export default function HomePage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 space-y-5 pb-6">
+      {/* 💬 تنبيه الانضمام لمجموعة الواتساب — يظهر مرة واحدة عند أول دخول */}
+      <AnimatePresence>
+        {waGroupPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-5 bg-black/75 backdrop-blur-sm"
+            onClick={dismissWaGroupPrompt}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-3xl p-6 text-center"
+              style={{ background: '#0e1512', border: '1px solid rgba(37,211,102,0.35)', boxShadow: '0 0 40px rgba(37,211,102,0.2)' }}
+              dir="rtl"
+            >
+              <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #25d366, #128c7e)' }}>
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
+              </div>
+              <h3 className="text-white text-lg font-bold mb-2">انضم لمجموعة مافيا كلوب 💬</h3>
+              <p className="text-gray-400 text-sm mb-5 leading-relaxed">تابع آخر الأخبار والفعاليات والعروض أولاً بأول عبر مجموعتنا على واتساب.</p>
+              <a
+                href={WHATSAPP_GROUP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={dismissWaGroupPrompt}
+                className="block w-full rounded-xl py-3 font-bold text-white mb-2"
+                style={{ background: 'linear-gradient(135deg, #25d366, #128c7e)' }}
+              >
+                انضم الآن
+              </a>
+              <button onClick={dismissWaGroupPrompt} className="w-full py-2 text-gray-500 text-sm">لاحقاً</button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 🔧 رابط تشخيص مؤقت — يُحذف لاحقاً */}
       <a href="/player/debug-push" style={{ display: 'block', textAlign: 'center', padding: 8, background: '#1a1a2e', borderRadius: 8, color: '#f59e0b', fontSize: 12, textDecoration: 'none' }}>
         🔧 تشخيص الإشعارات
@@ -637,6 +687,25 @@ export default function HomePage() {
             <p className="text-gray-500 text-[10px] mt-1">@mafia_club26</p>
           </motion.a>
         </div>
+
+        {/* 💬 زر الانضمام لمجموعة الواتساب */}
+        <motion.a
+          href={WHATSAPP_GROUP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center justify-center gap-2 rounded-2xl p-4 mt-1"
+          style={{
+            background: 'linear-gradient(135deg, rgba(37,211,102,0.15), rgba(18,140,126,0.08))',
+            border: '1px solid rgba(37,211,102,0.35)',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#25d366">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/>
+          </svg>
+          <span className="text-sm font-bold" style={{ color: '#25d366' }}>انضم لمجموعة الواتساب</span>
+        </motion.a>
       </div>
 
       {/* ── زر WhatsApp عائم ── */}

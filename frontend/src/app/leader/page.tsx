@@ -142,6 +142,16 @@ export default function LeaderPage() {
   const [luckyRevealed, setLuckyRevealed] = useState(false);
   const [luckyBusy, setLuckyBusy] = useState(false);
 
+  // ── 📊 ملخص نقاط اللعبة (نهاية اللعبة) + التعديل اليدوي لكل لاعب ──
+  const [pointsModal, setPointsModal] = useState<any[] | null>(null); // null = مغلق
+  const [pointsLoading, setPointsLoading] = useState(false);
+  const [pointsExpanded, setPointsExpanded] = useState<number | null>(null); // matchPlayerId المفتوح
+  const [pointsEdit, setPointsEdit] = useState<any | null>(null); // اللاعب الجاري تعديله
+  const [editXp, setEditXp] = useState(0);
+  const [editRr, setEditRr] = useState(0);
+  const [editReason, setEditReason] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+
   // Session mode — عرض صفحة الغرفة (Session) بدل اللعبة
   const [inSession, setInSession] = useState(false);
   const [showSessionAddForm, setShowSessionAddForm] = useState(false);
@@ -806,6 +816,7 @@ export default function LeaderPage() {
           ...prev,
           phase: 'GAME_OVER',
           winner: data.winner,
+          matchId: data.matchId ?? (prev as any).matchId,
           players: data.players || prev.players,
         } as any;
       });
@@ -1212,6 +1223,37 @@ export default function LeaderPage() {
   const doLuckyClear = async () => {
     if (gameState) { try { await emit('room:lucky-draw:clear', { roomId: gameState.roomId }); } catch { /* ignore */ } }
     setLuckyWinners(null); setLuckyRevealed(false); setShowLuckyDraw(false);
+  };
+
+  // ── 📊 معالجات ملخص النقاط + التعديل اليدوي ──
+  const openPointsModal = async () => {
+    const mid = (gameState as any)?.matchId;
+    if (!mid) { setError('لا يوجد معرّف للعبة الحالية'); return; }
+    setPointsModal([]); setPointsExpanded(null); setPointsLoading(true);
+    try {
+      const res = await fetch(`/api/leader/match/${mid}/points`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` },
+      });
+      const data = await res.json();
+      if (data.success) setPointsModal(data.players || []);
+      else { setError(data.error || 'فشل جلب النقاط'); setPointsModal(null); }
+    } catch (e: any) { setError(e.message); setPointsModal(null); } finally { setPointsLoading(false); }
+  };
+  const submitPointsEdit = async () => {
+    if (!pointsEdit) return;
+    const xp = Math.trunc(Number(editXp) || 0), rr = Math.trunc(Number(editRr) || 0);
+    if (!xp && !rr) { setError('أدخل تعديل XP أو RR'); return; }
+    setEditBusy(true);
+    try {
+      const res = await fetch(`/api/leader/match-player/${pointsEdit.matchPlayerId}/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` },
+        body: JSON.stringify({ xpDelta: xp, rrDelta: rr, reason: editReason }),
+      });
+      const data = await res.json();
+      if (data.success) { setPointsEdit(null); setEditXp(0); setEditRr(0); setEditReason(''); await openPointsModal(); }
+      else setError(data.error || 'فشل التعديل');
+    } catch (e: any) { setError(e.message); } finally { setEditBusy(false); }
   };
 
   // ══════════════════════════════════════════════════
@@ -3210,6 +3252,13 @@ export default function LeaderPage() {
 
               {/* أزرار التحكم */}
               <div className="flex flex-col items-center gap-4">
+                {/* 📊 زر ملخص نقاط اللعبة */}
+                <button
+                  onClick={openPointsModal}
+                  className="text-[#C5A059] text-sm font-mono uppercase tracking-[0.15em] hover:text-yellow-400 transition-colors border border-[#C5A059]/50 px-6 py-2.5 hover:border-[#C5A059] hover:bg-[#C5A059]/5 rounded"
+                >
+                  📊 ملخص نقاط اللعبة
+                </button>
                 {/* زر انتهت الفعالية — يُغلق الغرفة نهائياً */}
                 <button
                   onClick={async () => {
@@ -3417,7 +3466,95 @@ export default function LeaderPage() {
             </div>
           )}
 
+          {/* 📊 مودال ملخص نقاط اللعبة */}
+          {pointsModal !== null && (
+            <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setPointsModal(null)}>
+              <div className="bg-[#0d0d0d] border border-[#C5A059]/40 rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-[0_0_40px_rgba(197,160,89,0.15)]" onClick={(e) => e.stopPropagation()} dir="rtl">
+                <div className="sticky top-0 bg-[#0d0d0d] border-b border-[#2a2a2a] p-4 flex items-center justify-between z-10">
+                  <h3 className="text-[#C5A059] font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>📊 ملخص نقاط الرانك لهذه اللعبة</h3>
+                  <button onClick={() => setPointsModal(null)} className="text-[#888] hover:text-white text-xl leading-none">✕</button>
+                </div>
+                <div className="p-4">
+                  {pointsLoading ? (
+                    <p className="text-center text-[#888] py-10 font-mono text-sm">جارٍ التحميل...</p>
+                  ) : pointsModal.length === 0 ? (
+                    <p className="text-center text-[#888] py-10 font-mono text-sm">لا توجد بيانات</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[#666] text-[11px] border-b border-[#2a2a2a]">
+                          <th className="text-right py-2 px-2">اللاعب</th>
+                          <th className="text-center py-2 px-2 text-green-400">كسب</th>
+                          <th className="text-center py-2 px-2 text-rose-400">خسر</th>
+                          <th className="text-center py-2 px-2 text-white">المجموع</th>
+                          <th className="py-2 px-2"></th>
+                        </tr>
+                      </thead>
+                      {pointsModal.map((pl: any) => (
+                        <tbody key={pl.matchPlayerId}>
+                          <tr className="border-b border-[#1a1a1a] hover:bg-[#151515]">
+                            <td className="py-2.5 px-2">
+                              <button onClick={() => setPointsExpanded(pointsExpanded === pl.matchPlayerId ? null : pl.matchPlayerId)} className="flex items-center gap-2 text-white hover:text-[#C5A059] text-right">
+                                <span className="text-[9px] text-[#666] w-3">{pointsExpanded === pl.matchPlayerId ? '▼' : '◀'}</span>
+                                <span className="font-mono text-[#C5A059] text-xs">#{pl.physicalId}</span>
+                                <span className="truncate max-w-[140px]">{pl.playerName}</span>
+                              </button>
+                            </td>
+                            <td className="text-center text-green-400 font-mono">{pl.rrGained > 0 ? `+${pl.rrGained}` : 0}</td>
+                            <td className="text-center text-rose-400 font-mono">{pl.rrLost < 0 ? pl.rrLost : 0}</td>
+                            <td className={`text-center font-mono font-bold ${pl.rrTotal >= 0 ? 'text-green-400' : 'text-rose-400'}`}>{pl.rrTotal >= 0 ? '+' : ''}{pl.rrTotal}</td>
+                            <td className="text-center">
+                              <button onClick={() => { setPointsEdit(pl); setEditXp(0); setEditRr(0); setEditReason(''); }} className="text-[#C5A059] hover:text-yellow-400 text-[11px] border border-[#C5A059]/30 px-2 py-1 rounded hover:border-[#C5A059]">✏️ تعديل</button>
+                            </td>
+                          </tr>
+                          {pointsExpanded === pl.matchPlayerId && (
+                            <tr className="bg-[#0a0a0a]">
+                              <td colSpan={5} className="p-3">
+                                <div className="grid grid-cols-2 gap-4 text-[11px]">
+                                  <div>
+                                    <p className="text-[#888] mb-1.5 font-bold border-b border-[#222] pb-1">نقاط الرانك (RR)</p>
+                                    {(!pl.rrBreakdown || pl.rrBreakdown.length === 0) ? <p className="text-[#555]">—</p> : pl.rrBreakdown.map((l: any, i: number) => (
+                                      <div key={i} className="flex justify-between py-0.5"><span className="text-[#aaa]">{l.icon} {l.label}</span><span className={l.value >= 0 ? 'text-green-400' : 'text-rose-400'}>{l.value >= 0 ? '+' : ''}{l.value}</span></div>
+                                    ))}
+                                  </div>
+                                  <div>
+                                    <p className="text-[#888] mb-1.5 font-bold border-b border-[#222] pb-1">الخبرة (XP) — {pl.xpTotal}</p>
+                                    {(!pl.xpBreakdown || pl.xpBreakdown.length === 0) ? <p className="text-[#555]">—</p> : pl.xpBreakdown.map((l: any, i: number) => (
+                                      <div key={i} className="flex justify-between py-0.5"><span className="text-[#aaa]">{l.icon} {l.label}</span><span className={l.value >= 0 ? 'text-green-400' : 'text-rose-400'}>{l.value >= 0 ? '+' : ''}{l.value}</span></div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      ))}
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
+          {/* 🔧 مودال التعديل اليدوي لنقاط لاعب في هذه اللعبة */}
+          {pointsEdit && (
+            <div className="fixed inset-0 z-[210] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { if (!editBusy) setPointsEdit(null); }}>
+              <div className="bg-[#0d0d0d] border border-rose-500/40 rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()} dir="rtl">
+                <h3 className="text-rose-400 font-bold mb-1">🔧 تعديل يدوي — <span className="text-white">{pointsEdit.playerName}</span></h3>
+                <p className="text-[#888] text-[11px] mb-4 leading-relaxed">يُسجَّل كتعديل يدوي لهذه اللعبة (نفس آلية «التعديل اليدوي» في نظام التقدّم) — قيمة موجبة تضيف، وسالبة تخصم.</p>
+                <label className="block text-[#aaa] text-xs mb-1">تعديل نقاط الرانك RR (+/−)</label>
+                <input type="number" value={editRr} onChange={(e) => setEditRr(Number(e.target.value))} className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-white mb-3 font-mono" dir="ltr" />
+                <label className="block text-[#aaa] text-xs mb-1">تعديل الخبرة XP (+/−)</label>
+                <input type="number" value={editXp} onChange={(e) => setEditXp(Number(e.target.value))} className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-white mb-3 font-mono" dir="ltr" />
+                <label className="block text-[#aaa] text-xs mb-1">السبب (اختياري)</label>
+                <input type="text" value={editReason} onChange={(e) => setEditReason(e.target.value)} placeholder="سبب التعديل" className="w-full bg-[#111] border border-[#2a2a2a] rounded-lg px-3 py-2 text-white mb-4 text-sm" />
+                <div className="flex gap-2">
+                  <button disabled={editBusy || (!editXp && !editRr)} onClick={submitPointsEdit} className="btn-premium flex-1 py-2.5 !text-sm disabled:opacity-50">{editBusy ? '...' : 'حفظ التعديل'}</button>
+                  <button disabled={editBusy} onClick={() => setPointsEdit(null)} className="px-4 py-2.5 border border-[#555] rounded-lg text-[#aaa] hover:text-white text-sm">إلغاء</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {error && <p className="text-[#8A0303] mt-6 text-sm font-mono tracking-widest text-center uppercase">{error}</p>}
           </div>

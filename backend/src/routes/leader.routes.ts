@@ -247,4 +247,37 @@ router.get('/manual-players/:roomId', requireLeader, async (req: Request, res: R
   }
 });
 
+// ── GET /api/leader/match/:matchId/points — نقاط الرانك لكل لاعب (ملخص نهاية اللعبة) ──
+router.get('/match/:matchId/points', requireLeader, async (req: Request, res: Response) => {
+  try {
+    const matchId = parseInt(req.params.matchId);
+    if (!matchId) return res.status(400).json({ success: false, error: 'matchId مطلوب' });
+    const { getMatchPlayerPoints } = await import('../services/match.service.js');
+    const players = await getMatchPlayerPoints(matchId);
+    res.json({ success: true, players });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /api/leader/match-player/:matchPlayerId/adjust — تعديل يدوي لنقاط لاعب في لعبة ──
+// نفس منطق التعديل اليدوي في صفحة نظام التقدم (دلتا على match_players + players).
+router.post('/match-player/:matchPlayerId/adjust', requireLeader, async (req: Request, res: Response) => {
+  try {
+    const matchPlayerId = parseInt(req.params.matchPlayerId);
+    if (!matchPlayerId) return res.status(400).json({ success: false, error: 'matchPlayerId مطلوب' });
+    const { xpDelta, rrDelta, reason } = req.body || {};
+    const xp = Number(xpDelta || 0), rr = Number(rrDelta || 0);
+    if (!xp && !rr) return res.status(400).json({ success: false, error: 'يجب إدخال تعديل XP أو RR' });
+    const { adjustMatchPlayerPoints } = await import('../services/match.service.js');
+    const result = await adjustMatchPlayerPoints(matchPlayerId, {
+      xpDelta: xp, rrDelta: rr, reason, by: (req as any).leader?.username || 'leader',
+    });
+    if (!result) return res.status(404).json({ success: false, error: 'سجل اللاعب غير موجود' });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;
