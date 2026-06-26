@@ -284,43 +284,47 @@ export async function resolveNightDynamic(
         const isAssassinAction = performer?.role === 'ASSASSIN';
 
         if (isAssassinAction && state.assassinState) {
-          // ── منطق السفّاح ──
-          // هل المافيا استهدفت نفس اللاعب؟
+          // ── منطق السفّاح (أولوية: يُحتسب العقد حتى لو استهدف القناص و/أو المافيا نفس اللاعب) ──
           const mafiaKillAction = actions.find(a =>
-            a.abilityId === 'KILL' && a.targetPhysicalId === action.targetPhysicalId
+            a.abilityId === 'KILL' && a.targetPhysicalId === action.targetPhysicalId && !cancelledActions.has(a.abilityId)
           );
-          const killedByMafiaToo = !!mafiaKillAction && !cancelledActions.has('KILL');
-
-          if (killedByMafiaToo) {
-            // نفس الهدف → الهدف يموت مرة واحدة لكن العقد لا يُحسب
-            events.push({
-              type: 'ASSASSIN_KILL' as any,
-              targetPhysicalId: target.physicalId,
-              targetName: target.name,
-              extra: { contractFailed: true, reason: 'SAME_TARGET_AS_MAFIA' },
-              revealed: false,
-            });
-            break; // الهدف ميت بالفعل من المافيا
-          }
+          const alsoKilledByMafia = !!mafiaKillAction;
+          const sniperAction = actions.find(a => {
+            if (cancelledActions.has(a.abilityId)) return false;
+            if (a.targetPhysicalId !== action.targetPhysicalId) return false;
+            const ab = allAbilities.find(x => x.id === a.abilityId);
+            return ab?.effectType === 'CONDITIONAL_ELIMINATE'; // القنص
+          });
+          const alsoSniped = !!sniperAction;
 
           target.isAlive = false;
+
+          // ✅ فحص إنجاز العقد — أولوية السفّاح: لا يُلغى الإنجاز عند مشاركة الهدف مع القناص/المافيا
+          const { checkContractCompletion, completeContract, checkAssassinWin } = await import('./assassin-engine.js');
+          const result = checkContractCompletion(state, target.physicalId, false);
+          let assassinWon = false;
+          if (result.completed) {
+            completeContract(state, result.contractIndex, state.round || 1);
+            if (checkAssassinWin(state)) { state.assassinState!.won = true; assassinWon = true; }
+          }
+
           events.push({
             type: 'ASSASSIN_KILL' as any,
             targetPhysicalId: target.physicalId,
             targetName: target.name,
+            performerPhysicalId: action.performerPhysicalId,
+            performerName: performer?.name,
             revealed: false,
-            extra: { targetRole: target.role },
+            extra: {
+              targetRole: target.role,
+              contractCompleted: result.completed,
+              contractId: result.completed ? result.contractId : undefined,
+              assassinWon,
+              alsoKilledByMafia,
+              alsoSniped,
+              sharedTarget: alsoKilledByMafia || alsoSniped,
+            },
           });
-
-          // فحص إنجاز العقد
-          const { checkContractCompletion, completeContract, checkAssassinWin } = await import('./assassin-engine.js');
-          const result = checkContractCompletion(state, target.physicalId, false);
-          if (result.completed) {
-            completeContract(state, result.contractIndex, state.round || 1);
-            if (checkAssassinWin(state)) {
-              state.assassinState!.won = true;
-            }
-          }
           break;
         }
 
@@ -411,9 +415,11 @@ export async function resolveNightDynamic(
   const deadThisNight: number[] = [];
   for (const ev of events) {
     if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(ev.type)) {
-      deadThisNight.push(ev.targetPhysicalId);
+      // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
+      if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {
-        deadThisNight.push(ev.extra.sniperPhysicalId as number);
+        const sid = ev.extra.sniperPhysicalId as number;
+        if (!deadThisNight.includes(sid)) deadThisNight.push(sid);
       }
     }
   }

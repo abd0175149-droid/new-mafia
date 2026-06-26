@@ -858,10 +858,32 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                             <div className="mt-1 space-y-1">
                               <p className="text-white text-xs font-mono">
                                 💀 الهدف المقتول: #{event.targetPhysicalId} — {event.targetName}
+                                {event.extra?.targetRole && (
+                                  <span className="text-[#555] text-[9px] ml-2">({event.extra.targetRole})</span>
+                                )}
                               </p>
                               <p className="text-[#a78bfa] text-[10px] font-mono">
                                 🔪 القاتل: السفّاح (#{event.performerPhysicalId} — {event.performerName})
                               </p>
+                              {/* حالة العقد لهذا الهدف */}
+                              <p className="text-[10px] font-mono">
+                                {event.extra?.contractCompleted ? (
+                                  <span className="text-emerald-500">✅ عقد مُنجَز{event.extra?.contractId ? ` (#${event.extra.contractId})` : ''}</span>
+                                ) : (
+                                  <span className="text-zinc-500">➖ لا يوجد عقد مطابق لدور هذا الهدف</span>
+                                )}
+                              </p>
+                              {/* هدف مشترك — وضوح الأولوية: استُهدف أيضاً بالقنص و/أو اغتيال المافيا */}
+                              {event.extra?.sharedTarget && (
+                                <p className="text-[10px] font-mono text-[#C5A059]">
+                                  🎯 هدف مشترك — استُهدف أيضاً بـ
+                                  {event.extra?.alsoKilledByMafia ? ' اغتيال المافيا' : ''}
+                                  {event.extra?.alsoKilledByMafia && event.extra?.alsoSniped ? ' و' : ''}
+                                  {event.extra?.alsoSniped ? ' القنص' : ''}
+                                  {' — '}
+                                  {event.extra?.contractCompleted ? 'احتُسب العقد للسفّاح (أولوية)' : 'الأولوية للسفّاح'}
+                                </p>
+                              )}
                               <p className="text-[10px] font-bold">
                                 {event.extra?.assassinWon ? (
                                   <span className="text-amber-500">🎉 مهمة السفّاح: نجحت (تم إنجاز جميع العقود وفاز بالكامل!)</span>

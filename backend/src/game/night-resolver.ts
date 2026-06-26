@@ -194,54 +194,68 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   // ── 5. تحديث قيد الطبيب ──────────────────────
   state.nightActions.lastProtectedTarget = nightActions.doctorTarget ?? nightActions.nurseTarget ?? null;
 
-  // ── 4.5. معالجة اغتيال السفّاح ──────────────────
+  // ── 4.5. معالجة اغتيال السفّاح (أولوية للسفّاح) ──────────────────
+  // ✅ السفّاح له الأولوية: يُحتسب العقد حتى لو قتل القناص و/أو المافيا نفس الهدف في نفس الليلة.
+  //    لذلك نعالجه حتى لو كان الهدف قد مات بالفعل بفعل غيره — نعرض حدث السفّاح بدقّة (للوضوح عند
+  //    الليدر) ونُكمل العقد دون احتساب قتل مزدوج في سجل الإقصاء.
   if (state.assassinState && nightActions.assassinTarget !== null) {
     const { evaluateAssassinKill } = await import('./assassin-engine.js');
     const targetId = nightActions.assassinTarget;
     const target = state.players.find(p => p.physicalId === targetId);
+    const protectedId = nightActions.doctorTarget ?? nightActions.nurseTarget;
+    const assassinId = state.assassinState.assassinPhysicalId;
+    const assassinName = state.players.find(p => p.physicalId === assassinId)?.name || '';
 
-    if (target && target.isAlive) {
-      const protectedId = nightActions.doctorTarget ?? nightActions.nurseTarget;
-      if (targetId === protectedId) {
-        // الحماية نجحت ضد السفّاح!
+    if (target) {
+      const alreadyDead = !target.isAlive; // قُتل بالقناص/المافيا قبل معالجة السفّاح هذه الليلة
+      const alsoKilledByMafia = nightActions.godfatherTarget === targetId;
+      const alsoSniped = nightActions.sniperTarget === targetId;
+
+      if (target.isAlive && targetId === protectedId) {
+        // الحماية نجحت ضد السفّاح (الهدف كان حياً ومحمياً) — لا إنجاز
         events.push({
           type: 'ASSASSIN_BLOCKED' as any,
           targetPhysicalId: targetId,
           targetName: target.name,
-          performerPhysicalId: state.assassinState.assassinPhysicalId,
-          performerName: state.players.find(p => p.physicalId === state.assassinState.assassinPhysicalId)?.name || '',
+          performerPhysicalId: assassinId,
+          performerName: assassinName,
           revealed: false,
         });
         console.log(`🛡️ [resolveNight] Assassin kill blocked by protection on ${target.name}`);
       } else {
-        // القتل ينجح!
-        target.isAlive = false;
+        // ✅ ينجح اغتيال السفّاح: نُكمل العقد بغض النظر عمّن قتل الهدف (أولوية السفّاح)
         const wasRandom = !!nightActions.randomSelections?.['ASSASSIN'];
         const evalResult = evaluateAssassinKill(state, targetId);
+
+        if (!alreadyDead) {
+          target.isAlive = false;
+          pt.eliminationLog.push({
+            physicalId: target.physicalId,
+            eliminatedBy: 'ASSASSIN',
+            round: state.round || 1,
+            team: (target.role && isMafiaRole(target.role)) ? 'MAFIA' : 'CITIZEN',
+          });
+        }
 
         events.push({
           type: 'ASSASSIN_KILL' as any,
           targetPhysicalId: targetId,
           targetName: target.name,
-          performerPhysicalId: state.assassinState.assassinPhysicalId,
-          performerName: state.players.find(p => p.physicalId === state.assassinState.assassinPhysicalId)?.name || '',
+          performerPhysicalId: assassinId,
+          performerName: assassinName,
           wasRandom,
           extra: {
             contractCompleted: evalResult.contractCompleted,
             contractId: evalResult.contractId,
             assassinWon: evalResult.won,
             targetRole: target.role,
+            alsoKilledByMafia,
+            alsoSniped,
+            sharedTarget: alreadyDead || alsoKilledByMafia || alsoSniped,
           },
           revealed: false,
         });
-
-        pt.eliminationLog.push({
-          physicalId: target.physicalId,
-          eliminatedBy: 'ASSASSIN',
-          round: state.round || 1,
-          team: (target.role && isMafiaRole(target.role)) ? 'MAFIA' : 'CITIZEN',
-        });
-        console.log(`🔪 [resolveNight] Assassin killed ${target.name} — contract: ${evalResult.contractCompleted ? '✅' : '❌'}, won: ${evalResult.won}`);
+        console.log(`🔪 [resolveNight] Assassin targeted ${target.name} — contract: ${evalResult.contractCompleted ? '✅' : '❌'}, won: ${evalResult.won}, shared: ${alreadyDead || alsoKilledByMafia || alsoSniped}`);
       }
     }
   }
@@ -263,10 +277,12 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   const deadThisNight: number[] = [];
   for (const ev of events) {
     if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(ev.type)) {
-      deadThisNight.push(ev.targetPhysicalId);
+      // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
+      if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       // القناص يموت أيضاً عند قنص مواطن
       if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {
-        deadThisNight.push(ev.extra.sniperPhysicalId as number);
+        const sid = ev.extra.sniperPhysicalId as number;
+        if (!deadThisNight.includes(sid)) deadThisNight.push(sid);
       }
     }
   }

@@ -287,11 +287,29 @@ async function main() {
     check('قنص المهرج: المهرج مات', alive(s, 14) === false);
     check('قنص المهرج: القناص حي (قنص صائب)', alive(s, 9) === true);
 
-    // السفّاح والمافيا يستهدفان نفس اللاعب → الهدف يموت مرة، عقد السفّاح يفشل
+    // السفّاح والمافيا يستهدفان نفس اللاعب (مواطن بلا عقد مطابق) → الهدف يموت مرة،
+    // وحدث السفّاح يُعرض بوضوح كهدف مشترك (لا عقد لأن الدور لا يطابق)
     s = mkState([P(1, Role.GODFATHER), P(15, Role.ASSASSIN), P(7, Role.CITIZEN)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 4, won: false, contracts: [] } });
     ev = await resolveNightDynamic(s, night([{ ab: 'KILL', by: 1, t: 7 }, { ab: 'ASSASSINATE', by: 15, t: 7 }]));
     check('سفّاح+مافيا نفس الهدف: الهدف مات', alive(s, 7) === false);
-    check('سفّاح+مافيا نفس الهدف: عقد السفّاح فشل', evType(ev, 'ASSASSIN_KILL')?.extra?.contractFailed === true);
+    check('سفّاح+مافيا نفس الهدف: حدث ASSASSIN_KILL معروض للوضوح', !!evType(ev, 'ASSASSIN_KILL'));
+    check('سفّاح+مافيا نفس الهدف: مُعلّم كهدف مشترك (المافيا)', evType(ev, 'ASSASSIN_KILL')?.extra?.alsoKilledByMafia === true);
+    check('سفّاح+مافيا نفس الهدف (مواطن): لا عقد مطابق', evType(ev, 'ASSASSIN_KILL')?.extra?.contractCompleted === false);
+
+    // ✅ أولوية السفّاح: لو كان الهدف المشترك دوراً ضمن العقد → يُحتسب العقد رغم اغتيال المافيا
+    s = mkState([P(1, Role.GODFATHER), P(15, Role.ASSASSIN), P(8, Role.SILENCER)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 1, won: false, contracts: [{ id: 1, type: 'KILL_ROLE', targetRole: 'SILENCER', completed: false }] } });
+    ev = await resolveNightDynamic(s, night([{ ab: 'KILL', by: 1, t: 8 }, { ab: 'ASSASSINATE', by: 15, t: 8 }]));
+    check('أولوية السفّاح: الهدف (المُسكِت) مات', alive(s, 8) === false);
+    check('أولوية السفّاح: العقد أُنجز رغم اغتيال المافيا لنفس الهدف', evType(ev, 'ASSASSIN_KILL')?.extra?.contractCompleted === true);
+    check('أولوية السفّاح: completedCount صار 1', s.assassinState?.completedCount === 1);
+    check('أولوية السفّاح: السفّاح فاز (أنجز العقد الوحيد)', s.assassinState?.won === true);
+
+    // ✅ أولوية السفّاح على القناص: نفس الهدف يُقنص ويُغتال → العقد يُحتسب للسفّاح
+    s = mkState([P(9, Role.SNIPER), P(15, Role.ASSASSIN), P(8, Role.SILENCER)], { assassinState: { firstNightPassed: true, completedCount: 0, totalRequired: 1, won: false, contracts: [{ id: 1, type: 'KILL_ROLE', targetRole: 'SILENCER', completed: false }] } });
+    ev = await resolveNightDynamic(s, night([{ ab: 'SNIPE', by: 9, t: 8 }, { ab: 'ASSASSINATE', by: 15, t: 8 }]));
+    check('أولوية السفّاح/القناص: الهدف مات', alive(s, 8) === false);
+    check('أولوية السفّاح/القناص: العقد أُنجز رغم القنص', evType(ev, 'ASSASSIN_KILL')?.extra?.contractCompleted === true);
+    check('أولوية السفّاح/القناص: مُعلّم كهدف مشترك (قنص)', evType(ev, 'ASSASSIN_KILL')?.extra?.alsoSniped === true);
   }
 
   // ═══ النتيجة ═══

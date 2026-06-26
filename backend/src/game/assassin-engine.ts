@@ -71,16 +71,16 @@ export function generateContracts(state: GameState, totalRequired: number): Assa
 
 /**
  * يفحص هل الهدف المقتول يطابق أي عقد غير مكتمل.
- * ⚠️ إذا المافيا قتلت نفس الهدف → لا يُحسب كإنجاز!
+ * ✅ أولوية السفّاح: يُحتسب إنجاز العقد حتى لو استهدف القناص و/أو اغتيال المافيا نفس اللاعب.
+ *    (المعامل `_killedByMafiaToo` بقي للتوافق مع النداءات القديمة لكنه لم يعد يُلغي الإنجاز.)
  * 🆕 v2: يبحث في كل العقود — مش بس الحالي (بدون ترتيب)
  */
 export function checkContractCompletion(
   state: GameState,
   killedPhysicalId: number,
-  killedByMafiaToo: boolean,
+  _killedByMafiaToo: boolean = false,
 ): { completed: boolean; contractId: number; contractIndex: number } {
   if (!state.assassinState) return { completed: false, contractId: -1, contractIndex: -1 };
-  if (killedByMafiaToo) return { completed: false, contractId: -1, contractIndex: -1 };
 
   const target = state.players.find(p => p.physicalId === killedPhysicalId);
   if (!target) return { completed: false, contractId: -1, contractIndex: -1 };
