@@ -66,6 +66,11 @@ interface GameState {
   assassinState?: any;
   // 💣 Bomb
   pendingBomb?: any;
+  // 📐 مقاعد القالب (Seat Template) — تُعرض كـ«المقاعد المثبّتة من القالب» في عرض الجلسة
+  pinnedSeats?: any[];
+  reservedTailSeats?: number;
+  doors?: any[];
+  doorSeats?: number[];
 }
 
 export default function LeaderPage() {
@@ -247,6 +252,11 @@ export default function LeaderPage() {
             pendingWinner: data.state.pendingWinner || null,
             assassinState: data.state.assassinState || null,
             pendingBomb: data.state.pendingBomb || null,
+            // 📐 مقاعد القالب — لإظهار «المقاعد المثبّتة من القالب» في الغرفة الفارغة عند الدخول/التحديث
+            pinnedSeats: data.state.pinnedSeats || [],
+            reservedTailSeats: data.state.reservedTailSeats || 0,
+            doors: data.state.doors || [],
+            doorSeats: data.state.doorSeats || [],
           });
 
           if (phase === 'LOBBY') {
@@ -351,6 +361,11 @@ export default function LeaderPage() {
                     nightStep: st.currentNightStep || null,
                     nightComplete: st.nightComplete || false,
                     pendingBomb: st.pendingBomb || null,
+                    // 📐 مقاعد القالب — لإظهار «المقاعد المثبّتة من القالب» فور إنشاء الغرفة
+                    pinnedSeats: st.pinnedSeats || [],
+                    reservedTailSeats: st.reservedTailSeats || 0,
+                    doors: st.doors || [],
+                    doorSeats: st.doorSeats || [],
                   });
                   if (st.phase === 'LOBBY' || st.phase === 'GAME_OVER') {
                     setInSession(true);
