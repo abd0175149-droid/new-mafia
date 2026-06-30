@@ -174,6 +174,21 @@ export default function LeaderPage() {
   const [renumberMap, setRenumberMap] = useState<Record<number, number>>({});
   const [renumberLoading, setRenumberLoading] = useState(false);
   const [renumberError, setRenumberError] = useState('');
+
+  // 🔒 فتح مموّه للأدوات الحسّاسة (تعديل الأرقام/الأسماء) — ضغطة مطوّلة على رمز الغرفة تكشف حقلاً صغيراً
+  const [knockOpen, setKnockOpen] = useState(false);
+  const [knockCode, setKnockCode] = useState('');
+  const [toolsUnlocked, setToolsUnlocked] = useState(false);
+  const knockTimerRef = useRef<any>(null);
+  const startKnock = () => { if (knockTimerRef.current) clearTimeout(knockTimerRef.current); knockTimerRef.current = setTimeout(() => setKnockOpen(true), 2500); };
+  const cancelKnock = () => { if (knockTimerRef.current) { clearTimeout(knockTimerRef.current); knockTimerRef.current = null; } };
+  const submitKnock = async () => {
+    try {
+      const r: any = await emit('leader:tools-ping', { code: knockCode });
+      if (r?.ok) { setToolsUnlocked(true); setKnockOpen(false); setKnockCode(''); }
+      else { setKnockCode(''); } // فشل صامت — لا تلميح
+    } catch { setKnockCode(''); }
+  };
   const adminEntryProcessed = useRef(false);
 
   // ── Auth Check ──
@@ -1378,10 +1393,34 @@ export default function LeaderPage() {
                     {gameState.config.gameName}
                   </h2>
                   <p className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">
-                    CODE: <span className="text-[#C5A059]">{gameState.roomCode}</span>
+                    CODE: <span
+                      className="text-[#C5A059] select-none"
+                      onPointerDown={startKnock}
+                      onPointerUp={cancelKnock}
+                      onPointerLeave={cancelKnock}
+                      onPointerCancel={cancelKnock}
+                    >{gameState.roomCode}</span>
+                    {toolsUnlocked && <span className="text-[#C5A059]/30">·</span>}
                     {' | '}PIN: <span className="text-[#8A0303]">{gameState.config.displayPin}</span>
                     {' | '}AGENTS: <span className="text-white">{gameState.players.filter((p: any) => !p.seatHeld).length}</span>/{gameState.config.maxPlayers}
                   </p>
+                  {knockOpen && (
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      autoFocus
+                      value={knockCode}
+                      onChange={(e) => setKnockCode(e.target.value.replace(/\D/g, ''))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') submitKnock();
+                        if (e.key === 'Escape') { setKnockOpen(false); setKnockCode(''); }
+                      }}
+                      onBlur={() => { setKnockOpen(false); setKnockCode(''); }}
+                      placeholder="··"
+                      aria-hidden
+                      className="mt-1 w-16 bg-transparent border-b border-[#222] text-center text-[#444] text-[10px] font-mono focus:outline-none focus:border-[#333]"
+                    />
+                  )}
                 </div>
                 <div className={`flex items-center gap-2`}>
                   <div className={`w-2 h-2 ${isConnected ? 'bg-[#2E5C31] shadow-[0_0_10px_#2E5C31]' : 'bg-[#8A0303]'} animate-pulse`} />

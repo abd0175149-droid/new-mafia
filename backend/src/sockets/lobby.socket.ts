@@ -23,6 +23,13 @@ import { eq, sql, and } from 'drizzle-orm';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
+// 🔒 فتح مؤقّت للأدوات الحسّاسة (تعديل الأرقام/الأسماء) — يتطلب رقماً سرّياً يُضبط في env (RENUMBER_SECRET).
+// يُخزَّن وقت انتهاء الصلاحية على الاتصال نفسه (socket.data)، فلا يدوم بعد قطع الاتصال أو انتهاء المدة.
+const TOOLS_UNLOCK_MS = 10 * 60 * 1000; // 10 دقائق
+function toolsUnlocked(socket: any): boolean {
+  return (socket?.data?.toolsUnlockedUntil || 0) > Date.now();
+}
+
 // 📐 تحميل مقاعد قالب الفعالية إلى حالة الغرفة (المقاعد المثبّتة + المؤخّرة + الأبواب + سعة المقاعد).
 // يُستدعى عند إنشاء الغرفة لتظهر «المقاعد المحجوزة» فوراً في الغرفة الفارغة (قبل جلوس أي لاعب) —
 // بدلاً من تحميلها كسولاً عند أول توزيع مقعد. الاستدعاء idempotent. لا يحفظ الحالة (المُستدعي يحفظ).
@@ -1527,6 +1534,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── صلاحية الليدر: تغيير أرقام اللاعبين جماعياً ──
+  // ── فتح مؤقّت للأدوات الحسّاسة (اسم محايد) — يتحقق من الرقم السرّي ويفتح لمدة محدودة ──
+  // الواجهة ترسل الرقم المُدخَل عبر إيماءة مموّهة؛ السرّ يعيش في env فقط (لا في كود الواجهة).
+  socket.on('leader:tools-ping', (data: { code?: string | number }, callback) => {
+    const reply = (ok: boolean) => { if (typeof callback === 'function') callback({ ok }); };
+    try {
+      if (socket.data.role !== 'leader') return reply(false);
+      const now = Date.now();
+      // تحديد المحاولات: 5 كل 10 دقائق لكل اتصال (يمنع التخمين بالقوة)
+      let rl = socket.data._toolsRL as { count: number; resetAt: number } | undefined;
+      if (!rl || now > rl.resetAt) rl = { count: 0, resetAt: now + 10 * 60 * 1000 };
+      if (rl.count >= 5) { socket.data._toolsRL = rl; return reply(false); }
+      rl.count++;
+      socket.data._toolsRL = rl;
+
+      const secret = process.env.RENUMBER_SECRET || '';
+      const ok = secret.length > 0 && String(data?.code ?? '') === secret;
+      if (ok) {
+        socket.data.toolsUnlockedUntil = now + TOOLS_UNLOCK_MS;
+        socket.data._toolsRL = { count: 0, resetAt: now + 10 * 60 * 1000 };
+      }
+      reply(ok);
+    } catch { reply(false); }
+  });
+
   socket.on('room:renumber-players', async (data: {
     roomId: string;
     changes: Array<{ oldPhysicalId: number; newPhysicalId: number }>;
@@ -1534,6 +1565,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
+      }
+      // 🔒 الأداة مقفلة حتى يُدخَل الرقم السرّي — خطأ عام يوحي بعطل مؤقّت
+      if (!toolsUnlocked(socket)) {
+        return callback({ success: false, error: 'تعذّر حفظ الترتيب — مشكلة مؤقتة، حاول لاحقاً' });
       }
 
       let state = await getRoom(data.roomId);
@@ -1624,6 +1659,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader can override' });
+      }
+      // 🔒 تعديل اسم/رقم لاعب موجود مقفل حتى يُدخَل الرقم السرّي (الإضافة isNew تبقى مفتوحة)
+      if (!data.isNew && !toolsUnlocked(socket)) {
+        return callback({ success: false, error: 'تعذّر حفظ التعديل — مشكلة مؤقتة، حاول لاحقاً' });
       }
 
       let state = await getRoom(data.roomId);

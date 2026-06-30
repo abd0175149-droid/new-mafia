@@ -37,6 +37,8 @@ services:
       # داخل volume الـ uploads ليبقى الزوج ثابتاً بين عمليات إعادة التشغيل.
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      # 🔒 الرقم السرّي لفتح الأدوات الحسّاسة (تعديل الأرقام/الأسماء). يُضبط في .env على الخادم — لا يُكتب هنا.
+      - RENUMBER_SECRET=${RENUMBER_SECRET:-}
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     depends_on:
