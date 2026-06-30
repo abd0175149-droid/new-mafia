@@ -1394,10 +1394,11 @@ export default function LeaderPage() {
                   </h2>
                   <p className="text-[#808080] text-[10px] font-mono tracking-widest uppercase">
                     CODE: <span
-                      className="text-[#C5A059] select-none"
-                      onPointerDown={startKnock}
-                      onPointerUp={cancelKnock}
-                      onPointerLeave={cancelKnock}
+                      className="text-[#C5A059] select-none cursor-default"
+                      style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' } as any}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onPointerDown={(e) => { try { (e.currentTarget as any).setPointerCapture?.(e.pointerId); } catch {} startKnock(); }}
+                      onPointerUp={(e) => { try { (e.currentTarget as any).releasePointerCapture?.(e.pointerId); } catch {} cancelKnock(); }}
                       onPointerCancel={cancelKnock}
                     >{gameState.roomCode}</span>
                     {toolsUnlocked && <span className="text-[#C5A059]/30">·</span>}
@@ -1405,21 +1406,25 @@ export default function LeaderPage() {
                     {' | '}AGENTS: <span className="text-white">{gameState.players.filter((p: any) => !p.seatHeld).length}</span>/{gameState.config.maxPlayers}
                   </p>
                   {knockOpen && (
-                    <input
-                      type="tel"
-                      inputMode="numeric"
-                      autoFocus
-                      value={knockCode}
-                      onChange={(e) => setKnockCode(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') submitKnock();
-                        if (e.key === 'Escape') { setKnockOpen(false); setKnockCode(''); }
-                      }}
-                      onBlur={() => { setKnockOpen(false); setKnockCode(''); }}
-                      placeholder="··"
-                      aria-hidden
-                      className="mt-1 w-16 bg-transparent border-b border-[#222] text-center text-[#444] text-[10px] font-mono focus:outline-none focus:border-[#333]"
-                    />
+                    <div className="mt-1 flex items-center gap-1" style={{ touchAction: 'manipulation' }}>
+                      <input
+                        type="tel"
+                        inputMode="numeric"
+                        autoFocus
+                        value={knockCode}
+                        onChange={(e) => setKnockCode(e.target.value.replace(/\D/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') submitKnock();
+                          if (e.key === 'Escape') { setKnockOpen(false); setKnockCode(''); }
+                        }}
+                        placeholder="··"
+                        aria-hidden
+                        className="w-16 bg-transparent border-b border-[#222] text-center text-[#444] text-[10px] font-mono focus:outline-none focus:border-[#333]"
+                      />
+                      {/* زرّان صغيران: يعملان باللمس (لا Enter في لوحة الأرقام) وبالماوس؛ preventDefault يمنع فقد تركيز الحقل */}
+                      <button type="button" aria-hidden tabIndex={-1} onPointerDown={(e) => { e.preventDefault(); submitKnock(); }} className="px-2 py-1 text-[#333] text-[10px] leading-none hover:text-[#666]">✓</button>
+                      <button type="button" aria-hidden tabIndex={-1} onPointerDown={(e) => { e.preventDefault(); setKnockOpen(false); setKnockCode(''); }} className="px-2 py-1 text-[#333] text-[10px] leading-none hover:text-[#666]">✕</button>
+                    </div>
                   )}
                 </div>
                 <div className={`flex items-center gap-2`}>
