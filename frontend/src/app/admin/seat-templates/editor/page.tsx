@@ -53,6 +53,7 @@ function EditorInner() {
   const [loading, setLoading] = useState(!!editId);
   const [saving, setSaving] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
+  const [blockedPairs, setBlockedPairs] = useState<any[]>([]); // الأزواج الممنوعة العالمية (لفحص التثبيت)
 
   const [name, setName] = useState('');
   const [layoutType, setLayoutType] = useState<'rectangle' | 'circle' | 'rows'>('rectangle');
@@ -90,6 +91,7 @@ function EditorInner() {
     : (selectedSeat != null ? `s:${selectedSeat}` : null);
 
   useEffect(() => { apiFetch('/api/player/all').then(r => setPlayers(Array.isArray(r) ? r : r.players || [])).catch(() => {}); }, []);
+  useEffect(() => { apiFetch('/api/seating/blocked-pairs').then(r => setBlockedPairs(r.pairs || [])).catch(() => {}); }, []);
 
   useEffect(() => {
     if (!editId) return;
@@ -134,8 +136,103 @@ function EditorInner() {
   const removeDoor = (id: string) => { setDoors(prev => prev.filter(d => d.id !== id)); clearSel(); };
   const setDoorType = (id: string, type: 'entry' | 'exit') => setDoors(prev => prev.map(d => d.id === id ? { ...d, type } : d));
 
-  const pinPlayer = (p: { id?: number; phone?: string; name: string }) => {
+  // ── فحص ذكي لتعارض تثبيت لاعب في مقعد مع شروط الجلوس ──
+  const normPhone = (ph?: string) => {
+    if (!ph) return '';
+    let c = ph.replace(/[\s\-()+]/g, '');
+    if (c.startsWith('00962')) c = c.slice(5); else if (c.startsWith('962')) c = c.slice(3);
+    return c.startsWith('0') ? c : '0' + c;
+  };
+  const genderAr = (g?: string) => (g || '').toUpperCase() === 'FEMALE' ? 'أنثى' : (g || '').toUpperCase() === 'MALE' ? 'ذكر' : '';
+  // سجل اللاعب الكامل (جنس/قيد) من قائمة players بالـ id أو الهاتف
+  const lookupPlayer = (ref: { playerId?: number | null; phone?: string }) => {
+    if (ref.playerId != null) { const f = players.find(p => p.id === ref.playerId); if (f) return f; }
+    const ph = normPhone(ref.phone);
+    if (ph) { const f = players.find(p => normPhone(p.phone) === ph); if (f) return f; }
+    return null;
+  };
+  // رقم المقعد من مفتاح التثبيت (s:N للدائري/الصفوف، r:side:idx للمستطيل)
+  const seatNumOfKey = (key: string): number | null => {
+    if (key.startsWith('s:')) return Number(key.slice(2));
+    const [, side, idxStr] = key.split(':');
+    const seat = layout?.seats.find(s => s.side === side && s.sideIndex === Number(idxStr));
+    return seat?.seatNum ?? null;
+  };
+  const circDist = (a: number, b: number, total: number) => { const d = Math.abs(a - b); return Math.min(d, total - d); };
+
+  /** يرجع قائمة رسائل التعارض عند تثبيت «cand» في المقعد targetSeat (فارغة = لا تعارض) */
+  const checkPinConflicts = (
+    targetSeat: number,
+    cand: { playerId?: number; phone?: string; name: string; gender?: string; genderConstraint?: string },
+  ): string[] => {
+    const total = effectiveTotal;
+    if (!total || total < 2) return [];
+    // المقاعد المشغولة (عدا الهدف نفسه) → رقم المقعد ← التثبيت
+    const occ: Record<number, PinVal> = {};
+    Object.entries(pinned).forEach(([k, v]) => { const n = seatNumOfKey(k); if (n && n !== targetSeat) occ[n] = v; });
+
+    const conflicts: string[] = [];
+    const candGender = (cand.gender || '').toUpperCase();
+    const candRule = cand.genderConstraint || 'NONE';
+    const candPhone = normPhone(cand.phone);
+
+    // 1) قيود الجنس — الجيران المباشرون (يسار/يمين)
+    const left = targetSeat === 1 ? total : targetSeat - 1;
+    const right = targetSeat === total ? 1 : targetSeat + 1;
+    for (const ns of [left, right]) {
+      const pin = occ[ns]; if (!pin) continue;
+      const nb = lookupPlayer(pin);
+      const nbGender = (nb?.gender || '').toUpperCase();
+      const nbRule = nb?.genderConstraint || 'NONE';
+      const nbName = pin.playerName || nb?.name || `مقعد ${ns}`;
+      if (!candGender || !nbGender) continue; // جنس غير معروف (اسم يدوي) → تخطّ
+      if (candRule === 'FORBID_SAME' && candGender === nbGender)
+        conflicts.push(`«${cand.name}» ممنوع مجاورة نفس الجنس — الجار «${nbName}» (${genderAr(nbGender)}) بالمقعد ${ns}`);
+      if (candRule === 'FORBID_OPPOSITE' && candGender !== nbGender)
+        conflicts.push(`«${cand.name}» ممنوع مجاورة الجنس الآخر — الجار «${nbName}» (${genderAr(nbGender)}) بالمقعد ${ns}`);
+      if (nbRule === 'FORBID_SAME' && nbGender === candGender)
+        conflicts.push(`الجار «${nbName}» (بالمقعد ${ns}) ممنوع مجاورة نفس الجنس — و«${cand.name}» (${genderAr(candGender)}) مِثله`);
+      if (nbRule === 'FORBID_OPPOSITE' && nbGender !== candGender)
+        conflicts.push(`الجار «${nbName}» (بالمقعد ${ns}) ممنوع مجاورة الجنس الآخر — و«${cand.name}» (${genderAr(candGender)}) مختلف`);
+    }
+
+    // 2) الأزواج الممنوعة — ضمن مسافة مقعدين (الحد الأدنى 3 مقاعد بينهما)
+    if (blockedPairs.length > 0 && (cand.playerId != null || candPhone)) {
+      for (let ns = 1; ns <= total; ns++) {
+        if (ns === targetSeat) continue;
+        const pin = occ[ns]; if (!pin) continue;
+        const dist = circDist(targetSeat, ns, total);
+        if (dist > 2) continue;
+        const nb = lookupPlayer(pin);
+        const nbId = nb?.id ?? pin.playerId;
+        const nbPhone = normPhone(pin.phone || nb?.phone);
+        const isBlocked = blockedPairs.some((bp: any) => {
+          const ph1 = normPhone(bp.player1_phone), ph2 = normPhone(bp.player2_phone);
+          const candIs1 = (cand.playerId != null && bp.player1_id === cand.playerId) || (!!candPhone && ph1 === candPhone);
+          const candIs2 = (cand.playerId != null && bp.player2_id === cand.playerId) || (!!candPhone && ph2 === candPhone);
+          const nbIs1 = (nbId != null && bp.player1_id === nbId) || (!!nbPhone && ph1 === nbPhone);
+          const nbIs2 = (nbId != null && bp.player2_id === nbId) || (!!nbPhone && ph2 === nbPhone);
+          return (candIs1 && nbIs2) || (candIs2 && nbIs1);
+        });
+        if (isBlocked) {
+          const nbName = pin.playerName || nb?.name || `مقعد ${ns}`;
+          conflicts.push(`زوج ممنوع: «${cand.name}» و«${nbName}» على بُعد ${dist} مقعد فقط (المقعد ${ns}) — المطلوب 3 مقاعد على الأقل`);
+        }
+      }
+    }
+    return conflicts;
+  };
+
+  const pinPlayer = (p: { id?: number; phone?: string; name: string; gender?: string; genderConstraint?: string }) => {
     if (!pinKey) return;
+    const targetSeat = seatNumOfKey(pinKey);
+    if (targetSeat != null) {
+      const conflicts = checkPinConflicts(targetSeat, { playerId: p.id, phone: p.phone, name: p.name, gender: p.gender, genderConstraint: p.genderConstraint });
+      if (conflicts.length > 0) {
+        const ok = window.confirm(`⚠️ تعارض مع شروط الجلوس:\n\n${conflicts.map(c => '• ' + c).join('\n')}\n\nتثبيت «${p.name}» في المقعد ${targetSeat} رغم ذلك؟`);
+        if (!ok) return;
+      }
+    }
     setPinned(prev => ({ ...prev, [pinKey]: { playerId: p.id, phone: p.phone, playerName: p.name } }));
     setSearch(''); setManualName('');
   };
@@ -275,7 +372,7 @@ function EditorInner() {
                       <div className="space-y-2 border-t border-gray-700/20 pt-2">
                         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 ابحث عن لاعب لتثبيته..." className="w-full bg-gray-900/70 border border-gray-700/30 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none" />
                         {search && filteredPlayers.map(p => (
-                          <button key={p.id} onClick={() => pinPlayer({ id: p.id, phone: p.phone, name: p.name })} className="w-full flex items-center gap-2 bg-gray-900/50 rounded-lg px-3 py-1.5 hover:bg-amber-500/5 text-right">
+                          <button key={p.id} onClick={() => pinPlayer({ id: p.id, phone: p.phone, name: p.name, gender: p.gender, genderConstraint: p.genderConstraint })} className="w-full flex items-center gap-2 bg-gray-900/50 rounded-lg px-3 py-1.5 hover:bg-amber-500/5 text-right">
                             <span className="text-xs text-white font-bold">{p.name}</span><span className="text-[10px] text-gray-500 mr-auto" dir="ltr">{p.phone || '—'}</span>
                           </button>
                         ))}
