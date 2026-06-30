@@ -42,6 +42,18 @@ export function checkWinCondition(state: GameState): WinResult {
 }
 
 /**
+ * 🏁 يقرّر الفائز عند انتهاء وقت اللعبة (المؤقّت).
+ * القاعدة: انتهاء الوقت = فوز المافيا (المدينة لم تُنهِ المافيا في الوقت المحدّد).
+ * استثناءات تمنع نتيجة غير منطقية:
+ *  - إن كان هناك فائز محسوم مسبقاً (محايد/مواطن) لم تُغلَق عليه اللعبة بعد → نحترمه.
+ *  - إن لم يبقَ أي مافيا حيّ (مثلاً مات آخر مافيا بديل/قنبلة) → فوز المواطنين، لا المافيا.
+ */
+export function decideTimeoutWinner(state: GameState): string {
+  if (state.winner) return state.winner;
+  return checkWinCondition(state) === WinResult.CITIZEN_WIN ? 'CITIZEN' : 'MAFIA';
+}
+
+/**
  * يُرجع ملخص الأعداد الحالية (للعرض على الشاشة)
  */
 export function getTeamCounts(state: GameState): { aliveMafia: number; aliveCitizens: number; totalAlive: number } {

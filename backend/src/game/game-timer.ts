@@ -6,6 +6,7 @@
 import type { Server } from 'socket.io';
 import { getGameState, setGameState } from '../config/redis.js';
 import { Phase } from './state.js';
+import { decideTimeoutWinner } from './win-checker.js';
 
 // ── Map لحفظ handles الـ setTimeout على مستوى السيرفر ──
 const gameTimerHandles = new Map<string, ReturnType<typeof setTimeout>>();
@@ -68,20 +69,23 @@ async function expireGameByTimeout(io: Server, roomId: string): Promise<void> {
       return;
     }
 
-    console.log(`⏰ Game timer EXPIRED for room ${roomId} — MAFIA WINS!`);
+    // 🏁 قرار الفائز عند انتهاء الوقت — لا يُعلَن فوز المافيا إن لم يبقَ أي مافيا حيّ
+    const winner = decideTimeoutWinner(state);
+
+    console.log(`⏰ Game timer EXPIRED for room ${roomId} — winner: ${winner}`);
 
     // تحديث الحالة
     if (state.gameTimer) {
       state.gameTimer.expired = true;
     }
-    state.winner = 'MAFIA';
+    state.winner = winner;
     state.phase = Phase.GAME_OVER;
     await setGameState(roomId, state);
 
     // إبلاغ الجميع
-    io.to(roomId).emit('game:timer-expired', { winner: 'MAFIA' });
+    io.to(roomId).emit('game:timer-expired', { winner });
     io.to(roomId).emit('game:over', {
-      winner: 'MAFIA',
+      winner,
       matchId: state.matchId,
       players: state.players,
       reason: 'TIMEOUT',
