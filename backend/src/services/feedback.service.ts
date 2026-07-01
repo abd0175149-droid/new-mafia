@@ -159,6 +159,7 @@ export async function getPendingSessions(playerId: number): Promise<PendingSessi
     .where(and(
       eq(roomFeedback.playerId, playerId),
       isNull(roomFeedback.submittedAt),
+      isNotNull(roomFeedback.sessionId), // استبعاد الصفوف اليتيمة (بلا جلسة) — غير قابلة للتعبئة
       gte(roomFeedback.createdAt, FEEDBACK_CUTOFF),
     ))
     .orderBy(roomFeedback.createdAt);
@@ -175,8 +176,10 @@ export async function countBlockingPending(playerId: number): Promise<number> {
     .where(and(
       eq(roomFeedback.playerId, playerId),
       isNull(roomFeedback.submittedAt),
-      // نفس الحد الأدنى المستخدم في getPendingSessions: لا نَحجب على استبيانات
-      // أقدم من التاريخ الفاصل (وإلا حُجب اللاعب على استبيان لا يظهر له في القائمة)
+      // لا نَحجب إلا على استبيان قابل للتعبئة فعلاً: مرتبط بجلسة، ضمن التاريخ الفاصل،
+      // وبعد مهلة الساعة. (استبعاد الصفوف اليتيمة بلا session_id — كانت تحجب اللاعب أبداً
+      // لأنها لا تظهر في القائمة ولا يمكن تعبئتها.)
+      isNotNull(roomFeedback.sessionId),
       gte(roomFeedback.createdAt, FEEDBACK_CUTOFF),
       lte(roomFeedback.createdAt, graceCutoff),
     ));
