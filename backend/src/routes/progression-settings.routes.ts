@@ -276,6 +276,16 @@ router.post('/player/:playerId/adjust', authenticate, adminOnly, async (req: Req
 
     console.log(`🔧 Admin adjusted player #${playerId}: XP${xpDelta >= 0 ? '+' : ''}${xpDelta || 0}, RR${rrDelta >= 0 ? '+' : ''}${rrDelta || 0} — ${reason || 'no reason'}`);
 
+    // 📋 سجل عمليات الموظفين: تعديل نقاط لاعب يدوياً
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: (req as any).user?.id, staffUsername: (req as any).user?.username, staffRole: (req as any).user?.role,
+        source: 'rest', action: 'rest:progression-adjust',
+        details: { playerId, matchPlayerId, xpDelta, rrDelta, reason: reason || null },
+      });
+    } catch { /* غير حاجب */ }
+
     res.json({ success: true, player: updated[0] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

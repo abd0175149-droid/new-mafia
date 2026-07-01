@@ -517,6 +517,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     requireTicket: requireTicket ?? false,
     seatConstraints: seatConstraints || null,
     seatTemplateId: seatTemplateId || null,
+    createdBy: req.user?.id || null, // 👤 مُنشئ الفعالية (للتمييز عن بقية الأدمن لاحقاً)
   } as any).returning();
 
   const activity = result[0];

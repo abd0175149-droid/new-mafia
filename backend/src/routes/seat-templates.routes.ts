@@ -180,6 +180,16 @@ router.put('/:id', authenticate, leaderOrAbove, async (req: Request, res: Respon
       }
     } catch { /* الإشعار اختياري — لا يُفشل الحفظ */ }
 
+    // 📋 سجل عمليات الموظفين: تعديل قالب مقاعد
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: (req as any).user?.id, staffUsername: (req as any).user?.username, staffRole: (req as any).user?.role,
+        source: 'rest', action: 'rest:seat-template-edit',
+        details: { templateId: id, name: (updated as any).name },
+      });
+    } catch { /* غير حاجب */ }
+
     res.json({ success: true, template: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -15,6 +15,7 @@ export async function createSession(
   displayPin: string,
   maxPlayers: number,
   activityId?: number,
+  createdBy?: number | null,
 ): Promise<number | null> {
   const db = getDB();
   if (!db) {
@@ -30,6 +31,7 @@ export async function createSession(
       maxPlayers,
       isActive: true,
       activityId: activityId || null,
+      createdBy: createdBy ?? null, // 👤 مُنشئ الغرفة (staff)
     } as any).returning({ id: sessions.id });
 
     const sessionId = result[0]?.id;

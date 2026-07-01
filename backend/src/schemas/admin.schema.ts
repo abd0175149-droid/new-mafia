@@ -73,6 +73,8 @@ export const activities = pgTable('activities', {
   seatTemplateId: integer('seat_template_id'),           // ربط بقالب مقاعد
   // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
+  // 👤 مُنشئ الفعالية (staff.id) — للتمييز عن بقية الأدمن لاحقاً (صلاحيات خاصة)
+  createdBy: integer('created_by'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
@@ -159,6 +161,28 @@ export const auditLog = pgTable('audit_log', {
   entityId: varchar('entity_id', { length: 50 }),
   details: jsonb('details'),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
+});
+
+// ── Staff Action Log (سجل عمليات الموظفين داخل اللعبة) ────────────────
+// يوثّق كل تدخّل يدوي للّيدر داخل اللعبة (تصويت بالنيابة، عقوبة، تغيير مقعد، تعديل حدث ليلي…)
+// مصنّفاً حسب النوع/المستخدم/الفعالية/الغرفة مع طابع زمني. منفصل عن audit_log (عالي التردّد).
+export const staffActionLog = pgTable('staff_action_log', {
+  id: serial('id').primaryKey(),
+  staffId: integer('staff_id'),
+  staffUsername: varchar('staff_username', { length: 50 }),
+  staffRole: varchar('staff_role', { length: 20 }),
+  source: varchar('source', { length: 10 }).default('socket'), // socket | rest | ui
+  action: varchar('action', { length: 80 }).notNull(),          // اسم الحدث/المسار
+  category: varchar('category', { length: 30 }).default('OTHER'),
+  labelAr: varchar('label_ar', { length: 120 }),
+  activityId: integer('activity_id'),
+  roomId: varchar('room_id', { length: 50 }),
+  roomCode: varchar('room_code', { length: 20 }),
+  matchId: integer('match_id'),
+  targetPhysicalId: integer('target_physical_id'),
+  targetName: varchar('target_name', { length: 100 }),
+  details: jsonb('details'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // ── Sound Effects (المؤثرات الصوتية المخصصة) ────────

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
 import Image from 'next/image';
 import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
+import { getSocket } from '@/lib/socket';
 
 // تسمية دور اللاعب بالعربية + لون الفريق (للعرض في لوحة العقوبات)
 function roleLabel(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -205,6 +206,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
   const [penalizingLoading, setPenalizingLoading] = useState(false);
   const [showQuickPenalties, setShowQuickPenalties] = useState(false);
+
+  // 📋 سجل عمليات الموظفين: توثيق فتح قائمة العقوبات (تدخّل يدوي) — إرسال مباشر بلا انتظار رد
+  useEffect(() => {
+    if (penalizingId != null) {
+      try { getSocket().emit('ui:penalty-menu-open', { roomId: gameState?.roomId, physicalId: penalizingId }); } catch { /* تجاهل */ }
+    }
+  }, [penalizingId]); // eslint-disable-line react-hooks/exhaustive-deps
   
   const [startSpeakerId, setStartSpeakerId] = useState<number | ''>('');
   const [discussionTimeLimit, setDiscussionTimeLimit] = useState<number>(30);

@@ -67,6 +67,8 @@ export const matches = pgTable('matches', {
   durationSeconds: integer('duration_seconds'),
   // 🏆 الموسم الذي تُحتسب له المباراة (عادي أو بطولة حسب الموقع) — يُختم عند الإنشاء
   seasonId: integer('season_id'),
+  // 👤 مُنشئ الغرفة/المباراة (staff.id) — للتمييز عن بقية الأدمن لاحقاً
+  createdBy: integer('created_by'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   endedAt: timestamp('ended_at'),
   deletedAt: timestamp('deleted_at'),

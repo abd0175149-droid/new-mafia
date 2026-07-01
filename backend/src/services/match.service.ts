@@ -33,6 +33,9 @@ export async function createMatch(state: GameState): Promise<number | null> {
       maxPlayers: state.config.maxPlayers,
       isActive: true,
       totalRounds: state.round || 1,
+      // 👤 مُنشئ الغرفة (staff) — يُنقل من حالة الغرفة
+      createdBy: (state as any).createdByStaffId || null,
+      leaderStaffId: (state as any).createdByStaffId || null,
     } as any).returning({ id: matches.id });
 
     const matchId = result[0]?.id;

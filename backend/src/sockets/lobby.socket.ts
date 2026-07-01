@@ -345,6 +345,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         data.penaltyScope || 'room',
       );
 
+      // 👤 مُنشئ الغرفة (staff) — يُخزَّن على الحالة + الجلسة + المباراة للتمييز عن بقية الأدمن لاحقاً
+      const creatorStaffId: number | null = socket.data.authStaff?.id || null;
+      (state as any).createdByStaffId = creatorStaffId;
+      (state as any).createdByStaffUsername = socket.data.authStaff?.username || null;
+
       let sessionId: number | null = null;
 
       if (data.existingSessionId) {
@@ -363,7 +368,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         console.log(`🔗 Room created using existing Session #${sessionId}`);
       } else {
         // ── إنشاء Session جديد في PostgreSQL ──
-        sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, data.activityId || undefined);
+        sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, data.activityId || undefined, creatorStaffId);
         if (sessionId) {
           state.sessionId = sessionId;
           state.sessionCode = state.roomCode;

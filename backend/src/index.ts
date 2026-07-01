@@ -44,9 +44,11 @@ import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
 import seasonsRoutes from './routes/seasons.routes.js';
+import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
+import { registerAuditLogging } from './services/staff-action-log.service.js';
 import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
@@ -146,6 +148,7 @@ app.use('/api/player-feedback', playerFeedbackRoutes);
 app.use('/api/feedback', feedbackAnalyticsRoutes);
 app.use('/api/sounds', soundsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/staff-action-log', staffActionLogRoutes);
 app.use('/api/game-config', gameConfigRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
@@ -483,6 +486,9 @@ app.set('io', io);
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
 
+  // 📋 مُلتقِط سجل عمليات الموظفين — يوثّق كل تدخّل يدوي للّيدر تلقائياً (قبل تسجيل الأحداث)
+  registerAuditLogging(socket);
+
   // تسجيل كل مجموعات الأحداث
   registerLobbyEvents(io, socket);
   registerDayEvents(io, socket);
@@ -817,6 +823,45 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ Seat templates migration:', err.message);
+  }
+
+  // ── 📋 سجل عمليات الموظفين + ربط المنشئ ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (!db) throw new Error('DB unavailable');
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS staff_action_log (
+        id SERIAL PRIMARY KEY,
+        staff_id INTEGER,
+        staff_username VARCHAR(50),
+        staff_role VARCHAR(20),
+        source VARCHAR(10) DEFAULT 'socket',
+        action VARCHAR(80) NOT NULL,
+        category VARCHAR(30) DEFAULT 'OTHER',
+        label_ar VARCHAR(120),
+        activity_id INTEGER,
+        room_id VARCHAR(50),
+        room_code VARCHAR(20),
+        match_id INTEGER,
+        target_physical_id INTEGER,
+        target_name VARCHAR(100),
+        details JSONB,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_activity ON staff_action_log (activity_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_room ON staff_action_log (room_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_staff ON staff_action_log (staff_id)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_created ON staff_action_log (created_at DESC)`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_category ON staff_action_log (category)`);
+    // ربط المنشئ: الفعالية والمباراة (sessions.created_by موجود مسبقاً)
+    await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS created_by INTEGER`);
+    await db.execute(sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS created_by INTEGER`);
+    console.log('✅ Staff action log + creator columns ensured');
+  } catch (err: any) {
+    console.warn('⚠️ Staff action log migration:', err.message);
   }
 
   // ── تهيئة Firebase ──
