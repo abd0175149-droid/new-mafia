@@ -1242,6 +1242,7 @@ export default function ActivityDetailPage() {
                         <th className="text-center px-3 py-2.5 font-medium">الحالة</th>
                         <th className="text-center px-3 py-2.5 font-medium">المبلغ</th>
                         <th className="text-right px-3 py-2.5 font-medium">المستلم</th>
+                        <th className="text-right px-3 py-2.5 font-medium whitespace-nowrap">وقت الحجز</th>
                         <th className="text-right px-3 py-2.5 font-medium">ملاحظات</th>
                         <th className="text-center px-3 py-2.5 font-medium">إجراءات</th>
                       </tr>
@@ -1303,7 +1304,14 @@ export default function ActivityDetailPage() {
                             )}
                           </td>
                           <td className="px-3 py-2.5 text-gray-400 text-xs">{b.receivedBy || '—'}</td>
-                          <td className="px-3 py-2.5 text-gray-500 text-xs max-w-[120px] truncate" title={b.notes}>{b.notes || '—'}</td>
+                          <td className="px-3 py-2.5 text-xs whitespace-nowrap" title={b.createdAt ? new Date(b.createdAt).toLocaleString('ar-JO', { dateStyle: 'medium', timeStyle: 'medium' }) : undefined}>
+                            {b.createdAt ? (
+                              <>
+                                <span className="text-gray-300">{new Date(b.createdAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</span>
+                                <span className="block text-gray-600 text-[10px]">{new Date(b.createdAt).toLocaleDateString('ar-JO', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                              </>
+                            ) : <span className="text-gray-600">—</span>}
+                          </td>
                           <td className="px-3 py-2.5 text-center">
                             <div className="flex items-center justify-center gap-1">
                               {!b.isFree && !b.isPaid && (
