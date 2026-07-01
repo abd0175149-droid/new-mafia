@@ -64,9 +64,11 @@ export default function ActivitiesPage() {
   const [showEditForm, setShowEditForm] = useState<any | null>(null);
 
   // Filters
-  const [filterStatus, setFilterStatus] = useState('planned');
+  const [filterStatus, setFilterStatus] = useState('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
+  // إظهار الفعاليات المرتبطة بـ Test Location (مخفية افتراضياً)
+  const [showTestLocation, setShowTestLocation] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -139,6 +141,16 @@ export default function ActivitiesPage() {
     };
   }, [bookings, costs]);
 
+  // معرّفات مواقع الاختبار (تُطابَق بالاسم) — لإخفاء فعالياتها افتراضياً
+  const testLocationIds = useMemo(
+    () => new Set(
+      locations
+        .filter((l: any) => String(l.name || '').trim().toLowerCase().includes('test location'))
+        .map((l: any) => l.id)
+    ),
+    [locations]
+  );
+
   // ── Filtered + Sorted ──
   const filteredActivities = useMemo(() => {
     let result = [...activities];
@@ -146,6 +158,11 @@ export default function ActivitiesPage() {
     // فلتر الحالة
     if (filterStatus !== 'all') {
       result = result.filter(a => a.status === filterStatus);
+    }
+
+    // إخفاء فعاليات Test Location ما لم يُفعّل الخيار
+    if (!showTestLocation) {
+      result = result.filter(a => !testLocationIds.has(a.locationId));
     }
 
     // فلتر التاريخ
@@ -159,13 +176,13 @@ export default function ActivitiesPage() {
     }
 
     return result;
-  }, [activities, filterStatus, filterDateFrom, filterDateTo]);
+  }, [activities, filterStatus, filterDateFrom, filterDateTo, showTestLocation, testLocationIds]);
 
   // ── Pagination ──
   const totalPages = Math.ceil(filteredActivities.length / pageSize) || 1;
   const paginatedData = filteredActivities.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  useEffect(() => { setCurrentPage(1); }, [filterStatus, filterDateFrom, filterDateTo, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [filterStatus, filterDateFrom, filterDateTo, pageSize, showTestLocation]);
 
   // ── Handlers ──
   async function handleCreateActivity(data: any) {
@@ -203,12 +220,13 @@ export default function ActivitiesPage() {
     }
   }
 
-  const hasActiveFilters = filterStatus !== 'planned' || filterDateFrom || filterDateTo;
+  const hasActiveFilters = filterStatus !== 'all' || filterDateFrom || filterDateTo || showTestLocation;
 
   function clearFilters() {
-    setFilterStatus('planned');
+    setFilterStatus('all');
     setFilterDateFrom('');
     setFilterDateTo('');
+    setShowTestLocation(false);
   }
 
   // ── Loading ──
@@ -308,6 +326,17 @@ export default function ActivitiesPage() {
           placeholder="إلى تاريخ"
           className="px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
         />
+
+        {/* إظهار فعاليات Test Location (مخفية افتراضياً) */}
+        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={showTestLocation}
+            onChange={e => setShowTestLocation(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-600 bg-gray-900 accent-amber-500 cursor-pointer"
+          />
+          إظهار فعاليات Test Location
+        </label>
 
         {/* عداد */}
         <span className="text-xs text-gray-500 mr-auto">
