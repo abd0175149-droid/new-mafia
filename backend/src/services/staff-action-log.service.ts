@@ -12,6 +12,7 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   // ── العقوبات ──
   'leader:record-penalty': { category: 'PENALTY', labelAr: 'تسجيل عقوبة على لاعب' },
   'ui:penalty-menu-open': { category: 'PENALTY', labelAr: 'فتح قائمة العقوبات' },
+  'ui:penalty-role-reveal': { category: 'PENALTY', labelAr: 'كشف دور لاعب من قائمة العقوبات' },
   // ── التصويت بالنيابة + النهار ──
   'day:cast-vote': { category: 'PROXY_VOTE', labelAr: 'تصويت الليدر بالنيابة عن لاعب' },
   'day:create-deal': { category: 'DEAL', labelAr: 'إنشاء اتفاقية (ديل)' },

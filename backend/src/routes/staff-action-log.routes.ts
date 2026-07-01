@@ -8,6 +8,7 @@ import { and, eq, gte, lte, desc, sql, isNull, isNotNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { staffActionLog, staff, activities } from '../schemas/admin.schema.js';
 import { matches } from '../schemas/game.schema.js';
+import { players } from '../schemas/player.schema.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import { CATEGORY_LABELS } from '../services/staff-action-log.service.js';
 
@@ -45,6 +46,8 @@ router.get('/', authenticate, adminOnly, async (req: Request, res: Response) => 
     if (q.outcome) conds.push(eq(staffActionLog.outcome, String(q.outcome)));
     if (q.roomId) conds.push(eq(staffActionLog.roomId, String(q.roomId)));
     if (q.roomCode) conds.push(eq(staffActionLog.roomCode, String(q.roomCode)));
+    // الهدف: نُصفّي بالاسم (السجل يخزّن اسم الهدف + رقم مقعده؛ لا معرّف حساب) — يتوافق مع كل النطاقات
+    if (q.targetName) conds.push(eq(staffActionLog.targetName, String(q.targetName)));
     // اللعبة: matchId رقمي، أو 'lobby' لأحداث الغرفة غير المرتبطة بلعبة (matchId فارغ)
     if (q.matchId === 'lobby') conds.push(isNull(staffActionLog.matchId));
     else if (q.matchId) conds.push(eq(staffActionLog.matchId, Number(q.matchId)));
@@ -122,6 +125,51 @@ router.get('/games', authenticate, adminOnly, async (req: Request, res: Response
       .from(staffActionLog)
       .where(and(eq(staffActionLog.roomId, roomId), isNull(staffActionLog.matchId)));
     res.json({ games, lobbyCount: lobbyRow?.cnt || 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/staff-action-log/targets — مرشّحو «الهدف» للفلترة (بحث) ──
+// النطاق الأكثر تحديداً يفوز: لعبة > غرفة > فعالية > كل المستخدمين.
+//   • ضمن نطاق (لعبة/غرفة/فعالية): أسماء الأهداف التي ظهرت فعلاً في السجل ضمن ذلك النطاق.
+//   • بلا فعالية: كل اللاعبين (المستخدمون) كأهداف محتملة.
+router.get('/targets', authenticate, adminOnly, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+  try {
+    const activityId = req.query.activityId ? Number(req.query.activityId) : null;
+    const roomId = req.query.roomId ? String(req.query.roomId) : null;
+    const matchRaw = req.query.matchId ? String(req.query.matchId) : null;
+    const matchId = matchRaw && matchRaw !== 'lobby' ? Number(matchRaw) : null;
+
+    // اختيار شرط النطاق حسب الأكثر تحديداً
+    let scope: any = null;
+    if (matchId) scope = eq(staffActionLog.matchId, matchId);
+    else if (matchRaw === 'lobby' && roomId) scope = and(eq(staffActionLog.roomId, roomId), isNull(staffActionLog.matchId));
+    else if (roomId) scope = eq(staffActionLog.roomId, roomId);
+    else if (activityId) scope = eq(staffActionLog.activityId, activityId);
+
+    if (scope) {
+      const rows = await db.selectDistinct({ targetPhysicalId: staffActionLog.targetPhysicalId, targetName: staffActionLog.targetName })
+        .from(staffActionLog)
+        .where(and(scope, isNotNull(staffActionLog.targetName)))
+        .orderBy(staffActionLog.targetName);
+      // إزالة التكرار حسب الاسم (قد يتكرر الاسم بمقاعد مختلفة عبر ألعاب الغرفة/الفعالية)
+      const seen = new Set<string>();
+      const targets: { name: string; physicalId: number | null }[] = [];
+      for (const r of rows) {
+        if (!r.targetName || seen.has(r.targetName)) continue;
+        seen.add(r.targetName);
+        targets.push({ name: r.targetName, physicalId: r.targetPhysicalId ?? null });
+      }
+      return res.json({ targets, source: 'log' });
+    }
+
+    // بلا نطاق محدد → كل المستخدمين
+    const all = await db.select({ id: players.id, name: players.name, phone: players.phone })
+      .from(players).orderBy(players.name).limit(5000);
+    res.json({ targets: all.map((p) => ({ name: p.name, phone: p.phone, playerId: p.id })), source: 'players' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

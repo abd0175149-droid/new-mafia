@@ -207,13 +207,27 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
   const [penalizingLoading, setPenalizingLoading] = useState(false);
   const [showQuickPenalties, setShowQuickPenalties] = useState(false);
+  // 🎭 الأدوار المكشوفة داخل قائمة العقوبات (physicalIds) — مخفية افتراضياً حتى الضغط على الاسم
+  // (مستقلة عن revealedRoles الخاصة بعرض الكشف العام حتى لا يتداخل التصفير)
+  const [penaltyRevealed, setPenaltyRevealed] = useState<Set<number>>(() => new Set());
 
-  // 📋 سجل عمليات الموظفين: توثيق فتح قائمة العقوبات (تدخّل يدوي) — إرسال مباشر بلا انتظار رد
+  // 📋 سجل عمليات الموظفين: توثيق «فتح قائمة العقوبات» لحظة فتحها فعلياً — حدث مستقل لا يرتبط بتسجيل عقوبة
   useEffect(() => {
-    if (penalizingId != null) {
-      try { getSocket().emit('ui:penalty-menu-open', { roomId: gameState?.roomId, physicalId: penalizingId }); } catch { /* تجاهل */ }
+    if (showQuickPenalties) {
+      try { getSocket().emit('ui:penalty-menu-open', { roomId: gameState?.roomId }); } catch { /* تجاهل */ }
+    } else {
+      // إخفاء الأدوار عند الإغلاق — كل فتح للقائمة يبدأ بأدوار مخفية (والكشف حدث مُوثَّق لكل مرة)
+      setPenaltyRevealed((prev) => (prev.size ? new Set() : prev));
     }
-  }, [penalizingId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showQuickPenalties]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 🎭 كشف دور لاعب من قائمة العقوبات — يُظهر الدور ويُسجّل الحدث (مرة واحدة لكل لاعب لكل فتح)
+  const revealPenaltyRole = (player: any) => {
+    if (!player?.role) return;                             // لا دور بعد — لا شيء للكشف
+    if (penaltyRevealed.has(player.physicalId)) return;    // مكشوف مسبقاً — تفادي تكرار التسجيل
+    setPenaltyRevealed((prev) => { const n = new Set(prev); n.add(player.physicalId); return n; });
+    try { getSocket().emit('ui:penalty-role-reveal', { roomId: gameState?.roomId, physicalId: player.physicalId, role: player.role }); } catch { /* تجاهل */ }
+  };
   
   const [startSpeakerId, setStartSpeakerId] = useState<number | ''>('');
   const [discussionTimeLimit, setDiscussionTimeLimit] = useState<number>(30);
@@ -315,19 +329,40 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                           {isDead ? '💀' : player.physicalId}
                         </div>
                         <div>
-                          <p className={`font-bold text-sm flex items-center gap-1.5 ${isDead ? 'text-red-400/60' : 'text-white'}`}>
-                            {player.name}
-                            {isDead && <span className="text-[8px] bg-red-500/15 text-red-400/70 px-1.5 py-0.5 rounded font-mono">مُقصى</span>}
-                          </p>
-                          {/* دور اللاعب */}
+                          {/* اسم اللاعب — الضغط عليه يكشف الدور (مخفي افتراضياً) */}
+                          {(() => {
+                            const hasHiddenRole = !!player.role && !penaltyRevealed.has(player.physicalId);
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => revealPenaltyRole(player)}
+                                title={hasHiddenRole ? 'اضغط لكشف الدور' : undefined}
+                                className={`font-bold text-sm flex items-center gap-1.5 text-right ${isDead ? 'text-red-400/60' : 'text-white'} ${hasHiddenRole ? 'cursor-pointer hover:text-amber-400 transition-colors' : 'cursor-default'}`}
+                              >
+                                {player.name}
+                                {isDead && <span className="text-[8px] bg-red-500/15 text-red-400/70 px-1.5 py-0.5 rounded font-mono">مُقصى</span>}
+                              </button>
+                            );
+                          })()}
+                          {/* دور اللاعب — مخفي حتى الضغط على الاسم */}
                           {(() => {
                             const rl = roleLabel(player.role);
-                            return rl ? (
+                            if (!rl) return <span className="text-[9px] text-gray-600 font-mono mt-0.5 block">بلا دور بعد</span>;
+                            if (!penaltyRevealed.has(player.physicalId)) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => revealPenaltyRole(player)}
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold mt-0.5 px-1.5 py-0.5 rounded bg-zinc-800/70 text-gray-500 hover:text-amber-400 hover:bg-zinc-700/70 transition-all cursor-pointer"
+                                >
+                                  🔒 اضغط لكشف الدور
+                                </button>
+                              );
+                            }
+                            return (
                               <span className={`inline-flex items-center gap-1 text-[10px] font-bold mt-0.5 px-1.5 py-0.5 rounded ${rl.mafia ? 'bg-[#8A0303]/20 text-red-400' : 'bg-cyan-500/10 text-cyan-300'}`}>
                                 {rl.icon} {rl.text}
                               </span>
-                            ) : (
-                              <span className="text-[9px] text-gray-600 font-mono mt-0.5 block">بلا دور بعد</span>
                             );
                           })()}
                           {/* Penalty Dots */}

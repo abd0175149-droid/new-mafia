@@ -44,9 +44,11 @@ export default function StaffLogPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [f, setF] = useState({ activityId: '', staffId: '', category: '', outcome: '', roomId: '', matchId: '', from: '', to: '' });
+  const [f, setF] = useState({ activityId: '', staffId: '', category: '', outcome: '', roomId: '', matchId: '', targetName: '', from: '', to: '' });
   const [rooms, setRooms] = useState<any[]>([]);
   const [games, setGames] = useState<{ games: any[]; lobbyCount: number }>({ games: [], lobbyCount: 0 });
+  const [targets, setTargets] = useState<{ name: string; physicalId?: number | null; phone?: string }[]>([]);
+  const [targetsSource, setTargetsSource] = useState<'log' | 'players'>('players');
   const limit = 50;
   const pages = Math.max(1, Math.ceil(total / limit));
 
@@ -62,6 +64,7 @@ export default function StaffLogPage() {
       if (f.outcome) qs.set('outcome', f.outcome);
       if (f.roomId) qs.set('roomId', f.roomId);
       if (f.matchId) qs.set('matchId', f.matchId);
+      if (f.targetName) qs.set('targetName', f.targetName);
       if (f.from) qs.set('from', f.from);
       if (f.to) qs.set('to', `${f.to}T23:59:59`);
       qs.set('page', String(p)); qs.set('limit', String(limit));
@@ -71,22 +74,43 @@ export default function StaffLogPage() {
     finally { setLoading(false); }
   }, [f, page]);
 
-  useEffect(() => { load(1); /* أول تحميل */ }, []); // eslint-disable-line
+  // مرشّحو «الهدف» — يتعاقبون مع (فعالية/غرفة/لعبة): الأكثر تحديداً يفوز، وإلا كل المستخدمين
+  const loadTargets = useCallback((activityId: string, roomId: string, matchId: string) => {
+    const qs = new URLSearchParams();
+    if (activityId) qs.set('activityId', activityId);
+    if (roomId) qs.set('roomId', roomId);
+    if (matchId) qs.set('matchId', matchId);
+    apiFetch(`/api/staff-action-log/targets?${qs.toString()}`)
+      .then((d) => { setTargets(d.targets || []); setTargetsSource(d.source || 'players'); })
+      .catch(() => { setTargets([]); });
+  }, []);
+
+  useEffect(() => { load(1); loadTargets('', '', ''); /* أول تحميل */ }, []); // eslint-disable-line
 
   const apply = () => load(1);
-  const clear = () => { setF({ activityId: '', staffId: '', category: '', outcome: '', roomId: '', matchId: '', from: '', to: '' }); setRooms([]); setGames({ games: [], lobbyCount: 0 }); setTimeout(() => load(1), 0); };
+  const clear = () => {
+    setF({ activityId: '', staffId: '', category: '', outcome: '', roomId: '', matchId: '', targetName: '', from: '', to: '' });
+    setRooms([]); setGames({ games: [], lobbyCount: 0 }); loadTargets('', '', '');
+    setTimeout(() => load(1), 0);
+  };
 
-  // تعاقب الفلاتر: فعالية ← غرفة ← لعبة
+  // تعاقب الفلاتر: فعالية ← غرفة ← لعبة (وكل تغيير يعيد جلب الأهداف ويصفّر الهدف المختار)
   const onActivityChange = (v: string) => {
-    setF((p) => ({ ...p, activityId: v, roomId: '', matchId: '' }));
+    setF((p) => ({ ...p, activityId: v, roomId: '', matchId: '', targetName: '' }));
     setGames({ games: [], lobbyCount: 0 });
     if (v) apiFetch(`/api/staff-action-log/rooms?activityId=${v}`).then((d) => setRooms(d.rooms || [])).catch(() => setRooms([]));
     else setRooms([]);
+    loadTargets(v, '', '');
   };
   const onRoomChange = (v: string) => {
-    setF((p) => ({ ...p, roomId: v, matchId: '' }));
+    setF((p) => ({ ...p, roomId: v, matchId: '', targetName: '' }));
     if (v) apiFetch(`/api/staff-action-log/games?roomId=${encodeURIComponent(v)}`).then((d) => setGames({ games: d.games || [], lobbyCount: d.lobbyCount || 0 })).catch(() => setGames({ games: [], lobbyCount: 0 }));
     else setGames({ games: [], lobbyCount: 0 });
+    loadTargets(f.activityId, v, '');
+  };
+  const onMatchChange = (v: string) => {
+    setF((p) => ({ ...p, matchId: v, targetName: '' }));
+    loadTargets(f.activityId, f.roomId, v);
   };
   const winnerAr = (w: string) => ({ MAFIA: 'المافيا', CITIZEN: 'المواطنون', JESTER: 'المهرّج', ASSASSIN: 'السفّاح' } as Record<string, string>)[w] || w;
 
@@ -105,12 +129,15 @@ export default function StaffLogPage() {
             options={[{ v: '', l: 'الكل' }, ...meta.activities.map((a) => ({ v: String(a.id), l: `#${a.id} — ${a.name}` }))]} />
           <Select label="② الغرفة" value={f.roomId} onChange={onRoomChange} disabled={!f.activityId}
             options={[{ v: '', l: f.activityId ? 'كل غرف الفعالية' : 'اختر فعالية أولاً' }, ...rooms.map((r) => ({ v: r.roomId, l: `غرفة ${r.roomCode || r.roomId}` }))]} />
-          <Select label="③ اللعبة" value={f.matchId} onChange={(v) => setF({ ...f, matchId: v })} disabled={!f.roomId}
+          <Select label="③ اللعبة" value={f.matchId} onChange={onMatchChange} disabled={!f.roomId}
             options={[
               { v: '', l: f.roomId ? 'كل ألعاب الغرفة' : 'اختر غرفة أولاً' },
               ...games.games.map((g) => ({ v: String(g.id), l: `لعبة #${g.id}${g.winner ? ' — فاز ' + winnerAr(g.winner) : ''} · ${new Date(g.createdAt).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' })}` })),
               ...(games.lobbyCount > 0 ? [{ v: 'lobby', l: `أحداث اللوبي (غير مرتبطة بلعبة) · ${games.lobbyCount}` }] : []),
             ]} />
+          <SearchSelect label="④ الهدف" value={f.targetName} onChange={(v) => setF({ ...f, targetName: v })}
+            placeholder={targetsSource === 'players' ? 'كل المستخدمين — ابحث بالاسم' : 'كل الأهداف'}
+            options={targets.map((t) => ({ v: t.name, l: t.name, sub: t.phone || (t.physicalId != null ? `مقعد #${t.physicalId}` : undefined) }))} />
           <Select label="الموظف" value={f.staffId} onChange={(v) => setF({ ...f, staffId: v })}
             options={[{ v: '', l: 'الكل' }, ...meta.staff.map((s) => ({ v: String(s.id), l: s.displayName || s.username }))]} />
           <Select label="نوع العملية" value={f.category} onChange={(v) => setF({ ...f, category: v })}
@@ -212,6 +239,51 @@ function Select({ label, value, onChange, options, disabled }: { label: string; 
         className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
         {options.map((o) => <option key={o.v} value={o.v} className="bg-gray-900">{o.l}</option>)}
       </select>
+    </Field>
+  );
+}
+// قائمة قابلة للبحث (combobox) — للهدف حيث قد تكون القائمة كبيرة جداً (كل المستخدمين)
+function SearchSelect({ label, value, onChange, options, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { v: string; l: string; sub?: string }[]; placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const selected = options.find((o) => o.v === value);
+  const term = q.trim().toLowerCase();
+  const filtered = term ? options.filter((o) => o.l.toLowerCase().includes(term) || (o.sub || '').toLowerCase().includes(term)) : options;
+  return (
+    <Field label={label}>
+      <div className="relative">
+        <button type="button" onClick={() => setOpen((o) => !o)}
+          className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-right text-white focus:outline-none focus:border-indigo-500 flex items-center justify-between gap-2">
+          <span className={`truncate ${value ? 'text-white' : 'text-gray-500'}`}>{value || placeholder || 'الكل'}</span>
+          <span className="text-gray-500 text-[10px] shrink-0">▾</span>
+        </button>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => { setOpen(false); setQ(''); }} />
+            <div className="absolute z-50 mt-1 w-full bg-gray-900 border border-gray-700 rounded-lg shadow-2xl max-h-72 overflow-hidden flex flex-col">
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 بحث بالاسم…"
+                className="w-full bg-gray-950 border-b border-gray-700 px-3 py-2 text-sm text-white focus:outline-none" />
+              <div className="overflow-y-auto">
+                <button type="button" onClick={() => { onChange(''); setOpen(false); setQ(''); }}
+                  className={`w-full text-right px-3 py-2 text-sm hover:bg-gray-800 ${!value ? 'text-indigo-300' : 'text-gray-400'}`}>الكل</button>
+                {filtered.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-gray-600 text-center">لا نتائج</div>
+                ) : filtered.slice(0, 200).map((o, i) => (
+                  <button key={`${o.v}_${i}`} type="button" onClick={() => { onChange(o.v); setOpen(false); setQ(''); }}
+                    className={`w-full text-right px-3 py-2 text-sm hover:bg-gray-800 flex items-center justify-between gap-2 ${o.v === value ? 'bg-indigo-500/10 text-indigo-300' : 'text-gray-200'}`}>
+                    <span className="truncate">{o.l}</span>
+                    {o.sub && <span className="text-[10px] text-gray-500 font-mono shrink-0" dir="ltr">{o.sub}</span>}
+                  </button>
+                ))}
+                {filtered.length > 200 && <div className="px-3 py-2 text-[10px] text-gray-600 text-center">أول 200 نتيجة — استخدم البحث للتضييق</div>}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </Field>
   );
 }
