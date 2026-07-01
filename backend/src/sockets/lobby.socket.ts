@@ -1616,8 +1616,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       let state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION) {
-        return callback({ success: false, error: 'لا يمكن تغيير الأرقام بعد بدء اللعبة' });
+      // يُسمح بتعديل المقاعد في حالات إدارة الروستر: اللوبي، توليد الأدوار، وبعد انتهاء اللعبة
+      // (الغرفة تبقى مفتوحة للعبة التالية — عرض الجلسة يُعرض لـ GAME_OVER أيضاً). لا يُسمح أثناء اللعب.
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER) {
+        return callback({ success: false, error: 'لا يمكن تغيير الأرقام أثناء اللعب' });
       }
 
       // فلترة التغييرات الفعلية فقط
@@ -1710,9 +1712,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       let state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
 
-      // ✅ السماح بتعديل الاسم/الرقم فقط قبل توزيع الأدوار
-      if (!data.isNew && state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION) {
-        return callback({ success: false, error: 'لا يمكن تعديل البيانات بعد توزيع الأدوار' });
+      // ✅ السماح بتعديل الاسم/الرقم في حالات إدارة الروستر (لوبي/توليد أدوار/بعد انتهاء اللعبة)
+      if (!data.isNew && state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER) {
+        return callback({ success: false, error: 'لا يمكن تعديل البيانات أثناء اللعب' });
       }
 
       if (data.isNew) {
