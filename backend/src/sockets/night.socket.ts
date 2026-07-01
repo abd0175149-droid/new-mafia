@@ -21,6 +21,7 @@ import { finalizeMatch, finalizeIfDecided } from '../services/match.service.js';
 import { initTwinState, getTwinTransformNotification } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer } from '../game/game-timer.js';
+import { clearRevealGrace } from '../game/reveal-grace.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
 
@@ -1423,6 +1424,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       await setPhase(data.roomId, Phase.GAME_OVER);
       state.phase = Phase.GAME_OVER;
       clearGameTimer(data.roomId);
+      clearRevealGrace(data.roomId);
 
       // مسح pendingWinner وتعيين winner
       state.winner = winner as 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN';

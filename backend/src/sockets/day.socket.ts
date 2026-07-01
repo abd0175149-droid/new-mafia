@@ -22,6 +22,7 @@ import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
+import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
@@ -834,6 +835,15 @@ export function registerDayEvents(io: Server, socket: Socket) {
         console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
         console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
         console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
+
+        // ⏳ إن حُسم فائز (ولا قنبلة معلّقة) نبدأ مهلة 3 دقائق: إن لم يكشف الليدر الأدوار
+        // ويُنهِ اللعبة خلالها، تُنهى تلقائياً بالفائز المحسوم + إشعار للاعبين (منع بقائها عالقة).
+        const decidedWinner = result.neutralWin?.won || result.winResult !== WinResult.GAME_CONTINUES;
+        if (decidedWinner && !stateAfter?.pendingBomb) {
+          scheduleRevealGrace(io, data.roomId);
+        } else {
+          clearRevealGrace(data.roomId);
+        }
       }
 
       callback({ success: true, result });
@@ -1606,6 +1616,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.GAME_OVER);
         clearGameTimer(data.roomId);
+        clearRevealGrace(data.roomId);
         const gameOverData: any = { winner, matchId: state.matchId, players: state.players };
         // 🧩 نتائج المحايدين (إذا المحرك الديناميكي مفعّل)
         if (state.config.useDynamicEngine) {
