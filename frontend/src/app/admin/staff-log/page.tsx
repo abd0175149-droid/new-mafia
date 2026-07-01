@@ -218,14 +218,57 @@ export default function StaffLogPage() {
       </div>
 
       {/* Pagination */}
-      {pages > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-4">
-          <button disabled={page <= 1} onClick={() => load(page - 1)} className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 disabled:opacity-40 hover:bg-gray-700">السابق</button>
-          <span className="text-xs text-gray-500">صفحة {page} من {pages}</span>
-          <button disabled={page >= pages} onClick={() => load(page + 1)} className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 disabled:opacity-40 hover:bg-gray-700">التالي</button>
+      {total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+          <span className="text-xs text-gray-500">
+            عرض <span className="text-gray-300 font-bold">{(page - 1) * limit + 1}</span>–
+            <span className="text-gray-300 font-bold">{Math.min(page * limit, total)}</span> من{' '}
+            <span className="text-gray-300 font-bold">{total}</span>
+          </span>
+          {pages > 1 && (
+            <div className="flex items-center gap-1">
+              <PageBtn disabled={page <= 1} onClick={() => load(1)} title="الأولى">«</PageBtn>
+              <PageBtn disabled={page <= 1} onClick={() => load(page - 1)}>السابق</PageBtn>
+              {pageWindow(page, pages).map((p, i) =>
+                p === '…' ? (
+                  <span key={`e${i}`} className="px-1.5 text-gray-600 text-sm select-none">…</span>
+                ) : (
+                  <button key={p} onClick={() => load(p)} aria-current={p === page ? 'page' : undefined}
+                    className={`min-w-[34px] px-2.5 py-1.5 rounded-lg text-sm border transition ${p === page ? 'bg-indigo-600 border-indigo-500 text-white font-bold' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}>
+                    {p}
+                  </button>
+                ),
+              )}
+              <PageBtn disabled={page >= pages} onClick={() => load(page + 1)}>التالي</PageBtn>
+              <PageBtn disabled={page >= pages} onClick={() => load(pages)} title="الأخيرة">»</PageBtn>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// نافذة أرقام الصفحات: تُظهر الأولى والأخيرة ونطاقاً حول الحالية مع «…» للفجوات
+function pageWindow(current: number, total: number): (number | '…')[] {
+  const show = new Set<number>([1, total]);
+  for (let i = current - 1; i <= current + 1; i++) if (i >= 1 && i <= total) show.add(i);
+  const sorted = Array.from(show).sort((a, b) => a - b);
+  const out: (number | '…')[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) out.push('…');
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+function PageBtn({ children, onClick, disabled, title }: { children: React.ReactNode; onClick: () => void; disabled?: boolean; title?: string }) {
+  return (
+    <button disabled={disabled} onClick={onClick} title={title}
+      className="min-w-[34px] px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-700 transition">
+      {children}
+    </button>
   );
 }
 
