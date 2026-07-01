@@ -44,7 +44,9 @@ export default function StaffLogPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [f, setF] = useState({ activityId: '', staffId: '', category: '', outcome: '', roomCode: '', from: '', to: '' });
+  const [f, setF] = useState({ activityId: '', staffId: '', category: '', outcome: '', roomId: '', matchId: '', from: '', to: '' });
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [games, setGames] = useState<{ games: any[]; lobbyCount: number }>({ games: [], lobbyCount: 0 });
   const limit = 50;
   const pages = Math.max(1, Math.ceil(total / limit));
 
@@ -58,7 +60,8 @@ export default function StaffLogPage() {
       if (f.staffId) qs.set('staffId', f.staffId);
       if (f.category) qs.set('category', f.category);
       if (f.outcome) qs.set('outcome', f.outcome);
-      if (f.roomCode) qs.set('roomCode', f.roomCode.trim());
+      if (f.roomId) qs.set('roomId', f.roomId);
+      if (f.matchId) qs.set('matchId', f.matchId);
       if (f.from) qs.set('from', f.from);
       if (f.to) qs.set('to', `${f.to}T23:59:59`);
       qs.set('page', String(p)); qs.set('limit', String(limit));
@@ -71,7 +74,21 @@ export default function StaffLogPage() {
   useEffect(() => { load(1); /* أول تحميل */ }, []); // eslint-disable-line
 
   const apply = () => load(1);
-  const clear = () => { setF({ activityId: '', staffId: '', category: '', outcome: '', roomCode: '', from: '', to: '' }); setTimeout(() => load(1), 0); };
+  const clear = () => { setF({ activityId: '', staffId: '', category: '', outcome: '', roomId: '', matchId: '', from: '', to: '' }); setRooms([]); setGames({ games: [], lobbyCount: 0 }); setTimeout(() => load(1), 0); };
+
+  // تعاقب الفلاتر: فعالية ← غرفة ← لعبة
+  const onActivityChange = (v: string) => {
+    setF((p) => ({ ...p, activityId: v, roomId: '', matchId: '' }));
+    setGames({ games: [], lobbyCount: 0 });
+    if (v) apiFetch(`/api/staff-action-log/rooms?activityId=${v}`).then((d) => setRooms(d.rooms || [])).catch(() => setRooms([]));
+    else setRooms([]);
+  };
+  const onRoomChange = (v: string) => {
+    setF((p) => ({ ...p, roomId: v, matchId: '' }));
+    if (v) apiFetch(`/api/staff-action-log/games?roomId=${encodeURIComponent(v)}`).then((d) => setGames({ games: d.games || [], lobbyCount: d.lobbyCount || 0 })).catch(() => setGames({ games: [], lobbyCount: 0 }));
+    else setGames({ games: [], lobbyCount: 0 });
+  };
+  const winnerAr = (w: string) => ({ MAFIA: 'المافيا', CITIZEN: 'المواطنون', JESTER: 'المهرّج', ASSASSIN: 'السفّاح' } as Record<string, string>)[w] || w;
 
   return (
     <div dir="rtl" className="pb-10">
@@ -84,16 +101,22 @@ export default function StaffLogPage() {
       {/* Filters */}
       <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4 mb-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          <Select label="الفعالية" value={f.activityId} onChange={(v) => setF({ ...f, activityId: v })}
+          <Select label="① الفعالية" value={f.activityId} onChange={onActivityChange}
             options={[{ v: '', l: 'الكل' }, ...meta.activities.map((a) => ({ v: String(a.id), l: `#${a.id} — ${a.name}` }))]} />
+          <Select label="② الغرفة" value={f.roomId} onChange={onRoomChange} disabled={!f.activityId}
+            options={[{ v: '', l: f.activityId ? 'كل غرف الفعالية' : 'اختر فعالية أولاً' }, ...rooms.map((r) => ({ v: r.roomId, l: `غرفة ${r.roomCode || r.roomId}` }))]} />
+          <Select label="③ اللعبة" value={f.matchId} onChange={(v) => setF({ ...f, matchId: v })} disabled={!f.roomId}
+            options={[
+              { v: '', l: f.roomId ? 'كل ألعاب الغرفة' : 'اختر غرفة أولاً' },
+              ...games.games.map((g) => ({ v: String(g.id), l: `لعبة #${g.id}${g.winner ? ' — فاز ' + winnerAr(g.winner) : ''} · ${new Date(g.createdAt).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric' })}` })),
+              ...(games.lobbyCount > 0 ? [{ v: 'lobby', l: `أحداث اللوبي (غير مرتبطة بلعبة) · ${games.lobbyCount}` }] : []),
+            ]} />
           <Select label="الموظف" value={f.staffId} onChange={(v) => setF({ ...f, staffId: v })}
             options={[{ v: '', l: 'الكل' }, ...meta.staff.map((s) => ({ v: String(s.id), l: s.displayName || s.username }))]} />
           <Select label="نوع العملية" value={f.category} onChange={(v) => setF({ ...f, category: v })}
             options={[{ v: '', l: 'الكل' }, ...Object.entries(meta.categories).map(([k, l]) => ({ v: k, l: l as string }))]} />
           <Select label="النتيجة" value={f.outcome} onChange={(v) => setF({ ...f, outcome: v })}
             options={[{ v: '', l: 'الكل' }, { v: 'success', l: '✅ نجحت' }, { v: 'blocked', l: '⛔ محجوبة' }]} />
-          <Field label="رمز الغرفة"><input value={f.roomCode} onChange={(e) => setF({ ...f, roomCode: e.target.value })} placeholder="مثال: 1144"
-            className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" /></Field>
           <Field label="من تاريخ"><input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })}
             className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" /></Field>
           <Field label="إلى تاريخ"><input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })}
@@ -182,11 +205,11 @@ export default function StaffLogPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="text-[11px] text-gray-400 block mb-1">{label}</label>{children}</div>;
 }
-function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { v: string; l: string }[] }) {
+function Select({ label, value, onChange, options, disabled }: { label: string; value: string; onChange: (v: string) => void; options: { v: string; l: string }[]; disabled?: boolean }) {
   return (
     <Field label={label}>
-      <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+      <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
+        className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
         {options.map((o) => <option key={o.v} value={o.v} className="bg-gray-900">{o.l}</option>)}
       </select>
     </Field>

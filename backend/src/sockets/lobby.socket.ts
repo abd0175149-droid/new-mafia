@@ -389,6 +389,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
       socket.data.roomId = state.roomId;
 
+      // 📋 سجل: إنشاء غرفة (تسجيل صريح — المُلتقِط لا يملك roomId قبل الإنشاء)
+      try {
+        const { logStaffAction } = await import('../services/staff-action-log.service.js');
+        logStaffAction({
+          staffId: creatorStaffId, staffUsername: socket.data.authStaff?.username, staffRole: socket.data.authStaff?.role,
+          source: 'socket', action: 'room:create', category: 'ROOM_LIFECYCLE', labelAr: 'إنشاء غرفة', outcome: 'success',
+          activityId: data.activityId || null, roomId: state.roomId, roomCode: state.roomCode,
+          details: { gameName, maxPlayers, activityId: data.activityId || null },
+        });
+      } catch { /* غير حاجب */ }
+
       // تتبع الغرفة النشطة
       activeRooms.set(state.roomId, {
         roomId: state.roomId,
