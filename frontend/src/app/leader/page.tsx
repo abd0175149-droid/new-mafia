@@ -180,6 +180,10 @@ export default function LeaderPage() {
   const [knockCode, setKnockCode] = useState('');
   const [toolsUnlocked, setToolsUnlocked] = useState(false);
   const knockTimerRef = useRef<any>(null);
+  // 🔄 تحديث مقاعد الغرفة من القالب المُعدّل
+  const [resyncBusy, setResyncBusy] = useState(false);
+  const [resyncReport, setResyncReport] = useState<{ conflicts: string[]; capacityWarning?: string; pinned: number } | null>(null);
+  const [templateChanged, setTemplateChanged] = useState(false);
   const startKnock = () => { if (knockTimerRef.current) clearTimeout(knockTimerRef.current); knockTimerRef.current = setTimeout(() => setKnockOpen(true), 2500); };
   const cancelKnock = () => { if (knockTimerRef.current) { clearTimeout(knockTimerRef.current); knockTimerRef.current = null; } };
   const submitKnock = async () => {
@@ -189,6 +193,22 @@ export default function LeaderPage() {
       else { setKnockCode(''); } // فشل صامت — لا تلميح
     } catch { setKnockCode(''); }
   };
+
+  // 🔄 تحديث مقاعد الغرفة من القالب المُعدّل (دمج آمن على الخادم + تقرير تعارضات)
+  async function doResyncTemplate() {
+    if (!gameState?.roomId) return;
+    setResyncBusy(true);
+    try {
+      const r: any = await emit('room:resync-template', { roomId: gameState.roomId });
+      if (r?.success) {
+        setResyncReport({ conflicts: r.conflicts || [], capacityWarning: r.capacityWarning, pinned: r.pinned || 0 });
+        setTemplateChanged(false);
+      } else {
+        setError(r?.error || 'تعذّر تحديث القالب');
+      }
+    } catch (e: any) { setError(e.message); }
+    finally { setResyncBusy(false); }
+  }
   const adminEntryProcessed = useRef(false);
 
   // ── Auth Check ──
@@ -517,8 +537,17 @@ export default function LeaderPage() {
         players: state.players,
         phase: state.phase || prev.phase,
         assassinState: state.assassinState || prev.assassinState,
+        // 📐 مقاعد القالب + السعة — لتحديث «المقاعد المثبّتة» فوراً عند إعادة المزامنة من القالب
+        config: state.config ? { ...prev.config, ...state.config } : prev.config,
+        pinnedSeats: state.pinnedSeats ?? prev.pinnedSeats,
+        reservedTailSeats: state.reservedTailSeats ?? prev.reservedTailSeats,
+        doors: state.doors ?? prev.doors,
+        doorSeats: state.doorSeats ?? prev.doorSeats,
       } : prev);
     });
+
+    // 🔔 القالب المرتبط بالفعالية تغيّر — نُظهر تنبيهاً على زر «تحديث المقاعد من القالب»
+    const offTemplateChanged = on('room:template-changed', () => setTemplateChanged(true));
 
     // Phase changed
     const offPhaseChanged = on('game:phase-changed', async (data: any) => {
@@ -997,6 +1026,7 @@ export default function LeaderPage() {
     return () => {
       offConnect();
       offStateSync();
+      offTemplateChanged();
       offPlayerJoined();
       offPhaseChanged();
       offPlayerKicked();
@@ -1814,7 +1844,7 @@ export default function LeaderPage() {
                 const tail = ((gameState as any).reservedTailSeats) || 0;
                 const doors = (((gameState as any).doors) || []) as any[];
                 const doorSeats = (((gameState as any).doorSeats) || []) as number[];
-                if (pinned.length === 0 && !tail && doors.length === 0) return null;
+                if (pinned.length === 0 && !tail && doors.length === 0 && !templateChanged && !resyncReport) return null;
                 return (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
@@ -1827,8 +1857,37 @@ export default function LeaderPage() {
                         <span className="text-purple-400">📌</span>
                         <span className="text-white text-xs font-bold" style={{ fontFamily: 'Amiri, serif' }}>المقاعد المثبّتة من القالب ({pinned.length})</span>
                       </div>
-                      {tail > 0 && <span className="text-[#808080] text-[8px] font-mono tracking-widest uppercase">TAIL {tail}</span>}
+                      <div className="flex items-center gap-2">
+                        {tail > 0 && <span className="text-[#808080] text-[8px] font-mono tracking-widest uppercase">TAIL {tail}</span>}
+                        <button
+                          onClick={doResyncTemplate}
+                          disabled={resyncBusy}
+                          title="يسحب آخر نسخة من القالب إلى هذه الغرفة (اللوبي فقط، بلا طرد لاعبين — يبلّغ عن التعارضات)"
+                          className={`relative text-[10px] px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-50 ${templateChanged ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 animate-pulse' : 'bg-purple-500/10 border-purple-500/30 text-purple-300 hover:bg-purple-500/20'}`}
+                        >
+                          {resyncBusy ? '...' : '🔄 تحديث من القالب'}
+                          {templateChanged && <span className="absolute -top-1 -left-1 w-2 h-2 bg-amber-400 rounded-full" />}
+                        </button>
+                      </div>
                     </div>
+                    {templateChanged && (
+                      <p className="text-[10px] text-amber-400 mb-2">🔔 تغيّر القالب المرتبط بالفعالية — اضغط «تحديث من القالب» لتطبيقه على هذه الغرفة.</p>
+                    )}
+                    {resyncReport && (
+                      <div className="mb-3 text-[10px] rounded-lg border border-[#2a2a2a] bg-black/40 p-2 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-emerald-400">✅ تم التحديث — {resyncReport.pinned} مقعد مثبّت.</span>
+                          <button onClick={() => setResyncReport(null)} className="text-gray-500 hover:text-white text-[9px]">إخفاء</button>
+                        </div>
+                        {resyncReport.capacityWarning && <p className="text-amber-400">⚠️ {resyncReport.capacityWarning}</p>}
+                        {resyncReport.conflicts.length > 0 ? (
+                          <div className="text-rose-300">
+                            <p className="font-bold mb-0.5">تعارضات ({resyncReport.conflicts.length}) — لم تُغيَّر مقاعد اللاعبين تلقائياً:</p>
+                            {resyncReport.conflicts.map((c, i) => <p key={i}>• {c}</p>)}
+                          </div>
+                        ) : <p className="text-gray-500">لا تعارضات.</p>}
+                      </div>
+                    )}
 
                     {/* الأبواب */}
                     {doors.length > 0 && (

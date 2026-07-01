@@ -164,6 +164,22 @@ router.put('/:id', authenticate, leaderOrAbove, async (req: Request, res: Respon
 
     if (!updated) return res.status(404).json({ error: 'القالب غير موجود' });
 
+    // 🔔 إشعار الغرف النشطة المرتبطة بهذا القالب بأنه تغيّر — ليضغط الليدر «تحديث المقاعد من القالب»
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        const { activeRooms } = await import('../sockets/lobby.socket.js');
+        const { sql } = await import('drizzle-orm');
+        const actRows = await db.execute(sql`SELECT id FROM activities WHERE seat_template_id = ${id}`).then((r: any) => (r.rows || r || []));
+        const actIds = new Set(actRows.map((r: any) => Number(r.id)));
+        for (const room of activeRooms.values()) {
+          if (room.activityId && actIds.has(Number(room.activityId))) {
+            io.to(room.roomId).emit('room:template-changed', { templateId: id, templateName: (updated as any).name });
+          }
+        }
+      }
+    } catch { /* الإشعار اختياري — لا يُفشل الحفظ */ }
+
     res.json({ success: true, template: updated });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

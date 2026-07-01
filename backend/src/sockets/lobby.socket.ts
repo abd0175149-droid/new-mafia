@@ -82,6 +82,71 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
   }
 }
 
+// 🔄 تحديث صريح لبيانات القالب في غرفة LOBBY (دمج آمن + تقرير تعارضات).
+// يُستدعى من room:resync-template عندما يُعدّل الأدمن القالب بعد إنشاء الغرفة.
+// لا يطرد لاعباً ولا يعيد جلوسه تلقائياً — يبلّغ عن التعارضات فقط ليقرّرها الليدر.
+async function resyncSeatTemplate(state: any): Promise<{
+  ok: boolean; reason?: string; conflicts: string[]; capacityWarning?: string; pinned: number; deleted?: boolean;
+}> {
+  const db = getDB();
+  const activityId = state?.activityId;
+  const conflicts: string[] = [];
+  if (!activityId || !db) return { ok: false, reason: 'no-activity', conflicts, pinned: 0 };
+
+  const [actRow] = await db.execute(sql`SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1`).then((r: any) => (r.rows || r || []));
+  if (!actRow?.seat_template_id) return { ok: false, reason: 'no-template', conflicts, pinned: 0 };
+  const [tplRow] = await db.execute(sql`
+    SELECT pinned_seats, reserved_tail_count, total_seats, layout_config FROM seat_templates
+    WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
+  `).then((r: any) => (r.rows || r || []));
+  if (!tplRow) return { ok: false, reason: 'template-deleted', deleted: true, conflicts, pinned: 0 }; // لا نطمس اللقطة
+
+  const newPinned: any[] = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+  const newTail = Number(tplRow.reserved_tail_count || 0);
+  const newTotal = Number(tplRow.total_seats || 0);
+  const layout = typeof tplRow.layout_config === 'string' ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null) : tplRow.layout_config;
+  const newDoors = layout && Array.isArray(layout.doors) ? layout.doors : [];
+  const newDoorSeats = layout && Array.isArray(layout.doorSeats) ? layout.doorSeats.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)) : [];
+
+  const normPhone = (p?: string) => { if (!p) return ''; let c = p.replace(/[\s\-()+]/g, ''); if (c.startsWith('00962')) c = c.slice(5); else if (c.startsWith('962')) c = c.slice(3); return c.startsWith('0') ? c : '0' + c; };
+  const matchPin = (pin: any, pl: any) =>
+    (pin.playerId && pl.playerId && Number(pin.playerId) === Number(pl.playerId)) ||
+    (!!normPhone(pin.phone) && normPhone(pin.phone) === normPhone(pl.phone)) ||
+    (pin.playerName && pl.name && String(pin.playerName).trim().toLowerCase() === String(pl.name).trim().toLowerCase());
+
+  const seated = (state.players || []).filter((p: any) => !p.seatHeld);
+  const occupancy = seated.length;
+  const seatOf = new Map<number, any>(seated.map((p: any) => [p.physicalId, p]));
+
+  // كشف التعارضات (بلا طرد/إعادة جلوس تلقائي)
+  for (const pin of newPinned) {
+    const seat = Number(pin.seatNumber);
+    const occ = seatOf.get(seat);
+    if (occ && !matchPin(pin, occ)) conflicts.push(`المقعد ${seat}: محجوز بالقالب لـ«${pin.playerName || '—'}» بينما يجلس فيه «${occ.name}»`);
+    const assignee = seated.find((p: any) => matchPin(pin, p));
+    if (assignee && assignee.physicalId !== seat) conflicts.push(`«${assignee.name}» مثبّت للمقعد ${seat} لكنه جالس في المقعد ${assignee.physicalId} — غيّر رقمه يدوياً إن أردت`);
+  }
+
+  // السعة: تُحدَّث فقط إن لم تُعدَّل يدوياً ولا تُصغَّر تحت عدد الجالسين
+  let capacityWarning: string | undefined;
+  if (newTotal >= 6 && !state.config.maxPlayersManual) {
+    const target = Math.min(newTotal, 50);
+    if (target < occupancy) capacityWarning = `سعة القالب (${target}) أقل من عدد اللاعبين الحاليين (${occupancy}) — لم تُغيَّر.`;
+    else if (target !== state.config.maxPlayers) {
+      state.config.maxPlayers = target;
+      const r = activeRooms.get(state.roomId); if (r) r.maxPlayers = target;
+    }
+  }
+
+  // تحديث بيانات العرض/التوزيع من القالب الجديد
+  state.pinnedSeats = newPinned;
+  state.reservedTailSeats = newTail;
+  state.doors = newDoors;
+  state.doorSeats = newDoorSeats;
+  await setGameState(state.roomId, state);
+  return { ok: true, conflicts, capacityWarning, pinned: newPinned.length };
+}
+
 export function getActiveRooms() {
   return Array.from(activeRooms.values());
 }
@@ -969,75 +1034,26 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         }
       }
 
-      // ── تحميل بيانات القالب (إذا الفعالية مرتبطة بقالب) ──
-      let pinnedSeatsFromTemplate: any[] = [];
-      let reservedTailFromTemplate = 0;
-      let doorSeatsFromTemplate: number[] = [];
-      let doorsFromTemplate: any[] = [];
-      let hasTemplate = false;
+      // ── بيانات القالب من لقطة الغرفة (snapshot) — لا نُعيد قراءتها من DB هنا ──
+      // كي لا نطمس الحجوزات/تعديلات الليدر عند كل انضمام (كان هذا يسبب: مسح الحجوزات عند حذف
+      // القالب، وتعارضات عند تعديله). التحديث من القالب المُعدّل يتم صراحةً عبر room:resync-template.
+      if ((state as any).pinnedSeats === undefined && activityId && db) {
+        // تحميل أوّلي لمرّة واحدة إن لم تُحمَّل اللقطة بعد (غرف قديمة/حالات حافّة)
+        try { if (await loadSeatTemplateIntoState(state)) await setGameState(state.roomId, state); } catch {}
+      }
+      const pinnedSeatsFromTemplate: any[] = (state as any).pinnedSeats || [];
+      const reservedTailFromTemplate: number = (state as any).reservedTailSeats || 0;
+      const doorSeatsFromTemplate: number[] = (state as any).doorSeats || [];
+      const hasTemplate = (state as any).pinnedSeats !== undefined;
 
-      if (activityId && db) {
-        try {
-          const [actRow] = await db.execute(sql`
-            SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1
-          `).then((r: any) => (r.rows || r || []));
-          let templateTotalSeats = 0;
-          if (actRow?.seat_template_id) {
-            hasTemplate = true;
-            const [tplRow] = await db.execute(sql`
-              SELECT pinned_seats, reserved_tail_count, total_seats, layout_config FROM seat_templates
-              WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
-            `).then((r: any) => (r.rows || r || []));
-            if (tplRow) {
-              pinnedSeatsFromTemplate = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
-              reservedTailFromTemplate = Number(tplRow.reserved_tail_count || 0);
-              templateTotalSeats = Number(tplRow.total_seats || 0);
-              // إعدادات التخطيط المستطيل: الأبواب + المقاعد المجاورة لها
-              const layout = typeof tplRow.layout_config === 'string'
-                ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null)
-                : tplRow.layout_config;
-              if (layout) {
-                doorsFromTemplate = Array.isArray(layout.doors) ? layout.doors : [];
-                doorSeatsFromTemplate = Array.isArray(layout.doorSeats)
-                  ? layout.doorSeats.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n))
-                  : [];
-              }
-              console.log(`🎯 Loaded seat template ID #${actRow.seat_template_id} for room ${state.roomId}: ${pinnedSeatsFromTemplate.length} pinned, totalSeats=${templateTotalSeats}, doorSeats=[${doorSeatsFromTemplate.join(',')}]`);
-            } else {
-              hasTemplate = false; // القالب محذوف — تجاهله
-            }
-          }
-
-          // ── حسم عدد المقاعد: القالب (totalSeats) أولاً، وإلا تبقى السعة الحالية (لا من الحجز) ──
-          // فقط القالب يفرض السعة الافتراضية؛ وإذا عدّلها الليدر يدوياً لا يتجاوزها القالب.
-          if (hasTemplate && templateTotalSeats >= 6 && !state.config.maxPlayersManual) {
-            const targetMax = Math.min(templateTotalSeats, 50);
-            if (targetMax !== state.config.maxPlayers) {
-              state.config.maxPlayers = targetMax;
-              const r = activeRooms.get(state.roomId);
-              if (r) r.maxPlayers = targetMax;
-            }
-          }
-
-          // ── إدراج قيد «تجنّب الأبواب» تلقائياً عند وجود أبواب (مثل دمج blocked_pairs) ──
-          if (doorSeatsFromTemplate.length > 0) {
-            if (!constraints) constraints = { genderSeparation: false, noAdjacentPairs: [] } as any;
-            (constraints as any).engineEnabled = true;
-            if (!(constraints as any).constraints) (constraints as any).constraints = [];
-            const hasDoor = (constraints as any).constraints.some((c: any) => c.type === 'DOOR_PROXIMITY_AVOIDANCE');
-            if (!hasDoor) {
-              (constraints as any).constraints.push({ type: 'DOOR_PROXIMITY_AVOIDANCE', enabled: true, priority: 5, params: {} });
-            }
-          }
-
-          // ── حفظ بيانات القالب على حالة الغرفة لعرض «المقاعد المحجوزة/الأبواب» في واجهة الليدر ──
-          (state as any).pinnedSeats = pinnedSeatsFromTemplate;
-          (state as any).reservedTailSeats = reservedTailFromTemplate;
-          (state as any).doors = doorsFromTemplate;
-          (state as any).doorSeats = doorSeatsFromTemplate;
-          await setGameState(state.roomId, state);
-        } catch (e: any) {
-          console.warn('⚠️ Seat template load failed:', e.message);
+      // ── إدراج قيد «تجنّب الأبواب» تلقائياً عند وجود أبواب (من اللقطة) ──
+      if (doorSeatsFromTemplate.length > 0) {
+        if (!constraints) constraints = { genderSeparation: false, noAdjacentPairs: [] } as any;
+        (constraints as any).engineEnabled = true;
+        if (!(constraints as any).constraints) (constraints as any).constraints = [];
+        const hasDoor = (constraints as any).constraints.some((c: any) => c.type === 'DOOR_PROXIMITY_AVOIDANCE');
+        if (!hasDoor) {
+          (constraints as any).constraints.push({ type: 'DOOR_PROXIMITY_AVOIDANCE', enabled: true, priority: 5, params: {} });
         }
       }
 
@@ -1534,6 +1550,27 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── صلاحية الليدر: تغيير أرقام اللاعبين جماعياً ──
+  // ── 🔄 تحديث مقاعد الغرفة من القالب المُعدّل (LOBBY فقط، دمج آمن + تقرير تعارضات) ──
+  socket.on('room:resync-template', async (data: { roomId: string }, callback) => {
+    const reply = (r: any) => { if (typeof callback === 'function') callback(r); };
+    try {
+      if (socket.data.role !== 'leader') return reply({ success: false, error: 'Only leader' });
+      const state = await getRoom(data.roomId);
+      if (!state) return reply({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.LOBBY) return reply({ success: false, error: 'لا يمكن تحديث القالب أثناء اللعب — الغرفة يجب أن تكون في اللوبي' });
+      const res = await resyncSeatTemplate(state);
+      if (!res.ok) {
+        const msg = res.reason === 'template-deleted' ? 'القالب محذوف — أُبقيت الحجوزات الحالية كما هي'
+          : res.reason === 'no-template' ? 'الفعالية غير مرتبطة بقالب مقاعد'
+          : 'تعذّر التحديث';
+        return reply({ success: false, error: msg, deleted: res.deleted });
+      }
+      io.to(data.roomId).emit('game:state-sync', state);
+      console.log(`🔄 Room ${data.roomId} re-synced from template — ${res.pinned} pinned, ${res.conflicts.length} conflicts`);
+      reply({ success: true, conflicts: res.conflicts, capacityWarning: res.capacityWarning, pinned: res.pinned });
+    } catch (e: any) { reply({ success: false, error: e.message }); }
+  });
+
   // ── فتح مؤقّت للأدوات الحسّاسة (اسم محايد) — يتحقق من الرقم السرّي ويفتح لمدة محدودة ──
   // الواجهة ترسل الرقم المُدخَل عبر إيماءة مموّهة؛ السرّ يعيش في env فقط (لا في كود الواجهة).
   socket.on('leader:tools-ping', (data: { code?: string | number }, callback) => {
