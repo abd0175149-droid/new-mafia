@@ -36,18 +36,24 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { activityId, item, amount, date, paidBy, type } = req.body;
+  const { activityId, item, amount, date, paidBy, type, scope, playerId } = req.body;
   if (!item || amount === undefined || !date) return res.status(400).json({ error: 'البند والمبلغ والتاريخ مطلوبين' });
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt < 0) return res.status(400).json({ error: 'المبلغ غير صالح' });
 
+  // الارتباط (5 حالات): general | activity | player | equipment | other
+  const validScopes = ['general', 'activity', 'player', 'equipment', 'other'];
+  const finalScope = validScopes.includes(scope) ? scope : (activityId ? 'activity' : 'general');
+
   const result = await db.insert(costs).values({
-    activityId: activityId || null,
+    activityId: finalScope === 'activity' ? (activityId || null) : null,
     item,
     amount: String(amt),
     date: new Date(date),
     paidBy: paidBy || '',
-    type: type || 'general',
+    type: finalScope === 'activity' ? 'activity' : 'general',
+    scope: finalScope,
+    playerId: finalScope === 'player' ? (playerId || null) : null,
   } as any).returning();
 
   // Notify admins
@@ -79,7 +85,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  await db.update(costs).set({ deletedAt: new Date() }).where(eq(costs.id, id));
+  await db.update(costs).set({ deletedAt: new Date() } as any).where(eq(costs.id, id));
   res.json({ success: true });
 });
 

@@ -107,11 +107,14 @@ export const bookings = pgTable('bookings', {
 export const costs = pgTable('costs', {
   id: serial('id').primaryKey(),
   activityId: integer('activity_id').references(() => activities.id, { onDelete: 'set null' }),
-  item: varchar('item', { length: 200 }).notNull(),
+  item: varchar('item', { length: 200 }).notNull(),          // نوع المصروف (اسم الفئة)
   amount: decimal('amount', { precision: 10, scale: 2 }).default('0'),
   date: timestamp('date').notNull(),
   paidBy: varchar('paid_by', { length: 100 }).default(''),
-  type: costTypeEnum('type').default('general').notNull(),
+  type: costTypeEnum('type').default('general').notNull(),   // توافق قديم: activity|general
+  // الارتباط (5 حالات): general | activity | player | equipment | other
+  scope: varchar('scope', { length: 20 }).default('general'),
+  playerId: integer('player_id'),                            // عند الارتباط بلاعب
   deletedAt: timestamp('deleted_at'),
 });
 
@@ -125,6 +128,14 @@ export const foundationalCosts = pgTable('foundational_costs', {
   source: varchar('source', { length: 100 }).default(''),
   date: timestamp('date').notNull(),
   isProcessed: boolean('is_processed').default(false),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// ── Expense Categories (أنواع المصاريف — قائمة قابلة للإضافة) ──
+export const expenseCategories = pgTable('expense_categories', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
 

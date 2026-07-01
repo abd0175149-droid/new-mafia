@@ -20,6 +20,7 @@ import activitiesRoutes from './routes/activities.routes.js';
 import bookingsRoutes from './routes/bookings.routes.js';
 import costsRoutes from './routes/costs.routes.js';
 import foundationalRoutes from './routes/foundational.routes.js';
+import expenseCategoriesRoutes from './routes/expense-categories.routes.js';
 import staffRoutes from './routes/staff.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
@@ -132,6 +133,7 @@ app.use('/api/activities', activitiesRoutes);
 app.use('/api/bookings', bookingsRoutes);
 app.use('/api/costs', costsRoutes);
 app.use('/api/foundational', foundationalRoutes);
+app.use('/api/expense-categories', expenseCategoriesRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/locations', locationsRoutes);
 app.use('/api/notifications', notificationsRoutes);
@@ -860,7 +862,26 @@ async function main() {
     // ربط المنشئ: الفعالية والمباراة (sessions.created_by موجود مسبقاً)
     await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS created_by INTEGER`);
     await db.execute(sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS created_by INTEGER`);
-    console.log('✅ Staff action log + creator columns ensured');
+    // ── مصاريف: أنواع (expense_categories) + ارتباط (costs.scope/player_id) ──
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS expense_categories (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+        deleted_at TIMESTAMP
+      )
+    `);
+    // بذر أنواع افتراضية عند فراغ الجدول فقط
+    await db.execute(sql`
+      INSERT INTO expense_categories (name)
+      SELECT v.name FROM (VALUES ('إيجار'),('رواتب'),('ضيافة'),('مشتريات'),('تسويق'),('صيانة'),('مواصلات')) AS v(name)
+      WHERE NOT EXISTS (SELECT 1 FROM expense_categories)
+    `);
+    await db.execute(sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'general'`);
+    await db.execute(sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS player_id INTEGER`);
+    // نقل البيانات القديمة: المصاريف المرتبطة بنشاط → scope='activity'
+    await db.execute(sql`UPDATE costs SET scope='activity' WHERE activity_id IS NOT NULL AND (scope IS NULL OR scope='general')`);
+    console.log('✅ Staff action log + creator columns + expense categories/scope ensured');
   } catch (err: any) {
     console.warn('⚠️ Staff action log migration:', err.message);
   }
