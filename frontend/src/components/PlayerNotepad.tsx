@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 export type SuspicionLevel = 'safe' | 'suspect' | 'mafia' | 'none';
 
@@ -166,8 +167,8 @@ export default function PlayerNotepad({
   };
 
   // ── مسح جميع الملاحظات ──
-  const clearAllNotes = () => {
-    if (!confirm('هل أنت متأكد من مسح جميع الملاحظات ومستويات الريبة لجميع اللاعبين؟')) return;
+  const clearAllNotes = async () => {
+    if (!(await swalConfirm('هل أنت متأكد من مسح جميع الملاحظات ومستويات الريبة لجميع اللاعبين؟'))) return;
     setNotes({});
     localStorage.removeItem(storageKey);
     onNotesChange({});

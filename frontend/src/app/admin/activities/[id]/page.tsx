@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import WhatsAppButton from '@/components/WhatsAppButton';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -118,7 +119,7 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   const [bookingInProgress, setBookingInProgress] = useState<number[] | 'all' | null>(null);
 
   const handleAutoBook = async (playersToBook: any[]) => {
-    if (!confirm(`⚠️ هل تريد إنشاء حجز تلقائي لـ ${playersToBook.length} لاعب؟`)) return;
+    if (!(await swalConfirm(`⚠️ هل تريد إنشاء حجز تلقائي لـ ${playersToBook.length} لاعب؟`))) return;
     
     setBookingInProgress(playersToBook.length > 1 ? 'all' : [playersToBook[0].player_id || playersToBook[0].player_name]);
     try {
@@ -163,7 +164,7 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   };
 
   const handleDeleteRoom = async (sessionId: number) => {
-    if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟')) return;
+    if (!(await swalConfirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟'))) return;
     try {
       await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}`, { method: 'DELETE' });
       setRooms(prev => prev.filter(r => r.id !== sessionId));
@@ -174,7 +175,7 @@ function RoomsSection({ activityId, activityName }: { activityId: number; activi
   };
 
   const handleCloseRoom = async (sessionId: number) => {
-    if (!confirm('🔒 انتهت الفعالية؟ سيتم إغلاق هذه الغرفة ولن تظهر للقائد بعد الآن.')) return;
+    if (!(await swalConfirm('🔒 انتهت الفعالية؟ سيتم إغلاق هذه الغرفة ولن تظهر للقائد بعد الآن.'))) return;
     try {
       await apiFetch(`/api/activities/${activityId}/rooms/${sessionId}/close`, { method: 'PATCH' });
       setRooms(prev => prev.map(r => r.id === sessionId ? { ...r, isActive: false, status: 'closed' } : r));
@@ -954,7 +955,7 @@ export default function ActivityDetailPage() {
   }
 
   async function handleUnpay(bookingId: number) {
-    if (!confirm('هل تريد إلغاء تأكيد الدفع لهذا الحجز؟')) return;
+    if (!(await swalConfirm('هل تريد إلغاء تأكيد الدفع لهذا الحجز؟'))) return;
     try {
       const updated = await apiFetch(`/api/bookings/${bookingId}`, {
         method: 'PUT',
@@ -967,7 +968,7 @@ export default function ActivityDetailPage() {
   }
 
   async function handleDeleteBooking(bookingId: number) {
-    if (!confirm('⚠️ هل تريد حذف هذا الحجز نهائياً؟')) return;
+    if (!(await swalConfirm('⚠️ هل تريد حذف هذا الحجز نهائياً؟'))) return;
     try {
       await apiFetch(`/api/bookings/${bookingId}`, { method: 'DELETE' });
       setBookings(prev => prev.filter(b => b.id !== bookingId));
@@ -978,7 +979,7 @@ export default function ActivityDetailPage() {
 
   async function handleMakeFree() {
     if (selectedBookings.length === 0) return;
-    if (!confirm('هل أنت متأكد من تحويل الحجوزات المحددة إلى مجانية لهذا النشاط فقط؟ ستصبح قيمة الدفع 0 ولن يطالبوا بالدفع.')) return;
+    if (!(await swalConfirm('هل أنت متأكد من تحويل الحجوزات المحددة إلى مجانية لهذا النشاط فقط؟ ستصبح قيمة الدفع 0 ولن يطالبوا بالدفع.'))) return;
     try {
       const promises = selectedBookings.map(id => 
         apiFetch(`/api/bookings/${id}`, {

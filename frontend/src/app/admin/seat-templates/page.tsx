@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -30,7 +31,7 @@ export default function SeatTemplatesPage() {
   useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
 
   const handleDelete = async (id: number) => {
-    if (!confirm('⚠️ حذف هذا القالب نهائياً؟')) return;
+    if (!(await swalConfirm('⚠️ حذف هذا القالب نهائياً؟'))) return;
     try { await apiFetch(`/api/seat-templates/${id}`, { method: 'DELETE' }); fetchTemplates(); }
     catch (e: any) { alert('فشل الحذف: ' + e.message); }
   };

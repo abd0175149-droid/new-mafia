@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch, TEAM_OPTIONS, WIN_CONDITION_OPTIONS } from './helpers';
+import { swalConfirm } from '@/lib/swal';
 import MafiaCardLegacy from '@/components/MafiaCardLegacy';
 
 interface Role {
@@ -64,7 +65,7 @@ export default function RolesTab() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm('حذف هذا الدور؟')) return;
+    if (!(await swalConfirm('حذف هذا الدور؟'))) return;
     try { await gcFetch(`/roles/${id}`, { method: 'DELETE' }); load(); }
     catch (e: any) { setError(e.message); }
   };

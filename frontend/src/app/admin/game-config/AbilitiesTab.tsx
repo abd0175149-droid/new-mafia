@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch, PHASE_OPTIONS, TARGET_TYPE_OPTIONS, EFFECT_TYPE_OPTIONS } from './helpers';
+import { swalConfirm } from '@/lib/swal';
 
 interface Ability {
   id: string;
@@ -72,7 +73,7 @@ export default function AbilitiesTab() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm('حذف هذه القدرة؟')) return;
+    if (!(await swalConfirm('حذف هذه القدرة؟'))) return;
     try {
       await gcFetch(`/abilities/${id}`, { method: 'DELETE' });
       load();

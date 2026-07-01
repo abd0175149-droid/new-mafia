@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
+import SwalProvider from '@/components/SwalProvider';
 
 export const metadata: Metadata = {
   title: 'Phygital Mafia Engine | V2.1 Noir Edition',
@@ -98,6 +99,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         `}} />
       </head>
       <body className="min-h-screen bg-[#050505] text-[#808080] font-sans antialiased">
+        <SwalProvider />
         {children}
       </body>
     </html>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -114,7 +115,7 @@ export default function PlayerProfilePage() {
 
   // ── Delete player ──
   async function handleDelete() {
-    if (!confirm(`⚠️ هل تريد حذف اللاعب "${data?.player?.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`)) return;
+    if (!(await swalConfirm(`⚠️ هل تريد حذف اللاعب "${data?.player?.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`))) return;
     try {
       await apiFetch(`/api/player/${playerId}`, { method: 'DELETE' });
       showToast('تم حذف اللاعب', 'success');

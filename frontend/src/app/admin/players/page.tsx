@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import WhatsAppButton from '@/components/WhatsAppButton';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -82,7 +83,7 @@ export default function PlayersManagementPage() {
 
   // ── Reset Password ──
   async function handleResetPassword(player: any) {
-    if (!confirm(`هل تريد إعادة تعيين كلمة مرور "${player.name}" إلى الافتراضية (1234)؟`)) return;
+    if (!(await swalConfirm(`هل تريد إعادة تعيين كلمة مرور "${player.name}" إلى الافتراضية (1234)؟`))) return;
     setResettingId(player.id);
     try {
       await apiFetch(`/api/player/${player.id}/reset-password`, { method: 'POST' });
@@ -102,7 +103,7 @@ export default function PlayersManagementPage() {
 
   // ── Delete Player ──
   async function handleDeletePlayer(player: any) {
-    if (!confirm(`⚠️ هل تريد حذف اللاعب "${player.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`)) return;
+    if (!(await swalConfirm(`⚠️ هل تريد حذف اللاعب "${player.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`))) return;
     try {
       await apiFetch(`/api/player/${player.id}`, { method: 'DELETE' });
       setPlayers(prev => prev.filter(p => p.id !== player.id));
@@ -507,7 +508,7 @@ function BlockedPairsPanel({ players, setPlayers, showToast, onLoadPlayers }: { 
 
   // ── حذف قيد زوج ممنوع ──
   async function handleDeletePair(pairId: number) {
-    if (!confirm('هل تريد إزالة هذا القيد؟')) return;
+    if (!(await swalConfirm('هل تريد إزالة هذا القيد؟'))) return;
     try {
       await apiFetch(`/api/seating/blocked-pairs/${pairId}`, { method: 'DELETE' });
       setPairs(prev => prev.filter(p => p.id !== pairId));
@@ -519,7 +520,7 @@ function BlockedPairsPanel({ players, setPlayers, showToast, onLoadPlayers }: { 
 
   // ── إزالة كل القيود للاعب ──
   async function handleRemoveAllConstraints(playerId: number) {
-    if (!confirm('⚠️ هل تريد إزالة كافة قيود الجوار والجنس لهذا اللاعب؟')) return;
+    if (!(await swalConfirm('⚠️ هل تريد إزالة كافة قيود الجوار والجنس لهذا اللاعب؟'))) return;
     try {
       // 1. إزالة قيد الجنس
       await apiFetch(`/api/player/${playerId}/profile`, {

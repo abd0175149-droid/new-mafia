@@ -8,6 +8,7 @@ import {
   computeRectLayout, seatsTo2D, totalFromSides,
   type Sides, type Numbering, type RectDoor, type Side,
 } from '@/lib/rectLayout';
+import { swalConfirm } from '@/lib/swal';
 
 const Editor3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
   ssr: false,
@@ -223,13 +224,13 @@ function EditorInner() {
     return conflicts;
   };
 
-  const pinPlayer = (p: { id?: number; phone?: string; name: string; gender?: string; genderConstraint?: string }) => {
+  const pinPlayer = async (p: { id?: number; phone?: string; name: string; gender?: string; genderConstraint?: string }) => {
     if (!pinKey) return;
     const targetSeat = seatNumOfKey(pinKey);
     if (targetSeat != null) {
       const conflicts = checkPinConflicts(targetSeat, { playerId: p.id, phone: p.phone, name: p.name, gender: p.gender, genderConstraint: p.genderConstraint });
       if (conflicts.length > 0) {
-        const ok = window.confirm(`⚠️ تعارض مع شروط الجلوس:\n\n${conflicts.map(c => '• ' + c).join('\n')}\n\nتثبيت «${p.name}» في المقعد ${targetSeat} رغم ذلك؟`);
+        const ok = (await swalConfirm(`⚠️ تعارض مع شروط الجلوس:\n\n${conflicts.map(c => '• ' + c).join('\n')}\n\nتثبيت «${p.name}» في المقعد ${targetSeat} رغم ذلك؟`));
         if (!ok) return;
       }
     }

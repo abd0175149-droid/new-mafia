@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -176,7 +177,7 @@ export default function StaffManagementPage() {
       alert('لا يمكنك حذف حسابك الخاص');
       return;
     }
-    if (!confirm('هل أنت متأكد من حذف هذا الحساب نهائياً؟')) return;
+    if (!(await swalConfirm('هل أنت متأكد من حذف هذا الحساب نهائياً؟'))) return;
     try {
       await apiFetch(`/api/staff/${id}`, { method: 'DELETE' });
       loadUsers();
@@ -216,7 +217,7 @@ export default function StaffManagementPage() {
 
   async function unlinkPlayer() {
     if (!editingUser) return;
-    if (!confirm('هل تريد فك ربط حساب اللاعب من هذا الموظف؟')) return;
+    if (!(await swalConfirm('هل تريد فك ربط حساب اللاعب من هذا الموظف؟'))) return;
     setLinkingPlayer(true);
     try {
       await apiFetch(`/api/staff/${editingUser.id}/link-player`, { method: 'DELETE' });

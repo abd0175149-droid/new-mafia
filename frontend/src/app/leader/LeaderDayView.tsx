@@ -6,6 +6,7 @@ import MafiaCard from '@/components/MafiaCard';
 import Image from 'next/image';
 import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
 import { getSocket } from '@/lib/socket';
+import { swalConfirm } from '@/lib/swal';
 
 // تسمية دور اللاعب بالعربية + لون الفريق (للعرض في لوحة العقوبات)
 function roleLabel(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -508,7 +509,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [votingDuration, setVotingDuration] = useState<number | null>(null);
 
   const handleStartVoting = async () => {
-    if (!confirm('هل أنت متأكد من بدء التصويت؟ لن تتمكن من تعديل الاتفاقيات.')) return;
+    if (!(await swalConfirm('هل أنت متأكد من بدء التصويت؟ لن تتمكن من تعديل الاتفاقيات.'))) return;
     localVoteTotalRef.current = 0; // تصفير العداد المحلي عند بدء تصويت جديد
     try {
       await emit('day:start-voting', { roomId: gameState.roomId, durationSeconds: votingDuration || undefined });

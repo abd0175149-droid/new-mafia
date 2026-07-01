@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 interface DriveFolderBrowserProps {
   driveLink: string;
@@ -174,7 +175,7 @@ export default function DriveFolderBrowser({ driveLink, activityId, onDriveLinkC
 
   // DELETE
   async function handleDelete(fileId: string) {
-    if (!confirm('هل أنت متأكد من الحذف النهائي؟')) return;
+    if (!(await swalConfirm('هل أنت متأكد من الحذف النهائي؟'))) return;
     setUploading(true);
     try {
       await fetchDriveAPI(`/api/drive/file/${fileId}`, {

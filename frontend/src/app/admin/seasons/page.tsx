@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -73,7 +74,7 @@ export default function SeasonsPage() {
   }
 
   async function endSeason(id: number, name: string) {
-    if (!confirm(`إنهاء الموسم "${name}"؟ ستُحفظ إحصاءاته ويمكن مراجعتها لاحقاً.`)) return;
+    if (!(await swalConfirm(`إنهاء الموسم "${name}"؟ ستُحفظ إحصاءاته ويمكن مراجعتها لاحقاً.`))) return;
     setBusy(true); setError('');
     try { await apiFetch(`/api/seasons/${id}/end`, { method: 'POST' }); await load(); }
     catch (e: any) { setError(e.message); } finally { setBusy(false); }

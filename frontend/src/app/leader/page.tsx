@@ -13,6 +13,7 @@ import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
 import { playGameSound } from '@/lib/soundManager';
 import { ROLE_NAMES } from '@/lib/constants';
+import { swalConfirm } from '@/lib/swal';
 
 interface ActiveGame {
   roomId: string;
@@ -1217,7 +1218,7 @@ export default function LeaderPage() {
 
   const handleCloseRoom = async () => {
     if (!gameState) return;
-    if (!confirm('هل أنت متأكد من إنهاء اللعبة الحالية؟ سيتم إعادة جميع اللاعبين للغرفة.')) return;
+    if (!(await swalConfirm('هل أنت متأكد من إنهاء اللعبة الحالية؟ سيتم إعادة جميع اللاعبين للغرفة.'))) return;
     try {
       const res = await emit('room:reset-to-lobby', { roomId: gameState.roomId });
       if (res.success) {
@@ -1247,7 +1248,7 @@ export default function LeaderPage() {
     const msg = gameState.activityId
       ? 'هذه الغرفة مرتبطة بنشاط. سيتم إغلاقها وفك ربطها (بدون حذف نهائي). هل تريد المتابعة؟'
       : '⚠️ هل أنت متأكد من حذف هذه الغرفة نهائياً؟ سيتم حذف جميع بيانات اللاعبين والألعاب المرتبطة!';
-    if (!confirm(msg)) return;
+    if (!(await swalConfirm(msg))) return;
     try {
       const res = await emit('room:delete-room', { roomId: gameState.roomId });
       if (res.success) {
@@ -1693,7 +1694,7 @@ export default function LeaderPage() {
                       {!showExcludeUI && !isSessionEditing && (
                         <button
                           onClick={async () => {
-                            if (!confirm(`حذف ${p.name} من الغرفة؟`)) return;
+                            if (!(await swalConfirm(`حذف ${p.name} من الغرفة؟`))) return;
                             try {
                               await emit('room:kick-player', { roomId: gameState.roomId, physicalId: p.physicalId });
                             } catch (err: any) {
@@ -2209,11 +2210,11 @@ export default function LeaderPage() {
                     
                     let resetPenalties = true;
                     if (hasActivePenalties && currentScope === 'room') {
-                      resetPenalties = window.confirm(
+                      resetPenalties = (await swalConfirm(
                         '⚖️ يوجد لاعبون عليهم عقوبات من الجيم السابق.\n\n' +
                         '✅ موافق = تصفير العقوبات (بداية جديدة)\n' +
                         '❌ إلغاء = إبقاء العقوبات (مستوى الروم)'
-                      );
+                      ));
                     }
 
                     if (excludedPlayers.length > 0) {
@@ -2663,7 +2664,7 @@ export default function LeaderPage() {
                         <button
                           key={p.physicalId}
                           onClick={async () => {
-                            if (!confirm(`هل أنت متأكد من إقصاء ${p.name} (#${p.physicalId})؟`)) return;
+                            if (!(await swalConfirm(`هل أنت متأكد من إقصاء ${p.name} (#${p.physicalId})؟`))) return;
                             try {
                               const res = await emit('admin:eliminate', {
                                 roomId: gameState.roomId,
@@ -3380,7 +3381,7 @@ export default function LeaderPage() {
                 {/* زر انتهت الفعالية — يُغلق الغرفة نهائياً */}
                 <button
                   onClick={async () => {
-                    if (!confirm('🏁 انتهت الفعالية بالكامل؟ ستُغلق الغرفة ولن يتمكن أحد من الدخول إليها.')) return;
+                    if (!(await swalConfirm('🏁 انتهت الفعالية بالكامل؟ ستُغلق الغرفة ولن يتمكن أحد من الدخول إليها.'))) return;
                     try {
                       const res = await emit('room:close-event', { roomId: gameState.roomId });
                       if (res?.success) {
@@ -3529,11 +3530,11 @@ export default function LeaderPage() {
                       let resetPenalties = true;
                       if (hasActivePenalties && currentScope2 === 'room') {
                         // سؤال الليدر: تصفير أو إبقاء؟
-                        resetPenalties = window.confirm(
+                        resetPenalties = (await swalConfirm(
                           '⚖️ يوجد لاعبون عليهم عقوبات من الجيم السابق.\n\n' +
                           '✅ موافق = تصفير العقوبات (بداية جديدة)\n' +
                           '❌ إلغاء = إبقاء العقوبات (مستوى الروم)'
-                        );
+                        ));
                       }
 
                       if (excludedPlayers.length > 0) {
@@ -3725,9 +3726,9 @@ export default function LeaderPage() {
                   <div className="flex items-center gap-2">
                     {/* زر إغلاق الغرفة (Soft Close — لا تُحذف) */}
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        if (!confirm(`هل تريد إغلاق الغرفة "${game.gameName}"؟\nلن يتم حذف البيانات، فقط إغلاقها.`)) return;
+                        if (!(await swalConfirm(`هل تريد إغلاق الغرفة "${game.gameName}"؟\nلن يتم حذف البيانات، فقط إغلاقها.`))) return;
                         emit('room:close', { roomId: game.roomId }).then((res: any) => {
                           if (res?.success) { sessionStorage.removeItem('leader_active_room'); fetchActiveGames(); fetchHistory(); }
                         }).catch(() => {});
@@ -3739,9 +3740,9 @@ export default function LeaderPage() {
                     </button>
                     {/* زر حذف الغرفة نهائياً */}
                     <button
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        if (!confirm(`⚠️ هل تريد حذف الغرفة "${game.gameName}" نهائياً؟`)) return;
+                        if (!(await swalConfirm(`⚠️ هل تريد حذف الغرفة "${game.gameName}" نهائياً؟`))) return;
                         emit('room:delete-room', { roomId: game.roomId }).then((res: any) => {
                           if (res?.success) { sessionStorage.removeItem('leader_active_room'); fetchActiveGames(); }
                         }).catch(() => {});

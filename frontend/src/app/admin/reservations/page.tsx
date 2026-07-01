@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -257,7 +258,7 @@ export default function ReservationsPage() {
 
   // ══ Delete ══
   async function handleDelete(id: number) {
-    if (!confirm('هل أنت متأكد من حذف هذا الحجز؟')) return;
+    if (!(await swalConfirm('هل أنت متأكد من حذف هذا الحجز؟'))) return;
     try {
       await apiFetch(`/api/reservations/${id}`, { method: 'DELETE' });
       await fetchAll();

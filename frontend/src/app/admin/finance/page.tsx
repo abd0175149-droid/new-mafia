@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -176,7 +177,7 @@ export default function FinancePage() {
 
   // حذف تكلفة
   async function handleDeleteCost(id: number) {
-    if (!confirm('هل تريد حذف هذه التكلفة؟')) return;
+    if (!(await swalConfirm('هل تريد حذف هذه التكلفة؟'))) return;
     await apiFetch(`/api/costs/${id}`, { method: 'DELETE' });
     fetchAll();
   }
@@ -203,7 +204,7 @@ export default function FinancePage() {
   }
 
   async function handleDeleteFoundational(id: number) {
-    if (!confirm('هل تريد حذف هذا المصروف التأسيسي؟')) return;
+    if (!(await swalConfirm('هل تريد حذف هذا المصروف التأسيسي؟'))) return;
     await apiFetch(`/api/foundational/${id}`, { method: 'DELETE' });
     fetchAll();
   }

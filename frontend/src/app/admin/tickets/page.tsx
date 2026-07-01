@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -198,7 +199,7 @@ export default function TicketsPage() {
 
   // حذف دفعة
   const handleDeleteBatch = async (batchName: string) => {
-    if (!confirm(`⚠️ حذف كل تذاكر دفعة "${batchName}"؟`)) return;
+    if (!(await swalConfirm(`⚠️ حذف كل تذاكر دفعة "${batchName}"؟`))) return;
     try {
       await apiFetch(`/api/tickets/batch/${encodeURIComponent(batchName)}`, { method: 'DELETE' });
       fetchAll();

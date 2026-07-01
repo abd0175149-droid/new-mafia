@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES } from '@/lib/constants';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -128,7 +129,7 @@ export default function GameHistoryPage() {
 
   async function handleDeleteSession(sessionId: number, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!confirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟ سيتم حذف جميع بياناتها.')) return;
+    if (!(await swalConfirm('⚠️ هل تريد حذف هذه الغرفة نهائياً؟ سيتم حذف جميع بياناتها.'))) return;
     try {
       await apiFetch(`/api/leader/sessions/${sessionId}`, { method: 'DELETE' });
       setSessions(prev => prev.filter(s => s.id !== sessionId));
@@ -140,7 +141,7 @@ export default function GameHistoryPage() {
 
   async function handleCloseSession(sessionId: number, e: React.MouseEvent) {
     e.stopPropagation();
-    if (!confirm('🔒 هل تريد إغلاق هذه الغرفة؟')) return;
+    if (!(await swalConfirm('🔒 هل تريد إغلاق هذه الغرفة؟'))) return;
     try {
       await apiFetch(`/api/leader/sessions/${sessionId}/close`, { method: 'PATCH' });
       setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, status: 'closed', isActive: false } : s));

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -117,7 +118,7 @@ export default function LocationsPage() {
 
   // ══ Delete ══
   async function handleDelete(id: number) {
-    if (!confirm('هل تريد حذف هذا المكان؟')) return;
+    if (!(await swalConfirm('هل تريد حذف هذا المكان؟'))) return;
     try {
       await apiFetch(`/api/locations/${id}`, { method: 'DELETE' });
       await fetchLocations();

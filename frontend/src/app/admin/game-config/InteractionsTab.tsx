@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch, CONDITION_OPTIONS, RESOLUTION_OPTIONS } from './helpers';
+import { swalConfirm } from '@/lib/swal';
 
 interface Rule {
   id: number;
@@ -52,7 +53,7 @@ export default function InteractionsTab() {
   };
 
   const remove = async (id: number) => {
-    if (!confirm('حذف هذه القاعدة؟')) return;
+    if (!(await swalConfirm('حذف هذه القاعدة؟'))) return;
     try { await gcFetch(`/interactions/${id}`, { method: 'DELETE' }); load(); }
     catch (e: any) { setError(e.message); }
   };
