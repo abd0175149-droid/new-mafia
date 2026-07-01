@@ -2603,7 +2603,11 @@ export default function LeaderPage() {
               {/* زر الإقصاء الإداري — يظهر فقط أثناء اللعبة */}
               {gameState.phase !== 'LOBBY' && gameState.phase !== 'GAME_OVER' && (
                 <button
-                  onClick={() => setShowAdminEliminate(true)}
+                  onClick={() => {
+                    setShowAdminEliminate(true);
+                    // 📋 توثيق «فتح قائمة الإقصاء الإداري» لحظة الفتح (حدث مستقل، إرسال مباشر بلا انتظار رد)
+                    import('@/lib/socket').then((m) => { try { m.getSocket().emit('ui:admin-eliminate-open', { roomId: gameState.roomId }); } catch { /* تجاهل */ } }).catch(() => {});
+                  }}
                   className="text-[#C5A059] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-yellow-400 transition-colors border border-[#C5A059]/30 px-3 py-1.5 hover:border-[#C5A059]"
                 >
                   ⚡ إقصاء

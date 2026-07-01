@@ -13,6 +13,10 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'leader:record-penalty': { category: 'PENALTY', labelAr: 'تسجيل عقوبة على لاعب' },
   'ui:penalty-menu-open': { category: 'PENALTY', labelAr: 'فتح قائمة العقوبات' },
   'ui:penalty-role-reveal': { category: 'PENALTY', labelAr: 'كشف دور لاعب من قائمة العقوبات' },
+  // ── الإقصاء الإداري + فرض التصويت ──
+  'ui:admin-eliminate-open': { category: 'GAME_FLOW', labelAr: 'فتح قائمة الإقصاء الإداري' },
+  'admin:eliminate': { category: 'GAME_FLOW', labelAr: 'إقصاء لاعب إدارياً' },
+  'day:voting-timeout': { category: 'GAME_FLOW', labelAr: 'فرض انتهاء التصويت (تصويت تلقائي للمتغيبين)' },
   // ── التصويت بالنيابة + النهار ──
   'day:cast-vote': { category: 'PROXY_VOTE', labelAr: 'تصويت الليدر بالنيابة عن لاعب' },
   'day:create-deal': { category: 'DEAL', labelAr: 'إنشاء اتفاقية (ديل)' },
