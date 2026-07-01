@@ -109,6 +109,8 @@ export default function ProgressionPage() {
   const [adjustReason, setAdjustReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
   const [searchQ, setSearchQ] = useState('');
+  // قيم البنود الفعلية القابلة للتعديل — مفتاح `xp:key` أو `rr:key`
+  const [editedBd, setEditedBd] = useState<Record<string, number>>({});
 
   useEffect(() => { loadConfig(); }, []);
 
@@ -157,14 +159,26 @@ export default function ProgressionPage() {
   }
   async function submitAdjust() {
     if (!selPlayer || !selMatch) return;
-    const xpVal = Number(xpDelta) || 0;
-    const rrVal = Number(rrDelta) || 0;
-    if (xpVal === 0 && rrVal === 0) return;
+    const bd = selMatch.breakdown || { xp: [], rr: [], xpTotal: selMatch.xpEarned || 0, rrTotal: selMatch.rrChange || 0, team: 'CITIZEN', won: false };
+    const lineVal = (type: string, key: string, orig: number) => editedBd[`${type}:${key}`] ?? orig;
+    // إجمالي البنود بعد التعديل + أي تعديل إضافي (الحقول/الماكرو)
+    const newXpFromLines = (bd.xp || []).reduce((s: number, l: any) => s + lineVal('xp', l.key, l.value), 0);
+    const newRrFromLines = (bd.rr || []).reduce((s: number, l: any) => s + lineVal('rr', l.key, l.value), 0);
+    const finalXp = newXpFromLines + (Number(xpDelta) || 0);
+    const finalRr = newRrFromLines + (Number(rrDelta) || 0);
+    const appliedXpDelta = finalXp - (bd.xpTotal || 0);
+    const appliedRrDelta = finalRr - (bd.rrTotal || 0);
+    if (appliedXpDelta === 0 && appliedRrDelta === 0) return;
+    // خريطة البنود المُعدّلة (باستثناء بند التسوية — يُحسب تلقائياً على الخادم)
+    const xpMap: Record<string, number> = {}; const rrMap: Record<string, number> = {};
+    (bd.xp || []).forEach((l: any) => { if (l.key === 'reconcile') return; const v = lineVal('xp', l.key, l.value); if (v !== 0) xpMap[l.key] = v; });
+    (bd.rr || []).forEach((l: any) => { if (l.key === 'reconcile') return; const v = lineVal('rr', l.key, l.value); if (v !== 0) rrMap[l.key] = v; });
+    const breakdown = { team: bd.team, won: bd.won, xp: xpMap, rr: rrMap };
     setAdjusting(true);
     try {
       await apiFetch(`/api/progression-settings/player/${selPlayer.id}/adjust`, {
         method: 'POST',
-        body: JSON.stringify({ matchPlayerId: selMatch.mpId, xpDelta: xpVal, rrDelta: rrVal, reason: adjustReason || 'تعديل إداري' }),
+        body: JSON.stringify({ matchPlayerId: selMatch.mpId, xpDelta: appliedXpDelta, rrDelta: appliedRrDelta, reason: adjustReason || 'تعديل إداري', breakdown, penaltyRRDeduction: 0, bombRRChange: 0 }),
       });
       showToast(`تم تعديل نقاط ${selPlayer.name} بنجاح`, 'success');
       loadPlayerMatches(selPlayer.id); // Refresh
@@ -174,6 +188,17 @@ export default function ProgressionPage() {
   }
 
   useEffect(() => { if (tab === 'adjust' && players.length === 0) loadPlayers(); }, [tab]);
+
+  // تهيئة قيم البنود القابلة للتعديل من البنود الفعلية المخزّنة عند اختيار مباراة
+  useEffect(() => {
+    if (selMatch?.breakdown) {
+      const init: Record<string, number> = {};
+      (selMatch.breakdown.xp || []).forEach((l: any) => { init[`xp:${l.key}`] = l.value; });
+      (selMatch.breakdown.rr || []).forEach((l: any) => { init[`rr:${l.key}`] = l.value; });
+      setEditedBd(init);
+    } else setEditedBd({});
+    setXpDelta(''); setRrDelta(''); setAdjustReason('');
+  }, [selMatch]);
 
   if (loading || !config) return <div className="flex items-center justify-center h-screen"><div className="animate-spin h-10 w-10 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
 
@@ -474,93 +499,43 @@ export default function ProgressionPage() {
                         <button onClick={() => setSelMatch(null)} className="text-gray-500 hover:text-white text-xl leading-none">&times;</button>
                       </div>
 
-                      {/* ── Match Breakdown ── */}
-                      <div className="mb-6 bg-gray-950/50 border border-gray-800 rounded-xl p-4">
-                        <h5 className="text-xs font-bold text-gray-400 mb-3 border-b border-gray-800 pb-2">تفاصيل النقاط المكتسبة (تقديرية بناءً على الإعدادات الحالية):</h5>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-                          {/* Participation & Win/Loss */}
-                          <div className="flex justify-between text-gray-300">
-                            <span>🎮 مشاركة:</span>
-                            <span className="text-amber-400" dir="ltr">+{config?.xp?.participation || 0} XP</span>
-                          </div>
-                          {(() => {
-                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(selMatch.role || '');
-                            const won = (isMafia && selMatch.matchWinner === 'MAFIA') || (!isMafia && selMatch.matchWinner === 'CITIZEN');
-                            return (
-                              <div className="flex justify-between text-gray-300">
-                                <span>{won ? '🏆 فوز:' : '💀 خسارة:'}</span>
-                                <div>
-                                  {won ? <span className="text-amber-400 ml-2" dir="ltr">+{config?.xp?.teamWin || 0} XP</span> : null}
-                                  <span className={won ? 'text-blue-400' : 'text-rose-400'} dir="ltr">{won ? `+${config?.rr?.teamWin || 0}` : (config?.rr?.teamLoss || 0)} RR</span>
-                                </div>
+                      {/* ── النقاط الفعلية المسجّلة (قابلة للتعديل بنداً بنداً) ── */}
+                      {selMatch.breakdown && (() => {
+                        const bd = selMatch.breakdown;
+                        const lineVal = (type: string, key: string, orig: number) => editedBd[`${type}:${key}`] ?? orig;
+                        const newXpTotal = (bd.xp || []).reduce((s: number, l: any) => s + lineVal('xp', l.key, l.value), 0);
+                        const newRrTotal = (bd.rr || []).reduce((s: number, l: any) => s + lineVal('rr', l.key, l.value), 0);
+                        const renderCol = (type: 'xp' | 'rr', lines: any[], color: string, total: number, origTotal: number) => (
+                          <div className="space-y-1.5">
+                            <p className={`text-[10px] font-bold ${color}`}>{type === 'xp' ? '⭐ XP' : '🔥 RR'}</p>
+                            {lines.length === 0 ? <p className="text-[10px] text-gray-600">— لا بنود —</p> : lines.map((l: any) => (
+                              <div key={`${type}:${l.key}`} className="flex items-center justify-between gap-2 text-[11px] text-gray-300">
+                                <span className="truncate">{l.icon} {l.label}</span>
+                                <input type="number" value={lineVal(type, l.key, l.value)}
+                                  onChange={e => setEditedBd(p => ({ ...p, [`${type}:${l.key}`]: e.target.value === '' ? 0 : Number(e.target.value) }))}
+                                  className={`w-16 shrink-0 px-2 py-1 rounded bg-gray-950 border border-gray-700 ${color} text-center text-[11px] focus:outline-none focus:border-current`} dir="ltr" />
                               </div>
-                            );
-                          })()}
-                          {/* Survival */}
-                          <div className="flex justify-between text-gray-300">
-                            <span>⏳ النجاة ({selMatch.roundsSurvived || 0} جولات):</span>
-                            <span className="text-amber-400" dir="ltr">+{(selMatch.roundsSurvived || 0) * (config?.xp?.survivalPerRound || 0)} XP</span>
-                          </div>
-                          {selMatch.survivedToEnd && (
-                            <div className="flex justify-between text-gray-300">
-                              <span>🎖️ النجاة للنهاية:</span>
-                              <span className="text-blue-400" dir="ltr">+{config?.rr?.survivedToEnd || 0} RR</span>
+                            ))}
+                            <div className="flex justify-between text-[11px] font-bold border-t border-gray-800 pt-1 mt-1">
+                              <span className="text-gray-400">الإجمالي:</span>
+                              <span className={color} dir="ltr">{total}{total !== origTotal && <span className="text-gray-500 text-[9px] mr-1">(كان {origTotal})</span>}</span>
                             </div>
-                          )}
-                          {/* Deals */}
-                          {selMatch.dealInitiated && (() => {
-                            const isMafia = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(selMatch.role || '');
-                            let xp = 0; let rr = 0;
-                            if (isMafia) {
-                              if (!selMatch.dealSuccess) { xp = config?.xp?.mafiaDealOnMafia || 0; rr = config?.rr?.mafiaDealOnMafia || 0; }
-                            } else {
-                              if (selMatch.dealSuccess) { xp = config?.xp?.citizenDealOnMafia || 0; rr = config?.rr?.citizenDealOnMafia || 0; }
-                              else { xp = config?.xp?.failedDeal || 0; rr = config?.rr?.failedDeal || 0; }
-                            }
-                            return (
-                              <div className="flex justify-between text-gray-300">
-                                <span>🤝 الديل (نتيجة):</span>
-                                <div className="text-right">
-                                  <span className={selMatch.dealSuccess ? 'text-emerald-400 block mb-0.5' : 'text-rose-400 block mb-0.5'}>
-                                    {selMatch.dealSuccess ? 'نجاح' : 'فشل/غدر'}
-                                  </span>
-                                  {(xp !== 0 || rr !== 0) && (
-                                    <div>
-                                      {xp !== 0 && <span className={xp > 0 ? 'text-amber-400 ml-2' : 'text-rose-400 ml-2'} dir="ltr">{xp > 0 ? '+' : ''}{xp} XP</span>}
-                                      {rr !== 0 && <span className={rr > 0 ? 'text-blue-400' : 'text-rose-400'} dir="ltr">{rr > 0 ? '+' : ''}{rr} RR</span>}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                          {/* Abilities */}
-                          {selMatch.abilityUsed && (() => {
-                            const xp = selMatch.abilityCorrect ? (config?.xp?.abilityCorrect || 0) : (config?.xp?.abilityIncorrect || 0);
-                            const rr = selMatch.abilityCorrect ? (config?.rr?.abilityCorrect || 0) : (config?.rr?.abilityIncorrect || 0);
-                            return (
-                              <div className="flex justify-between text-gray-300">
-                                <span>🎯 القدرة (نتيجة):</span>
-                                <div className="text-right">
-                                  <span className={selMatch.abilityCorrect ? 'text-emerald-400 block mb-0.5' : 'text-rose-400 block mb-0.5'}>
-                                    {selMatch.abilityCorrect ? 'أصاب الهدف' : 'أخطأ الهدف'}
-                                  </span>
-                                  {(xp !== 0 || rr !== 0) && (
-                                    <div>
-                                      {xp !== 0 && <span className={xp > 0 ? 'text-amber-400 ml-2' : 'text-rose-400 ml-2'} dir="ltr">{xp > 0 ? '+' : ''}{xp} XP</span>}
-                                      {rr !== 0 && <span className={rr > 0 ? 'text-blue-400' : 'text-rose-400'} dir="ltr">{rr > 0 ? '+' : ''}{rr} RR</span>}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
+                          </div>
+                        );
+                        return (
+                          <div className="mb-6 bg-gray-950/50 border border-gray-800 rounded-xl p-4">
+                            <h5 className="text-xs font-bold text-gray-400 mb-3 border-b border-gray-800 pb-2">🧾 النقاط الفعلية المسجّلة (عدّل أي قيمة ثم «تطبيق»):</h5>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              {renderCol('xp', bd.xp || [], 'text-amber-400', newXpTotal, bd.xpTotal)}
+                              {renderCol('rr', bd.rr || [], 'text-blue-400', newRrTotal, bd.rrTotal)}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Quick Macros */}
                       <div className="mb-5">
-                        <p className="text-[11px] text-gray-400 mb-2">إضافات سريعة (Macro):</p>
+                        <p className="text-[11px] text-gray-400 mb-2">إضافة سريعة اختيارية (تُضاف فوق البنود أعلاه):</p>
                         <div className="flex flex-wrap gap-2">
                           {ACTION_CATEGORIES.flatMap(c => c.actions).map(a => {
                             if(a.key === 'participation' || a.key === 'teamWin' || a.key === 'teamLoss') return null; // غالبًا لا يتم نسيانها
@@ -579,12 +554,12 @@ export default function ProgressionPage() {
 
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                         <div className="md:col-span-3">
-                          <label className="text-[11px] text-gray-400 block mb-1">XP (+ أو -)</label>
+                          <label className="text-[11px] text-gray-400 block mb-1">XP إضافي (اختياري)</label>
                           <input type="number" value={xpDelta} onChange={e => setXpDelta(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
                             className="w-full px-3 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-amber-400 font-bold text-center focus:outline-none focus:border-amber-500" />
                         </div>
                         <div className="md:col-span-3">
-                          <label className="text-[11px] text-gray-400 block mb-1">RR (+ أو -)</label>
+                          <label className="text-[11px] text-gray-400 block mb-1">RR إضافي (اختياري)</label>
                           <input type="number" value={rrDelta} onChange={e => setRrDelta(e.target.value === '' ? '' : Number(e.target.value))} placeholder="0"
                             className="w-full px-3 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-blue-400 font-bold text-center focus:outline-none focus:border-blue-500" />
                         </div>
@@ -594,7 +569,7 @@ export default function ProgressionPage() {
                             className="w-full px-3 py-2.5 rounded-xl bg-gray-950 border border-gray-700 text-white text-sm focus:outline-none focus:border-indigo-500" />
                         </div>
                         <div className="md:col-span-2">
-                          <button onClick={submitAdjust} disabled={adjusting || (!xpDelta && !rrDelta)}
+                          <button onClick={submitAdjust} disabled={adjusting}
                             className="w-full h-[42px] bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-colors disabled:opacity-50 text-sm">
                             {adjusting ? '...' : 'تطبيق'}
                           </button>

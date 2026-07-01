@@ -198,6 +198,11 @@ router.get('/player/:playerId/matches', authenticate, async (req: Request, res: 
       abilityCorrect: matchPlayers.abilityCorrect,
       xpEarned: matchPlayers.xpEarned,
       rrChange: matchPlayers.rrChange,
+      // 🧾 القيم المخزّنة الفعلية — لعرض البنود الحقيقية بدل التقدير من الإعدادات الحالية
+      rewardBreakdown: matchPlayers.rewardBreakdown,
+      penaltyRRDeduction: matchPlayers.penaltyRRDeduction,
+      bombRRChange: matchPlayers.bombRRChange,
+      penaltyCount: matchPlayers.penaltyCount,
       matchWinner: matches.winner,
       matchDate: matches.createdAt,
       matchRoomCode: matches.roomCode,
@@ -210,7 +215,12 @@ router.get('/player/:playerId/matches', authenticate, async (req: Request, res: 
     .orderBy(desc(matches.createdAt))
     .limit(50);
 
-    res.json({ success: true, player: playerData[0], matches: matchHistory });
+    // 🧾 البنود الفعلية المخزّنة (نفس ما يعرضه مودال ملخص الليدر) — بدل التقدير من الإعدادات الحالية
+    const cfg = await getConfig();
+    const { buildDisplayBreakdown } = await import('../services/progression.service.js');
+    const withBreakdown = matchHistory.map((m: any) => ({ ...m, breakdown: buildDisplayBreakdown(m, cfg) }));
+
+    res.json({ success: true, player: playerData[0], matches: withBreakdown });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -224,7 +234,7 @@ router.post('/player/:playerId/adjust', authenticate, adminOnly, async (req: Req
 
   try {
     const playerId = Number(req.params.playerId);
-    const { matchPlayerId, xpDelta, rrDelta, reason } = req.body;
+    const { matchPlayerId, xpDelta, rrDelta, reason, breakdown, penaltyRRDeduction, bombRRChange } = req.body;
 
     if (xpDelta === undefined && rrDelta === undefined) {
       return res.status(400).json({ error: 'xpDelta or rrDelta required' });
@@ -239,7 +249,11 @@ router.post('/player/:playerId/adjust', authenticate, adminOnly, async (req: Req
         const updates: any = {};
         if (xpDelta !== undefined) updates.xpEarned = (currentMP[0].xpEarned || 0) + xpDelta;
         if (rrDelta !== undefined) updates.rrChange = (currentMP[0].rrChange || 0) + rrDelta;
-        await db.update(matchPlayers).set(updates).where(eq(matchPlayers.id, matchPlayerId));
+        // 🧾 حفظ البنود المُعدّلة كي تُعرض القيم الفعلية عند إعادة الفتح (بدل التقدير)
+        if (breakdown !== undefined) updates.rewardBreakdown = breakdown;
+        if (penaltyRRDeduction !== undefined) updates.penaltyRRDeduction = penaltyRRDeduction;
+        if (bombRRChange !== undefined) updates.bombRRChange = bombRRChange;
+        if (Object.keys(updates).length > 0) await db.update(matchPlayers).set(updates).where(eq(matchPlayers.id, matchPlayerId));
       }
     }
 
