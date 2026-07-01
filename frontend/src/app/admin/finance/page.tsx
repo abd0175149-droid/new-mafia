@@ -66,6 +66,8 @@ export default function FinancePage() {
   // ── Transactions (per-activity) ──
   const [expandedFin, setExpandedFin] = useState<number | null>(null);
   const [finSearch, setFinSearch] = useState('');
+  const [finDateFrom, setFinDateFrom] = useState('');
+  const [finDateTo, setFinDateTo] = useState('');
   const [finPage, setFinPage] = useState(1);
   const finPageSize = 8;
 
@@ -122,8 +124,8 @@ export default function FinancePage() {
 
   useEffect(() => { fetchAll(); const iv = setInterval(fetchAll, 30000); return () => clearInterval(iv); }, [fetchAll]);
 
-  // اللاعبون (مرّة واحدة — للربط بلاعب وعرض أسمائهم)
-  useEffect(() => { (async () => { try { const d = await apiFetch('/api/player'); setPlayers(d?.players || []); } catch {} })(); }, []);
+  // اللاعبون (مرّة واحدة — للربط بلاعب وعرض أسمائهم). المسار الإداري: /api/player/all
+  useEffect(() => { (async () => { try { const d = await apiFetch('/api/player/all'); setPlayers(d?.players || []); } catch {} })(); }, []);
   const playerMap = useMemo(() => { const m = new Map<number, any>(); players.forEach(p => m.set(p.id, p)); return m; }, [players]);
 
   // مبلغ الحجز حسب الدور
@@ -165,22 +167,30 @@ export default function FinancePage() {
 
   // المصاريف غير المرتبطة بنشاط (عام/لاعب/معدات/أخرى)
   const otherExpenses = useMemo(() => costs.filter(c => c.scope !== 'activity').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [costs]);
-  const otherExpensesTotal = useMemo(() => otherExpenses.reduce((s, c) => s + Number(c.amount || 0), 0), [otherExpenses]);
+  // فلترة زمنية (تاريخ النشاط / تاريخ المصروف) + بحث بالاسم
+  const inFinRange = useCallback((d: any) => {
+    if (finDateFrom) { const from = new Date(finDateFrom); from.setHours(0,0,0,0); if (new Date(d) < from) return false; }
+    if (finDateTo) { const to = new Date(finDateTo); to.setHours(23,59,59,999); if (new Date(d) > to) return false; }
+    return true;
+  }, [finDateFrom, finDateTo]);
 
   const filteredFinance = useMemo(() => {
     const term = finSearch.trim().toLowerCase();
-    return term ? activityFinance.filter(r => r.name.toLowerCase().includes(term)) : activityFinance;
-  }, [activityFinance, finSearch]);
+    return activityFinance.filter(r => (!term || r.name.toLowerCase().includes(term)) && inFinRange(r.date));
+  }, [activityFinance, finSearch, inFinRange]);
+  const filteredOtherExpenses = useMemo(() => otherExpenses.filter(c => inFinRange(c.date)), [otherExpenses, inFinRange]);
+  const filteredOtherExpensesTotal = useMemo(() => filteredOtherExpenses.reduce((s, c) => s + Number(c.amount || 0), 0), [filteredOtherExpenses]);
+
   const finTotalPages = Math.ceil(filteredFinance.length / finPageSize) || 1;
   const finPaginated = filteredFinance.slice((finPage - 1) * finPageSize, finPage * finPageSize);
-  useEffect(() => { setFinPage(1); }, [finSearch]);
+  useEffect(() => { setFinPage(1); }, [finSearch, finDateFrom, finDateTo]);
 
   const finTotals = useMemo(() => {
-    const revenue = activityFinance.reduce((s, r) => s + r.revenue, 0);
-    const activityExp = activityFinance.reduce((s, r) => s + r.expensesTotal, 0);
-    const expenses = activityExp + otherExpensesTotal;
+    const revenue = filteredFinance.reduce((s, r) => s + r.revenue, 0);
+    const activityExp = filteredFinance.reduce((s, r) => s + r.expensesTotal, 0);
+    const expenses = activityExp + filteredOtherExpensesTotal;
     return { revenue, expenses, net: revenue - expenses };
-  }, [activityFinance, otherExpensesTotal]);
+  }, [filteredFinance, filteredOtherExpensesTotal]);
 
   const finColSpan = isLocationOwner ? 4 : 6;
 
@@ -357,11 +367,22 @@ export default function FinancePage() {
               </div>
             )}
 
-            {/* بحث */}
+            {/* بحث + فلترة زمنية */}
             <div className="flex items-center gap-3 flex-wrap bg-gray-800/20 border border-gray-700/20 rounded-xl py-2.5 px-4">
               <input value={finSearch} onChange={e => setFinSearch(e.target.value)} placeholder="🔍 ابحث عن نشاط..."
-                className="flex-1 min-w-[180px] px-3 py-1.5 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
-              <span className="text-[10px] text-gray-600">{filteredFinance.length} نشاط</span>
+                className="flex-1 min-w-[150px] px-3 py-1.5 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] text-gray-400">من</label>
+                <input type="date" value={finDateFrom} onChange={e => setFinDateFrom(e.target.value)} className="px-2 py-1.5 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] text-gray-400">إلى</label>
+                <input type="date" value={finDateTo} onChange={e => setFinDateTo(e.target.value)} className="px-2 py-1.5 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+              </div>
+              {(finSearch || finDateFrom || finDateTo) && (
+                <button onClick={() => { setFinSearch(''); setFinDateFrom(''); setFinDateTo(''); }} className="text-[10px] text-gray-500 hover:text-amber-400 transition">✕ مسح</button>
+              )}
+              <span className="text-[10px] text-gray-600 mr-auto">{filteredFinance.length} نشاط</span>
             </div>
 
             {/* جدول الأنشطة (قابل للتوسّع) */}
@@ -460,11 +481,11 @@ export default function FinancePage() {
             {!isLocationOwner && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">🏛️ مصاريف غير مرتبطة بنشاط <span className="text-[10px] text-gray-500">({otherExpenses.length})</span></h3>
-                  <span className="text-xs px-3 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">الإجمالي: {otherExpensesTotal.toLocaleString()} {CURRENCY}</span>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">🏛️ مصاريف غير مرتبطة بنشاط <span className="text-[10px] text-gray-500">({filteredOtherExpenses.length})</span></h3>
+                  <span className="text-xs px-3 py-1 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold">الإجمالي: {filteredOtherExpensesTotal.toLocaleString()} {CURRENCY}</span>
                 </div>
                 <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
-                  {otherExpenses.length === 0 ? (
+                  {filteredOtherExpenses.length === 0 ? (
                     <div className="text-center py-10"><p className="text-gray-600 text-sm">لا مصاريف عامة/أخرى</p></div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -481,7 +502,7 @@ export default function FinancePage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {otherExpenses.map((c: any) => (
+                          {filteredOtherExpenses.map((c: any) => (
                             <tr key={c.id} className="border-b border-gray-700/15 hover:bg-gray-700/10 transition">
                               <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDate(c.date)}</td>
                               <td className="px-4 py-3 text-white font-medium text-xs">{c.item}</td>
