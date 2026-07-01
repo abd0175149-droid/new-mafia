@@ -814,6 +814,7 @@ export default function ActivityDetailPage() {
 
   const [activity, setActivity] = useState<any>(null);
   const [bookings, setBookings] = useState<any[]>([]);
+  const [playerGames, setPlayerGames] = useState<any[]>([]); // عدد الألعاب لكل لاعب في هذا النشاط
   const [costs, setCosts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
@@ -833,18 +834,20 @@ export default function ActivityDetailPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [act, bks, csts, locs, stf] = await Promise.all([
+        const [act, bks, csts, locs, stf, pg] = await Promise.all([
           apiFetch(`/api/activities/${activityId}`),
           apiFetch(`/api/bookings?activityId=${activityId}`),
           apiFetch(`/api/costs?activityId=${activityId}`),
           apiFetch('/api/locations'),
           apiFetch('/api/staff').catch(() => []),
+          apiFetch(`/api/activities/${activityId}/games-per-player`).catch(() => ({ players: [] })),
         ]);
         setActivity(act);
         setBookings(bks);
         setCosts(csts);
         setLocations(locs);
         setStaffList(stf);
+        setPlayerGames(pg?.players || []);
       } catch (err) {
         console.error(err);
       } finally {
@@ -853,11 +856,31 @@ export default function ActivityDetailPage() {
     })();
   }, [activityId]);
 
+  // خرائط عدد الألعاب لكل لاعب في هذا النشاط — بالحساب (playerId) وبالهاتف (بديل)
+  const gamesMaps = useMemo(() => {
+    const byId: Record<number, number> = {};
+    const byPhone: Record<string, number> = {};
+    for (const r of playerGames) {
+      if (r?.playerId != null) byId[r.playerId] = r.games;
+      const ph = String(r?.phone || '').replace(/[^0-9]/g, '');
+      if (ph.length >= 9) byPhone[ph] = r.games;
+    }
+    return { byId, byPhone };
+  }, [playerGames]);
+
   if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
   if (!activity) return <div className="text-center py-20 text-gray-500">النشاط غير موجود</div>;
 
   const actBookings = bookings;
   const actCosts = costs;
+
+  // عدد الألعاب التي لعبها صاحب الحجز في هذا النشاط (عبر كل الغرف) — مطابقة بالحساب ثم بالهاتف
+  const gamesForBooking = (b: any): number => {
+    if (b?.playerId != null && gamesMaps.byId[b.playerId] != null) return gamesMaps.byId[b.playerId];
+    const ph = String(b?.phone || '').replace(/[^0-9]/g, '');
+    if (ph.length >= 9 && gamesMaps.byPhone[ph] != null) return gamesMaps.byPhone[ph];
+    return 0;
+  };
   const location = locations.find(l => l.id === activity.locationId) || null;
 
   const revenue = actBookings.reduce((s: number, b: any) => s + (b.isPaid ? Number(b.paidAmount || 0) : 0), 0);
@@ -1239,6 +1262,7 @@ export default function ActivityDetailPage() {
                         <th className="text-right px-3 py-2.5 font-medium">الاسم</th>
                         <th className="text-right px-3 py-2.5 font-medium">الهاتف</th>
                         <th className="text-center px-3 py-2.5 font-medium">العدد</th>
+                        <th className="text-center px-3 py-2.5 font-medium whitespace-nowrap" title="عدد الألعاب التي لعبها في هذا النشاط عبر كل الغرف">🎮 ألعاب</th>
                         <th className="text-center px-3 py-2.5 font-medium">الحالة</th>
                         <th className="text-center px-3 py-2.5 font-medium">المبلغ</th>
                         <th className="text-right px-3 py-2.5 font-medium">المستلم</th>
@@ -1281,6 +1305,13 @@ export default function ActivityDetailPage() {
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <span className="bg-gray-700/50 text-gray-300 px-2 py-0.5 rounded text-xs font-bold">{b.count || 1}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            {(() => { const g = gamesForBooking(b); return (
+                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${g > 0 ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/25' : 'text-gray-600'}`}>
+                                {g > 0 ? `🎮 ${g}` : '—'}
+                              </span>
+                            ); })()}
                           </td>
                           <td className="px-3 py-2.5 text-center">
                             <div className="flex flex-col items-center gap-1">

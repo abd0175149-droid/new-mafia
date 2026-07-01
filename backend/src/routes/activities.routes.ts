@@ -4,10 +4,11 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, sql, or, and, isNull } from 'drizzle-orm';
+import { eq, desc, sql, or, and, isNull, isNotNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { activities, notifications, staff, activityTickets, bookings } from '../schemas/admin.schema.js';
-import { sessions } from '../schemas/game.schema.js';
+import { sessions, matches, matchPlayers } from '../schemas/game.schema.js';
+import { players } from '../schemas/player.schema.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
 import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession, closeSession } from '../services/session.service.js';
@@ -66,6 +67,32 @@ router.get('/:id/attendance', authenticate, async (req: Request, res: Response) 
   try {
     const stats = await getActivityAttendanceStats(parseInt(req.params.id));
     res.json(stats || { totalBookings: 0, totalPeopleBooked: 0, checkedInBookings: 0, checkedInPeople: 0, noShowBookings: 0, noShowPeople: 0, attendanceRate: 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/activities/:id/games-per-player — عدد الألعاب التي لعبها كل لاعب في النشاط (عبر كل الغرف)
+// المفتاح: حساب اللاعب (players.id) — يطابق booking.playerId مباشرةً؛ ونُرجِع الهاتف كبديل للمطابقة.
+router.get('/:id/games-per-player', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const rows = await db
+      .select({
+        playerId: matchPlayers.playerId,
+        phone: players.phone,
+        games: sql<number>`count(distinct ${matchPlayers.matchId})::int`,
+      })
+      .from(matchPlayers)
+      .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+      .innerJoin(sessions, eq(matches.sessionId, sessions.id))
+      .leftJoin(players, eq(matchPlayers.playerId, players.id))
+      .where(and(eq(sessions.activityId, id), isNotNull(matchPlayers.playerId)))
+      .groupBy(matchPlayers.playerId, players.phone);
+    res.json({ players: rows });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
