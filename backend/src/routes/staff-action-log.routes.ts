@@ -41,6 +41,7 @@ router.get('/', authenticate, adminOnly, async (req: Request, res: Response) => 
     if (q.activityId) conds.push(eq(staffActionLog.activityId, Number(q.activityId)));
     if (q.staffId) conds.push(eq(staffActionLog.staffId, Number(q.staffId)));
     if (q.category) conds.push(eq(staffActionLog.category, String(q.category)));
+    if (q.outcome) conds.push(eq(staffActionLog.outcome, String(q.outcome)));
     if (q.roomId) conds.push(eq(staffActionLog.roomId, String(q.roomId)));
     if (q.roomCode) conds.push(eq(staffActionLog.roomCode, String(q.roomCode)));
     if (q.from) conds.push(gte(staffActionLog.createdAt, new Date(String(q.from))));
@@ -57,6 +58,7 @@ router.get('/', authenticate, adminOnly, async (req: Request, res: Response) => 
       action: staffActionLog.action,
       category: staffActionLog.category,
       labelAr: staffActionLog.labelAr,
+      outcome: staffActionLog.outcome,
       activityId: staffActionLog.activityId,
       activityName: activities.name,
       roomId: staffActionLog.roomId,

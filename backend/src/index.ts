@@ -856,6 +856,7 @@ async function main() {
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_staff ON staff_action_log (staff_id)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_created ON staff_action_log (created_at DESC)`);
     await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sal_category ON staff_action_log (category)`);
+    await db.execute(sql`ALTER TABLE staff_action_log ADD COLUMN IF NOT EXISTS outcome VARCHAR(10)`);
     // ربط المنشئ: الفعالية والمباراة (sessions.created_by موجود مسبقاً)
     await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS created_by INTEGER`);
     await db.execute(sql`ALTER TABLE matches ADD COLUMN IF NOT EXISTS created_by INTEGER`);

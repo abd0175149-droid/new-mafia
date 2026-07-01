@@ -175,6 +175,7 @@ export const staffActionLog = pgTable('staff_action_log', {
   action: varchar('action', { length: 80 }).notNull(),          // اسم الحدث/المسار
   category: varchar('category', { length: 30 }).default('OTHER'),
   labelAr: varchar('label_ar', { length: 120 }),
+  outcome: varchar('outcome', { length: 10 }), // success | blocked | null (محاولة بلا رد)
   activityId: integer('activity_id'),
   roomId: varchar('room_id', { length: 50 }),
   roomCode: varchar('room_code', { length: 20 }),

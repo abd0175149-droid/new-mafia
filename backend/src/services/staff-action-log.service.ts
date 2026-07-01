@@ -92,6 +92,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
 export interface StaffActionEntry {
   staffId?: number | null; staffUsername?: string | null; staffRole?: string | null;
   source?: string; action: string; category?: string; labelAr?: string;
+  outcome?: string | null; // success | blocked | null
   activityId?: number | null; roomId?: string | null; roomCode?: string | null; matchId?: number | null;
   targetPhysicalId?: number | null; targetName?: string | null; details?: any;
 }
@@ -144,6 +145,7 @@ export async function logStaffAction(entry: StaffActionEntry): Promise<void> {
       action: entry.action,
       category: cat,
       labelAr: label,
+      outcome: entry.outcome ?? null,
       activityId: entry.activityId ?? null,
       roomId: entry.roomId ?? null,
       roomCode: entry.roomCode ?? null,
@@ -158,6 +160,8 @@ export async function logStaffAction(entry: StaffActionEntry): Promise<void> {
 }
 
 // ── مُلتقِط السوكت: يسجّل كل حدث موظف موجود في الكتالوج تلقائياً ─────────
+// إن كان للحدث ردّ (ack callback) نلتقط نتيجته: نجح (success) أم مُحجوب (blocked) مع السبب.
+// وإلا نسجّله كمحاولة (outcome=null). كلّه غير حاجب — لا يُفشِل الحدث.
 export function registerAuditLogging(socket: any): void {
   socket.use((packet: any[], next: (err?: any) => void) => {
     try {
@@ -169,19 +173,38 @@ export function registerAuditLogging(socket: any): void {
         const roomId: string | undefined = p.roomId || socket.data?.roomId;
         const targetPhysicalId: number | undefined =
           p.physicalId ?? p.voterPhysicalId ?? p.targetPhysicalId ?? p.penaltyPlayerId ?? undefined;
-        // fire-and-forget — لا ننتظره ولا نُفشِل الحدث
-        (async () => {
-          const ctx = await resolveRoomContext(roomId);
-          await logStaffAction({
-            staffId: staff.id, staffUsername: staff.username, staffRole: staff.role,
-            source: event.startsWith('ui:') ? 'ui' : 'socket',
-            action: event,
-            activityId: ctx.activityId, roomId, roomCode: ctx.roomCode, matchId: ctx.matchId,
-            targetPhysicalId,
-            targetName: targetPhysicalId != null ? ctx.names?.[targetPhysicalId] : undefined,
-            details: sanitizeDetails(payload),
-          });
-        })().catch(() => {});
+
+        const emit = (outcome: string | null, extraDetails?: any) => {
+          (async () => {
+            const ctx = await resolveRoomContext(roomId);
+            await logStaffAction({
+              staffId: staff.id, staffUsername: staff.username, staffRole: staff.role,
+              source: event.startsWith('ui:') ? 'ui' : 'socket',
+              action: event, outcome,
+              activityId: ctx.activityId, roomId, roomCode: ctx.roomCode, matchId: ctx.matchId,
+              targetPhysicalId,
+              targetName: targetPhysicalId != null ? ctx.names?.[targetPhysicalId] : undefined,
+              details: extraDetails ? { ...sanitizeDetails(payload), ...extraDetails } : sanitizeDetails(payload),
+            });
+          })().catch(() => {});
+        };
+
+        // إن كان آخر وسيط دالة → هو ردّ الـ ack؛ نلفّه لالتقاط النتيجة (نجح/محجوب)
+        const lastIdx = packet.length - 1;
+        const ack = lastIdx >= 1 ? packet[lastIdx] : undefined;
+        if (typeof ack === 'function') {
+          packet[lastIdx] = function (this: any, ...ackArgs: any[]) {
+            try {
+              const resp = ackArgs[0];
+              const blocked = !!resp && resp.success === false;
+              emit(blocked ? 'blocked' : 'success', blocked ? { _blockedReason: resp?.error || 'blocked' } : undefined);
+            } catch { /* تجاهل */ }
+            return ack.apply(this, ackArgs);
+          };
+        } else {
+          // بلا ردّ (مثل ui:*) → محاولة
+          emit(null);
+        }
       }
     } catch { /* لا نُفشِل الحدث أبداً */ }
     next();

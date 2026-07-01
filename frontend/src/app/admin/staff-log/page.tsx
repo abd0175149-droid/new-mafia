@@ -44,7 +44,7 @@ export default function StaffLogPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [f, setF] = useState({ activityId: '', staffId: '', category: '', roomCode: '', from: '', to: '' });
+  const [f, setF] = useState({ activityId: '', staffId: '', category: '', outcome: '', roomCode: '', from: '', to: '' });
   const limit = 50;
   const pages = Math.max(1, Math.ceil(total / limit));
 
@@ -57,6 +57,7 @@ export default function StaffLogPage() {
       if (f.activityId) qs.set('activityId', f.activityId);
       if (f.staffId) qs.set('staffId', f.staffId);
       if (f.category) qs.set('category', f.category);
+      if (f.outcome) qs.set('outcome', f.outcome);
       if (f.roomCode) qs.set('roomCode', f.roomCode.trim());
       if (f.from) qs.set('from', f.from);
       if (f.to) qs.set('to', `${f.to}T23:59:59`);
@@ -70,7 +71,7 @@ export default function StaffLogPage() {
   useEffect(() => { load(1); /* أول تحميل */ }, []); // eslint-disable-line
 
   const apply = () => load(1);
-  const clear = () => { setF({ activityId: '', staffId: '', category: '', roomCode: '', from: '', to: '' }); setTimeout(() => load(1), 0); };
+  const clear = () => { setF({ activityId: '', staffId: '', category: '', outcome: '', roomCode: '', from: '', to: '' }); setTimeout(() => load(1), 0); };
 
   return (
     <div dir="rtl" className="pb-10">
@@ -89,6 +90,8 @@ export default function StaffLogPage() {
             options={[{ v: '', l: 'الكل' }, ...meta.staff.map((s) => ({ v: String(s.id), l: s.displayName || s.username }))]} />
           <Select label="نوع العملية" value={f.category} onChange={(v) => setF({ ...f, category: v })}
             options={[{ v: '', l: 'الكل' }, ...Object.entries(meta.categories).map(([k, l]) => ({ v: k, l: l as string }))]} />
+          <Select label="النتيجة" value={f.outcome} onChange={(v) => setF({ ...f, outcome: v })}
+            options={[{ v: '', l: 'الكل' }, { v: 'success', l: '✅ نجحت' }, { v: 'blocked', l: '⛔ محجوبة' }]} />
           <Field label="رمز الغرفة"><input value={f.roomCode} onChange={(e) => setF({ ...f, roomCode: e.target.value })} placeholder="مثال: 1144"
             className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" /></Field>
           <Field label="من تاريخ"><input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })}
@@ -109,14 +112,14 @@ export default function StaffLogPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[11px] text-gray-500 border-b border-gray-700/40 bg-gray-900/40">
-                <Th>الوقت</Th><Th>الموظف</Th><Th>العملية</Th><Th>الفعالية</Th><Th>الغرفة</Th><Th>الهدف</Th><Th>المصدر</Th><Th> </Th>
+                <Th>الوقت</Th><Th>الموظف</Th><Th>العملية</Th><Th>النتيجة</Th><Th>الفعالية</Th><Th>الغرفة</Th><Th>الهدف</Th><Th>المصدر</Th><Th> </Th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-500">جارٍ التحميل…</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-500">جارٍ التحميل…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-600">لا سجلات مطابقة.</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-600">لا سجلات مطابقة.</td></tr>
               ) : rows.map((r) => {
                 const t = fmt(r.createdAt);
                 const isOpen = expanded === r.id;
@@ -133,6 +136,15 @@ export default function StaffLogPage() {
                         <span className="text-gray-200">{r.labelAr || r.action}</span>
                         <span className={`mr-2 text-[9px] px-1.5 py-0.5 rounded border ${CAT_COLOR[r.category] || CAT_COLOR.OTHER}`}>{meta.categories[r.category] || r.category}</span>
                       </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        {r.outcome === 'success' ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">✅ نجحت</span>
+                        ) : r.outcome === 'blocked' ? (
+                          <span title={r.details?._blockedReason || 'محجوبة'} className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30">⛔ محجوبة</span>
+                        ) : (
+                          <span className="text-[10px] text-gray-600">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2.5 text-gray-400 whitespace-nowrap max-w-[160px] truncate">{r.activityName ? `#${r.activityId} ${r.activityName}` : '—'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap">{r.roomCode ? <span className="font-mono text-[#C5A059]">{r.roomCode}</span> : '—'}</td>
                       <td className="px-3 py-2.5 text-gray-300 whitespace-nowrap">{r.targetName ? `${r.targetName}` : (r.targetPhysicalId != null ? `#${r.targetPhysicalId}` : '—')}</td>
@@ -141,7 +153,7 @@ export default function StaffLogPage() {
                     </tr>
                     {isOpen && r.details && (
                       <tr className="bg-gray-950/60 border-b border-gray-800/60">
-                        <td colSpan={8} className="px-4 py-3">
+                        <td colSpan={9} className="px-4 py-3">
                           <p className="text-[10px] text-gray-500 mb-1">التفاصيل ({r.action}):</p>
                           <pre className="text-[11px] text-gray-300 bg-black/40 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap" dir="ltr">{JSON.stringify(r.details, null, 2)}</pre>
                         </td>
