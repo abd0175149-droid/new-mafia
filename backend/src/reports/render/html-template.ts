@@ -173,88 +173,200 @@ export function sectionKeyOf(s: ReportSection, i: number): string {
 }
 export const TOTALS_KEY = '__totals';
 
+// ══════════════════════════════════════════════════════
+// 🖨️ وضع التخطيط — ترقيم صفحات صريح (Nusk-style)
+// كل صفحة = صندوق A4 مستقل: الورق خلفية للصفحة كاملة، منطقة المحتوى
+// محدودة بالهوامش فعلياً، الجداول تُقسَّم بـ rowsPerPage، والصفحات
+// التالية تبدأ من contentTopNext. عناصر الإطار لكل صفحة حسب pages.
+// ══════════════════════════════════════════════════════
+
+const PX2MM = 0.2646; // 1px ≈ 0.2646mm @96dpi
+
+type TableSection = Extract<ReportSection, { type: 'table' }>;
+type SectionCfg = NonNullable<ResolvedLayout['sections']>[string];
+
+function renderTableChunk(s: TableSection, rows: Record<string, unknown>[], cont: boolean, withTotals: boolean): string {
+  const head = s.columns.map((c) => `<th>${esc(c.labelAr)}</th>`).join('');
+  const body = rows.map((r) =>
+    `<tr>${s.columns.map((c) => `<td class="al-${c.align ?? 'right'}">${renderCell(r, c)}</td>`).join('')}</tr>`).join('');
+  const foot = (withTotals && s.totalsRow)
+    ? `<tr class="totals">${s.columns.map((c) => `<td class="al-${c.align ?? 'right'}">${renderCell(s.totalsRow!, c)}</td>`).join('')}</tr>`
+    : '';
+  const title = s.titleAr
+    ? `<h3 class="sec-title">${esc(s.titleAr)}${cont ? '<span class="cont"> — تتمة</span>' : ''}</h3>`
+    : '';
+  return `${title}<table class="data"><thead><tr>${head}</tr></thead><tbody>${body}${foot}</tbody></table>`;
+}
+
 function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
   const isLand = L.orientation === 'landscape';
+  const pageW = isLand ? 297 : 210;
+  const pageH = isLand ? 210 : 297;
   const t = L.table;
+  const m = L.margins;
+  const contentW = Math.max(60, pageW - m.left - m.right);
+  const topFirst = m.top;
+  const topNext = Number.isFinite(L.contentTopNext) ? L.contentTopNext : m.top;
+  const capFirst = Math.max(40, pageH - topFirst - m.bottom);
+  const capNext = Math.max(40, pageH - topNext - m.bottom);
+  const rowsPerPage = Math.max(3, Math.min(60, L.rowsPerPage || 22));
+  const baseFs = t.baseFontSize || 11;
 
-  // إخفاء/ترتيب أقسام الجسم حسب إعدادات التخطيط
   const cfg = L.sections || {};
   const orderedSections = doc.sections
     .map((s, i) => ({ s, i, key: sectionKeyOf(s, i) }))
     .filter(({ key }) => !cfg[key]?.hidden)
     .sort((a, b) => (cfg[a.key]?.order ?? a.i) - (cfg[b.key]?.order ?? b.i));
-  const totalsHidden = !!cfg[TOTALS_KEY]?.hidden;
 
-  // غلاف قسم بموضع/عرض/خط مخصّص (يبقى في التدفّق → ترقيم صفحات سليم)
-  const sectionStyle = (key: string): string => {
-    const c = cfg[key] || {};
-    return [
-      c.y ? `margin-top:${c.y}mm` : '',
-      c.x ? `margin-right:${c.x}mm` : '',
-      c.w ? `width:${c.w}mm` : '',
-      c.fs ? `font-size:${c.fs}px` : '',
-    ].filter(Boolean).join(';');
+  // ارتفاعات تقديرية (mm) — CSS بالأسفل مضبوط بالمليمتر ليطابقها
+  const rowH = (fs: number) => fs * 1.5 * PX2MM + 2.8;   // line-height 1.5 + padding 1.4mm×2
+  const headRowH = (fs: number) => fs * 1.5 * PX2MM + 3.6;
+  const estimate = (s: ReportSection, fs: number): number => {
+    switch (s.type) {
+      case 'kpis': {
+        const cols = Math.max(2, Math.floor(contentW / 40));
+        return (s.titleAr ? 7 : 0) + Math.ceil(s.items.length / cols) * 16;
+      }
+      case 'keyvalue':
+        return (s.titleAr ? 7 : 0) + s.items.length * (fs * 1.4 * PX2MM + 3.4);
+      case 'table':
+        return (s.titleAr ? 7 : 0) + headRowH(fs) + s.rows.length * rowH(fs) + (s.totalsRow ? rowH(fs) : 0) + 3;
+      case 'group':
+        return 9 + s.children.reduce((sum, c) => sum + estimate(c, fs), 0);
+    }
   };
-  const wrapSection = (inner: string, key: string): string => {
-    const st = sectionStyle(key);
-    return st ? `<div style="${st}">${inner}</div>` : inner;
-  };
 
-  const elsHtml = Object.entries(L.elements || {}).map(([id, el]) => {
-    if (!el || el.hidden) return '';
-    const content = elementContent(id, el, doc);
-    if (!content) return '';
-    const styles = [
-      'position:fixed',
-      `top:${el.y ?? 0}mm`,
-      `right:${el.x ?? 0}mm`,
-      el.w ? `width:${el.w}mm` : '',
-      `font-size:${el.fontSize ?? 11}pt`,
-      el.color ? `color:${el.color}` : '',
-      el.bold ? 'font-weight:800' : '',
-      `text-align:${el.align ?? 'right'}`,
-      'z-index:3',
-    ].filter(Boolean).join(';');
-    return `<div style="${styles}">${content}</div>`;
-  }).join('');
+  const secWrapStyle = (c: SectionCfg | undefined, gapMm: number): string => [
+    `margin-top:${gapMm}mm`,
+    c?.x ? `margin-right:${c.x}mm` : '',
+    c?.w ? `width:${c.w}mm` : '',
+    c?.fs ? `font-size:${c.fs}px` : '',
+  ].filter(Boolean).join(';');
 
-  const lhBg = (L.showLetterhead && L.letterheadDataUri)
-    ? `<div style="position:fixed;inset:0;z-index:0;background-image:url('${L.letterheadDataUri}');background-size:100% 100%;background-repeat:no-repeat;"></div>`
+  // ── بناء الصفحات ──
+  const pages: string[][] = [[]];
+  let cap = capFirst;
+  let used = 0;
+  const remaining = () => cap - used;
+  const newPage = () => { pages.push([]); cap = capNext; used = 0; };
+  const push = (html: string, h: number) => { pages[pages.length - 1].push(html); used += h; };
+
+  for (const { s, key } of orderedSections) {
+    const c = cfg[key];
+    const fs = c?.fs ?? baseFs;
+    const gap = Math.max(-20, 3 + (c?.y ?? 0));
+
+    if (s.type === 'table' && s.rows.length > 0) {
+      const overhead = (s.titleAr ? 7 : 0) + headRowH(fs) + 2;
+      let idx = 0;
+      let firstChunk = true;
+      let guard = 0;
+      while (idx < s.rows.length && guard++ < 500) {
+        const gapNow = firstChunk ? gap : 3;
+        let fit = Math.floor((remaining() - overhead - gapNow) / rowH(fs));
+        fit = Math.min(fit, rowsPerPage, s.rows.length - idx);
+        // احجز مكاناً لصف الإجمالي في آخر قطعة
+        if (s.totalsRow && idx + fit >= s.rows.length
+          && (remaining() - gapNow - overhead - fit * rowH(fs)) < rowH(fs)) fit -= 1;
+        // لا تبدأ جدولاً بقطعة تافهة آخر الصفحة
+        if (fit < Math.min(3, s.rows.length - idx) && used > 0) { newPage(); continue; }
+        if (fit <= 0) { if (used > 0) { newPage(); continue; } fit = 1; }
+        const isLastChunk = idx + fit >= s.rows.length;
+        const html = `<div style="${secWrapStyle(c, gapNow)}">${renderTableChunk(s, s.rows.slice(idx, idx + fit), !firstChunk, isLastChunk)}</div>`;
+        push(html, gapNow + overhead + fit * rowH(fs) + (isLastChunk && s.totalsRow ? rowH(fs) : 0));
+        idx += fit;
+        firstChunk = false;
+        if (idx < s.rows.length) newPage();
+      }
+    } else {
+      const h = estimate(s, fs) + gap;
+      if (h > remaining() && used > 0) newPage();
+      push(`<div style="${secWrapStyle(c, gap)}">${renderSection(s)}</div>`, h);
+    }
+  }
+
+  // شريط الإجماليات النهائية
+  const totalsCfg = cfg[TOTALS_KEY];
+  if (doc.totals?.length && !totalsCfg?.hidden) {
+    const gap = 4 + (totalsCfg?.y ?? 0);
+    const h = 20 + gap;
+    if (h > remaining() && used > 0) newPage();
+    const inner = `<div class="grand-totals">${doc.totals.map((gt) =>
+      `<div class="gt"><span class="gt-label">${esc(gt.labelAr)}</span><span class="gt-value" style="color:${toneColor(gt.tone)}">${esc(formatCell(gt.value, gt.format))}</span></div>`).join('')}</div>`;
+    push(`<div style="${secWrapStyle(totalsCfg, gap)}">${inner}</div>`, h);
+  }
+
+  // ── عناصر الإطار لكل صفحة ──
+  const pageCount = pages.length;
+  const elementsFor = (pageIdx: number): string =>
+    Object.entries(L.elements || {}).map(([id, el]) => {
+      if (!el || el.hidden) return '';
+      const mode = el.pages ?? (id === 'signature' || id === 'footer' ? 'last' : id === 'page_number' ? 'all' : 'first');
+      if (mode === 'first' && pageIdx !== 0) return '';
+      if (mode === 'last' && pageIdx !== pageCount - 1) return '';
+      let content = id === 'page_number' && !el.text ? 'صفحة {{page}} من {{pages}}' : elementContent(id, el, doc);
+      if (!content) return '';
+      content = content
+        .replace(/\{\{\s*page\s*\}\}/g, String(pageIdx + 1))
+        .replace(/\{\{\s*pages\s*\}\}/g, String(pageCount));
+      const styles = [
+        'position:absolute',
+        `top:${el.y ?? 0}mm`,
+        `right:${el.x ?? 0}mm`,
+        el.w ? `width:${el.w}mm` : '',
+        `font-size:${el.fontSize ?? 11}pt`,
+        el.color ? `color:${el.color}` : '',
+        el.bold ? 'font-weight:800' : '',
+        `text-align:${el.align ?? 'right'}`,
+        'z-index:3',
+      ].filter(Boolean).join(';');
+      return `<div style="${styles}">${content}</div>`;
+    }).join('');
+
+  const lh = (L.showLetterhead && L.letterheadDataUri)
+    ? `<img class="lh" src="${L.letterheadDataUri}" alt="">`
     : '';
 
-  const grand = (doc.totals?.length && !totalsHidden)
-    ? wrapSection(`<div class="grand-totals">${doc.totals.map((gt) => `<div class="gt"><span class="gt-label">${esc(gt.labelAr)}</span><span class="gt-value" style="color:${toneColor(gt.tone)}">${esc(formatCell(gt.value, gt.format))}</span></div>`).join('')}</div>`, TOTALS_KEY)
-    : '';
+  const pagesHtml = pages.map((blocks, i) => `
+  <div class="page">
+    ${lh}
+    ${elementsFor(i)}
+    <div class="content" style="top:${i === 0 ? topFirst : topNext}mm">${blocks.join('')}</div>
+  </div>`).join('');
 
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
     @page { size: A4 ${isLand ? 'landscape' : 'portrait'}; margin: 0; }
     * { box-sizing: border-box; }
     html,body { margin:0; padding:0; }
-    body { font-family:"Noto Naskh Arabic","Noto Sans Arabic","Tajawal","DejaVu Sans",sans-serif; color:#1a1a1a; font-size:${t.baseFontSize}px; line-height:1.6; direction:rtl; }
-    .content { position:relative; z-index:2; }
-    /* أحجام em نسبية داخل المحتوى — تسمح بتخصيص حجم خط كل قسم عبر غلافه */
-    .grp-title{font-size:1.3em;font-weight:800;margin:16px 0 8px;color:#111;border-right:4px solid #C5A059;padding-right:8px;}
-    .sec-title{font-size:1.15em;font-weight:700;margin:14px 0 6px;color:#333;}
-    .kpi-grid{display:flex;flex-wrap:wrap;gap:8px;}
-    .kpi{flex:1 1 140px;border:1px solid #ddd;border-radius:10px;padding:8px 10px;background:rgba(250,250,250,0.85);}
-    .kpi-icon{font-size:1.4em;} .kpi-label{font-size:0.85em;color:#777;} .kpi-value{font-size:1.4em;font-weight:800;} .kpi-sub{font-size:0.8em;color:#999;margin-top:2px;}
-    table{width:100%;border-collapse:collapse;margin:4px 0 8px;}
-    table.data th{background:${t.thBg};color:${t.thColor};font-size:0.95em;padding:6px 8px;border:1px solid ${t.thBorder};text-align:right;}
-    table.data td{padding:5px 8px;border:1px solid #eee;font-size:0.95em;}
-    ${t.stripe ? 'table.data tr:nth-child(even) td{background:rgba(250,250,250,0.7);}' : ''}
-    table.data tr.totals td{background:#f6f1e6;font-weight:800;border-top:2px solid #C5A059;}
-    .al-left{text-align:left;} .al-center{text-align:center;} .al-right{text-align:right;}
-    .badge{background:#eef1f4;border-radius:8px;padding:1px 8px;font-size:0.85em;}
-    table.kv td{padding:5px 8px;border-bottom:1px solid #eee;font-size:0.95em;} .kv-label{color:#777;width:40%;} .kv-value{font-weight:700;}
-    .empty{color:#999;text-align:center;padding:12px;font-size:0.95em;}
-    .grand-totals{margin-top:16px;padding:10px;background:rgba(248,245,238,0.9);border:1px solid #e7ddc7;border-radius:10px;display:flex;flex-wrap:wrap;gap:16px;}
-    .gt{display:flex;flex-direction:column;} .gt-label{font-size:0.85em;color:#777;} .gt-value{font-size:1.4em;font-weight:800;}
-  </style></head><body>
-    ${lhBg}
-    ${elsHtml}
-    <div class="content">
-      ${orderedSections.map(({ s, key }) => wrapSection(renderSection(s), key)).join('')}
-      ${grand}
-    </div>
-  </body></html>`;
+    body { font-family:"Noto Naskh Arabic","Noto Sans Arabic","Tajawal","DejaVu Sans",sans-serif; color:#1f1f1f; font-size:${baseFs}px; line-height:1.5; direction:rtl; }
+    .page { position:relative; width:${pageW}mm; height:${pageH}mm; overflow:hidden; page-break-after:always; background:#fff; }
+    .page:last-child { page-break-after:auto; }
+    .lh { position:absolute; inset:0; width:100%; height:100%; z-index:0; }
+    .content { position:absolute; right:${m.right}mm; left:${m.left}mm; bottom:${m.bottom}mm; overflow:hidden; z-index:2; }
+    .grp-title { font-size:1.25em; font-weight:800; margin:0 0 2mm; color:#111; border-right:1.2mm solid ${t.thColor}; padding-right:2mm; }
+    .sec-title { font-size:1.12em; font-weight:700; margin:0 0 1.6mm; color:#2b2b2b; }
+    .sec-title:before { content:''; display:inline-block; width:1.1mm; height:3.2mm; background:${t.thColor}; border-radius:1mm; margin-left:1.6mm; vertical-align:-0.4mm; }
+    .cont { font-weight:400; color:#999; font-size:0.82em; }
+    .kpi-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(36mm, 1fr)); gap:2mm; }
+    .kpi { border:0.3mm solid #e5dfd2; border-radius:2mm; padding:2mm 2.5mm; background:rgba(252,251,248,0.92); height:13.5mm; overflow:hidden; }
+    .kpi-icon { display:none; }
+    .kpi-label { font-size:0.78em; color:#8a8a8a; margin-bottom:0.6mm; white-space:nowrap; overflow:hidden; }
+    .kpi-value { font-size:1.25em; font-weight:800; white-space:nowrap; }
+    .kpi-sub { display:none; }
+    table { width:100%; border-collapse:collapse; }
+    table.data { margin:0; }
+    table.data th { background:${t.thBg}; color:${t.thColor}; font-size:0.92em; font-weight:700; padding:1.8mm 2mm; border:0.25mm solid ${t.thBorder}; text-align:right; line-height:1.4; white-space:nowrap; }
+    table.data td { padding:1.4mm 2mm; border:0.25mm solid #ececec; font-size:0.92em; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60mm; }
+    ${t.stripe ? 'table.data tbody tr:nth-child(even) td { background:rgba(249,247,242,0.9); }' : ''}
+    table.data tr.totals td { background:#f6f1e6; font-weight:800; border-top:0.5mm solid #C5A059; }
+    .al-left { text-align:left; } .al-center { text-align:center; } .al-right { text-align:right; }
+    .badge { background:#f0ede6; color:#6b5f47; border-radius:2mm; padding:0.3mm 2mm; font-size:0.82em; }
+    table.kv td { padding:1.5mm 2mm; border-bottom:0.25mm solid #eee; font-size:0.92em; line-height:1.4; }
+    .kv-label { color:#8a8a8a; width:40%; } .kv-value { font-weight:700; }
+    .empty { color:#999; text-align:center; padding:4mm; font-size:0.92em; }
+    .grand-totals { padding:3mm 4mm; background:rgba(250,247,240,0.95); border:0.3mm solid #e7ddc7; border-radius:2.5mm; display:flex; gap:8mm; flex-wrap:wrap; }
+    .gt { display:flex; flex-direction:column; }
+    .gt-label { font-size:0.78em; color:#8a8a8a; } .gt-value { font-size:1.3em; font-weight:800; }
+  </style></head><body>${pagesHtml}</body></html>`;
 }
+

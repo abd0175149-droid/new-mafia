@@ -216,7 +216,7 @@ export default function PrintLayoutEditor() {
   const elementIds = Array.from(new Set([...STANDARD_ELEMENTS.map((e) => e.id), ...Object.keys(layout.elements)]));
   const sel = selectedId ? layout.elements[selectedId] : null;
   const isCustom = selectedId?.startsWith('custom_');
-  const hasText = isCustom || selectedId === 'signature' || selectedId === 'footer';
+  const hasText = isCustom || selectedId === 'signature' || selectedId === 'footer' || selectedId === 'page_number';
 
   return (
     <div className="fixed inset-0 z-[9999] bg-gray-950 flex" dir="rtl">
@@ -275,6 +275,10 @@ export default function PrintLayoutEditor() {
               <Num label="يمين" value={layout.margins.right} onChange={(v) => patchMargins({ right: v })} />
               <Num label="أسفل" value={layout.margins.bottom} onChange={(v) => patchMargins({ bottom: v })} />
               <Num label="يسار" value={layout.margins.left} onChange={(v) => patchMargins({ left: v })} />
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Num label="صفوف الجدول/صفحة" value={layout.rowsPerPage} onChange={(v) => patchLayout({ rowsPerPage: Math.max(3, Math.min(60, v || 22)) })} />
+              <Num label="بداية المحتوى (ص٢+)" value={layout.contentTopNext} onChange={(v) => patchLayout({ contentTopNext: v })} />
             </div>
           </div>
 
@@ -373,6 +377,16 @@ export default function PrintLayoutEditor() {
                 </label>
                 <select className={inputCls + ' mt-3'} value={sel.align || 'right'} onChange={(e) => patchElement(selectedId, { align: e.target.value as any })}>
                   <option value="right">يمين</option><option value="center">وسط</option><option value="left">يسار</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-gray-500 shrink-0">الصفحات:</span>
+                <select className={inputCls}
+                  value={sel.pages ?? (selectedId === 'signature' || selectedId === 'footer' ? 'last' : selectedId === 'page_number' ? 'all' : 'first')}
+                  onChange={(e) => patchElement(selectedId, { pages: e.target.value as any })}>
+                  <option value="first">الأولى فقط</option>
+                  <option value="all">كل الصفحات</option>
+                  <option value="last">الأخيرة فقط</option>
                 </select>
               </div>
               {hasText && (

@@ -153,6 +153,7 @@ export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selec
         let g = ''; try { g = new Date(h.generatedAt).toLocaleString('ar-IQ'); } catch { g = h.generatedAt; }
         return `أُنشئ في: ${g}${h.generatedByAr ? ` — بواسطة: ${h.generatedByAr}` : ''}`;
       }
+      case 'page_number': return 'صفحة ١ من ٢';
       default: return labelForElement(id);
     }
   };

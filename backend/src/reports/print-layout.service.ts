@@ -16,6 +16,8 @@ export interface ElementPos {
   x: number; y: number; w?: number; fontSize?: number;
   color?: string; bold?: boolean; align?: 'right' | 'left' | 'center';
   hidden?: boolean; text?: string; zone?: 'header' | 'footer';
+  // على أي صفحات يظهر العنصر (افتراضي: الأولى؛ التوقيع/التذييل: الأخيرة؛ رقم الصفحة: الكل)
+  pages?: 'first' | 'all' | 'last';
 }
 export interface SectionConfig {
   hidden?: boolean;
@@ -32,6 +34,9 @@ export interface LayoutConfig {
   headerHeight: number;
   footerHeight: number;
   showLetterhead: boolean;
+  // ترقيم الصفحات الصريح
+  rowsPerPage: number;       // أقصى صفوف جدول في الصفحة الواحدة
+  contentTopNext: number;    // بداية المحتوى (mm من الأعلى) في الصفحة الثانية وما بعدها
   elements: Record<string, ElementPos>;
   // إعدادات أقسام جسم التقرير (إخفاء/ترتيب) — المفتاح من sectionKeyOf
   sections: Record<string, SectionConfig>;
@@ -47,6 +52,8 @@ export const DEFAULT_LAYOUT: LayoutConfig = {
   headerHeight: 0,
   footerHeight: 0,
   showLetterhead: true,
+  rowsPerPage: 22,
+  contentTopNext: 25,
   elements: {},
   sections: {},
   table: { thBg: '#f2ede2', thColor: '#5a4a2a', thBorder: '#e2d9c5', stripe: true, baseFontSize: 11 },
@@ -61,6 +68,8 @@ export function mergeLayout(raw: any): LayoutConfig {
     headerHeight: Number.isFinite(r.headerHeight) ? r.headerHeight : DEFAULT_LAYOUT.headerHeight,
     footerHeight: Number.isFinite(r.footerHeight) ? r.footerHeight : DEFAULT_LAYOUT.footerHeight,
     showLetterhead: r.showLetterhead !== false,
+    rowsPerPage: Number.isFinite(r.rowsPerPage) && r.rowsPerPage >= 3 ? Math.min(60, r.rowsPerPage) : DEFAULT_LAYOUT.rowsPerPage,
+    contentTopNext: Number.isFinite(r.contentTopNext) ? r.contentTopNext : DEFAULT_LAYOUT.contentTopNext,
     elements: r.elements && typeof r.elements === 'object' ? r.elements : {},
     sections: r.sections && typeof r.sections === 'object' ? r.sections : {},
     table: { ...DEFAULT_LAYOUT.table, ...(r.table || {}) },

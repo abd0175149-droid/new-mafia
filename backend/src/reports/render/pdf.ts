@@ -59,13 +59,13 @@ export async function renderPdf(doc: ReportDocument, layout?: ResolvedLayout | n
     await page.setContent(html, { waitUntil: 'networkidle0' });
 
     if (layout) {
-      // وضع التخطيط: الهوامش والاتجاه من التخطيط؛ الورق والعناصر تُرسم عبر HTML (position:fixed).
-      const m = layout.margins;
+      // وضع التخطيط: ترقيم صريح — كل صفحة صندوق A4 يدير هوامشه بنفسه،
+      // لذلك هوامش Puppeteer صفر (الورق الرسمي يغطي الصفحة كاملة).
       const pdf = await page.pdf({
         format: 'A4',
         landscape: layout.orientation === 'landscape',
         printBackground: true,
-        margin: { top: `${m.top}mm`, bottom: `${m.bottom}mm`, left: `${m.left}mm`, right: `${m.right}mm` },
+        margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
       });
       return Buffer.from(pdf);
     }

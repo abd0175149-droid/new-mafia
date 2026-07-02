@@ -7,6 +7,8 @@ export interface ElementPos {
   x: number; y: number; w?: number; fontSize?: number;
   color?: string; bold?: boolean; align?: 'right' | 'left' | 'center';
   hidden?: boolean; text?: string; zone?: 'header' | 'footer';
+  // على أي صفحات يظهر (افتراضي: الأولى؛ التوقيع/التذييل: الأخيرة؛ رقم الصفحة: الكل)
+  pages?: 'first' | 'all' | 'last';
 }
 
 export interface SectionConfig {
@@ -24,6 +26,9 @@ export interface LayoutConfig {
   headerHeight: number;
   footerHeight: number;
   showLetterhead: boolean;
+  // ترقيم الصفحات الصريح
+  rowsPerPage: number;       // أقصى صفوف جدول في الصفحة الواحدة
+  contentTopNext: number;    // بداية المحتوى (mm) في الصفحة الثانية وما بعدها
   elements: Record<string, ElementPos>;
   // إعدادات أقسام جسم التقرير (إخفاء/ترتيب) — المفتاح من sectionKeyOf
   sections: Record<string, SectionConfig>;
@@ -44,6 +49,7 @@ export const STANDARD_ELEMENTS: { id: string; labelAr: string; hasText?: boolean
   { id: 'filters',   labelAr: 'ملخّص الفلاتر' },
   { id: 'signature', labelAr: 'التوقيع', hasText: true },
   { id: 'footer',    labelAr: 'تذييل', hasText: true },
+  { id: 'page_number', labelAr: 'رقم الصفحة', hasText: true },
 ];
 
 export const VARIABLES: { key: string; labelAr: string }[] = [
@@ -62,6 +68,8 @@ export const DEFAULT_LAYOUT: LayoutConfig = {
   headerHeight: 0,
   footerHeight: 0,
   showLetterhead: true,
+  rowsPerPage: 22,
+  contentTopNext: 25,
   elements: {
     title:     { x: 12, y: 8,  w: 150, fontSize: 16, color: '#111111', bold: true, hidden: false },
     subtitle:  { x: 12, y: 20, fontSize: 10, color: '#555555', hidden: false },
