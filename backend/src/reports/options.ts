@@ -3,7 +3,7 @@
 // endpoint خفيف يُبقي /types صغيراً.
 // ══════════════════════════════════════════════════════
 
-import { and, desc, eq, isNull, or, ilike, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, or, ilike } from 'drizzle-orm';
 import type { Database } from '../config/db.js';
 import type { OptionSource } from './types.js';
 import { activities, locations, expenseCategories, staff } from '../schemas/admin.schema.js';
@@ -27,15 +27,17 @@ export async function loadOptions(db: Database, source: OptionSource, q?: string
     }
 
     case 'players': {
+      // منتقي تقرير اللاعب = بحث مباشر عن شخص محدّد، فلا نستبعد الحسابات التجريبية
+      // (بعض اللاعبين الحقيقيين مُعلَّمون test). الاستبعاد يبقى في التقارير التجميعية فقط.
       const search = q
         ? or(ilike(players.name, `%${q}%`), ilike(players.phone, `%${q}%`))
         : undefined;
-      const rows = await db.select({ id: players.id, name: players.name, phone: players.phone })
+      const rows = await db.select({ id: players.id, name: players.name, phone: players.phone, isTest: players.isTestAccount })
         .from(players)
-        .where(and(eq(players.isTestAccount, false), search))
-        .orderBy(desc(players.lastActiveAt))
+        .where(search)
+        .orderBy(q ? asc(players.name) : desc(players.lastActiveAt))
         .limit(50);
-      return rows.map((r) => ({ value: String(r.id), labelAr: `${r.name} — ${r.phone}` }));
+      return rows.map((r) => ({ value: String(r.id), labelAr: `${r.name} — ${r.phone}${r.isTest ? ' (تجريبي)' : ''}` }));
     }
 
     case 'locations': {
