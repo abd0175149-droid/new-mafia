@@ -42,6 +42,27 @@ export function formatCell(value: unknown, format?: CellFormat): string {
   }
 }
 
+/** استبدال متغيّرات القوالب {{...}} داخل نصوص الحقول المخصّصة من بيانات المستند. */
+export function resolveVars(text: string, doc: { header: any; totals?: any[] }): string {
+  if (!text || text.indexOf('{{') === -1) return text || '';
+  const h = doc.header || {};
+  const generatedAt = (() => { try { return new Date(h.generatedAt).toLocaleString('ar-IQ'); } catch { return h.generatedAt || ''; } })();
+  const vars: Record<string, string> = {
+    report_title: h.titleAr || '',
+    subtitle: h.subtitleAr || '',
+    period: h.subtitleAr || (Array.isArray(h.filtersSummaryAr) ? h.filtersSummaryAr.join(' — ') : ''),
+    filters: Array.isArray(h.filtersSummaryAr) ? h.filtersSummaryAr.join(' — ') : '',
+    generated_by: h.generatedByAr || '',
+    generated_at: generatedAt,
+    currency: 'د.ع',
+  };
+  // إجماليات حسب التسمية: {{total:اسم البند}}
+  for (const t of doc.totals || []) {
+    if (t?.labelAr) vars[`total:${t.labelAr}`] = String(t.value ?? '');
+  }
+  return text.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_m, key) => (key in vars ? vars[key] : `{{${key}}}`));
+}
+
 /** رقم خام غير مُنسّق (لخلايا Excel الرقمية). */
 export function rawNumber(value: unknown): number {
   const n = Number(value);

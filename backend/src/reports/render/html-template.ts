@@ -4,7 +4,8 @@
 // ══════════════════════════════════════════════════════
 
 import type { ReportDocument, ReportSection, ReportColumn } from '../types.js';
-import { formatCell } from './format.js';
+import type { ResolvedLayout, ElementPos } from '../print-layout.service.js';
+import { formatCell, resolveVars } from './format.js';
 
 const esc = (s: unknown): string =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -74,7 +75,8 @@ function renderSection(s: ReportSection): string {
   }
 }
 
-export function renderDocumentHtml(doc: ReportDocument): string {
+export function renderDocumentHtml(doc: ReportDocument, layout?: ResolvedLayout | null): string {
+  if (layout) return renderLayoutHtml(doc, layout);
   const generated = (() => {
     try { return new Date(doc.header.generatedAt).toLocaleString('ar-IQ'); }
     catch { return doc.header.generatedAt; }
@@ -142,4 +144,87 @@ export function renderDocumentHtml(doc: ReportDocument): string {
   ${doc.sections.map(renderSection).join('')}
   ${totals}
 </body></html>`;
+}
+
+// ══════════════════════════════════════════════════════
+// 🖨️ وضع التخطيط — HTML يطبّق تخطيط الطباعة المخصّص + الورق الرسمي
+// الورق والعناصر position:fixed (تتكرّر كل صفحة، مرجعها حافة الصفحة)؛
+// المحتوى يتدفّق داخل هوامش Puppeteer.
+// ══════════════════════════════════════════════════════
+
+function elementContent(id: string, el: ElementPos, doc: ReportDocument): string {
+  if (el.text) return esc(resolveVars(el.text, doc));
+  const h = doc.header;
+  switch (id) {
+    case 'title':    return esc(h.titleAr);
+    case 'subtitle': return esc(h.subtitleAr || '');
+    case 'filters':  return esc((h.filtersSummaryAr || []).filter(Boolean).join('  •  '));
+    case 'generated': {
+      let g = ''; try { g = new Date(h.generatedAt).toLocaleString('ar-IQ'); } catch { g = h.generatedAt; }
+      return esc(`أُنشئ في: ${g}${h.generatedByAr ? ` — بواسطة: ${h.generatedByAr}` : ''}`);
+    }
+    default: return '';
+  }
+}
+
+function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
+  const isLand = L.orientation === 'landscape';
+  const t = L.table;
+
+  const elsHtml = Object.entries(L.elements || {}).map(([id, el]) => {
+    if (!el || el.hidden) return '';
+    const content = elementContent(id, el, doc);
+    if (!content) return '';
+    const styles = [
+      'position:fixed',
+      `top:${el.y ?? 0}mm`,
+      `right:${el.x ?? 0}mm`,
+      el.w ? `width:${el.w}mm` : '',
+      `font-size:${el.fontSize ?? 11}pt`,
+      el.color ? `color:${el.color}` : '',
+      el.bold ? 'font-weight:800' : '',
+      `text-align:${el.align ?? 'right'}`,
+      'z-index:3',
+    ].filter(Boolean).join(';');
+    return `<div style="${styles}">${content}</div>`;
+  }).join('');
+
+  const lhBg = (L.showLetterhead && L.letterheadDataUri)
+    ? `<div style="position:fixed;inset:0;z-index:0;background-image:url('${L.letterheadDataUri}');background-size:100% 100%;background-repeat:no-repeat;"></div>`
+    : '';
+
+  const grand = doc.totals?.length
+    ? `<div class="grand-totals">${doc.totals.map((gt) => `<div class="gt"><span class="gt-label">${esc(gt.labelAr)}</span><span class="gt-value" style="color:${toneColor(gt.tone)}">${esc(formatCell(gt.value, gt.format))}</span></div>`).join('')}</div>`
+    : '';
+
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
+    @page { size: A4 ${isLand ? 'landscape' : 'portrait'}; margin: 0; }
+    * { box-sizing: border-box; }
+    html,body { margin:0; padding:0; }
+    body { font-family:"Noto Naskh Arabic","Noto Sans Arabic","Tajawal","DejaVu Sans",sans-serif; color:#1a1a1a; font-size:${t.baseFontSize}px; line-height:1.6; direction:rtl; }
+    .content { position:relative; z-index:2; }
+    .grp-title{font-size:15px;font-weight:800;margin:16px 0 8px;color:#111;border-right:4px solid #C5A059;padding-right:8px;}
+    .sec-title{font-size:13px;font-weight:700;margin:14px 0 6px;color:#333;}
+    .kpi-grid{display:flex;flex-wrap:wrap;gap:8px;}
+    .kpi{flex:1 1 140px;border:1px solid #ddd;border-radius:10px;padding:8px 10px;background:rgba(250,250,250,0.85);}
+    .kpi-icon{font-size:16px;} .kpi-label{font-size:10px;color:#777;} .kpi-value{font-size:16px;font-weight:800;} .kpi-sub{font-size:9px;color:#999;margin-top:2px;}
+    table{width:100%;border-collapse:collapse;margin:4px 0 8px;}
+    table.data th{background:${t.thBg};color:${t.thColor};font-size:11px;padding:6px 8px;border:1px solid ${t.thBorder};text-align:right;}
+    table.data td{padding:5px 8px;border:1px solid #eee;font-size:11px;}
+    ${t.stripe ? 'table.data tr:nth-child(even) td{background:rgba(250,250,250,0.7);}' : ''}
+    table.data tr.totals td{background:#f6f1e6;font-weight:800;border-top:2px solid #C5A059;}
+    .al-left{text-align:left;} .al-center{text-align:center;} .al-right{text-align:right;}
+    .badge{background:#eef1f4;border-radius:8px;padding:1px 8px;font-size:10px;}
+    table.kv td{padding:5px 8px;border-bottom:1px solid #eee;font-size:11px;} .kv-label{color:#777;width:40%;} .kv-value{font-weight:700;}
+    .empty{color:#999;text-align:center;padding:12px;font-size:11px;}
+    .grand-totals{margin-top:16px;padding:10px;background:rgba(248,245,238,0.9);border:1px solid #e7ddc7;border-radius:10px;display:flex;flex-wrap:wrap;gap:16px;}
+    .gt{display:flex;flex-direction:column;} .gt-label{font-size:10px;color:#777;} .gt-value{font-size:16px;font-weight:800;}
+  </style></head><body>
+    ${lhBg}
+    ${elsHtml}
+    <div class="content">
+      ${doc.sections.map(renderSection).join('')}
+      ${grand}
+    </div>
+  </body></html>`;
 }

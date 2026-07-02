@@ -9,7 +9,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { getDB } from '../config/db.js';
-import { authenticate, accountantOrAbove } from '../middleware/auth.js';
+import { authenticate, accountantOrAbove, managerOrAbove } from '../middleware/auth.js';
 import type { StaffRole } from '../reports/types.js';
 import { getByKey, getForRole, toDTO } from '../reports/registry.js';
 import { coerceAndValidate } from '../reports/validate.js';
@@ -17,6 +17,7 @@ import { loadOptions } from '../reports/options.js';
 import type { OptionSource } from '../reports/types.js';
 import { renderPdf } from '../reports/render/pdf.js';
 import { renderExcel } from '../reports/render/excel.js';
+import { resolveLayoutForKey, resolveFromRaw } from '../reports/print-layout.service.js';
 
 const router = Router();
 
@@ -92,12 +93,37 @@ router.post('/export', authenticate, accountantOrAbove, async (req: Request, res
       return res.send(buf);
     }
 
-    const buf = await renderPdf(document);
+    const layout = await resolveLayoutForKey(db, def.key);
+    const buf = await renderPdf(document, layout);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(baseName)}.pdf`);
     return res.send(buf);
   } catch (err: any) {
     console.error(`❌ report export [${def.key}/${format}]:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── معاينة PDF بتخطيط غير محفوظ (للمحرّر) ──
+router.post('/preview-pdf', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const def = getByKey(req.body?.key);
+  if (!def) return res.status(404).json({ error: 'تقرير غير معروف' });
+
+  const v = coerceAndValidate(def, req.body?.params ?? {});
+  if (!v.ok) return res.status(400).json({ error: v.errorAr });
+
+  try {
+    const document = await def.resolve({ db, params: v.params, user: req.user! as any });
+    const resolved = await resolveFromRaw(db, req.body?.layout ?? {}, req.body?.letterheadId ?? null);
+    const buf = await renderPdf(document, resolved);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
+    return res.send(buf);
+  } catch (err: any) {
+    console.error(`❌ report preview [${def.key}]:`, err.message);
     res.status(500).json({ error: err.message });
   }
 });

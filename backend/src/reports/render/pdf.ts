@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import type { Browser } from 'puppeteer-core';
 import puppeteer from 'puppeteer-core';
 import type { ReportDocument } from '../types.js';
+import type { ResolvedLayout } from '../print-layout.service.js';
 import { renderDocumentHtml } from './html-template.js';
 
 let browserPromise: Promise<Browser> | null = null;
@@ -50,12 +51,25 @@ async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
-export async function renderPdf(doc: ReportDocument): Promise<Buffer> {
-  const html = renderDocumentHtml(doc);
+export async function renderPdf(doc: ReportDocument, layout?: ResolvedLayout | null): Promise<Buffer> {
+  const html = renderDocumentHtml(doc, layout);
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'networkidle0' });
+
+    if (layout) {
+      // وضع التخطيط: الهوامش والاتجاه من التخطيط؛ الورق والعناصر تُرسم عبر HTML (position:fixed).
+      const m = layout.margins;
+      const pdf = await page.pdf({
+        format: 'A4',
+        landscape: layout.orientation === 'landscape',
+        printBackground: true,
+        margin: { top: `${m.top}mm`, bottom: `${m.bottom}mm`, left: `${m.left}mm`, right: `${m.right}mm` },
+      });
+      return Buffer.from(pdf);
+    }
+
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,

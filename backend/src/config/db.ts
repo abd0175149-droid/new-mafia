@@ -11,6 +11,7 @@ import * as playerSchema from '../schemas/player.schema.js';
 import * as notificationSchema from '../schemas/notification.schema.js';
 import * as gameConfigSchema from '../schemas/game-config.schema.js';
 import * as seasonSchema from '../schemas/season.schema.js';
+import * as printLayoutSchema from '../schemas/print-layout.schema.js';
 
 const { Pool } = pg;
 
@@ -36,7 +37,7 @@ export async function connectDB(): Promise<Database> {
   client.release();
 
   db = drizzle(pool, {
-    schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema, ...gameConfigSchema, ...seasonSchema },
+    schema: { ...adminSchema, ...gameSchema, ...playerSchema, ...notificationSchema, ...gameConfigSchema, ...seasonSchema, ...printLayoutSchema },
   });
 
   // ── Auto-migration: إضافة أعمدة جديدة تلقائياً ──
@@ -249,6 +250,31 @@ async function runAutoMigrations(pool: pg.Pool): Promise<void> {
       `, [s1Id]);
       console.log(`🏆 Migration: Created Season 1 (id=${s1Id}), stamped all matches + seeded player_season_stats`);
     }
+
+    // ── 6. 🖨️ نظام تخطيط الطباعة: الأوراق الرسمية + التخطيطات ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS letterheads (
+        id             SERIAL PRIMARY KEY,
+        name           VARCHAR(150) NOT NULL,
+        image_filename VARCHAR(255) NOT NULL,
+        pdf_filename   VARCHAR(255),
+        width_px       INTEGER DEFAULT 0,
+        height_px      INTEGER DEFAULT 0,
+        created_by     INTEGER,
+        created_at     TIMESTAMP DEFAULT NOW() NOT NULL,
+        deleted_at     TIMESTAMP
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS print_layouts (
+        id            SERIAL PRIMARY KEY,
+        report_key    VARCHAR(60) UNIQUE NOT NULL,
+        letterhead_id INTEGER,
+        layout        JSONB NOT NULL DEFAULT '{}',
+        created_at    TIMESTAMP DEFAULT NOW() NOT NULL,
+        updated_at    TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
 
   } catch (err: any) {
     console.warn('⚠️ Auto-migration warning:', err.message);
