@@ -11,7 +11,7 @@ import {
 import { pdfFileToPng } from '../lib/pdfToPng';
 import {
   DEFAULT_LAYOUT, STANDARD_ELEMENTS, VARIABLES, labelForElement, sectionKeyOf, TOTALS_KEY,
-  type LayoutConfig, type ElementPos,
+  type LayoutConfig, type ElementPos, type SectionConfig,
 } from '../lib/printLayoutContract';
 
 // اسم عرض لقسم جسم التقرير
@@ -148,8 +148,8 @@ export default function PrintLayoutEditor() {
   const orderedEntries = [...sectionEntries].sort(
     (a, b) => (layout.sections?.[a.key]?.order ?? a.idx) - (layout.sections?.[b.key]?.order ?? b.idx),
   );
-  const patchSection = (key: string, patch: { hidden?: boolean; order?: number }) =>
-    setLayout((p) => ({ ...p, sections: { ...(p.sections || {}), [key]: { ...(p.sections?.[key] || {}), ...patch } } }));
+  const patchSection = useCallback((key: string, patch: Partial<SectionConfig>) =>
+    setLayout((p) => ({ ...p, sections: { ...(p.sections || {}), [key]: { ...(p.sections?.[key] || {}), ...patch } } })), []);
   const toggleSectionHidden = (key: string) => patchSection(key, { hidden: !layout.sections?.[key]?.hidden });
   const moveSection = (key: string, dir: -1 | 1) => {
     const keys = orderedEntries.map((e) => e.key);
@@ -328,6 +328,31 @@ export default function PrintLayoutEditor() {
             )}
           </div>
 
+          {/* مفتّش القسم المحدّد */}
+          {selectedSection && previewDoc && (() => {
+            const c = layout.sections?.[selectedSection] || {};
+            const label = selectedSection === TOTALS_KEY
+              ? 'الإجماليات النهائية'
+              : sectionEntries.find((e) => e.key === selectedSection)?.label || 'قسم';
+            return (
+              <div className="space-y-1.5 border border-blue-800/50 rounded-lg p-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-blue-300">📄 {label}</span>
+                  <button
+                    onClick={() => patchSection(selectedSection, { x: undefined, y: undefined, w: undefined, fs: undefined })}
+                    className="text-[9px] text-gray-500 hover:text-white" title="إعادة الموضع والحجم للوضع التلقائي">↺ تلقائي</button>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <Num label="X (يمين)" value={c.x ?? 0} onChange={(v) => patchSection(selectedSection, { x: v || undefined })} step={0.5} />
+                  <Num label="مسافة قبل" value={c.y ?? 0} onChange={(v) => patchSection(selectedSection, { y: v || undefined })} step={0.5} />
+                  <Num label="عرض" value={c.w ?? 0} onChange={(v) => patchSection(selectedSection, { w: v || undefined })} />
+                  <Num label="الخط" value={c.fs ?? layout.table.baseFontSize} onChange={(v) => patchSection(selectedSection, { fs: v || undefined })} />
+                </div>
+                <p className="text-[9px] text-gray-600">اسحب القسم في المعاينة لتحريكه، والمقبض الأزرق يساره لتغيير عرضه. عرض/خط = 0 → تلقائي.</p>
+              </div>
+            );
+          })()}
+
           {/* المفتّش */}
           {sel && selectedId && (
             <div className="space-y-1.5 border border-gray-800 rounded-lg p-2">
@@ -394,7 +419,7 @@ export default function PrintLayoutEditor() {
           doc={previewDoc} docLoading={docLoading}
           selectedId={selectedId} selectedSection={selectedSection}
           onSelect={setSelectedId} onSelectSection={setSelectedSection}
-          onMove={moveElement}
+          onMove={moveElement} onSectionPatch={patchSection}
         />
       </div>
     </div>

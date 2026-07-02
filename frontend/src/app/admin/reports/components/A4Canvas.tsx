@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef } from 'react';
-import type { LayoutConfig } from '../lib/printLayoutContract';
+import type { LayoutConfig, SectionConfig } from '../lib/printLayoutContract';
 import { labelForElement, sectionKeyOf, TOTALS_KEY } from '../lib/printLayoutContract';
 import type { ReportDocument, ReportSection } from '../lib/reportsApi';
 import { formatCell } from '../lib/formatCell';
@@ -15,6 +15,7 @@ interface Props {
   onSelect: (id: string | null) => void;
   onSelectSection: (key: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
+  onSectionPatch: (key: string, patch: Partial<SectionConfig>) => void;
 }
 
 // ── مُصيّر مصغّر لقسم من جسم التقرير (مطابق بصرياً لوضع الطباعة) ──
@@ -83,7 +84,7 @@ function MiniSection({ s, t, fs }: { s: ReportSection; t: LayoutConfig['table'];
   }
 }
 
-export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selectedId, selectedSection, onSelect, onSelectSection, onMove }: Props) {
+export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selectedId, selectedSection, onSelect, onSelectSection, onMove, onSectionPatch }: Props) {
   const isLand = layout.orientation === 'landscape';
   const pageWmm = isLand ? 297 : 210;
   const pageHmm = isLand ? 210 : 297;
@@ -91,26 +92,43 @@ export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selec
   const pxPerMm = targetW / pageWmm;
   const boxW = pageWmm * pxPerMm;
   const boxH = pageHmm * pxPerMm;
+  const contentWmm = pageWmm - layout.margins.left - layout.margins.right;
 
   const drag = useRef<{ id: string; mx: number; my: number; ox: number; oy: number } | null>(null);
+  const secDrag = useRef<{ key: string; mx: number; my: number; ox: number; oy: number } | null>(null);
+  const secResize = useRef<{ key: string; mx: number; ow: number } | null>(null);
 
   useEffect(() => {
     const move = (e: MouseEvent) => {
       const d = drag.current;
-      if (!d) return;
-      const nx = Math.max(0, Math.min(pageWmm, d.ox - (e.clientX - d.mx) / pxPerMm));
-      const ny = Math.max(0, Math.min(pageHmm, d.oy + (e.clientY - d.my) / pxPerMm));
-      onMove(d.id, Math.round(nx * 10) / 10, Math.round(ny * 10) / 10);
+      if (d) {
+        const nx = Math.max(0, Math.min(pageWmm, d.ox - (e.clientX - d.mx) / pxPerMm));
+        const ny = Math.max(0, Math.min(pageHmm, d.oy + (e.clientY - d.my) / pxPerMm));
+        onMove(d.id, Math.round(nx * 10) / 10, Math.round(ny * 10) / 10);
+        return;
+      }
+      const sd = secDrag.current;
+      if (sd) {
+        const nx = Math.max(0, Math.min(contentWmm - 20, sd.ox - (e.clientX - sd.mx) / pxPerMm));
+        const ny = Math.max(-30, Math.min(200, sd.oy + (e.clientY - sd.my) / pxPerMm));
+        onSectionPatch(sd.key, { x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10 });
+        return;
+      }
+      const sr = secResize.current;
+      if (sr) {
+        // مرساة يمين: السحب لليسار يوسّع القسم
+        const nw = Math.max(30, Math.min(contentWmm, sr.ow - (e.clientX - sr.mx) / pxPerMm));
+        onSectionPatch(sr.key, { w: Math.round(nw * 10) / 10 });
+      }
     };
-    const up = () => { drag.current = null; };
+    const up = () => { drag.current = null; secDrag.current = null; secResize.current = null; };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, [pxPerMm, pageWmm, pageHmm, onMove]);
+  }, [pxPerMm, pageWmm, pageHmm, contentWmm, onMove, onSectionPatch]);
 
   const m = layout.margins;
   const cfg = layout.sections || {};
-  const contentFs = Math.max(6, layout.table.baseFontSize * pxPerMm * 0.32);
 
   // أقسام الجسم مرتّبة ومُرشّحة كما ستُطبع
   const ordered = (doc?.sections || [])
@@ -169,29 +187,72 @@ export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selec
             </div>
           ) : doc ? (
             <div style={{ padding: 4 }}>
-              {ordered.map(({ s, key }) => (
-                <div
-                  key={key}
-                  onMouseDown={(e) => { e.stopPropagation(); onSelect(null); onSelectSection(key); }}
-                  className={`cursor-pointer rounded ${selectedSection === key ? 'ring-2 ring-blue-500 bg-blue-500/5' : 'hover:bg-blue-500/5'}`}
-                >
-                  <MiniSection s={s} t={layout.table} fs={contentFs} />
-                </div>
-              ))}
-              {doc.totals?.length && !totalsHidden ? (
-                <div
-                  onMouseDown={(e) => { e.stopPropagation(); onSelect(null); onSelectSection(TOTALS_KEY); }}
-                  className={`cursor-pointer rounded ${selectedSection === TOTALS_KEY ? 'ring-2 ring-blue-500 bg-blue-500/5' : 'hover:bg-blue-500/5'}`}
-                  style={{ marginTop: 6, padding: 4, background: 'rgba(248,245,238,0.9)', border: '1px solid #e7ddc7', borderRadius: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}
-                >
-                  {doc.totals.map((t, i) => (
-                    <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontSize: contentFs * 0.7, color: '#777' }}>{t.labelAr}</span>
-                      <span style={{ fontSize: contentFs * 1.1, fontWeight: 800 }}>{formatCell(t.value, t.format)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+              {ordered.map(({ s, key }) => {
+                const c = cfg[key] || {};
+                const secFs = Math.max(6, (c.fs ?? layout.table.baseFontSize) * pxPerMm * 0.32);
+                const isSel = selectedSection === key;
+                return (
+                  <div
+                    key={key}
+                    onMouseDown={(e) => {
+                      e.stopPropagation(); onSelect(null); onSelectSection(key);
+                      secDrag.current = { key, mx: e.clientX, my: e.clientY, ox: c.x ?? 0, oy: c.y ?? 0 };
+                    }}
+                    className={`relative cursor-move rounded ${isSel ? 'ring-2 ring-blue-500 bg-blue-500/5' : 'hover:bg-blue-500/5'}`}
+                    style={{
+                      marginTop: (c.y ?? 0) * pxPerMm,
+                      marginRight: (c.x ?? 0) * pxPerMm,
+                      width: c.w ? c.w * pxPerMm : undefined,
+                    }}
+                  >
+                    <MiniSection s={s} t={layout.table} fs={secFs} />
+                    {isSel && (
+                      <div
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          secResize.current = { key, mx: e.clientX, ow: c.w ?? (contentWmm - (c.x ?? 0)) };
+                        }}
+                        title="سحب لتغيير العرض"
+                        className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-6 bg-blue-500 rounded cursor-ew-resize z-10"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              {doc.totals?.length && !totalsHidden ? (() => {
+                const c = cfg[TOTALS_KEY] || {};
+                const tfs = Math.max(6, (c.fs ?? layout.table.baseFontSize) * pxPerMm * 0.32);
+                const isSel = selectedSection === TOTALS_KEY;
+                return (
+                  <div
+                    onMouseDown={(e) => {
+                      e.stopPropagation(); onSelect(null); onSelectSection(TOTALS_KEY);
+                      secDrag.current = { key: TOTALS_KEY, mx: e.clientX, my: e.clientY, ox: c.x ?? 0, oy: c.y ?? 0 };
+                    }}
+                    className={`relative cursor-move rounded ${isSel ? 'ring-2 ring-blue-500 bg-blue-500/5' : 'hover:bg-blue-500/5'}`}
+                    style={{
+                      marginTop: 6 + (c.y ?? 0) * pxPerMm,
+                      marginRight: (c.x ?? 0) * pxPerMm,
+                      width: c.w ? c.w * pxPerMm : undefined,
+                      padding: 4, background: 'rgba(248,245,238,0.9)', border: '1px solid #e7ddc7', borderRadius: 4, display: 'flex', gap: 10, flexWrap: 'wrap',
+                    }}
+                  >
+                    {doc.totals!.map((t, i) => (
+                      <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: tfs * 0.7, color: '#777' }}>{t.labelAr}</span>
+                        <span style={{ fontSize: tfs * 1.1, fontWeight: 800 }}>{formatCell(t.value, t.format)}</span>
+                      </div>
+                    ))}
+                    {isSel && (
+                      <div
+                        onMouseDown={(e) => { e.stopPropagation(); secResize.current = { key: TOTALS_KEY, mx: e.clientX, ow: c.w ?? (contentWmm - (c.x ?? 0)) }; }}
+                        title="سحب لتغيير العرض"
+                        className="absolute top-1/2 -translate-y-1/2 -left-1.5 w-3 h-6 bg-blue-500 rounded cursor-ew-resize z-10"
+                      />
+                    )}
+                  </div>
+                );
+              })() : null}
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-[10px] text-gray-400 text-center px-4">

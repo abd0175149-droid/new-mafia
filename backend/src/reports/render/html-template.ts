@@ -182,9 +182,23 @@ function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
   const orderedSections = doc.sections
     .map((s, i) => ({ s, i, key: sectionKeyOf(s, i) }))
     .filter(({ key }) => !cfg[key]?.hidden)
-    .sort((a, b) => (cfg[a.key]?.order ?? a.i) - (cfg[b.key]?.order ?? b.i))
-    .map(({ s }) => s);
+    .sort((a, b) => (cfg[a.key]?.order ?? a.i) - (cfg[b.key]?.order ?? b.i));
   const totalsHidden = !!cfg[TOTALS_KEY]?.hidden;
+
+  // غلاف قسم بموضع/عرض/خط مخصّص (يبقى في التدفّق → ترقيم صفحات سليم)
+  const sectionStyle = (key: string): string => {
+    const c = cfg[key] || {};
+    return [
+      c.y ? `margin-top:${c.y}mm` : '',
+      c.x ? `margin-right:${c.x}mm` : '',
+      c.w ? `width:${c.w}mm` : '',
+      c.fs ? `font-size:${c.fs}px` : '',
+    ].filter(Boolean).join(';');
+  };
+  const wrapSection = (inner: string, key: string): string => {
+    const st = sectionStyle(key);
+    return st ? `<div style="${st}">${inner}</div>` : inner;
+  };
 
   const elsHtml = Object.entries(L.elements || {}).map(([id, el]) => {
     if (!el || el.hidden) return '';
@@ -209,7 +223,7 @@ function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
     : '';
 
   const grand = (doc.totals?.length && !totalsHidden)
-    ? `<div class="grand-totals">${doc.totals.map((gt) => `<div class="gt"><span class="gt-label">${esc(gt.labelAr)}</span><span class="gt-value" style="color:${toneColor(gt.tone)}">${esc(formatCell(gt.value, gt.format))}</span></div>`).join('')}</div>`
+    ? wrapSection(`<div class="grand-totals">${doc.totals.map((gt) => `<div class="gt"><span class="gt-label">${esc(gt.labelAr)}</span><span class="gt-value" style="color:${toneColor(gt.tone)}">${esc(formatCell(gt.value, gt.format))}</span></div>`).join('')}</div>`, TOTALS_KEY)
     : '';
 
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
@@ -218,27 +232,28 @@ function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
     html,body { margin:0; padding:0; }
     body { font-family:"Noto Naskh Arabic","Noto Sans Arabic","Tajawal","DejaVu Sans",sans-serif; color:#1a1a1a; font-size:${t.baseFontSize}px; line-height:1.6; direction:rtl; }
     .content { position:relative; z-index:2; }
-    .grp-title{font-size:15px;font-weight:800;margin:16px 0 8px;color:#111;border-right:4px solid #C5A059;padding-right:8px;}
-    .sec-title{font-size:13px;font-weight:700;margin:14px 0 6px;color:#333;}
+    /* أحجام em نسبية داخل المحتوى — تسمح بتخصيص حجم خط كل قسم عبر غلافه */
+    .grp-title{font-size:1.3em;font-weight:800;margin:16px 0 8px;color:#111;border-right:4px solid #C5A059;padding-right:8px;}
+    .sec-title{font-size:1.15em;font-weight:700;margin:14px 0 6px;color:#333;}
     .kpi-grid{display:flex;flex-wrap:wrap;gap:8px;}
     .kpi{flex:1 1 140px;border:1px solid #ddd;border-radius:10px;padding:8px 10px;background:rgba(250,250,250,0.85);}
-    .kpi-icon{font-size:16px;} .kpi-label{font-size:10px;color:#777;} .kpi-value{font-size:16px;font-weight:800;} .kpi-sub{font-size:9px;color:#999;margin-top:2px;}
+    .kpi-icon{font-size:1.4em;} .kpi-label{font-size:0.85em;color:#777;} .kpi-value{font-size:1.4em;font-weight:800;} .kpi-sub{font-size:0.8em;color:#999;margin-top:2px;}
     table{width:100%;border-collapse:collapse;margin:4px 0 8px;}
-    table.data th{background:${t.thBg};color:${t.thColor};font-size:11px;padding:6px 8px;border:1px solid ${t.thBorder};text-align:right;}
-    table.data td{padding:5px 8px;border:1px solid #eee;font-size:11px;}
+    table.data th{background:${t.thBg};color:${t.thColor};font-size:0.95em;padding:6px 8px;border:1px solid ${t.thBorder};text-align:right;}
+    table.data td{padding:5px 8px;border:1px solid #eee;font-size:0.95em;}
     ${t.stripe ? 'table.data tr:nth-child(even) td{background:rgba(250,250,250,0.7);}' : ''}
     table.data tr.totals td{background:#f6f1e6;font-weight:800;border-top:2px solid #C5A059;}
     .al-left{text-align:left;} .al-center{text-align:center;} .al-right{text-align:right;}
-    .badge{background:#eef1f4;border-radius:8px;padding:1px 8px;font-size:10px;}
-    table.kv td{padding:5px 8px;border-bottom:1px solid #eee;font-size:11px;} .kv-label{color:#777;width:40%;} .kv-value{font-weight:700;}
-    .empty{color:#999;text-align:center;padding:12px;font-size:11px;}
+    .badge{background:#eef1f4;border-radius:8px;padding:1px 8px;font-size:0.85em;}
+    table.kv td{padding:5px 8px;border-bottom:1px solid #eee;font-size:0.95em;} .kv-label{color:#777;width:40%;} .kv-value{font-weight:700;}
+    .empty{color:#999;text-align:center;padding:12px;font-size:0.95em;}
     .grand-totals{margin-top:16px;padding:10px;background:rgba(248,245,238,0.9);border:1px solid #e7ddc7;border-radius:10px;display:flex;flex-wrap:wrap;gap:16px;}
-    .gt{display:flex;flex-direction:column;} .gt-label{font-size:10px;color:#777;} .gt-value{font-size:16px;font-weight:800;}
+    .gt{display:flex;flex-direction:column;} .gt-label{font-size:0.85em;color:#777;} .gt-value{font-size:1.4em;font-weight:800;}
   </style></head><body>
     ${lhBg}
     ${elsHtml}
     <div class="content">
-      ${orderedSections.map(renderSection).join('')}
+      ${orderedSections.map(({ s, key }) => wrapSection(renderSection(s), key)).join('')}
       ${grand}
     </div>
   </body></html>`;

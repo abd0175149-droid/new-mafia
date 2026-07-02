@@ -17,7 +17,14 @@ export interface ElementPos {
   color?: string; bold?: boolean; align?: 'right' | 'left' | 'center';
   hidden?: boolean; text?: string; zone?: 'header' | 'footer';
 }
-export interface SectionConfig { hidden?: boolean; order?: number; }
+export interface SectionConfig {
+  hidden?: boolean;
+  order?: number;
+  x?: number;    // إزاحة أفقية بالمليمتر من يمين منطقة المحتوى
+  y?: number;    // مسافة قبل القسم بالمليمتر (تقبل سالباً للسحب لأعلى)
+  w?: number;    // عرض القسم بالمليمتر (فارغ = تلقائي)
+  fs?: number;   // حجم خط القسم (px، فارغ = يرث baseFontSize)
+}
 
 export interface LayoutConfig {
   orientation: 'portrait' | 'landscape';

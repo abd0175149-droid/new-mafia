@@ -9,7 +9,14 @@ export interface ElementPos {
   hidden?: boolean; text?: string; zone?: 'header' | 'footer';
 }
 
-export interface SectionConfig { hidden?: boolean; order?: number; }
+export interface SectionConfig {
+  hidden?: boolean;
+  order?: number;
+  x?: number;    // إزاحة أفقية بالمليمتر من يمين منطقة المحتوى
+  y?: number;    // مسافة قبل القسم بالمليمتر (تقبل سالباً)
+  w?: number;    // عرض القسم بالمليمتر (فارغ = تلقائي)
+  fs?: number;   // حجم خط القسم (px)
+}
 
 export interface LayoutConfig {
   orientation: 'portrait' | 'landscape';
