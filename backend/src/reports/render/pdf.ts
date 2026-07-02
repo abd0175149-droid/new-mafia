@@ -8,7 +8,7 @@ import type { Browser } from 'puppeteer-core';
 import puppeteer from 'puppeteer-core';
 import type { ReportDocument } from '../types.js';
 import type { ResolvedLayout } from '../print-layout.service.js';
-import { renderDocumentHtml } from './html-template.js';
+import { renderDocumentHtml, renderMeasureHtml, MEASURE_FN, type LayoutMetrics } from './html-template.js';
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -52,15 +52,19 @@ async function getBrowser(): Promise<Browser> {
 }
 
 export async function renderPdf(doc: ReportDocument, layout?: ResolvedLayout | null): Promise<Buffer> {
-  const html = renderDocumentHtml(doc, layout);
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-
     if (layout) {
-      // وضع التخطيط: ترقيم صريح — كل صفحة صندوق A4 يدير هوامشه بنفسه،
-      // لذلك هوامش Puppeteer صفر (الورق الرسمي يغطي الصفحة كاملة).
+      // وضع التخطيط: قياس ثم ترقيم — نقيس الارتفاعات الفعلية أولاً لتفادي القصّ.
+      let metrics: LayoutMetrics | null = null;
+      try {
+        await page.setContent(renderMeasureHtml(doc, layout), { waitUntil: 'networkidle0' });
+        // نمرّر تعبير IIFE نصّياً ليُقيّم داخل المتصفح (لا حاجة لأنواع DOM في السيرفر)
+        metrics = await page.evaluate(`(${MEASURE_FN})()`) as LayoutMetrics;
+      } catch { metrics = null; }
+
+      await page.setContent(renderDocumentHtml(doc, layout, metrics), { waitUntil: 'networkidle0' });
       const pdf = await page.pdf({
         format: 'A4',
         landscape: layout.orientation === 'landscape',
@@ -70,6 +74,7 @@ export async function renderPdf(doc: ReportDocument, layout?: ResolvedLayout | n
       return Buffer.from(pdf);
     }
 
+    await page.setContent(renderDocumentHtml(doc), { waitUntil: 'networkidle0' });
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
