@@ -6,7 +6,7 @@
 import { and, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { costs } from '../../schemas/admin.schema.js';
-import { num, rangeDates, rangeLabel } from '../helpers.js';
+import { num, rangeDates, rangeLabel, notTestCost } from '../helpers.js';
 
 const SCOPE_AR: Record<string, string> = {
   general: 'عام', activity: 'نشاط', player: 'لاعب', equipment: 'معدات', other: 'أخرى',
@@ -31,7 +31,7 @@ export const expensesByCategoryReport: ReportDefinition = {
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
       count: sql<number>`COUNT(*)::int`,
     }).from(costs)
-      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to)))
+      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
       .groupBy(costs.item, costs.scope)
       .orderBy(desc(sql`COALESCE(SUM(${costs.amount}::numeric), 0)`));
 
@@ -39,7 +39,7 @@ export const expensesByCategoryReport: ReportDefinition = {
       scope: costs.scope,
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
     }).from(costs)
-      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to)))
+      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
       .groupBy(costs.scope);
 
     const grand = byItem.reduce((s, r) => s + num(r.total), 0);

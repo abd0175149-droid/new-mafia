@@ -31,7 +31,7 @@ export const locationPerformanceReport: ReportDefinition = {
       capacity: sql<number>`COALESCE(SUM(${activities.maxCapacity}), 0)::int`,
     }).from(locations)
       .leftJoin(activities, and(eq(activities.locationId, locations.id), actDateCond))
-      .where(isNull(locations.deletedAt))
+      .where(and(isNull(locations.deletedAt), sql`${locations.isTestLocation} IS NOT TRUE`))
       .groupBy(locations.id, locations.name, locations.isTestLocation);
 
     // الدخل والحضور (عبر ربط الحجوزات)
@@ -42,7 +42,7 @@ export const locationPerformanceReport: ReportDefinition = {
     }).from(locations)
       .leftJoin(activities, and(eq(activities.locationId, locations.id), actDateCond))
       .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
-      .where(isNull(locations.deletedAt))
+      .where(and(isNull(locations.deletedAt), sql`${locations.isTestLocation} IS NOT TRUE`))
       .groupBy(locations.id);
     const revMap = new Map(revRows.map((r) => [r.locId, { revenue: num(r.revenue), attendees: r.attendees }]));
 

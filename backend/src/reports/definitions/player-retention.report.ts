@@ -3,7 +3,7 @@
 // أفواج التسجيل الشهرية مقابل النشاط الحالي + اللاعبون غير النشطين.
 // ══════════════════════════════════════════════════════
 
-import { and, eq, gte, sql, desc } from 'drizzle-orm';
+import { and, gte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { players } from '../../schemas/player.schema.js';
 import { num, pct, rangeDates, rangeLabel } from '../helpers.js';
@@ -28,7 +28,7 @@ export const playerRetentionReport: ReportDefinition = {
       active30: sql<number>`COALESCE(SUM(CASE WHEN ${players.lastActiveAt} >= NOW() - INTERVAL '30 days' THEN 1 ELSE 0 END), 0)::int`,
       active90: sql<number>`COALESCE(SUM(CASE WHEN ${players.lastActiveAt} >= NOW() - INTERVAL '90 days' THEN 1 ELSE 0 END), 0)::int`,
       dormant: sql<number>`COALESCE(SUM(CASE WHEN ${players.lifetimeMatches} > 0 AND (${players.lastActiveAt} IS NULL OR ${players.lastActiveAt} < NOW() - INTERVAL '60 days') THEN 1 ELSE 0 END), 0)::int`,
-    }).from(players).where(eq(players.isTestAccount, false));
+    }).from(players);
 
     // أفواج شهرية
     const cohorts = await db.select({
@@ -37,7 +37,7 @@ export const playerRetentionReport: ReportDefinition = {
       played: sql<number>`COALESCE(SUM(CASE WHEN ${players.lifetimeMatches} > 0 THEN 1 ELSE 0 END), 0)::int`,
       stillActive: sql<number>`COALESCE(SUM(CASE WHEN ${players.lastActiveAt} >= NOW() - INTERVAL '30 days' THEN 1 ELSE 0 END), 0)::int`,
     }).from(players)
-      .where(and(eq(players.isTestAccount, false), gte(players.createdAt, from)))
+      .where(gte(players.createdAt, from))
       .groupBy(sql`TO_CHAR(${players.createdAt}, 'YYYY-MM')`)
       .orderBy(desc(sql`TO_CHAR(${players.createdAt}, 'YYYY-MM')`));
 
@@ -47,7 +47,6 @@ export const playerRetentionReport: ReportDefinition = {
       lifetimeMatches: players.lifetimeMatches, lastActiveAt: players.lastActiveAt,
     }).from(players)
       .where(and(
-        eq(players.isTestAccount, false),
         sql`${players.lifetimeMatches} > 0`,
         sql`(${players.lastActiveAt} IS NULL OR ${players.lastActiveAt} < NOW() - INTERVAL '60 days')`,
       ))

@@ -5,9 +5,23 @@
 // ══════════════════════════════════════════════════════
 
 import { sql } from 'drizzle-orm';
-import { bookings } from '../schemas/admin.schema.js';
+import { bookings, costs, activities } from '../schemas/admin.schema.js';
+import { matches } from '../schemas/game.schema.js';
 
 type BookingsTable = typeof bookings;
+
+// ── استبعاد بيانات أماكن الاختبار (test location) من التقارير التجميعية ──
+// المحور الصحيح هو "المكان" لا "الحساب" (مطابقةً لـ reconcile.service الحيّ).
+// كل شرط قائم بذاته (subquery) فلا يحتاج JOIN، ويُستخدم فقط في استعلام يضمّ جدوله.
+
+// على جدول activities: يُبقي الأنشطة بلا موقع، ويستبعد أنشطة أماكن الاختبار.
+export const notTestActivity = sql`(${activities.locationId} IS NULL OR ${activities.locationId} NOT IN (SELECT id FROM locations WHERE is_test_location IS TRUE))`;
+
+// على جدول costs: يستبعد المصاريف المرتبطة بنشاط في مكان اختبار (يُبقي المصاريف العامة).
+export const notTestCost = sql`(${costs.activityId} IS NULL OR ${costs.activityId} NOT IN (SELECT id FROM activities WHERE location_id IN (SELECT id FROM locations WHERE is_test_location IS TRUE)))`;
+
+// على جدول matches: يستبعد مباريات أماكن الاختبار.
+export const notTestMatch = sql`(${matches.sessionId} IS NULL OR ${matches.sessionId} NOT IN (SELECT s.id FROM sessions s JOIN activities a ON s.activity_id = a.id WHERE a.location_id IN (SELECT id FROM locations WHERE is_test_location IS TRUE)))`;
 
 // ── تعبيرات مالية (نقدي فقط) ──────────────────────────
 // الدخل المحصّل: مدفوع وغير مجاني

@@ -8,7 +8,7 @@ import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { activities, bookings, costs, foundationalCosts, locations } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
-import { paidRevenue, unpaidReceivable, num, pct, rangeDates, rangeLabel } from '../helpers.js';
+import { paidRevenue, unpaidReceivable, num, pct, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
 
 const SCOPE_AR: Record<string, string> = {
   general: 'مصاريف عامة', activity: 'مصاريف أنشطة', player: 'مصاريف لاعبين', equipment: 'معدات', other: 'أخرى',
@@ -35,6 +35,7 @@ export const accountingBalanceReport: ReportDefinition = {
       gte(activities.date, from),
       lte(activities.date, to),
       locId ? eq(activities.locationId, locId) : undefined,
+      notTestActivity,   // استبعاد أنشطة أماكن الاختبار
     );
 
     // ── دخل الفترة (أساس تاريخ النشاط) ──
@@ -75,7 +76,7 @@ export const accountingBalanceReport: ReportDefinition = {
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
       count: sql<number>`COUNT(*)::int`,
     }).from(costs)
-      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to)))
+      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
       .groupBy(costs.scope);
 
     const operationalTotal = costsByScope.reduce((s, c) => s + num(c.total), 0);

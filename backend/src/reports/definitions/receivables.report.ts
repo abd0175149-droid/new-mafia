@@ -6,7 +6,7 @@
 import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { bookings, activities, locations } from '../../schemas/admin.schema.js';
-import { num, rangeDates, rangeLabel } from '../helpers.js';
+import { num, rangeDates, rangeLabel, notTestActivity } from '../helpers.js';
 
 export const receivablesReport: ReportDefinition = {
   key: 'receivables',
@@ -36,6 +36,7 @@ export const receivablesReport: ReportDefinition = {
         isNull(bookings.deletedAt), isNull(activities.deletedAt),
         gte(activities.date, from), lte(activities.date, to),
         actId ? eq(activities.id, actId) : undefined,
+        notTestActivity,
       ))
       .orderBy(desc(activities.date));
 

@@ -8,7 +8,7 @@ import type { ReportDefinition, ReportDocument } from '../types.js';
 import { bookings, costs, activities } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
 import { matches, matchPlayers, sessions } from '../../schemas/game.schema.js';
-import { paidRevenue, unpaidReceivable, num, pct, rangeDates, rangeLabel } from '../helpers.js';
+import { paidRevenue, unpaidReceivable, num, pct, rangeDates, rangeLabel, notTestActivity, notTestMatch } from '../helpers.js';
 
 const RANK_AR: Record<string, string> = {
   INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب',
@@ -51,7 +51,7 @@ export const playerStatementReport: ReportDefinition = {
       count: sql<number>`COUNT(*)::int`,
     }).from(bookings)
       .leftJoin(activities, eq(bookings.activityId, activities.id))
-      .where(and(eq(bookings.playerId, pid), isNull(bookings.deletedAt), bookingDateCond));
+      .where(and(eq(bookings.playerId, pid), isNull(bookings.deletedAt), bookingDateCond, notTestActivity));
 
     // صفوف الحجوزات
     const bookingRows = await db.select({
@@ -59,7 +59,7 @@ export const playerStatementReport: ReportDefinition = {
       isPaid: bookings.isPaid, isFree: bookings.isFree, paidAmount: bookings.paidAmount,
     }).from(bookings)
       .leftJoin(activities, eq(bookings.activityId, activities.id))
-      .where(and(eq(bookings.playerId, pid), isNull(bookings.deletedAt), bookingDateCond))
+      .where(and(eq(bookings.playerId, pid), isNull(bookings.deletedAt), bookingDateCond, notTestActivity))
       .orderBy(desc(activities.date));
 
     // (3) مصاريف مرتبطة باللاعب
@@ -78,7 +78,8 @@ export const playerStatementReport: ReportDefinition = {
       count: sql<number>`COUNT(*)::int`,
       survived: sql<number>`COALESCE(SUM(CASE WHEN ${matchPlayers.survivedToEnd} = true THEN 1 ELSE 0 END), 0)::int`,
     }).from(matchPlayers)
-      .where(eq(matchPlayers.playerId, pid))
+      .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+      .where(and(eq(matchPlayers.playerId, pid), notTestMatch))
       .groupBy(matchPlayers.role)
       .orderBy(desc(sql`COUNT(*)`));
 
@@ -90,7 +91,7 @@ export const playerStatementReport: ReportDefinition = {
       .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
       .innerJoin(sessions, eq(matches.sessionId, sessions.id))
       .leftJoin(activities, eq(sessions.activityId, activities.id))
-      .where(and(eq(matchPlayers.playerId, pid), isNull(matches.deletedAt)))
+      .where(and(eq(matchPlayers.playerId, pid), isNull(matches.deletedAt), notTestMatch))
       .groupBy(activities.id, activities.name, activities.date)
       .orderBy(desc(activities.date));
 

@@ -15,14 +15,15 @@ export interface PickerOption { value: string; labelAr: string; }
 export async function loadOptions(db: Database, source: OptionSource, q?: string): Promise<PickerOption[]> {
   switch (source) {
     case 'activities': {
-      const rows = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+      const rows = await db.select({ id: activities.id, name: activities.name, date: activities.date, isTest: locations.isTestLocation })
         .from(activities)
+        .leftJoin(locations, eq(activities.locationId, locations.id))
         .where(isNull(activities.deletedAt))
         .orderBy(desc(activities.date))
         .limit(500);
       return rows.map((r) => ({
         value: String(r.id),
-        labelAr: `${r.name} — ${r.date ? new Date(r.date).toLocaleDateString('ar-IQ') : ''}`,
+        labelAr: `${r.name} — ${r.date ? new Date(r.date).toLocaleDateString('ar-IQ') : ''}${r.isTest ? ' (اختبار)' : ''}`,
       }));
     }
 

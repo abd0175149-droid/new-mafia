@@ -3,7 +3,7 @@
 // ترتيب اللاعبين لموسم مختار من player_season_stats.
 // ══════════════════════════════════════════════════════
 
-import { and, eq, sql, desc } from 'drizzle-orm';
+import { eq, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { playerSeasonStats, seasons } from '../../schemas/season.schema.js';
 import { players } from '../../schemas/player.schema.js';
@@ -44,7 +44,9 @@ export const seasonLeaderboardReport: ReportDefinition = {
       totalMatches: playerSeasonStats.totalMatches, totalWins: playerSeasonStats.totalWins,
     }).from(playerSeasonStats)
       .innerJoin(players, eq(playerSeasonStats.playerId, players.id))
-      .where(and(eq(playerSeasonStats.seasonId, seasonId), eq(players.isTestAccount, false)))
+      // لا نستبعد الحسابات التجريبية: هم لاعبون حقيقيون، وإحصاءاتهم مبنيّة على مبارياتهم
+      // خارج أماكن الاختبار (reconcile يستبعد مباريات test-location)، مطابقةً للترتيب الحيّ.
+      .where(eq(playerSeasonStats.seasonId, seasonId))
       .orderBy(desc(RANK_WEIGHT), desc(playerSeasonStats.rankRR))
       .limit(limit);
 

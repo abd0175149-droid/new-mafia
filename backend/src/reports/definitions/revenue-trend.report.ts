@@ -6,7 +6,7 @@
 import { and, eq, isNull, gte, lte, sql } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { activities, bookings, costs } from '../../schemas/admin.schema.js';
-import { paidRevenue, num, rangeDates, rangeLabel } from '../helpers.js';
+import { paidRevenue, num, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
 
 export const revenueTrendReport: ReportDefinition = {
   key: 'revenue-trend',
@@ -30,7 +30,7 @@ export const revenueTrendReport: ReportDefinition = {
       revenue: paidRevenue(),
     }).from(activities)
       .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
-      .where(and(isNull(activities.deletedAt), gte(activities.date, from), lte(activities.date, to)))
+      .where(and(isNull(activities.deletedAt), gte(activities.date, from), lte(activities.date, to), notTestActivity))
       .groupBy(sql`TO_CHAR(${activities.date}, ${sql.raw(`'${fmt}'`)})`)
       .orderBy(sql`TO_CHAR(${activities.date}, ${sql.raw(`'${fmt}'`)})`);
 
@@ -38,7 +38,7 @@ export const revenueTrendReport: ReportDefinition = {
       period: sql<string>`TO_CHAR(${costs.date}, ${sql.raw(`'${fmt}'`)})`,
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
     }).from(costs)
-      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to)))
+      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
       .groupBy(sql`TO_CHAR(${costs.date}, ${sql.raw(`'${fmt}'`)})`);
 
     const costMap = new Map(costByPeriod.map((c) => [c.period, num(c.total)]));

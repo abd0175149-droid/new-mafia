@@ -6,7 +6,7 @@
 import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { reservations, activities } from '../../schemas/admin.schema.js';
-import { num, pct, rangeDates, rangeLabel } from '../helpers.js';
+import { num, pct, rangeDates, rangeLabel, notTestActivity } from '../helpers.js';
 
 const STATUS_AR: Record<string, string> = { pending: 'قيد الانتظار', confirmed: 'مؤكّد', paid_all: 'مدفوع بالكامل' };
 
@@ -30,6 +30,7 @@ export const reservationsAttendanceReport: ReportDefinition = {
       isNull(reservations.deletedAt),
       gte(reservations.createdAt, from), lte(reservations.createdAt, to),
       actId ? eq(reservations.activityId, actId) : undefined,
+      notTestActivity,   // يتطلّب ضمّ activities في كل استعلام يستخدم cond
     );
 
     const [agg] = await db.select({
@@ -39,7 +40,9 @@ export const reservationsAttendanceReport: ReportDefinition = {
       noShow: sql<number>`COALESCE(SUM(CASE WHEN ${reservations.attended} = false THEN 1 ELSE 0 END), 0)::int`,
       pending: sql<number>`COALESCE(SUM(CASE WHEN ${reservations.status} = 'pending' THEN 1 ELSE 0 END), 0)::int`,
       confirmed: sql<number>`COALESCE(SUM(CASE WHEN ${reservations.status} = 'confirmed' THEN 1 ELSE 0 END), 0)::int`,
-    }).from(reservations).where(cond);
+    }).from(reservations)
+      .leftJoin(activities, eq(reservations.activityId, activities.id))
+      .where(cond);
 
     const rows = await db.select({
       contactName: reservations.contactName, phone: reservations.phone,

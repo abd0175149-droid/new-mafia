@@ -6,7 +6,7 @@
 import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { matches, matchPlayers, sessions } from '../../schemas/game.schema.js';
-import { num, pct, rangeDates, rangeLabel } from '../helpers.js';
+import { num, pct, rangeDates, rangeLabel, notTestMatch } from '../helpers.js';
 
 const WINNER_AR: Record<string, string> = { MAFIA: 'المافيا', CITIZEN: 'المدنيون', JESTER: 'المهرّج', ASSASSIN: 'القاتل' };
 
@@ -29,6 +29,7 @@ export const gameAnalyticsReport: ReportDefinition = {
     const matchCond = and(
       isNull(matches.deletedAt), gte(matches.createdAt, from), lte(matches.createdAt, to),
       seasonId ? eq(matches.seasonId, seasonId) : undefined,
+      notTestMatch,   // استبعاد مباريات أماكن الاختبار
     );
 
     const [summary] = await db.select({

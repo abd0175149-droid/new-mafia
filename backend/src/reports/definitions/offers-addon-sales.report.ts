@@ -6,7 +6,7 @@
 import { and, eq, isNull, gte, lte, sql } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { bookings, activities, locations } from '../../schemas/admin.schema.js';
-import { num, rangeDates, rangeLabel } from '../helpers.js';
+import { num, rangeDates, rangeLabel, notTestActivity } from '../helpers.js';
 
 interface OfferDef { id: unknown; name?: string; price?: unknown; }
 
@@ -44,6 +44,7 @@ export const offersAddonSalesReport: ReportDefinition = {
         isNull(bookings.deletedAt), isNull(activities.deletedAt),
         gte(activities.date, from), lte(activities.date, to),
         locId ? eq(activities.locationId, locId) : undefined,
+        notTestActivity,
         sql`${bookings.offerItems} IS NOT NULL AND jsonb_array_length(${bookings.offerItems}) > 0`,
       ));
 
