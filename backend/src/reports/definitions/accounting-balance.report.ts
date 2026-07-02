@@ -6,12 +6,12 @@
 
 import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
-import { activities, bookings, costs, foundationalCosts, locations } from '../../schemas/admin.schema.js';
+import { activities, bookings, costs, locations } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
-import { paidRevenue, unpaidReceivable, num, pct, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
+import { paidRevenue, unpaidReceivable, unpaidCount, num, pct, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
 
 const SCOPE_AR: Record<string, string> = {
-  general: 'مصاريف عامة', activity: 'مصاريف أنشطة', player: 'مصاريف لاعبين', equipment: 'معدات', other: 'أخرى',
+  general: 'عام', activity: 'نشاط', player: 'لاعب', equipment: 'معدات', other: 'أخرى',
 };
 
 export const accountingBalanceReport: ReportDefinition = {
@@ -40,7 +40,7 @@ export const accountingBalanceReport: ReportDefinition = {
 
     // ── دخل الفترة (أساس تاريخ النشاط) ──
     const [inc] = await db.select({
-      income: paidRevenue(), receivables: unpaidReceivable(),
+      income: paidRevenue(), receivables: unpaidReceivable(), unpaidBookings: unpaidCount(),
     }).from(activities)
       .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
       .where(actDateCond);
@@ -51,13 +51,11 @@ export const accountingBalanceReport: ReportDefinition = {
       name: activities.name, date: activities.date, status: activities.status,
       locationName: locations.name,
       income: paidRevenue(), receivables: unpaidReceivable(),
-      attendees: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-      maxCapacity: activities.maxCapacity,
     }).from(activities)
       .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
       .leftJoin(locations, eq(activities.locationId, locations.id))
       .where(actDateCond)
-      .groupBy(activities.id, activities.name, activities.date, activities.status, activities.maxCapacity, locations.name)
+      .groupBy(activities.id, activities.name, activities.date, activities.status, locations.name)
       .orderBy(desc(activities.date));
 
     // تكاليف كل نشاط (خريطة activityId → مبلغ) ضمن نفس الفترة
@@ -70,36 +68,25 @@ export const accountingBalanceReport: ReportDefinition = {
       .groupBy(costs.activityId);
     const actCostMap = new Map(actCostRows.map((c) => [c.activityId, num(c.total)]));
 
-    // ── المصاريف خلال الفترة (حسب تاريخ المصروف) مصنّفة ──
-    const costsByScope = await db.select({
-      scope: costs.scope,
-      total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
-      count: sql<number>`COUNT(*)::int`,
-    }).from(costs)
-      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
-      .groupBy(costs.scope);
-
-    const operationalTotal = costsByScope.reduce((s, c) => s + num(c.total), 0);
-
-    // ── مصاريف مرتبطة بلاعبين (تفصيل بالاسم) ──
-    const playerCosts = await db.select({
-      playerName: players.name, item: costs.item, amount: costs.amount, date: costs.date,
+    // ── المصاريف خلال الفترة — تفصيل كل مصروف (البند/النوع/المبلغ/التاريخ) ──
+    const expenseRows = await db.select({
+      item: costs.item, scope: costs.scope, amount: costs.amount, date: costs.date, paidBy: costs.paidBy,
+      playerName: players.name, activityName: activities.name,
     }).from(costs)
       .leftJoin(players, eq(costs.playerId, players.id))
-      .where(and(isNull(costs.deletedAt), eq(costs.scope, 'player'), gte(costs.date, from), lte(costs.date, to)))
+      .leftJoin(activities, eq(costs.activityId, activities.id))
+      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
       .orderBy(desc(costs.date));
 
-    // ── التكاليف التأسيسية خلال الفترة ──
-    const [found] = await db.select({
-      total: sql<number>`COALESCE(SUM(${foundationalCosts.amount}::numeric), 0)`,
-      count: sql<number>`COUNT(*)::int`,
-    }).from(foundationalCosts)
-      .where(and(isNull(foundationalCosts.deletedAt), gte(foundationalCosts.date, from), lte(foundationalCosts.date, to)));
+    const operationalTotal = expenseRows.reduce((s, c) => s + num(c.amount), 0);
+
+    // ── مصاريف مرتبطة بلاعبين (قد تكون مرتبطة بنشاط أيضاً أو عامة على اللاعب) ──
+    const playerCosts = expenseRows.filter((c) => c.scope === 'player');
 
     const income = num(inc?.income);
     const receivables = num(inc?.receivables);
-    const foundationalTotal = num(found?.total);
-    const totalExpenses = operationalTotal + foundationalTotal;
+    const unpaidBookings = num(inc?.unpaidBookings);
+    const totalExpenses = operationalTotal;   // التكاليف التأسيسية خارج هذا التقرير (لها تقرير مستقل)
     const net = income - totalExpenses;
     const margin = pct(net, income);
 
@@ -118,14 +105,16 @@ export const accountingBalanceReport: ReportDefinition = {
           items: [
             { icon: '💰', labelAr: 'الإيرادات المحصّلة', value: income, format: 'currency', tone: 'green' },
             { icon: '💸', labelAr: 'التكاليف التشغيلية', value: operationalTotal, format: 'currency', tone: 'amber' },
-            { icon: '🏗️', labelAr: 'التكاليف التأسيسية', value: foundationalTotal, format: 'currency', tone: 'purple' },
             { icon: '📈', labelAr: 'صافي الربح', value: net, format: 'currency', tone: net >= 0 ? 'green' : 'red' },
             { icon: '％', labelAr: 'هامش الربح', value: margin, format: 'percent', tone: 'blue' },
           ],
         },
         {
-          type: 'keyvalue', titleAr: 'المستحقات (خارج الصافي)',
-          items: [{ labelAr: 'إجمالي المستحقات غير المحصّلة', value: receivables, format: 'currency' }],
+          type: 'keyvalue', titleAr: 'الحجوزات غير المدفوعة (خارج الصافي)',
+          items: [
+            { labelAr: 'عدد الحجوزات غير المدفوعة', value: unpaidBookings, format: 'number' },
+            { labelAr: 'مبالغ مسجّلة عليها ولم تُحصَّل', value: receivables, format: 'currency' },
+          ],
         },
         {
           type: 'table', titleAr: 'أداء الأنشطة',
@@ -136,7 +125,6 @@ export const accountingBalanceReport: ReportDefinition = {
             { key: 'income', labelAr: 'الدخل', format: 'currency' },
             { key: 'cost', labelAr: 'المصاريف', format: 'currency' },
             { key: 'net', labelAr: 'الصافي', format: 'currency' },
-            { key: 'occupancy', labelAr: 'الإشغال', format: 'percent', align: 'center' },
           ],
           rows: perActivity.map((a) => {
             const inc2 = num(a.income);
@@ -144,21 +132,30 @@ export const accountingBalanceReport: ReportDefinition = {
             return {
               name: a.name, locationName: a.locationName ?? '—', date: a.date,
               income: inc2, cost, net: inc2 - cost,
-              occupancy: pct(num(a.attendees), num(a.maxCapacity)),
             };
           }),
           totalsRow: { name: 'الإجمالي', income, cost: actCostRows.reduce((s, c) => s + num(c.total), 0), net: income - actCostRows.reduce((s, c) => s + num(c.total), 0) },
           emptyAr: 'لا توجد أنشطة في هذه الفترة',
         },
         {
-          type: 'table', titleAr: 'المصاريف حسب النوع',
+          type: 'table', titleAr: 'تفاصيل المصاريف',
           columns: [
-            { key: 'scopeAr', labelAr: 'النوع' },
-            { key: 'count', labelAr: 'العدد', format: 'number', align: 'center' },
-            { key: 'total', labelAr: 'المبلغ', format: 'currency' },
+            { key: 'item', labelAr: 'البند' },
+            { key: 'scopeAr', labelAr: 'النوع', format: 'badge' },
+            { key: 'linkAr', labelAr: 'الارتباط' },
+            { key: 'amount', labelAr: 'المبلغ', format: 'currency' },
+            { key: 'date', labelAr: 'التاريخ', format: 'date' },
+            { key: 'paidBy', labelAr: 'دفعها' },
           ],
-          rows: costsByScope.map((c) => ({ scopeAr: SCOPE_AR[c.scope ?? 'general'] ?? c.scope, count: c.count, total: num(c.total) })),
-          totalsRow: { scopeAr: 'الإجمالي التشغيلي', total: operationalTotal },
+          rows: expenseRows.map((c) => ({
+            item: c.item,
+            scopeAr: SCOPE_AR[c.scope ?? 'general'] ?? c.scope,
+            linkAr: c.scope === 'player'
+              ? `${c.playerName ?? '—'}${c.activityName ? ` (${c.activityName})` : ''}`
+              : (c.activityName ?? '—'),
+            amount: num(c.amount), date: c.date, paidBy: c.paidBy || '—',
+          })),
+          totalsRow: { item: 'الإجمالي التشغيلي', amount: operationalTotal },
           emptyAr: 'لا توجد مصاريف في هذه الفترة',
         },
         {
@@ -166,10 +163,16 @@ export const accountingBalanceReport: ReportDefinition = {
           columns: [
             { key: 'playerName', labelAr: 'اللاعب' },
             { key: 'item', labelAr: 'البند' },
+            { key: 'activityAr', labelAr: 'النشاط' },
             { key: 'amount', labelAr: 'المبلغ', format: 'currency' },
             { key: 'date', labelAr: 'التاريخ', format: 'date' },
           ],
-          rows: playerCosts.map((p) => ({ ...p, playerName: p.playerName ?? '—' })),
+          rows: playerCosts.map((p) => ({
+            playerName: p.playerName ?? '—', item: p.item,
+            activityAr: p.activityName ?? 'غير مرتبط بنشاط',
+            amount: num(p.amount), date: p.date,
+          })),
+          totalsRow: { playerName: 'الإجمالي', amount: playerCosts.reduce((s, c) => s + num(c.amount), 0) },
           emptyAr: 'لا توجد مصاريف مرتبطة بلاعبين',
         },
       ],

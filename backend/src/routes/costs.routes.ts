@@ -46,7 +46,8 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const finalScope = validScopes.includes(scope) ? scope : (activityId ? 'activity' : 'general');
 
   const result = await db.insert(costs).values({
-    activityId: finalScope === 'activity' ? (activityId || null) : null,
+    // مصروف اللاعب يمكن ربطه بنشاط اختيارياً (تكلفة لاعب ضمن فعالية محددة) أو بلا نشاط (عام على اللاعب)
+    activityId: (finalScope === 'activity' || finalScope === 'player') ? (activityId || null) : null,
     item,
     amount: String(amt),
     date: new Date(date),

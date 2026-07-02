@@ -127,6 +127,7 @@ export default function FinancePage() {
   // اللاعبون (مرّة واحدة — للربط بلاعب وعرض أسمائهم). المسار الإداري: /api/player/all
   useEffect(() => { (async () => { try { const d = await apiFetch('/api/player/all'); setPlayers(d?.players || []); } catch {} })(); }, []);
   const playerMap = useMemo(() => { const m = new Map<number, any>(); players.forEach(p => m.set(p.id, p)); return m; }, [players]);
+  const activityMap = useMemo(() => { const m = new Map<number, any>(); activities.forEach(a => m.set(a.id, a)); return m; }, [activities]);
 
   // مبلغ الحجز حسب الدور
   const getBookingDisplayAmount = useCallback((b: any): number => {
@@ -226,7 +227,9 @@ export default function FinancePage() {
         amount: parseFloat(exAmount),
         paidBy: exPaidBy,
         scope: exScope,
-        activityId: exScope === 'activity' ? Number(exActivityId) : null,
+        // مصروف اللاعب يمكن ربطه بنشاط اختيارياً (تكلفة لاعب ضمن فعالية) أو تركه عاماً
+        activityId: exScope === 'activity' ? Number(exActivityId)
+          : (exScope === 'player' && exActivityId ? Number(exActivityId) : null),
         playerId: exScope === 'player' ? Number(exPlayerId) : null,
         type: exScope === 'activity' ? 'activity' : 'general',
         date: new Date().toISOString(),
@@ -507,7 +510,7 @@ export default function FinancePage() {
                               <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fmtDate(c.date)}</td>
                               <td className="px-4 py-3 text-white font-medium text-xs">{c.item}</td>
                               <td className="px-4 py-3 text-center"><span className={`text-[10px] px-2 py-0.5 rounded-full border ${SCOPE_COLOR[c.scope] || SCOPE_COLOR.general}`}>{SCOPE_LABEL[c.scope] || c.scope}</span></td>
-                              <td className="px-4 py-3 text-xs text-gray-300">{c.scope === 'player' ? (playerMap.get(c.playerId)?.name || (c.playerId ? `#${c.playerId}` : '—')) : '—'}</td>
+                              <td className="px-4 py-3 text-xs text-gray-300">{c.scope === 'player' ? `${playerMap.get(c.playerId)?.name || (c.playerId ? `#${c.playerId}` : '—')}${c.activityId ? ` (${activityMap.get(c.activityId)?.name || `نشاط #${c.activityId}`})` : ''}` : '—'}</td>
                               <td className="px-4 py-3 text-center text-rose-400 font-bold text-xs">{Number(c.amount || 0).toLocaleString()} {CURRENCY}</td>
                               <td className="px-4 py-3 text-xs text-gray-400">{c.paidBy || '—'}</td>
                               {isFinanceManager && (
@@ -735,9 +738,18 @@ export default function FinancePage() {
                   </div>
                 )}
 
-                {/* اختيار اللاعب */}
+                {/* اختيار اللاعب + نشاط اختياري */}
                 {exScope === 'player' && (
-                  <PlayerSelect players={players} value={exPlayerId} onChange={setExPlayerId} />
+                  <>
+                    <PlayerSelect players={players} value={exPlayerId} onChange={setExPlayerId} />
+                    <div>
+                      <label className="block text-[11px] text-gray-400 mb-1">النشاط (اختياري — إذا كان المصروف ضمن فعالية محددة)</label>
+                      <select value={exActivityId} onChange={e => setExActivityId(e.target.value)} className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30">
+                        <option value="">بدون نشاط (عام على اللاعب)</option>
+                        {visibleActivities.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      </select>
+                    </div>
+                  </>
                 )}
 
                 {/* المبلغ + من دفعه */}

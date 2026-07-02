@@ -6,6 +6,7 @@
 import { and, eq, isNull, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { activities, locations, bookings, costs } from '../../schemas/admin.schema.js';
+import { players } from '../../schemas/player.schema.js';
 import { sessions, matches, matchPlayers } from '../../schemas/game.schema.js';
 import { paidRevenue, unpaidReceivable, paidCount, unpaidCount, freeCount, num, pct } from '../helpers.js';
 
@@ -69,7 +70,9 @@ export const activitySummaryReport: ReportDefinition = {
 
     const costRows = await db.select({
       item: costs.item, scope: costs.scope, amount: costs.amount, date: costs.date, paidBy: costs.paidBy,
+      playerName: players.name,
     }).from(costs)
+      .leftJoin(players, eq(costs.playerId, players.id))
       .where(and(eq(costs.activityId, id), isNull(costs.deletedAt)))
       .orderBy(desc(costs.date));
 
@@ -177,7 +180,11 @@ export const activitySummaryReport: ReportDefinition = {
             { key: 'date', labelAr: 'التاريخ', format: 'date' },
             { key: 'paidBy', labelAr: 'دفعها' },
           ],
-          rows: costRows.map((r) => ({ ...r, scopeAr: SCOPE_AR[r.scope ?? 'general'] ?? r.scope })),
+          rows: costRows.map((r) => ({
+            ...r,
+            item: r.playerName ? `${r.item} — ${r.playerName}` : r.item,
+            scopeAr: SCOPE_AR[r.scope ?? 'general'] ?? r.scope,
+          })),
           totalsRow: { item: 'الإجمالي', amount: activityCost },
           emptyAr: 'لا توجد تكاليف مسجّلة',
         },

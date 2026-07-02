@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { bookings, costs, activities } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
@@ -66,9 +67,12 @@ export const playerStatementReport: ReportDefinition = {
     const [pcost] = await db.select({
       total: sql<number>`COALESCE(SUM(${costs.amount}::numeric), 0)`,
     }).from(costs).where(and(eq(costs.scope, 'player'), eq(costs.playerId, pid), isNull(costs.deletedAt)));
+    const costActivities = alias(activities, 'cost_activities');
     const playerCostRows = await db.select({
       item: costs.item, amount: costs.amount, date: costs.date, paidBy: costs.paidBy,
+      activityName: costActivities.name,
     }).from(costs)
+      .leftJoin(costActivities, eq(costs.activityId, costActivities.id))
       .where(and(eq(costs.scope, 'player'), eq(costs.playerId, pid), isNull(costs.deletedAt)))
       .orderBy(desc(costs.date));
 
@@ -180,11 +184,12 @@ export const playerStatementReport: ReportDefinition = {
           type: 'table', titleAr: 'المصاريف المرتبطة به',
           columns: [
             { key: 'item', labelAr: 'البند' },
+            { key: 'activityAr', labelAr: 'النشاط' },
             { key: 'amount', labelAr: 'المبلغ', format: 'currency' },
             { key: 'date', labelAr: 'التاريخ', format: 'date' },
             { key: 'paidBy', labelAr: 'دفعها' },
           ],
-          rows: playerCostRows,
+          rows: playerCostRows.map((r) => ({ ...r, activityAr: r.activityName ?? 'غير مرتبط بنشاط' })),
           totalsRow: { item: 'الإجمالي', amount: playerExpenses },
           emptyAr: 'لا توجد مصاريف مرتبطة',
         },
