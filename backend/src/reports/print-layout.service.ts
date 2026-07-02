@@ -17,6 +17,8 @@ export interface ElementPos {
   color?: string; bold?: boolean; align?: 'right' | 'left' | 'center';
   hidden?: boolean; text?: string; zone?: 'header' | 'footer';
 }
+export interface SectionConfig { hidden?: boolean; order?: number; }
+
 export interface LayoutConfig {
   orientation: 'portrait' | 'landscape';
   margins: { top: number; right: number; bottom: number; left: number };
@@ -24,6 +26,8 @@ export interface LayoutConfig {
   footerHeight: number;
   showLetterhead: boolean;
   elements: Record<string, ElementPos>;
+  // إعدادات أقسام جسم التقرير (إخفاء/ترتيب) — المفتاح من sectionKeyOf
+  sections: Record<string, SectionConfig>;
   table: { thBg: string; thColor: string; thBorder: string; stripe: boolean; baseFontSize: number };
 }
 export interface ResolvedLayout extends LayoutConfig {
@@ -37,6 +41,7 @@ export const DEFAULT_LAYOUT: LayoutConfig = {
   footerHeight: 0,
   showLetterhead: true,
   elements: {},
+  sections: {},
   table: { thBg: '#f2ede2', thColor: '#5a4a2a', thBorder: '#e2d9c5', stripe: true, baseFontSize: 11 },
 };
 
@@ -50,6 +55,7 @@ export function mergeLayout(raw: any): LayoutConfig {
     footerHeight: Number.isFinite(r.footerHeight) ? r.footerHeight : DEFAULT_LAYOUT.footerHeight,
     showLetterhead: r.showLetterhead !== false,
     elements: r.elements && typeof r.elements === 'object' ? r.elements : {},
+    sections: r.sections && typeof r.sections === 'object' ? r.sections : {},
     table: { ...DEFAULT_LAYOUT.table, ...(r.table || {}) },
   };
 }

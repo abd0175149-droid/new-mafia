@@ -9,6 +9,8 @@ export interface ElementPos {
   hidden?: boolean; text?: string; zone?: 'header' | 'footer';
 }
 
+export interface SectionConfig { hidden?: boolean; order?: number; }
+
 export interface LayoutConfig {
   orientation: 'portrait' | 'landscape';
   margins: { top: number; right: number; bottom: number; left: number };
@@ -16,8 +18,16 @@ export interface LayoutConfig {
   footerHeight: number;
   showLetterhead: boolean;
   elements: Record<string, ElementPos>;
+  // إعدادات أقسام جسم التقرير (إخفاء/ترتيب) — المفتاح من sectionKeyOf
+  sections: Record<string, SectionConfig>;
   table: { thBg: string; thColor: string; thBorder: string; stripe: boolean; baseFontSize: number };
 }
+
+// مفتاح ثابت لكل قسم — مطابق حرفياً لدالة السيرفر (html-template.sectionKeyOf)
+export function sectionKeyOf(s: { type: string; titleAr?: string }, i: number): string {
+  return `${s.type}|${s.titleAr || i}`;
+}
+export const TOTALS_KEY = '__totals';
 
 // العناصر المعياريّة المتاحة لكل تقرير (بنية موحّدة لأن تقاريرنا متجانسة)
 export const STANDARD_ELEMENTS: { id: string; labelAr: string; hasText?: boolean }[] = [
@@ -50,6 +60,7 @@ export const DEFAULT_LAYOUT: LayoutConfig = {
     subtitle:  { x: 12, y: 20, fontSize: 10, color: '#555555', hidden: false },
     generated: { x: 12, y: 28, fontSize: 8,  color: '#888888', hidden: false },
   },
+  sections: {},
   table: { thBg: '#f2ede2', thColor: '#5a4a2a', thBorder: '#e2d9c5', stripe: true, baseFontSize: 11 },
 };
 

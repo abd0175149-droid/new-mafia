@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import A4Canvas from './A4Canvas';
-import { getTypes, type ReportDefinitionDTO } from '../lib/reportsApi';
+import { getTypes, getOptions, generateReport, type ReportDefinitionDTO, type ReportDocument, type ReportSection } from '../lib/reportsApi';
 import { swalAlert, swalToast, swalConfirm } from '@/lib/swal';
 import {
   getLayout, saveLayout, listLetterheads, uploadLetterhead, deleteLetterhead, previewPdf, assetUrl,
@@ -10,9 +10,37 @@ import {
 } from '../lib/printLayoutApi';
 import { pdfFileToPng } from '../lib/pdfToPng';
 import {
-  DEFAULT_LAYOUT, STANDARD_ELEMENTS, VARIABLES, labelForElement,
+  DEFAULT_LAYOUT, STANDARD_ELEMENTS, VARIABLES, labelForElement, sectionKeyOf, TOTALS_KEY,
   type LayoutConfig, type ElementPos,
 } from '../lib/printLayoutContract';
+
+// اسم عرض لقسم جسم التقرير
+function sectionLabel(s: ReportSection): string {
+  if (s.titleAr) return s.titleAr;
+  switch (s.type) {
+    case 'kpis': return 'المؤشرات (KPIs)';
+    case 'keyvalue': return 'بيانات تفصيلية';
+    case 'table': return 'جدول';
+    case 'group': return 'مجموعة';
+    default: return 'قسم';
+  }
+}
+
+// توليد معاملات عيّنة تلقائياً (المنتقيات الإلزامية → أول خيار متاح)
+async function buildSampleParams(def: ReportDefinitionDTO): Promise<Record<string, any> | null> {
+  const params: Record<string, any> = {};
+  for (const p of def.params) {
+    if (p.type === 'date-range') { params[p.key] = {}; continue; }
+    if (p.type === 'select') { if (p.defaultValue !== undefined) params[p.key] = p.defaultValue; continue; }
+    if (p.type === 'toggle') { params[p.key] = false; continue; }
+    if (p.required && p.optionsSource) {
+      const opts = await getOptions(p.optionsSource);
+      if (!opts.length) return null;   // لا بيانات لمعاينة هذا التقرير
+      params[p.key] = opts[0].value;
+    }
+  }
+  return params;
+}
 
 const clone = (o: any) => JSON.parse(JSON.stringify(o));
 const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:border-amber-500/50 focus:outline-none w-full';
@@ -36,8 +64,12 @@ export default function PrintLayoutEditor() {
   const [letterheadUrl, setLetterheadUrl] = useState<string | null>(null);
   const [letterheads, setLetterheads] = useState<Letterhead[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<ReportDocument | null>(null);
+  const [docLoading, setDocLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const previewSeq = useRef(0);
 
   const refreshLetterheads = useCallback(async () => {
     try { setLetterheads(await listLetterheads()); } catch { /* ignore */ }
@@ -59,7 +91,34 @@ export default function PrintLayoutEditor() {
     loadForKey('default');
   }, [refreshLetterheads, loadForKey]);
 
-  const onSelectReport = (key: string) => { setReportKey(key); loadForKey(key); };
+  // ── معاينة حيّة: توليد مستند التقرير الفعلي للنوع المختار ──
+  useEffect(() => {
+    if (!reports.length) return;
+    // للتخطيط الافتراضي نعرض عيّنة من أول تقرير بلا مدخلات إلزامية
+    const def = reportKey === 'default'
+      ? reports.find((r) => !r.params.some((p) => p.required)) || reports[0]
+      : reports.find((r) => r.key === reportKey);
+    if (!def) { setPreviewDoc(null); return; }
+
+    const seq = ++previewSeq.current;
+    setDocLoading(true);
+    (async () => {
+      try {
+        const params = await buildSampleParams(def);
+        if (seq !== previewSeq.current) return;
+        if (!params) { setPreviewDoc(null); setDocLoading(false); return; }
+        const doc = await generateReport(def.key, params);
+        if (seq !== previewSeq.current) return;
+        setPreviewDoc(doc);
+      } catch {
+        if (seq === previewSeq.current) setPreviewDoc(null);
+      } finally {
+        if (seq === previewSeq.current) setDocLoading(false);
+      }
+    })();
+  }, [reportKey, reports]);
+
+  const onSelectReport = (key: string) => { setReportKey(key); setSelectedSection(null); loadForKey(key); };
 
   // ── تعديلات التخطيط ──
   const patchLayout = (patch: Partial<LayoutConfig>) => setLayout((p) => ({ ...p, ...patch }));
@@ -83,6 +142,27 @@ export default function PrintLayoutEditor() {
     if (selectedId === id) setSelectedId(null);
   };
   const insertVar = (v: string) => { if (selectedId) { const el = layout.elements[selectedId]; patchElement(selectedId, { text: `${el?.text || ''}${v}` }); } };
+
+  // ── أقسام جسم التقرير: إخفاء/ترتيب ──
+  const sectionEntries = (previewDoc?.sections || []).map((s, i) => ({ key: sectionKeyOf(s, i), label: sectionLabel(s), idx: i }));
+  const orderedEntries = [...sectionEntries].sort(
+    (a, b) => (layout.sections?.[a.key]?.order ?? a.idx) - (layout.sections?.[b.key]?.order ?? b.idx),
+  );
+  const patchSection = (key: string, patch: { hidden?: boolean; order?: number }) =>
+    setLayout((p) => ({ ...p, sections: { ...(p.sections || {}), [key]: { ...(p.sections?.[key] || {}), ...patch } } }));
+  const toggleSectionHidden = (key: string) => patchSection(key, { hidden: !layout.sections?.[key]?.hidden });
+  const moveSection = (key: string, dir: -1 | 1) => {
+    const keys = orderedEntries.map((e) => e.key);
+    const i = keys.indexOf(key);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= keys.length) return;
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+    setLayout((p) => {
+      const sections = { ...(p.sections || {}) };
+      keys.forEach((k, idx) => { sections[k] = { ...(sections[k] || {}), order: idx }; });
+      return { ...p, sections };
+    });
+  };
 
   // ── الورق الرسمي ──
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,11 +199,16 @@ export default function PrintLayoutEditor() {
   };
   const onReset = () => { setLayout(clone(DEFAULT_LAYOUT)); setSelectedId(null); };
   const onPreview = async () => {
-    const previewKey = reportKey !== 'default' ? reportKey : reports.find((r) => r.params.length === 0)?.key;
-    if (!previewKey) return swalAlert('للمعاينة اختر تقريراً محدّداً (الافتراضي يحتاج تقريراً لعرضه).');
+    const def = reportKey !== 'default'
+      ? reports.find((r) => r.key === reportKey)
+      : reports.find((r) => !r.params.some((p) => p.required)) || reports[0];
+    if (!def) return swalAlert('لا يوجد تقرير متاح للمعاينة.');
     setBusy('preview');
-    try { await previewPdf(previewKey, {}, layout, letterheadId); }
-    catch (e: any) { swalAlert(e.message || 'تعذّرت المعاينة — قد يتطلّب التقرير مدخلات؛ جرّب تصديره من صفحة التقارير.'); }
+    try {
+      const params = await buildSampleParams(def);
+      if (!params) throw new Error('لا بيانات كافية لمعاينة هذا التقرير');
+      await previewPdf(def.key, params, layout, letterheadId);
+    } catch (e: any) { swalAlert(e.message || 'تعذّرت المعاينة'); }
     setBusy(null);
   };
 
@@ -212,6 +297,37 @@ export default function PrintLayoutEditor() {
             })}
           </div>
 
+          {/* أقسام التقرير (من المعاينة الحيّة) */}
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold text-gray-300">أقسام التقرير</span>
+            {docLoading ? (
+              <div className="text-[10px] text-gray-500 px-2 py-1">جاري توليد المعاينة…</div>
+            ) : !previewDoc ? (
+              <div className="text-[10px] text-gray-600 px-2 py-1">لا معاينة متاحة (لا بيانات لهذا التقرير)</div>
+            ) : (
+              <>
+                {orderedEntries.map(({ key, label }, pos) => {
+                  const hidden = !!layout.sections?.[key]?.hidden;
+                  return (
+                    <div key={key} className={`flex items-center gap-1.5 px-2 py-1 rounded ${selectedSection === key ? 'bg-blue-500/10' : 'hover:bg-gray-800/40'}`}>
+                      <button onClick={() => toggleSectionHidden(key)} className="text-xs" title={hidden ? 'إظهار' : 'إخفاء'}>{hidden ? '🚫' : '👁️'}</button>
+                      <button onClick={() => setSelectedSection(key)} className={`flex-1 text-right truncate ${hidden ? 'text-gray-600 line-through' : 'text-gray-300'}`}>{label}</button>
+                      <button onClick={() => moveSection(key, -1)} disabled={pos === 0} className="text-gray-500 hover:text-white disabled:opacity-20">↑</button>
+                      <button onClick={() => moveSection(key, 1)} disabled={pos === orderedEntries.length - 1} className="text-gray-500 hover:text-white disabled:opacity-20">↓</button>
+                    </div>
+                  );
+                })}
+                {previewDoc.totals?.length ? (
+                  <div className={`flex items-center gap-1.5 px-2 py-1 rounded ${selectedSection === TOTALS_KEY ? 'bg-blue-500/10' : 'hover:bg-gray-800/40'}`}>
+                    <button onClick={() => toggleSectionHidden(TOTALS_KEY)} className="text-xs">{layout.sections?.[TOTALS_KEY]?.hidden ? '🚫' : '👁️'}</button>
+                    <button onClick={() => setSelectedSection(TOTALS_KEY)} className={`flex-1 text-right ${layout.sections?.[TOTALS_KEY]?.hidden ? 'text-gray-600 line-through' : 'text-gray-300'}`}>الإجماليات النهائية</button>
+                  </div>
+                ) : null}
+                {reportKey === 'default' && <p className="text-[9px] text-gray-600 px-2">⚠️ في الوضع الافتراضي تُطبَّق هذه الإعدادات على الأقسام المطابقة بالاسم في كل التقارير.</p>}
+              </>
+            )}
+          </div>
+
           {/* المفتّش */}
           {sel && selectedId && (
             <div className="space-y-1.5 border border-gray-800 rounded-lg p-2">
@@ -273,7 +389,13 @@ export default function PrintLayoutEditor() {
 
       {/* المعاينة */}
       <div className="flex-1 h-full overflow-auto p-8 flex items-start justify-center bg-gray-900/40">
-        <A4Canvas layout={layout} letterheadUrl={letterheadUrl} selectedId={selectedId} onSelect={setSelectedId} onMove={moveElement} />
+        <A4Canvas
+          layout={layout} letterheadUrl={letterheadUrl}
+          doc={previewDoc} docLoading={docLoading}
+          selectedId={selectedId} selectedSection={selectedSection}
+          onSelect={setSelectedId} onSelectSection={setSelectedSection}
+          onMove={moveElement}
+        />
       </div>
     </div>
   );

@@ -167,9 +167,24 @@ function elementContent(id: string, el: ElementPos, doc: ReportDocument): string
   }
 }
 
+// مفتاح ثابت لكل قسم — مطابق حرفياً لدالة الواجهة (printLayoutContract.sectionKeyOf)
+export function sectionKeyOf(s: ReportSection, i: number): string {
+  return `${s.type}|${(s as any).titleAr || i}`;
+}
+export const TOTALS_KEY = '__totals';
+
 function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
   const isLand = L.orientation === 'landscape';
   const t = L.table;
+
+  // إخفاء/ترتيب أقسام الجسم حسب إعدادات التخطيط
+  const cfg = L.sections || {};
+  const orderedSections = doc.sections
+    .map((s, i) => ({ s, i, key: sectionKeyOf(s, i) }))
+    .filter(({ key }) => !cfg[key]?.hidden)
+    .sort((a, b) => (cfg[a.key]?.order ?? a.i) - (cfg[b.key]?.order ?? b.i))
+    .map(({ s }) => s);
+  const totalsHidden = !!cfg[TOTALS_KEY]?.hidden;
 
   const elsHtml = Object.entries(L.elements || {}).map(([id, el]) => {
     if (!el || el.hidden) return '';
@@ -193,7 +208,7 @@ function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
     ? `<div style="position:fixed;inset:0;z-index:0;background-image:url('${L.letterheadDataUri}');background-size:100% 100%;background-repeat:no-repeat;"></div>`
     : '';
 
-  const grand = doc.totals?.length
+  const grand = (doc.totals?.length && !totalsHidden)
     ? `<div class="grand-totals">${doc.totals.map((gt) => `<div class="gt"><span class="gt-label">${esc(gt.labelAr)}</span><span class="gt-value" style="color:${toneColor(gt.tone)}">${esc(formatCell(gt.value, gt.format))}</span></div>`).join('')}</div>`
     : '';
 
@@ -223,7 +238,7 @@ function renderLayoutHtml(doc: ReportDocument, L: ResolvedLayout): string {
     ${lhBg}
     ${elsHtml}
     <div class="content">
-      ${doc.sections.map(renderSection).join('')}
+      ${orderedSections.map(renderSection).join('')}
       ${grand}
     </div>
   </body></html>`;
