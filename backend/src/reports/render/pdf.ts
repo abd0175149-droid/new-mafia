@@ -57,14 +57,16 @@ export async function renderPdf(doc: ReportDocument, layout?: ResolvedLayout | n
   try {
     if (layout) {
       // وضع التخطيط: قياس ثم ترقيم — نقيس الارتفاعات الفعلية أولاً لتفادي القصّ.
+      // ملاحظة: نستخدم 'load' لا 'networkidle0' — المحتوى كله مُضمّن (data-uri)
+      // و networkidle0 قد لا يُستوفى مع تعدّد setContent فيتسبّب في timeout.
       let metrics: LayoutMetrics | null = null;
       try {
-        await page.setContent(renderMeasureHtml(doc, layout), { waitUntil: 'networkidle0' });
+        await page.setContent(renderMeasureHtml(doc, layout), { waitUntil: 'load', timeout: 20000 });
         // نمرّر تعبير IIFE نصّياً ليُقيّم داخل المتصفح (لا حاجة لأنواع DOM في السيرفر)
         metrics = await page.evaluate(`(${MEASURE_FN})()`) as LayoutMetrics;
       } catch { metrics = null; }
 
-      await page.setContent(renderDocumentHtml(doc, layout, metrics), { waitUntil: 'networkidle0' });
+      await page.setContent(renderDocumentHtml(doc, layout, metrics), { waitUntil: 'load', timeout: 20000 });
       const pdf = await page.pdf({
         format: 'A4',
         landscape: layout.orientation === 'landscape',
