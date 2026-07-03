@@ -127,6 +127,12 @@ const EVENT_GROUPS = [
       { key: 'voting_complete', label: '✅ انتهاء التصويت', desc: 'صوت عند اكتمال جميع الأصوات' },
     ],
   },
+  {
+    label: '🕵️ تنبيهات الليدر',
+    events: [
+      { key: 'leader_gallery_alert', label: '🔔 تنبيه فتح قائمة المافيا', desc: 'يُسمع على جهاز الليدر فقط عند ضغط لاعب زرّ التعرف على المافيا' },
+    ],
+  },
 ];
 
 // Flatten for lookup

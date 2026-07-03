@@ -98,6 +98,11 @@ function startSilentKeepAlive(): void {
   } catch {}
 }
 
+/** تشغيل صوت محلياً على هذا الجهاز فقط — بلا بثّ للمرآة (لتنبيهات الليدر السرّية كتنبيه فتح قائمة المافيا). */
+export function playLocalSound(eventKey: string): void {
+  _playGameSound(eventKey);
+}
+
 /** يُهيّئ/يستأنف السياق الصوتي — يجب استدعاؤه داخل معالج تفاعل (نقرة/لمسة) لفكّ الحظر على الجوال. */
 export function primeAudio(): void {
   const c = getAudioCtx();
@@ -560,18 +565,27 @@ function playDefaultSound(eventKey: string): void {
         break;
       }
 
-      // ── مؤقت ──
+      // ── مؤقت (مستوى مرتفع وواضح — طبقة نقرة عالية فوق النبضة لأن 60Hz وحدها لا تُسمع على سماعات الأجهزة اللوحية) ──
       case 'timer_heartbeat_slow': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain); gain.connect(ctx.destination);
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(60, ctx.currentTime);
-        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        osc.frequency.setValueAtTime(80, ctx.currentTime);
+        gain.gain.setValueAtTime(0.4, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.08, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.28, ctx.currentTime + 0.15);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
         osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+        // نقرة عالية مسموعة
+        const click = ctx.createOscillator();
+        const cg = ctx.createGain();
+        click.connect(cg); cg.connect(ctx.destination);
+        click.type = 'triangle';
+        click.frequency.setValueAtTime(700, ctx.currentTime);
+        cg.gain.setValueAtTime(0.18, ctx.currentTime);
+        cg.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        click.start(ctx.currentTime); click.stop(ctx.currentTime + 0.08);
         break;
       }
 
@@ -580,37 +594,80 @@ function playDefaultSound(eventKey: string): void {
         const gain = ctx.createGain();
         osc.connect(gain); gain.connect(ctx.destination);
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(60, ctx.currentTime);
-        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        osc.frequency.setValueAtTime(90, ctx.currentTime);
+        gain.gain.setValueAtTime(0.6, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.18, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.4, ctx.currentTime + 0.15);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
         osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+        // نقرة عالية حادّة — تُسمع بوضوح في القاعة
+        const click = ctx.createOscillator();
+        const cg = ctx.createGain();
+        click.connect(cg); cg.connect(ctx.destination);
+        click.type = 'square';
+        click.frequency.setValueAtTime(950, ctx.currentTime);
+        cg.gain.setValueAtTime(0.3, ctx.currentTime);
+        cg.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+        click.start(ctx.currentTime); click.stop(ctx.currentTime + 0.09);
         break;
       }
 
       case 'timer_tick': {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.05, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.1);
-        break;
-      }
-
-      case 'timer_buzzer': {
+        // نقرة مزدوجة الطبقات — أعلى وأوضح من السابق بكثير
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain); gain.connect(ctx.destination);
         osc.type = 'square';
-        osc.frequency.setValueAtTime(150, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.8);
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.8);
+        osc.frequency.setValueAtTime(1100, ctx.currentTime);
+        gain.gain.setValueAtTime(0.45, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.09);
+        const osc2 = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        osc2.connect(g2); g2.connect(ctx.destination);
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(2200, ctx.currentTime);
+        g2.gain.setValueAtTime(0.18, ctx.currentTime);
+        g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+        osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 0.06);
+        break;
+      }
+
+      case 'timer_buzzer': {
+        // صافرة نهاية أقوى وأطول — طبقتان متنافرتان للإلحاح
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(180, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 1.1);
+        gain.gain.setValueAtTime(0.55, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.1);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.1);
+        const osc2 = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        osc2.connect(g2); g2.connect(ctx.destination);
+        osc2.type = 'sawtooth';
+        osc2.frequency.setValueAtTime(360, ctx.currentTime);
+        osc2.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 1.0);
+        g2.gain.setValueAtTime(0.3, ctx.currentTime);
+        g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
+        osc2.start(ctx.currentTime); osc2.stop(ctx.currentTime + 1.0);
+        break;
+      }
+
+      // ── 🕵️ تنبيه الليدر: لاعب فتح قائمة التعرف على المافيا — ثلاث نغمات صاعدة حادّة ──
+      case 'leader_gallery_alert': {
+        [880, 1320, 1760].forEach((f, i) => {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.connect(g); g.connect(ctx.destination);
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(f, ctx.currentTime + i * 0.16);
+          g.gain.setValueAtTime(0.4, ctx.currentTime + i * 0.16);
+          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.16 + 0.14);
+          osc.start(ctx.currentTime + i * 0.16); osc.stop(ctx.currentTime + i * 0.16 + 0.14);
+        });
         break;
       }
 

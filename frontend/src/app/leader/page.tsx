@@ -11,7 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
@@ -1226,6 +1226,8 @@ export default function LeaderPage() {
 
     const offGalleryAlert = on('leader:mafia-gallery-alert', (d: any) => {
       if (!d || d.roomId !== gameState.roomId) return;
+      // 🔔 صوت تنبيه فوري — على جهاز الليدر فقط (لا يُبثّ لشاشة العرض حتى لا ينكشف التنبيه في القاعة)
+      if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
       // إسقاط التكرار: نفس اللاعب لا يتكدس في الطابور
       if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId)) {
         galleryAlertQueueRef.current.push(d);
