@@ -11,7 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound, loadSoundMap, reloadSoundMap, applyRemoteSound } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, loadSoundMap, reloadSoundMap, applyRemoteSound } from '@/lib/soundManager';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
 
@@ -167,6 +167,30 @@ export default function LeaderPage() {
     window.addEventListener('keydown', unlock, { once: true } as any);
     return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
   }, []);
+
+  // ── 🔊 الصوت الخلفي (Ambient) يتبع مرحلة اللعبة محلياً على الليدر ──
+  // يُدار محلياً (لا عبر المرآة) لأن الحلقة (loop) حالة مستمرّة تعتمد على مرحلة الليدر الموثوقة،
+  // فلا تعلق أبداً حتى لو ضاعت أو تأخّرت إشارة إيقاف من العرض. المؤثّرات اللحظية تبقى عبر المرآة.
+  const AMBIENT_BY_PHASE: Record<string, string> = {
+    LOBBY: 'ambient_lobby', NIGHT: 'ambient_night', DAY_DISCUSSION: 'ambient_day',
+    DAY_VOTING: 'ambient_voting', DAY_JUSTIFICATION: 'ambient_justification',
+    DAY_ELIMINATION: 'ambient_elimination', MORNING_RECAP: 'ambient_morning',
+  };
+  const leaderAmbientKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const phase = gameState?.phase as string | undefined;
+    const key = phase ? AMBIENT_BY_PHASE[phase] : undefined;
+    if (!leaderSoundOn || !key) {
+      if (leaderAmbientKeyRef.current) { stopAmbientSound(); leaderAmbientKeyRef.current = null; }
+      return;
+    }
+    if (leaderAmbientKeyRef.current !== key) {
+      playAmbientSound(key);            // يوقف السابق داخلياً ثم يبدأ الجديد
+      leaderAmbientKeyRef.current = key;
+    }
+  }, [gameState?.phase, leaderSoundOn]);
+  // إيقاف الصوت الخلفي عند مغادرة صفحة الليدر
+  useEffect(() => () => { stopAmbientSound(); }, []);
 
   // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بترقيم حيّ) ──
   const galleryAlertQueueRef = useRef<any[]>([]);
@@ -1109,11 +1133,13 @@ export default function LeaderPage() {
       }
     };
 
-    // ── 🔊 مرآة الأصوات: تشغيل نفس صوت شاشة العرض لحظياً ──
+    // ── 🔊 مرآة الأصوات: تشغيل نفس أصوات شاشة العرض اللحظية (المؤثّرات فقط) ──
     const offSound = on('leader:sound', (d: any) => {
       if (!d?.fn || !leaderSoundOnRef.current) return;
       // المؤقّت يُشغَّل محلياً على الليدر (مشتقّ من وقت السيرفر) — نتجاهله من المرآة لمنع الازدواج
       if (d.fn === 'playGameSound' && String(d.args?.[0] || '').startsWith('timer_')) return;
+      // الأصوات الخلفية (ambient) تُدار محلياً حسب مرحلة اللعبة على الليدر (أمتن من الاعتماد على وصول كل إشارة loop)
+      if (d.fn === 'playAmbientSound' || d.fn === 'stopAmbientSound' || d.fn === 'playNightStepAmbient') return;
       applyRemoteSound(d);
     });
     const offSoundsUpdated = on('admin:sounds-updated', () => { reloadSoundMap(); });
@@ -1198,17 +1224,19 @@ export default function LeaderPage() {
       const rounded = Math.floor(remaining);
       if (rounded > 0 && rounded <= 60 && rounded !== lastTimerSoundRef.current) {
         lastTimerSoundRef.current = rounded;
-        if (rounded <= 10) {
-          playGameSound('timer_heartbeat_fast');
-        } else if (rounded % 5 === 0) {
-          playGameSound('timer_heartbeat_slow');
+        if (leaderSoundOnRef.current) {
+          if (rounded <= 10) {
+            playGameSound('timer_heartbeat_fast');
+          } else if (rounded % 5 === 0) {
+            playGameSound('timer_heartbeat_slow');
+          }
         }
       }
 
       if (remaining <= 0) {
         clearInterval(iv);
         if (lastTimerSoundRef.current !== 0) {
-          playGameSound('timer_buzzer');
+          if (leaderSoundOnRef.current) playGameSound('timer_buzzer');
           lastTimerSoundRef.current = 0;
         }
       }
