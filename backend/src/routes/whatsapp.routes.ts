@@ -160,7 +160,7 @@ router.post('/send-log', authenticate, async (req: Request, res: Response) => {
         totalFailed: totalFailed || 0,
         recipients: recipients || [],
         sentBy: sentBy || '',
-      })
+      } as any)
       .returning();
 
     res.json({ success: true, logId: log.id });
@@ -257,7 +257,7 @@ router.post('/templates', authenticate, async (req: Request, res: Response) => {
         template,
         variables: variables || [],
         createdBy: createdBy || '',
-      })
+      } as any)
       .returning();
 
     res.json({ success: true, template: created });
@@ -288,7 +288,7 @@ router.put('/templates/:id', authenticate, async (req: Request, res: Response) =
         ...(template && { template }),
         ...(variables && { variables }),
         updatedAt: new Date(),
-      })
+      } as any)
       .where(eq(whatsappTemplates.id, id))
       .returning();
 
@@ -457,13 +457,13 @@ router.post('/mark-rank-notified', authenticate, async (req: Request, res: Respo
           playerId: entry.playerId,
           rankTier: entry.rankTier,
           notificationType: entry.changeType || 'promotion',
-        })
+        } as any)
         .onConflictDoUpdate({
           target: [whatsappRankNotifications.playerId, whatsappRankNotifications.rankTier],
           set: {
             sentAt: new Date(),
             notificationType: entry.changeType || 'promotion',
-          },
+          } as any,
         });
     }
 

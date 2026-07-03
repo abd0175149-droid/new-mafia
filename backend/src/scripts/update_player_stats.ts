@@ -36,9 +36,9 @@ async function run() {
       xp: 1250, // XP منطقي لمستوى 3
       rankTier: 'SOLDIER', // جندي
       rankRR: 50, // 50 نقطة RR
-      gamesPlayed: Math.max(12, (player.gamesPlayed || 0) - 25), // تخفيض الألعاب الملعوبة لتبدو منطقية
-      gamesWon: Math.max(4, (player.gamesWon || 0) - 18),
-      timesSurvived: Math.max(2, (player.timesSurvived || 0) - 10),
+      gamesPlayed: Math.max(12, ((player as any).gamesPlayed || 0) - 25), // تخفيض الألعاب الملعوبة لتبدو منطقية
+      gamesWon: Math.max(4, ((player as any).gamesWon || 0) - 18),
+      timesSurvived: Math.max(2, ((player as any).timesSurvived || 0) - 10),
     };
 
     console.log(`🚀 Updating player ${player.id} with new stats:`, newStats);

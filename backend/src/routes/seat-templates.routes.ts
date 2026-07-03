@@ -107,7 +107,7 @@ router.post('/', authenticate, leaderOrAbove, async (req: Request, res: Response
       layoutConfig: layoutConfig || null,
       isDefault: isDefault || false,
       createdBy: staffId,
-    }).returning();
+    } as any).returning();
 
     res.json({ success: true, template: created });
   } catch (err: any) {
@@ -210,7 +210,7 @@ router.delete('/:id', authenticate, leaderOrAbove, async (req: Request, res: Res
     if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
     await db.update(seatTemplates)
-      .set({ deletedAt: new Date() })
+      .set({ deletedAt: new Date() } as any)
       .where(eq(seatTemplates.id, id));
 
     res.json({ success: true });

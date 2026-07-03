@@ -9,6 +9,8 @@ import { getDB } from '../config/db.js';
 // ── كتالوج الأفعال اليدوية التي تُسجَّل + تصنيفها ──────────────────────
 // أي حدث سوكت/مسار غير موجود هنا لا يُسجَّل (لتفادي الضجيج). أضِف مفتاحاً لتسجيله.
 export const ACTION_CATALOG: Record<string, { category: string; labelAr: string }> = {
+  // ── 🕵️ المراقبة (أحداث لاعبين مشبوهة) — نوع مستقل ──
+  'player:mafia-gallery-open': { category: 'MONITORING', labelAr: 'فتح قائمة التعرف على المافيا' },
   // ── العقوبات ──
   'leader:record-penalty': { category: 'PENALTY', labelAr: 'تسجيل عقوبة على لاعب' },
   'ui:penalty-menu-open': { category: 'PENALTY', labelAr: 'فتح قائمة العقوبات' },

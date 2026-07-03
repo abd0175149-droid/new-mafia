@@ -843,7 +843,7 @@ router.delete('/:id/tickets', authenticate, async (req: Request, res: Response) 
 
   const activityId = parseInt(req.params.id);
   await db.update(activityTickets)
-    .set({ deletedAt: new Date() })
+    .set({ deletedAt: new Date() } as any)
     .where(eq(activityTickets.activityId, activityId));
   res.json({ success: true });
 });

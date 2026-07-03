@@ -77,7 +77,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  await db.update(foundationalCosts).set({ deletedAt: new Date() }).where(eq(foundationalCosts.id, id));
+  await db.update(foundationalCosts).set({ deletedAt: new Date() } as any).where(eq(foundationalCosts.id, id));
   res.json({ success: true });
 });
 

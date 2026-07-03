@@ -267,7 +267,7 @@ router.post('/card-templates/:id/upload-image', authenticate, (req: Request, res
         .set({
           secretFace: { type: 'custom', customImageUrl: imageUrl },
           updatedAt: new Date(),
-        })
+        } as any)
         .where(eq(cardTemplates.id, req.params.id))
         .returning();
       if (!row) return res.status(404).json({ error: 'Template not found' });

@@ -1004,7 +1004,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
                 .set({
                   bombRRChange: sql`COALESCE(${matchPlayers.bombRRChange}, 0) + ${totalBombRR}`,
                   rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalBombRR}`,
-                })
+                } as any)
                 .where(
                   and(
                     eq(matchPlayers.matchId, state.matchId),
@@ -1224,7 +1224,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           revealedRoles,
           winResult,
           type: 'ELIMINATE_ALL',
-        };
+        } as any;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.DAY_ELIMINATION);
 

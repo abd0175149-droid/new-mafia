@@ -213,7 +213,7 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   const existing = await db.select().from(bookings).where(and(eq(bookings.id, id), isNull(bookings.deletedAt))).limit(1);
   if (existing.length === 0) return res.status(404).json({ error: 'الحجز غير موجود' });
 
-  await db.update(bookings).set({ deletedAt: new Date() }).where(eq(bookings.id, id));
+  await db.update(bookings).set({ deletedAt: new Date() } as any).where(eq(bookings.id, id));
   res.json({ success: true });
 
   // تحديث maxPlayers في الغرفة حسب عدد الأشخاص

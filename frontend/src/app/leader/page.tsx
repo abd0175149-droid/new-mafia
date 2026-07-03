@@ -141,9 +141,10 @@ export default function LeaderPage() {
   const lastTimerSoundRef = useRef<number>(0);
   const [showTimerAdjust, setShowTimerAdjust] = useState(false);
 
-  // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بلا تكدس) ──
+  // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بترقيم حيّ) ──
   const galleryAlertQueueRef = useRef<any[]>([]);
   const galleryAlertShowingRef = useRef(false);
+  const galleryAlertPosRef = useRef(0); // موضع التنبيه المعروض حالياً (1-based؛ 0 = خامل)
 
   // ── 🎁 سحب «اختيار رابح» (هدايا الفعالية) ──
   const [showLuckyDraw, setShowLuckyDraw] = useState(false);
@@ -1016,17 +1017,30 @@ export default function LeaderPage() {
       });
     });
 
-    // ── 🕵️ تنبيه لحظي: لاعب فتح قائمة «التعرف على المافيا» ──
+    // ── 🕵️ تنبيه لحظي: لاعب فتح قائمة «التعرف على المافيا» (ترقيم حيّ) ──
+    // إجمالي التنبيهات = موضع الحالي + المتبقّي في الطابور (يكبر حيّاً مع كل وصول)
+    const updateGalleryCounter = () => {
+      const el = typeof document !== 'undefined' ? document.getElementById('gal-alert-counter') : null;
+      if (!el) return;
+      const total = galleryAlertPosRef.current + galleryAlertQueueRef.current.length;
+      el.textContent = total > 1 ? `تنبيه ${galleryAlertPosRef.current} من ${total}` : '';
+    };
+
     const processGalleryAlerts = async () => {
       if (galleryAlertShowingRef.current) return;
       galleryAlertShowingRef.current = true;
+      galleryAlertPosRef.current = 0;
       try {
+        const escHtml = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         while (galleryAlertQueueRef.current.length > 0) {
+          galleryAlertPosRef.current += 1;
           const d = galleryAlertQueueRef.current.shift()!;
-          const escHtml = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const total = galleryAlertPosRef.current + galleryAlertQueueRef.current.length;
+          const counterText = total > 1 ? `تنبيه ${galleryAlertPosRef.current} من ${total}` : '';
           const teamColor = d.team === 'MAFIA' ? '#dc2626' : d.team === 'NEUTRAL' ? '#7c3aed' : '#059669';
           const html = `
             <div style="text-align:center;direction:rtl">
+              <div id="gal-alert-counter" style="font-size:13px;font-weight:800;color:#C5A059;min-height:18px;margin-bottom:6px">${counterText}</div>
               <div style="font-size:52px;font-weight:900;color:#C5A059;line-height:1.1">#${Number(d.physicalId) || '؟'}</div>
               <div style="font-size:18px;font-weight:700;margin-top:6px">${escHtml(d.name)}</div>
               <div style="margin-top:10px;font-size:14px">
@@ -1042,7 +1056,16 @@ export default function LeaderPage() {
           });
           if (confirmed) {
             try {
-              await emit('admin:eliminate', { roomId: d.roomId, physicalId: d.physicalId });
+              const res: any = await emit('admin:eliminate', { roomId: d.roomId, physicalId: d.physicalId });
+              const revealedRole = res?.role || d.role || 'UNKNOWN';
+              // تحديث محلي فوري (البثّ سيؤكّده أيضاً)
+              setGameState(prev => prev ? {
+                ...prev,
+                players: prev.players.map((pl: any) => pl.physicalId === d.physicalId ? { ...pl, isAlive: false } : pl),
+              } as any : prev);
+              // كشف كارد اللاعب ودوره على شاشة الليدر + شاشة العرض
+              setAdminRevealData({ physicalId: d.physicalId, name: d.name, role: revealedRole });
+              emit('admin:reveal-eliminated', { roomId: d.roomId, physicalId: d.physicalId, playerName: d.name, role: revealedRole }).catch(() => {});
               swalToast(`تم إقصاء ${d.name} (#${d.physicalId}) إدارياً`, 'success');
             } catch (e: any) {
               swalAlert(e?.message || 'فشل الإقصاء الإداري');
@@ -1051,6 +1074,7 @@ export default function LeaderPage() {
         }
       } finally {
         galleryAlertShowingRef.current = false;
+        galleryAlertPosRef.current = 0;
       }
     };
 
@@ -1060,7 +1084,8 @@ export default function LeaderPage() {
       if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId)) {
         galleryAlertQueueRef.current.push(d);
       }
-      processGalleryAlerts();
+      updateGalleryCounter();   // تحديث الترقيم حيّاً إن كان تنبيه مفتوحاً الآن
+      processGalleryAlerts();   // ابدأ العرض إن كان خاملاً
     });
 
     // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──

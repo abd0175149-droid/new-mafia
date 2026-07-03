@@ -127,7 +127,7 @@ router.put('/constraints', authenticate, leaderOrAbove, async (req: Request, res
     };
 
     await db.update(activities)
-      .set({ seatConstraints: newConfig })
+      .set({ seatConstraints: newConfig } as any)
       .where(eq(activities.id, activityId));
 
     res.json({ success: true, constraints: newConfig });

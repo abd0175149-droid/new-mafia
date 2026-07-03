@@ -7,7 +7,7 @@ import { Server, Socket } from 'socket.io';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
-import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES } from '../game/roles.js';
+import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRole, MAFIA_ROLES, ROLE_NAMES_AR } from '../game/roles.js';
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
@@ -1897,7 +1897,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
       const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
 
-      // بثّ موجّه لسوكتات الليدر حصراً — الحمولة تحمل الدور فلا تُبثّ للغرفة
+      // بثّ موجّه لسوكتات الليدر حصراً — الحمولة تحمل الدور فلا تُبثّ للغرفة (المسار الساخن أولاً)
       const allSockets = await io.in(roomId).fetchSockets();
       for (const s of allSockets) {
         if ((s as any).data?.role === 'leader') {
@@ -1913,6 +1913,26 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           });
         }
       }
+
+      // 📋 تسجيل الحدث في سجل عمليات الموظفين (نوع مستقل MONITORING) — fire-and-forget بعد البثّ (لا يؤخّر التنبيه)
+      try {
+        const roleAr = ROLE_NAMES_AR[player.role as Role] || player.role;
+        const { logStaffAction } = await import('../services/staff-action-log.service.js');
+        logStaffAction({
+          source: 'socket',
+          action: 'player:mafia-gallery-open',
+          category: 'MONITORING',
+          labelAr: 'فتح قائمة التعرف على المافيا',
+          outcome: 'success',
+          roomId,
+          roomCode: (state as any).roomCode,
+          matchId: (state as any).matchId,
+          activityId: (state as any).activityId,
+          targetPhysicalId: physicalId,
+          targetName: `${player.name} — ${roleAr}`,
+          details: { physicalId, role: player.role, roleAr, team, teamAr },
+        });
+      } catch { /* غير حاجب */ }
     } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
   });
 
