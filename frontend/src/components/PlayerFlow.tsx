@@ -3294,7 +3294,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       {/* ── زر شركاء المافيا العائم (موجود كشكل للجميع لتجنب كشف الدور) ── */}
       {assignedRole !== null && gamePhase !== 'GAME_OVER' && (step === 'done' || step === 'rejoined') && (
         <button
-          onClick={() => setIsGalleryOpen(true)}
+          onClick={() => {
+            // 🕵️ تنبيه لحظي لليدر بأن اللاعب فتح قائمة التعرف (fire-and-forget — لا يؤخر الفتح)
+            import('@/lib/socket').then(m => m.getSocket().emit('player:mafia-gallery-open', { roomId })).catch(() => {});
+            setIsGalleryOpen(true);
+          }}
           className="fixed bottom-[110px] left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
           title="التعرف على المافيا"
         >

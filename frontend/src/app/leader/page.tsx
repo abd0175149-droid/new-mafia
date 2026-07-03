@@ -13,7 +13,7 @@ import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
 import { playGameSound } from '@/lib/soundManager';
 import { ROLE_NAMES } from '@/lib/constants';
-import { swalConfirm } from '@/lib/swal';
+import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
 
 interface ActiveGame {
   roomId: string;
@@ -140,6 +140,10 @@ export default function LeaderPage() {
   const [gameTimerRemaining, setGameTimerRemaining] = useState<number>(0);
   const lastTimerSoundRef = useRef<number>(0);
   const [showTimerAdjust, setShowTimerAdjust] = useState(false);
+
+  // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بلا تكدس) ──
+  const galleryAlertQueueRef = useRef<any[]>([]);
+  const galleryAlertShowingRef = useRef(false);
 
   // ── 🎁 سحب «اختيار رابح» (هدايا الفعالية) ──
   const [showLuckyDraw, setShowLuckyDraw] = useState(false);
@@ -1012,6 +1016,53 @@ export default function LeaderPage() {
       });
     });
 
+    // ── 🕵️ تنبيه لحظي: لاعب فتح قائمة «التعرف على المافيا» ──
+    const processGalleryAlerts = async () => {
+      if (galleryAlertShowingRef.current) return;
+      galleryAlertShowingRef.current = true;
+      try {
+        while (galleryAlertQueueRef.current.length > 0) {
+          const d = galleryAlertQueueRef.current.shift()!;
+          const escHtml = (s: string) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const teamColor = d.team === 'MAFIA' ? '#dc2626' : d.team === 'NEUTRAL' ? '#7c3aed' : '#059669';
+          const html = `
+            <div style="text-align:center;direction:rtl">
+              <div style="font-size:52px;font-weight:900;color:#C5A059;line-height:1.1">#${Number(d.physicalId) || '؟'}</div>
+              <div style="font-size:18px;font-weight:700;margin-top:6px">${escHtml(d.name)}</div>
+              <div style="margin-top:10px;font-size:14px">
+                الدور: <b>${escHtml((ROLE_NAMES as Record<string, string>)[d.role] || d.role)}</b>
+                &nbsp;—&nbsp;
+                <span style="background:${teamColor}22;color:${teamColor};padding:2px 12px;border-radius:10px;font-weight:700">${escHtml(d.teamAr || '')}</span>
+              </div>
+            </div>`;
+          const confirmed = await swalHtmlConfirm('🕵️ فتح قائمة التعرف على المافيا', html, {
+            confirmText: '⚡ إقصاء إداري',
+            cancelText: 'إغلاق',
+            danger: true,
+          });
+          if (confirmed) {
+            try {
+              await emit('admin:eliminate', { roomId: d.roomId, physicalId: d.physicalId });
+              swalToast(`تم إقصاء ${d.name} (#${d.physicalId}) إدارياً`, 'success');
+            } catch (e: any) {
+              swalAlert(e?.message || 'فشل الإقصاء الإداري');
+            }
+          }
+        }
+      } finally {
+        galleryAlertShowingRef.current = false;
+      }
+    };
+
+    const offGalleryAlert = on('leader:mafia-gallery-alert', (d: any) => {
+      if (!d || d.roomId !== gameState.roomId) return;
+      // إسقاط التكرار: نفس اللاعب لا يتكدس في الطابور
+      if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId)) {
+        galleryAlertQueueRef.current.push(d);
+      }
+      processGalleryAlerts();
+    });
+
     // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──
     const offStateUpdated = on('game:state-updated', (state: any) => {
       if (!state) return;
@@ -1064,6 +1115,7 @@ export default function LeaderPage() {
       offTimerExpired();
       offTimerAdjusted();
       offPenaltyRecorded();
+      offGalleryAlert();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);

@@ -55,6 +55,25 @@ export function swalAlert(text: string, icon?: 'success' | 'error' | 'info' | 'w
   void themed.fire({ html: toHtml(text), icon: icon ?? iconFor(String(text)), confirmButtonText: 'حسناً' });
 }
 
+/** تأكيد بمحتوى HTML خام (على المستدعي تهريب أي نص مستخدم) — للتنبيهات الغنية. */
+export async function swalHtmlConfirm(
+  title: string,
+  html: string,
+  opts?: { confirmText?: string; cancelText?: string; danger?: boolean },
+): Promise<boolean> {
+  const r = await themed.fire({
+    title,
+    html,
+    showCancelButton: true,
+    reverseButtons: true,
+    focusCancel: true,
+    confirmButtonText: opts?.confirmText ?? 'نعم',
+    cancelButtonText: opts?.cancelText ?? 'إغلاق',
+    ...(opts?.danger ? { confirmButtonColor: '#b91c1c' } : {}),
+  });
+  return r.isConfirmed;
+}
+
 /** إشعار زاوية سريع. */
 export function swalToast(text: string, icon: 'success' | 'error' | 'info' | 'warning' = 'info'): void {
   void Swal.fire({

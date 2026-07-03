@@ -1872,6 +1872,49 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── 🕵️ مراقبة: لاعب فتح قائمة «التعرف على المافيا» → تنبيه لحظي لليدر فقط ──
+  // الهوية تُشتق من socket.data حصراً (لا نثق بالعميل)؛ fire-and-forget بلا DB في المسار.
+  socket.on('player:mafia-gallery-open', async (data: { roomId?: string }) => {
+    try {
+      if (socket.data.role !== 'player') return;
+      const roomId: string | undefined = socket.data.roomId;
+      const physicalId: number | undefined = socket.data.physicalId;
+      if (!roomId || !physicalId) return;
+      if (data?.roomId && data.roomId !== roomId) return;
+
+      // Throttle: تجاهل التكرار خلال 5 ثوانٍ لكل لاعب (حماية من الإغراق)
+      const now = Date.now();
+      if (socket.data.lastGalleryPingAt && now - socket.data.lastGalleryPingAt < 5000) return;
+      socket.data.lastGalleryPingAt = now;
+
+      const state = await getGameState(roomId);
+      if (!state || state.phase === 'GAME_OVER') return;
+      const player = state.players.find((p: any) => p.physicalId === physicalId);
+      if (!player?.role || player.isAlive === false) return;
+
+      const mafia = isMafiaRole(player.role as Role);
+      const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
+      const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
+
+      // بثّ موجّه لسوكتات الليدر حصراً — الحمولة تحمل الدور فلا تُبثّ للغرفة
+      const allSockets = await io.in(roomId).fetchSockets();
+      for (const s of allSockets) {
+        if ((s as any).data?.role === 'leader') {
+          s.emit('leader:mafia-gallery-alert', {
+            roomId,
+            physicalId,
+            name: player.name,
+            role: player.role,
+            team,
+            teamAr,
+            avatarUrl: (player as any).avatarUrl || null,
+            at: now,
+          });
+        }
+      }
+    } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
+  });
+
   // ── صلاحية الليدر: تسجيل عقوبة على لاعب ──
   socket.on('leader:record-penalty', async (data: {
     roomId: string;
