@@ -15,6 +15,20 @@ let ambientAudio: HTMLAudioElement | null = null;
 let ambientKey: string | null = null;
 
 // ══════════════════════════════════════════════════════
+// 🔊 مرآة الأصوات — شاشة العرض «القائد» تبثّ كل صوت لتُعيده شاشة الليدر «التابع»
+// - تُسجّل شاشة العرض callback عبر setSoundMirror فتبثّ كل نداء صوت.
+// - الدوالّ العامّة (المُصدَّرة) تبثّ مرّة واحدة ثم تُنفّذ الـ impl الداخلية.
+// - الـ impl الداخلية (_fn) تستدعي بعضها فقط ⇒ بثّ واحد بالضبط لكل نداء، بلا حلقة.
+// - المُستقبِل (الليدر) لا يُسجّل باعثاً ⇒ applyRemoteSound تستدعي impl مباشرةً بلا بثّ راجع.
+// ══════════════════════════════════════════════════════
+type MirrorPayload = { fn: string; args: any[] };
+let mirrorEmit: ((p: MirrorPayload) => void) | null = null;
+
+export function setSoundMirror(cb: ((p: MirrorPayload) => void) | null): void {
+  mirrorEmit = cb;
+}
+
+// ══════════════════════════════════════════════════════
 // 📥 تحميل خريطة الأصوات المخصصة من السيرفر
 // يُستدعى مرة واحدة عند فتح شاشة العرض
 // ══════════════════════════════════════════════════════
@@ -62,6 +76,10 @@ export async function reloadSoundMap(): Promise<void> {
 // 🎵 تشغيل صوت حدث (مع Fallback للأصوات الافتراضية)
 // ══════════════════════════════════════════════════════
 export function playGameSound(eventKey: string): void {
+  mirrorEmit?.({ fn: 'playGameSound', args: [eventKey] });
+  _playGameSound(eventKey);
+}
+function _playGameSound(eventKey: string): void {
   // أولاً: فحص الأصوات المخصصة
   if (customSoundMap[eventKey]) {
     try {
@@ -89,8 +107,12 @@ export function playGameSound(eventKey: string): void {
 // 🌙 تشغيل صوت خلفي (Ambient) — يتكرر حتى الإيقاف
 // ══════════════════════════════════════════════════════
 export function playAmbientSound(eventKey: string): void {
+  mirrorEmit?.({ fn: 'playAmbientSound', args: [eventKey] });
+  _playAmbientSound(eventKey);
+}
+function _playAmbientSound(eventKey: string): void {
   // إيقاف أي صوت خلفي سابق
-  stopAmbientSound();
+  _stopAmbientSound();
 
   if (customSoundMap[eventKey]) {
     try {
@@ -112,6 +134,10 @@ export function playAmbientSound(eventKey: string): void {
 // ⏹️ إيقاف الصوت الخلفي
 // ══════════════════════════════════════════════════════
 export function stopAmbientSound(): void {
+  mirrorEmit?.({ fn: 'stopAmbientSound', args: [] });
+  _stopAmbientSound();
+}
+function _stopAmbientSound(): void {
   if (ambientAudio) {
     ambientAudio.pause();
     ambientAudio.currentTime = 0;
@@ -124,12 +150,20 @@ export function stopAmbientSound(): void {
 // 🔉 خفض صوت الخلفية مؤقتاً (عند تشغيل حدث)
 // ══════════════════════════════════════════════════════
 export function duckAmbient(): void {
+  mirrorEmit?.({ fn: 'duckAmbient', args: [] });
+  _duckAmbient();
+}
+function _duckAmbient(): void {
   if (ambientAudio) {
     ambientAudio.volume = 0.08;
   }
 }
 
 export function unduckAmbient(): void {
+  mirrorEmit?.({ fn: 'unduckAmbient', args: [] });
+  _unduckAmbient();
+}
+function _unduckAmbient(): void {
   if (ambientAudio) {
     ambientAudio.volume = 0.3;
   }
@@ -139,14 +173,18 @@ export function unduckAmbient(): void {
 // 🎵 تشغيل صوت حدث مع Duck/Unduck تلقائي للخلفية
 // ══════════════════════════════════════════════════════
 export function playEventSound(eventKey: string, durationMs: number = 3000): void {
+  mirrorEmit?.({ fn: 'playEventSound', args: [eventKey, durationMs] });
+  _playEventSound(eventKey, durationMs);
+}
+function _playEventSound(eventKey: string, durationMs: number = 3000): void {
   // خفض الخلفية
-  duckAmbient();
+  _duckAmbient();
 
   // تشغيل صوت الحدث
-  playGameSound(eventKey);
+  _playGameSound(eventKey);
 
   // إعادة الخلفية بعد المدة
-  setTimeout(() => unduckAmbient(), durationMs);
+  setTimeout(() => _unduckAmbient(), durationMs);
 }
 
 // ══════════════════════════════════════════════════════
@@ -155,8 +193,12 @@ export function playEventSound(eventKey: string, durationMs: number = 3000): voi
 const MAFIA_ROLE_KEYS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
 
 export function playEliminationSound(role: string | null): void {
+  mirrorEmit?.({ fn: 'playEliminationSound', args: [role] });
+  _playEliminationSound(role);
+}
+function _playEliminationSound(role: string | null): void {
   if (!role) {
-    playGameSound('elimination_citizen');
+    _playGameSound('elimination_citizen');
     return;
   }
 
@@ -165,13 +207,13 @@ export function playEliminationSound(role: string | null): void {
   // 1. محاولة صوت الدور المحدد
   const roleKey = `elimination_${roleUpper.toLowerCase()}`;
   if (customSoundMap[roleKey]) {
-    playEventSound(roleKey, 5000);
+    _playEventSound(roleKey, 5000);
     return;
   }
 
   // 2. Fallback لصوت الفريق
   const isMafia = MAFIA_ROLE_KEYS.includes(roleUpper);
-  playEventSound(isMafia ? 'elimination_mafia' : 'elimination_citizen', 5000);
+  _playEventSound(isMafia ? 'elimination_mafia' : 'elimination_citizen', 5000);
 }
 
 // ══════════════════════════════════════════════════════
@@ -196,9 +238,13 @@ const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
 };
 
 export function playNightStepAmbient(stepType: string): void {
-  const ambientKey = NIGHT_STEP_AMBIENT_MAP[stepType.toUpperCase()];
-  if (ambientKey && customSoundMap[ambientKey]) {
-    playAmbientSound(ambientKey);
+  mirrorEmit?.({ fn: 'playNightStepAmbient', args: [stepType] });
+  _playNightStepAmbient(stepType);
+}
+function _playNightStepAmbient(stepType: string): void {
+  const stepKey = NIGHT_STEP_AMBIENT_MAP[stepType.toUpperCase()];
+  if (stepKey && customSoundMap[stepKey]) {
+    _playAmbientSound(stepKey);
   }
   // إذا لا يوجد صوت مخصص للخطوة → يبقى ambient_night الحالي يعمل
 }
@@ -626,8 +672,12 @@ function playDefaultSound(eventKey: string): void {
 // 🥁 Drumroll — يُستخدم في RevealCeremony و BombCeremony
 // ══════════════════════════════════════════════════════
 export function playDrumroll(): void {
+  mirrorEmit?.({ fn: 'playDrumroll', args: [] });
+  _playDrumroll();
+}
+function _playDrumroll(): void {
   if (customSoundMap['drumroll']) {
-    playGameSound('drumroll');
+    _playGameSound('drumroll');
     return;
   }
   try {
@@ -653,8 +703,12 @@ export function playDrumroll(): void {
 // 💥 Impact Boom — صوت ارتطام عند الإقصاء النهائي
 // ══════════════════════════════════════════════════════
 export function playImpactBoom(): void {
+  mirrorEmit?.({ fn: 'playImpactBoom', args: [] });
+  _playImpactBoom();
+}
+function _playImpactBoom(): void {
   if (customSoundMap['impact_boom']) {
-    playGameSound('impact_boom');
+    _playGameSound('impact_boom');
     return;
   }
   try {
@@ -671,4 +725,28 @@ export function playImpactBoom(): void {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
   } catch {}
+}
+
+// ══════════════════════════════════════════════════════
+// 🔊 المُستقبِل (شاشة الليدر) — يُشغّل صوتاً مُرحَّلاً من شاشة العرض
+// يوجّه إلى الـ impl الداخلية (بلا بثّ راجع، بلا حلقة)
+// ══════════════════════════════════════════════════════
+const REMOTE_SOUND_FNS: Record<string, (...a: any[]) => void> = {
+  playGameSound: _playGameSound,
+  playAmbientSound: _playAmbientSound,
+  stopAmbientSound: _stopAmbientSound,
+  duckAmbient: _duckAmbient,
+  unduckAmbient: _unduckAmbient,
+  playEventSound: _playEventSound,
+  playEliminationSound: _playEliminationSound,
+  playNightStepAmbient: _playNightStepAmbient,
+  playDrumroll: _playDrumroll,
+  playImpactBoom: _playImpactBoom,
+};
+
+export function applyRemoteSound(payload: { fn: string; args?: any[] }): void {
+  try {
+    const fn = REMOTE_SOUND_FNS[payload?.fn];
+    if (fn) fn(...(payload.args || []));
+  } catch { /* صامت */ }
 }

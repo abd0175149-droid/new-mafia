@@ -11,7 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound } from '@/lib/soundManager';
+import { playGameSound, loadSoundMap, reloadSoundMap, applyRemoteSound } from '@/lib/soundManager';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
 
@@ -140,6 +140,33 @@ export default function LeaderPage() {
   const [gameTimerRemaining, setGameTimerRemaining] = useState<number>(0);
   const lastTimerSoundRef = useRef<number>(0);
   const [showTimerAdjust, setShowTimerAdjust] = useState(false);
+  const [pinnedSeatsExpanded, setPinnedSeatsExpanded] = useState(false); // قسم المقاعد المثبّتة — مطويّ افتراضياً
+
+  // ── 🔊 مرآة الأصوات: تشغيل نفس أصوات شاشة العرض على شاشة الليدر (افتراضي مُفعّل) ──
+  const [leaderSoundOn, setLeaderSoundOn] = useState(true);
+  const leaderSoundOnRef = useRef(true);
+  useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
+
+  // تحميل خريطة الأصوات المخصّصة + استعادة تفضيل الكتم + فكّ قفل الصوت عند أول تفاعل ──
+  useEffect(() => {
+    loadSoundMap();
+    try {
+      const saved = localStorage.getItem('leader-sound-on');
+      if (saved === '0') setLeaderSoundOn(false);
+    } catch {}
+    // فكّ قفل التشغيل التلقائي (Autoplay) عند أول نقرة/لمسة — نبضة صامتة تُهيّئ المتصفح
+    const unlock = () => {
+      try {
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AC) { const c = new AC(); if (c.state === 'suspended') c.resume(); }
+      } catch {}
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('pointerdown', unlock, { once: true } as any);
+    window.addEventListener('keydown', unlock, { once: true } as any);
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
+  }, []);
 
   // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بترقيم حيّ) ──
   const galleryAlertQueueRef = useRef<any[]>([]);
@@ -1082,6 +1109,15 @@ export default function LeaderPage() {
       }
     };
 
+    // ── 🔊 مرآة الأصوات: تشغيل نفس صوت شاشة العرض لحظياً ──
+    const offSound = on('leader:sound', (d: any) => {
+      if (!d?.fn || !leaderSoundOnRef.current) return;
+      // المؤقّت يُشغَّل محلياً على الليدر (مشتقّ من وقت السيرفر) — نتجاهله من المرآة لمنع الازدواج
+      if (d.fn === 'playGameSound' && String(d.args?.[0] || '').startsWith('timer_')) return;
+      applyRemoteSound(d);
+    });
+    const offSoundsUpdated = on('admin:sounds-updated', () => { reloadSoundMap(); });
+
     const offGalleryAlert = on('leader:mafia-gallery-alert', (d: any) => {
       if (!d || d.roomId !== gameState.roomId) return;
       // إسقاط التكرار: نفس اللاعب لا يتكدس في الطابور
@@ -1145,6 +1181,8 @@ export default function LeaderPage() {
       offTimerAdjusted();
       offPenaltyRecorded();
       offGalleryAlert();
+      offSound();
+      offSoundsUpdated();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);
@@ -1289,6 +1327,18 @@ export default function LeaderPage() {
     })();
   }, [inSession, gameState?.sessionId]);
 
+  // ── 🔊 زرّ كتم/تشغيل أصوات الليدر (عائم، صمّام أمان لتجنّب صدى سمّاعات القاعة) ──
+  const soundToggleBtn = (
+    <button
+      onClick={() => setLeaderSoundOn((v) => { const nv = !v; try { localStorage.setItem('leader-sound-on', nv ? '1' : '0'); } catch {}; return nv; })}
+      title={leaderSoundOn ? 'كتم أصوات الليدر' : 'تشغيل أصوات الليدر'}
+      aria-label={leaderSoundOn ? 'كتم الصوت' : 'تشغيل الصوت'}
+      className={`fixed bottom-4 left-4 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors ${leaderSoundOn ? 'bg-[#0f2a1a]/80 border-emerald-600/40 text-emerald-300' : 'bg-[#2a0f0f]/80 border-red-700/40 text-red-300'}`}
+    >
+      {leaderSoundOn ? '🔊' : '🔇'}
+    </button>
+  );
+
   if (checkingAuth || !isAuthenticated) {
     return (
       <div className="display-bg min-h-screen flex items-center justify-center font-sans">
@@ -1405,6 +1455,7 @@ export default function LeaderPage() {
     return (
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
+          {soundToggleBtn}
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
             <div className="flex items-center gap-3">
@@ -1934,12 +1985,18 @@ export default function LeaderPage() {
                     className="mt-6 bg-black/40 border border-purple-500/20 rounded-xl p-4 relative overflow-hidden"
                   >
                     <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" />
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
+                    <div className={`flex items-center justify-between ${pinnedSeatsExpanded ? 'mb-3' : ''}`}>
+                      <button
+                        onClick={() => setPinnedSeatsExpanded((v) => !v)}
+                        className="flex items-center gap-2 flex-1 min-w-0 text-right"
+                        title={pinnedSeatsExpanded ? 'طيّ القسم' : 'فتح القسم'}
+                      >
+                        <span className={`text-purple-400 text-[10px] transition-transform ${pinnedSeatsExpanded ? 'rotate-90' : ''}`}>▶</span>
                         <span className="text-purple-400">📌</span>
                         <span className="text-white text-xs font-bold" style={{ fontFamily: 'Amiri, serif' }}>المقاعد المثبّتة من القالب ({pinned.length})</span>
-                      </div>
-                      <div className="flex items-center gap-2">
+                        {templateChanged && !pinnedSeatsExpanded && <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />}
+                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
                         {tail > 0 && <span className="text-[#808080] text-[8px] font-mono tracking-widest uppercase">TAIL {tail}</span>}
                         <button
                           onClick={doResyncTemplate}
@@ -1952,6 +2009,9 @@ export default function LeaderPage() {
                         </button>
                       </div>
                     </div>
+                    <AnimatePresence initial={false}>
+                    {pinnedSeatsExpanded && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                     {templateChanged && (
                       <p className="text-[10px] text-amber-400 mb-2">🔔 تغيّر القالب المرتبط بالفعالية — اضغط «تحديث من القالب» لتطبيقه على هذه الغرفة.</p>
                     )}
@@ -2006,6 +2066,9 @@ export default function LeaderPage() {
                         })}
                       </div>
                     )}
+                    </motion.div>
+                    )}
+                    </AnimatePresence>
                   </motion.div>
                 );
               })()}
@@ -2655,6 +2718,7 @@ export default function LeaderPage() {
     return (
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
+          {soundToggleBtn}
           {/* ═══ Unified Global Header ═══ */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
             {/* Left: Logo + MAFIA CLUB */}

@@ -10,7 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient } from '@/lib/soundManager';
+import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, setSoundMirror } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -191,6 +191,15 @@ function DisplayPageContent() {
 
   // ── تحميل الأصوات المخصصة عند فتح شاشة العرض ──
   useEffect(() => { loadSoundMap(); }, []);
+
+  // ── 🔊 مرآة الأصوات: بثّ كل صوت تُشغّله شاشة العرض إلى شاشات الليدر للتزامن ──
+  useEffect(() => {
+    if (!currentRoomId) return;
+    setSoundMirror((p) => {
+      try { getSocket().emit('display:sound', { roomId: currentRoomId, fn: p.fn, args: p.args }); } catch {}
+    });
+    return () => setSoundMirror(null);
+  }, [currentRoomId]);
 
   // ── 🔊 فتح قفل الصوت عند أول تفاعل (Autoplay Policy) ──
   // المتصفحات تمنع الصوت بدون تفاعل المستخدم — هذا يشغله عند أول نقرة/لمسة

@@ -23,6 +23,12 @@ import { eq, sql, and } from 'drizzle-orm';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
+// 🔊 قائمة بيضاء لدوالّ مرآة الأصوات (display → leader) — تطابق أسماء دوالّ soundManager العامّة
+const SOUND_MIRROR_FNS = new Set([
+  'playGameSound', 'playAmbientSound', 'stopAmbientSound', 'duckAmbient', 'unduckAmbient',
+  'playEventSound', 'playEliminationSound', 'playNightStepAmbient', 'playDrumroll', 'playImpactBoom',
+]);
+
 // 🔒 فتح مؤقّت للأدوات الحسّاسة (تعديل الأرقام/الأسماء) — يتطلب رقماً سرّياً يُضبط في env (RENUMBER_SECRET).
 // يُخزَّن وقت انتهاء الصلاحية على الاتصال نفسه (socket.data)، فلا يدوم بعد قطع الاتصال أو انتهاء المدة.
 const TOOLS_UNLOCK_MS = 10 * 60 * 1000; // 10 دقائق
@@ -1936,6 +1942,21 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         });
       } catch { /* غير حاجب */ }
     } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
+  });
+
+  // ── 🔊 مرآة الأصوات: ترحيل كل صوت تُشغّله شاشة العرض إلى شاشات الليدر فقط ──
+  // شاشة العرض هي «القائد»؛ الليدر «يتبع» بنفس المفتاح ونفس الخريطة المخصّصة لتزامن كامل.
+  socket.on('display:sound', async (data: { fn: string; args?: any[] }) => {
+    try {
+      if (socket.data.role !== 'display') return;              // يُقبل من شاشة العرض حصراً
+      const roomId = socket.data.roomId;
+      if (!roomId || !data?.fn || !SOUND_MIRROR_FNS.has(data.fn)) return;  // قائمة بيضاء للدوالّ
+      const args = Array.isArray(data.args)
+        ? data.args.filter((a) => a === null || typeof a === 'string' || typeof a === 'number').slice(0, 3)
+        : [];
+      const sockets = await io.in(roomId).fetchSockets();
+      for (const s of sockets) if ((s as any).data?.role === 'leader') s.emit('leader:sound', { fn: data.fn, args });
+    } catch { /* صامت — لا يؤثّر على مجرى اللعبة */ }
   });
 
   // ── صلاحية الليدر: تسجيل عقوبة على لاعب ──
