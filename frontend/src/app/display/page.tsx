@@ -94,13 +94,7 @@ function DisplayPageContent() {
   const adminRevealTimerRef = useRef<NodeJS.Timeout | null>(null);
   // 🃏 قلب بطاقة الكشف: تبدأ بالوجه الأمامي (اسم+رقم) ثم تُقلب تلقائياً لكشف الدور
   const [adminRevealFlipped, setAdminRevealFlipped] = useState(false);
-  // عند ظهور بطاقة الكشف: ابدأ بالوجه الأمامي ثم اقلبها بعد ~1.2ث لكشف الدور
-  useEffect(() => {
-    if (!adminReveal) { setAdminRevealFlipped(false); return; }
-    setAdminRevealFlipped(false);
-    const t = setTimeout(() => setAdminRevealFlipped(true), 1200);
-    return () => clearTimeout(t);
-  }, [adminReveal]);
+  const adminRevealFlipTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasAutoRejoined = useRef(false);
   const lastTimerSoundRef = useRef<number>(0);
   const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
@@ -536,15 +530,21 @@ function DisplayPageContent() {
     socket.on('display:replay-result', onReplayResult);
     socket.on('display:replay-hidden', onReplayHidden);
 
-    // ── كشف دور اللاعب المُقصى إدارياً ──
+    // ── كشف دور اللاعب المُقصى إدارياً: يبدأ بالوجه الأمامي ثم يُقلب بعد 1.2ث ──
     const onShowReveal = (data: any) => {
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
+      if (adminRevealFlipTimerRef.current) clearTimeout(adminRevealFlipTimerRef.current);
+      // ضبط الوجه الأمامي بنفس الدفعة مع البيانات → أول رندر يعرض الاسم/الرقم دائماً (لا وميض للدور)
+      setAdminRevealFlipped(false);
       setAdminReveal(data);
+      adminRevealFlipTimerRef.current = setTimeout(() => setAdminRevealFlipped(true), 1200); // اقلب لكشف الدور
       adminRevealTimerRef.current = setTimeout(() => setAdminReveal(null), 30000);
     };
     const onHideReveal = () => {
       if (adminRevealTimerRef.current) { clearTimeout(adminRevealTimerRef.current); adminRevealTimerRef.current = null; }
+      if (adminRevealFlipTimerRef.current) { clearTimeout(adminRevealFlipTimerRef.current); adminRevealFlipTimerRef.current = null; }
       setAdminReveal(null);
+      setAdminRevealFlipped(false);
     };
     socket.on('admin:show-reveal', onShowReveal);
     socket.on('admin:hide-reveal', onHideReveal);
@@ -614,6 +614,7 @@ function DisplayPageContent() {
       socket.off('game:restarted');
       if (winnerRevealTimer.current) clearTimeout(winnerRevealTimer.current);
       if (adminRevealTimerRef.current) clearTimeout(adminRevealTimerRef.current);
+      if (adminRevealFlipTimerRef.current) clearTimeout(adminRevealFlipTimerRef.current);
     };
   }, [step, currentRoomId]);
 
