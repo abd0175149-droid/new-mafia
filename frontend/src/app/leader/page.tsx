@@ -158,6 +158,17 @@ export default function LeaderPage() {
     NIGHT: 'phase_night_start', DAY_DISCUSSION: 'phase_day_start',
     DAY_VOTING: 'phase_voting_start', DAY_ELIMINATION: 'phase_elimination',
   };
+  // 🌅 خريطة صوت كل حدث في ملخّص الليلة (الأوتو) — لحظة كشفه على شاشة العرض
+  const MORNING_SOUND_BY_TYPE: Record<string, string> = {
+    ASSASSINATION: 'morning_assassination_success',
+    ASSASSINATION_BLOCKED: 'morning_protection_success',
+    SILENCED: 'morning_silenced',
+    SNIPE_MAFIA: 'morning_snipe_mafia',
+    SNIPE_CITIZEN: 'morning_snipe_citizen',
+    ABILITY_DISABLED: 'morning_ability_disabled',
+    ASSASSIN_KILL: 'morning_assassin_kill',
+    POLICEWOMAN_EXECUTION: 'morning_policewoman',
+  };
 
   // تحميل خريطة الأصوات المخصّصة + استعادة تفضيل الكتم + فكّ قفل الصوت عند أول تفاعل ──
   useEffect(() => {
@@ -1220,6 +1231,17 @@ export default function LeaderPage() {
     // ── 🔊 عند تحديث الأصوات من لوحة التحكم: إعادة تحميل الخريطة المخصّصة ──
     const offSoundsUpdated = on('admin:sounds-updated', () => { reloadSoundMap(); });
 
+    // ── 🌅 ملخّص الليلة (أوتو): صوت كل حدث (اغتيال/حماية/قنص/إسكات/شرطية…) لحظة كشفه ──
+    const offMorningEventSound = on('display:morning-event', (d: any) => {
+      const key = MORNING_SOUND_BY_TYPE[String(d?.type || '')];
+      if (key) localSound(() => playGameSound(key));
+    });
+
+    // ── 🤐 كشف المُسكت في النقاش (زر skip على دور اللاعب المسكت) ──
+    const offShowSilencedSound = on('day:show-silenced', () => {
+      localSound(() => playGameSound('day_show_silenced'));
+    });
+
     const offGalleryAlert = on('leader:mafia-gallery-alert', (d: any) => {
       if (!d || d.roomId !== gameState.roomId) return;
       // 🔔 صوت تنبيه فوري — على جهاز الليدر فقط (لا يُبثّ لشاشة العرض حتى لا ينكشف التنبيه في القاعة)
@@ -1286,6 +1308,8 @@ export default function LeaderPage() {
       offPenaltyRecorded();
       offGalleryAlert();
       offSoundsUpdated();
+      offMorningEventSound();
+      offShowSilencedSound();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);

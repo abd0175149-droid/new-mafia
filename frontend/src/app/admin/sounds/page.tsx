@@ -56,6 +56,7 @@ const EVENT_GROUPS = [
       { key: 'morning_silenced', label: '🤐 إسكات لاعب', desc: 'تم إسكات لاعب' },
       { key: 'morning_assassin_kill', label: '🔪 اغتيال السفّاح', desc: 'عند كشف أن السفّاح اغتال في الصباح' },
       { key: 'morning_policewoman', label: '👮 صلاحية الشرطية', desc: 'عند تنفيذ صلاحية الشرطية' },
+      { key: 'morning_ability_disabled', label: '🧙 تعطيل قدرة', desc: 'عند كشف تعطيل الساحرة لقدرة لاعب' },
     ],
   },
   {
