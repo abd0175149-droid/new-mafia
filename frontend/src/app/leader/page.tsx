@@ -1037,24 +1037,28 @@ export default function LeaderPage() {
           const d = galleryAlertQueueRef.current.shift()!;
           const total = galleryAlertPosRef.current + galleryAlertQueueRef.current.length;
           const counterText = total > 1 ? `تنبيه ${galleryAlertPosRef.current} من ${total}` : '';
+          const isDead = !!d.wasDead;
           const teamColor = d.team === 'MAFIA' ? '#dc2626' : d.team === 'NEUTRAL' ? '#7c3aed' : '#059669';
+          const deadBanner = isDead
+            ? `<div style="margin-top:8px;font-size:13px;font-weight:800;color:#f59e0b;background:#f59e0b18;padding:4px 10px;border-radius:10px;display:inline-block">🚫 لاعب مُقصى حاول فتح القائمة</div>`
+            : '';
           const html = `
             <div style="text-align:center;direction:rtl">
               <div id="gal-alert-counter" style="font-size:13px;font-weight:800;color:#C5A059;min-height:18px;margin-bottom:6px">${counterText}</div>
-              <div style="font-size:52px;font-weight:900;color:#C5A059;line-height:1.1">#${Number(d.physicalId) || '؟'}</div>
+              <div style="font-size:52px;font-weight:900;color:${isDead ? '#f59e0b' : '#C5A059'};line-height:1.1">#${Number(d.physicalId) || '؟'}</div>
               <div style="font-size:18px;font-weight:700;margin-top:6px">${escHtml(d.name)}</div>
               <div style="margin-top:10px;font-size:14px">
                 الدور: <b>${escHtml((ROLE_NAMES as Record<string, string>)[d.role] || d.role)}</b>
                 &nbsp;—&nbsp;
                 <span style="background:${teamColor}22;color:${teamColor};padding:2px 12px;border-radius:10px;font-weight:700">${escHtml(d.teamAr || '')}</span>
               </div>
+              ${deadBanner}
             </div>`;
-          const confirmed = await swalHtmlConfirm('🕵️ فتح قائمة التعرف على المافيا', html, {
-            confirmText: '⚡ إقصاء إداري',
-            cancelText: 'إغلاق',
-            danger: true,
-          });
-          if (confirmed) {
+          const title = isDead ? '⚠️ محاولة من لاعب مُقصى' : '🕵️ فتح قائمة التعرف على المافيا';
+          const confirmed = await swalHtmlConfirm(title, html, isDead
+            ? { infoOnly: true, confirmText: 'إغلاق' }               // ميت أصلاً → زر إغلاق فقط، بلا إقصاء
+            : { confirmText: '⚡ إقصاء إداري', cancelText: 'إغلاق', danger: true });
+          if (confirmed && !isDead) {
             try {
               const res: any = await emit('admin:eliminate', { roomId: d.roomId, physicalId: d.physicalId });
               const revealedRole = res?.role || d.role || 'UNKNOWN';

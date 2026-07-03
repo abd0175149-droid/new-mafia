@@ -92,6 +92,15 @@ function DisplayPageContent() {
   const luckyTimersRef = useRef<NodeJS.Timeout[]>([]);
   const [adminReveal, setAdminReveal] = useState<{physicalId: number; playerName: string; role: string} | null>(null);
   const adminRevealTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 🃏 قلب بطاقة الكشف: تبدأ بالوجه الأمامي (اسم+رقم) ثم تُقلب تلقائياً لكشف الدور
+  const [adminRevealFlipped, setAdminRevealFlipped] = useState(false);
+  // عند ظهور بطاقة الكشف: ابدأ بالوجه الأمامي ثم اقلبها بعد ~1.2ث لكشف الدور
+  useEffect(() => {
+    if (!adminReveal) { setAdminRevealFlipped(false); return; }
+    setAdminRevealFlipped(false);
+    const t = setTimeout(() => setAdminRevealFlipped(true), 1200);
+    return () => clearTimeout(t);
+  }, [adminReveal]);
   const hasAutoRejoined = useRef(false);
   const lastTimerSoundRef = useRef<number>(0);
   const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
@@ -1632,18 +1641,18 @@ function DisplayPageContent() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(138,3,3,0.3)_0%,transparent_70%)]" />
 
             <motion.div
-              initial={{ scale: 0, rotateY: 180 }}
-              animate={{ scale: 1, rotateY: 0 }}
-              transition={{ type: 'spring', duration: 1, bounce: 0.3 }}
+              initial={{ scale: 0.6, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', duration: 0.7, bounce: 0.3 }}
               className="relative z-10 mb-8"
             >
               <MafiaCard
                 playerNumber={adminReveal.physicalId}
                 playerName={adminReveal.playerName}
                 role={adminReveal.role}
-                isFlipped={true}
+                isFlipped={adminRevealFlipped}
                 flippable={false}
-                isAlive={false}
+                isAlive={true}
                 size="fluid"
                 className="w-52 h-[18rem] md:w-72 md:h-[24rem] lg:w-80 lg:h-[28rem]"
                 avatarUrl={players.find(p => p.physicalId === adminReveal.physicalId)?.avatarUrl}

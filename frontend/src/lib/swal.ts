@@ -59,15 +59,15 @@ export function swalAlert(text: string, icon?: 'success' | 'error' | 'info' | 'w
 export async function swalHtmlConfirm(
   title: string,
   html: string,
-  opts?: { confirmText?: string; cancelText?: string; danger?: boolean },
+  opts?: { confirmText?: string; cancelText?: string; danger?: boolean; infoOnly?: boolean },
 ): Promise<boolean> {
   const r = await themed.fire({
     title,
     html,
-    showCancelButton: true,
+    showCancelButton: !opts?.infoOnly,           // infoOnly = زر واحد (إغلاق) بلا تأكيد
     reverseButtons: true,
-    focusCancel: true,
-    confirmButtonText: opts?.confirmText ?? 'نعم',
+    focusCancel: !opts?.infoOnly,
+    confirmButtonText: opts?.confirmText ?? (opts?.infoOnly ? 'إغلاق' : 'نعم'),
     cancelButtonText: opts?.cancelText ?? 'إغلاق',
     ...(opts?.danger ? { confirmButtonColor: '#b91c1c' } : {}),
   });

@@ -1891,7 +1891,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getGameState(roomId);
       if (!state || state.phase === 'GAME_OVER') return;
       const player = state.players.find((p: any) => p.physicalId === physicalId);
-      if (!player?.role || player.isAlive === false) return;
+      if (!player?.role) return;                 // لم يُوزّع الدور بعد → تجاهل
+      const wasDead = player.isAlive === false;  // لاعب مُقصى يحاول الفتح (ممنوع) — نُنبّه الليدر بالمحاولة
 
       const mafia = isMafiaRole(player.role as Role);
       const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
@@ -1908,6 +1909,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             role: player.role,
             team,
             teamAr,
+            wasDead,
             avatarUrl: (player as any).avatarUrl || null,
             at: now,
           });
@@ -1922,15 +1924,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           source: 'socket',
           action: 'player:mafia-gallery-open',
           category: 'MONITORING',
-          labelAr: 'فتح قائمة التعرف على المافيا',
-          outcome: 'success',
+          labelAr: wasDead ? 'محاولة فتح قائمة التعرف (لاعب مُقصى)' : 'فتح قائمة التعرف على المافيا',
+          outcome: wasDead ? 'blocked' : 'success',
           roomId,
           roomCode: (state as any).roomCode,
           matchId: (state as any).matchId,
           activityId: (state as any).activityId,
           targetPhysicalId: physicalId,
           targetName: `${player.name} — ${roleAr}`,
-          details: { physicalId, role: player.role, roleAr, team, teamAr },
+          details: { physicalId, role: player.role, roleAr, team, teamAr, wasDead },
         });
       } catch { /* غير حاجب */ }
     } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
