@@ -1944,18 +1944,18 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
   });
 
-  // ── 🔊 مرآة الأصوات: ترحيل كل صوت تُشغّله شاشة العرض إلى شاشات الليدر فقط ──
-  // شاشة العرض هي «القائد»؛ الليدر «يتبع» بنفس المفتاح ونفس الخريطة المخصّصة لتزامن كامل.
-  socket.on('display:sound', async (data: { fn: string; args?: any[] }) => {
+  // ── 🔊 مرآة الأصوات: شاشة الليدر هي «القائد» الحصري — تبثّ كل صوت إلى شاشات العرض ──
+  // مصدر كل الأصوات هو جهاز الليدر؛ شاشة العرض «تابع» تُشغّل ما يصلها بنفس الخريطة المخصّصة.
+  socket.on('leader:sound-play', async (data: { fn: string; args?: any[] }) => {
     try {
-      if (socket.data.role !== 'display') return;              // يُقبل من شاشة العرض حصراً
+      if (socket.data.role !== 'leader') return;               // يُقبل من الليدر حصراً
       const roomId = socket.data.roomId;
       if (!roomId || !data?.fn || !SOUND_MIRROR_FNS.has(data.fn)) return;  // قائمة بيضاء للدوالّ
       const args = Array.isArray(data.args)
         ? data.args.filter((a) => a === null || typeof a === 'string' || typeof a === 'number').slice(0, 3)
         : [];
       const sockets = await io.in(roomId).fetchSockets();
-      for (const s of sockets) if ((s as any).data?.role === 'leader') s.emit('leader:sound', { fn: data.fn, args });
+      for (const s of sockets) if ((s as any).data?.role === 'display') s.emit('display:sound-play', { fn: data.fn, args });
     } catch { /* صامت — لا يؤثّر على مجرى اللعبة */ }
   });
 

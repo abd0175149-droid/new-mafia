@@ -28,6 +28,14 @@ export function setSoundMirror(cb: ((p: MirrorPayload) => void) | null): void {
   mirrorEmit = cb;
 }
 
+// ── تشغيل محلي: القائد (الليدر) = true فيُشغّل ويبثّ؛ التابع (العرض) = false فلا يُقرّر صوتاً بنفسه ──
+// نداءات الصوت المحلية في شاشة العرض تصبح بلا مفعول؛ لكن applyRemoteSound (ما يصل من الليدر) يبقى يعمل
+// لأنه يستدعي الدوالّ الداخلية (_impl) مباشرةً متجاوزاً هذه البوابة.
+let localPlaybackEnabled = true;
+export function setLocalPlayback(enabled: boolean): void {
+  localPlaybackEnabled = enabled;
+}
+
 // ══════════════════════════════════════════════════════
 // 🔈 AudioContext مشترَك — يُنشأ ويُستأنف عند أول تفاعل ويُعاد استخدامه لكل الأصوات المُركّبة
 // إنشاء سياق جديد لكل صوت (خاصة داخل setInterval للمؤقّت) يبقى «suspended» على الجوال/Safari
@@ -98,6 +106,7 @@ export async function reloadSoundMap(): Promise<void> {
 // 🎵 تشغيل صوت حدث (مع Fallback للأصوات الافتراضية)
 // ══════════════════════════════════════════════════════
 export function playGameSound(eventKey: string): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playGameSound', args: [eventKey] });
   _playGameSound(eventKey);
 }
@@ -129,6 +138,7 @@ function _playGameSound(eventKey: string): void {
 // 🌙 تشغيل صوت خلفي (Ambient) — يتكرر حتى الإيقاف
 // ══════════════════════════════════════════════════════
 export function playAmbientSound(eventKey: string): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playAmbientSound', args: [eventKey] });
   _playAmbientSound(eventKey);
 }
@@ -156,6 +166,7 @@ function _playAmbientSound(eventKey: string): void {
 // ⏹️ إيقاف الصوت الخلفي
 // ══════════════════════════════════════════════════════
 export function stopAmbientSound(): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'stopAmbientSound', args: [] });
   _stopAmbientSound();
 }
@@ -172,6 +183,7 @@ function _stopAmbientSound(): void {
 // 🔉 خفض صوت الخلفية مؤقتاً (عند تشغيل حدث)
 // ══════════════════════════════════════════════════════
 export function duckAmbient(): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'duckAmbient', args: [] });
   _duckAmbient();
 }
@@ -182,6 +194,7 @@ function _duckAmbient(): void {
 }
 
 export function unduckAmbient(): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'unduckAmbient', args: [] });
   _unduckAmbient();
 }
@@ -195,6 +208,7 @@ function _unduckAmbient(): void {
 // 🎵 تشغيل صوت حدث مع Duck/Unduck تلقائي للخلفية
 // ══════════════════════════════════════════════════════
 export function playEventSound(eventKey: string, durationMs: number = 3000): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playEventSound', args: [eventKey, durationMs] });
   _playEventSound(eventKey, durationMs);
 }
@@ -215,6 +229,7 @@ function _playEventSound(eventKey: string, durationMs: number = 3000): void {
 const MAFIA_ROLE_KEYS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'];
 
 export function playEliminationSound(role: string | null): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playEliminationSound', args: [role] });
   _playEliminationSound(role);
 }
@@ -260,6 +275,7 @@ const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
 };
 
 export function playNightStepAmbient(stepType: string): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playNightStepAmbient', args: [stepType] });
   _playNightStepAmbient(stepType);
 }
@@ -693,6 +709,7 @@ function playDefaultSound(eventKey: string): void {
 // 🥁 Drumroll — يُستخدم في RevealCeremony و BombCeremony
 // ══════════════════════════════════════════════════════
 export function playDrumroll(): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playDrumroll', args: [] });
   _playDrumroll();
 }
@@ -723,6 +740,7 @@ function _playDrumroll(): void {
 // 💥 Impact Boom — صوت ارتطام عند الإقصاء النهائي
 // ══════════════════════════════════════════════════════
 export function playImpactBoom(): void {
+  if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playImpactBoom', args: [] });
   _playImpactBoom();
 }

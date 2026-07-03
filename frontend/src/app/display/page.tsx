@@ -10,7 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, setSoundMirror, primeAudio } from '@/lib/soundManager';
+import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -192,14 +192,9 @@ function DisplayPageContent() {
   // ── تحميل الأصوات المخصصة عند فتح شاشة العرض ──
   useEffect(() => { loadSoundMap(); }, []);
 
-  // ── 🔊 مرآة الأصوات: بثّ كل صوت تُشغّله شاشة العرض إلى شاشات الليدر للتزامن ──
-  useEffect(() => {
-    if (!currentRoomId) return;
-    setSoundMirror((p) => {
-      try { getSocket().emit('display:sound', { roomId: currentRoomId, fn: p.fn, args: p.args }); } catch {}
-    });
-    return () => setSoundMirror(null);
-  }, [currentRoomId]);
+  // ── 🔊 شاشة العرض «تابع»: لا تُقرّر أصواتها بنفسها — مصدر كل الأصوات هو الليدر ──
+  // نُعطّل التشغيل المحلي فتصبح كل نداءات الصوت في هذه الصفحة بلا مفعول، ونُشغّل فقط ما يصل من الليدر.
+  useEffect(() => { setLocalPlayback(false); return () => setLocalPlayback(true); }, []);
 
   // ── 🔊 فتح قفل الصوت عند أول تفاعل (Autoplay Policy) ──
   // المتصفحات تمنع الصوت بدون تفاعل المستخدم — هذا يشغله عند أول نقرة/لمسة
@@ -493,6 +488,8 @@ function DisplayPageContent() {
       console.log('🔄 Sounds updated from admin, reloading map...');
       reloadSoundMap();
     });
+    // 🔊 استقبال الأصوات المبثوثة من الليدر (المصدر الحصري) وتشغيلها
+    socket.on('display:sound-play', (d: any) => { if (d?.fn) applyRemoteSound(d); });
     socket.on('game:started', (data: any) => {
       setPhase(data.phase);
       if (data.teamCounts) setTeamCounts(data.teamCounts);
@@ -601,6 +598,7 @@ function DisplayPageContent() {
       socket.off('room:player-joined', onPlayerJoined);
       socket.off('room:player-kicked', onPlayerKicked);
       socket.off('room:player-updated', onPlayerUpdated);
+      socket.off('display:sound-play');
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
       socket.off('night:step-info', onNightStepInfo);

@@ -11,7 +11,8 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, loadSoundMap, reloadSoundMap, applyRemoteSound, primeAudio } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio } from '@/lib/soundManager';
+import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
 
@@ -146,14 +147,10 @@ export default function LeaderPage() {
   const [leaderSoundOn, setLeaderSoundOn] = useState(true);
   const leaderSoundOnRef = useRef(true);
   useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
-  // آخر وقت وصلت فيه إشارة صوت من شاشة العرض (المرآة). لو كانت حديثة ⇒ شاشة عرض حاضرة تبثّ،
-  // فنكتفي بأصواتها ولا نُشغّل صوتاً محلياً (تفادي الازدواج). لو غابت ⇒ الليدر مصدر الصوت الذاتي.
-  const lastMirrorAtRef = useRef(0);
   const lastVoteCountRef = useRef(0);
-  // يُشغّل صوت حدث محلياً على الليدر فقط إن: غير مكتوم + لا توجد شاشة عرض تبثّ حالياً
+  // يُشغّل صوت حدث على الليدر (المصدر الحصري) إن لم يكن مكتوماً — ويُبثّ تلقائياً لشاشة العرض
   const localSound = (fn: () => void) => {
     if (!leaderSoundOnRef.current) return;
-    if (Date.now() - lastMirrorAtRef.current < 12000) return; // شاشة العرض حاضرة → المرآة تكفّلت
     try { fn(); } catch {}
   };
   // خريطة صوت «افتتاحية» لكل مرحلة (بخلاف الصوت الخلفي) — يطابق شاشة العرض
@@ -203,6 +200,16 @@ export default function LeaderPage() {
   }, [gameState?.phase, leaderSoundOn]);
   // إيقاف الصوت الخلفي عند مغادرة صفحة الليدر
   useEffect(() => () => { stopAmbientSound(); }, []);
+
+  // ── 🔊 الليدر «القائد» الحصري: يبثّ كل صوت يُشغّله محلياً إلى شاشات العرض ──
+  useEffect(() => {
+    const roomId = gameState?.roomId;
+    if (!roomId) return;
+    setSoundMirror((p) => {
+      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args }); } catch {}
+    });
+    return () => setSoundMirror(null);
+  }, [gameState?.roomId]);
 
   // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بترقيم حيّ) ──
   const galleryAlertQueueRef = useRef<any[]>([]);
@@ -1165,17 +1172,7 @@ export default function LeaderPage() {
       }
     };
 
-    // ── 🔊 مرآة الأصوات: تشغيل نفس أصوات شاشة العرض اللحظية (المؤثّرات فقط) ──
-    const offSound = on('leader:sound', (d: any) => {
-      if (!d?.fn) return;
-      lastMirrorAtRef.current = Date.now();     // وسم: شاشة عرض حاضرة تبثّ (يكبح الصوت المحلي)
-      if (!leaderSoundOnRef.current) return;
-      // المؤقّت يُشغَّل محلياً على الليدر (مشتقّ من وقت السيرفر) — نتجاهله من المرآة لمنع الازدواج
-      if (d.fn === 'playGameSound' && String(d.args?.[0] || '').startsWith('timer_')) return;
-      // الأصوات الخلفية (ambient) تُدار محلياً حسب مرحلة اللعبة على الليدر (أمتن من الاعتماد على وصول كل إشارة loop)
-      if (d.fn === 'playAmbientSound' || d.fn === 'stopAmbientSound' || d.fn === 'playNightStepAmbient') return;
-      applyRemoteSound(d);
-    });
+    // ── 🔊 عند تحديث الأصوات من لوحة التحكم: إعادة تحميل الخريطة المخصّصة ──
     const offSoundsUpdated = on('admin:sounds-updated', () => { reloadSoundMap(); });
 
     const offGalleryAlert = on('leader:mafia-gallery-alert', (d: any) => {
@@ -1241,7 +1238,6 @@ export default function LeaderPage() {
       offTimerAdjusted();
       offPenaltyRecorded();
       offGalleryAlert();
-      offSound();
       offSoundsUpdated();
       offStateUpdated();
     };
