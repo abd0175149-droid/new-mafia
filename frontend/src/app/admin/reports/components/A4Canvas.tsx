@@ -16,6 +16,8 @@ interface Props {
   onSelectSection: (key: string | null) => void;
   onMove: (id: string, x: number, y: number) => void;
   onSectionPatch: (key: string, patch: Partial<SectionConfig>) => void;
+  onMarginsPatch: (patch: Partial<LayoutConfig['margins']>) => void;   // سحب حدود منطقة المحتوى
+  onContentTopNext: (v: number) => void;                               // سحب خط بداية المحتوى (ص٢+)
 }
 
 // ── مُصيّر مصغّر لقسم من جسم التقرير (مطابق بصرياً لوضع الطباعة) ──
@@ -84,7 +86,7 @@ function MiniSection({ s, t, fs }: { s: ReportSection; t: LayoutConfig['table'];
   }
 }
 
-export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selectedId, selectedSection, onSelect, onSelectSection, onMove, onSectionPatch }: Props) {
+export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selectedId, selectedSection, onSelect, onSelectSection, onMove, onSectionPatch, onMarginsPatch, onContentTopNext }: Props) {
   const isLand = layout.orientation === 'landscape';
   const pageWmm = isLand ? 297 : 210;
   const pageHmm = isLand ? 210 : 297;
@@ -97,9 +99,24 @@ export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selec
   const drag = useRef<{ id: string; mx: number; my: number; ox: number; oy: number } | null>(null);
   const secDrag = useRef<{ key: string; mx: number; my: number; ox: number; oy: number } | null>(null);
   const secResize = useRef<{ key: string; mx: number; ow: number } | null>(null);
+  // سحب حدود منطقة المحتوى: بداية (top) / نهاية (bottom) / الجانبان / خط بداية ص٢+
+  const edgeDrag = useRef<{ edge: 'top' | 'bottom' | 'left' | 'right' | 'topNext'; mx: number; my: number; o: number } | null>(null);
 
   useEffect(() => {
     const move = (e: MouseEvent) => {
+      const ed = edgeDrag.current;
+      if (ed) {
+        const dyMm = (e.clientY - ed.my) / pxPerMm;
+        const dxMm = (e.clientX - ed.mx) / pxPerMm;
+        const r2 = (v: number) => Math.round(v * 2) / 2;   // دقة نصف مليمتر
+        const mm = layout.margins;
+        if (ed.edge === 'top') onMarginsPatch({ top: r2(Math.max(0, Math.min(pageHmm - mm.bottom - 30, ed.o + dyMm))) });
+        else if (ed.edge === 'bottom') onMarginsPatch({ bottom: r2(Math.max(0, Math.min(pageHmm - mm.top - 30, ed.o - dyMm))) });
+        else if (ed.edge === 'right') onMarginsPatch({ right: r2(Math.max(0, Math.min(pageWmm - mm.left - 60, ed.o - dxMm))) });
+        else if (ed.edge === 'left') onMarginsPatch({ left: r2(Math.max(0, Math.min(pageWmm - mm.right - 60, ed.o + dxMm))) });
+        else if (ed.edge === 'topNext') onContentTopNext(r2(Math.max(0, Math.min(pageHmm - mm.bottom - 30, ed.o + dyMm))));
+        return;
+      }
       const d = drag.current;
       if (d) {
         const nx = Math.max(0, Math.min(pageWmm, d.ox - (e.clientX - d.mx) / pxPerMm));
@@ -121,11 +138,11 @@ export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selec
         onSectionPatch(sr.key, { w: Math.round(nw * 10) / 10 });
       }
     };
-    const up = () => { drag.current = null; secDrag.current = null; secResize.current = null; };
+    const up = () => { drag.current = null; secDrag.current = null; secResize.current = null; edgeDrag.current = null; };
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-  }, [pxPerMm, pageWmm, pageHmm, contentWmm, onMove, onSectionPatch]);
+  }, [pxPerMm, pageWmm, pageHmm, contentWmm, onMove, onSectionPatch, onMarginsPatch, onContentTopNext, layout.margins]);
 
   const m = layout.margins;
   const cfg = layout.sections || {};
@@ -261,6 +278,48 @@ export default function A4Canvas({ layout, letterheadUrl, doc, docLoading, selec
             </div>
           )}
         </div>
+
+        {/* ── مقابض تحديد منطقة المحتوى: اسحب الحدود لتحديد أين يبدأ المحتوى وأين ينتهي ── */}
+        {(() => {
+          const cTop = m.top * pxPerMm;
+          const cBottom = (pageHmm - m.bottom) * pxPerMm;
+          const cRightPx = m.right * pxPerMm;
+          const cLeftPx = m.left * pxPerMm;
+          const cWPx = (pageWmm - m.left - m.right) * pxPerMm;
+          const start = (edge: 'top' | 'bottom' | 'left' | 'right' | 'topNext', o: number) => (e: React.MouseEvent) => {
+            e.stopPropagation(); e.preventDefault();
+            onSelect(null); onSelectSection(null);
+            edgeDrag.current = { edge, mx: e.clientX, my: e.clientY, o };
+          };
+          const stripCls = 'absolute z-30 transition-colors hover:bg-amber-400/40';
+          return (
+            <>
+              {/* حافة البداية (أعلى) */}
+              <div className={`${stripCls} cursor-ns-resize`} style={{ top: cTop - 3, right: cRightPx, width: cWPx, height: 7 }}
+                onMouseDown={start('top', m.top)} title="بداية المحتوى — اسحب لأعلى/أسفل" />
+              {/* حافة النهاية (أسفل) */}
+              <div className={`${stripCls} cursor-ns-resize`} style={{ top: cBottom - 4, right: cRightPx, width: cWPx, height: 7 }}
+                onMouseDown={start('bottom', m.bottom)} title="نهاية المحتوى — اسحب لأعلى/أسفل" />
+              {/* الحافة اليمنى */}
+              <div className={`${stripCls} cursor-ew-resize`} style={{ top: cTop, right: cRightPx - 3, width: 7, height: cBottom - cTop }}
+                onMouseDown={start('right', m.right)} title="حدّ المحتوى الأيمن — اسحب" />
+              {/* الحافة اليسرى */}
+              <div className={`${stripCls} cursor-ew-resize`} style={{ top: cTop, left: cLeftPx - 3, width: 7, height: cBottom - cTop }}
+                onMouseDown={start('left', m.left)} title="حدّ المحتوى الأيسر — اسحب" />
+              {/* شارتا البداية والنهاية بالمليمتر */}
+              <div className="absolute z-30 pointer-events-none text-[8px] font-mono bg-amber-500/90 text-white px-1 rounded-sm leading-tight"
+                style={{ top: cTop - 11, right: cRightPx }}>▼ يبدأ {m.top}مم</div>
+              <div className="absolute z-30 pointer-events-none text-[8px] font-mono bg-amber-600/90 text-white px-1 rounded-sm leading-tight"
+                style={{ top: cBottom + 2, right: cRightPx }}>▲ ينتهي {Math.round((pageHmm - m.bottom) * 2) / 2}مم</div>
+              {/* خط بداية المحتوى في الصفحة الثانية وما بعدها */}
+              <div className="absolute z-30 cursor-ns-resize group" style={{ top: layout.contentTopNext * pxPerMm - 3, right: cRightPx, width: cWPx, height: 7 }}
+                onMouseDown={start('topNext', layout.contentTopNext)} title="بداية المحتوى في الصفحة ٢ وما بعدها — اسحب">
+                <div className="absolute top-[3px] left-0 right-0 border-t border-dashed border-sky-500/80" />
+                <span className="absolute left-0 -top-2.5 text-[8px] font-mono bg-sky-500/90 text-white px-1 rounded-sm leading-tight pointer-events-none">ص٢+ {layout.contentTopNext}مم</span>
+              </div>
+            </>
+          );
+        })()}
 
         {/* عناصر الإطار المسحوبة */}
         {Object.entries(layout.elements || {}).map(([id, el]) => {

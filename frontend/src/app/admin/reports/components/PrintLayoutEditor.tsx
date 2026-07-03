@@ -434,6 +434,8 @@ export default function PrintLayoutEditor() {
           selectedId={selectedId} selectedSection={selectedSection}
           onSelect={setSelectedId} onSelectSection={setSelectedSection}
           onMove={moveElement} onSectionPatch={patchSection}
+          onMarginsPatch={patchMargins}
+          onContentTopNext={(v) => patchLayout({ contentTopNext: v })}
         />
       </div>
     </div>
