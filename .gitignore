@@ -15,3 +15,4 @@ serviceAccountKey.json
 vapid-keys.json
 **/uploads/vapid-keys.json
 testsprite_tests/tmp/
+backend/src/scripts/battery-alert.ts
