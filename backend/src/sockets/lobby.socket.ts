@@ -292,6 +292,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     sessionCode?: string;
     nightMode?: 'manual' | 'auto'; // جديد: نمط الليل — افتراضي: manual
     maxPenalties?: number; // نظام عقوبات اللاعبين
+    penaltyScope?: 'game' | 'room'; // مستوى العقوبات (يطابق GameConfig.penaltyScope)
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
@@ -1963,7 +1964,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                     penaltyCount: sql`COALESCE(${matchPlayers.penaltyCount}, 0) + 1`,
                     penaltyRRDeduction: sql`COALESCE(${matchPlayers.penaltyRRDeduction}, 0) + ${totalDeduction}`,
                     rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalDeduction}`,
-                  })
+                  } as any) // نمط المستودع المعتمد مع Drizzle .set (خلل استنتاج أنواع معروف)
                   .where(
                     and(
                       eq(matchPlayers.matchId, state.matchId),

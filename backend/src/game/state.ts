@@ -43,6 +43,7 @@ export interface Player {
   heldUntil?: number; // timestamp لانتهاء الحجز
   isConnected?: boolean; // هل اللاعب متصل حالياً
   penalties?: number; // عدد العقوبات المسجلة على اللاعب (على مستوى الروم — قابل للإبقاء أو التصفير عند كل جيم جديد)
+  penaltyKicked?: boolean; // هل طُرد اللاعب لبلوغه الحد الأقصى للعقوبات
   disabledUntilRound?: number;   // 🧙‍♀️ الراوند الأخير للتعطيل (ضمناً)
   disabledRoleName?: string;     // 🧙‍♀️ اسم الدور المعطّل (للعرض)
 }
@@ -212,6 +213,7 @@ export interface GameConfig {
    jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
   maxConsecutiveMafiaGames?: number; // ♟️ الحد الأقصى لتكرار المافيا المتتالية (الافتراضي 3)
   witchDisableRounds?: number;     // 🧙‍♀️ عدد راوندات تعطيل الساحرة (الافتراضي 3)
+  autoNightTime?: number;          // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي بالثواني (الافتراضي 15)
 }
 
 export interface GameState {
@@ -267,6 +269,10 @@ export interface GameState {
   };
   autoNightChoices?: Array<{ physicalId: number; targetPhysicalId: number | null; isReal: boolean; isRandom: boolean }>;
   autoNightStepApproval?: boolean;
+  nightStep?: any;                       // خطوة الليل الحالية (Auto Night — تُخزَّن لاستعادة الشاشة عند reconnect)
+  autoNightStepDispatched?: boolean;     // هل أُرسلت الخطوة الحالية للاعبين
+  autoNightStepRole?: string | null;     // دور الخطوة الحالية (SHERIFF/DOCTOR/…)
+  autoNightPerformerId?: number | null;  // physicalId مُنفّذ الخطوة الحالية
   // ── مؤقت اللعبة ──
   gameTimer: {
     totalSeconds: number;   // المدة الإجمالية بالثواني
