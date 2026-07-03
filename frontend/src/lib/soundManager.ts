@@ -59,10 +59,50 @@ function getAudioCtx(): AudioContext | null {
   } catch { return null; }
 }
 
+// ── 🔕→🔊 iOS/iPadOS: الوضع الصامت يكتم Web Audio عبر السمّاعة المدمجة فقط
+// (لا يكتم ملفات الوسائط HTMLAudio، والسماعات الخارجية تتجاوزه — لذا «يعمل مع سماعة فقط»).
+// الحل المعروف (unmute hack): <audio> صامت يعمل بحلقة يُرقّي جلسة الصفحة لفئة «تشغيل وسائط»
+// فتُسمَع أصوات Web Audio (تكّات المؤقّت/الجرس/synth) من سماعة الجهاز حتى مع الوضع الصامت.
+let silentKeepAlive: HTMLAudioElement | null = null;
+function buildSilentWavUrl(seconds = 0.5): string {
+  const rate = 8000;
+  const n = Math.floor(rate * seconds);
+  const buf = new ArrayBuffer(44 + n);
+  const v = new DataView(buf);
+  const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  w(36, 'data'); v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);   // صمت PCM 8-bit
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function startSilentKeepAlive(): void {
+  try {
+    if (!silentKeepAlive) {
+      const a = new Audio(buildSilentWavUrl());
+      a.loop = true;
+      (a as any).playsInline = true;
+      silentKeepAlive = a;
+      // iOS يوقف الصوت عند إخفاء الصفحة — أعد تشغيله واستئناف السياق عند العودة
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            silentKeepAlive?.play().catch(() => {});
+            if (sharedCtx && sharedCtx.state === 'suspended') { void sharedCtx.resume().catch(() => {}); }
+          }
+        });
+      }
+    }
+    silentKeepAlive.play().catch(() => {});
+  } catch {}
+}
+
 /** يُهيّئ/يستأنف السياق الصوتي — يجب استدعاؤه داخل معالج تفاعل (نقرة/لمسة) لفكّ الحظر على الجوال. */
 export function primeAudio(): void {
   const c = getAudioCtx();
   if (c && c.state === 'suspended') { void c.resume().catch(() => {}); }
+  startSilentKeepAlive();   // يفكّ كتم Web Audio على سماعة iPad في الوضع الصامت
 }
 
 // ══════════════════════════════════════════════════════
