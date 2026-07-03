@@ -11,7 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
@@ -148,6 +148,7 @@ export default function LeaderPage() {
   const leaderSoundOnRef = useRef(true);
   useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
   const lastVoteCountRef = useRef(0);
+  const voteOrderRef = useRef('');   // ترتيب المرشّحين حسب الأصوات — لكشف تبدّل الترتيب (vote_shift)
   // يُشغّل صوت حدث على الليدر (المصدر الحصري) إن لم يكن مكتوماً — ويُبثّ تلقائياً لشاشة العرض
   const localSound = (fn: () => void) => {
     if (!leaderSoundOnRef.current) return;
@@ -200,6 +201,45 @@ export default function LeaderPage() {
   }, [gameState?.phase, leaderSoundOn]);
   // إيقاف الصوت الخلفي عند مغادرة صفحة الليدر
   useEffect(() => () => { stopAmbientSound(); }, []);
+
+  // ── ⏱️ صوت مؤقّت جولة النقاش: تكّة بآخر 10 ثوانٍ + جرس عند الانتهاء (نُقل من شاشة العرض) ──
+  const discussionPrevTimeRef = useRef<number>(-1);
+  useEffect(() => {
+    const ds: any = (gameState as any)?.discussionState;
+    if (!ds || ds.status !== 'SPEAKING' || ds.startTime == null) { discussionPrevTimeRef.current = -1; return; }
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - ds.startTime) / 1000);
+      const remaining = Math.max(0, ds.timeRemaining - elapsed);
+      if (remaining !== discussionPrevTimeRef.current) {
+        if (leaderSoundOnRef.current) {
+          if (remaining <= 10 && remaining > 0) playGameSound('timer_tick');
+          else if (remaining === 0 && discussionPrevTimeRef.current > 0) playGameSound('timer_buzzer');
+        }
+        discussionPrevTimeRef.current = remaining;
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [(gameState as any)?.discussionState]);
+
+  // ── ⏱️ صوت مؤقّت التبرير: نفس النمط (نُقل من شاشة العرض) ──
+  const justifPrevTimeRef = useRef<number>(-1);
+  useEffect(() => {
+    const jt: any = (gameState as any)?.justificationTimer;
+    if (!jt || jt.startTime == null || gameState?.phase !== 'DAY_JUSTIFICATION') { justifPrevTimeRef.current = -1; return; }
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - jt.startTime) / 1000);
+      const remaining = Math.max(0, jt.timeLimitSeconds - elapsed);
+      if (remaining !== justifPrevTimeRef.current) {
+        if (leaderSoundOnRef.current) {
+          if (remaining <= 10 && remaining > 0) playGameSound('timer_tick');
+          else if (remaining === 0 && justifPrevTimeRef.current > 0) playGameSound('timer_buzzer');
+        }
+        justifPrevTimeRef.current = remaining;
+      }
+      if (remaining === 0) clearInterval(interval);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [(gameState as any)?.justificationTimer, gameState?.phase]);
 
   // ── 🔊 الليدر «القائد» الحصري: يبثّ كل صوت يُشغّله محلياً إلى شاشات العرض ──
   useEffect(() => {
@@ -627,7 +667,9 @@ export default function LeaderPage() {
 
     // Phase changed
     const offPhaseChanged = on('game:phase-changed', async (data: any) => {
-      // 🔊 صوت افتتاحية المرحلة محلياً (إن لم تكن شاشة عرض تبثّ) — الخلفية تُدار بأثر gameState.phase
+      // 🔊 العودة للوبي: أوقف أي صوت مقطعي جارٍ (كأغنية الفوز) — محلياً وعلى شاشة العرض
+      if (data.phase === 'LOBBY') stopOneShotSounds();
+      // 🔊 صوت افتتاحية المرحلة (الليدر هو المصدر) — الخلفية تُدار بأثر gameState.phase
       const sting = PHASE_STING[data.phase as string];
       if (sting) localSound(() => playGameSound(sting));
       // للمراحل الليلية: لا نجلب من API — Socket يتكفل بالبيانات
@@ -718,6 +760,7 @@ export default function LeaderPage() {
     // Voting started
     const offVotingStarted = on('day:voting-started', (data: any) => {
       lastVoteCountRef.current = 0;   // تصفير عدّاد صوت التصويت لجولة جديدة
+      voteOrderRef.current = '';      // تصفير ترتيب المرشّحين (vote_shift)
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -741,10 +784,15 @@ export default function LeaderPage() {
 
     // Vote Update
     const offVoteUpdate = on('day:vote-update', (data: any) => {
-      // 🔊 صوت تصويت عند ازدياد عدد الأصوات (محلياً إن لم تكن شاشة عرض تبثّ)
+      // 🔊 أصوات التصويت (نُقلت من شاشة العرض): تصويت جديد → vote_cast، تبدّل الترتيب/تغيير صوت → vote_shift
       if (typeof data.totalVotesCast === 'number') {
         if (data.totalVotesCast > lastVoteCountRef.current) localSound(() => playGameSound('vote_cast'));
         lastVoteCountRef.current = data.totalVotesCast;
+      }
+      const order = ([...(data.candidates || [])] as any[]).sort((a, b) => (b.votes || 0) - (a.votes || 0)).map((c) => c.targetPhysicalId).join(',');
+      if (order !== voteOrderRef.current) {
+        if (voteOrderRef.current) localSound(() => playGameSound('vote_shift'));
+        voteOrderRef.current = order;
       }
       setGameState(prev => {
         if (!prev) return prev;
@@ -984,6 +1032,7 @@ export default function LeaderPage() {
     });
 
     const offGameRestarted = on('game:restarted', (data: any) => {
+      stopOneShotSounds();   // ⏹️ إيقاف أي صوت مقطعي جارٍ (كأغنية الفوز) — محلياً وعلى شاشة العرض
       setAutoNightStep(null);
       setAutoNightProgress(null);
       setGameTimerData(null);
@@ -1388,7 +1437,7 @@ export default function LeaderPage() {
   // ── 🔊 زرّ كتم/تشغيل أصوات الليدر (عائم، صمّام أمان لتجنّب صدى سمّاعات القاعة) ──
   const soundToggleBtn = (
     <button
-      onClick={() => setLeaderSoundOn((v) => { const nv = !v; try { localStorage.setItem('leader-sound-on', nv ? '1' : '0'); } catch {}; return nv; })}
+      onClick={() => setLeaderSoundOn((v) => { const nv = !v; if (!nv) stopOneShotSounds(); try { localStorage.setItem('leader-sound-on', nv ? '1' : '0'); } catch {}; return nv; })}
       title={leaderSoundOn ? 'كتم أصوات الليدر' : 'تشغيل أصوات الليدر'}
       aria-label={leaderSoundOn ? 'كتم الصوت' : 'تشغيل الصوت'}
       className={`fixed bottom-4 left-4 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors ${leaderSoundOn ? 'bg-[#0f2a1a]/80 border-emerald-600/40 text-emerald-300' : 'bg-[#2a0f0f]/80 border-red-700/40 text-red-300'}`}

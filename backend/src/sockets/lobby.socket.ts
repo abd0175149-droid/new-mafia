@@ -27,6 +27,7 @@ export const activeRooms: Map<string, { roomId: string; roomCode: string; gameNa
 const SOUND_MIRROR_FNS = new Set([
   'playGameSound', 'playAmbientSound', 'stopAmbientSound', 'duckAmbient', 'unduckAmbient',
   'playEventSound', 'playEliminationSound', 'playNightStepAmbient', 'playDrumroll', 'playImpactBoom',
+  'stopOneShotSounds',
 ]);
 
 // 🔒 فتح مؤقّت للأدوات الحسّاسة (تعديل الأرقام/الأسماء) — يتطلب رقماً سرّياً يُضبط في env (RENUMBER_SECRET).

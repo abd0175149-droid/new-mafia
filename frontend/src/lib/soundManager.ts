@@ -14,6 +14,13 @@ let isLoaded = false;
 let ambientAudio: HTMLAudioElement | null = null;
 let ambientKey: string | null = null;
 
+// ── الأصوات المقطعية الجارية (one-shot) — تُتعقَّب ليمكن إيقافها (مثل أغنية الفوز عند العودة للوبي) ──
+const oneShotAudios: Set<HTMLAudioElement> = new Set();
+function trackOneShot(a: HTMLAudioElement): void {
+  oneShotAudios.add(a);
+  a.addEventListener('ended', () => oneShotAudios.delete(a));
+}
+
 // ══════════════════════════════════════════════════════
 // 🔊 مرآة الأصوات — شاشة العرض «القائد» تبثّ كل صوت لتُعيده شاشة الليدر «التابع»
 // - تُسجّل شاشة العرض callback عبر setSoundMirror فتبثّ كل نداء صوت.
@@ -119,12 +126,14 @@ function _playGameSound(eventKey: string): void {
         // إنشاء نسخة جديدة لتجنب تداخل التشغيل
         const clone = audio.cloneNode(true) as HTMLAudioElement;
         clone.volume = 0.7;
+        trackOneShot(clone);
         clone.play().catch(() => {});
         return;
       }
       // Fallback: تحميل مباشر
       const newAudio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
       newAudio.volume = 0.7;
+      trackOneShot(newAudio);
       newAudio.play().catch(() => {});
       return;
     } catch {}
@@ -177,6 +186,22 @@ function _stopAmbientSound(): void {
     ambientAudio = null;
     ambientKey = null;
   }
+}
+
+// ══════════════════════════════════════════════════════
+// ⏹️ إيقاف كل الأصوات المقطعية الجارية (أغنية فوز، مؤثّر طويل…)
+// يُستدعى عند العودة للوبي/إعادة اللعبة أو عند الكتم
+// ══════════════════════════════════════════════════════
+export function stopOneShotSounds(): void {
+  if (!localPlaybackEnabled) return;
+  mirrorEmit?.({ fn: 'stopOneShotSounds', args: [] });
+  _stopOneShotSounds();
+}
+function _stopOneShotSounds(): void {
+  oneShotAudios.forEach((a) => {
+    try { a.pause(); a.currentTime = 0; } catch {}
+  });
+  oneShotAudios.clear();
 }
 
 // ══════════════════════════════════════════════════════
@@ -772,6 +797,7 @@ const REMOTE_SOUND_FNS: Record<string, (...a: any[]) => void> = {
   playGameSound: _playGameSound,
   playAmbientSound: _playAmbientSound,
   stopAmbientSound: _stopAmbientSound,
+  stopOneShotSounds: _stopOneShotSounds,
   duckAmbient: _duckAmbient,
   unduckAmbient: _unduckAmbient,
   playEventSound: _playEventSound,
