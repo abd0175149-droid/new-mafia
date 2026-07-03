@@ -17,7 +17,7 @@ import {
   unNarrowVoting,
 } from '../game/vote-engine.js';
 import { checkWinCondition, WinResult } from '../game/win-checker.js';
-import { checkWinConditionDynamic } from '../game/dynamic-win-checker.js';
+import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-win-checker.js';
 import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
@@ -1200,9 +1200,25 @@ export function registerDayEvents(io: Server, socket: Socket) {
           await setGameState(data.roomId, state);
         }
 
-        // فحص شرط الفوز — حفظ معلق بدل بث فوري
+        // 🤡 فحص فوز محايد (المهرج) — الإقصاء بكسر التعادل هو إقصاء مدينة أيضاً
+        // (كان هذا المسار يتجاوز الفحص فلا يُعلَن فوز المهرج المُقصى بالتعادل — نفس منطق resolveElimination)
+        let neutralWin: any = null;
+        for (const elId of eliminated) {
+          try {
+            const nw = await checkNeutralVoteWin(state, elId, 'DAY_VOTE');
+            if (nw?.won) { neutralWin = nw; break; }
+          } catch { /* المحرك الديناميكي غير متاح — نتجاهل */ }
+        }
+
+        // فحص شرط الفوز — حفظ معلق بدل بث فوري (فوز المحايد يتقدّم وينهي اللعبة فوراً)
         let winResult: WinResult;
-        if (state.config.useDynamicEngine) {
+        if (neutralWin?.won) {
+          winResult = WinResult.GAME_CONTINUES; // لن يُستخدم — winner المحايد يُنهي اللعبة
+          state.winner = neutralWin.roleId === 'ASSASSIN' ? 'ASSASSIN' : 'JESTER';
+          state.pendingWinner = state.winner;
+          await setGameState(data.roomId, state);
+          console.log(`🤡 Neutral win via ELIMINATE_ALL tie-breaker: ${neutralWin.roleId} #${neutralWin.physicalId}`);
+        } else if (state.config.useDynamicEngine) {
           const dynResult = await checkWinConditionDynamic(state);
           winResult = dynResult.mainWinner === 'MAFIA' ? WinResult.MAFIA_WIN
                     : dynResult.mainWinner === 'CITIZEN' ? WinResult.CITIZEN_WIN
@@ -1211,7 +1227,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         } else {
           winResult = checkWinCondition(state);
         }
-        if (winResult !== WinResult.GAME_CONTINUES) {
+        if (!neutralWin?.won && winResult !== WinResult.GAME_CONTINUES) {
           state.winner = winResult === WinResult.MAFIA_WIN ? 'MAFIA' : winResult === WinResult.ASSASSIN_WIN ? 'ASSASSIN' : 'CITIZEN';
           state.pendingWinner = state.winner;
           await setGameState(data.roomId, state);
@@ -1224,6 +1240,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
           revealedRoles,
           winResult,
           type: 'ELIMINATE_ALL',
+          neutralWin: neutralWin || null,
         } as any;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.DAY_ELIMINATION);
@@ -1238,7 +1255,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
           type: 'ELIMINATE_ALL',
           winResult,
           pendingBomb: state.pendingBomb || null,
+          neutralWin: neutralWin || null,
         });
+
+        // ⏳ إن حُسم فائز (ولا قنبلة معلّقة) نبدأ مهلة الكشف التلقائي — كما في مسار التصويت العادي
+        if ((neutralWin?.won || winResult !== WinResult.GAME_CONTINUES) && !state.pendingBomb) {
+          scheduleRevealGrace(io, data.roomId);
+        }
       } else {
         if (state.votingState.durationSeconds) {
           state.votingState.votingStartTime = Date.now();
