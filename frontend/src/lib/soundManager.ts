@@ -162,7 +162,15 @@ export function playGameSound(eventKey: string): void {
   mirrorEmit?.({ fn: 'playGameSound', args: [eventKey] });
   _playGameSound(eventKey);
 }
+// ── مستوى الصوت لكل مفتاح (افتراضي 0.7) — أصوات المؤقّت/التصويت بمستوى كامل؛ تنبيه الليدر مخفّض لطيف ──
+const VOLUME_BY_KEY: Record<string, number> = {
+  timer_tick: 1.0, timer_heartbeat_fast: 1.0, timer_heartbeat_slow: 0.9, timer_buzzer: 1.0,
+  vote_cast: 1.0, vote_shift: 0.9, voting_complete: 0.9,
+  leader_gallery_alert: 0.5,
+};
+
 function _playGameSound(eventKey: string): void {
+  const vol = VOLUME_BY_KEY[eventKey] ?? 0.7;
   // أولاً: فحص الأصوات المخصصة
   if (customSoundMap[eventKey]) {
     try {
@@ -170,14 +178,14 @@ function _playGameSound(eventKey: string): void {
       if (audio) {
         // إنشاء نسخة جديدة لتجنب تداخل التشغيل
         const clone = audio.cloneNode(true) as HTMLAudioElement;
-        clone.volume = 0.7;
+        clone.volume = vol;
         trackOneShot(clone);
         clone.play().catch(() => {});
         return;
       }
       // Fallback: تحميل مباشر
       const newAudio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
-      newAudio.volume = 0.7;
+      newAudio.volume = vol;
       trackOneShot(newAudio);
       newAudio.play().catch(() => {});
       return;

@@ -148,7 +148,6 @@ export default function LeaderPage() {
   const leaderSoundOnRef = useRef(true);
   useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
   const lastVoteCountRef = useRef(0);
-  const voteOrderRef = useRef('');   // ترتيب المرشّحين حسب الأصوات — لكشف تبدّل الترتيب (vote_shift)
   // يُشغّل صوت حدث على الليدر (المصدر الحصري) إن لم يكن مكتوماً — ويُبثّ تلقائياً لشاشة العرض
   const localSound = (fn: () => void) => {
     if (!leaderSoundOnRef.current) return;
@@ -760,7 +759,6 @@ export default function LeaderPage() {
     // Voting started
     const offVotingStarted = on('day:voting-started', (data: any) => {
       lastVoteCountRef.current = 0;   // تصفير عدّاد صوت التصويت لجولة جديدة
-      voteOrderRef.current = '';      // تصفير ترتيب المرشّحين (vote_shift)
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -784,15 +782,13 @@ export default function LeaderPage() {
 
     // Vote Update
     const offVoteUpdate = on('day:vote-update', (data: any) => {
-      // 🔊 أصوات التصويت (نُقلت من شاشة العرض): تصويت جديد → vote_cast، تبدّل الترتيب/تغيير صوت → vote_shift
+      // 🔊 كل day:vote-update من السيرفر هو فعل تصويت حقيقي (لا يُبثّ إلا عند تغيّر فعلي):
+      // زيادة المجموع = صوت جديد → vote_cast · ثبات المجموع = تغيير صوت → vote_shift
+      // نقصان = أول صوت بجولة إعادة (تعادل) → vote_cast
       if (typeof data.totalVotesCast === 'number') {
-        if (data.totalVotesCast > lastVoteCountRef.current) localSound(() => playGameSound('vote_cast'));
+        const prev = lastVoteCountRef.current;
+        localSound(() => playGameSound(data.totalVotesCast === prev ? 'vote_shift' : 'vote_cast'));
         lastVoteCountRef.current = data.totalVotesCast;
-      }
-      const order = ([...(data.candidates || [])] as any[]).sort((a, b) => (b.votes || 0) - (a.votes || 0)).map((c) => c.targetPhysicalId).join(',');
-      if (order !== voteOrderRef.current) {
-        if (voteOrderRef.current) localSound(() => playGameSound('vote_shift'));
-        voteOrderRef.current = order;
       }
       setGameState(prev => {
         if (!prev) return prev;

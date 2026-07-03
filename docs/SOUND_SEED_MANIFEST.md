@@ -14,14 +14,19 @@ commercial/non-commercial use, no attribution required. Source pattern:
 The Web-Audio synth in `frontend/src/lib/soundManager.ts` remains **only as a last-resort fallback**
 if a record is deleted/deactivated — with these files present it never fires.
 
+**Replacements 2026-07-03 (user feedback — `seed2_*.mp3`):** timer_tick → Mixkit 1082 "Censorship beep"
+(sharp, loud); timer_buzzer → 1569 "Airport announcement ding" (clear, not harsh);
+leader_gallery_alert → 2489 "Arabian mystery harp" (discreet — leader only, played at 0.5 volume);
+vote_cast → 931 "Service bell". Per-key playback volumes live in `VOLUME_BY_KEY` (soundManager.ts).
+
 | File (`seed_*.mp3`) | Mixkit ID | Original title | Event keys |
 |---|---|---|---|
-| timer_tick | 1061 | Clock ticker single | timer_tick |
+| seed2_timer_tick | 1082 | Censorship beep | timer_tick |
 | timer_heartbeat_slow | 490 | Human single heart beat | timer_heartbeat_slow |
 | timer_heartbeat_fast | 2294 | Drum bass hit | timer_heartbeat_fast |
-| timer_buzzer | 1007 | Emergency alert alarm | timer_buzzer |
-| leader_gallery_alert | 1004 | Critical alarm | leader_gallery_alert |
-| vote_cast | 2568 | Cool interface click tone | vote_cast |
+| seed2_timer_buzzer | 1569 | Airport announcement ding | timer_buzzer |
+| seed2_leader_gallery_alert | 2489 | Arabian mystery harp notification | leader_gallery_alert |
+| seed2_vote_cast | 931 | Service bell | vote_cast |
 | vote_shift | 1490 | Fast whoosh transition | vote_shift |
 | voting_complete | 951 | Positive notification | voting_complete |
 | day_tie | 227 | Ominous drums | day_tie |
