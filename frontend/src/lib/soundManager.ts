@@ -29,6 +29,28 @@ export function setSoundMirror(cb: ((p: MirrorPayload) => void) | null): void {
 }
 
 // ══════════════════════════════════════════════════════
+// 🔈 AudioContext مشترَك — يُنشأ ويُستأنف عند أول تفاعل ويُعاد استخدامه لكل الأصوات المُركّبة
+// إنشاء سياق جديد لكل صوت (خاصة داخل setInterval للمؤقّت) يبقى «suspended» على الجوال/Safari
+// فلا يصدر صوت، كما يستنزف حدّ عدد السياقات. سياق واحد مستأنَف يحلّ المشكلتين.
+// ══════════════════════════════════════════════════════
+let sharedCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext | null {
+  try {
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return null;
+    const ctx: AudioContext = sharedCtx || (sharedCtx = new AC());
+    if (ctx.state === 'suspended') { void ctx.resume().catch(() => {}); }
+    return ctx;
+  } catch { return null; }
+}
+
+/** يُهيّئ/يستأنف السياق الصوتي — يجب استدعاؤه داخل معالج تفاعل (نقرة/لمسة) لفكّ الحظر على الجوال. */
+export function primeAudio(): void {
+  const c = getAudioCtx();
+  if (c && c.state === 'suspended') { void c.resume().catch(() => {}); }
+}
+
+// ══════════════════════════════════════════════════════
 // 📥 تحميل خريطة الأصوات المخصصة من السيرفر
 // يُستدعى مرة واحدة عند فتح شاشة العرض
 // ══════════════════════════════════════════════════════
@@ -254,9 +276,8 @@ function _playNightStepAmbient(stepType: string): void {
 // ══════════════════════════════════════════════════════
 function playDefaultSound(eventKey: string): void {
   try {
-    const ACClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!ACClass) return;
-    const ctx = new ACClass();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
 
     switch (eventKey) {
       // ── أحداث الليل ──
@@ -681,9 +702,8 @@ function _playDrumroll(): void {
     return;
   }
   try {
-    const ACClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!ACClass) return;
-    const ctx = new ACClass();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     // نبضات متسارعة تحاكي الدرامرول
     for (let i = 0; i < 20; i++) {
       const osc = ctx.createOscillator();
@@ -712,9 +732,8 @@ function _playImpactBoom(): void {
     return;
   }
   try {
-    const ACClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!ACClass) return;
-    const ctx = new ACClass();
+    const ctx = getAudioCtx();
+    if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);

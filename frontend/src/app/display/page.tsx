@@ -10,7 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
-import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, setSoundMirror } from '@/lib/soundManager';
+import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, setSoundMirror, primeAudio } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -206,6 +206,7 @@ function DisplayPageContent() {
   const pendingAmbientRef = useRef<string | null>(null);
   useEffect(() => {
     const unlockAudio = () => {
+      primeAudio();   // فكّ حظر السياق الصوتي المشترَك (Web Audio) داخل التفاعل
       // تشغيل الصوت المعلق
       if (pendingAmbientRef.current) {
         playAmbientSound(pendingAmbientRef.current);

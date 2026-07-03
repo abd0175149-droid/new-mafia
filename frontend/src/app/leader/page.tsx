@@ -11,7 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound, playAmbientSound, stopAmbientSound, loadSoundMap, reloadSoundMap, applyRemoteSound } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, loadSoundMap, reloadSoundMap, applyRemoteSound, primeAudio } from '@/lib/soundManager';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
 
@@ -142,10 +142,25 @@ export default function LeaderPage() {
   const [showTimerAdjust, setShowTimerAdjust] = useState(false);
   const [pinnedSeatsExpanded, setPinnedSeatsExpanded] = useState(false); // قسم المقاعد المثبّتة — مطويّ افتراضياً
 
-  // ── 🔊 مرآة الأصوات: تشغيل نفس أصوات شاشة العرض على شاشة الليدر (افتراضي مُفعّل) ──
+  // ── 🔊 أصوات شاشة الليدر (افتراضي مُفعّل) ──
   const [leaderSoundOn, setLeaderSoundOn] = useState(true);
   const leaderSoundOnRef = useRef(true);
   useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
+  // آخر وقت وصلت فيه إشارة صوت من شاشة العرض (المرآة). لو كانت حديثة ⇒ شاشة عرض حاضرة تبثّ،
+  // فنكتفي بأصواتها ولا نُشغّل صوتاً محلياً (تفادي الازدواج). لو غابت ⇒ الليدر مصدر الصوت الذاتي.
+  const lastMirrorAtRef = useRef(0);
+  const lastVoteCountRef = useRef(0);
+  // يُشغّل صوت حدث محلياً على الليدر فقط إن: غير مكتوم + لا توجد شاشة عرض تبثّ حالياً
+  const localSound = (fn: () => void) => {
+    if (!leaderSoundOnRef.current) return;
+    if (Date.now() - lastMirrorAtRef.current < 12000) return; // شاشة العرض حاضرة → المرآة تكفّلت
+    try { fn(); } catch {}
+  };
+  // خريطة صوت «افتتاحية» لكل مرحلة (بخلاف الصوت الخلفي) — يطابق شاشة العرض
+  const PHASE_STING: Record<string, string> = {
+    NIGHT: 'phase_night_start', DAY_DISCUSSION: 'phase_day_start',
+    DAY_VOTING: 'phase_voting_start', DAY_ELIMINATION: 'phase_elimination',
+  };
 
   // تحميل خريطة الأصوات المخصّصة + استعادة تفضيل الكتم + فكّ قفل الصوت عند أول تفاعل ──
   useEffect(() => {
@@ -154,12 +169,9 @@ export default function LeaderPage() {
       const saved = localStorage.getItem('leader-sound-on');
       if (saved === '0') setLeaderSoundOn(false);
     } catch {}
-    // فكّ قفل التشغيل التلقائي (Autoplay) عند أول نقرة/لمسة — نبضة صامتة تُهيّئ المتصفح
+    // فكّ قفل التشغيل التلقائي (Autoplay) عند أول نقرة/لمسة — يُهيّئ السياق الصوتي المشترَك
     const unlock = () => {
-      try {
-        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-        if (AC) { const c = new AC(); if (c.state === 'suspended') c.resume(); }
-      } catch {}
+      primeAudio();
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
     };
@@ -608,6 +620,9 @@ export default function LeaderPage() {
 
     // Phase changed
     const offPhaseChanged = on('game:phase-changed', async (data: any) => {
+      // 🔊 صوت افتتاحية المرحلة محلياً (إن لم تكن شاشة عرض تبثّ) — الخلفية تُدار بأثر gameState.phase
+      const sting = PHASE_STING[data.phase as string];
+      if (sting) localSound(() => playGameSound(sting));
       // للمراحل الليلية: لا نجلب من API — Socket يتكفل بالبيانات
       if (data.phase === 'NIGHT' || data.phase === 'MORNING_RECAP') {
         // تنظيف حالة الليل عند الانتقال لملخص الصباح
@@ -695,6 +710,7 @@ export default function LeaderPage() {
 
     // Voting started
     const offVotingStarted = on('day:voting-started', (data: any) => {
+      lastVoteCountRef.current = 0;   // تصفير عدّاد صوت التصويت لجولة جديدة
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -718,6 +734,11 @@ export default function LeaderPage() {
 
     // Vote Update
     const offVoteUpdate = on('day:vote-update', (data: any) => {
+      // 🔊 صوت تصويت عند ازدياد عدد الأصوات (محلياً إن لم تكن شاشة عرض تبثّ)
+      if (typeof data.totalVotesCast === 'number') {
+        if (data.totalVotesCast > lastVoteCountRef.current) localSound(() => playGameSound('vote_cast'));
+        lastVoteCountRef.current = data.totalVotesCast;
+      }
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -792,6 +813,12 @@ export default function LeaderPage() {
 
     // Elimination Revealed — بعد كشف الهوية
     const offEliminationRevealed = on('day:elimination-revealed', (data: any) => {
+      // 🔊 صوت الإقصاء حسب الدور المكشوف (محلياً إن لم تكن شاشة عرض تبثّ)
+      const rr = data.revealedRoles;
+      let role: string | null = null;
+      if (Array.isArray(rr)) role = (rr[0]?.role ?? rr[0]) || null;
+      else if (rr && typeof rr === 'object') { const v = Object.values(rr)[0] as any; role = (v?.role ?? v) || null; }
+      localSound(() => playEliminationSound(role));
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -924,6 +951,11 @@ export default function LeaderPage() {
     });
 
     const offGameOver = on('game:over', (data: any) => {
+      // 🔊 صوت الفوز حسب الفريق الفائز (محلياً إن لم تكن شاشة عرض تبثّ)
+      const w = String(data.winner || '').toUpperCase();
+      const winKey = w.includes('JESTER') ? 'win_jester' : w.includes('ASSASSIN') ? 'win_assassin'
+        : w.includes('MAFIA') ? 'win_mafia' : 'win_citizen';
+      localSound(() => playGameSound(winKey));
       setGameTimerData(null);
       setGameTimerRemaining(0);
       setGameState(prev => {
@@ -1135,7 +1167,9 @@ export default function LeaderPage() {
 
     // ── 🔊 مرآة الأصوات: تشغيل نفس أصوات شاشة العرض اللحظية (المؤثّرات فقط) ──
     const offSound = on('leader:sound', (d: any) => {
-      if (!d?.fn || !leaderSoundOnRef.current) return;
+      if (!d?.fn) return;
+      lastMirrorAtRef.current = Date.now();     // وسم: شاشة عرض حاضرة تبثّ (يكبح الصوت المحلي)
+      if (!leaderSoundOnRef.current) return;
       // المؤقّت يُشغَّل محلياً على الليدر (مشتقّ من وقت السيرفر) — نتجاهله من المرآة لمنع الازدواج
       if (d.fn === 'playGameSound' && String(d.args?.[0] || '').startsWith('timer_')) return;
       // الأصوات الخلفية (ambient) تُدار محلياً حسب مرحلة اللعبة على الليدر (أمتن من الاعتماد على وصول كل إشارة loop)
