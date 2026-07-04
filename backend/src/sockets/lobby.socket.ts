@@ -1657,7 +1657,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // ── فتح مؤقّت للأدوات الحسّاسة (اسم محايد) — يتحقق من الرقم السرّي ويفتح لمدة محدودة ──
   // الواجهة ترسل الرقم المُدخَل عبر إيماءة مموّهة؛ السرّ يعيش في env فقط (لا في كود الواجهة).
   socket.on('leader:tools-ping', (data: { code?: string | number }, callback) => {
-    const reply = (ok: boolean) => { if (typeof callback === 'function') callback({ ok }); };
+    // success مطلوب لغلاف emit() في الواجهة (يرفض أي رد بدونه) — ok يبقى للتوافق
+    const reply = (ok: boolean) => { if (typeof callback === 'function') callback({ ok, success: ok }); };
     try {
       if (socket.data.role !== 'leader') return reply(false);
       const now = Date.now();

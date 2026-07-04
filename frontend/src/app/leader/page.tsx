@@ -295,6 +295,22 @@ export default function LeaderPage() {
   const [sessionEditName, setSessionEditName] = useState('');
   const [sessionEditLoading, setSessionEditLoading] = useState(false);
 
+  // ── 🪑 وضع نقل المقعد بلمستين في عرض الجلسة (خاضع لقفل السرّ نفسه) ──
+  const [sessionMovingId, setSessionMovingId] = useState<number | null>(null);
+  const [sessionMoveLoading, setSessionMoveLoading] = useState(false);
+  const handleSessionMoveSeat = async (toSeat: number) => {
+    if (!gameState?.roomId || sessionMovingId === null || sessionMoveLoading) return;
+    setSessionMoveLoading(true);
+    try {
+      await emit('room:move-seat', { roomId: gameState.roomId, fromPhysicalId: sessionMovingId, toSeat });
+      setSessionMovingId(null);
+    } catch (err: any) {
+      setError(err.message || 'فشل نقل المقعد');
+    } finally {
+      setSessionMoveLoading(false);
+    }
+  };
+
   // ── مودال تعديل الأرقام (Renumber Modal) ──
   const [showRenumberModal, setShowRenumberModal] = useState(false);
   const [renumberMap, setRenumberMap] = useState<Record<number, number>>({});
@@ -1721,7 +1737,7 @@ export default function LeaderPage() {
                           if (e.key === 'Escape') { setKnockOpen(false); setKnockCode(''); }
                         }}
                         placeholder="··"
-                        aria-hidden
+                        aria-label="code"
                         className="w-16 bg-transparent border-b border-[#222] text-center text-[#444] text-[10px] font-mono focus:outline-none focus:border-[#333]"
                       />
                       {/* زرّان صغيران: يعملان باللمس (لا Enter في لوحة الأرقام) وبالماوس؛ preventDefault يمنع فقد تركيز الحقل */}
@@ -1942,6 +1958,39 @@ export default function LeaderPage() {
                 </button>
               </div>
 
+              {/* 🪑 شريط وضع النقل + المقاعد الفارغة كأهداف */}
+              <AnimatePresence>
+                {sessionMovingId !== null && (() => {
+                  const mover = gameState.players.find((p: any) => p.physicalId === sessionMovingId);
+                  const occupied = new Set(gameState.players.map((p: any) => p.physicalId));
+                  const emptySeats = Array.from({ length: gameState.config.maxPlayers }, (_, i) => i + 1).filter((s) => !occupied.has(s));
+                  return (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-4">
+                      <div className="bg-sky-950/40 border border-sky-500/40 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sky-300 text-[11px] font-bold">
+                            🪑 نقل «{mover?.name}» (#{sessionMovingId}) — المس مقعداً فارغاً للنقل، أو بطاقة لاعب للتبديل معه
+                          </p>
+                          <button onClick={() => setSessionMovingId(null)} className="text-[10px] px-3 py-1 rounded bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700">✕ إلغاء</button>
+                        </div>
+                        {emptySeats.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {emptySeats.map((s) => (
+                              <button key={s} disabled={sessionMoveLoading} onClick={() => handleSessionMoveSeat(s)}
+                                className="w-10 h-10 rounded-lg border-2 border-dashed border-sky-500/50 text-sky-300 font-mono font-bold text-sm hover:bg-sky-500/20 hover:border-sky-400 transition-colors disabled:opacity-40">
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-zinc-500">لا مقاعد فارغة — المس بطاقة لاعب للتبديل معه</p>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })()}
+              </AnimatePresence>
+
               {gameState.players.length === 0 ? (
                 <div className="text-center py-12 border border-dashed border-[#2a2a2a] rounded-lg">
                   <p className="text-[#555] text-sm font-mono">لا يوجد لاعبين — أضف لاعبين باستخدام الزر أعلاه</p>
@@ -1950,8 +1999,20 @@ export default function LeaderPage() {
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                   {gameState.players.filter((p: any) => !p.seatHeld).map((p: any) => {
                     const isSessionEditing = sessionEditingId === p.physicalId;
+                    const isSessionMover = sessionMovingId === p.physicalId;
+                    const isSessionSwapTarget = sessionMovingId !== null && !isSessionMover;
                     return (
-                    <div key={p.physicalId} className="relative group">
+                    <div
+                      key={p.physicalId}
+                      onClick={() => {
+                        if (isSessionMover) setSessionMovingId(null);                    // لمس بطاقة الناقل = إلغاء
+                        else if (isSessionSwapTarget) handleSessionMoveSeat(p.physicalId); // لمس لاعب آخر = تبديل
+                      }}
+                      className={`relative group rounded-2xl transition-shadow ${
+                        isSessionMover ? 'ring-2 ring-sky-400 shadow-[0_0_16px_rgba(56,189,248,0.4)] cursor-pointer'
+                        : isSessionSwapTarget ? 'ring-1 ring-sky-500/30 hover:ring-2 hover:ring-sky-400 cursor-pointer'
+                        : ''
+                      }`}>
                       <MafiaCard
                         playerNumber={p.physicalId}
                         playerName={p.name}
@@ -1962,10 +2023,21 @@ export default function LeaderPage() {
                         size="sm"
                         avatarUrl={p.avatarUrl}
                       />
-                      {/* زر حذف لاعب — يظهر عند hover */}
-                      {!showExcludeUI && !isSessionEditing && (
+                      {/* 🪑 زر نقل/تبديل المقعد — يظهر عند hover (لمستان؛ خاضع لقفل السرّ في السيرفر) */}
+                      {!showExcludeUI && !isSessionEditing && sessionMovingId === null && (
                         <button
-                          onClick={async () => {
+                          onClick={(e) => { e.stopPropagation(); setSessionMovingId(p.physicalId); }}
+                          className="absolute -bottom-2 -right-2 w-6 h-6 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
+                          title="نقل/تبديل المقعد"
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
+                        </button>
+                      )}
+                      {/* زر حذف لاعب — يظهر عند hover */}
+                      {!showExcludeUI && !isSessionEditing && sessionMovingId === null && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
                             if (!(await swalConfirm(`حذف ${p.name} من الغرفة؟`))) return;
                             try {
                               await emit('room:kick-player', { roomId: gameState.roomId, physicalId: p.physicalId });
@@ -1978,7 +2050,7 @@ export default function LeaderPage() {
                         >✕</button>
                       )}
                       {/* ✏️ زر تعديل اسم اللاعب — يظهر عند hover في Session View */}
-                      {!showExcludeUI && !isSessionEditing && (
+                      {!showExcludeUI && !isSessionEditing && sessionMovingId === null && (
                         <button
                           onClick={() => { setSessionEditingId(p.physicalId); setSessionEditName(p.name); }}
                           className="absolute -top-2 -left-2 w-6 h-6 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#C5A059]/20 hover:scale-110 z-20 text-[10px]"
