@@ -132,6 +132,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [expulsionReason, setExpulsionReason] = useState('');
   const [penalties, setPenalties] = useState<number>(0);
   const [maxPenalties, setMaxPenalties] = useState<number>(3);
+  // 🗣️ علم تفعيل غرفة تشاور المافيا (إعداد عام من الليدر — لا يكشف هوية أحد)
+  const [mafiaChatEnabled, setMafiaChatEnabled] = useState(false);
   const [penaltyAlert, setPenaltyAlert] = useState<{
     message: string;
     penalties: number;
@@ -370,6 +372,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           if (res.assassinContracts) {
             setAssassinContracts(res.assassinContracts);
           }
+          if (typeof res.mafiaChatEnabled === 'boolean') {
+            setMafiaChatEnabled(res.mafiaChatEnabled);
+          }
 
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
@@ -566,6 +571,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }
     });
 
+    // 🗣️ تفعيل/تعطيل غرفة التشاور فورياً من الليدر (إعداد عام لا يكشف هوية)
+    const cleanupChatToggle = on('room:config-updated', (data: any) => {
+      if (typeof data?.mafiaChatEnabled === 'boolean') setMafiaChatEnabled(data.mafiaChatEnabled);
+    });
+
     const cleanupPenalty = on('game:penalty-recorded', (data: { physicalId: number; penalties: number; maxPenalties: number; message: string; isKicked: boolean }) => {
       const myPhysId = parseInt(physicalId);
       if (data.physicalId === myPhysId) {
@@ -620,6 +630,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       cleanupKick();
       cleanupPenalty();
       cleanupPenaltyEjected();
+      cleanupChatToggle();
     };
   }, [on, initialRoomCode, physicalId]);
 
@@ -1185,6 +1196,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         });
         console.log(`📊 Poll: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
         if (res.success && res.player) {
+          // 🗣️ تحديث علم غرفة التشاور (إعداد عام)
+          setMafiaChatEnabled(res.mafiaChatEnabled === true);
           // تحديث الرقم إذا تغيّر
           if (String(res.player.physicalId) !== physicalId) {
             console.log(`🔄 Polling: seat changed ${physicalId} → ${res.player.physicalId}`);
@@ -3328,6 +3341,14 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         isOpen={isNotepadOpen}
         onClose={() => setIsNotepadOpen(false)}
         onNotesChange={setNotepadNotes}
+        chatVisible={
+          // 🗣️ تبويب التشاور: مافيا حيّ + الغرفة مفعّلة من الليدر + مرحلة لعب فعلية.
+          // يُحسب على جهاز اللاعب نفسه فقط (لا يُبثّ شيء)؛ والسيرفر يتحقق سيادياً على كل عملية.
+          mafiaChatEnabled &&
+          !isPlayerDead &&
+          (['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(assignedRole || '') || mafiaTeam.length > 0) &&
+          !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING', 'GAME_OVER'].includes(gamePhase || '')
+        }
       />
 
       {/* ══ Auto Night: شاشة الإجراء الليلي — تصميم مطابق للتصويت ══ */}

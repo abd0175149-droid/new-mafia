@@ -17,6 +17,8 @@ interface PlayerNotepadProps {
   isOpen: boolean;
   onClose: () => void;
   onNotesChange: (notes: Record<number, PlayerNote>) => void;
+  // 🗣️ تبويب التشاور السرّي (يُحسب في PlayerFlow: مافيا حيّ + الغرفة مفعّلة + مرحلة لعب)
+  chatVisible?: boolean;
 }
 
 const SUSPICION_CONFIG = {
@@ -27,13 +29,70 @@ const SUSPICION_CONFIG = {
 };
 
 export default function PlayerNotepad({
-  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange,
+  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange, chatVisible = false,
 }: PlayerNotepadProps) {
   const storageKey = `mafia_notes_${roomId}_${myPhysicalId}`;
 
   // ── State ──
   const [notes, setNotes] = useState<Record<number, PlayerNote>>({});
-  const [activeTab, setActiveTab] = useState<'add' | 'view'>('add');
+  const [activeTab, setActiveTab] = useState<'add' | 'view' | 'chat'>('add');
+
+  // ── 🗣️ حالة تبويب التشاور السرّي ──
+  const [chatMessages, setChatMessages] = useState<Array<{ physicalId: number; name: string; text: string; at: number }>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [chatUnread, setChatUnread] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; if (activeTab === 'chat') setChatUnread(false); }, [activeTab]);
+
+  // اشتراك الرسائل الحيّة + جلب التاريخ عند فتح المفكرة (للمافيا المؤهّل فقط)
+  useEffect(() => {
+    if (!isOpen || !chatVisible) return;
+    let off: (() => void) | null = null;
+    (async () => {
+      try {
+        const { getSocket } = await import('@/lib/socket');
+        const socket = getSocket();
+        const onMsg = (m: any) => {
+          if (!m?.text) return;
+          setChatMessages(prev => [...prev.slice(-199), m]);
+          if (activeTabRef.current !== 'chat') setChatUnread(true);
+        };
+        socket.on('mafia:chat-message', onMsg);
+        off = () => socket.off('mafia:chat-message', onMsg);
+        socket.emit('mafia:chat-history', { roomId }, (res: any) => {
+          if (res?.success && Array.isArray(res.messages)) setChatMessages(res.messages);
+        });
+      } catch {}
+    })();
+    return () => { if (off) off(); };
+  }, [isOpen, chatVisible, roomId]);
+
+  // تمرير تلقائي لآخر رسالة
+  useEffect(() => {
+    if (activeTab === 'chat') chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, activeTab]);
+
+  const sendChat = async () => {
+    const text = chatInput.trim();
+    if (!text || chatSending) return;
+    setChatSending(true);
+    try {
+      const { getSocket } = await import('@/lib/socket');
+      getSocket().emit('mafia:chat-send', { roomId, text }, (res: any) => {
+        if (res?.success) setChatInput('');
+        setChatSending(false);
+      });
+      // أمان: فكّ التعطيل إن لم يصل ack (انقطاع)
+      setTimeout(() => setChatSending(false), 3000);
+    } catch { setChatSending(false); }
+  };
+
+  // إن اختفى التأهيل (موت/تعطيل الليدر) والمستخدم على تبويب التشاور → عُد للإضافة
+  useEffect(() => {
+    if (!chatVisible && activeTab === 'chat') setActiveTab('add');
+  }, [chatVisible, activeTab]);
 
   // حالة كتابة الملاحظة
   const [noteText, setNoteText] = useState('');
@@ -221,6 +280,22 @@ export default function PlayerNotepad({
                 {tab === 'add' ? '✏️ إضافة ملاحظة' : `📋 عرض الملاحظات${hasAnyNotes ? ` (${playersWithNotes.length + (generalNote?.text ? 1 : 0)})` : ''}`}
               </button>
             ))}
+            {/* 🗣️ تبويب التشاور — يظهر فقط على أجهزة المافيا الأحياء عندما تكون الغرفة مفعّلة */}
+            {chatVisible && (
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`relative flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
+                  activeTab === 'chat'
+                    ? 'bg-[#C5A059] text-black shadow'
+                    : 'bg-[#1a1a1a] text-gray-400 hover:text-white border border-[#2a2a2a]'
+                }`}
+              >
+                🗣️ التشاور
+                {chatUnread && activeTab !== 'chat' && (
+                  <span className="absolute top-1 left-2 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                )}
+              </button>
+            )}
           </div>
 
           {/* ── Body ── */}
@@ -459,6 +534,58 @@ export default function PlayerNotepad({
                     <p className="text-gray-600 text-xs mt-1">انتقل لتبويب "إضافة ملاحظة" للبدء</p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ══ 🗣️ تبويب التشاور السرّي (مافيا أحياء فقط) ══ */}
+            {activeTab === 'chat' && chatVisible && (
+              <div className="flex flex-col h-full">
+                {/* قائمة الرسائل */}
+                <div className="flex-1 overflow-y-auto flex flex-col gap-2 py-2">
+                  {chatMessages.length === 0 ? (
+                    <div className="text-center py-16 opacity-40">
+                      <div className="text-5xl mb-3">🤫</div>
+                      <p className="text-gray-400 text-sm">لا رسائل بعد — ابدأ التشاور</p>
+                    </div>
+                  ) : chatMessages.map((m, i) => {
+                    const mine = m.physicalId === myPhysicalId;
+                    return (
+                      <div key={`${m.at}-${i}`} className={`max-w-[85%] ${mine ? 'self-start' : 'self-end'}`}>
+                        <div className={`rounded-2xl px-3 py-2 border ${
+                          mine ? 'bg-[#C5A059]/15 border-[#C5A059]/30' : 'bg-[#141414] border-[#262626]'
+                        }`}>
+                          <p className={`text-[10px] font-bold mb-0.5 ${mine ? 'text-[#C5A059]' : 'text-red-400'}`}>
+                            {m.name} <span className="font-mono opacity-70">(#{m.physicalId})</span>
+                          </p>
+                          <p className="text-gray-200 text-sm whitespace-pre-wrap leading-relaxed break-words">{m.text}</p>
+                          <p className="text-[9px] text-gray-600 mt-0.5 font-mono" dir="ltr">
+                            {new Date(m.at).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={chatEndRef} />
+                </div>
+                {/* الإدخال */}
+                <div className="shrink-0 flex gap-2 pt-2 pb-1">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value.slice(0, 300))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
+                    placeholder="اكتب رسالة للفريق…"
+                    dir="rtl"
+                    className="flex-1 bg-[#111] border border-[#2a2a2a] rounded-xl px-3 py-2.5 text-sm text-white focus:border-[#C5A059]/50 focus:outline-none"
+                  />
+                  <button
+                    onClick={sendChat}
+                    disabled={chatSending || !chatInput.trim()}
+                    className="px-4 rounded-xl bg-[#C5A059] text-black font-bold text-sm disabled:opacity-40 transition-opacity"
+                  >
+                    إرسال
+                  </button>
+                </div>
               </div>
             )}
           </div>

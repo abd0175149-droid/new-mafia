@@ -53,6 +53,7 @@ import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sock
 import { registerAuditLogging } from './services/staff-action-log.service.js';
 import { registerDayEvents } from './sockets/day.socket.js';
 import { registerNightEvents } from './sockets/night.socket.js';
+import { registerMafiaChatEvents } from './sockets/mafia-chat.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
 import { isMafiaRole } from './game/roles.js';
 
@@ -498,6 +499,7 @@ io.on('connection', (socket) => {
   registerDayEvents(io, socket);
   registerNightEvents(io, socket);
   registerGameEvents(io, socket);
+  registerMafiaChatEvents(io, socket);
 });
 
 // ══════════════════════════════════════════════════════

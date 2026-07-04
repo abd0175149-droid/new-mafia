@@ -93,6 +93,51 @@ export async function deleteGameState(key: string): Promise<void> {
   }
 }
 
+// ══════════════════════════════════════════════════════
+// 🗃️ مفاتيح مساعدة (aux:*) — بيانات جانبية خارج حالة اللعبة
+// مهم: بادئة منفصلة عن game:* عمداً — getAllGameStates تمسح game:* وتعيد
+// بناء قائمة الغرف عند الإقلاع، وأي مفتاح غريب هناك يظهر كـ«غرفة شبح».
+// تُستخدم مثلاً لمحادثة المافيا: aux:mafia-chat:{roomId}
+// ══════════════════════════════════════════════════════
+export async function setAux(key: string, value: any): Promise<void> {
+  const json = JSON.stringify(value);
+  if (redisClient && !useInMemory) {
+    try {
+      await redisClient.set(`aux:${key}`, json, { EX: 86400 });
+    } catch {
+      inMemoryStore.set(`aux:${key}`, json);
+    }
+  } else {
+    inMemoryStore.set(`aux:${key}`, json);
+  }
+}
+
+export async function getAux(key: string): Promise<any | null> {
+  let json: string | null = null;
+  if (redisClient && !useInMemory) {
+    try {
+      json = await redisClient.get(`aux:${key}`);
+    } catch {
+      json = inMemoryStore.get(`aux:${key}`) || null;
+    }
+  } else {
+    json = inMemoryStore.get(`aux:${key}`) || null;
+  }
+  return json ? JSON.parse(json) : null;
+}
+
+export async function deleteAux(key: string): Promise<void> {
+  if (redisClient && !useInMemory) {
+    try {
+      await redisClient.del(`aux:${key}`);
+    } catch {
+      inMemoryStore.delete(`aux:${key}`);
+    }
+  } else {
+    inMemoryStore.delete(`aux:${key}`);
+  }
+}
+
 // ── قائمة كل المفاتيح (scan) ─────────────────────────
 export async function scanGameKeys(pattern: string = 'game:*'): Promise<string[]> {
   if (redisClient && !useInMemory) {

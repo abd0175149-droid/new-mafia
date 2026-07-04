@@ -342,8 +342,9 @@ export async function endActivityRoom(
 
   // 6) تنظيف Redis + activeRooms
   try {
-    const { deleteGameState } = await import('../config/redis.js');
+    const { deleteGameState, deleteAux } = await import('../config/redis.js');
     if (roomId) await deleteGameState(roomId);
+    if (roomId) await deleteAux(`mafia-chat:${roomId}`);   // 🗣️ محادثة المافيا
     if (sessionCode) await deleteGameState(`code:${sessionCode}`);
     const { activeRooms } = await import('../sockets/lobby.socket.js');
     if (roomId) activeRooms.delete(roomId);

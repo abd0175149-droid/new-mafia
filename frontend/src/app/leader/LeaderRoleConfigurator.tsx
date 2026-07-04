@@ -17,6 +17,21 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
   const [assassinContractCount, setAssassinContractCount] = useState(4);  // 🔪 عدد عقود السفّاح
   const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
   const [witchDisableRounds, setWitchDisableRounds] = useState(3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
+  // 🗣️ غرفة تشاور المافيا السرّية — خيار الليدر عند بداية كل جولة (يتذكّر آخر اختيار من config)
+  const [mafiaChatOn, setMafiaChatOn] = useState<boolean>(gameState?.config?.mafiaChatEnabled === true);
+  const [chatToggleBusy, setChatToggleBusy] = useState(false);
+  const toggleMafiaChat = async () => {
+    if (chatToggleBusy) return;
+    setChatToggleBusy(true);
+    try {
+      const r: any = await emit('leader:mafia-chat-toggle', { roomId: gameState.roomId, enabled: !mafiaChatOn });
+      if (r?.success) setMafiaChatOn(r.enabled === true);
+    } catch (err: any) {
+      setError(err.message || 'تعذّر تغيير إعداد غرفة التشاور');
+    } finally {
+      setChatToggleBusy(false);
+    }
+  };
 
   useEffect(() => {
     const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
@@ -249,6 +264,27 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
               </div>
             </motion.div>
           )}
+
+          {/* 🗣️ غرفة تشاور المافيا — خيار الليدر لكل جولة */}
+          <div className="mt-4 p-4 bg-red-500/5 border border-red-500/10 rounded-lg flex items-center justify-between gap-3" dir="rtl">
+            <div className="min-w-0">
+              <p className="text-red-400/90 text-xs font-mono font-bold">🗣️ غرفة تشاور المافيا</p>
+              <p className="text-red-400/50 text-[10px] font-mono mt-1 leading-relaxed">
+                محادثة سرّية للمافيا الأحياء داخل «مفكرة التحري» — تراقبها أنت بالكامل من زرّ 🕵️
+              </p>
+            </div>
+            <button
+              onClick={toggleMafiaChat}
+              disabled={chatToggleBusy}
+              className={`shrink-0 px-4 py-2 rounded-lg text-xs font-bold border transition-colors disabled:opacity-50 ${
+                mafiaChatOn
+                  ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                  : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:border-[#555]'
+              }`}
+            >
+              {mafiaChatOn ? '✓ مفعّلة' : 'معطّلة'}
+            </button>
+          </div>
         </div>
 
         {/* Citizens Section */}

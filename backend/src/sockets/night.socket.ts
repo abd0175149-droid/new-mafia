@@ -1722,6 +1722,8 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.rolesConfirmed = false;
       state.matchId = undefined;
       state.startedAt = undefined;
+      // 🗣️ مسح محادثة المافيا السرّية للعبة السابقة
+      try { const { deleteAux } = await import('../config/redis.js'); await deleteAux(`mafia-chat:${data.roomId}`); } catch {}
       state.nightActions = {
         godfatherTarget: null,
         doctorTarget: null,

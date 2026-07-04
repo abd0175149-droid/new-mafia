@@ -1587,6 +1587,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         roomCode: state.roomCode || '',
         votingState: votingData,
         maxPenalties: state.config?.maxPenalties || 3,
+        mafiaChatEnabled: state.config?.mafiaChatEnabled === true,   // 🗣️ علم إعداد عام — لا يكشف هوية
       });
 
       console.log(`♻️  Player rejoin: #${player.physicalId} - ${player.name} (alive: ${player.isAlive})`);
@@ -2845,6 +2846,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       state.rolesConfirmed = true;
       await setGameState(data.roomId, state);
 
+      // 🗣️ بداية لعبة جديدة → مسح محادثة المافيا للعبة السابقة
+      try { const { deleteAux } = await import('../config/redis.js'); await deleteAux(`mafia-chat:${data.roomId}`); } catch {}
+
       callback({ success: true });
       console.log(`✅ Roles confirmed and sent to players in room ${data.roomId}`);
     } catch (err: any) {
@@ -2936,6 +2940,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         rolesConfirmed: state.rolesConfirmed || false,
         votingState: votingData,
         maxPenalties: state.config?.maxPenalties || 3,
+        mafiaChatEnabled: state.config?.mafiaChatEnabled === true,   // 🗣️ علم إعداد عام — لا يكشف هوية
         // بيانات التبرير (لاستعادة الـ UI عند reconnect)
         justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,
         // حالة سحب الأصوات

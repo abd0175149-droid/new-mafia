@@ -143,6 +143,32 @@ export default function LeaderPage() {
   const [showTimerAdjust, setShowTimerAdjust] = useState(false);
   const [pinnedSeatsExpanded, setPinnedSeatsExpanded] = useState(false); // قسم المقاعد المثبّتة — مطويّ افتراضياً
 
+  // ── 🗣️ مراقبة غرفة تشاور المافيا (الليدر يقرأ كل شيء) ──
+  const [mafiaChatMessages, setMafiaChatMessages] = useState<Array<{ physicalId: number; name: string; text: string; at: number }>>([]);
+  const [mafiaChatUnread, setMafiaChatUnread] = useState(0);
+  const [showMafiaChatModal, setShowMafiaChatModal] = useState(false);
+  const showMafiaChatModalRef = useRef(false);
+  useEffect(() => {
+    showMafiaChatModalRef.current = showMafiaChatModal;
+    if (showMafiaChatModal) setMafiaChatUnread(0);
+  }, [showMafiaChatModal]);
+  const mafiaChatEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (showMafiaChatModal) mafiaChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [mafiaChatMessages, showMafiaChatModal]);
+  const openMafiaChatModal = async () => {
+    setShowMafiaChatModal(true);
+    try {
+      const r: any = await emit('leader:mafia-chat-history', { roomId: gameState!.roomId });
+      if (r?.success) setMafiaChatMessages(r.messages || []);
+    } catch {}
+  };
+  const toggleMafiaChatLive = async () => {
+    try {
+      const enabled = !((gameState?.config as any)?.mafiaChatEnabled === true);
+      await emit('leader:mafia-chat-toggle', { roomId: gameState!.roomId, enabled });
+      setGameState((prev: any) => prev ? { ...prev, config: { ...prev.config, mafiaChatEnabled: enabled } } : prev);
+    } catch (err: any) { swalAlert(err.message || 'تعذّر تغيير الإعداد', 'warning'); }
+  };
+
   // ── 🔊 أصوات شاشة الليدر (افتراضي مُفعّل) ──
   const [leaderSoundOn, setLeaderSoundOn] = useState(true);
   const leaderSoundOnRef = useRef(true);
@@ -1056,6 +1082,8 @@ export default function LeaderPage() {
 
     const offGameRestarted = on('game:restarted', (data: any) => {
       stopOneShotSounds();   // ⏹️ إيقاف أي صوت مقطعي جارٍ (كأغنية الفوز) — محلياً وعلى شاشة العرض
+      setMafiaChatMessages([]);   // 🗣️ لعبة جديدة = محادثة جديدة
+      setMafiaChatUnread(0);
       setAutoNightStep(null);
       setAutoNightProgress(null);
       setGameTimerData(null);
@@ -1258,6 +1286,13 @@ export default function LeaderPage() {
       localSound(() => playGameSound('day_show_silenced'));
     });
 
+    // ── 🗣️ رسائل غرفة تشاور المافيا (الليدر يستقبل كل رسالة حيّاً) ──
+    const offMafiaChatMsg = on('mafia:chat-message', (m: any) => {
+      if (!m?.text) return;
+      setMafiaChatMessages(prev => [...prev.slice(-199), m]);
+      if (!showMafiaChatModalRef.current) setMafiaChatUnread(c => c + 1);
+    });
+
     // ── 📌 تعارض مقعد مثبّت: لاعب محجوز جلس خارج مقعده (مقعده مأخوذ غالباً) ──
     const offPinnedConflict = on('leader:pinned-seat-conflict', (d: any) => {
       if (!d || d.roomId !== gameState.roomId) return;
@@ -1337,6 +1372,7 @@ export default function LeaderPage() {
       offMorningEventSound();
       offShowSilencedSound();
       offPinnedConflict();
+      offMafiaChatMsg();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);
@@ -1483,6 +1519,79 @@ export default function LeaderPage() {
     })();
   }, [inSession, gameState?.sessionId]);
 
+  // ── 🗣️ مودال مراقبة غرفة تشاور المافيا (يُدرَج في شجرتَي العرض) ──
+  const mafiaChatModal = (
+    <AnimatePresence>
+      {showMafiaChatModal && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/80 z-[80] flex items-center justify-center p-4"
+          onClick={() => setShowMafiaChatModal(false)}
+        >
+          <motion.div
+            initial={{ scale: 0.92, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 12 }}
+            className="bg-[#0a0a0a] border border-red-900/40 rounded-2xl w-full max-w-xl max-h-[75vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            dir="rtl"
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-[#1e1e1e] bg-[#120404]">
+              <h3 className="text-base font-black text-red-400" style={{ fontFamily: 'Amiri, serif' }}>
+                🕵️ غرفة تشاور المافيا <span className="text-[10px] font-mono text-red-400/50">(مراقبة — قراءة فقط)</span>
+              </h3>
+              <div className="flex items-center gap-2">
+                {/* مفتاح حيّ: تفعيل/تعطيل الغرفة أثناء اللعب */}
+                <button
+                  onClick={toggleMafiaChatLive}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
+                    (gameState?.config as any)?.mafiaChatEnabled === true
+                      ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                      : 'bg-[#1a1a1a] border-[#333] text-gray-500 hover:border-[#555]'
+                  }`}
+                >
+                  {(gameState?.config as any)?.mafiaChatEnabled === true ? '✓ مفعّلة' : 'معطّلة'}
+                </button>
+                <button onClick={() => setShowMafiaChatModal(false)} className="w-8 h-8 rounded-full bg-[#1a1a1a] text-gray-400 hover:text-red-400 flex items-center justify-center">✕</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+              {mafiaChatMessages.length === 0 ? (
+                <div className="text-center py-14 opacity-40">
+                  <div className="text-4xl mb-2">🤫</div>
+                  <p className="text-gray-400 text-sm">لا رسائل بعد</p>
+                </div>
+              ) : mafiaChatMessages.map((m, i) => (
+                <div key={`${m.at}-${i}`} className="bg-[#141414] border border-[#262626] rounded-xl px-3 py-2">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <p className="text-[11px] font-bold text-red-400">{m.name} <span className="font-mono opacity-70">(#{m.physicalId})</span></p>
+                    <p className="text-[9px] text-gray-600 font-mono" dir="ltr">{new Date(m.at).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}</p>
+                  </div>
+                  <p className="text-gray-200 text-sm whitespace-pre-wrap leading-relaxed break-words">{m.text}</p>
+                </div>
+              ))}
+              <div ref={mafiaChatEndRef} />
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  // ── 🗣️ زرّ مراقبة غرفة تشاور المافيا (عائم — يظهر أثناء اللعب فقط) ──
+  const mafiaChatBtn = gameState && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gameState.phase) ? (
+    <button
+      onClick={openMafiaChatModal}
+      title="مراقبة غرفة تشاور المافيا"
+      className="fixed bottom-4 left-16 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors bg-[#1a0505]/80 border-red-800/40 text-red-300 hover:bg-[#2a0808]"
+    >
+      🕵️
+      {mafiaChatUnread > 0 && (
+        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+          {mafiaChatUnread > 99 ? '99+' : mafiaChatUnread}
+        </span>
+      )}
+    </button>
+  ) : null;
+
   // ── 🔊 زرّ كتم/تشغيل أصوات الليدر (عائم، صمّام أمان لتجنّب صدى سمّاعات القاعة) ──
   const soundToggleBtn = (
     <button
@@ -1612,6 +1721,7 @@ export default function LeaderPage() {
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
+          {mafiaChatBtn}
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
             <div className="flex items-center gap-3">
@@ -2286,6 +2396,8 @@ export default function LeaderPage() {
               })()}
             </div>
 
+            {mafiaChatModal}
+
             {/* ══════ مودال تعديل الأرقام ══════ */}
             <AnimatePresence>
               {showRenumberModal && (
@@ -2931,6 +3043,8 @@ export default function LeaderPage() {
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
+          {mafiaChatBtn}
+          {mafiaChatModal}
           {/* ═══ Unified Global Header ═══ */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
             {/* Left: Logo + MAFIA CLUB */}
