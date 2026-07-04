@@ -94,6 +94,12 @@ export default function PlayerNotepad({
     if (!chatVisible && activeTab === 'chat') setActiveTab('add');
   }, [chatVisible, activeTab]);
 
+  // 🗣️ زر المفكرة هو «باب الغرفة»: عند الفتح، المافيا المؤهّل يدخل مباشرة على تبويب التشاور
+  useEffect(() => {
+    if (isOpen) setActiveTab(chatVisible ? 'chat' : 'add');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   // حالة كتابة الملاحظة
   const [noteText, setNoteText] = useState('');
   const [targetPlayer, setTargetPlayer] = useState<any | null>(null); // اللاعب المربوط
