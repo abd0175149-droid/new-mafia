@@ -1242,6 +1242,16 @@ export default function LeaderPage() {
       localSound(() => playGameSound('day_show_silenced'));
     });
 
+    // ── 📌 تعارض مقعد مثبّت: لاعب محجوز جلس خارج مقعده (مقعده مأخوذ غالباً) ──
+    const offPinnedConflict = on('leader:pinned-seat-conflict', (d: any) => {
+      if (!d || d.roomId !== gameState.roomId) return;
+      setPinnedSeatsExpanded(true);   // افتح القسم ليرى الليدر التعارض
+      swalAlert(
+        `📌 تعارض مقعد مثبّت\n«${d.playerName}» محجوز على المقعد ${d.pinnedSeat}${d.occupantName ? ` (يشغله «${d.occupantName}»)` : ''} — جلس في المقعد ${d.assignedSeat}`,
+        'warning',
+      );
+    });
+
     const offGalleryAlert = on('leader:mafia-gallery-alert', (d: any) => {
       if (!d || d.roomId !== gameState.roomId) return;
       // 🔔 صوت تنبيه فوري — على جهاز الليدر فقط (لا يُبثّ لشاشة العرض حتى لا ينكشف التنبيه في القاعة)
@@ -1310,6 +1320,7 @@ export default function LeaderPage() {
       offSoundsUpdated();
       offMorningEventSound();
       offShowSilencedSound();
+      offPinnedConflict();
       offStateUpdated();
     };
   }, [on, emit, gameState?.roomId]);

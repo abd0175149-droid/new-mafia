@@ -11,7 +11,8 @@ import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRo
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
-import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession } from '../services/session.service.js';
+import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats } from '../services/session.service.js';
+import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { applyRR } from '../services/progression.service.js';
@@ -1333,6 +1334,35 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const actualPhysicalId = actualPlayer?.physicalId ?? assignedSeat;
 
+      // ── 🔔 تنبيه الليدر عند تعارض مقعد مثبّت (كان console.warn صامتاً فقط) ──
+      // اللاعب مُثبّت في القالب على مقعد معيّن لكنه جلس في مقعد آخر (مقعده مأخوذ غالباً)
+      try {
+        if (pinnedSeatsFromTemplate.length > 0) {
+          const normPhone = (s: any) => String(s || '').replace(/\D/g, '').replace(/^(00962|962)/, '0');
+          const joinPhone = normPhone(data.phone);
+          const joinName = String(data.name || '').trim().toLowerCase();
+          const pinnedEntry = pinnedSeatsFromTemplate.find((ps: any) =>
+            (data.playerId && ps.playerId && Number(ps.playerId) === Number(data.playerId)) ||
+            (joinPhone && ps.phone && normPhone(ps.phone) === joinPhone) ||
+            (joinName && ps.playerName && String(ps.playerName).trim().toLowerCase() === joinName)
+          );
+          if (pinnedEntry && Number(pinnedEntry.seatNumber) !== actualPhysicalId) {
+            const occupant = addedState.players.find(p => p.physicalId === Number(pinnedEntry.seatNumber));
+            const sockets = await io.in(data.roomId).fetchSockets();
+            for (const s of sockets) if ((s as any).data?.role === 'leader') {
+              s.emit('leader:pinned-seat-conflict', {
+                roomId: data.roomId,
+                playerName: data.name,
+                assignedSeat: actualPhysicalId,
+                pinnedSeat: Number(pinnedEntry.seatNumber),
+                occupantName: occupant?.name || null,
+              });
+            }
+            console.warn(`📌 Pinned conflict: ${data.name} pinned to #${pinnedEntry.seatNumber} but seated at #${actualPhysicalId}`);
+          }
+        }
+      } catch { /* التنبيه لا يعطّل الانضمام */ }
+
       // تحديث الجنس وتاريخ الميلاد
       if (data.gender || data.dob) {
         await updatePlayer(data.roomId, actualPhysicalId, {
@@ -1428,11 +1458,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Room not found' });
       }
 
-      // البحث عن اللاعب بالرقم الفيزيائي أو رقم الهاتف
-      const player = state.players.find((p: any) =>
-        p.physicalId === data.physicalId ||
-        (data.phone && p.phone === data.phone)
-      );
+      // البحث عن اللاعب: الهاتف أولاً (هوية ثابتة) ثم الرقم الفيزيائي كاحتياط.
+      // 🛡️ كان الرقم أولاً — فلاعب منقطع يعود بعد «ترقيم شامل» كان يدخل بهوية/مقعد لاعب آخر
+      // (رقمه القديم من localStorage أصبح يخص شخصاً غيره). الهاتف لا يتغيّر بالترقيم.
+      const byPhone = data.phone ? state.players.find((p: any) => p.phone === data.phone) : undefined;
+      const player = byPhone || state.players.find((p: any) => p.physicalId === data.physicalId);
+      if (byPhone && byPhone.physicalId !== data.physicalId) {
+        console.log(`♻️ Rejoin seat corrected by phone: requested #${data.physicalId} → actual #${byPhone.physicalId}`);
+      }
 
       if (!player) {
         return callback({ success: false, error: 'Player not found in this room' });
@@ -1659,25 +1692,30 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'الأرقام يجب أن تكون بين 1 و 99' });
       }
 
+      // 🛡️ التحقق من التصادم مع لاعبين خارج قائمة التغييرات
+      // (كان ترقيم 5→7 والمقعد 7 مشغولاً بلاعب غير مشمول يُنتج لاعبَين بنفس الرقم!)
+      const collisionError = validateRenumberChanges(state.players, data.changes);
+      if (collisionError) {
+        return callback({ success: false, error: collisionError });
+      }
+
       // تطبيق التغييرات بأمان (بدون تعارض عند مبادلة الأرقام)
       // بناء خريطة oldId → newId من كل التغييرات
       const idMap = new Map<number, number>();
-      for (const change of data.changes) {
+      for (const change of actualChanges) {
         idMap.set(change.oldPhysicalId, change.newPhysicalId);
       }
 
-      // تطبيق دفعة واحدة — كل لاعب يحصل على رقمه الجديد
-      for (const player of state.players) {
-        const newId = idMap.get(player.physicalId);
-        if (newId !== undefined) {
-          player.physicalId = newId;
-        }
-      }
-
-      // إعادة الترتيب حسب الرقم الجديد
-      state.players.sort((a, b) => a.physicalId - b.physicalId);
+      // 🔁 إعادة ربط شاملة: players + كل البنى المرتبطة برقم المقعد
+      // (أصوات التصويت، التوائم، السفّاح، الشرطية، النقاش، القنبلة، أهداف الليل…)
+      remapPhysicalIds(state, idMap);
 
       await setGameState(data.roomId, state);
+
+      // 🗄️ مزامنة أرقام المقاعد في قاعدة البيانات (session_players)
+      if (state.sessionId) {
+        await remapSessionPlayerSeats(state.sessionId, actualChanges);
+      }
 
       // ── إرسال تحديث الرقم لكل لاعب متأثر عبر WebSocket ──
       // نبني خريطة socket → change أولاً لتجنب مشاكل الـ swap
@@ -1801,6 +1839,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (socket.data.role !== 'leader') {
         console.warn(`[Backend-Socket] ❌ Failure: role is ${socket.data.role}, expected 'leader'`);
         return callback({ success: false, error: 'Only leader can override' });
+      }
+
+      // 🛡️ فحص مبكر واضح: المقعد مشغول؟ (بدل خطأ عام من addPlayer)
+      const preState = await getRoom(data.roomId);
+      const occupant = preState?.players.find(p => p.physicalId === data.physicalId);
+      if (occupant) {
+        return callback({
+          success: false,
+          error: `المقعد ${data.physicalId} مشغول بـ«${occupant.name}» — اختر مقعداً آخر أو استخدم «نقل مقعد» للتبديل`,
+        });
       }
 
       console.log(`[Backend-Socket] ➡️ Calling addPlayer(${data.roomId}, ${data.physicalId}, ${data.name}, ${data.phone})`);

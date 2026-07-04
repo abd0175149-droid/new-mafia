@@ -52,6 +52,30 @@ export async function createSession(
   }
 }
 
+// ── مزامنة أرقام المقاعد في session_players بعد ترقيم/نقل ──
+// UPDATE واحد بعبارة CASE — ذرّي، فلا تصادم وسيط عند التبادل (5↔7).
+export async function remapSessionPlayerSeats(
+  sessionId: number,
+  changes: Array<{ oldPhysicalId: number; newPhysicalId: number }>,
+): Promise<void> {
+  const db = getDB();
+  const actual = changes.filter((c) => c.oldPhysicalId !== c.newPhysicalId);
+  if (!db || actual.length === 0) return;
+  try {
+    const whenClauses = actual
+      .map((c) => `WHEN ${Number(c.oldPhysicalId)} THEN ${Number(c.newPhysicalId)}`)
+      .join(' ');
+    const oldIds = actual.map((c) => Number(c.oldPhysicalId)).join(',');
+    await db.execute(sql.raw(
+      `UPDATE session_players SET physical_id = CASE physical_id ${whenClauses} END ` +
+      `WHERE session_id = ${Number(sessionId)} AND physical_id IN (${oldIds})`
+    ));
+    console.log(`🔁 session_players remapped for session #${sessionId}: ${actual.map(c => `${c.oldPhysicalId}→${c.newPhysicalId}`).join(', ')}`);
+  } catch (err: any) {
+    console.error('❌ Failed to remap session_players seats:', err.message);
+  }
+}
+
 // ── ربط غرفة موجودة بنشاط ──────────────────────────
 export async function linkSessionToActivity(
   sessionId: number,
