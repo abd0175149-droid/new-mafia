@@ -1091,57 +1091,60 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const engineEnabled = (constraints && (constraints as any).engineEnabled) || hasTemplate;
 
       if (engineEnabled) {
-        // إثراء بيانات اللاعبين الحاليين
-        enrichedPlayers = [];
-        for (const p of state.players) {
-          let enriched: any = {
+        // ── 🚀 إثراء دفعي لبيانات اللاعبين الحاليين ──
+        // كان استعلامَين لكل لاعب جالس (N+1: انضمام واحد = 30-50+ استعلاماً وثوانٍ انتظار)
+        // → الآن استعلامان إجمالاً مهما كان عدد الجالسين.
+        const { players: playersTable } = await import('../schemas/player.schema.js');
+        const seatedIds = state.players.map(p => p.playerId).filter((x): x is number => typeof x === 'number' && x > 0);
+        const dbById = new Map<number, any>();
+        const actCountById = new Map<number, number>();
+        let actQueryOk = false;
+        if (db && seatedIds.length > 0) {
+          try {
+            const { inArray } = await import('drizzle-orm');
+            const rows = await db.select({
+              id: playersTable.id,
+              totalMatches: playersTable.lifetimeMatches,  // 🏆 مدى الحياة (لا يُصفَّر بالموسم) — لكشف اللاعب الجديد
+              rankRR: playersTable.rankRR,
+              rankTier: playersTable.rankTier,
+              genderConstraint: playersTable.genderConstraint,
+            }).from(playersTable).where(inArray(playersTable.id, seatedIds));
+            for (const r of rows) dbById.set(r.id, r);
+          } catch {}
+          try {
+            const idList = seatedIds.map(Number).join(',');   // أرقام فقط — آمنة
+            const activityRows = await db.execute(sql.raw(`
+              SELECT sp.player_id AS pid, COUNT(DISTINCT s.activity_id) AS activity_count
+              FROM session_players sp
+              JOIN sessions s ON sp.session_id = s.id
+              WHERE sp.player_id IN (${idList}) AND s.activity_id IS NOT NULL
+              GROUP BY sp.player_id
+            `));
+            for (const row of ((activityRows as any).rows || activityRows || [])) {
+              actCountById.set(Number((row as any).pid), Number((row as any).activity_count || 0));
+            }
+            actQueryOk = true;
+          } catch {}
+        }
+        enrichedPlayers = state.players.map(p => {
+          const dbp = p.playerId ? dbById.get(p.playerId) : undefined;
+          const totalMatches = dbp?.totalMatches || 0;
+          return {
             physicalId: p.physicalId,
             phone: p.phone,
             gender: p.gender || null,
             seatHeld: p.seatHeld || false,
             playerId: p.playerId || null,
             name: p.name || `لاعب #${p.physicalId}`,
-            totalMatches: 0,
-            activityCount: 0,
-            rankRR: 0,
-            rankTier: 'INFORMANT',
-            genderConstraint: 'NONE',
+            totalMatches,
+            activityCount: p.playerId
+              ? (actQueryOk ? (actCountById.get(p.playerId) ?? 0) : Math.floor(totalMatches / 3))
+              : 0,
+            rankRR: dbp?.rankRR || 0,
+            rankTier: dbp?.rankTier || 'INFORMANT',
+            genderConstraint: dbp?.genderConstraint || 'NONE',
           };
-
-          if (p.playerId && db) {
-            try {
-              const { players: playersTable } = await import('../schemas/player.schema.js');
-              const [dbPlayer] = await db.select({
-                totalMatches: playersTable.lifetimeMatches,  // 🏆 مدى الحياة (لا يُصفَّر بالموسم) — لكشف اللاعب الجديد
-                rankRR: playersTable.rankRR,
-                rankTier: playersTable.rankTier,
-                genderConstraint: playersTable.genderConstraint,
-              }).from(playersTable).where(eq(playersTable.id, p.playerId)).limit(1);
-
-              if (dbPlayer) {
-                enriched.totalMatches = dbPlayer.totalMatches || 0;
-                enriched.rankRR = dbPlayer.rankRR || 0;
-                enriched.rankTier = dbPlayer.rankTier || 'INFORMANT';
-                enriched.genderConstraint = dbPlayer.genderConstraint || 'NONE';
-                // حساب activityCount الحقيقي من DB
-                try {
-                  const activityRows = await db.execute(sql`
-                    SELECT COUNT(DISTINCT s.activity_id) as activity_count
-                    FROM session_players sp
-                    JOIN sessions s ON sp.session_id = s.id
-                    WHERE sp.player_id = ${p.playerId}
-                    AND s.activity_id IS NOT NULL
-                  `);
-                  const actRow = ((activityRows as any).rows || activityRows || [])[0];
-                  enriched.activityCount = Number(actRow?.activity_count || 0);
-                } catch {
-                  enriched.activityCount = Math.floor((dbPlayer.totalMatches || 0) / 3);
-                }
-              }
-            } catch {}
-          }
-          enrichedPlayers.push(enriched);
-        }
+        });
 
         // ── حقن اللاعبين المثبّتين (من القالب) كشاغلين افتراضيين للمقاعد ──
         // الهدف: تُفحَص الشروط (مثل «لا يجلس بجانب X») ضدّ مقعد X المثبّت حتى لو لم يدخل X بعد.
@@ -1153,6 +1156,36 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             return c.startsWith('0') ? c : '0' + c;
           };
           const normJoin = normPin(data.phone || '');
+
+          // 🚀 جلب دفعي لبيانات المثبّتين (كان استعلاماً لكل مقعد مثبّت)
+          const pinById = new Map<number, any>();
+          const pinByPhone = new Map<string, any>();
+          if (db) {
+            try {
+              const { inArray, or: orOp } = await import('drizzle-orm');
+              const { players: pTable } = await import('../schemas/player.schema.js');
+              const pinIds = pinnedSeatsFromTemplate.map((p: any) => Number(p.playerId)).filter((n: number) => Number.isFinite(n) && n > 0);
+              const pinPhones = pinnedSeatsFromTemplate.map((p: any) => p.phone).filter(Boolean);
+              if (pinIds.length > 0 || pinPhones.length > 0) {
+                const conds = [] as any[];
+                if (pinIds.length > 0) conds.push(inArray(pTable.id, pinIds));
+                if (pinPhones.length > 0) conds.push(inArray(pTable.phone, pinPhones));
+                const rows = await db.select({
+                  id: pTable.id,
+                  phone: pTable.phone,
+                  gender: pTable.gender,
+                  rankRR: pTable.rankRR,
+                  rankTier: pTable.rankTier,
+                  genderConstraint: pTable.genderConstraint,
+                  lifetimeMatches: pTable.lifetimeMatches,
+                }).from(pTable).where(conds.length === 1 ? conds[0] : orOp(...conds));
+                for (const r of rows) {
+                  pinById.set(r.id, r);
+                  if (r.phone) pinByPhone.set(String(r.phone), r);
+                }
+              }
+            } catch {}
+          }
           for (const pin of pinnedSeatsFromTemplate) {
             const seatNum = Number(pin.seatNumber);
             if (!seatNum || seatNum < 1 || seatNum > state.config.maxPlayers) continue;
@@ -1177,29 +1210,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
               genderConstraint: 'NONE',
               _virtualPinned: true,
             };
-            if (db && (pin.playerId || pin.phone)) {
-              try {
-                const { players: playersTable } = await import('../schemas/player.schema.js');
-                const cond = pin.playerId
-                  ? eq(playersTable.id, Number(pin.playerId))
-                  : eq(playersTable.phone, pin.phone);
-                const [dbp] = await db.select({
-                  id: playersTable.id,
-                  gender: playersTable.gender,
-                  rankRR: playersTable.rankRR,
-                  rankTier: playersTable.rankTier,
-                  genderConstraint: playersTable.genderConstraint,
-                  lifetimeMatches: playersTable.lifetimeMatches,
-                }).from(playersTable).where(cond).limit(1);
-                if (dbp) {
-                  v.playerId = dbp.id;
-                  v.gender = dbp.gender || 'MALE';
-                  v.rankRR = dbp.rankRR || 0;
-                  v.rankTier = dbp.rankTier || 'INFORMANT';
-                  v.genderConstraint = dbp.genderConstraint || 'NONE';
-                  v.totalMatches = dbp.lifetimeMatches || 0;
-                }
-              } catch {}
+            {
+              // من الجلب الدفعي أعلاه — بلا استعلام لكل مقعد
+              const dbp = (pin.playerId && pinById.get(Number(pin.playerId))) || (pin.phone && pinByPhone.get(String(pin.phone))) || null;
+              if (dbp) {
+                v.playerId = dbp.id;
+                v.gender = dbp.gender || 'MALE';
+                v.rankRR = dbp.rankRR || 0;
+                v.rankTier = dbp.rankTier || 'INFORMANT';
+                v.genderConstraint = dbp.genderConstraint || 'NONE';
+                v.totalMatches = dbp.lifetimeMatches || 0;
+              }
             }
             enrichedPlayers.push(v);
             console.log(`📌 Virtual pinned occupant: ${v.name} @ seat #${seatNum} (constraints will respect it)`);
