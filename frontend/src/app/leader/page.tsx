@@ -2008,7 +2008,7 @@ export default function LeaderPage() {
                         if (isSessionMover) setSessionMovingId(null);                    // لمس بطاقة الناقل = إلغاء
                         else if (isSessionSwapTarget) handleSessionMoveSeat(p.physicalId); // لمس لاعب آخر = تبديل
                       }}
-                      className={`relative group rounded-2xl transition-shadow ${
+                      className={`relative group rounded-2xl transition-shadow w-fit mx-auto ${
                         isSessionMover ? 'ring-2 ring-sky-400 shadow-[0_0_16px_rgba(56,189,248,0.4)] cursor-pointer'
                         : isSessionSwapTarget ? 'ring-1 ring-sky-500/30 hover:ring-2 hover:ring-sky-400 cursor-pointer'
                         : ''
