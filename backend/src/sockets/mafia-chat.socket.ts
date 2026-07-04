@@ -29,8 +29,9 @@ export interface MafiaChatMessage {
 
 const chatKey = (roomId: string) => `mafia-chat:${roomId}`;
 
-// المراحل التي تعمل فيها الغرفة (بعد اعتماد الأدوار وقبل نهاية اللعبة)
-const BLOCKED_PHASES = new Set<string>([Phase.LOBBY, Phase.ROLE_GENERATION, Phase.ROLE_BINDING, Phase.GAME_OVER]);
+// المراحل المحظورة — ROLE_BINDING غير محظورة لأن حارس rolesConfirmed يغطيها:
+// فور اعتماد الأدوار (وقبل أول ليل) يعرف المافيا بعضهم ويحق لهم التشاور.
+const BLOCKED_PHASES = new Set<string>([Phase.LOBBY, Phase.ROLE_GENERATION, Phase.GAME_OVER]);
 
 // ── تحقق سيادي: مافيا حيّ في لعبة جارية والغرفة مفعّلة — وإلا null (رفض صامت) ──
 async function verifyAliveMafia(socket: Socket, roomId?: string): Promise<{ state: any; player: any } | null> {
