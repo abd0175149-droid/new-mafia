@@ -1775,7 +1775,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
-  // ── 🪑 نقل/تبديل مقعد بلمسة واحدة (بلا سرّ — عملية لوبي روتينية) ──
+  // ── 🪑 نقل/تبديل مقعد بلمستين — خاضع لنفس قفل السرّ الخاص بمودال تعديل الأرقام ──
   // الهدف فارغ → نقل؛ مشغول → تبديل ذرّي. يعيد ربط كل البنى + يزامن DB + يُخطر الأجهزة.
   socket.on('room:move-seat', async (data: {
     roomId: string;
@@ -1785,6 +1785,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     try {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
+      }
+      // 🔒 نفس منطق السرّ (RENUMBER_SECRET عبر leader:tools-ping) — خطأ عام يوحي بعطل مؤقّت
+      if (!toolsUnlocked(socket)) {
+        return callback({ success: false, error: 'تعذّر تنفيذ النقل — مشكلة مؤقتة، حاول لاحقاً' });
       }
 
       const state = await getRoom(data.roomId);
