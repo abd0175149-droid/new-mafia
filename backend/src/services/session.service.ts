@@ -52,6 +52,17 @@ export async function createSession(
   }
 }
 
+// ── write-through: تحديث سعة الغرفة في DB عند كل تغيير (اتساق التقارير) ──
+export async function updateSessionMaxPlayers(sessionId: number, maxPlayers: number): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+  try {
+    await db.update(sessions).set({ maxPlayers } as any).where(eq(sessions.id, sessionId));
+  } catch (err: any) {
+    console.error('❌ Failed to write-through session.maxPlayers:', err.message);
+  }
+}
+
 // ── مزامنة أرقام المقاعد في session_players بعد ترقيم/نقل ──
 // UPDATE واحد بعبارة CASE — ذرّي، فلا تصادم وسيط عند التبادل (5↔7).
 export async function remapSessionPlayerSeats(

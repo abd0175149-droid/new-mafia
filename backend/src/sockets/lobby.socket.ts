@@ -11,8 +11,9 @@ import { generateRoles, validateRoleDistribution, Role, getTeamCounts, isMafiaRo
 import { generateRolesDynamic } from '../game/dynamic-role-generator.js';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
-import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats } from '../services/session.service.js';
+import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats, updateSessionMaxPlayers } from '../services/session.service.js';
 import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
+import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { applyRR } from '../services/progression.service.js';
@@ -76,6 +77,8 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
         state.config.maxPlayers = targetMax;
         const r = activeRooms.get(state.roomId);
         if (r) r.maxPlayers = targetMax;
+        // 🗄️ write-through: اتساق DB مع سعة القالب
+        if (state.sessionId) { updateSessionMaxPlayers(state.sessionId, targetMax).catch(() => {}); }
       }
     }
     state.pinnedSeats = pinnedSeats;
@@ -304,8 +307,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   }, callback) => {
     try {
       const gameName = data.gameName || 'لعبة مافيا';
-      // الافتراضي 27 (قابل للتعديل) — وتُحسم لاحقاً من قالب المقاعد إن وُجد. مفصول عن عدد الحجوزات.
-      const maxPlayers = Math.min(Math.max(data.maxPlayers || 27, 6), 50);
+      // 🪑 مصدر السعة الموحّد: إدخال الليدر الصريح ← قالب المقاعد ← سعة الفعالية ← 27
+      // (نفس منطق REST add-room — services/capacity.service.ts). مفصول كلياً عن عدد الحجوزات.
+      const resolvedCapacity = data.maxPlayers || await resolveRoomCapacity(data.activityId);
+      const maxPlayers = clampCapacity(resolvedCapacity);
 
       // إذا فيه sessionCode من DB → نستخدمه ككود للغرفة (توحيد الأكواد)
       const overrideCode = data.existingSessionId && data.sessionCode
@@ -2253,8 +2258,42 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         maxPlayers: newMax,
       });
 
+      // 🗄️ write-through: اتساق سعة الغرفة في DB مع Redis
+      if (state.sessionId) { await updateSessionMaxPlayers(state.sessionId, newMax); }
+
       callback({ success: true, maxPlayers: newMax });
       console.log(`👑 Leader updated maxPlayers: ${oldMax} → ${newMax}`);
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 🔓 العودة لسعة القالب: مسح التجاوز اليدوي وإعادة المزامنة من القالب ──
+  // (كان maxPlayersManual يقفل مزامنة القالب للأبد بلا أي طريقة للفك)
+  socket.on('room:clear-max-manual', async (data: { roomId: string }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER) {
+        return callback({ success: false, error: 'يمكن التعديل في اللوبي أو بعد انتهاء اللعبة فقط' });
+      }
+
+      state.config.maxPlayersManual = false;
+      // إعادة المزامنة من القالب فوراً (تُحدّث maxPlayers إن وُجد قالب)
+      try { await loadSeatTemplateIntoState(state); } catch {}
+      await setGameState(data.roomId, state);
+
+      const room = activeRooms.get(data.roomId);
+      if (room) room.maxPlayers = state.config.maxPlayers;
+      if (state.sessionId) { await updateSessionMaxPlayers(state.sessionId, state.config.maxPlayers); }
+
+      io.to(data.roomId).emit('room:config-updated', { maxPlayers: state.config.maxPlayers });
+      io.to(data.roomId).emit('game:state-sync', state);
+      callback({ success: true, maxPlayers: state.config.maxPlayers });
+      console.log(`🔓 maxPlayersManual cleared — capacity re-synced to ${state.config.maxPlayers}`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

@@ -272,6 +272,18 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
               className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[#2a2a2a] text-[#808080] hover:text-white hover:border-[#555] transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed text-lg"
             >+</button>
           </div>
+          {/* 🔓 تجاوز يدوي مفعّل؟ زر العودة لسعة القالب (كان القفل أبدياً بلا فك) */}
+          {(gameState.config as any).maxPlayersManual && (
+            <button
+              onClick={async () => {
+                try { await emit('room:clear-max-manual', { roomId: gameState.roomId }); } catch (err: any) { setError(err.message); }
+              }}
+              title="أنت في وضع سعة يدوية — القالب لن يُحدّث السعة. اضغط للعودة لسعة القالب."
+              className="mt-2 text-[9px] px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-colors"
+            >
+              🔓 العودة لسعة القالب
+            </button>
+          )}
         </div>
 
         {/* زر الإضافة */}

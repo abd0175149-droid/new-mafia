@@ -13,13 +13,9 @@ import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
-// ── (مُعطّلة عمداً) عدد المقاعد لم يعد مربوطاً بعدد الحاجزين ──
-// السعة تأتي الآن من قالب المقاعد (totalSeats) إن وُجد، وإلا الافتراضي 27 (قابل للتعديل من الليدر).
-// الحجز مفتوح بلا سقف: قد يحجز عددٌ أكبر من المقاعد لأن اللاعبين يتناوبون.
-// نُبقي الدالة (no-op) لتجنّب تعديل كل مواضع الاستدعاء.
-async function syncSessionMaxPlayers(_activityId: number) {
-  return;
-}
+// 🎟️ الحجز مفتوح بلا سقف (قرار تشغيلي): اللاعبون يتناوبون بين الألعاب،
+// فالعبرة بالحضور الفعلي. سعة المقاعد تخص الغرفة فقط — مصدرها الموحّد:
+// services/capacity.service.ts (قالب المقاعد ← سعة الفعالية ← الافتراضي 27).
 
 // GET /api/bookings?activityId=&status=&search=
 router.get('/', authenticate, async (req: Request, res: Response) => {
@@ -116,9 +112,6 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       url: '/admin/bookings',
     });
   }).catch(() => {});
-
-  // تحديث maxPlayers في الغرفة حسب عدد الأشخاص
-  syncSessionMaxPlayers(activityId).catch(() => {});
 });
 
 // PUT /api/bookings/:id
@@ -161,9 +154,6 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   }
 
   res.json(result[0]);
-
-  // تحديث maxPlayers في الغرفة حسب عدد الأشخاص
-  if (existing[0]?.activityId) syncSessionMaxPlayers(existing[0].activityId).catch(() => {});
 });
 
 // PUT /api/bookings/:id/pay
@@ -217,7 +207,6 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   res.json({ success: true });
 
   // تحديث maxPlayers في الغرفة حسب عدد الأشخاص
-  if (existing[0]?.activityId) syncSessionMaxPlayers(existing[0].activityId).catch(() => {});
 });
 
 export default router;

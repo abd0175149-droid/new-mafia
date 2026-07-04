@@ -14,6 +14,7 @@ import { getDriveService } from './drive.routes.js';
 import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession, closeSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
 import { generateRoomCode } from '../game/state.js';
+import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 
 // ── تحويل التاريخ بتوقيت الأردن (UTC+3) ──
 // datetime-local يرسل "2026-04-28T18:30" بدون timezone
@@ -394,7 +395,10 @@ router.post('/:id/add-room', authenticate, async (req: Request, res: Response) =
 
     const roomNumber = existingRooms.length + 1;
     const roomName = req.body.roomName || `${act.name} — غرفة ${roomNumber}`;
-    const maxPlayers = req.body.maxPlayers || act.maxCapacity || 20;
+    // 🪑 مصدر السعة الموحّد (يطابق مسار السوكت): إدخال صريح ← قالب المقاعد ← سعة الفعالية ← 27
+    const maxPlayers = req.body.maxPlayers
+      ? clampCapacity(Number(req.body.maxPlayers))
+      : await resolveRoomCapacity(activityId);
 
     const sessionId = await createSession(
       roomName,

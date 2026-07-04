@@ -75,15 +75,9 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
     if (actRows.length === 0) return res.status(404).json({ error: 'النشاط غير موجود' });
     const activity = actRows[0];
 
-    // التحقق من السعة القصوى
-    const [countResult] = await db.select({
-      total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
-    }).from(bookings).where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
-    const currentBooked = countResult?.total || 0;
-    const maxCap = activity.maxCapacity || 20;
-    if (currentBooked >= maxCap) {
-      return res.status(409).json({ error: 'النشاط مكتمل العدد' });
-    }
+    // 🎟️ الحجز مفتوح بلا سقف (قرار تشغيلي): اللاعبون يتناوبون بين الألعاب،
+    // فالعبرة بالحضور الفعلي لا بعدد الحجوزات. سعة المقاعد تخص الغرفة فقط
+    // (انظر services/capacity.service.ts — شجرة قرار سعة الغرفة).
 
     // التحقق من عدم الحجز المسبق (بالهاتف أو playerId)
     const existingBooking = await db.select({ id: bookings.id })
