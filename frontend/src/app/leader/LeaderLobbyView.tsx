@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
+import { swalAlert } from '@/lib/swal';
 
 interface LeaderLobbyViewProps {
 
@@ -45,7 +46,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
       await emit('room:move-seat', { roomId: gameState.roomId, fromPhysicalId: movingId, toSeat });
       setMovingId(null);
     } catch (err: any) {
-      setError(err.message || 'فشل نقل المقعد');
+      swalAlert(err.message || 'فشل نقل المقعد', 'warning');   // تنبيه ظاهر — لا كونسول فقط
     } finally {
       setMoveLoading(false);
     }

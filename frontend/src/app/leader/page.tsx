@@ -305,7 +305,7 @@ export default function LeaderPage() {
       await emit('room:move-seat', { roomId: gameState.roomId, fromPhysicalId: sessionMovingId, toSeat });
       setSessionMovingId(null);
     } catch (err: any) {
-      setError(err.message || 'فشل نقل المقعد');
+      swalAlert(err.message || 'فشل نقل المقعد', 'warning');   // تنبيه ظاهر — لا كونسول فقط
     } finally {
       setSessionMoveLoading(false);
     }
