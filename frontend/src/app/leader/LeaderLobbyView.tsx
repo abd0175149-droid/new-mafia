@@ -35,6 +35,22 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
   const [editName, setEditName] = useState('');
   const [editLoading, setEditLoading] = useState(false);
 
+  // ── 🪑 وضع نقل المقعد بلمستين: لمسة على اللاعب ثم لمسة على الهدف (فارغ=نقل، مشغول=تبديل) ──
+  const [movingId, setMovingId] = useState<number | null>(null);
+  const [moveLoading, setMoveLoading] = useState(false);
+  const handleMoveSeat = async (toSeat: number) => {
+    if (!movingId || moveLoading) return;
+    setMoveLoading(true);
+    try {
+      await emit('room:move-seat', { roomId: gameState.roomId, fromPhysicalId: movingId, toSeat });
+      setMovingId(null);
+    } catch (err: any) {
+      setError(err.message || 'فشل نقل المقعد');
+    } finally {
+      setMoveLoading(false);
+    }
+  };
+
   // Reset form
   const resetAddForm = () => {
     setAddStep('phone');
@@ -477,6 +493,46 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
         )}
       </AnimatePresence>
 
+      {/* ── 🪑 شريط وضع النقل + المقاعد الفارغة كأهداف ── */}
+      <AnimatePresence>
+        {movingId !== null && (() => {
+          const mover = gameState.players.find((p: any) => p.physicalId === movingId);
+          const occupied = new Set(gameState.players.map((p: any) => p.physicalId));
+          const emptySeats = Array.from({ length: gameState.config.maxPlayers }, (_, i) => i + 1).filter((s) => !occupied.has(s));
+          return (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden mb-4"
+            >
+              <div className="bg-sky-950/40 border border-sky-500/40 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sky-300 text-xs font-bold">
+                    🪑 نقل «{mover?.name}» (#{movingId}) — المس مقعداً فارغاً للنقل، أو بطاقة لاعب للتبديل معه
+                  </p>
+                  <button onClick={() => setMovingId(null)} className="text-[10px] px-3 py-1 rounded bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700">✕ إلغاء</button>
+                </div>
+                {emptySeats.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {emptySeats.map((s) => (
+                      <button
+                        key={s}
+                        disabled={moveLoading}
+                        onClick={() => handleMoveSeat(s)}
+                        className="w-11 h-11 rounded-lg border-2 border-dashed border-sky-500/50 text-sky-300 font-mono font-bold hover:bg-sky-500/20 hover:border-sky-400 transition-colors disabled:opacity-40"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-zinc-500">لا مقاعد فارغة — المس بطاقة لاعب للتبديل معه</p>
+                )}
+              </div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
       {/* ── شبكة اللاعبين ── */}
       {gameState.players.length === 0 ? (
         <div className="bg-black/30 border border-[#2a2a2a] rounded-xl p-16 text-center backdrop-blur-sm">
@@ -492,13 +548,23 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
             const isKicking = kickingId === player.physicalId;
             const isEditing = editingId === player.physicalId;
 
+            const isMover = movingId === player.physicalId;
+            const isSwapTarget = movingId !== null && !isMover;
             return (
               <motion.div
                 key={player.physicalId}
                 initial={{ opacity: 0, scale: 0.9, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}
-                className="relative group cursor-pointer"
+                onClick={() => {
+                  if (isMover) setMovingId(null);                       // لمس بطاقة الناقل = إلغاء
+                  else if (isSwapTarget) handleMoveSeat(player.physicalId); // لمس لاعب آخر = تبديل
+                }}
+                className={`relative group cursor-pointer rounded-2xl transition-shadow ${
+                  isMover ? 'ring-2 ring-sky-400 shadow-[0_0_16px_rgba(56,189,248,0.4)]'
+                  : isSwapTarget ? 'ring-1 ring-sky-500/30 hover:ring-2 hover:ring-sky-400 hover:shadow-[0_0_12px_rgba(56,189,248,0.3)]'
+                  : ''
+                }`}
               >
                 <MafiaCard
                   playerNumber={player.physicalId}
@@ -525,8 +591,19 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                   </div>
                 )}
 
+                {/* 🪑 زر نقل المقعد — يظهر عند Hover (يدخل وضع النقل بلمستين) */}
+                {!isKicking && !isEditing && movingId === null && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMovingId(player.physicalId); }}
+                    className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
+                    title="نقل/تبديل المقعد"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
+                  </button>
+                )}
+
                 {/* زر الحذف يظهر فقط عند التمرير Hover */}
-                {!isKicking && !isEditing && (
+                {!isKicking && !isEditing && movingId === null && (
                   <button
                     onClick={() => setKickingId(player.physicalId)}
                     className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-900 border border-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-800 hover:scale-110 z-20 shadow-lg"
@@ -537,7 +614,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                 )}
 
                 {/* ✏️ زر تعديل الاسم — يظهر عند Hover */}
-                {!isKicking && !isEditing && (
+                {!isKicking && !isEditing && movingId === null && (
                   <button
                     onClick={() => { setEditingId(player.physicalId); setEditName(player.name); }}
                     className="absolute -top-2 -left-2 w-8 h-8 rounded-full bg-[#1a1a1a] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#C5A059]/20 hover:scale-110 z-20 shadow-lg"
@@ -548,7 +625,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
                 )}
 
                 {/* ⚠️ زر تسجيل عقوبة — يظهر عند Hover */}
-                {!isKicking && !isEditing && (
+                {!isKicking && !isEditing && movingId === null && (
                   <button
                     onClick={() => setPenalizingId(player.physicalId)}
                     className="absolute -bottom-2 -left-2 w-8 h-8 rounded-full bg-[#201505] border border-amber-500/60 text-amber-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-950 hover:scale-110 z-20 shadow-lg"

@@ -1754,6 +1754,71 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // ── 🪑 نقل/تبديل مقعد بلمسة واحدة (بلا سرّ — عملية لوبي روتينية) ──
+  // الهدف فارغ → نقل؛ مشغول → تبديل ذرّي. يعيد ربط كل البنى + يزامن DB + يُخطر الأجهزة.
+  socket.on('room:move-seat', async (data: {
+    roomId: string;
+    fromPhysicalId: number;
+    toSeat: number;
+  }, callback) => {
+    try {
+      if (socket.data.role !== 'leader') {
+        return callback({ success: false, error: 'Only leader' });
+      }
+
+      const state = await getRoom(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER) {
+        return callback({ success: false, error: 'لا يمكن نقل المقاعد أثناء اللعب' });
+      }
+
+      const toSeat = Math.floor(Number(data.toSeat));
+      if (!Number.isFinite(toSeat) || toSeat < 1 || toSeat > (state.config.maxPlayers || 50)) {
+        return callback({ success: false, error: `المقعد يجب أن يكون بين 1 و ${state.config.maxPlayers}` });
+      }
+
+      const mover = state.players.find(p => p.physicalId === data.fromPhysicalId);
+      if (!mover) return callback({ success: false, error: 'اللاعب غير موجود' });
+      if (toSeat === data.fromPhysicalId) return callback({ success: true, swapped: false });
+
+      const occupant = state.players.find(p => p.physicalId === toSeat);
+      const changes = occupant
+        ? [ { oldPhysicalId: data.fromPhysicalId, newPhysicalId: toSeat }, { oldPhysicalId: toSeat, newPhysicalId: data.fromPhysicalId } ]
+        : [ { oldPhysicalId: data.fromPhysicalId, newPhysicalId: toSeat } ];
+
+      const idMap = new Map<number, number>(changes.map(c => [c.oldPhysicalId, c.newPhysicalId]));
+      // 🔁 إعادة ربط شاملة (players + الأصوات/التوائم/السفّاح/الشرطية…)
+      remapPhysicalIds(state, idMap);
+      await setGameState(data.roomId, state);
+
+      // 🗄️ مزامنة قاعدة البيانات
+      if (state.sessionId) { await remapSessionPlayerSeats(state.sessionId, changes); }
+
+      // إخطار أجهزة اللاعبين المتأثرين + تحديث هوية سوكتاتهم
+      // (اجمع المطابقات أولاً ثم طبّق — وإلا في التبديل يُطابق السوكت المعدَّل التغيير الثاني)
+      const allSockets = await io.in(data.roomId).fetchSockets();
+      const socketChanges: Array<{ s: any; oldId: number; newId: number }> = [];
+      for (const change of changes) {
+        for (const s of allSockets) {
+          if ((s as any).data?.role === 'player' && (s as any).data?.physicalId === change.oldPhysicalId) {
+            socketChanges.push({ s, oldId: change.oldPhysicalId, newId: change.newPhysicalId });
+          }
+        }
+      }
+      for (const sc of socketChanges) {
+        sc.s.data.physicalId = sc.newId;
+        sc.s.emit('player:seat-changed', { oldPhysicalId: sc.oldId, newPhysicalId: sc.newId });
+      }
+
+      io.to(data.roomId).emit('game:state-sync', state);
+      console.log(`🪑 Seat ${occupant ? 'swap' : 'move'}: #${data.fromPhysicalId} → #${toSeat}${occupant ? ` (تبادل مع «${occupant.name}»)` : ''}`);
+      callback({ success: true, swapped: !!occupant, occupantName: occupant?.name || null });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
   // ── صلاحية الليدر: تعديل/إضافة لاعب يدوياً ──
   socket.on('room:override-player', async (data: {
     roomId: string;
