@@ -27,6 +27,8 @@ interface SmartMafiaCardProps extends Omit<MafiaCardProps, 'role'> {
   /** هل المحرك الديناميكي مفعّل — يُمرر اختيارياً */
   useDynamicEngine?: boolean;
   rankTier?: string;
+  /** مدّة حركة القلب بالمللي ثانية (افتراضي 700) */
+  flipDurationMs?: number;
 }
 
 export default function MafiaCard({

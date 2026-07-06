@@ -76,6 +76,13 @@ export function useVoice(opts: {
         const Ctor = (window.AudioContext || (window as any).webkitAudioContext);
         if (!Ctor) return null;
         audioCtxRef.current = new Ctor();
+        // عند انتقال السياق لـ running (بعد إيماءة) أعد الربط ليُكتم العنصر ويسري الصوت عبر السبيكر
+        try {
+          audioCtxRef.current.addEventListener('statechange', () => {
+            const m = meetingRef.current;
+            if (m && speakerModeRef.current) rtkArray(m.participants?.joined).forEach((p: any) => attachRef.current(p));
+          });
+        } catch { /* noop */ }
       }
       if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume().catch(() => {});
       return audioCtxRef.current;
@@ -112,7 +119,8 @@ export function useVoice(opts: {
           const sn = ac.createMediaStreamSource(stream);
           sn.connect(ac.destination);
           srcNodes.current.set(p.id, sn);
-          el.muted = true;            // الخرج عبر AudioContext ← السبيكر؛ نكتم العنصر لتجنّب سمّاعة الأذن/الازدواج
+          // اكتم العنصر فقط إذا كان السياق يعمل فعلاً؛ وهو معلّق (قبل الإيماءة) أبقِ العنصر مسموعاً لئلا ينقطع الصوت
+          el.muted = ac.state === 'running';
         } catch { el.muted = false; } // فشل التوجيه ← ارجع لتشغيل العنصر مباشرة
       } else {
         el.muted = false;
@@ -187,7 +195,9 @@ export function useVoice(opts: {
           j.on('participantJoined', (p: any) => { wireP(p); rebuildRef.current(); pushLogRef.current(`➕ انضمّ ${p?.name || pidOf(p) || 'مشارك'}`); });
           j.on('participantLeft', (p: any) => {
             const el = audioEls.current.get(p.id);
-            if (el) { el.remove(); audioEls.current.delete(p.id); }
+            if (el) { try { el.pause(); } catch { /* noop */ } el.srcObject = null; el.remove(); audioEls.current.delete(p.id); }
+            const sn = srcNodes.current.get(p.id);
+            if (sn) { try { sn.disconnect(); } catch { /* noop */ } srcNodes.current.delete(p.id); }
             rebuildRef.current();
             pushLogRef.current(`➖ غادر ${p?.name || pidOf(p) || 'مشارك'}`);
           });

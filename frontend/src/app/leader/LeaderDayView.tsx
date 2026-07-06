@@ -672,14 +672,18 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     ? Math.max(0, Math.round(justTimerData.timeLimitSeconds - (Date.now() - justTimerData.startTime) / 1000))
     : null;
 
-  // تصفير حالة التبرير عند استلام بيانات تبرير جديدة
+  // تصفير حالة التبرير مرّةً واحدة عند الدخول لطور التبرير فقط
+  // (لا نُصفّرها مع كل استطلاع دوريّ للحالة، وإلّا رجعت واجهة اختيار الوقت والمؤقّت شغّال — باگ اللعب عن بُعد)
+  const wasJustifyingRef = useRef(false);
   useEffect(() => {
-    if (gameState.phase === 'DAY_JUSTIFICATION' && gameState.justificationData) {
+    const isJust = gameState.phase === 'DAY_JUSTIFICATION' && !!gameState.justificationData;
+    if (isJust && !wasJustifyingRef.current) {
       setJustCurrentIdx(0);
       setJustTimerStarted(false);
       setJustAllDone(false);
     }
-  }, [gameState.justificationData]);
+    wasJustifyingRef.current = isJust;
+  }, [gameState.phase, gameState.justificationData]);
 
   const handleStartJustificationTimer = async (physicalId: number) => {
     setLoading(true);

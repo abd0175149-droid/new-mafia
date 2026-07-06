@@ -2785,7 +2785,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         playerName={displayName}
                         role={assignedRole}
                         isFlipped={cardFlipped}
-                        onFlip={() => { setCardFlipped(prev => !prev); setRoleAlert(false); }}
+                        onFlip={() => { setCardFlipped(true); setRoleAlert(false); }}
+                        flipDurationMs={1100}
                         gender={gender === 'female' ? 'FEMALE' : 'MALE'}
                         showVoting={false}
                         flippable={true}
@@ -3130,7 +3131,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         playerName={displayName}
                         role={assignedRole}
                         isFlipped={cardFlipped}
-                        onFlip={() => { setCardFlipped(prev => !prev); setRoleAlert(false); }}
+                        onFlip={() => { setCardFlipped(true); setRoleAlert(false); }}
+                        flipDurationMs={1100}
                         gender={gender === 'female' ? 'FEMALE' : 'MALE'}
                         showVoting={false}
                         flippable={true}

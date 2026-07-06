@@ -53,6 +53,8 @@ export interface DynamicMafiaCardProps {
   gender?: 'MALE' | 'FEMALE';
   size?: 'sm' | 'md' | 'lg' | 'fluid';
   flippable?: boolean;
+  /** مدّة حركة القلب بالمللي ثانية (افتراضي 700) — نُبطّئها في كشف الدور */
+  flipDurationMs?: number;
   className?: string;
   avatarUrl?: string | null;
   rankTier?: string;
@@ -82,6 +84,7 @@ export default function DynamicMafiaCard({
   gender = 'MALE',
   size = 'md',
   flippable = true,
+  flipDurationMs = 700,
   className = '',
   avatarUrl = null,
   rankTier = 'INFORMANT',
@@ -190,8 +193,9 @@ export default function DynamicMafiaCard({
     >
       <div
         onClick={handleCardClick}
-        className="relative w-full h-full transition-transform duration-700 cursor-pointer"
+        className="relative w-full h-full cursor-pointer"
         style={{
+          transition: `transform ${flipDurationMs}ms cubic-bezier(.2,.7,.2,1)`,
           transformStyle: 'preserve-3d',
           WebkitTransformStyle: 'preserve-3d' as any,
           transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)',

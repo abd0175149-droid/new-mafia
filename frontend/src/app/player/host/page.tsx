@@ -35,13 +35,28 @@ export default function HostPage() {
   const [maxJustifications, setMaxJustifications] = useState(2);
   const [mafiaChatEnabled, setMafiaChatEnabled] = useState(false); // 🗣️ غرفة تشاور المافيا السرّية
   const roomIdRef = useRef<string | null>(null);
+  // 🕵️ DAY_REVEALED طورٌ جبهيّ فقط (الخادم يبقى على DAY_ELIMINATION). نُبقيه محليّاً حتى لا يرجعنا الاستطلاع
+  // للخلف فيختفي زر «بدء الليل» — تماماً كما تفعل صفحة /leader.
+  const revealOverrideRef = useRef<any | null>(null);
+
+  const applyState = useCallback((s: any) => {
+    if (!s) return;
+    const ov = revealOverrideRef.current;
+    if (ov && s.phase === 'DAY_ELIMINATION') {
+      // الخادم ما زال على DAY_ELIMINATION لكننا كشفنا محليّاً → أبقِ DAY_REVEALED مع بيانات الكشف
+      setGameState({ ...s, phase: 'DAY_REVEALED', revealedData: ov, pendingWinner: ov.pendingWinner ?? s.pendingWinner ?? null });
+    } else {
+      if (ov) revealOverrideRef.current = null; // تقدّمنا للأمام (ليل/نهاية) → أنهِ التجاوز
+      setGameState(s);
+    }
+  }, []);
 
   const refreshState = useCallback(async (roomId: string) => {
     try {
       const res = await emit('game:get-state', { roomId });
-      if (res?.state) setGameState(res.state);
+      if (res?.state) applyState(res.state);
     } catch { /* تجاهل — سيصل عبر البث */ }
-  }, [emit]);
+  }, [emit, applyState]);
 
   const handleCreate = useCallback(async () => {
     setCreating(true); setError('');
@@ -75,8 +90,8 @@ export default function HostPage() {
   // ── الاستماع للحالة الحيّة ──
   useEffect(() => {
     const offs: Array<() => void> = [];
-    offs.push(on('game:state-sync', (s: any) => { if (s?.roomId && s.roomId === roomIdRef.current) setGameState(s); }));
-    offs.push(on('game:state-updated', (s: any) => { if (s?.roomId && s.roomId === roomIdRef.current) setGameState(s); }));
+    offs.push(on('game:state-sync', (s: any) => { if (s?.roomId && s.roomId === roomIdRef.current) applyState(s); }));
+    offs.push(on('game:state-updated', (s: any) => { if (s?.roomId && s.roomId === roomIdRef.current) applyState(s); }));
     offs.push(on('game:phase-changed', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('game:started', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     // 🔧 الخادم يبثّ هذه عند تغيّر الروستر (لا حالةً كاملة) — نجلب الحالة الكاملة عندها
@@ -88,9 +103,13 @@ export default function HostPage() {
     offs.push(on('night:morning-recap', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('game:over', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('day:voting-started', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
-    offs.push(on('day:elimination-revealed', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    // كشف الهوية: انتقل محليّاً لـ DAY_REVEALED (كما /leader) ليظهر زر «بدء الليل» — الخادم يبقى DAY_ELIMINATION
+    offs.push(on('day:elimination-revealed', (data: any) => {
+      revealOverrideRef.current = data || {};
+      setGameState((prev: any) => (prev ? { ...prev, phase: 'DAY_REVEALED', revealedData: data, pendingWinner: data?.pendingWinner ?? prev.pendingWinner ?? null } : prev));
+    }));
     return () => { offs.forEach((f) => f && f()); };
-  }, [on, refreshState]);
+  }, [on, refreshState, applyState]);
 
   // ── إعادة منح صلاحيّة المُضيف عند (إعادة) الاتصال ──
   useEffect(() => {
