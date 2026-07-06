@@ -10,9 +10,10 @@ interface LeaderLobbyViewProps {
   gameState: any;
   emit: (event: string, payload: any) => Promise<any>;
   setError: (err: string) => void;
+  hideOfflineAgent?: boolean; // 🌐 للغرف البعيدة: يخفي «إضافة عميل دون جهاز» (REST مقيّد بتوكن الموظّف وغير مطلوب عن بُعد)
 }
 
-export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLobbyViewProps) {
+export default function LeaderLobbyView({ gameState, emit, setError, hideOfflineAgent }: LeaderLobbyViewProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [kickingId, setKickingId] = useState<number | null>(null);
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
@@ -304,7 +305,7 @@ export default function LeaderLobbyView({ gameState, emit, setError }: LeaderLob
         </div>
 
         {/* زر الإضافة */}
-        {gameState.players.length < gameState.config.maxPlayers && (
+        {!hideOfflineAgent && gameState.players.length < gameState.config.maxPlayers && (
           <button
             onClick={() => { setShowAddForm(!showAddForm); if (showAddForm) resetAddForm(); }}
             className="btn-premium !py-3 !px-6 !text-xs tracking-widest uppercase !rounded-lg"
