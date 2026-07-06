@@ -319,6 +319,7 @@ export default function HostPage() {
             isHost={true}
             selfPhysicalId={null}
             emit={emit}
+            gamePhase={gameState?.phase ?? null}
             allowedPids={hostAllowedPids}
             nameByPid={Object.fromEntries((gameState?.players || []).map((p: any) => [p.physicalId, p.name]))}
           />

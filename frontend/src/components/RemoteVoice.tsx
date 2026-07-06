@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════
 // V2: اتصال + مايك ذاتيّ + قائمة كتم للمضيف. الفتح التلقائيّ حسب الدور = V3.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useVoice, VOICE_HOST_KEY } from '../hooks/useVoice';
 
 // معاينة كاميرا اللاعب نفسه (مرآة) — تظهر دائماً حين تُفتح الكاميرا
@@ -34,6 +34,7 @@ interface RemoteVoiceProps {
 
 export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, emit, nameByPid, allowedPids, shouldOpenMic, gamePhase, onVoiceMaps }: RemoteVoiceProps) {
   const v = useVoice({ roomId, enabled, isHost, selfPhysicalId, emit });
+  const [showLog, setShowLog] = useState(false);
   // 🔊 اللوبي/ما قبل اللعب: مايك حرّ يدويّ للجميع (بلا قفل، بلا كتم من المضيف)
   const freeMic = ['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING', 'GAME_OVER'].includes(gamePhase || '');
 
@@ -112,26 +113,52 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
             {v.connected ? `صوت · ${v.participantCount + 1}` : v.error ? 'صوت غير متاح' : 'جارٍ الاتصال…'}
           </span>
         </div>
-        <button
-          onClick={() => (v.selfAudioOn ? v.disableSelfAudio() : v.enableSelfAudio())}
-          disabled={!v.connected}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all disabled:opacity-40 ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
-          title={v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك'}
-        >
-          {v.selfAudioOn ? '🎙️ مايكك مفتوح' : '🔇 مايكك مغلق'}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowLog((s) => !s)}
+            className={`px-2 py-1.5 rounded-lg text-xs font-bold border transition-all ${showLog ? 'border-amber-500/50 text-amber-300 bg-amber-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
+            title="سجلّ الصوت التشخيصيّ"
+          >
+            📋
+          </button>
+          <button
+            onClick={() => (v.selfAudioOn ? v.disableSelfAudio() : v.enableSelfAudio())}
+            disabled={!v.connected}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all disabled:opacity-40 ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
+            title={v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك'}
+          >
+            {v.selfAudioOn ? '🎙️ مايكك مفتوح' : '🔇 مايكك مغلق'}
+          </button>
+        </div>
       </div>
       {v.canMute && talking.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {talking.map((pid) => (
             <button
               key={pid}
-              onClick={() => v.muteParticipantByPid(pid)}
+              onClick={() => v.muteParticipantByPid(pid, nameByPid?.[pid])}
               className="px-2 py-1 rounded-md text-[10px] font-bold border border-red-500/40 text-red-300 bg-red-500/10"
             >
               🔇 كتم {nameByPid?.[pid] || `#${pid}`}
             </button>
           ))}
+        </div>
+      )}
+      {showLog && (
+        <div className="mt-2 rounded-lg border border-[#1a1a1a] bg-black/50 p-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-[#c9c3b5] font-bold">📋 سجلّ الصوت</span>
+            <span className="text-[9px] text-[#666]">اللاعب يفتح مايكه بنفسه؛ تقدر تكتمه من هنا</span>
+          </div>
+          <div className="max-h-28 overflow-y-auto flex flex-col gap-0.5 text-[10px] font-mono leading-relaxed" dir="rtl">
+            {v.log.length === 0 ? (
+              <span className="text-[#555]">لا أحداث بعد…</span>
+            ) : (
+              v.log.slice(-14).map((line, i) => (
+                <span key={i} className="text-[#9a9a9a] whitespace-pre-wrap break-words">{line}</span>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

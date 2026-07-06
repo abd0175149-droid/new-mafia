@@ -22,11 +22,12 @@ export interface VoiceApi {
   audioByPid: Record<number, boolean>;              // من مايكه مفتوح
   videoByPid: Record<number, MediaStreamTrack | null>; // كاميرات المشاركين
   participantCount: number;
+  log: string[];                                       // سجلّ تشخيصيّ (للمضيف)
   enableSelfAudio: () => Promise<void>;
   disableSelfAudio: () => Promise<void>;
   enableSelfVideo: () => Promise<void>;
   disableSelfVideo: () => Promise<void>;
-  muteParticipantByPid: (pid: number) => Promise<void>;
+  muteParticipantByPid: (pid: number, name?: string) => Promise<void>;
 }
 
 export function useVoice(opts: {
@@ -47,6 +48,13 @@ export function useVoice(opts: {
   const [audioByPid, setAudioByPid] = useState<Record<number, boolean>>({});
   const [videoByPid, setVideoByPid] = useState<Record<number, MediaStreamTrack | null>>({});
   const [participantCount, setParticipantCount] = useState(0);
+  const [log, setLog] = useState<string[]>([]);
+  const pushLog = useCallback((msg: string) => {
+    let t = ''; try { t = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { /* noop */ }
+    setLog((l) => [...l.slice(-40), `${t} · ${msg}`]);
+  }, []);
+  const pushLogRef = useRef(pushLog);
+  useEffect(() => { pushLogRef.current = pushLog; }, [pushLog]);
 
   const meetingRef = useRef<any>(null);
   const audioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -122,7 +130,7 @@ export function useVoice(opts: {
     (async () => {
       try {
         const res = await emitRef.current('voice:get-token', { roomId });
-        if (!res?.success) { if (!cancelled) setError(res?.error || 'voice_token_failed'); return; }
+        if (!res?.success) { if (!cancelled) { setError(res?.error || 'voice_token_failed'); pushLogRef.current(`❌ تعذّر توكن الصوت: ${res?.error || 'خطأ'}`); } return; }
         const RealtimeKitClient = await loadRealtimeKit();
         const meeting = await RealtimeKitClient.init({ authToken: res.authToken, defaults: { audio: isHost, video: false } });
         if (cancelled) { try { meeting.leave(); } catch { /* noop */ } return; }
@@ -130,11 +138,12 @@ export function useVoice(opts: {
 
         const j = meeting.participants?.joined;
         if (j?.on) {
-          j.on('participantJoined', (p: any) => { wireP(p); rebuildRef.current(); });
+          j.on('participantJoined', (p: any) => { wireP(p); rebuildRef.current(); pushLogRef.current(`➕ انضمّ ${p?.name || pidOf(p) || 'مشارك'}`); });
           j.on('participantLeft', (p: any) => {
             const el = audioEls.current.get(p.id);
             if (el) { el.remove(); audioEls.current.delete(p.id); }
             rebuildRef.current();
+            pushLogRef.current(`➖ غادر ${p?.name || pidOf(p) || 'مشارك'}`);
           });
         }
         if (meeting.self?.on) {
@@ -150,8 +159,9 @@ export function useVoice(opts: {
         setConnected(true);
         setError(null);
         rebuildRef.current();
+        pushLogRef.current(`✅ متّصل بالصوت (${isHost ? 'مضيف' : 'لاعب'})`);
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'voice_join_failed');
+        if (!cancelled) { setError(e?.message || 'voice_join_failed'); pushLogRef.current(`❌ فشل الاتصال بالصوت: ${e?.message || 'خطأ'}`); }
       }
     })();
 
@@ -169,18 +179,22 @@ export function useVoice(opts: {
   const disableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.disableAudio(); } catch { /* noop */ } }, []);
   const enableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.enableVideo(); } catch { /* noop */ } setTimeout(() => rebuildRef.current(), 120); rebuildRef.current(); }, []);
   const disableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.disableVideo(); } catch { /* noop */ } rebuildRef.current(); }, []);
-  const muteParticipantByPid = useCallback(async (pid: number) => {
+  const muteParticipantByPid = useCallback(async (pid: number, name?: string) => {
     const m = meetingRef.current;
+    const label = name || `#${pid}`;
     if (!m) return;
     const p = rtkArray(m.participants?.joined).find(
       (x: any) => (x.customParticipantId === 'host' ? VOICE_HOST_KEY : physicalIdFromCustom(x.customParticipantId)) === pid,
     );
-    if (p?.audioEnabled) { try { await p.disableAudio(); } catch { /* noop */ } }
+    if (!p) { pushLogRef.current(`⚠️ ${label} غير موجود في الصوت`); return; }
+    if (!p.audioEnabled) { pushLogRef.current(`${label} مايكه مغلق أصلاً`); return; }
+    try { await p.disableAudio(); pushLogRef.current(`🔇 كتمتَ ${label}`); }
+    catch (e: any) { pushLogRef.current(`❌ فشل كتم ${label}: ${e?.message || 'خطأ'}`); }
   }, []);
 
   return {
     connected, error, selfAudioOn, selfVideoOn, canMute, selfVideoTrack,
-    audioByPid, videoByPid, participantCount,
+    audioByPid, videoByPid, participantCount, log,
     enableSelfAudio, disableSelfAudio, enableSelfVideo, disableSelfVideo, muteParticipantByPid,
   };
 }
