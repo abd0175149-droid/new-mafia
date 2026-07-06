@@ -23,6 +23,8 @@ export interface VoiceApi {
   videoByPid: Record<number, MediaStreamTrack | null>; // كاميرات المشاركين
   participantCount: number;
   log: string[];                                       // سجلّ تشخيصيّ (للمضيف)
+  speakerMode: boolean;                                // خرج الصوت من السمّاعة الخارجية
+  setSpeakerphone: (on: boolean) => void;
   enableSelfAudio: () => Promise<void>;
   disableSelfAudio: () => Promise<void>;
   enableSelfVideo: () => Promise<void>;
@@ -58,16 +60,37 @@ export function useVoice(opts: {
 
   const meetingRef = useRef<any>(null);
   const audioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const srcNodes = useRef<Map<string, MediaStreamAudioSourceNode>>(new Map());
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const selfPidRef = useRef<number | null>(selfPhysicalId);
   const emitRef = useRef(emit);
+  // 🔊 وضع السمّاعة الخارجية: نمرّر صوت المشاركين عبر AudioContext ليخرج من السبيكر لا سمّاعة الأذن (أندرويد)
+  const speakerModeRef = useRef(true);
+  const [speakerMode, setSpeakerModeState] = useState(true);
   useEffect(() => { selfPidRef.current = selfPhysicalId; }, [selfPhysicalId]);
   useEffect(() => { emitRef.current = emit; }, [emit]);
+
+  const ensureAudioCtx = useCallback((): AudioContext | null => {
+    try {
+      if (!audioCtxRef.current) {
+        const Ctor = (window.AudioContext || (window as any).webkitAudioContext);
+        if (!Ctor) return null;
+        audioCtxRef.current = new Ctor();
+      }
+      if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume().catch(() => {});
+      return audioCtxRef.current;
+    } catch { return null; }
+  }, []);
+  const ensureAudioCtxRef = useRef(ensureAudioCtx);
+  useEffect(() => { ensureAudioCtxRef.current = ensureAudioCtx; }, [ensureAudioCtx]);
 
   const attachAudio = useCallback((p: any) => {
     try {
       if (!p?.audioTrack) {
         const old = audioEls.current.get(p.id);
-        if (old) { old.remove(); audioEls.current.delete(p.id); }
+        if (old) { try { old.pause(); } catch { /* noop */ } old.srcObject = null; old.remove(); audioEls.current.delete(p.id); }
+        const oldSn = srcNodes.current.get(p.id);
+        if (oldSn) { try { oldSn.disconnect(); } catch { /* noop */ } srcNodes.current.delete(p.id); }
         return;
       }
       let el = audioEls.current.get(p.id);
@@ -78,11 +101,34 @@ export function useVoice(opts: {
         document.body.appendChild(el);
         audioEls.current.set(p.id, el);
       }
-      el.srcObject = new MediaStream([p.audioTrack]);
+      const stream = new MediaStream([p.audioTrack]);
+      el.srcObject = stream;
+      // أعد بناء عقدة المصدر دائماً (التراك قد يتغيّر)
+      const prevSn = srcNodes.current.get(p.id);
+      if (prevSn) { try { prevSn.disconnect(); } catch { /* noop */ } srcNodes.current.delete(p.id); }
+      const ac = speakerModeRef.current ? ensureAudioCtx() : null;
+      if (ac) {
+        try {
+          const sn = ac.createMediaStreamSource(stream);
+          sn.connect(ac.destination);
+          srcNodes.current.set(p.id, sn);
+          el.muted = true;            // الخرج عبر AudioContext ← السبيكر؛ نكتم العنصر لتجنّب سمّاعة الأذن/الازدواج
+        } catch { el.muted = false; } // فشل التوجيه ← ارجع لتشغيل العنصر مباشرة
+      } else {
+        el.muted = false;
+      }
       const pr = el.play?.();
       if (pr && pr.catch) pr.catch(() => {});
     } catch { /* noop */ }
-  }, []);
+  }, [ensureAudioCtx]);
+
+  const setSpeakerphone = useCallback((on: boolean) => {
+    speakerModeRef.current = on;
+    setSpeakerModeState(on);
+    if (on) ensureAudioCtx();
+    const m = meetingRef.current;
+    if (m) rtkArray(m.participants?.joined).forEach((p: any) => attachRef.current(p));
+  }, [ensureAudioCtx]);
 
   const pidOf = (p: any): number | null =>
     p?.customParticipantId === 'host' ? VOICE_HOST_KEY : physicalIdFromCustom(p?.customParticipantId);
@@ -158,6 +204,7 @@ export function useVoice(opts: {
         rtkArray(meeting.participants?.joined).forEach(wireP);
         setConnected(true);
         setError(null);
+        if (speakerModeRef.current) ensureAudioCtxRef.current();
         rebuildRef.current();
         pushLogRef.current(`✅ متّصل بالصوت (${isHost ? 'مضيف' : 'لاعب'})`);
       } catch (e: any) {
@@ -169,11 +216,27 @@ export function useVoice(opts: {
       cancelled = true;
       try { meetingRef.current?.leave(); } catch { /* noop */ }
       meetingRef.current = null;
-      audioEls.current.forEach((el) => el.remove());
+      srcNodes.current.forEach((sn) => { try { sn.disconnect(); } catch { /* noop */ } });
+      srcNodes.current.clear();
+      audioEls.current.forEach((el) => { try { el.pause(); } catch { /* noop */ } el.srcObject = null; el.remove(); });
       audioEls.current.clear();
+      try { audioCtxRef.current?.close(); } catch { /* noop */ }
+      audioCtxRef.current = null;
       setConnected(false);
     };
   }, [enabled, roomId, isHost]);
+
+  // 🔊 استئناف AudioContext عند أوّل تفاعل (سياسة التشغيل التلقائي تُبقيه معلّقاً حتى إيماءة المستخدم)
+  useEffect(() => {
+    if (!enabled) return;
+    const resume = () => { if (speakerModeRef.current) ensureAudioCtxRef.current(); };
+    window.addEventListener('pointerdown', resume, { passive: true });
+    window.addEventListener('touchstart', resume, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', resume);
+      window.removeEventListener('touchstart', resume);
+    };
+  }, [enabled]);
 
   const enableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.enableAudio(); } catch { /* noop */ } }, []);
   const disableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.disableAudio(); } catch { /* noop */ } }, []);
@@ -194,7 +257,7 @@ export function useVoice(opts: {
 
   return {
     connected, error, selfAudioOn, selfVideoOn, canMute, selfVideoTrack,
-    audioByPid, videoByPid, participantCount, log,
+    audioByPid, videoByPid, participantCount, log, speakerMode, setSpeakerphone,
     enableSelfAudio, disableSelfAudio, enableSelfVideo, disableSelfVideo, muteParticipantByPid,
   };
 }

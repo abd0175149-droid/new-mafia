@@ -90,7 +90,7 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
           {v.selfAudioOn ? '🎙️' : '🔇'}
         </button>
         <button
-          onClick={() => (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo())}
+          onClick={() => { if (gamePhase !== 'NIGHT') (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo()); }}
           disabled={!v.connected || gamePhase === 'NIGHT'}
           className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all disabled:opacity-40 ${
             v.selfVideoOn ? 'bg-sky-500/25 border-sky-500/60 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
@@ -98,6 +98,15 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
           title={gamePhase === 'NIGHT' ? 'الكاميرا معطّلة ليلاً' : 'الكاميرا'}
         >
           📷
+        </button>
+        <button
+          onClick={() => v.setSpeakerphone(!v.speakerMode)}
+          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${
+            v.speakerMode ? 'bg-amber-500/25 border-amber-500/60 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,.4)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
+          }`}
+          title={v.speakerMode ? 'الصوت من السمّاعة الخارجية (اضغط للأذن)' : 'الصوت من سمّاعة الأذن (اضغط للسبيكر)'}
+        >
+          {v.speakerMode ? '🔊' : '📞'}
         </button>
       </div>
     );
@@ -114,6 +123,13 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
           </span>
         </div>
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => v.setSpeakerphone(!v.speakerMode)}
+            className={`px-2 py-1.5 rounded-lg text-xs font-bold border transition-all ${v.speakerMode ? 'border-amber-500/50 text-amber-300 bg-amber-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
+            title={v.speakerMode ? 'الصوت من السمّاعة الخارجية' : 'الصوت من سمّاعة الأذن'}
+          >
+            {v.speakerMode ? '🔊' : '📞'}
+          </button>
           <button
             onClick={() => setShowLog((s) => !s)}
             className={`px-2 py-1.5 rounded-lg text-xs font-bold border transition-all ${showLog ? 'border-amber-500/50 text-amber-300 bg-amber-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
