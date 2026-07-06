@@ -685,6 +685,19 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     wasJustifyingRef.current = isJust;
   }, [gameState.phase, gameState.justificationData]);
 
+  // إذا نقصت قائمة المُبرِّرين أثناء الطور نفسه (إقصاء إداريّ لأحد المتّهمين) → أعد جولة التبرير للباقين.
+  // يُطلق فقط عند نقص الطول فعليّاً، لا مع الاستطلاع الدوريّ (الطول ثابت) — فلا يعيد باگ الحلقة.
+  const prevCanJustifyLenRef = useRef(0);
+  useEffect(() => {
+    const len = canJustifyList.length;
+    if (gameState.phase === 'DAY_JUSTIFICATION' && len > 0 && len < prevCanJustifyLenRef.current) {
+      setJustCurrentIdx(0);
+      setJustTimerStarted(false);
+      setJustAllDone(false);
+    }
+    prevCanJustifyLenRef.current = len;
+  }, [canJustifyList.length, gameState.phase]);
+
   const handleStartJustificationTimer = async (physicalId: number) => {
     setLoading(true);
     try {
