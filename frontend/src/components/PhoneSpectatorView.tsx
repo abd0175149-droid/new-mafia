@@ -244,6 +244,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
 
       {/* الحلقة */}
       <div className={`rt-stage ${mode}`}>
+        <div className="rt-felt" />
         <div className="rt-glow" />
         <div className="rt-ring">
           {players.map((p, i) => {
@@ -260,17 +261,18 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
               const off = shortest(i, focusIdx, N);
               const a = Math.abs(off);
               style = {
-                transform: `translateX(${off * 155}px) translateZ(${-a * 140}px) rotateY(${-off * 50}deg) scale(${off === 0 ? 1 : 0.7})`,
-                opacity: a > 2 ? 0 : off === 0 ? 1 : 0.45,
+                transform: `translateX(${off * 150}px) translateZ(${-a * 210}px) rotateY(${-off * 46}deg) rotateZ(${off * 3}deg) scale(${off === 0 ? 1 : 0.72})`,
+                opacity: a > 2.4 ? 0 : off === 0 ? 1 : 0.5,
                 zIndex: 100 - a,
               };
             } else {
               const ang = (i / N) * 2 * Math.PI - Math.PI / 2;
               const foc = p.physicalId === focusId;
+              const dz = Math.sin(ang) * 70; // عمق: الكروت الأماميّة أقرب، الخلفيّة تتراجع
               style = {
-                transform: `translate(${Math.cos(ang) * 118}px, ${Math.sin(ang) * 145}px) scale(${foc ? 0.6 : 0.46})`,
+                transform: `translate(${Math.cos(ang) * 120}px, ${Math.sin(ang) * 120}px) translateZ(${dz}px) scale(${foc ? 0.62 : 0.44 + (Math.sin(ang) + 1) * 0.05})`,
                 opacity: 1,
-                zIndex: foc ? 60 : 20,
+                zIndex: foc ? 70 : Math.round(50 + dz),
               };
             }
             const fallback = p.gender === 'FEMALE' ? '/avatars/female.png' : '/avatars/male.png';
@@ -341,21 +343,27 @@ const RT_CSS = `
   color:#C5A059;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:700}
 .rt-pill .rt-mono{font-family:'JetBrains Mono',monospace;font-weight:800}
 .rt-pill .rt-mono.warn{color:#d13636}
-.rt-stage{position:relative;height:400px;perspective:1250px;overflow:hidden}
+.rt-stage{position:relative;height:410px;perspective:1000px;perspective-origin:50% 42%;overflow:hidden;transition:perspective-origin .5s}
+.rt-stage.overview{perspective-origin:50% 30%}
+.rt-felt{position:absolute;left:50%;top:57%;width:150%;height:82%;transform:translate(-50%,-50%) rotateX(72deg);
+  background:radial-gradient(closest-side,rgba(46,92,49,.30),rgba(14,26,18,.55) 70%,transparent);border-radius:50%;filter:blur(2px);pointer-events:none}
 .rt-glow{position:absolute;top:50%;left:50%;width:270px;height:350px;transform:translate(-50%,-50%);
-  background:radial-gradient(closest-side,rgba(197,160,89,.14),transparent);filter:blur(10px);opacity:0;transition:.5s;pointer-events:none}
+  background:radial-gradient(closest-side,rgba(197,160,89,.16),transparent);filter:blur(10px);opacity:0;transition:.5s;pointer-events:none}
 .rt-stage.focus .rt-glow{opacity:1}
-.rt-ring{position:absolute;inset:0;transform-style:preserve-3d}
+.rt-ring{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .6s cubic-bezier(.15,.5,.3,.95)}
+.rt-stage.overview .rt-ring{transform:rotateX(24deg)}
 .rt-card{position:absolute;top:50%;left:50%;width:140px;height:196px;margin:-98px 0 0 -70px;
-  transform-style:preserve-3d;transition:transform .6s cubic-bezier(.22,.68,.28,1),opacity .4s;cursor:default}
+  transform-style:preserve-3d;transition:transform .6s cubic-bezier(.15,.5,.3,.95),opacity .45s;cursor:default}
 .rt-stage.overview .rt-card{cursor:pointer}
 .rt-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.5,.05,.2,1)}
 .rt-inner.flip{transform:rotateY(180deg)}
-.rt-face{position:absolute;inset:0;-webkit-backface-visibility:hidden;backface-visibility:hidden;border-radius:12px;overflow:hidden;
-  border:1px solid #2a251c;background:#0a0a0a;box-shadow:0 14px 30px rgba(0,0,0,.6)}
+.rt-face{position:absolute;inset:0;-webkit-backface-visibility:hidden;backface-visibility:hidden;border-radius:14px;overflow:hidden;
+  border:1px solid #2c2620;background:#0a0a0a;box-shadow:0 20px 40px rgba(0,0,0,.6)}
 .rt-av{position:absolute;inset:0 0 34% 0;overflow:hidden}
-.rt-av.m{background:radial-gradient(120% 120% at 50% 20%,#6a5a34,#1c1811)}
-.rt-av.f{background:radial-gradient(120% 120% at 50% 20%,#5b4a67,#1e1725)}
+.rt-av::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 90% at 50% 10%,rgba(255,240,210,.16),transparent 55%),linear-gradient(180deg,transparent 58%,rgba(0,0,0,.5))}
+.rt-av.m{background:radial-gradient(120% 120% at 50% 18%,#6a5a34,#1c1811)}
+.rt-av.f{background:radial-gradient(120% 120% at 50% 18%,#5b4a67,#1e1725)}
 .rt-avimg{width:100%;height:100%;object-fit:cover}
 .rt-num{position:absolute;top:0;left:0;right:0;height:66%;display:flex;align-items:center;justify-content:center;
   font-family:'JetBrains Mono',monospace;font-weight:800;font-size:54px;color:rgba(197,160,89,.95);text-shadow:0 3px 10px rgba(0,0,0,.85);pointer-events:none}
