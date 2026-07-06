@@ -24,13 +24,14 @@ interface RemoteVoiceProps {
 export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, emit, nameByPid, allowedPids, shouldOpenMic, gamePhase, onVoiceMaps }: RemoteVoiceProps) {
   const v = useVoice({ roomId, enabled, isHost, selfPhysicalId, emit });
 
-  // 🎙️ فتح/غلق مايك اللاعب تلقائياً حسب دوره (V3) — لا يُقاوِم كتم اللاعب اليدويّ بين الأدوار
+  // 🎙️ قفل سياديّ لمايك اللاعب: يُفتح فقط في دوره، وأي فتحٍ خارج الدور (حتى يدويّاً) يُغلق فوراً.
+  // إدراج v.selfAudioOn في الاعتماديات يجعل القفل يتفاعل مع أي تغيّر بالحالة ويعيد فرض الغلق.
   useEffect(() => {
     if (isHost || !v.connected) return;
     if (shouldOpenMic && !v.selfAudioOn) v.enableSelfAudio();
     else if (!shouldOpenMic && v.selfAudioOn) v.disableSelfAudio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldOpenMic, v.connected, isHost]);
+  }, [shouldOpenMic, v.connected, isHost, v.selfAudioOn]);
 
   // 🔇 المضيف يكتم كل متكلّم غير مسموح له (تعزيز الـ turn والمواجهة)
   useEffect(() => {
@@ -71,18 +72,16 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
           </span>
         </div>
 
-        {/* مايك + كاميرا ذاتيّة — المضيف مايكه دائم، اللاعب يتحكّم */}
+        {/* مايك آليّ بالكامل (يفتح في الدور فقط — لا زرّ يدويّ) + كاميرا ذاتيّة */}
         {!isHost && (
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => (v.selfAudioOn ? v.disableSelfAudio() : v.enableSelfAudio())}
-              disabled={!v.connected}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all disabled:opacity-40 ${
+            <span
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
                 v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'
               }`}
             >
-              {v.selfAudioOn ? '🎙️ مفتوح' : '🔇 مغلق'}
-            </button>
+              {v.selfAudioOn ? '🎙️ دورك — مايكك مفتوح' : '🔇 مايكك مغلق'}
+            </span>
             <button
               onClick={() => (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo())}
               disabled={!v.connected || gamePhase === 'NIGHT'}
