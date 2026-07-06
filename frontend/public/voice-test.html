@@ -36,7 +36,6 @@
   .btn { appearance:none; border:none; width:100%; margin-top:14px; padding:14px; border-radius:10px;
     background:linear-gradient(180deg,#d8b25a,#c0912f); color:#1a1206; font-family:var(--sans); font-weight:700; font-size:1rem; cursor:pointer; min-height:50px; }
   .btn:disabled { opacity:.5; cursor:not-allowed; }
-  .btn.secondary { background:transparent; color:var(--paper); border:1px solid var(--line); }
   .steps { font-size:.9rem; color:var(--parch); padding-inline-start:18px; margin:8px 0; }
   .steps li { margin:6px 0; }
   .msg { margin-top:12px; font-size:.9rem; padding:10px 12px; border-radius:8px; display:none; }
@@ -47,39 +46,58 @@
   #stage.on { display:block; }
   rtk-meeting { width:100%; height:100%; display:block; }
   .hint { color:var(--faint); font-size:.82rem; }
+
+  /* leader control overlay */
+  #leaderPanel { position:fixed; top:0; left:0; right:0; z-index:9999;
+    background:rgba(13,11,12,.94); border-bottom:2px solid var(--brass);
+    padding:10px 12px calc(10px + env(safe-area-inset-top)); display:none; max-height:52vh; overflow:auto; }
+  #leaderPanel.on { display:block; }
+  #leaderPanel .lh { font-family:var(--mono); direction:ltr; font-size:.62rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--brass); margin-bottom:8px; display:flex; justify-content:space-between; }
+  #leaderPanel .perm { color:var(--ok); }
+  .prow { display:flex; align-items:center; gap:10px; padding:8px 6px; border-top:1px solid var(--line); }
+  .prow .pn { flex:1; color:var(--paper); font-size:.95rem; }
+  .prow .st { font-size:.78rem; color:var(--parch); font-family:var(--mono); direction:ltr; }
+  .prow .st.muted { color:var(--bad); }
+  .prow .st.live { color:var(--ok); }
+  .mutebtn { appearance:none; border:1px solid var(--bad); background:rgba(208,88,74,.14); color:#f0b3ab;
+    border-radius:8px; padding:8px 12px; font-family:var(--sans); font-weight:700; font-size:.85rem; cursor:pointer; min-height:38px; }
+  .mutebtn.un { border-color:var(--ok); background:rgba(111,191,143,.14); color:#bfe6cd; }
+  #leaderPanel .empty { color:var(--faint); font-size:.85rem; padding:8px 6px; }
 </style>
 </head>
 <body>
   <div class="wrap" id="gate">
     <div class="kicker">Cloudflare RealtimeKit · Voice Spike</div>
     <h1>اختبار الصوت الجماعيّ</h1>
-    <p>هذا يختبر منصّة الصوت الفعلية (اجتماع RealtimeKit، صوت فقط) بين هاتفين، ويثبت <b>الكتم الخادميّ</b>: هاتف الليدر يكتم اللاعب فيصمت فوراً مهما فعل — وهي مكافحة الغش التي نريدها.</p>
+    <p>يختبر منصّة الصوت الفعلية (اجتماع RealtimeKit، صوت فقط) بين هاتفين، ويثبت <b>الكتم الخادميّ</b> عبر لوحة الليدر (استدعاء <code>disableAudio()</code> مباشرةً — نفس ما ستفعله اللعبة).</p>
 
     <div class="card">
-      <div class="role"><span class="pill">Phone A · Leader</span><span>هاتف الليدر — يملك أزرار كتم/طرد المشاركين (Preset <code>mafia_leader</code>).</span></div>
-      <div class="role"><span class="pill">Phone B · Player</span><span>هاتف اللاعب — يتكلّم عادةً، ولا يملك صلاحيات مضيف (Preset <code>mafia_player</code>).</span></div>
+      <div class="role"><span class="pill">Phone A · Leader</span><span>هاتف الليدر — تظهر له <b>لوحة كتم</b> في الأعلى بعد الدخول (Preset <code>mafia_leader</code>).</span></div>
+      <div class="role"><span class="pill">Phone B · Player</span><span>هاتف اللاعب — يتكلّم عادةً، بلا صلاحيات (Preset <code>mafia_player</code>).</span></div>
     </div>
 
     <div class="card">
-      <label for="tok">ألصق توكن هذا الهاتف (Leader على هاتف، Player على الآخر):</label>
+      <label for="tok">ألصق توكن هذا الهاتف:</label>
       <textarea id="tok" placeholder="eyJhbGciOi..."></textarea>
       <button class="btn" id="join">🎙️ دخول الاجتماع (يطلب إذن الميكروفون)</button>
       <div class="msg" id="msg"></div>
-      <p class="hint" id="hint">يمكن أيضاً فتح الرابط مع <code>?authToken=...</code> للدخول التلقائي.</p>
+      <p class="hint">أو افتح الرابط مع <code>?authToken=...</code> للدخول التلقائي.</p>
     </div>
 
     <div class="card">
       <b style="color:var(--paper)">خطوات الاختبار</b>
       <ol class="steps">
-        <li>افتح الرابط على هاتفين على <b>بياناتٍ خلويّة مختلفة</b>.</li>
-        <li>الهاتف A: الصق توكن <b>Leader</b> ← دخول. الهاتف B: الصق توكن <b>Player</b> ← دخول.</li>
-        <li>تكلّما — يجب أن يسمع كلٌّ الآخر بوضوح.</li>
-        <li>من هاتف الليدر: اضغط على المشارك «Player» ← <b>Mute</b>. يجب أن يصمت فوراً ولا يستطيع فكّ كتم نفسه.</li>
-        <li>راقب وضوح الصوت وأي تأخير.</li>
+        <li>افتح الرابط على هاتفين على بياناتٍ خلويّة مختلفة.</li>
+        <li>A: توكن <b>Leader</b> ← دخول. B: توكن <b>Player</b> ← دخول.</li>
+        <li>تكلّما — يجب أن يسمع كلٌّ الآخر.</li>
+        <li>على هاتف الليدر (A): من <b>لوحة الكتم بالأعلى</b> اضغط «كتم» أمام Player.</li>
+        <li>يجب أن يصمت اللاعب فوراً ولا يستطيع فكّ كتم نفسه.</li>
       </ol>
     </div>
   </div>
 
+  <div id="leaderPanel"><div class="lh"><span>لوحة الليدر — كتم المشاركين</span><span class="perm" id="permTag"></span></div><div id="plist"></div></div>
   <div id="stage"><rtk-meeting id="m" show-setup-screen="true"></rtk-meeting></div>
 
   <script>
@@ -90,37 +108,79 @@
       var msg = document.getElementById("msg");
       var joinBtn = document.getElementById("join");
       if (urlTok) tokEl.value = urlTok;
+      function showMsg(t, c) { msg.textContent = t; msg.className = "msg " + c; }
 
-      function showMsg(text, cls) { msg.textContent = text; msg.className = "msg " + cls; }
+      function participantsArray(meeting) {
+        var j = meeting.participants.joined;
+        if (j && typeof j.toArray === "function") return j.toArray();
+        if (j && j.participants && j.participants.values) return Array.from(j.participants.values());
+        try { return Array.from(j.values()); } catch (e) { return []; }
+      }
+
+      function setupLeaderPanel(meeting) {
+        var perms = meeting.self && meeting.self.permissions;
+        var canMute = !!(perms && perms.canDisableParticipantAudio);
+        var panel = document.getElementById("leaderPanel");
+        var plist = document.getElementById("plist");
+        document.getElementById("permTag").textContent = canMute ? "canDisableParticipantAudio ✓" : "player (no mute rights)";
+        if (!canMute) return; // player device: no panel
+        panel.classList.add("on");
+
+        function render() {
+          var list = participantsArray(meeting);
+          if (!list.length) { plist.innerHTML = '<div class="empty">لا مشاركون بعد — انتظر انضمام اللاعب.</div>'; return; }
+          plist.innerHTML = "";
+          list.forEach(function (p) {
+            var row = document.createElement("div"); row.className = "prow";
+            var enabled = p.audioEnabled;
+            row.innerHTML = '<span class="pn">' + (p.name || p.id) + '</span>' +
+              '<span class="st ' + (enabled ? "live" : "muted") + '">' + (enabled ? "🎙️ يتكلّم" : "🔇 مكتوم") + '</span>';
+            var b = document.createElement("button");
+            b.className = "mutebtn" + (enabled ? "" : " un");
+            b.textContent = enabled ? "كتم" : "طلب فكّ الكتم";
+            b.onclick = async function () {
+              try {
+                if (p.audioEnabled) { await p.disableAudio(); }
+                else { await p.enableAudio(); }
+              } catch (e) { alert("تعذّر: " + (e && e.message ? e.message : e) + " (code " + (e && e.code) + ")"); }
+              render();
+            };
+            row.appendChild(b); plist.appendChild(row);
+          });
+        }
+
+        var j = meeting.participants.joined;
+        if (j && j.on) {
+          j.on("participantJoined", function (p) { render(); if (p && p.on) p.on("audioUpdate", render); });
+          j.on("participantLeft", render);
+        }
+        participantsArray(meeting).forEach(function (p) { if (p && p.on) p.on("audioUpdate", render); });
+        render();
+        setInterval(render, 3000); // safety refresh
+      }
 
       async function join() {
         var authToken = tokEl.value.trim();
         if (!authToken) { showMsg("ألصق التوكن أولاً.", "err"); return; }
-        if (typeof RealtimeKitClient === "undefined") {
-          showMsg("لم تُحمَّل مكتبة RealtimeKit (تحقّق من الاتصال/حاجب الإعلانات).", "err"); return;
-        }
+        if (typeof RealtimeKitClient === "undefined") { showMsg("لم تُحمَّل مكتبة RealtimeKit (تحقّق من الاتصال).", "err"); return; }
         joinBtn.disabled = true; showMsg("جارٍ الاتصال…", "ok");
         try {
-          var meeting = await RealtimeKitClient.init({
-            authToken: authToken,
-            defaults: { audio: true, video: false }
-          });
+          var meeting = await RealtimeKitClient.init({ authToken: authToken, defaults: { audio: true, video: false } });
+          window.__meeting = meeting;
           document.getElementById("m").meeting = meeting;
           document.getElementById("gate").style.display = "none";
           document.getElementById("stage").classList.add("on");
-          try { await meeting.join(); } catch (e) { /* UI kit setup screen handles join */ }
+          try { await meeting.join(); } catch (e) { /* setup screen may handle join */ }
+          setupLeaderPanel(meeting);
         } catch (e) {
           joinBtn.disabled = false;
-          showMsg("فشل الاتصال: " + (e && e.message ? e.message : e) + " — قد يكون التوكن منتهياً؛ اطلب توكناً جديداً.", "err");
+          showMsg("فشل الاتصال: " + (e && e.message ? e.message : e) + " — قد يكون التوكن منتهياً.", "err");
         }
       }
 
       joinBtn.addEventListener("click", join);
       if (urlTok) join();
-
-      if (!navigator.mediaDevices || !window.isSecureContext) {
-        showMsg("يجب فتح الصفحة عبر HTTPS ليعمل الميكروفون.", "err");
-      }
+      if (!navigator.mediaDevices || !window.isSecureContext) showMsg("يجب فتح الصفحة عبر HTTPS.", "err");
     })();
   </script>
 </body>
