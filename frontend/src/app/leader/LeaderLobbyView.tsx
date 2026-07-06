@@ -11,9 +11,10 @@ interface LeaderLobbyViewProps {
   emit: (event: string, payload: any) => Promise<any>;
   setError: (err: string) => void;
   hideOfflineAgent?: boolean; // 🌐 للغرف البعيدة: يخفي «إضافة عميل دون جهاز» (REST مقيّد بتوكن الموظّف وغير مطلوب عن بُعد)
+  hideRoomSettings?: boolean;  // 🌐 للغرف البعيدة: يخفي إعدادات الغرفة (تُضبط قبل الإنشاء)
 }
 
-export default function LeaderLobbyView({ gameState, emit, setError, hideOfflineAgent }: LeaderLobbyViewProps) {
+export default function LeaderLobbyView({ gameState, emit, setError, hideOfflineAgent, hideRoomSettings }: LeaderLobbyViewProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [kickingId, setKickingId] = useState<number | null>(null);
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
@@ -812,7 +813,8 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
         );
       })()}
 
-      {/* ── إعدادات اللعبة (تظهر دائمًا) ── */}
+      {/* ── إعدادات اللعبة (تُخفى للغرف البعيدة — تُضبط قبل الإنشاء) ── */}
+      {!hideRoomSettings && (
       <div className="flex flex-col items-center justify-center gap-6 mt-12 mb-8">
         {/* Night Mode Toggle */}
         <div className="flex flex-col items-center gap-2">
@@ -1007,6 +1009,7 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
           </p>
         </div>
       </div>
+      )}
 
       {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة) ── */}
       {gameState.players.length === gameState.config.maxPlayers && (

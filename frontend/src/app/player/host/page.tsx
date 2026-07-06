@@ -21,6 +21,13 @@ export default function HostPage() {
   const [creating, setCreating] = useState(false);
   const [gameName, setGameName] = useState('غرفة عن بُعد');
   const [maxPlayers, setMaxPlayers] = useState(12);
+  // ── إعدادات الغرفة (تُضبط قبل الإنشاء بدل اللوبي) ──
+  const [autoNightTime, setAutoNightTime] = useState(15);          // ثوانٍ لكل خطوة ليل
+  const [gameTimerMinutes, setGameTimerMinutes] = useState(0);     // 0 = مطفأ
+  const [maxPenalties, setMaxPenalties] = useState(3);
+  const [penaltyScope, setPenaltyScope] = useState<'room' | 'game'>('room');
+  const [bombEnabled, setBombEnabled] = useState(true);
+  const [maxJustifications, setMaxJustifications] = useState(2);
   const roomIdRef = useRef<string | null>(null);
 
   const refreshState = useCallback(async (roomId: string) => {
@@ -33,7 +40,16 @@ export default function HostPage() {
   const handleCreate = useCallback(async () => {
     setCreating(true); setError('');
     try {
-      const res = await emit('room:create-remote', { gameName: gameName.trim() || 'غرفة عن بُعد', maxPlayers });
+      const res = await emit('room:create-remote', {
+        gameName: gameName.trim() || 'غرفة عن بُعد',
+        maxPlayers,
+        maxJustifications,
+        maxPenalties,
+        penaltyScope,
+        autoNightTime,
+        gameTimerMinutes,
+        bombEnabled,
+      });
       roomIdRef.current = res.roomId;
       try { localStorage.setItem('mafia_host_room', res.roomId); } catch { /* ignore */ }
       await refreshState(res.roomId);
@@ -91,6 +107,61 @@ export default function HostPage() {
                 onChange={(e) => setMaxPlayers(Math.max(6, Math.min(50, parseInt(e.target.value, 10) || 12)))}
                 className="w-full bg-[#050505] border border-[#222] rounded-lg px-3 py-3 text-white outline-none focus:border-[#C5A059]" />
             </div>
+
+            {/* ── إعدادات الغرفة (كانت في اللوبي — الآن تُضبط قبل الإنشاء) ── */}
+            <div className="pt-3 border-t border-[#1a1a1a] space-y-4">
+              <div>
+                <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-1">🌙 وضع الليل</div>
+                <div className="text-sm text-[#b3b3b3] mb-2">أوتوماتيكي (إلزاميّ عن بُعد — اللاعبون يُرسلون من أجهزتهم)</div>
+                <label className="block text-xs text-[#808080] mb-1">مهلة كل خطوة: <span className="text-[#C5A059] font-mono">{autoNightTime}ث</span></label>
+                <input type="range" min={5} max={60} step={5} value={autoNightTime}
+                  onChange={(e) => setAutoNightTime(parseInt(e.target.value, 10))} className="w-full accent-[#C5A059]" />
+              </div>
+
+              <div>
+                <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">⏱️ مؤقّت اللعبة</div>
+                <div className="flex gap-2">
+                  {[0, 30, 60, 90].map((m) => (
+                    <button key={m} type="button" onClick={() => setGameTimerMinutes(m)}
+                      className={`flex-1 py-2 rounded-lg text-sm border ${gameTimerMinutes === m ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059]' : 'border-[#222] text-[#888]'}`}>
+                      {m === 0 ? 'مطفأ' : `${m} د`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">⚖️ نظام العقوبات</div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center bg-[#050505] border border-[#222] rounded-lg">
+                    <button type="button" onClick={() => setMaxPenalties(Math.max(1, maxPenalties - 1))} className="px-3 py-2 text-[#888]">−</button>
+                    <span className="px-3 text-white font-mono">{maxPenalties}</span>
+                    <button type="button" onClick={() => setMaxPenalties(Math.min(10, maxPenalties + 1))} className="px-3 py-2 text-[#888]">+</button>
+                  </div>
+                  <span className="text-xs text-[#808080]">أقصى عدد</span>
+                  <div className="flex gap-1 mr-auto">
+                    <button type="button" onClick={() => setPenaltyScope('room')} className={`px-3 py-2 rounded-lg text-xs border ${penaltyScope === 'room' ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059]' : 'border-[#222] text-[#888]'}`}>كامل الغرفة</button>
+                    <button type="button" onClick={() => setPenaltyScope('game')} className={`px-3 py-2 rounded-lg text-xs border ${penaltyScope === 'game' ? 'bg-[#C5A059]/20 border-[#C5A059] text-[#C5A059]' : 'border-[#222] text-[#888]'}`}>كل لعبة</button>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">💣 قنبلة الأب الروحيّ</div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setBombEnabled(true)} className={`flex-1 py-2 rounded-lg text-sm border ${bombEnabled ? 'bg-red-500/15 border-red-600 text-red-300' : 'border-[#222] text-[#888]'}`}>مفعّلة</button>
+                  <button type="button" onClick={() => setBombEnabled(false)} className={`flex-1 py-2 rounded-lg text-sm border ${!bombEnabled ? 'bg-[#1a1a1a] border-[#333] text-white' : 'border-[#222] text-[#888]'}`}>معطّلة</button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">🎙️ أقصى عدد تبريرات</label>
+                <input type="number" min={1} max={5} value={maxJustifications}
+                  onChange={(e) => setMaxJustifications(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 2)))}
+                  className="w-24 bg-[#050505] border border-[#222] rounded-lg px-3 py-2 text-white outline-none focus:border-[#C5A059]" />
+              </div>
+            </div>
+
             <button onClick={handleCreate} disabled={creating || !isConnected}
               className="btn-premium w-full !py-3.5 !rounded-lg disabled:opacity-50">
               <span>{creating ? 'جارٍ الإنشاء…' : !isConnected ? 'جارٍ الاتصال…' : '🌐 إنشاء الغرفة'}</span>
@@ -129,7 +200,7 @@ export default function HostPage() {
           <button onClick={() => { try { navigator.clipboard.writeText(joinLink); } catch {} }}
             className="mt-2 text-xs text-white/80 border border-[#222] rounded-md px-3 py-1.5">📋 نسخ</button>
         </div>
-        <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} hideOfflineAgent />
+        <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} hideOfflineAgent hideRoomSettings />
       </>
     );
   } else if (phase === 'ROLE_GENERATION') {

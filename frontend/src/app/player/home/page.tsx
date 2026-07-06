@@ -490,6 +490,26 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* 🌐 استضافة لعبة عن بُعد — تظهر فقط للحسابات المصرّح لها (can_host_remote) */}
+      {p?.canHostRemote && (
+        <button
+          onClick={() => router.push('/player/host')}
+          className="w-full rounded-2xl p-4 text-right transition-all"
+          style={{
+            background: 'linear-gradient(135deg, rgba(197,160,89,0.14), rgba(5,5,5,0.9))',
+            border: '1px solid rgba(197,160,89,0.3)',
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-[#C5A059] text-xs font-medium">🌐 استضافة لعبة عن بُعد</span>
+              <p className="text-white text-sm mt-1">أنشئ غرفةً وأدِرها كمُوجِّه — يشترك أصدقاؤك من أجهزتهم</p>
+            </div>
+            <span className="px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap" style={{ background: 'linear-gradient(135deg,#d8b25a,#c0912f)', color: '#1a1206' }}>استضِف →</span>
+          </div>
+        </button>
+      )}
+
       {/* ── موديل اختيار الغرفة ── */}
       <AnimatePresence>
         {roomSelectActivity && (

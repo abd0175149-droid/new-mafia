@@ -3164,6 +3164,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     maxPenalties?: number;
     penaltyScope?: 'game' | 'room';
     displayPin?: string;
+    autoNightTime?: number;      // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي (ثوانٍ)
+    gameTimerMinutes?: number;   // ⏳ مؤقّت اللعبة بالدقائق (0 = مطفأ)
+    bombEnabled?: boolean;       // 💣 قنبلة الأب الروحيّ
   }, callback) => {
     try {
       // 1) هويّة المُضيف من التوكن الموثّق فقط (لا نثق بأي معرّف من العميل)
@@ -3193,6 +3196,18 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         true,          // 🌐 isRemote
         hostPlayerId,  // 🔗 hostPlayerId
       );
+
+      // 3.1) تطبيق إعدادات الغرفة المختارة عند الإنشاء (تحلّ محلّ ضبطها في اللوبي)
+      if (typeof data.autoNightTime === 'number') {
+        state.config.autoNightTime = Math.max(5, Math.min(60, Math.floor(data.autoNightTime)));
+      }
+      if (typeof data.bombEnabled === 'boolean') {
+        state.config.bombEnabled = data.bombEnabled;
+      }
+      const gtMin = typeof data.gameTimerMinutes === 'number' ? data.gameTimerMinutes : 0;
+      state.config.gameTimerEnabled = gtMin > 0;
+      state.config.gameTimerMinutes = gtMin > 0 ? gtMin : 30;
+
       // 4) جلسة DB (بلا نشاط، بلا موظّف — المُضيف لاعب)
       const sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, undefined, null, true, hostPlayerId);
       if (sessionId) {
