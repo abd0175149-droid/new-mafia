@@ -238,7 +238,7 @@ export default function HostPage() {
   } else if (phase.startsWith('DAY_')) {
     body = <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
   } else if (phase === 'NIGHT' || phase === 'MORNING_RECAP') {
-    body = <HostNightRunner gameState={gameState} emit={emit} on={on} setError={setError} />;
+    body = <HostNightRunner gameState={gameState} emit={emit} on={on} setError={setError} readOnlyChoices />;
   } else if (phase === 'GAME_OVER') {
     const winner = gameState.winner;
     const winTitle = winner === 'MAFIA' ? 'انتصار المافيا' : winner === 'ASSASSIN' ? 'انتصار السفّاح' : winner === 'JESTER' ? 'فوز المهرج' : 'تطهير المدينة';

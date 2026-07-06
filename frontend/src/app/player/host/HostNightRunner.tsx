@@ -14,9 +14,10 @@ interface HostNightRunnerProps {
   emit: (event: string, payload: any) => Promise<any>;
   on: (event: string, handler: (...args: any[]) => void) => (() => void);
   setError: (err: string) => void;
+  readOnlyChoices?: boolean; // 🌐 للغرف البعيدة: المُضيف لا يعدّل اختيارات اللاعبين (اعتمادٌ فقط)
 }
 
-export default function HostNightRunner({ gameState, emit, on, setError }: HostNightRunnerProps) {
+export default function HostNightRunner({ gameState, emit, on, setError, readOnlyChoices }: HostNightRunnerProps) {
   const [autoNightProgress, setAutoNightProgress] = useState<{ total: number; submitted: number; missingPlayers?: { physicalId: number; name: string }[]; choices?: any[] } | null>(null);
   const [autoNightStep, setAutoNightStep] = useState<any | null>(null);
   const [autoNightApproval, setAutoNightApproval] = useState<{ choices: any[]; nextIndex: number } | null>(null);
@@ -128,7 +129,7 @@ export default function HostNightRunner({ gameState, emit, on, setError }: HostN
                   </button>
                 ) : autoNightApproval ? (
                   <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-4">
-                    <p className="text-center text-[#C5A059] font-bold mb-3">✅ اكتمل الاختيار — مرحلة مراجعة الليدر</p>
+                    <p className="text-center text-[#C5A059] font-bold mb-3">{readOnlyChoices ? '✅ اكتملت اختيارات اللاعبين — اعتمِد للمتابعة (لا يمكن التعديل)' : '✅ اكتمل الاختيار — مرحلة مراجعة الليدر'}</p>
                     <div className="space-y-2 max-h-64 overflow-y-auto mb-3">
                       {[...autoNightApproval.choices]
                         .sort((a, b) => {
@@ -157,9 +158,9 @@ export default function HostNightRunner({ gameState, emit, on, setError }: HostN
                                 <select
                                   className={`text-[11px] bg-black border ${isReal ? 'border-[#C5A059]/50 focus:border-[#C5A059]' : 'border-[#444] opacity-70'} focus:outline-none text-white p-1.5 rounded w-full`}
                                   value={c.targetPhysicalId || ''}
-                                  disabled={!isReal}
+                                  disabled={!isReal || readOnlyChoices}
                                   onChange={(e) => {
-                                    if (!isReal) return;
+                                    if (!isReal || readOnlyChoices) return;
                                     const newChoices = [...autoNightApproval.choices];
                                     const originalIdx = newChoices.findIndex((nc: any) => nc.physicalId === c.physicalId);
                                     if (originalIdx >= 0) {
@@ -183,7 +184,7 @@ export default function HostNightRunner({ gameState, emit, on, setError }: HostN
                         try {
                           const res = await emit('night:auto-approve-step', {
                             roomId: gameState.roomId,
-                            modifiedChoices: autoNightApproval.choices,
+                            ...(readOnlyChoices ? {} : { modifiedChoices: autoNightApproval.choices }),
                             nextIndex: autoNightApproval.nextIndex,
                           });
                           if (!res?.success) setError(res?.error || 'فشل اعتماد الخطوة');

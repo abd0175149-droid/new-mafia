@@ -1962,8 +1962,9 @@ export function registerNightEvents(io: Server, socket: Socket) {
       const state = await getGameState(data.roomId);
       if (!state || !state.autoNightStepApproval) return callback?.({ success: false, error: 'Not in approval state' });
 
-      // If leader modified choices, update them
-      if (data.modifiedChoices && data.modifiedChoices.length > 0) {
+      // If leader modified choices, update them.
+      // 🌐 في الغرف البعيدة يُتجاهَل تعديل المُضيف نهائياً — اختيارات اللاعبين نهائيّة (مكافحة غش).
+      if (data.modifiedChoices && data.modifiedChoices.length > 0 && !state.config?.isRemote) {
         state.autoNightChoices = data.modifiedChoices;
       }
 
