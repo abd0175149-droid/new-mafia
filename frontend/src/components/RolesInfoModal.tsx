@@ -100,7 +100,7 @@ export default function RolesInfoModal({ isOpen, onClose }: RolesInfoModalProps)
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6" dir="rtl">
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6" dir="rtl">
         {/* خلفية معتمة */}
         <motion.div
           initial={{ opacity: 0 }}
@@ -115,7 +115,7 @@ export default function RolesInfoModal({ isOpen, onClose }: RolesInfoModalProps)
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-3xl max-h-[85vh] bg-gray-900 border border-gray-800 shadow-2xl rounded-3xl overflow-hidden flex flex-col"
+          className="relative w-full max-w-3xl max-h-[85vh] bg-gray-900 border border-gray-800 shadow-2xl rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col"
         >
           {/* Header */}
           <div className="p-5 sm:p-6 bg-gray-800/50 border-b border-gray-700/50 flex items-center justify-between shrink-0">
