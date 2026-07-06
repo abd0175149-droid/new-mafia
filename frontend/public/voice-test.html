@@ -4,101 +4,110 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>اختبار صوت RealtimeKit — نادي المافيا</title>
-<script type="module">
-  import { defineCustomElements } from 'https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit-ui@latest/loader/index.es2017.js';
-  defineCustomElements();
-</script>
 <script src="https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit@latest/dist/browser.js"></script>
 <style>
   :root {
-    --ink:#0d0b0c; --panel:#17120f; --line:rgba(205,163,73,0.18);
+    --ink:#0d0b0c; --panel:#17120f; --panel2:#201a15; --line:rgba(205,163,73,0.18);
     --brass:#cda349; --brass-hi:#e6c778; --paper:#ece4d3; --parch:#b3a993; --faint:#7d7365;
     --ok:#6fbf8f; --bad:#d0584a;
     --mono:ui-monospace,"Cascadia Mono","Consolas",monospace;
     --sans:"Segoe UI","Noto Sans Arabic","Tahoma",system-ui,sans-serif;
   }
   * { box-sizing:border-box; }
-  html,body { margin:0; height:100%; }
+  html,body { margin:0; min-height:100%; }
   body { background:radial-gradient(800px 480px at 85% -10%,rgba(205,163,73,0.10),transparent 60%),var(--ink);
     color:var(--parch); font-family:var(--sans); line-height:1.6; -webkit-font-smoothing:antialiased; }
-  .wrap { max-width:640px; margin:0 auto; padding:22px 16px 60px; }
+  .wrap { max-width:620px; margin:0 auto; padding:20px 16px 60px; }
+  .hidden { display:none !important; }
   .kicker { font-family:var(--mono); direction:ltr; text-transform:uppercase; letter-spacing:.18em; font-size:.64rem; color:var(--brass); }
-  h1 { margin:8px 0 6px; color:var(--paper); font-size:1.5rem; line-height:1.2; }
-  p { margin:10px 0; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin-top:16px; }
-  .role { display:flex; gap:10px; align-items:flex-start; margin:10px 0; font-size:.92rem; }
-  .role .b { color:var(--paper); font-weight:700; }
-  .pill { font-family:var(--mono); direction:ltr; font-size:.62rem; color:var(--brass); border:1px solid var(--line); border-radius:999px; padding:3px 9px; white-space:nowrap; flex:none; margin-top:2px; }
-  label { display:block; font-size:.85rem; color:var(--parch); margin:14px 0 6px; }
-  textarea { width:100%; min-height:96px; background:#0c0a09; color:var(--brass-hi); border:1px solid var(--line);
+  h1 { margin:8px 0 6px; color:var(--paper); font-size:1.45rem; }
+  p { margin:9px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; margin-top:14px; }
+  code { font-family:var(--mono); color:var(--brass-hi); direction:ltr; font-size:.85em; }
+  label { display:block; font-size:.85rem; color:var(--parch); margin:6px 0; }
+  textarea { width:100%; min-height:92px; background:#0c0a09; color:var(--brass-hi); border:1px solid var(--line);
     border-radius:8px; padding:11px; font-family:var(--mono); font-size:.72rem; direction:ltr; resize:vertical; line-height:1.5; }
   textarea:focus { outline:none; border-color:var(--brass); }
-  .btn { appearance:none; border:none; width:100%; margin-top:14px; padding:14px; border-radius:10px;
+  .btn { appearance:none; border:none; width:100%; margin-top:12px; padding:14px; border-radius:10px;
     background:linear-gradient(180deg,#d8b25a,#c0912f); color:#1a1206; font-family:var(--sans); font-weight:700; font-size:1rem; cursor:pointer; min-height:50px; }
-  .btn:disabled { opacity:.5; cursor:not-allowed; }
-  .steps { font-size:.9rem; color:var(--parch); padding-inline-start:18px; margin:8px 0; }
-  .steps li { margin:6px 0; }
-  .msg { margin-top:12px; font-size:.9rem; padding:10px 12px; border-radius:8px; display:none; }
+  .btn:disabled { opacity:.5; }
+  .msg { margin-top:10px; font-size:.9rem; padding:9px 11px; border-radius:8px; display:none; }
   .msg.err { display:block; background:rgba(208,88,74,.12); border:1px solid var(--bad); color:#f0b3ab; }
   .msg.ok { display:block; background:rgba(111,191,143,.12); border:1px solid var(--ok); color:#bfe6cd; }
-  code { font-family:var(--mono); color:var(--brass-hi); direction:ltr; font-size:.85em; }
-  #stage { position:fixed; inset:0; display:none; background:#000; }
-  #stage.on { display:block; }
-  rtk-meeting { width:100%; height:100%; display:block; }
-  .hint { color:var(--faint); font-size:.82rem; }
+  .steps { font-size:.9rem; color:var(--parch); padding-inline-start:18px; }
+  .steps li { margin:5px 0; }
 
-  /* leader control overlay */
-  #leaderPanel { position:fixed; top:0; left:0; right:0; z-index:9999;
-    background:rgba(13,11,12,.94); border-bottom:2px solid var(--brass);
-    padding:10px 12px calc(10px + env(safe-area-inset-top)); display:none; max-height:52vh; overflow:auto; }
-  #leaderPanel.on { display:block; }
-  #leaderPanel .lh { font-family:var(--mono); direction:ltr; font-size:.62rem; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--brass); margin-bottom:8px; display:flex; justify-content:space-between; }
-  #leaderPanel .perm { color:var(--ok); }
-  .prow { display:flex; align-items:center; gap:10px; padding:8px 6px; border-top:1px solid var(--line); }
-  .prow .pn { flex:1; color:var(--paper); font-size:.95rem; }
-  .prow .st { font-size:.78rem; color:var(--parch); font-family:var(--mono); direction:ltr; }
-  .prow .st.muted { color:var(--bad); }
-  .prow .st.live { color:var(--ok); }
-  .mutebtn { appearance:none; border:1px solid var(--bad); background:rgba(208,88,74,.14); color:#f0b3ab;
-    border-radius:8px; padding:8px 12px; font-family:var(--sans); font-weight:700; font-size:.85rem; cursor:pointer; min-height:38px; }
-  .mutebtn.un { border-color:var(--ok); background:rgba(111,191,143,.14); color:#bfe6cd; }
-  #leaderPanel .empty { color:var(--faint); font-size:.85rem; padding:8px 6px; }
+  /* call view */
+  .bar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+    background:var(--panel2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .bar .status { display:flex; align-items:center; gap:9px; font-size:.95rem; color:var(--paper); }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--faint); flex:none; }
+  .dot.on { background:var(--ok); box-shadow:0 0 10px var(--ok); }
+  .roletag { font-family:var(--mono); direction:ltr; font-size:.6rem; letter-spacing:.1em; text-transform:uppercase;
+    padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--brass); }
+  .roletag.leader { color:var(--brass-hi); border-color:var(--brass); }
+
+  .sec-title { font-family:var(--mono); direction:ltr; font-size:.62rem; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--faint); margin:18px 0 8px; }
+  .prow { display:flex; align-items:center; gap:12px; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:12px 14px; margin-bottom:8px; }
+  .prow .pn { flex:1; color:var(--paper); font-weight:600; }
+  .prow .st { font-size:1.1rem; }
+  .prow .stx { font-size:.78rem; color:var(--parch); font-family:var(--mono); direction:ltr; }
+  .prow .stx.muted { color:var(--bad); } .prow .stx.live { color:var(--ok); }
+  .mbtn { appearance:none; border:1px solid var(--bad); background:rgba(208,88,74,.14); color:#f0b3ab;
+    border-radius:8px; padding:9px 14px; font-family:var(--sans); font-weight:700; font-size:.85rem; cursor:pointer; min-height:40px; }
+  .mbtn.un { border-color:var(--ok); background:rgba(111,191,143,.14); color:#bfe6cd; }
+  .empty { color:var(--faint); font-size:.88rem; padding:10px; text-align:center; }
+  .selftoggle { appearance:none; border:1px solid var(--line); background:var(--panel); color:var(--paper);
+    border-radius:8px; padding:9px 14px; font-family:var(--sans); font-weight:600; font-size:.85rem; cursor:pointer; min-height:40px; }
+  #log { background:#0c0a09; border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:16px;
+    font-family:var(--mono); direction:ltr; font-size:.68rem; color:var(--parch); white-space:pre-wrap; max-height:180px; overflow:auto; line-height:1.5; }
 </style>
 </head>
 <body>
   <div class="wrap" id="gate">
-    <div class="kicker">Cloudflare RealtimeKit · Voice Spike</div>
+    <div class="kicker">Cloudflare RealtimeKit · Voice Spike (headless)</div>
     <h1>اختبار الصوت الجماعيّ</h1>
-    <p>يختبر منصّة الصوت الفعلية (اجتماع RealtimeKit، صوت فقط) بين هاتفين، ويثبت <b>الكتم الخادميّ</b> عبر لوحة الليدر (استدعاء <code>disableAudio()</code> مباشرةً — نفس ما ستفعله اللعبة).</p>
+    <p>واجهة مبسّطة تُطابق ما ستبنيه اللعبة: قائمة مشاركين + كتمٌ برمجيّ خادميّ (<code>disableAudio()</code>). بلا واجهة RealtimeKit الجاهزة.</p>
 
     <div class="card">
-      <div class="role"><span class="pill">Phone A · Leader</span><span>هاتف الليدر — تظهر له <b>لوحة كتم</b> في الأعلى بعد الدخول (Preset <code>mafia_leader</code>).</span></div>
-      <div class="role"><span class="pill">Phone B · Player</span><span>هاتف اللاعب — يتكلّم عادةً، بلا صلاحيات (Preset <code>mafia_player</code>).</span></div>
-    </div>
-
-    <div class="card">
-      <label for="tok">ألصق توكن هذا الهاتف:</label>
+      <label for="tok">ألصق توكن هذا الهاتف (Leader على جهاز، Player على الآخر):</label>
       <textarea id="tok" placeholder="eyJhbGciOi..."></textarea>
-      <button class="btn" id="join">🎙️ دخول الاجتماع (يطلب إذن الميكروفون)</button>
+      <button class="btn" id="join">🎙️ دخول (يطلب إذن الميكروفون)</button>
       <div class="msg" id="msg"></div>
-      <p class="hint">أو افتح الرابط مع <code>?authToken=...</code> للدخول التلقائي.</p>
     </div>
 
     <div class="card">
       <b style="color:var(--paper)">خطوات الاختبار</b>
       <ol class="steps">
-        <li>افتح الرابط على هاتفين على بياناتٍ خلويّة مختلفة.</li>
         <li>A: توكن <b>Leader</b> ← دخول. B: توكن <b>Player</b> ← دخول.</li>
         <li>تكلّما — يجب أن يسمع كلٌّ الآخر.</li>
-        <li>على هاتف الليدر (A): من <b>لوحة الكتم بالأعلى</b> اضغط «كتم» أمام Player.</li>
-        <li>يجب أن يصمت اللاعب فوراً ولا يستطيع فكّ كتم نفسه.</li>
+        <li>على جهاز الليدر: اضغط «كتم» أمام Player في القائمة.</li>
+        <li>يجب أن يصمت اللاعب فوراً وتتحوّل حالته إلى 🔇.</li>
       </ol>
     </div>
   </div>
 
-  <div id="leaderPanel"><div class="lh"><span>لوحة الليدر — كتم المشاركين</span><span class="perm" id="permTag"></span></div><div id="plist"></div></div>
-  <div id="stage"><rtk-meeting id="m" show-setup-screen="true"></rtk-meeting></div>
+  <div class="wrap hidden" id="call">
+    <div class="bar">
+      <div class="status"><span class="dot" id="cdot"></span><span id="cstat">جارٍ الاتصال…</span></div>
+      <span class="roletag" id="roletag">—</span>
+    </div>
+
+    <div class="sec-title">أنت</div>
+    <div class="prow" id="selfrow">
+      <span class="pn" id="selfname">—</span>
+      <span class="stx" id="selfst">—</span>
+      <button class="selftoggle" id="selftoggle">كتم نفسي</button>
+    </div>
+
+    <div class="sec-title">المشاركون <span id="permtag" style="color:var(--brass)"></span></div>
+    <div id="others"><div class="empty">لا مشاركون بعد…</div></div>
+
+    <div class="sec-title">سجلّ التشخيص</div>
+    <div id="log"></div>
+  </div>
 
   <script>
     (function () {
@@ -107,76 +116,116 @@
       var tokEl = document.getElementById("tok");
       var msg = document.getElementById("msg");
       var joinBtn = document.getElementById("join");
+      var meeting = null;
       if (urlTok) tokEl.value = urlTok;
-      function showMsg(t, c) { msg.textContent = t; msg.className = "msg " + c; }
 
-      function participantsArray(meeting) {
-        var j = meeting.participants.joined;
-        if (j && typeof j.toArray === "function") return j.toArray();
-        if (j && j.participants && j.participants.values) return Array.from(j.participants.values());
-        try { return Array.from(j.values()); } catch (e) { return []; }
+      function showMsg(t, c) { msg.textContent = t; msg.className = "msg " + c; }
+      function log(m) { var l = document.getElementById("log"); if (l) l.textContent = new Date().toLocaleTimeString() + "  " + m + "\n" + l.textContent; }
+      function arr(coll) {
+        try { if (coll && typeof coll.toArray === "function") return coll.toArray(); } catch (e) {}
+        try { return Array.from(coll.values()); } catch (e) {}
+        return [];
+      }
+      function canMute() { return !!(meeting && meeting.self && meeting.self.permissions && meeting.self.permissions.canDisableParticipantAudio); }
+
+      function attachAudio(p) {
+        try {
+          if (!p.audioTrack) return;
+          var id = "aud_" + p.id, el = document.getElementById(id);
+          if (!el) { el = document.createElement("audio"); el.id = id; el.autoplay = true; el.playsInline = true; document.body.appendChild(el); }
+          el.srcObject = new MediaStream([p.audioTrack]);
+          var pr = el.play(); if (pr && pr.catch) pr.catch(function () {});
+        } catch (e) { log("attachAudio err: " + e.message); }
+      }
+      function detachAudio(p) { var el = document.getElementById("aud_" + p.id); if (el) el.remove(); }
+
+      function renderSelf() {
+        if (!meeting) return;
+        var s = meeting.self;
+        document.getElementById("selfname").textContent = (s.name || "أنا");
+        var en = s.audioEnabled;
+        var st = document.getElementById("selfst"); st.textContent = en ? "🎙️ مفتوح" : "🔇 مكتوم"; st.className = "stx " + (en ? "live" : "muted");
+        document.getElementById("selftoggle").textContent = en ? "كتم نفسي" : "فتح ميكروفوني";
       }
 
-      function setupLeaderPanel(meeting) {
-        var perms = meeting.self && meeting.self.permissions;
-        var canMute = !!(perms && perms.canDisableParticipantAudio);
-        var panel = document.getElementById("leaderPanel");
-        var plist = document.getElementById("plist");
-        document.getElementById("permTag").textContent = canMute ? "canDisableParticipantAudio ✓" : "player (no mute rights)";
-        if (!canMute) return; // player device: no panel
-        panel.classList.add("on");
-
-        function render() {
-          var list = participantsArray(meeting);
-          if (!list.length) { plist.innerHTML = '<div class="empty">لا مشاركون بعد — انتظر انضمام اللاعب.</div>'; return; }
-          plist.innerHTML = "";
-          list.forEach(function (p) {
-            var row = document.createElement("div"); row.className = "prow";
-            var enabled = p.audioEnabled;
-            row.innerHTML = '<span class="pn">' + (p.name || p.id) + '</span>' +
-              '<span class="st ' + (enabled ? "live" : "muted") + '">' + (enabled ? "🎙️ يتكلّم" : "🔇 مكتوم") + '</span>';
-            var b = document.createElement("button");
-            b.className = "mutebtn" + (enabled ? "" : " un");
-            b.textContent = enabled ? "كتم" : "طلب فكّ الكتم";
+      function renderOthers() {
+        if (!meeting) return;
+        var box = document.getElementById("others");
+        var list = arr(meeting.participants.joined);
+        document.getElementById("permtag").textContent = canMute() ? "· صلاحية الكتم ✓" : "· لا صلاحية كتم";
+        if (!list.length) { box.innerHTML = '<div class="empty">لا مشاركون بعد — انتظر انضمام الطرف الآخر.</div>'; return; }
+        box.innerHTML = "";
+        list.forEach(function (p) {
+          var row = document.createElement("div"); row.className = "prow";
+          var en = p.audioEnabled;
+          var name = document.createElement("span"); name.className = "pn"; name.textContent = (p.name || p.id);
+          var stx = document.createElement("span"); stx.className = "stx " + (en ? "live" : "muted"); stx.textContent = en ? "🎙️ يتكلّم" : "🔇 مكتوم";
+          row.appendChild(name); row.appendChild(stx);
+          if (canMute()) {
+            var b = document.createElement("button"); b.className = "mbtn" + (en ? "" : " un");
+            b.textContent = en ? "كتم" : "فكّ الكتم";
             b.onclick = async function () {
               try {
-                if (p.audioEnabled) { await p.disableAudio(); }
-                else { await p.enableAudio(); }
-              } catch (e) { alert("تعذّر: " + (e && e.message ? e.message : e) + " (code " + (e && e.code) + ")"); }
-              render();
+                if (p.audioEnabled) { await p.disableAudio(); log("muted " + (p.name || p.id)); }
+                else { await p.enableAudio(); log("unmute-request " + (p.name || p.id)); }
+              } catch (e) { log("mute err: " + (e && e.message) + " code=" + (e && e.code)); alert("تعذّر: " + (e && e.message)); }
+              renderOthers();
             };
-            row.appendChild(b); plist.appendChild(row);
-          });
-        }
+            row.appendChild(b);
+          }
+          box.appendChild(row);
+        });
+      }
 
-        var j = meeting.participants.joined;
-        if (j && j.on) {
-          j.on("participantJoined", function (p) { render(); if (p && p.on) p.on("audioUpdate", render); });
-          j.on("participantLeft", render);
-        }
-        participantsArray(meeting).forEach(function (p) { if (p && p.on) p.on("audioUpdate", render); });
-        render();
-        setInterval(render, 3000); // safety refresh
+      function wireParticipant(p) {
+        attachAudio(p);
+        if (p.on) { p.on("audioUpdate", function () { attachAudio(p); renderOthers(); }); }
       }
 
       async function join() {
         var authToken = tokEl.value.trim();
         if (!authToken) { showMsg("ألصق التوكن أولاً.", "err"); return; }
-        if (typeof RealtimeKitClient === "undefined") { showMsg("لم تُحمَّل مكتبة RealtimeKit (تحقّق من الاتصال).", "err"); return; }
+        if (typeof RealtimeKitClient === "undefined") { showMsg("لم تُحمَّل مكتبة RealtimeKit.", "err"); return; }
         joinBtn.disabled = true; showMsg("جارٍ الاتصال…", "ok");
         try {
-          var meeting = await RealtimeKitClient.init({ authToken: authToken, defaults: { audio: true, video: false } });
+          meeting = await RealtimeKitClient.init({ authToken: authToken, defaults: { audio: true, video: false } });
           window.__meeting = meeting;
-          document.getElementById("m").meeting = meeting;
-          document.getElementById("gate").style.display = "none";
-          document.getElementById("stage").classList.add("on");
-          try { await meeting.join(); } catch (e) { /* setup screen may handle join */ }
-          setupLeaderPanel(meeting);
+          document.getElementById("gate").classList.add("hidden");
+          document.getElementById("call").classList.remove("hidden");
+
+          var j = meeting.participants.joined;
+          if (j && j.on) {
+            j.on("participantJoined", function (p) { log("joined: " + (p.name || p.id)); wireParticipant(p); renderOthers(); });
+            j.on("participantLeft", function (p) { log("left: " + (p.name || p.id)); detachAudio(p); renderOthers(); });
+          }
+          if (meeting.self && meeting.self.on) {
+            meeting.self.on("audioUpdate", renderSelf);
+            meeting.self.on("roomJoined", function () { log("roomJoined"); renderSelf(); renderOthers(); });
+          }
+
+          await meeting.join();
+
+          document.getElementById("cdot").className = "dot on";
+          document.getElementById("cstat").textContent = "متصل ✓";
+          var lead = canMute();
+          var rt = document.getElementById("roletag"); rt.textContent = lead ? "LEADER" : "PLAYER"; rt.className = "roletag" + (lead ? " leader" : "");
+          log("joined. canDisableParticipantAudio=" + lead + " | self=" + (meeting.self && meeting.self.name));
+
+          arr(meeting.participants.joined).forEach(wireParticipant);
+          renderSelf(); renderOthers();
+          setInterval(function () { renderSelf(); renderOthers(); }, 3000);
         } catch (e) {
           joinBtn.disabled = false;
-          showMsg("فشل الاتصال: " + (e && e.message ? e.message : e) + " — قد يكون التوكن منتهياً.", "err");
+          showMsg("فشل: " + (e && e.message ? e.message : e), "err");
+          log("init/join error: " + (e && e.message));
         }
       }
+
+      document.getElementById("selftoggle").addEventListener("click", async function () {
+        try { if (meeting.self.audioEnabled) await meeting.self.disableAudio(); else await meeting.self.enableAudio(); }
+        catch (e) { log("self toggle err: " + e.message); }
+        renderSelf();
+      });
 
       joinBtn.addEventListener("click", join);
       if (urlTok) join();
