@@ -76,6 +76,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   const [discussion, setDiscussion] = useState<any>(initialDiscussionState || null);
   const [justTimer, setJustTimer] = useState<{ physicalId: number; timeLimitSeconds: number; startTime: number } | null>(null);
   const [teamCounts, setTeamCounts] = useState<any>(null);
+  const [gameTimer, setGameTimer] = useState<{ totalSeconds: number; startedAt: number; expired?: boolean } | null>(null);
   const [revealing, setRevealing] = useState<{ id: number; role: string } | null>(null);
   const [localDead, setLocalDead] = useState<Set<number>>(new Set());
   const [focusId, setFocusId] = useState<number | null>(initialDiscussionState?.currentSpeakerId ?? null);
@@ -130,6 +131,8 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         if (d?.teamCounts) setTeamCounts(d.teamCounts);
         if (Array.isArray(d?.revealedRoles) && d.revealedRoles.length) runReveal(d.revealedRoles);
       }),
+      on('game:timer-adjusted', (d: any) => { if (d?.gameTimer) setGameTimer(d.gameTimer); }),
+      on('game:started', (d: any) => { if (d?.gameTimer) setGameTimer(d.gameTimer); }),
       on('day:justification-timer-started', (d: any) =>
         setJustTimer({ physicalId: d.physicalId, timeLimitSeconds: d.timeLimitSeconds || 30, startTime: d.startTime || Date.now() }),
       ),
@@ -171,6 +174,21 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
     const iv = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(iv);
   }, [activeTimer?.physicalId, activeTimer?.startTime]);
+
+  // مؤقّت اللعبة العامّ (يظهر في الشريط العلويّ)
+  useEffect(() => {
+    if (!gameTimer || gameTimer.expired || !gameTimer.startedAt) return;
+    const iv = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, [gameTimer]);
+  const gameClock = (() => {
+    void tick;
+    if (!gameTimer || gameTimer.totalSeconds == null) return null;
+    const rem = gameTimer.startedAt
+      ? Math.max(0, Math.round(gameTimer.totalSeconds - (Date.now() - gameTimer.startedAt) / 1000))
+      : gameTimer.totalSeconds;
+    return `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`;
+  })();
 
   const remainingFor = (id: number): number | null => {
     void tick;
@@ -226,6 +244,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
           {cit != null && <span className="text-blue-400">🛡️ {cit}</span>}
           {maf != null && <span className="text-red-400">🔪 {maf}</span>}
           <span className="text-[#808080]">أحياء {aliveCount}</span>
+          {gameClock && <span className="text-white font-black tabular-nums border-r border-[#2a2a2a] pr-3" style={{ fontVariantNumeric: 'tabular-nums' }}>⏱ {gameClock}</span>}
         </div>
       </div>
 
@@ -254,8 +273,8 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             const rm = roleMeta(isFlipped ? revealing?.role : null);
             const rtimer = remainingFor(p.physicalId);
             const talking = !!speakingByPid?.[p.physicalId];
-            // الكاميرا تُعرض فقط على كارد اللاعب نفسه وكارد المتحدّث (لا كل الطاولة)
-            const vTrack = (p.physicalId === myId || isSpeaker) ? (videoByPid?.[p.physicalId] ?? null) : null;
+            // الكاميرا تُعرض على كارد كل لاعب فتح كاميرته (يبثّها للجميع) — قلائل يفتحونها فالأداء آمن
+            const vTrack = videoByPid?.[p.physicalId] ?? null;
             let style: CSSProperties;
             if (mode === 'focus') {
               const off = shortest(i, focusIdx, N);
