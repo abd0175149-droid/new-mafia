@@ -235,6 +235,22 @@ export default function HostPage() {
             className="mt-2 text-xs text-white/80 border border-[#222] rounded-md px-3 py-1.5">📋 نسخ</button>
         </div>
         <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} hideOfflineAgent hideRoomSettings allowStartBeforeFull />
+        <div className="px-4 mt-4 mb-6">
+          <button
+            onClick={async () => {
+              if (typeof window !== 'undefined' && !window.confirm('إلغاء الغرفة وإخراج كل من انضمّ؟')) return;
+              try {
+                await emit('room:close-event', { roomId: gameState.roomId });
+                localStorage.removeItem('mafia_host_room');
+                roomIdRef.current = null;
+                setGameState(null);
+              } catch (e: any) { setError(e?.message || 'تعذّر إغلاق الغرفة'); }
+            }}
+            className="w-full py-3 rounded-lg border border-red-800/50 text-red-300 bg-red-950/20 text-sm font-bold"
+          >
+            🗑️ إلغاء الغرفة وإغلاقها
+          </button>
+        </div>
       </>
     );
   } else if (phase === 'ROLE_GENERATION') {
