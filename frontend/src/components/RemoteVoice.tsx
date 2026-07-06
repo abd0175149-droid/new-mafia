@@ -23,26 +23,27 @@ interface RemoteVoiceProps {
 
 export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, emit, nameByPid, allowedPids, shouldOpenMic, gamePhase, onVoiceMaps }: RemoteVoiceProps) {
   const v = useVoice({ roomId, enabled, isHost, selfPhysicalId, emit });
+  // 🔊 اللوبي/ما قبل اللعب: مايك حرّ يدويّ للجميع (بلا قفل، بلا كتم من المضيف)
+  const freeMic = ['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING', 'GAME_OVER'].includes(gamePhase || '');
 
-  // 🎙️ قفل سياديّ لمايك اللاعب: يُفتح فقط في دوره، وأي فتحٍ خارج الدور (حتى يدويّاً) يُغلق فوراً.
-  // إدراج v.selfAudioOn في الاعتماديات يجعل القفل يتفاعل مع أي تغيّر بالحالة ويعيد فرض الغلق.
+  // 🎙️ قفل سياديّ لمايك اللاعب أثناء اللعب: يُفتح فقط في دوره؛ في اللوبي حرّ (لا قفل).
   useEffect(() => {
-    if (isHost || !v.connected) return;
+    if (isHost || !v.connected || freeMic) return;
     if (shouldOpenMic && !v.selfAudioOn) v.enableSelfAudio();
     else if (!shouldOpenMic && v.selfAudioOn) v.disableSelfAudio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldOpenMic, v.connected, isHost, v.selfAudioOn]);
+  }, [shouldOpenMic, v.connected, isHost, v.selfAudioOn, freeMic]);
 
-  // 🔇 المضيف يكتم كل متكلّم غير مسموح له (تعزيز الـ turn والمواجهة)
+  // 🔇 المضيف يكتم كل متكلّم غير مسموح له (أثناء اللعب فقط — لا كتم في اللوبي الحرّ)
   useEffect(() => {
-    if (!isHost || !v.connected || !v.canMute) return;
+    if (!isHost || !v.connected || !v.canMute || freeMic) return;
     const allow = new Set(allowedPids || []);
     Object.entries(v.audioByPid).forEach(([pidStr, isOn]) => {
       const pid = Number(pidStr);
       if (isOn && pid !== VOICE_HOST_KEY && !allow.has(pid)) v.muteParticipantByPid(pid);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHost, v.connected, v.canMute, allowedPids, v.audioByPid]);
+  }, [isHost, v.connected, v.canMute, allowedPids, v.audioByPid, freeMic]);
 
   // 📷 إطفاء الكاميرا تلقائياً في الليل (مكافحة غش — لا كروت تُعرض ليلاً)
   useEffect(() => {
@@ -66,14 +67,15 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
   if (!isHost) {
     return (
       <div className="fixed left-3 bottom-28 z-40 flex flex-col gap-2 items-center">
-        <div
-          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${
+        <button
+          onClick={() => { if (freeMic && v.connected) { if (v.selfAudioOn) v.disableSelfAudio(); else v.enableSelfAudio(); } }}
+          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${freeMic ? 'cursor-pointer' : 'cursor-default'} ${
             v.selfAudioOn ? 'bg-emerald-500/25 border-emerald-500/60 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
           }`}
-          title={v.selfAudioOn ? 'دورك — مايكك مفتوح' : 'مايكك مغلق (يُفتح في دورك)'}
+          title={freeMic ? (v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك (لوبي)') : (v.selfAudioOn ? 'دورك — مايكك مفتوح' : 'مايكك مغلق (يُفتح في دورك)')}
         >
           {v.selfAudioOn ? '🎙️' : '🔇'}
-        </div>
+        </button>
         <button
           onClick={() => (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo())}
           disabled={!v.connected || gamePhase === 'NIGHT'}

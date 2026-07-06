@@ -315,7 +315,7 @@ export default function HostPage() {
           <RemoteVoice
             key="remote-voice"
             roomId={gameState?.roomId || roomIdRef.current}
-            enabled={!!phase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(phase)}
+            enabled={!!phase}
             isHost={true}
             selfPhysicalId={null}
             emit={emit}

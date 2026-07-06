@@ -2469,7 +2469,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 <RemoteVoice
                   key="remote-voice"
                   roomId={roomId}
-                  enabled={!!gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase)}
+                  enabled={!!gamePhase}
                   isHost={false}
                   selfPhysicalId={parseInt(physicalId) || null}
                   emit={emit}
@@ -2879,7 +2879,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 <RemoteVoice
                   key="remote-voice"
                   roomId={roomId}
-                  enabled={!!gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase)}
+                  enabled={!!gamePhase}
                   isHost={false}
                   selfPhysicalId={parseInt(physicalId) || null}
                   emit={emit}
