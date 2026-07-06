@@ -72,6 +72,11 @@ export default function HostPage() {
     offs.push(on('game:state-updated', (s: any) => { if (s?.roomId && s.roomId === roomIdRef.current) setGameState(s); }));
     offs.push(on('game:phase-changed', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('game:started', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    // 🔧 الخادم يبثّ هذه عند تغيّر الروستر (لا حالةً كاملة) — نجلب الحالة الكاملة عندها
+    offs.push(on('room:player-joined', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    offs.push(on('room:player-updated', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    offs.push(on('room:player-kicked', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    offs.push(on('player:seat-changed', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     return () => { offs.forEach((f) => f && f()); };
   }, [on, refreshState]);
 
