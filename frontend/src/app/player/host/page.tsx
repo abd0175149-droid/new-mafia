@@ -302,7 +302,7 @@ export default function HostPage() {
         <div className="px-4 pt-2">
           <RemoteVoice
             roomId={gameState?.roomId || roomIdRef.current}
-            enabled={!!phase && phase !== 'LOBBY'}
+            enabled={!!phase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(phase)}
             isHost={true}
             selfPhysicalId={null}
             emit={emit}
