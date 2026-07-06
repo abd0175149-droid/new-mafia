@@ -161,18 +161,17 @@
           var name = document.createElement("span"); name.className = "pn"; name.textContent = (p.name || p.id);
           var stx = document.createElement("span"); stx.className = "stx " + (en ? "live" : "muted"); stx.textContent = en ? "🎙️ يتكلّم" : "🔇 مكتوم";
           row.appendChild(name); row.appendChild(stx);
-          if (canMute()) {
-            var b = document.createElement("button"); b.className = "mbtn" + (en ? "" : " un");
-            b.textContent = en ? "كتم" : "فكّ الكتم";
-            b.onclick = async function () {
-              try {
-                if (p.audioEnabled) { await p.disableAudio(); log("muted " + (p.name || p.id)); }
-                else { await p.enableAudio(); log("unmute-request " + (p.name || p.id)); }
-              } catch (e) { log("mute err: " + (e && e.message) + " code=" + (e && e.code)); alert("تعذّر: " + (e && e.message)); }
-              renderOthers();
-            };
-            row.appendChild(b);
-          }
+          var b = document.createElement("button"); b.className = "mbtn" + (en ? "" : " un");
+          b.textContent = en ? "كتم" : "فكّ الكتم";
+          b.onclick = async function () {
+            log("try mute: disableAudio type=" + (typeof p.disableAudio) + " canMute=" + canMute());
+            try {
+              if (p.audioEnabled) { await p.disableAudio(); log("✓ MUTE OK: " + (p.name || p.id)); }
+              else { await p.enableAudio(); log("unmute-request: " + (p.name || p.id)); }
+            } catch (e) { log("✗ mute ERR: " + (e && e.message) + " code=" + (e && e.code)); alert("تعذّر: " + (e && e.message) + " (code " + (e && e.code) + ")"); }
+            renderOthers();
+          };
+          row.appendChild(b);
           box.appendChild(row);
         });
       }
@@ -210,6 +209,7 @@
           var lead = canMute();
           var rt = document.getElementById("roletag"); rt.textContent = lead ? "LEADER" : "PLAYER"; rt.className = "roletag" + (lead ? " leader" : "");
           log("joined. canDisableParticipantAudio=" + lead + " | self=" + (meeting.self && meeting.self.name));
+          try { log("PERMS=" + JSON.stringify(meeting.self.permissions).slice(0, 700)); } catch (e) { log("perms dump err: " + e.message); }
 
           arr(meeting.participants.joined).forEach(wireParticipant);
           renderSelf(); renderOthers();
