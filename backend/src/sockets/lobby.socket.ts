@@ -610,6 +610,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // تُطبَّق على الوافدين الجدد فقط؛ العائد (موجودٌ في state.players) يمرّ. مجّانيّ أثناء الإطلاق.
       if ((state.config as any)?.isRemote) {
         const joinerPlayerId = socket.data.authPlayer?.playerId;
+        // 👑 المُضيف مُوجِّهٌ لا لاعب — لا يجوز أن ينضمّ كلاعب في غرفته (يرى الأدوار كموجّه فتُكسَر النزاهة)
+        if (joinerPlayerId && joinerPlayerId === (state.config as any)?.hostPlayerId) {
+          return callback({ success: false, error: 'أنت مُضيف هذه الغرفة (مُوجِّه) — لا يمكنك الانضمام كلاعب', code: 'HOST_CANNOT_PLAY' });
+        }
         const alreadyIn = joinerPlayerId
           ? state.players.some((p: any) => p.playerId === joinerPlayerId)
           : false;
