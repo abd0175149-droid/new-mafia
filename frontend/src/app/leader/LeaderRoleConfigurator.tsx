@@ -8,9 +8,10 @@ interface LeaderRoleConfiguratorProps {
   gameState: any;
   emit: (event: string, payload: any) => Promise<any>;
   setError: (err: string) => void;
+  hideMafiaChat?: boolean; // 🌐 للغرف البعيدة: يُخفي مبدّل دردشة المافيا هنا (يُضبط في إعدادات الإنشاء)
 }
 
-export default function LeaderRoleConfigurator({ gameState, emit, setError }: LeaderRoleConfiguratorProps) {
+export default function LeaderRoleConfigurator({ gameState, emit, setError, hideMafiaChat }: LeaderRoleConfiguratorProps) {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
@@ -265,7 +266,8 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
             </motion.div>
           )}
 
-          {/* 🗣️ غرفة تشاور المافيا — خيار الليدر لكل جولة */}
+          {/* 🗣️ غرفة تشاور المافيا — خيار الليدر لكل جولة (تُخفى للبُعد؛ تُضبط عند الإنشاء) */}
+          {!hideMafiaChat && (
           <div className="mt-4 p-4 bg-red-500/5 border border-red-500/10 rounded-lg flex items-center justify-between gap-3" dir="rtl">
             <div className="min-w-0">
               <p className="text-red-400/90 text-xs font-mono font-bold">🗣️ غرفة تشاور المافيا</p>
@@ -285,6 +287,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError }: Le
               {mafiaChatOn ? '✓ مفعّلة' : 'معطّلة'}
             </button>
           </div>
+          )}
         </div>
 
         {/* Citizens Section */}

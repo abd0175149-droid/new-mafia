@@ -3167,6 +3167,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     autoNightTime?: number;      // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي (ثوانٍ)
     gameTimerMinutes?: number;   // ⏳ مؤقّت اللعبة بالدقائق (0 = مطفأ)
     bombEnabled?: boolean;       // 💣 قنبلة الأب الروحيّ
+    mafiaChatEnabled?: boolean;  // 🗣️ غرفة تشاور المافيا السرّية
   }, callback) => {
     try {
       // 1) هويّة المُضيف من التوكن الموثّق فقط (لا نثق بأي معرّف من العميل)
@@ -3207,6 +3208,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const gtMin = typeof data.gameTimerMinutes === 'number' ? data.gameTimerMinutes : 0;
       state.config.gameTimerEnabled = gtMin > 0;
       state.config.gameTimerMinutes = gtMin > 0 ? gtMin : 30;
+      if (typeof data.mafiaChatEnabled === 'boolean') {
+        state.config.mafiaChatEnabled = data.mafiaChatEnabled;
+      }
 
       // 4) جلسة DB (بلا نشاط، بلا موظّف — المُضيف لاعب)
       const sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, undefined, null, true, hostPlayerId);

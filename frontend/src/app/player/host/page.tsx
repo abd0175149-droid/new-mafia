@@ -12,6 +12,7 @@ import { usePlayer } from '@/context/PlayerContext';
 import LeaderLobbyView from '@/app/leader/LeaderLobbyView';
 import LeaderRoleConfigurator from '@/app/leader/LeaderRoleConfigurator';
 import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
+import LeaderDayView from '@/app/leader/LeaderDayView';
 
 export default function HostPage() {
   const { player } = usePlayer();
@@ -28,6 +29,7 @@ export default function HostPage() {
   const [penaltyScope, setPenaltyScope] = useState<'room' | 'game'>('room');
   const [bombEnabled, setBombEnabled] = useState(true);
   const [maxJustifications, setMaxJustifications] = useState(2);
+  const [mafiaChatEnabled, setMafiaChatEnabled] = useState(false); // 🗣️ غرفة تشاور المافيا السرّية
   const roomIdRef = useRef<string | null>(null);
 
   const refreshState = useCallback(async (roomId: string) => {
@@ -49,6 +51,7 @@ export default function HostPage() {
         autoNightTime,
         gameTimerMinutes,
         bombEnabled,
+        mafiaChatEnabled,
       });
       roomIdRef.current = res.roomId;
       try { localStorage.setItem('mafia_host_room', res.roomId); } catch { /* ignore */ }
@@ -160,6 +163,14 @@ export default function HostPage() {
               </div>
 
               <div>
+                <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">🗣️ غرفة تشاور المافيا السرّية</div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setMafiaChatEnabled(true)} className={`flex-1 py-2 rounded-lg text-sm border ${mafiaChatEnabled ? 'bg-emerald-500/15 border-emerald-600 text-emerald-300' : 'border-[#222] text-[#888]'}`}>مفعّلة</button>
+                  <button type="button" onClick={() => setMafiaChatEnabled(false)} className={`flex-1 py-2 rounded-lg text-sm border ${!mafiaChatEnabled ? 'bg-[#1a1a1a] border-[#333] text-white' : 'border-[#222] text-[#888]'}`}>معطّلة</button>
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">🎙️ أقصى عدد تبريرات</label>
                 <input type="number" min={1} max={5} value={maxJustifications}
                   onChange={(e) => setMaxJustifications(Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 2)))}
@@ -209,15 +220,17 @@ export default function HostPage() {
       </>
     );
   } else if (phase === 'ROLE_GENERATION') {
-    body = <LeaderRoleConfigurator gameState={gameState} emit={emit} setError={setError} />;
+    body = <LeaderRoleConfigurator gameState={gameState} emit={emit} setError={setError} hideMafiaChat />;
   } else if (phase === 'ROLE_BINDING') {
     body = <LeaderRoleBinding gameState={gameState} emit={emit} setError={setError} />;
+  } else if (phase.startsWith('DAY_')) {
+    body = <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
   } else {
     body = (
       <div className="p-8 text-center text-[#808080]">
-        <div className="text-4xl mb-3">🛠️</div>
-        <p className="text-lg text-white/90 mb-1">إدارة الطور «{phase}» قيد البناء</p>
-        <p className="text-sm">الأدوار وُزّعت وأُرسلت للاعبين على أجهزتهم. مُشغّل النهار/الليل قادمٌ في التحديث التالي (6b).</p>
+        <div className="text-4xl mb-3">🌙</div>
+        <p className="text-lg text-white/90 mb-1">إدارة طور «{phase}» قيد البناء</p>
+        <p className="text-sm">مُشغّل الليل (الوضع الأوتوماتيكيّ) قادمٌ في التحديث التالي.</p>
       </div>
     );
   }
