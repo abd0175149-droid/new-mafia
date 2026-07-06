@@ -3594,9 +3594,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // ── إعادة الغرفة لحالة اللوبي (بعد GAME_OVER) ────────────
   socket.on('room:reset-to-lobby', async (data: { roomId: string; resetPenalties?: boolean }, callback) => {
     try {
-      // Auto-join as leader
+      // Auto-join as leader (staff أو مُضيف-لاعب مُخوّل — الحارس يقصره على غرفته)
       socket.join(data.roomId);
-      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
+      if (socket.data.authStaff) socket.data.role = 'leader';
+      if (socket.data.role !== 'leader' && socket.data.isPlayerHost !== true) {
+        if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' });
+        return;
+      }
       socket.data.roomId = data.roomId;
 
       const state = await getGameState(data.roomId);

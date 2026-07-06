@@ -214,10 +214,22 @@ export default function HostPage() {
 
   // ── شاشة المُضيف داخل اللعبة (حسب الطور) ──
   const phase: string = gameState.phase;
+  const cancelToLobby = async () => {
+    if (typeof window !== 'undefined' && !window.confirm('إلغاء اللعبة الحالية والعودة للوبي؟ (يبقى اللاعبون في الغرفة)')) return;
+    try {
+      await emit('room:reset-to-lobby', { roomId: gameState.roomId });
+      if (roomIdRef.current) refreshState(roomIdRef.current);
+    } catch (e: any) { setError(e?.message || 'تعذّر إلغاء اللعبة'); }
+  };
   const header = (
     <div className="sticky top-0 z-20 bg-[#050505]/95 backdrop-blur border-b border-[#1a1a1a] px-4 py-2.5 flex items-center justify-between">
       <span className="text-xs font-mono text-[#C5A059] tracking-widest">🌐 HOST · {gameState.roomCode}</span>
-      <span className={`text-xs font-mono ${isConnected ? 'text-green-400' : 'text-red-400'}`}>{isConnected ? '● متصل' : '○ منقطع'}</span>
+      <div className="flex items-center gap-2">
+        {phase !== 'LOBBY' && phase !== 'GAME_OVER' && (
+          <button onClick={cancelToLobby} className="text-[10px] font-bold text-amber-300 border border-amber-500/40 rounded-md px-2 py-1 hover:bg-amber-500/10">⤴️ إلغاء اللعبة</button>
+        )}
+        <span className={`text-xs font-mono ${isConnected ? 'text-green-400' : 'text-red-400'}`}>{isConnected ? '● متصل' : '○ منقطع'}</span>
+      </div>
     </div>
   );
   const errBar = error ? (

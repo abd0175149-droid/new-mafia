@@ -197,6 +197,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [roster, setRoster] = useState<any[]>([]);
   const [isRemote, setIsRemote] = useState(false); // 🌐 غرفة عن بُعد → أظهر طاولة الطور للاعب
   const [voiceMaps, setVoiceMaps] = useState<{ videoByPid: Record<number, MediaStreamTrack | null>; audioByPid: Record<number, boolean> }>({ videoByPid: {}, audioByPid: {} });
+  const [gameOverData, setGameOverData] = useState<{ winner: string | null; players: any[] } | null>(null); // 🏁 كشف الفائز على الطاولة
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
   const [nightActionRequired, setNightActionRequired] = useState<{
@@ -1023,6 +1024,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (data.phase === 'LOBBY' || data.phase === 'ROLE_GENERATION' || data.phase === 'ROLE_BINDING') {
         setMafiaTeam([]); setSibling(null);
         setAssignedRole(null);
+        setGameOverData(null);
         // مسح الملاحظات تلقائياً عند بدء لعبة جديدة أو العودة للغرفة
         if (roomId && physicalId) {
           localStorage.removeItem(`mafia_notes_${roomId}_${physicalId}`);
@@ -1067,8 +1069,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
     // انتهاء اللعبة — لا نمسح الدور أو حالة الموت (اللاعب لازم يشوفهم)
     // الـ full reset يحصل فقط عند game:started
-    const cleanupGameOver = on('game:over', () => {
+    const cleanupGameOver = on('game:over', (data: any) => {
       console.log('🏁 Game over — clearing voting only');
+      if (data && Array.isArray(data.players)) setGameOverData({ winner: data.winner ?? null, players: data.players });
       setGamePhase('GAME_OVER');
       phaseOverrideRef.current = { phase: 'GAME_OVER' };
       // مسح التصويت
@@ -2457,6 +2460,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   initialDiscussionState={phasePollData?.discussionState}
                   videoByPid={voiceMaps.videoByPid}
                   speakingByPid={voiceMaps.audioByPid}
+                  winnerReveal={gameOverData}
                 />
               )}
 
@@ -2489,8 +2493,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 />
               )}
 
-              {/* ── عرض مرحلة اللعبة الحالية ── */}
-              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
+              {/* ── عرض مرحلة اللعبة الحالية (نُخفي كشف الفائز عن بُعد — الطاولة تكشفه) ── */}
+              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && !(isRemote && gamePhase === 'GAME_OVER') && (
                 <PlayerPhaseView
                   gamePhase={gamePhase}
                   physicalId={physicalId}
@@ -2869,6 +2873,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   initialDiscussionState={phasePollData?.discussionState}
                   videoByPid={voiceMaps.videoByPid}
                   speakingByPid={voiceMaps.audioByPid}
+                  winnerReveal={gameOverData}
                 />
               )}
 
@@ -2901,8 +2906,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 />
               )}
 
-              {/* ── عرض مرحلة اللعبة الحالية ── */}
-              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
+              {/* ── عرض مرحلة اللعبة الحالية (نُخفي كشف الفائز عن بُعد — الطاولة تكشفه) ── */}
+              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && !(isRemote && gamePhase === 'GAME_OVER') && (
                 <PlayerPhaseView
                   gamePhase={gamePhase}
                   physicalId={physicalId}

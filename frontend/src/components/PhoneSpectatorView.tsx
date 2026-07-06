@@ -21,6 +21,7 @@ interface PhoneSpectatorViewProps {
   initialDiscussionState?: any;
   videoByPid?: Record<number, MediaStreamTrack | null>; // 📷 كاميرات (self + المتحدّث فقط)
   speakingByPid?: Record<number, boolean>;              // 🔊 من يتكلّم صوتياً الآن
+  winnerReveal?: { winner: string | null; players: any[] } | null; // 🏁 كشف الفائز + الأدوار على الطاولة
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -71,7 +72,7 @@ function VideoTile({ track }: { track: MediaStreamTrack }) {
   return <video ref={ref} autoPlay muted playsInline className="rt-avimg" />;
 }
 
-export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid }: PhoneSpectatorViewProps) {
+export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal }: PhoneSpectatorViewProps) {
   const [mode, setMode] = useState<'focus' | 'overview'>('focus');
   const [discussion, setDiscussion] = useState<any>(initialDiscussionState || null);
   const [justTimer, setJustTimer] = useState<{ physicalId: number; timeLimitSeconds: number; startTime: number } | null>(null);
@@ -90,6 +91,15 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   );
   const N = players.length;
   const myId = parseInt(physicalId, 10);
+
+  // 🏁 كشف الفائز: خريطة الأدوار من حمولة game:over + وضع الطاولة كاملة
+  const gameOver = gamePhase === 'GAME_OVER' && !!winnerReveal;
+  const roleByPid = useMemo(() => {
+    const m: Record<number, string> = {};
+    (winnerReveal?.players || []).forEach((p: any) => { if (p?.physicalId != null && p.role) m[p.physicalId] = p.role; });
+    return m;
+  }, [winnerReveal]);
+  useEffect(() => { if (gameOver) setMode('overview'); }, [gameOver]);
 
   // صاحب الدور من السيرفر: تبرير (مؤقّت المتّهم) أو نقاش (المتحدّث الحالي)
   const serverActiveId = useMemo(() => {
@@ -264,13 +274,20 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
       {/* الحلقة */}
       <div className={`rt-stage ${mode}`}>
         <div className="rt-felt" />
+        {gameOver && (
+          <div className="rt-winner">
+            <span className="rt-winner-ic">{winnerReveal?.winner === 'MAFIA' ? '🩸' : winnerReveal?.winner === 'ASSASSIN' ? '🔪' : winnerReveal?.winner === 'JESTER' ? '🤡' : '⚖️'}</span>
+            <span className="rt-winner-t">{winnerReveal?.winner === 'MAFIA' ? 'انتصار المافيا' : winnerReveal?.winner === 'ASSASSIN' ? 'انتصار السفّاح' : winnerReveal?.winner === 'JESTER' ? 'فوز المهرج' : 'تطهير المدينة'}</span>
+          </div>
+        )}
         <div className="rt-glow" />
         <div className="rt-ring">
           {players.map((p, i) => {
             const isDead = !p.isAlive || localDead.has(p.physicalId);
             const isSpeaker = serverActiveId != null && p.physicalId === serverActiveId;
-            const isFlipped = revealing?.id === p.physicalId;
-            const rm = roleMeta(isFlipped ? revealing?.role : null);
+            const revealedRole = gameOver ? (roleByPid[p.physicalId] ?? null) : (revealing?.id === p.physicalId ? revealing?.role : null);
+            const isFlipped = gameOver || revealing?.id === p.physicalId;
+            const rm = roleMeta(revealedRole);
             const rtimer = remainingFor(p.physicalId);
             const talking = !!speakingByPid?.[p.physicalId];
             // الكاميرا تُعرض على كارد كل لاعب فتح كاميرته (يبثّها للجميع) — قلائل يفتحونها فالأداء آمن
@@ -405,6 +422,10 @@ const RT_CSS = `
 .rt-card.spot .rt-front{border-color:#C5A059;box-shadow:0 0 0 1px #C5A059,0 0 30px rgba(197,160,89,.5)}
 .rt-talk{position:absolute;bottom:37%;right:8px;z-index:7;width:11px;height:11px;border-radius:999px;background:#34d399;box-shadow:0 0 9px #34d399;animation:rttalk 1s ease-in-out infinite}
 @keyframes rttalk{50%{opacity:.35}}
+.rt-winner{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:30;display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none;animation:rtwin .6s ease-out}
+.rt-winner-ic{font-size:38px;filter:drop-shadow(0 0 20px rgba(197,160,89,.55))}
+.rt-winner-t{font-family:'Amiri',serif;font-weight:700;font-size:22px;color:#C5A059;text-shadow:0 2px 14px rgba(0,0,0,.85)}
+@keyframes rtwin{from{opacity:0;transform:translateX(-50%) scale(.7)}}
 .rt-modebtn{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:45;display:inline-flex;align-items:center;gap:6px;
   background:rgba(10,10,10,.86);border:1px solid #262119;color:#C5A059;border-radius:999px;padding:8px 15px;
   font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px)}
