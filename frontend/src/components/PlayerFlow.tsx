@@ -2447,9 +2447,24 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </div>
               )}
 
-              {/* 🎙️ صوت اللعب عن بُعد (يُركّب مرّةً ويبقى طوال اللعبة) */}
+              {/* 📱 الطاولة 3D أعلى الشاشة (بديل شاشة العرض — بلا كشف أدوار) */}
+              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
+                <PhoneSpectatorView
+                  roster={roster}
+                  physicalId={physicalId}
+                  gamePhase={gamePhase}
+                  on={on}
+                  initialDiscussionState={phasePollData?.discussionState}
+                  videoByPid={voiceMaps.videoByPid}
+                  speakingByPid={voiceMaps.audioByPid}
+                />
+              )}
+
+              {/* ── رصيف الأكشن أسفل الطاولة ── */}
+              {/* 🎙️ صوت اللعب عن بُعد (key ثابت يمنع إعادة التركيب/انقطاع الصوت عند تبدّل الأطوار) */}
               {isRemote && (
                 <RemoteVoice
+                  key="remote-voice"
                   roomId={roomId}
                   enabled={!!gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase)}
                   isHost={false}
@@ -2471,19 +2486,6 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   emit={emit}
                   roomId={roomId}
                   gamePhase={gamePhase}
-                />
-              )}
-
-              {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
-              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
-                <PhoneSpectatorView
-                  roster={roster}
-                  physicalId={physicalId}
-                  gamePhase={gamePhase}
-                  on={on}
-                  initialDiscussionState={phasePollData?.discussionState}
-                  videoByPid={voiceMaps.videoByPid}
-                  speakingByPid={voiceMaps.audioByPid}
                 />
               )}
 
@@ -2857,9 +2859,24 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </div>
               )}
 
-              {/* 🎙️ صوت اللعب عن بُعد (يُركّب مرّةً ويبقى طوال اللعبة) */}
+              {/* 📱 الطاولة 3D أعلى الشاشة (بديل شاشة العرض — بلا كشف أدوار) */}
+              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
+                <PhoneSpectatorView
+                  roster={roster}
+                  physicalId={physicalId}
+                  gamePhase={gamePhase}
+                  on={on}
+                  initialDiscussionState={phasePollData?.discussionState}
+                  videoByPid={voiceMaps.videoByPid}
+                  speakingByPid={voiceMaps.audioByPid}
+                />
+              )}
+
+              {/* ── رصيف الأكشن أسفل الطاولة ── */}
+              {/* 🎙️ صوت اللعب عن بُعد (key ثابت يمنع إعادة التركيب/انقطاع الصوت عند تبدّل الأطوار) */}
               {isRemote && (
                 <RemoteVoice
+                  key="remote-voice"
                   roomId={roomId}
                   enabled={!!gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase)}
                   isHost={false}
@@ -2881,19 +2898,6 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   emit={emit}
                   roomId={roomId}
                   gamePhase={gamePhase}
-                />
-              )}
-
-              {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
-              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
-                <PhoneSpectatorView
-                  roster={roster}
-                  physicalId={physicalId}
-                  gamePhase={gamePhase}
-                  on={on}
-                  initialDiscussionState={phasePollData?.discussionState}
-                  videoByPid={voiceMaps.videoByPid}
-                  speakingByPid={voiceMaps.audioByPid}
                 />
               )}
 
