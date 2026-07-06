@@ -39,6 +39,10 @@ services:
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       # 🔒 الرقم السرّي لفتح الأدوات الحسّاسة (تعديل الأرقام/الأسماء). يُضبط في .env على الخادم — لا يُكتب هنا.
       - RENUMBER_SECRET=${RENUMBER_SECRET:-}
+      # 🎙️ Cloudflare RealtimeKit (صوت/فيديو اللعب عن بُعد). القيم في .env على الخادم — لا تُكتب هنا.
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+      - CLOUDFLARE_REALTIMEKIT_APP_ID=${CLOUDFLARE_REALTIMEKIT_APP_ID:-}
+      - CLOUDFLARE_REALTIMEKIT_TOKEN=${CLOUDFLARE_REALTIMEKIT_TOKEN:-}
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     depends_on:

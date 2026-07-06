@@ -34,7 +34,8 @@ async function cf(method: 'POST' | 'PATCH' | 'GET', path: string, body?: any): P
   if (!res.ok || json?.success === false) {
     throw new Error(`RealtimeKit ${method} ${path} → ${res.status} ${JSON.stringify(json?.errors || json || {})}`);
   }
-  return json?.result ?? json;
+  // RealtimeKit عبر CF client/v4 يرجّع النتيجة في data (وليس result)
+  return json?.data ?? json?.result ?? json;
 }
 
 // قفلٌ داخل-العملية يمنع إنشاء اجتماعين لنفس الغرفة عند طلبين متزامنين
