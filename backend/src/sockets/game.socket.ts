@@ -5,6 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { getRoom, Phase, setPhase } from '../game/state.js';
 import { getTeamCounts } from '../game/roles.js';
+import { emitPhaseChangedSanitized } from './broadcast.util.js';
 
 export function registerGameEvents(io: Server, socket: Socket) {
 
@@ -46,7 +47,7 @@ export function registerGameEvents(io: Server, socket: Socket) {
       // جلب الحالة الكاملة لبثها مع الحدث
       const state = await getRoom(data.roomId);
 
-      io.to(data.roomId).emit('game:phase-changed', {
+      await emitPhaseChangedSanitized(io, data.roomId, {
         phase: data.targetPhase,
         state: state || undefined,
         teamCounts: state ? getTeamCounts(state.players) : undefined,

@@ -26,6 +26,7 @@ import { scheduleRevealGrace, clearRevealGrace } from '../game/reveal-grace.js';
 import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engine.js';
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
+import { emitStateSanitized, emitPhaseChangedSanitized } from './broadcast.util.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
 
@@ -55,7 +56,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }));
 
       // بث تغيير المرحلة مع الحالة الكاملة (يمنع race condition مع REST fallback)
-      io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING, state });
+      await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_VOTING, state });
 
       io.to(data.roomId).emit('day:voting-started', {
         candidates: state.votingState.candidates,
@@ -823,7 +824,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         }
         await setPhase(data.roomId, Phase.DAY_ELIMINATION);
         // ⚠️ مهم: إرسال state مع phase-changed لمنع REST fallback من مسح pendingBomb
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_ELIMINATION, state: stateAfter });
+        await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state: stateAfter });
         io.to(data.roomId).emit('day:elimination-pending', {
           eliminated: result.eliminated,
           revealedRoles: result.revealedRoles,
@@ -908,7 +909,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
             }
           }
           // إشعار الليدر
-          io.to(data.roomId).emit('game:state-sync', currentState);
+          await emitStateSanitized(io, data.roomId, 'game:state-sync', currentState);
         }
       }
 
@@ -1104,7 +1105,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (data.action === TieBreakerAction.CANCEL) {
         // إلغاء التصويت → العودة لمرحلة النقاش
         await setPhase(data.roomId, Phase.DAY_DISCUSSION);
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_DISCUSSION, teamCounts: getTeamCounts(state.players), state });
+        await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_DISCUSSION, teamCounts: getTeamCounts(state.players), state });
         io.to(data.roomId).emit('day:cancelled');
       } else if (data.action === TieBreakerAction.ELIMINATE_ALL) {
         // handleTieBreaker أقصى اللاعبين بالفعل (isAlive = false)
@@ -1246,7 +1247,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
         await setPhase(data.roomId, Phase.DAY_ELIMINATION);
 
         // بث تغيير المرحلة مع الحالة (لمنع فقدان pendingBomb)
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_ELIMINATION, state });
+        await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state });
 
         // بث الإقصاء مع نتيجة الفوز والقنبلة
         io.to(data.roomId).emit('day:elimination-pending', {

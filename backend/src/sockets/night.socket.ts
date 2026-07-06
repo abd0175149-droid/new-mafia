@@ -24,6 +24,7 @@ import { clearGameTimer } from '../game/game-timer.js';
 import { clearRevealGrace } from '../game/reveal-grace.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorningRecapSanitized } from './broadcast.util.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -215,13 +216,13 @@ async function resolveAutoNight(io: Server, roomId: string) {
   }
 
   // إرسال ملخص الصباح للليدر — بث للغرفة بالكامل لضمان الوصول
-  io.to(roomId).emit('night:morning-recap', {
+  await emitMorningRecapSanitized(io, roomId, {
     events: resolution.events,
     pendingWinner,
     players: stateAfter?.players || [],
     neutralWin: resolution.neutralWin || null,
     assassinState: stateAfter?.assassinState || null,
-  });
+  }, stateAfter?.config?.isRemote);
 
   // 👥 إشعار المافيا/الأصغر إن حدث تحوّل (الحدث نفسه يُكشف من morningEvents بزر الليدر)
   // ⚠️ نعيد تحميل أحدث حالة (وليس stateAfter القديمة) كي لا نمسح pendingWinner المحفوظ في فروع الفوز أعلاه
@@ -313,8 +314,8 @@ async function prepareAutoQueueStep(io: Server, roomId: string, currentIndex: nu
     timeoutSeconds: state.config.autoNightTime || 15,
   };
 
-  // بث للغرفة بالكامل — يضمن وصول الحدث للليدر
-  io.to(roomId).emit('night:auto-step-ready', stepPayload);
+  // بث للليدر فقط في الغرف البعيدة (يكشف الفاعل ودوره) — بثٌّ كامل محليّاً
+  await emitLeaderOnly(io, roomId, 'night:auto-step-ready', stepPayload, state.config?.isRemote);
 
   console.log(`🌙 Auto step ready: ${nextStep.roleName} — waiting for leader in room ${roomId}`);
 }
@@ -503,10 +504,10 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
 
     await setGameState(roomId, latestState);
     
-    io.to(roomId).emit('night:auto-step-approval', {
+    await emitLeaderOnly(io, roomId, 'night:auto-step-approval', {
       choices: latestState.autoNightChoices || [],
       nextIndex: newIndex,
-    });
+    }, latestState.config?.isRemote);
     
     console.log(`⏸️ Auto step ${nextStep.roleName} pending leader approval in room ${roomId}`);
     } catch (err) {
@@ -516,16 +517,16 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
 
   autoNightTimers.set(roomId, timerId as any);
 
-  // إعلام الليدر أن الخطوة بدأت — بث للغرفة (findLeaderSocket قد يجد سوكت قديم)
-  io.to(roomId).emit('night:auto-step-started', {
+  // إعلام الليدر أن الخطوة بدأت — للليدر فقط في الغرف البعيدة (كشف الدور الفاعل)
+  await emitLeaderOnly(io, roomId, 'night:auto-step-started', {
     roleName: nextStep.roleName,
     timeoutSeconds,
-  });
-  io.to(roomId).emit('night:auto-progress', {
+  }, state.config?.isRemote);
+  await emitLeaderOnly(io, roomId, 'night:auto-progress', {
     total: alivePlayers.length,
     submitted: 0,
     missingPlayers: alivePlayers.map((p: any) => ({ physicalId: p.physicalId, name: p.name })),
-  });
+  }, state.config?.isRemote);
   console.log(`▶️ Auto step dispatched: ${nextStep.roleName} in room ${roomId}`);
 }
 
@@ -1552,7 +1553,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
       // إرسال الـ state كاملة لضمان تحديث isAlive على شاشة العرض
       const updatedState = await getGameState(data.roomId);
-      io.to(data.roomId).emit('game:phase-changed', {
+      await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
         teamCounts: getTeamCounts(updatedState!.players),
         state: updatedState,
@@ -1680,7 +1681,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
       const updatedState = await getGameState(data.roomId);
-      io.to(data.roomId).emit('game:phase-changed', {
+      await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
         teamCounts: getTeamCounts(updatedState!.players),
         state: updatedState,
@@ -1890,12 +1891,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
         .map((p: any) => ({ physicalId: p.physicalId, name: p.name }));
 
       // بث للغرفة بدلاً من findLeaderSocket (قد يجد سوكت قديم)
-      io.to(data.roomId).emit('night:auto-progress', {
+      await emitLeaderOnly(io, data.roomId, 'night:auto-progress', {
         total: alivePlayers.length,
         submitted: submittedCount,
         missingPlayers,
         choices: state.autoNightChoices, // Send real-time choices to leader
-      });
+      }, state.config?.isRemote);
 
       callback?.({ success: true });
 
@@ -1915,10 +1916,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
         (state as any).autoNightApprovalNextIndex = newIndex; // 🌙 لاستئناف شاشة الموافقة عند reload
         await setGameState(data.roomId, state);
         
-        io.to(data.roomId).emit('night:auto-step-approval', {
+        await emitLeaderOnly(io, data.roomId, 'night:auto-step-approval', {
           choices: state.autoNightChoices || [],
           nextIndex: newIndex,
-        });
+        }, state.config?.isRemote);
       }
     } catch (err: any) {
       callback?.({ success: false, error: err.message });

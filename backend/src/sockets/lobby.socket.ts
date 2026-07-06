@@ -22,6 +22,7 @@ import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
 import { matchPlayers } from '../schemas/game.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
+import { emitStateSanitized, emitPhaseChangedSanitized } from './broadcast.util.js';
 
 export const activeRooms: Map<string, { roomId: string; roomCode: string; gameName: string; playerCount: number; maxPlayers: number; displayPin: string; activityId?: number; activityName?: string }> = new Map();
 
@@ -676,7 +677,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
           if (stateChanged) {
             await setGameState(data.roomId, state);
-            io.to(data.roomId).emit('game:state-sync', state);
+            await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
           }
 
           socket.join(data.roomId);
@@ -1013,7 +1014,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             if (pIndex !== -1) {
               oldState.players.splice(pIndex, 1);
               await setGameState(otherState.roomId, oldState);
-              io.to(otherState.roomId).emit('game:state-sync', oldState);
+              await emitStateSanitized(io, otherState.roomId, 'game:state-sync', oldState);
               const oldRoom = activeRooms.get(otherState.roomId);
               if (oldRoom) oldRoom.playerCount = oldState.players.filter((p: any) => !p.seatHeld).length;
               console.log(`🚪 Auto-removed Player #${existing.physicalId} from room ${otherState.roomId}`);
@@ -1051,7 +1052,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
         }
 
-        io.to(data.roomId).emit('game:state-sync', state);
+        await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
 
         console.log(`♻️ Player ${data.name} returned to held seat #${heldPlayer.physicalId} in room ${data.roomId}`);
         return callback({
@@ -1543,7 +1544,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         if (room) {
           room.playerCount = state.players.filter((p: any) => !p.seatHeld).length;
         }
-        io.to(data.roomId).emit('game:state-sync', state);
+        await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       }
 
       // ربط الـ socket بالغرفة
@@ -1672,7 +1673,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           : 'تعذّر التحديث';
         return reply({ success: false, error: msg, deleted: res.deleted });
       }
-      io.to(data.roomId).emit('game:state-sync', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       console.log(`🔄 Room ${data.roomId} re-synced from template — ${res.pinned} pinned, ${res.conflicts.length} conflicts`);
       reply({ success: true, conflicts: res.conflicts, capacityWarning: res.capacityWarning, pinned: res.pinned });
     } catch (e: any) { reply({ success: false, error: e.message }); }
@@ -1792,7 +1793,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // بث التحديث الكامل لكل الشاشات (الآلية الرئيسية للمزامنة)
-      io.to(data.roomId).emit('game:state-sync', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
 
       callback({ success: true });
     } catch (err: any) {
@@ -1861,7 +1862,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         sc.s.emit('player:seat-changed', { oldPhysicalId: sc.oldId, newPhysicalId: sc.newId });
       }
 
-      io.to(data.roomId).emit('game:state-sync', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       console.log(`🪑 Seat ${occupant ? 'swap' : 'move'}: #${data.fromPhysicalId} → #${toSeat}${occupant ? ` (تبادل مع «${occupant.name}»)` : ''}`);
       callback({ success: true, swapped: !!occupant, occupantName: occupant?.name || null });
     } catch (err: any) {
@@ -2304,7 +2305,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       // بث الحالة المحدثة للجميع
-      io.to(data.roomId).emit('game:state-updated', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
 
       callback({ success: true, penalties: player.penalties, isKicked });
       console.log(`⚖️ Leader recorded penalty for player #${data.targetPhysicalId} in room ${data.roomId} (${player.penalties}/${maxPenalties})`);
@@ -2406,7 +2407,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (state.sessionId) { await updateSessionMaxPlayers(state.sessionId, state.config.maxPlayers); }
 
       io.to(data.roomId).emit('room:config-updated', { maxPlayers: state.config.maxPlayers });
-      io.to(data.roomId).emit('game:state-sync', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       callback({ success: true, maxPlayers: state.config.maxPlayers });
       console.log(`🔓 maxPlayersManual cleared — capacity re-synced to ${state.config.maxPlayers}`);
     } catch (err: any) {
@@ -2446,7 +2447,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         penaltyScope: state.config.penaltyScope,
       });
 
-      io.to(data.roomId).emit('game:state-updated', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
 
       callback({ success: true, maxPenalties: state.config.maxPenalties, penaltyScope: state.config.penaltyScope });
       console.log(`⚖️ Leader updated penalty settings: maxPenalties=${state.config.maxPenalties}, scope=${state.config.penaltyScope}`);
@@ -2471,7 +2472,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       state.config.bombEnabled = data.bombEnabled;
       await updateRoom(data.roomId, { config: state.config });
 
-      io.to(data.roomId).emit('game:state-updated', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
       callback({ success: true, bombEnabled: state.config.bombEnabled });
       console.log(`💣 Leader ${data.bombEnabled ? 'enabled' : 'disabled'} bomb ability`);
     } catch (err: any) {
@@ -3101,7 +3102,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
       await setPhase(data.roomId, Phase.DAY_DISCUSSION);
 
-      io.to(data.roomId).emit('game:phase-changed', {
+      await emitPhaseChangedSanitized(io, data.roomId, {
         phase: Phase.DAY_DISCUSSION,
         state,
         teamCounts: getTeamCounts(state.players),
@@ -3329,7 +3330,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                   console.log(`⏰ Seat hold expired: #${playerPhysId} (${playerName}) removed from room ${data.roomId}`);
                 }
                 await setGameState(data.roomId, freshState);
-                io.to(data.roomId).emit('game:state-sync', freshState);
+                await emitStateSanitized(io, data.roomId, 'game:state-sync', freshState);
                 const room = activeRooms.get(data.roomId);
                 if (room) room.playerCount = freshState.players.filter((p: any) => !p.seatHeld).length;
               }
@@ -3351,7 +3352,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // إبلاغ الليدر والشاشات
-      io.to(data.roomId).emit('game:state-sync', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       socket.leave(data.roomId);
 
       // تحديث العداد (اللاعبين الفعليين بدون المحجوزين)
@@ -3400,7 +3401,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // إبلاغ الجميع
-      io.to(data.roomId).emit('game:state-sync', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
 
       console.log(`🔓 Leader released held seat #${data.physicalId} (${playerName}) in room ${data.roomId}`);
       callback({ success: true });
@@ -3596,7 +3597,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       resetRoomState(state, [], data.resetPenalties ?? true);
       await setGameState(data.roomId, state);
 
-      io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY', state });
+      await emitPhaseChangedSanitized(io, data.roomId, { phase: 'LOBBY', state });
 
       callback({ success: true, players: state.players });
       console.log(`🔄 Room ${data.roomId} reset to LOBBY with ${state.players.length} players`);
@@ -3768,7 +3769,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
 
       // إعلام الجميع بالتحول للوبي
-      io.to(data.roomId).emit('game:phase-changed', { phase: 'LOBBY', state });
+      await emitPhaseChangedSanitized(io, data.roomId, { phase: 'LOBBY', state });
 
       callback({
         success: true,
@@ -3814,7 +3815,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       await setGameState(data.roomId, state);
 
       // إعلام الجميع (أو الليدر) بالحالة الجديدة لتحديث الواجهة
-      io.to(data.roomId).emit('game:state-updated', state);
+      await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
       
       console.log(`🌙 Night mode set to '${data.mode}' for room ${data.roomId}`);
       if (callback) callback({ success: true, mode: data.mode });
