@@ -652,6 +652,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const [justTimerDuration, setJustTimerDuration] = useState(30);
   const [justCurrentIdx, setJustCurrentIdx] = useState(0);
   const [justTimerStarted, setJustTimerStarted] = useState(false);
+  const [justNow, setJustNow] = useState(0);
+  useEffect(() => {
+    if (!justTimerStarted) return;
+    const iv = setInterval(() => setJustNow((n) => n + 1), 1000);
+    return () => clearInterval(iv);
+  }, [justTimerStarted]);
   const [justAllDone, setJustAllDone] = useState(false);
 
   const accused = gameState.justificationData?.accused || [];
@@ -659,6 +665,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const allExhausted = gameState.justificationData?.allExhausted || false;
   const justResultType = gameState.justificationData?.resultType;
   const maxJustifications = gameState.justificationData?.maxJustifications || 2;
+  // عدّاد تنازليّ لوقت الدفاع (يُحسب من حالة السيرفر — يظهر للهوست البعيد الذي لا شاشة عرض لديه)
+  const justTimerData = gameState.justificationData?.timer;
+  void justNow; // إعادة الحساب كل ثانية
+  const justRemaining = (justTimerData?.startTime && justTimerData?.timeLimitSeconds)
+    ? Math.max(0, Math.round(justTimerData.timeLimitSeconds - (Date.now() - justTimerData.startTime) / 1000))
+    : null;
 
   // تصفير حالة التبرير عند استلام بيانات تبرير جديدة
   useEffect(() => {
@@ -841,7 +853,11 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
               <div className="space-y-4">
                 <div className="noir-card p-6 border-[#2a2a2a] text-center">
                   <p className="text-[#C5A059] font-mono text-sm uppercase tracking-widest mb-2">DEFENSE ACTIVE</p>
-                  <p className="text-[#808080] font-mono text-xs">Timer running on display screen</p>
+                  {justRemaining != null ? (
+                    <p className={`font-mono font-black text-4xl ${justRemaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{justRemaining}s</p>
+                  ) : (
+                    <p className="text-[#808080] font-mono text-xs">جاري الدفاع…</p>
+                  )}
                 </div>
 
                 {/* Dynamic Time Adjustments for Defense */}
