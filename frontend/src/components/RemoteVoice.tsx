@@ -100,9 +100,14 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
             {v.connected ? `صوت · ${v.participantCount + 1}` : v.error ? 'صوت غير متاح' : 'جارٍ الاتصال…'}
           </span>
         </div>
-        <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300' : 'border-[#2a2a2a] text-[#808080]'}`}>
-          🎙️ مايك المُوجِّه {v.selfAudioOn ? 'مفتوح' : 'مغلق'}
-        </span>
+        <button
+          onClick={() => (v.selfAudioOn ? v.disableSelfAudio() : v.enableSelfAudio())}
+          disabled={!v.connected}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all disabled:opacity-40 ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
+          title={v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك'}
+        >
+          {v.selfAudioOn ? '🎙️ مايكك مفتوح' : '🔇 مايكك مغلق'}
+        </button>
       </div>
       {v.canMute && talking.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
