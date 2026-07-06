@@ -217,6 +217,7 @@ export interface GameConfig {
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
   hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
+  voiceMeetingId?: string | null;  // 🎙️ مُعرّف اجتماع RealtimeKit للصوت/الفيديو (يُنشأ عند أول طلب توكن)
 }
 
 export interface GameState {

@@ -1,0 +1,186 @@
+'use client';
+
+// ══════════════════════════════════════════════════════
+// 🎙️ useVoice — عميل RealtimeKit للّعب عن بُعد (headless)
+// ══════════════════════════════════════════════════════
+// ينضمّ لاجتماع الغرفة مرّةً واحدة، يربط صوت المشاركين، ويوفّر تحكّم المايك/الكاميرا.
+// المضيف ينضمّ ومايكه مفتوح؛ اللاعب ينضمّ ومايكه مغلق (يُفتح في دوره — منطق V3).
+// خرائط الحالة مفهرَسة بـ physicalId (المضيف = مفتاح -1) لربطها بالكروت.
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { loadRealtimeKit, rtkArray, physicalIdFromCustom } from '../lib/voice';
+
+export const VOICE_HOST_KEY = -1;
+
+export interface VoiceApi {
+  connected: boolean;
+  error: string | null;
+  selfAudioOn: boolean;
+  selfVideoOn: boolean;
+  canMute: boolean; // صلاحية كتم الآخرين (المضيف)
+  selfVideoTrack: MediaStreamTrack | null;
+  audioByPid: Record<number, boolean>;              // من مايكه مفتوح
+  videoByPid: Record<number, MediaStreamTrack | null>; // كاميرات المشاركين
+  participantCount: number;
+  enableSelfAudio: () => Promise<void>;
+  disableSelfAudio: () => Promise<void>;
+  enableSelfVideo: () => Promise<void>;
+  disableSelfVideo: () => Promise<void>;
+  muteParticipantByPid: (pid: number) => Promise<void>;
+}
+
+export function useVoice(opts: {
+  roomId: string | null;
+  enabled: boolean;
+  isHost: boolean;
+  selfPhysicalId: number | null;
+  emit: (event: string, payload: any) => Promise<any>;
+}): VoiceApi {
+  const { roomId, enabled, isHost, selfPhysicalId, emit } = opts;
+
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selfAudioOn, setSelfAudioOn] = useState(false);
+  const [selfVideoOn, setSelfVideoOn] = useState(false);
+  const [canMute, setCanMute] = useState(false);
+  const [selfVideoTrack, setSelfVideoTrack] = useState<MediaStreamTrack | null>(null);
+  const [audioByPid, setAudioByPid] = useState<Record<number, boolean>>({});
+  const [videoByPid, setVideoByPid] = useState<Record<number, MediaStreamTrack | null>>({});
+  const [participantCount, setParticipantCount] = useState(0);
+
+  const meetingRef = useRef<any>(null);
+  const audioEls = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const selfPidRef = useRef<number | null>(selfPhysicalId);
+  const emitRef = useRef(emit);
+  useEffect(() => { selfPidRef.current = selfPhysicalId; }, [selfPhysicalId]);
+  useEffect(() => { emitRef.current = emit; }, [emit]);
+
+  const attachAudio = useCallback((p: any) => {
+    try {
+      if (!p?.audioTrack) {
+        const old = audioEls.current.get(p.id);
+        if (old) { old.remove(); audioEls.current.delete(p.id); }
+        return;
+      }
+      let el = audioEls.current.get(p.id);
+      if (!el) {
+        el = document.createElement('audio');
+        el.autoplay = true;
+        (el as any).playsInline = true;
+        document.body.appendChild(el);
+        audioEls.current.set(p.id, el);
+      }
+      el.srcObject = new MediaStream([p.audioTrack]);
+      const pr = el.play?.();
+      if (pr && pr.catch) pr.catch(() => {});
+    } catch { /* noop */ }
+  }, []);
+
+  const pidOf = (p: any): number | null =>
+    p?.customParticipantId === 'host' ? VOICE_HOST_KEY : physicalIdFromCustom(p?.customParticipantId);
+
+  const rebuild = useCallback(() => {
+    const m = meetingRef.current;
+    if (!m) return;
+    const a: Record<number, boolean> = {};
+    const v: Record<number, MediaStreamTrack | null> = {};
+    const selfPid = isHost ? VOICE_HOST_KEY : selfPidRef.current;
+    if (selfPid != null) {
+      a[selfPid] = !!m.self?.audioEnabled;
+      v[selfPid] = m.self?.videoEnabled ? (m.self?.videoTrack ?? null) : null;
+    }
+    const joined = rtkArray(m.participants?.joined);
+    joined.forEach((p: any) => {
+      const pid = pidOf(p);
+      if (pid == null) return;
+      a[pid] = !!p.audioEnabled;
+      v[pid] = p.videoEnabled ? (p.videoTrack ?? null) : null;
+    });
+    setSelfAudioOn(!!m.self?.audioEnabled);
+    setSelfVideoOn(!!m.self?.videoEnabled);
+    setSelfVideoTrack(m.self?.videoEnabled ? (m.self?.videoTrack ?? null) : null);
+    setCanMute(!!m.self?.permissions?.canDisableParticipantAudio);
+    setAudioByPid(a);
+    setVideoByPid(v);
+    setParticipantCount(joined.length);
+  }, [isHost]);
+  const rebuildRef = useRef(rebuild);
+  const attachRef = useRef(attachAudio);
+  useEffect(() => { rebuildRef.current = rebuild; }, [rebuild]);
+  useEffect(() => { attachRef.current = attachAudio; }, [attachAudio]);
+
+  useEffect(() => {
+    if (!enabled || !roomId) return;
+    let cancelled = false;
+
+    const wireP = (p: any) => {
+      attachRef.current(p);
+      p.on?.('audioUpdate', () => { attachRef.current(p); rebuildRef.current(); });
+      p.on?.('videoUpdate', () => rebuildRef.current());
+    };
+
+    (async () => {
+      try {
+        const res = await emitRef.current('voice:get-token', { roomId });
+        if (!res?.success) { if (!cancelled) setError(res?.error || 'voice_token_failed'); return; }
+        const RealtimeKitClient = await loadRealtimeKit();
+        const meeting = await RealtimeKitClient.init({ authToken: res.authToken, defaults: { audio: isHost, video: false } });
+        if (cancelled) { try { meeting.leave(); } catch { /* noop */ } return; }
+        meetingRef.current = meeting;
+
+        const j = meeting.participants?.joined;
+        if (j?.on) {
+          j.on('participantJoined', (p: any) => { wireP(p); rebuildRef.current(); });
+          j.on('participantLeft', (p: any) => {
+            const el = audioEls.current.get(p.id);
+            if (el) { el.remove(); audioEls.current.delete(p.id); }
+            rebuildRef.current();
+          });
+        }
+        if (meeting.self?.on) {
+          meeting.self.on('audioUpdate', () => rebuildRef.current());
+          meeting.self.on('videoUpdate', () => rebuildRef.current());
+          meeting.self.on('permissionsUpdate', () => rebuildRef.current());
+          meeting.self.on('roomJoined', () => rebuildRef.current());
+        }
+
+        await meeting.join();
+        if (cancelled) { try { meeting.leave(); } catch { /* noop */ } return; }
+        rtkArray(meeting.participants?.joined).forEach(wireP);
+        setConnected(true);
+        setError(null);
+        rebuildRef.current();
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'voice_join_failed');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      try { meetingRef.current?.leave(); } catch { /* noop */ }
+      meetingRef.current = null;
+      audioEls.current.forEach((el) => el.remove());
+      audioEls.current.clear();
+      setConnected(false);
+    };
+  }, [enabled, roomId, isHost]);
+
+  const enableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.enableAudio(); } catch { /* noop */ } }, []);
+  const disableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.disableAudio(); } catch { /* noop */ } }, []);
+  const enableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.enableVideo(); } catch { /* noop */ } }, []);
+  const disableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.disableVideo(); } catch { /* noop */ } }, []);
+  const muteParticipantByPid = useCallback(async (pid: number) => {
+    const m = meetingRef.current;
+    if (!m) return;
+    const p = rtkArray(m.participants?.joined).find(
+      (x: any) => (x.customParticipantId === 'host' ? VOICE_HOST_KEY : physicalIdFromCustom(x.customParticipantId)) === pid,
+    );
+    if (p?.audioEnabled) { try { await p.disableAudio(); } catch { /* noop */ } }
+  }, []);
+
+  return {
+    connected, error, selfAudioOn, selfVideoOn, canMute, selfVideoTrack,
+    audioByPid, videoByPid, participantCount,
+    enableSelfAudio, disableSelfAudio, enableSelfVideo, disableSelfVideo, muteParticipantByPid,
+  };
+}

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import MafiaCard from './MafiaCard';
 import PlayerPhaseView from './PlayerPhaseView';
 import PhoneSpectatorView from './PhoneSpectatorView';
+import RemoteVoice from './RemoteVoice';
 import RolesInfoModal from './RolesInfoModal';
 import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
@@ -2441,6 +2442,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </div>
               )}
 
+              {/* 🎙️ صوت اللعب عن بُعد (يُركّب مرّةً ويبقى طوال اللعبة) */}
+              {isRemote && (
+                <RemoteVoice
+                  roomId={roomId}
+                  enabled={!!gamePhase && gamePhase !== 'LOBBY'}
+                  isHost={false}
+                  selfPhysicalId={parseInt(physicalId) || null}
+                  emit={emit}
+                />
+              )}
+
               {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
               {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
                 <PhoneSpectatorView
@@ -2820,6 +2832,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
               </div>
+              )}
+
+              {/* 🎙️ صوت اللعب عن بُعد (يُركّب مرّةً ويبقى طوال اللعبة) */}
+              {isRemote && (
+                <RemoteVoice
+                  roomId={roomId}
+                  enabled={!!gamePhase && gamePhase !== 'LOBBY'}
+                  isHost={false}
+                  selfPhysicalId={parseInt(physicalId) || null}
+                  emit={emit}
+                />
               )}
 
               {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}

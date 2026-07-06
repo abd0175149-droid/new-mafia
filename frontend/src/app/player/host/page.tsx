@@ -14,6 +14,7 @@ import LeaderRoleConfigurator from '@/app/leader/LeaderRoleConfigurator';
 import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
 import LeaderDayView from '@/app/leader/LeaderDayView';
 import HostNightRunner from './HostNightRunner';
+import RemoteVoice from '@/components/RemoteVoice';
 
 export default function HostPage() {
   const { player } = usePlayer();
@@ -276,6 +277,18 @@ export default function HostPage() {
     <div dir="rtl" className="min-h-screen bg-[#050505] text-white pb-24">
       {header}
       {errBar}
+      {gameState?.config?.isRemote && (
+        <div className="px-4 pt-2">
+          <RemoteVoice
+            roomId={gameState?.roomId || roomIdRef.current}
+            enabled={!!phase && phase !== 'LOBBY'}
+            isHost={true}
+            selfPhysicalId={null}
+            emit={emit}
+            nameByPid={Object.fromEntries((gameState?.players || []).map((p: any) => [p.physicalId, p.name]))}
+          />
+        </div>
+      )}
       {body}
     </div>
   );
