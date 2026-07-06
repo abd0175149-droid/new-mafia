@@ -5,8 +5,19 @@
 // ══════════════════════════════════════════════════════
 // V2: اتصال + مايك ذاتيّ + قائمة كتم للمضيف. الفتح التلقائيّ حسب الدور = V3.
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useVoice, VOICE_HOST_KEY } from '../hooks/useVoice';
+
+// معاينة كاميرا اللاعب نفسه (مرآة) — تظهر دائماً حين تُفتح الكاميرا
+function SelfPreview({ track }: { track: MediaStreamTrack }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && track) { try { el.srcObject = new MediaStream([track]); } catch { /* noop */ } }
+    return () => { if (el) el.srcObject = null; };
+  }, [track]);
+  return <video ref={ref} autoPlay muted playsInline className="w-[76px] h-[104px] rounded-xl object-cover border-2 border-sky-500/60 shadow-lg bg-black" style={{ transform: 'scaleX(-1)' }} />;
+}
 
 interface RemoteVoiceProps {
   roomId: string | null;
@@ -67,6 +78,7 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
   if (!isHost) {
     return (
       <div className="fixed left-3 bottom-28 z-40 flex flex-col gap-2 items-center">
+        {v.selfVideoOn && v.selfVideoTrack && <SelfPreview track={v.selfVideoTrack} />}
         <button
           onClick={() => { if (freeMic && v.connected) { if (v.selfAudioOn) v.disableSelfAudio(); else v.enableSelfAudio(); } }}
           className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${freeMic ? 'cursor-pointer' : 'cursor-default'} ${

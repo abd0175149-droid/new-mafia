@@ -167,8 +167,8 @@ export function useVoice(opts: {
 
   const enableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.enableAudio(); } catch { /* noop */ } }, []);
   const disableSelfAudio = useCallback(async () => { try { await meetingRef.current?.self?.disableAudio(); } catch { /* noop */ } }, []);
-  const enableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.enableVideo(); } catch { /* noop */ } }, []);
-  const disableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.disableVideo(); } catch { /* noop */ } }, []);
+  const enableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.enableVideo(); } catch { /* noop */ } setTimeout(() => rebuildRef.current(), 120); rebuildRef.current(); }, []);
+  const disableSelfVideo = useCallback(async () => { try { await meetingRef.current?.self?.disableVideo(); } catch { /* noop */ } rebuildRef.current(); }, []);
   const muteParticipantByPid = useCallback(async (pid: number) => {
     const m = meetingRef.current;
     if (!m) return;
