@@ -4,7 +4,7 @@
 // خاصّ بالغرف البعيدة فقط. يصدر توكن انضمام لكل مقبس حسب حالته.
 
 import { Server, Socket } from 'socket.io';
-import { getGameState } from '../game/state.js';
+import { getGameState } from '../config/redis.js';
 import {
   isVoiceConfigured,
   getOrCreateMeeting,

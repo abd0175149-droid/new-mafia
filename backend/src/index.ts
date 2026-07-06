@@ -56,6 +56,7 @@ import { registerNightEvents } from './sockets/night.socket.js';
 import { registerMafiaChatEvents } from './sockets/mafia-chat.socket.js';
 import { registerGameEvents } from './sockets/game.socket.js';
 import { registerVoiceEvents } from './sockets/voice.socket.js';
+import { registerConfrontationEvents } from './sockets/confrontation.socket.js';
 import { isMafiaRole } from './game/roles.js';
 
 // ── Game API Routes ─────────────────────────────────
@@ -517,6 +518,7 @@ io.on('connection', (socket) => {
   registerGameEvents(io, socket);
   registerMafiaChatEvents(io, socket);
   registerVoiceEvents(io, socket);
+  registerConfrontationEvents(io, socket);
 });
 
 // ══════════════════════════════════════════════════════

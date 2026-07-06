@@ -8,6 +8,8 @@ import MafiaCard from './MafiaCard';
 import PlayerPhaseView from './PlayerPhaseView';
 import PhoneSpectatorView from './PhoneSpectatorView';
 import RemoteVoice from './RemoteVoice';
+import { useActiveSpeaker } from '../hooks/useActiveSpeaker';
+import ConfrontationControls from './ConfrontationControls';
 import RolesInfoModal from './RolesInfoModal';
 import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
@@ -194,6 +196,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [tokenChecked, setTokenChecked] = useState(false);
   const [roster, setRoster] = useState<any[]>([]);
   const [isRemote, setIsRemote] = useState(false); // 🌐 غرفة عن بُعد → أظهر طاولة الطور للاعب
+  const [voiceMaps, setVoiceMaps] = useState<{ videoByPid: Record<number, MediaStreamTrack | null>; audioByPid: Record<number, boolean> }>({ videoByPid: {}, audioByPid: {} });
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
   const [nightActionRequired, setNightActionRequired] = useState<{
@@ -251,7 +254,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [votingComplete, setVotingComplete] = useState(false);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
   const [phasePollData, setPhasePollData] = useState<any>(null);
-  
+  // 🎙️ من يُسمح له بالكلام (نقاش/تبرير/مواجهة) — لفتح مايكي + عرض المواجهة
+  const { confrontation, allowedPids: voiceAllowedPids } = useActiveSpeaker({ on, gamePhase, initialDiscussionState: phasePollData?.discussionState });
+
   const [lastVoteTime, setLastVoteTimeRaw] = useState<number | null>(() => {
     if (typeof window === 'undefined') return null;
     const saved = localStorage.getItem('mafia_lastVoteTime');
@@ -2450,6 +2455,22 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   isHost={false}
                   selfPhysicalId={parseInt(physicalId) || null}
                   emit={emit}
+                  gamePhase={gamePhase}
+                  onVoiceMaps={setVoiceMaps}
+                  shouldOpenMic={voiceAllowedPids.includes(parseInt(physicalId)) && !isPlayerDead}
+                />
+              )}
+
+              {/* ⚔️ المواجهة الثنائية */}
+              {isRemote && (
+                <ConfrontationControls
+                  confrontation={confrontation}
+                  myPid={parseInt(physicalId) || null}
+                  isHost={false}
+                  players={roster}
+                  emit={emit}
+                  roomId={roomId}
+                  gamePhase={gamePhase}
                 />
               )}
 
@@ -2461,6 +2482,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   gamePhase={gamePhase}
                   on={on}
                   initialDiscussionState={phasePollData?.discussionState}
+                  videoByPid={voiceMaps.videoByPid}
+                  speakingByPid={voiceMaps.audioByPid}
                 />
               )}
 
@@ -2842,6 +2865,22 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   isHost={false}
                   selfPhysicalId={parseInt(physicalId) || null}
                   emit={emit}
+                  gamePhase={gamePhase}
+                  onVoiceMaps={setVoiceMaps}
+                  shouldOpenMic={voiceAllowedPids.includes(parseInt(physicalId)) && !isPlayerDead}
+                />
+              )}
+
+              {/* ⚔️ المواجهة الثنائية */}
+              {isRemote && (
+                <ConfrontationControls
+                  confrontation={confrontation}
+                  myPid={parseInt(physicalId) || null}
+                  isHost={false}
+                  players={roster}
+                  emit={emit}
+                  roomId={roomId}
+                  gamePhase={gamePhase}
                 />
               )}
 
@@ -2853,6 +2892,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   gamePhase={gamePhase}
                   on={on}
                   initialDiscussionState={phasePollData?.discussionState}
+                  videoByPid={voiceMaps.videoByPid}
+                  speakingByPid={voiceMaps.audioByPid}
                 />
               )}
 

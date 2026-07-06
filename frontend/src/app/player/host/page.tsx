@@ -15,6 +15,8 @@ import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
 import LeaderDayView from '@/app/leader/LeaderDayView';
 import HostNightRunner from './HostNightRunner';
 import RemoteVoice from '@/components/RemoteVoice';
+import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
+import ConfrontationControls from '@/components/ConfrontationControls';
 
 export default function HostPage() {
   const { player } = usePlayer();
@@ -104,6 +106,9 @@ export default function HostPage() {
     const iv = setInterval(() => { if (roomIdRef.current) refreshState(roomIdRef.current); }, 2500);
     return () => clearInterval(iv);
   }, [refreshState]);
+
+  // 🎙️ من يُسمح له بالكلام (للمضيف: يكتم الباقي) + حالة المواجهة
+  const { allowedPids: hostAllowedPids, confrontation: hostConfrontation } = useActiveSpeaker({ on, gamePhase: gameState?.phase ?? null, initialDiscussionState: gameState?.discussionState });
 
   const joinLink = gameState ? `${typeof window !== 'undefined' ? window.location.origin : ''}/player/join?code=${gameState.roomCode}` : '';
 
@@ -285,7 +290,17 @@ export default function HostPage() {
             isHost={true}
             selfPhysicalId={null}
             emit={emit}
+            allowedPids={hostAllowedPids}
             nameByPid={Object.fromEntries((gameState?.players || []).map((p: any) => [p.physicalId, p.name]))}
+          />
+          <ConfrontationControls
+            confrontation={hostConfrontation}
+            myPid={null}
+            isHost={true}
+            players={gameState?.players || []}
+            emit={emit}
+            roomId={gameState?.roomId || roomIdRef.current}
+            gamePhase={gameState?.phase ?? null}
           />
         </div>
       )}

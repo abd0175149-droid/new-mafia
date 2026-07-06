@@ -239,6 +239,15 @@ export interface GameState {
   tiedCandidates?: Candidate[]; // In case of tie
   justificationData?: any; // بيانات التبرير المحفوظة لاستعادتها عند إعادة الاتصال
   withdrawalState?: { count: number; needed: number; withdrawn: number[]; accusedIds: number[]; total: number } | null;
+  // 🎙️ المواجهة الثنائية (عن بُعد فقط): طلب → موافقة الطرف → موافقة الليدر → 30ث
+  confrontation?: {
+    status: 'PENDING_TARGET' | 'PENDING_LEADER' | 'ACTIVE';
+    requesterId: number;
+    targetId: number;
+    startedAt?: number;
+  } | null;
+  confrontationCount?: number;   // عدد المواجهات هذه الجولة (حدّ 3)
+  confrontationRound?: number;   // الجولة التي عُدّت فيها (لتصفير العدّاد كل نهار)
   winner: 'MAFIA' | 'CITIZEN' | 'JESTER' | 'ASSASSIN' | null;
   pendingWinner?: string | null; // فوز مُعلّق (ينتظر تأكيد الليدر بعد ملخص الصباح)
   nurseActivated?: boolean; // هل الليدر فعّل الممرضة في بداية هذا الليل

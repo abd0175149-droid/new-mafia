@@ -8,7 +8,7 @@
 //   dead  → mafia_dead   (لا يستطيع البثّ إطلاقاً — تفرّج فقط)
 // الوثائق: POST /meetings ثم POST /meetings/{id}/participants { name, preset_name, custom_participant_id }.
 
-import { getGameState, setGameState } from '../game/state.js';
+import { getGameState, setGameState } from '../config/redis.js';
 
 const ACCT = process.env.CLOUDFLARE_ACCOUNT_ID || '';
 const APP_ID = process.env.CLOUDFLARE_REALTIMEKIT_APP_ID || '';

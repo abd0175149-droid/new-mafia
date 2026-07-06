@@ -19,6 +19,8 @@ interface PhoneSpectatorViewProps {
   gamePhase: string;
   on: (event: string, handler: (...args: any[]) => void) => (() => void);
   initialDiscussionState?: any;
+  videoByPid?: Record<number, MediaStreamTrack | null>; // 📷 كاميرات (self + المتحدّث فقط)
+  speakingByPid?: Record<number, boolean>;              // 🔊 من يتكلّم صوتياً الآن
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -58,7 +60,18 @@ function shortest(i: number, f: number, n: number): number {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState }: PhoneSpectatorViewProps) {
+// كارد فيديو (يربط MediaStreamTrack عبر ref)
+function VideoTile({ track }: { track: MediaStreamTrack }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (el && track) { try { el.srcObject = new MediaStream([track]); } catch { /* noop */ } }
+    return () => { if (el) el.srcObject = null; };
+  }, [track]);
+  return <video ref={ref} autoPlay muted playsInline className="rt-avimg" />;
+}
+
+export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid }: PhoneSpectatorViewProps) {
   const [mode, setMode] = useState<'focus' | 'overview'>('focus');
   const [discussion, setDiscussion] = useState<any>(initialDiscussionState || null);
   const [justTimer, setJustTimer] = useState<{ physicalId: number; timeLimitSeconds: number; startTime: number } | null>(null);
@@ -239,6 +252,9 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             const isFlipped = revealing?.id === p.physicalId;
             const rm = roleMeta(isFlipped ? revealing?.role : null);
             const rtimer = remainingFor(p.physicalId);
+            const talking = !!speakingByPid?.[p.physicalId];
+            // الكاميرا تُعرض فقط على كارد اللاعب نفسه وكارد المتحدّث (لا كل الطاولة)
+            const vTrack = (p.physicalId === myId || isSpeaker) ? (videoByPid?.[p.physicalId] ?? null) : null;
             let style: CSSProperties;
             if (mode === 'focus') {
               const off = shortest(i, focusIdx, N);
@@ -261,7 +277,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             return (
               <div
                 key={p.physicalId}
-                className={`rt-card ${isDead ? 'dead' : ''} ${isSpeaker ? 'spot' : ''}`}
+                className={`rt-card ${isDead ? 'dead' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''}`}
                 style={style}
                 onClick={() => onTapCard(p.physicalId)}
               >
@@ -269,13 +285,18 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                   {/* الوجه الأمامي — مقلوب (بلا دور) */}
                   <div className="rt-face rt-front">
                     <div className={`rt-av ${p.gender === 'FEMALE' ? 'f' : 'm'}`}>
-                      <img
-                        src={p.avatarUrl || fallback}
-                        alt={p.name}
-                        className="rt-avimg"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
+                      {vTrack ? (
+                        <VideoTile track={vTrack} />
+                      ) : (
+                        <img
+                          src={p.avatarUrl || fallback}
+                          alt={p.name}
+                          className="rt-avimg"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      )}
                     </div>
+                    {talking && <span className="rt-talk" />}
                     <div className={`rt-num ${p.gender === 'FEMALE' ? 'gf' : ''}`}>{p.physicalId}</div>
                     <div className="rt-name">{p.name}</div>
                     {p.physicalId === myId && <span className="rt-you">أنت</span>}
@@ -355,6 +376,8 @@ const RT_CSS = `
 .rt-skull{position:absolute;inset:0 0 34% 0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);font-size:26px;z-index:4}
 .rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55)}
 .rt-card.spot .rt-front{border-color:#C5A059;box-shadow:0 0 0 1px #C5A059,0 0 30px rgba(197,160,89,.5)}
+.rt-talk{position:absolute;bottom:37%;right:8px;z-index:7;width:11px;height:11px;border-radius:999px;background:#34d399;box-shadow:0 0 9px #34d399;animation:rttalk 1s ease-in-out infinite}
+@keyframes rttalk{50%{opacity:.35}}
 .rt-modebtn{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:45;display:inline-flex;align-items:center;gap:6px;
   background:rgba(10,10,10,.86);border:1px solid #262119;color:#C5A059;border-radius:999px;padding:8px 15px;
   font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px)}
