@@ -205,7 +205,7 @@ export default function HostPage() {
           <button onClick={() => { try { navigator.clipboard.writeText(joinLink); } catch {} }}
             className="mt-2 text-xs text-white/80 border border-[#222] rounded-md px-3 py-1.5">📋 نسخ</button>
         </div>
-        <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} hideOfflineAgent hideRoomSettings />
+        <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} hideOfflineAgent hideRoomSettings allowStartBeforeFull />
       </>
     );
   } else if (phase === 'ROLE_GENERATION') {

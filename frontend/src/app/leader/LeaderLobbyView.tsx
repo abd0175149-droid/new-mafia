@@ -12,9 +12,12 @@ interface LeaderLobbyViewProps {
   setError: (err: string) => void;
   hideOfflineAgent?: boolean; // 🌐 للغرف البعيدة: يخفي «إضافة عميل دون جهاز» (REST مقيّد بتوكن الموظّف وغير مطلوب عن بُعد)
   hideRoomSettings?: boolean;  // 🌐 للغرف البعيدة: يخفي إعدادات الغرفة (تُضبط قبل الإنشاء)
+  allowStartBeforeFull?: boolean; // 🌐 للغرف البعيدة: يسمح بالبدء عند 6+ لاعبين (لا يشترط امتلاء الغرفة)
 }
 
-export default function LeaderLobbyView({ gameState, emit, setError, hideOfflineAgent, hideRoomSettings }: LeaderLobbyViewProps) {
+const MIN_PLAYERS_TO_START = 6;
+
+export default function LeaderLobbyView({ gameState, emit, setError, hideOfflineAgent, hideRoomSettings, allowStartBeforeFull }: LeaderLobbyViewProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [kickingId, setKickingId] = useState<number | null>(null);
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
@@ -1011,8 +1014,8 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
       </div>
       )}
 
-      {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة) ── */}
-      {gameState.players.length === gameState.config.maxPlayers && (
+      {/* ── زر الإطلاق (يظهر عند اكتمال الغرفة، أو 6+ لاعبين للغرف البعيدة) ── */}
+      {(allowStartBeforeFull ? gameState.players.length >= MIN_PLAYERS_TO_START : gameState.players.length === gameState.config.maxPlayers) && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center mt-4 mb-8">
           <button
             onClick={async () => {
@@ -1028,6 +1031,11 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
             <span className="relative z-10">START ROLE GENERATION</span>
           </button>
         </motion.div>
+      )}
+      {allowStartBeforeFull && gameState.players.length < MIN_PLAYERS_TO_START && (
+        <div className="text-center text-[#808080] text-xs mt-4 mb-8">
+          تحتاج {MIN_PLAYERS_TO_START} لاعبين على الأقل للبدء — لديك {gameState.players.length}
+        </div>
       )}
     </div>
   );
