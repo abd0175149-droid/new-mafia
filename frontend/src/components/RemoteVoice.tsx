@@ -62,51 +62,47 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
     .filter(([pid, on]) => on && Number(pid) !== VOICE_HOST_KEY && Number(pid) !== selfPhysicalId)
     .map(([pid]) => Number(pid));
 
+  // ── اللاعب: زرّان عائمان (مايك آليّ + كاميرا) — بلا شريط حالة/عدد ──
+  if (!isHost) {
+    return (
+      <div className="fixed left-3 bottom-28 z-40 flex flex-col gap-2 items-center">
+        <div
+          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${
+            v.selfAudioOn ? 'bg-emerald-500/25 border-emerald-500/60 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
+          }`}
+          title={v.selfAudioOn ? 'دورك — مايكك مفتوح' : 'مايكك مغلق (يُفتح في دورك)'}
+        >
+          {v.selfAudioOn ? '🎙️' : '🔇'}
+        </div>
+        <button
+          onClick={() => (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo())}
+          disabled={!v.connected || gamePhase === 'NIGHT'}
+          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all disabled:opacity-40 ${
+            v.selfVideoOn ? 'bg-sky-500/25 border-sky-500/60 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
+          }`}
+          title={gamePhase === 'NIGHT' ? 'الكاميرا معطّلة ليلاً' : 'الكاميرا'}
+        >
+          📷
+        </button>
+      </div>
+    );
+  }
+
+  // ── المضيف: شريط الصوت + كتم المتكلّمين ──
   return (
     <div className="mb-3 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs">
           <span className={`inline-block w-2 h-2 rounded-full ${v.connected ? 'bg-emerald-500' : v.error ? 'bg-red-500' : 'bg-amber-500 animate-pulse'}`} />
           <span className="text-[#c9c3b5] font-mono">
-            {v.connected ? `صوت متصل · ${v.participantCount + 1}` : v.error ? 'صوت غير متاح' : 'جارٍ الاتصال…'}
+            {v.connected ? `صوت · ${v.participantCount + 1}` : v.error ? 'صوت غير متاح' : 'جارٍ الاتصال…'}
           </span>
         </div>
-
-        {/* مايك آليّ بالكامل (يفتح في الدور فقط — لا زرّ يدويّ) + كاميرا ذاتيّة */}
-        {!isHost && (
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'
-              }`}
-            >
-              {v.selfAudioOn ? '🎙️ دورك — مايكك مفتوح' : '🔇 مايكك مغلق'}
-            </span>
-            <button
-              onClick={() => (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo())}
-              disabled={!v.connected || gamePhase === 'NIGHT'}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all disabled:opacity-40 ${
-                v.selfVideoOn ? 'border-sky-500/50 text-sky-300 bg-sky-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'
-              }`}
-              title={gamePhase === 'NIGHT' ? 'الكاميرا معطّلة ليلاً' : 'الكاميرا'}
-            >
-              📷
-            </button>
-          </div>
-        )}
-        {isHost && (
-          <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300' : 'border-[#2a2a2a] text-[#808080]'}`}>
-            🎙️ مايك المُوجِّه {v.selfAudioOn ? 'مفتوح' : 'مغلق'}
-          </span>
-        )}
+        <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300' : 'border-[#2a2a2a] text-[#808080]'}`}>
+          🎙️ مايك المُوجِّه {v.selfAudioOn ? 'مفتوح' : 'مغلق'}
+        </span>
       </div>
-
-      {v.error && (
-        <div className="mt-1 text-[10px] font-mono text-red-400/80">{v.error}</div>
-      )}
-
-      {/* المضيف: كتم المتكلّمين */}
-      {isHost && v.canMute && talking.length > 0 && (
+      {v.canMute && talking.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {talking.map((pid) => (
             <button

@@ -1824,7 +1824,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   return (
-    <div className={`display-bg min-h-screen flex flex-col items-center font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3' : 'justify-center p-4 sm:p-6'}`}>
+    <div className={`min-h-screen flex flex-col items-center font-sans relative overflow-hidden selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3 bg-[#050505]' : 'justify-center p-4 sm:p-6 display-bg blood-vignette'}`}>
       {/* ── Dynamic Toast Notification Overlay ── */}
       <AnimatePresence>
         {activeToast && (
@@ -2009,7 +2009,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         </motion.div>
       ) : (
         <>
-          {/* ── Title: MAFIA CLUB + Logo ── */}
+          {/* ── Title: MAFIA CLUB + Logo (مخفيّ عن بُعد — واجهة ملء الشاشة بلا لوجو) ── */}
+          {!isRemote && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2058,11 +2059,12 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               />
             </motion.div>
           </motion.div>
+          )}
 
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className={`w-full rounded-xl bg-black/50 backdrop-blur-md relative z-10 ${isRemote ? 'max-w-lg p-3 shadow-none' : 'max-w-md p-8 sm:p-10 border border-[#2a2a2a] shadow-[0_0_40px_rgba(0,0,0,0.8)]'}`}
+            className={`w-full rounded-xl backdrop-blur-md relative z-10 ${isRemote ? 'max-w-lg p-2.5 shadow-none' : 'max-w-md p-8 sm:p-10 bg-black/50 border border-[#2a2a2a] shadow-[0_0_40px_rgba(0,0,0,0.8)]'}`}
           >
         {!isRemote && <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#8A0303]/60 to-transparent opacity-80 rounded-t-xl" />}
         

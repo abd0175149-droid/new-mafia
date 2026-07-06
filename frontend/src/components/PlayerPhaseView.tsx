@@ -40,6 +40,7 @@ export default function PlayerPhaseView({
   const [dealError, setDealError] = useState('');
   const [dealSubmitting, setDealSubmitting] = useState(false);
   const [dealRemoving, setDealRemoving] = useState(false);
+  const [dealsSheetOpen, setDealsSheetOpen] = useState(false); // 🤝 الاتفاقيات كطبقة منزلقة
   // ── حالة التبرير ──
   const [justificationData, setJustificationData] = useState<any>(pollData?.justificationData || null);
   const [justTimer, setJustTimer] = useState<number | null>(null);
@@ -731,13 +732,22 @@ export default function PlayerPhaseView({
 
         {/* ── قسم الاتفاقيات التلقائية (Deals Section) ── */}
         {!isPlayerDead && (
-          <div className="mx-1 mb-3 p-3 rounded-xl bg-[#0b0a08]/70 border border-[#1f1a12]">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-xs text-[#C5A059] font-bold">🤝 الاتفاقيات الثنائية</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
-                {deals.length} / 3
-              </span>
-            </div>
+          <>
+            {/* زرّ الاتفاقيات (بجانب زرّ المواجهة) — يفتح طبقةً منزلقة */}
+            <button
+              onClick={() => setDealsSheetOpen(true)}
+              className="w-full mb-3 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border border-[#C5A059]/30 text-[#C5A059] bg-[#C5A059]/5 text-sm font-bold hover:bg-[#C5A059]/10 transition-all"
+            >
+              🤝 الاتفاقيات
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#C5A059]/10 border border-[#C5A059]/20">{deals.length}/3</span>
+            </button>
+            {dealsSheetOpen && (
+              <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-end" onClick={() => setDealsSheetOpen(false)}>
+                <div className="w-full bg-[#0c0b09] border-t border-[#1f1a12] rounded-t-2xl p-4 max-h-[82%] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm text-[#C5A059] font-bold" style={{ fontFamily: 'Amiri, serif' }}>🤝 الاتفاقيات الثنائية <span className="text-[10px] font-mono text-[#808080]">({deals.length}/3)</span></span>
+                    <button onClick={() => setDealsSheetOpen(false)} className="text-[#808080] text-lg leading-none">✕</button>
+                  </div>
 
             {pollData?.round === 1 ? (
               <div className="p-3.5 rounded-xl bg-black/20 border border-[#C5A059]/10 text-center">
@@ -845,7 +855,10 @@ export default function PlayerPhaseView({
                 </div>
               );
             })()}
-          </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* قائمة ترتيب النقاش — مخفيّة عن بُعد (تقليل التكرار؛ الحلقة تعرض الطاولة) */}
