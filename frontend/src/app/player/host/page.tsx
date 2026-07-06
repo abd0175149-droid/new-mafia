@@ -13,6 +13,7 @@ import LeaderLobbyView from '@/app/leader/LeaderLobbyView';
 import LeaderRoleConfigurator from '@/app/leader/LeaderRoleConfigurator';
 import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
 import LeaderDayView from '@/app/leader/LeaderDayView';
+import HostNightRunner from './HostNightRunner';
 
 export default function HostPage() {
   const { player } = usePlayer();
@@ -80,6 +81,11 @@ export default function HostPage() {
     offs.push(on('room:player-updated', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('room:player-kicked', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('player:seat-changed', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    // أحداث تُغيّر الطور/الحالة (النهار→الليل→الصباح→النهاية)
+    offs.push(on('night:morning-recap', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    offs.push(on('game:over', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    offs.push(on('day:voting-started', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    offs.push(on('day:elimination-revealed', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     return () => { offs.forEach((f) => f && f()); };
   }, [on, refreshState]);
 
@@ -91,6 +97,12 @@ export default function HostPage() {
         .catch(() => { roomIdRef.current = null; try { localStorage.removeItem('mafia_host_room'); } catch { /* ignore */ } });
     }
   }, [isConnected, emit, refreshState]);
+
+  // ── استطلاع دوريّ للحالة الكاملة (يُبقي مكوّنات النهار/الليل المُعادة محدّثة، إذ تعتمد على prop) ──
+  useEffect(() => {
+    const iv = setInterval(() => { if (roomIdRef.current) refreshState(roomIdRef.current); }, 2500);
+    return () => clearInterval(iv);
+  }, [refreshState]);
 
   const joinLink = gameState ? `${typeof window !== 'undefined' ? window.location.origin : ''}/player/join?code=${gameState.roomCode}` : '';
 
@@ -225,12 +237,37 @@ export default function HostPage() {
     body = <LeaderRoleBinding gameState={gameState} emit={emit} setError={setError} />;
   } else if (phase.startsWith('DAY_')) {
     body = <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
+  } else if (phase === 'NIGHT' || phase === 'MORNING_RECAP') {
+    body = <HostNightRunner gameState={gameState} emit={emit} on={on} setError={setError} />;
+  } else if (phase === 'GAME_OVER') {
+    const winner = gameState.winner;
+    const winTitle = winner === 'MAFIA' ? 'انتصار المافيا' : winner === 'ASSASSIN' ? 'انتصار السفّاح' : winner === 'JESTER' ? 'فوز المهرج' : 'تطهير المدينة';
+    const winIcon = winner === 'MAFIA' ? '🩸' : winner === 'ASSASSIN' ? '🔪' : winner === 'JESTER' ? '🤡' : '⚖️';
+    body = (
+      <div className="p-5 text-center">
+        <div className="text-7xl mb-3 grayscale">{winIcon}</div>
+        <h2 className="text-3xl font-black text-white mb-4" style={{ fontFamily: 'Amiri, serif' }}>{winTitle}</h2>
+        <div className="grid grid-cols-2 gap-2 max-w-md mx-auto mb-6">
+          {(gameState.players || []).map((p: any) => (
+            <div key={p.physicalId} className={`p-2 rounded-lg border text-sm ${p.isAlive ? 'border-[#2a2a2a] bg-[#0a0a0a]' : 'border-[#1a1a1a] bg-black/40 opacity-60'}`}>
+              <div className="text-white/90">#{p.physicalId} {p.name}</div>
+              <div className="text-[#C5A059] text-xs font-mono">{p.role || '—'}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 max-w-md mx-auto">
+          <button onClick={async () => { try { await emit('room:new-game', { roomId: gameState.roomId }); } catch (e: any) { setError(e?.message || 'تعذّر'); } }}
+            className="btn-premium flex-1 !py-3 !rounded-lg"><span>🔄 لعبة جديدة</span></button>
+          <button onClick={async () => { try { await emit('room:close-event', { roomId: gameState.roomId }); localStorage.removeItem('mafia_host_room'); roomIdRef.current = null; setGameState(null); } catch (e: any) { setError(e?.message || 'تعذّر'); } }}
+            className="flex-1 py-3 rounded-lg border border-[#333] text-[#aaa]">إنهاء الغرفة</button>
+        </div>
+      </div>
+    );
   } else {
     body = (
       <div className="p-8 text-center text-[#808080]">
-        <div className="text-4xl mb-3">🌙</div>
-        <p className="text-lg text-white/90 mb-1">إدارة طور «{phase}» قيد البناء</p>
-        <p className="text-sm">مُشغّل الليل (الوضع الأوتوماتيكيّ) قادمٌ في التحديث التالي.</p>
+        <div className="text-4xl mb-3">⏳</div>
+        <p className="text-lg text-white/90 mb-1">الطور «{phase}»</p>
       </div>
     );
   }
