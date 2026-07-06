@@ -731,10 +731,10 @@ export default function PlayerPhaseView({
 
         {/* ── قسم الاتفاقيات التلقائية (Deals Section) ── */}
         {!isPlayerDead && (
-          <div className="mx-2 mb-4 p-4 rounded-2xl bg-black/40 border border-[#C5A059]/20">
-            <div className="flex items-center justify-between mb-3">
+          <div className="mx-1 mb-3 p-3 rounded-xl bg-[#0b0a08]/70 border border-[#1f1a12]">
+            <div className="flex items-center justify-between mb-2.5">
               <span className="text-xs text-[#C5A059] font-bold">🤝 الاتفاقيات الثنائية</span>
-              <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[#C5A059]/10 text-[#C5A059] border border-[#C5A059]/20">
                 {deals.length} / 3
               </span>
             </div>

@@ -1824,7 +1824,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   };
 
   return (
-    <div className="display-bg min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white">
+    <div className={`display-bg min-h-screen flex flex-col items-center font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3' : 'justify-center p-4 sm:p-6'}`}>
       {/* ── Dynamic Toast Notification Overlay ── */}
       <AnimatePresence>
         {activeToast && (
@@ -2062,9 +2062,9 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-md p-8 sm:p-10 rounded-xl bg-black/60 backdrop-blur-md border border-[#2a2a2a] shadow-[0_0_40px_rgba(0,0,0,0.8)] relative z-10"
+            className={`w-full rounded-xl bg-black/50 backdrop-blur-md relative z-10 ${isRemote ? 'max-w-lg p-3 shadow-none' : 'max-w-md p-8 sm:p-10 border border-[#2a2a2a] shadow-[0_0_40px_rgba(0,0,0,0.8)]'}`}
           >
-        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#8A0303]/60 to-transparent opacity-80 rounded-t-xl" />
+        {!isRemote && <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#8A0303]/60 to-transparent opacity-80 rounded-t-xl" />}
         
         <AnimatePresence mode="wait">
 
@@ -2404,8 +2404,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
-              {/* ── بانر المقعد المخصص ── */}
-              {physicalId && (
+              {/* ── بانر المقعد المخصص (مخفيّ عن بُعد — الطاولة تُظهر مقعدك على كارد «أنت») ── */}
+              {!isRemote && physicalId && (
                 <motion.div
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
@@ -2422,24 +2422,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   <p className="text-[#C5A059]/70 text-xs" style={{ fontFamily: 'Amiri, serif' }}>يرجى الجلوس في مقعدك</p>
                 </motion.div>
               )}              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
-              <div className="flex justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 px-0.5">
                 <button
                   onClick={() => setRolesModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 transition-all text-[10px] font-bold tracking-widest"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
                 >
-                  <span className="text-sm">🃏</span>
-                  الأدوار
+                  <span className="text-sm">🃏</span> الأدوار
                 </button>
+                {isRemote && physicalId && (
+                  <span className="text-[11px] font-mono text-[#808080]">مقعدك <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
+                )}
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/25 text-red-400 hover:bg-red-500/10 transition-all text-[11px] font-bold"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                  </svg>
-                  EXIT
+                  <span className="text-sm">🚪</span> خروج
                 </button>
               </div>
 
@@ -2835,24 +2832,21 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
             <motion.div key="rejoined" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
               {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
-              <div className="flex justify-between mb-2">
+              <div className="flex items-center justify-between mb-2 px-0.5">
                 <button
                   onClick={() => setRolesModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 transition-all text-[10px] font-bold tracking-widest"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
                 >
-                  <span className="text-sm">🃏</span>
-                  الأدوار
+                  <span className="text-sm">🃏</span> الأدوار
                 </button>
+                {isRemote && physicalId && (
+                  <span className="text-[11px] font-mono text-[#808080]">مقعدك <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
+                )}
                 <button
                   onClick={handleLogout}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/20 text-red-400 hover:bg-red-500/10 transition-all text-[10px] font-mono tracking-widest uppercase"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/25 text-red-400 hover:bg-red-500/10 transition-all text-[11px] font-bold"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-                    <polyline points="16 17 21 12 16 7"></polyline>
-                    <line x1="21" y1="12" x2="9" y2="12"></line>
-                  </svg>
-                  EXIT
+                  <span className="text-sm">🚪</span> خروج
                 </button>
               </div>
 
