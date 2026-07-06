@@ -141,15 +141,20 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
     }
   }, [serverActiveId]);
 
-  // مؤقّت العدّاد (تبرير أو نقاش)
-  const activeTimer =
+  // مؤقّت العدّاد (تبرير أو نقاش). base = الوقت المتبقّي عند startTime؛ ونطرح المنقضي فقط أثناء التحدّث.
+  // نستعمل timeRemaining (يحدّثه السيرفر مع كل تعديل +/-) وليس timeLimitSeconds الثابت — كي تنعكس تعديلات الليدر.
+  const activeTimer: { physicalId: number; base: number; startTime: number | null } | null =
     justTimer && gamePhase === 'DAY_JUSTIFICATION'
-      ? justTimer
-      : discussion?.currentSpeakerId != null && discussion?.startTime
-      ? { physicalId: discussion.currentSpeakerId, timeLimitSeconds: discussion.timeLimitSeconds, startTime: discussion.startTime }
+      ? { physicalId: justTimer.physicalId, base: justTimer.timeLimitSeconds, startTime: justTimer.startTime }
+      : gamePhase === 'DAY_DISCUSSION' && discussion?.currentSpeakerId != null
+      ? {
+          physicalId: discussion.currentSpeakerId,
+          base: typeof discussion.timeRemaining === 'number' ? discussion.timeRemaining : discussion.timeLimitSeconds ?? 0,
+          startTime: discussion.startTime ?? null,
+        }
       : null;
   useEffect(() => {
-    if (!activeTimer) return;
+    if (!activeTimer?.startTime) return; // نعدّ فقط أثناء التحدّث الفعليّ (paused → startTime=null)
     const iv = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(iv);
   }, [activeTimer?.physicalId, activeTimer?.startTime]);
@@ -157,10 +162,10 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   const remainingFor = (id: number): number | null => {
     void tick;
     if (!activeTimer || activeTimer.physicalId !== id) return null;
-    if (activeTimer.startTime && activeTimer.timeLimitSeconds) {
-      return Math.max(0, Math.round(activeTimer.timeLimitSeconds - (Date.now() - activeTimer.startTime) / 1000));
+    if (activeTimer.startTime) {
+      return Math.max(0, Math.round(activeTimer.base - (Date.now() - activeTimer.startTime) / 1000));
     }
-    return typeof discussion?.timeRemaining === 'number' && id === discussion?.currentSpeakerId ? discussion.timeRemaining : null;
+    return Math.max(0, Math.round(activeTimer.base));
   };
 
   // تفاعل محلّي
@@ -239,7 +244,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
               const off = shortest(i, focusIdx, N);
               const a = Math.abs(off);
               style = {
-                transform: `translateX(${off * 135}px) translateZ(${-a * 120}px) rotateY(${-off * 50}deg) scale(${off === 0 ? 1 : 0.7})`,
+                transform: `translateX(${off * 155}px) translateZ(${-a * 140}px) rotateY(${-off * 50}deg) scale(${off === 0 ? 1 : 0.7})`,
                 opacity: a > 2 ? 0 : off === 0 ? 1 : 0.45,
                 zIndex: 100 - a,
               };
@@ -247,7 +252,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
               const ang = (i / N) * 2 * Math.PI - Math.PI / 2;
               const foc = p.physicalId === focusId;
               style = {
-                transform: `translate(${Math.cos(ang) * 100}px, ${Math.sin(ang) * 118}px) scale(${foc ? 0.62 : 0.48})`,
+                transform: `translate(${Math.cos(ang) * 118}px, ${Math.sin(ang) * 145}px) scale(${foc ? 0.6 : 0.46})`,
                 opacity: 1,
                 zIndex: foc ? 60 : 20,
               };
@@ -315,12 +320,12 @@ const RT_CSS = `
   color:#C5A059;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:700}
 .rt-pill .rt-mono{font-family:'JetBrains Mono',monospace;font-weight:800}
 .rt-pill .rt-mono.warn{color:#d13636}
-.rt-stage{position:relative;height:330px;perspective:1100px;overflow:hidden}
-.rt-glow{position:absolute;top:50%;left:50%;width:230px;height:300px;transform:translate(-50%,-50%);
+.rt-stage{position:relative;height:400px;perspective:1250px;overflow:hidden}
+.rt-glow{position:absolute;top:50%;left:50%;width:270px;height:350px;transform:translate(-50%,-50%);
   background:radial-gradient(closest-side,rgba(197,160,89,.14),transparent);filter:blur(10px);opacity:0;transition:.5s;pointer-events:none}
 .rt-stage.focus .rt-glow{opacity:1}
 .rt-ring{position:absolute;inset:0;transform-style:preserve-3d}
-.rt-card{position:absolute;top:50%;left:50%;width:120px;height:168px;margin:-84px 0 0 -60px;
+.rt-card{position:absolute;top:50%;left:50%;width:140px;height:196px;margin:-98px 0 0 -70px;
   transform-style:preserve-3d;transition:transform .6s cubic-bezier(.22,.68,.28,1),opacity .4s;cursor:default}
 .rt-stage.overview .rt-card{cursor:pointer}
 .rt-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.5,.05,.2,1)}
@@ -332,7 +337,7 @@ const RT_CSS = `
 .rt-av.f{background:radial-gradient(120% 120% at 50% 20%,#5b4a67,#1e1725)}
 .rt-avimg{width:100%;height:100%;object-fit:cover}
 .rt-num{position:absolute;top:0;left:0;right:0;height:66%;display:flex;align-items:center;justify-content:center;
-  font-family:'JetBrains Mono',monospace;font-weight:800;font-size:46px;color:rgba(197,160,89,.95);text-shadow:0 3px 10px rgba(0,0,0,.85);pointer-events:none}
+  font-family:'JetBrains Mono',monospace;font-weight:800;font-size:54px;color:rgba(197,160,89,.95);text-shadow:0 3px 10px rgba(0,0,0,.85);pointer-events:none}
 .rt-num.gf{color:rgba(216,180,254,.95)}
 .rt-name{position:absolute;bottom:0;left:0;right:0;height:34%;display:flex;align-items:center;justify-content:center;
   background:#000;font-family:'Amiri',serif;font-weight:700;font-size:14px;color:#fff;padding:0 4px;text-align:center}

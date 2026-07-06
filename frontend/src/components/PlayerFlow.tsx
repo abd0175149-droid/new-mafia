@@ -2435,9 +2435,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </div>
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
+              {!isRemote && (
               <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
               </div>
+              )}
 
               {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
               {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
@@ -2464,6 +2466,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   votingPlayersInfo={votingPlayersInfo}
                   pollData={phasePollData}
                   roomId={roomId}
+                  isRemote={isRemote}
                 />
               )}
 
@@ -2813,9 +2816,11 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               </div>
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
+              {!isRemote && (
               <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
               </div>
+              )}
 
               {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
               {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
@@ -2842,6 +2847,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   votingPlayersInfo={votingPlayersInfo}
                   pollData={phasePollData}
                   roomId={roomId}
+                  isRemote={isRemote}
                 />
               )}
 

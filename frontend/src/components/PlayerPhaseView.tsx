@@ -25,11 +25,12 @@ interface PlayerPhaseViewProps {
     round?: number;
   } | null;
   roomId?: string;
+  isRemote?: boolean; // 🌐 عن بُعد: نُخفي عناصر النقاش المكرّرة (الحلقة تعرضها)
 }
 
 export default function PlayerPhaseView({
   gamePhase, physicalId, assignedRole, isPlayerDead, on, emit,
-  myVote, votingCandidates, votingPlayersInfo, pollData, roomId
+  myVote, votingCandidates, votingPlayersInfo, pollData, roomId, isRemote
 }: PlayerPhaseViewProps) {
   // ── حالة النقاش ──
   const [discussionState, setDiscussionState] = useState<any>(null);
@@ -650,10 +651,12 @@ export default function PlayerPhaseView({
 
     return (
       <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="py-4">
+        {!isRemote && (
         <div className="text-center mb-4">
           <div className="text-3xl mb-2">🎤</div>
           <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>مرحلة النقاش</h3>
         </div>
+        )}
 
         {/* تنبيه دور اللاعب */}
         <AnimatePresence>
@@ -678,8 +681,8 @@ export default function PlayerPhaseView({
           )}
         </AnimatePresence>
 
-        {/* المتكلم الحالي + التايمر */}
-        {speakerInfo ? (
+        {/* المتكلم الحالي + التايمر — مخفيّ عن بُعد (الحلقة تعرض المتحدّث والعدّاد) */}
+        {!isRemote && (speakerInfo ? (
           <motion.div
             key={currentSpeaker}
             initial={{ scale: 0.9, opacity: 0 }}
@@ -724,7 +727,7 @@ export default function PlayerPhaseView({
           </motion.div>
         ) : (
           <div className="text-center text-[#666] text-sm py-4 font-mono">بانتظار بدء النقاش...</div>
-        )}
+        ))}
 
         {/* ── قسم الاتفاقيات التلقائية (Deals Section) ── */}
         {!isPlayerDead && (
@@ -845,8 +848,8 @@ export default function PlayerPhaseView({
           </div>
         )}
 
-        {/* قائمة ترتيب النقاش */}
-        {speakers.length > 0 && (
+        {/* قائمة ترتيب النقاش — مخفيّة عن بُعد (تقليل التكرار؛ الحلقة تعرض الطاولة) */}
+        {!isRemote && speakers.length > 0 && (
           <div className="mx-2 space-y-1.5">
             <p className="text-[#666] text-[10px] font-bold mb-2 text-center">ترتيب النقاش</p>
             {speakers.map((s: any, i: number) => {
