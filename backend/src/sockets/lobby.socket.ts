@@ -692,6 +692,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             gameName: state.config.gameName,
             constraintViolation: false,
             restoredSeat: true,
+            isRemote: !!state.config?.isRemote,
           });
         }
 
@@ -2961,6 +2962,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           penalties: player.penalties || 0,
         },
         phase: state.phase,
+        isRemote: !!state.config?.isRemote, // 🌐 ليعرف اللاعب أنه في غرفة بعيدة → يعرض طاولة الطور
         rolesConfirmed: state.rolesConfirmed || false,
         votingState: votingData,
         maxPenalties: state.config?.maxPenalties || 3,
@@ -2972,13 +2974,21 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [] } : null,
         // ── بيانات مرحلة الليل (لاستعادة شاشة الإجراء عند refresh) ──
-        nightState: state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? {
-          nightStep: state.nightStep,
-          autoNightStepRole: state.autoNightStepRole,
-          autoNightPerformerId: state.autoNightPerformerId,
-          config: { autoNightTime: state.config?.autoNightTime || 15 },
-          playerSubmitted: state.playerNightActions?.submitted?.[player.physicalId] || false,
-        } : null,
+        nightState: state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? (() => {
+          const isReqPerformer = state.autoNightPerformerId === player.physicalId;
+          const remote = !!state.config?.isRemote;
+          // 🌐 غرفة بعيدة: لا نكشف هوية الفاعل الحقيقي لغير الفاعل، ونعطي المموّهين قائمة كل الأحياء (كالتمويه الأصلي)
+          const safeStep = (remote && !isReqPerformer)
+            ? { ...state.nightStep, availableTargets: state.players.filter((p: any) => p.isAlive).map((p: any) => ({ physicalId: p.physicalId, name: p.name, avatarUrl: p.avatarUrl || null })) }
+            : state.nightStep;
+          return {
+            nightStep: safeStep,
+            autoNightStepRole: state.autoNightStepRole,
+            autoNightPerformerId: remote ? (isReqPerformer ? player.physicalId : null) : state.autoNightPerformerId,
+            config: { autoNightTime: state.config?.autoNightTime || 15 },
+            playerSubmitted: state.playerNightActions?.submitted?.[player.physicalId] || false,
+          };
+        })() : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
         // عقود السفّاح
@@ -2998,6 +3008,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           name: p.name,
           avatarUrl: p.avatarUrl || null,
           isAlive: p.isAlive,
+          gender: p.gender || 'MALE',
+          rankTier: p.rankTier || null,
         })),
         // كشف أدوار الجميع عند انتهاء اللعبة
         allPlayers: state.phase === 'GAME_OVER' ? state.players.map((p: any) => ({

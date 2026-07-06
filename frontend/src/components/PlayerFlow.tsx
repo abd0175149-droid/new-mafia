@@ -6,6 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import MafiaCard from './MafiaCard';
 import PlayerPhaseView from './PlayerPhaseView';
+import PhoneSpectatorView from './PhoneSpectatorView';
 import RolesInfoModal from './RolesInfoModal';
 import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
@@ -191,6 +192,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [roster, setRoster] = useState<any[]>([]);
+  const [isRemote, setIsRemote] = useState(false); // 🌐 غرفة عن بُعد → أظهر طاولة الطور للاعب
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
   const [nightActionRequired, setNightActionRequired] = useState<{
@@ -778,6 +780,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupSync = on('game:state-sync', (state: any) => {
       if (!state || !state.players) return;
       setRoster(state.players);
+      if (state.config?.isRemote != null) setIsRemote(!!state.config.isRemote);
 
       // البحث بـ playerId أولاً (الطريقة الموثوقة)
       let me = playerId
@@ -1006,6 +1009,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     const cleanupPhaseChanged = on('game:phase-changed', (data: any) => {
       console.log(`🔄 Phase changed event: ${data.phase}`);
       setGamePhase(data.phase);
+      if (data.state?.config?.isRemote != null) setIsRemote(!!data.state.config.isRemote); // 🌐 كشف الغرفة البعيدة عند بدء اللعب
       // حماية من الـ polling: لا نسمح للـ polling بإعادة كتابة المرحلة لـ 10 ثواني
       phaseOverrideRef.current = { phase: data.phase };
       
@@ -1290,6 +1294,10 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               setPlayerVotes({});
             }
           }
+
+          // 🌐 غرفة بعيدة + طاولة الطور (للاستعادة الفوريّة عند reconnect)
+          if (res.isRemote != null) setIsRemote(!!res.isRemote);
+          if (Array.isArray(res.rosterInfo) && res.rosterInfo.length) setRoster(res.rosterInfo);
 
           // تمرير بيانات المراحل لـ PlayerPhaseView (للاستعادة عند reconnect)
           setPhasePollData({
@@ -1764,6 +1772,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (assignedSeat) {
         setPhysicalId(String(assignedSeat));
       }
+      if (res?.isRemote != null) setIsRemote(!!res.isRemote); // 🌐 كشف مبكر للغرفة البعيدة
 
       // حفظ الجلسة في localStorage
       localStorage.setItem('mafia_session', JSON.stringify({
@@ -2430,6 +2439,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
               </div>
 
+              {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
+              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
+                <PhoneSpectatorView
+                  roster={roster}
+                  physicalId={physicalId}
+                  gamePhase={gamePhase}
+                  on={on}
+                  initialDiscussionState={phasePollData?.discussionState}
+                />
+              )}
+
               {/* ── عرض مرحلة اللعبة الحالية ── */}
               {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
                 <PlayerPhaseView
@@ -2796,6 +2816,17 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
               <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
               </div>
+
+              {/* 📱 طاولة الطور للاعب البعيد (بديل شاشة العرض — بلا كشف أدوار) */}
+              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
+                <PhoneSpectatorView
+                  roster={roster}
+                  physicalId={physicalId}
+                  gamePhase={gamePhase}
+                  on={on}
+                  initialDiscussionState={phasePollData?.discussionState}
+                />
+              )}
 
               {/* ── عرض مرحلة اللعبة الحالية ── */}
               {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
