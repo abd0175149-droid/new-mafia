@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>اختبار صوت RealtimeKit — نادي المافيا</title>
+<script type="module">
+  import { defineCustomElements } from 'https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit-ui@latest/loader/index.es2017.js';
+  defineCustomElements();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@cloudflare/realtimekit@latest/dist/browser.js"></script>
+<style>
+  :root {
+    --ink:#0d0b0c; --panel:#17120f; --line:rgba(205,163,73,0.18);
+    --brass:#cda349; --brass-hi:#e6c778; --paper:#ece4d3; --parch:#b3a993; --faint:#7d7365;
+    --ok:#6fbf8f; --bad:#d0584a;
+    --mono:ui-monospace,"Cascadia Mono","Consolas",monospace;
+    --sans:"Segoe UI","Noto Sans Arabic","Tahoma",system-ui,sans-serif;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:radial-gradient(800px 480px at 85% -10%,rgba(205,163,73,0.10),transparent 60%),var(--ink);
+    color:var(--parch); font-family:var(--sans); line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:640px; margin:0 auto; padding:22px 16px 60px; }
+  .kicker { font-family:var(--mono); direction:ltr; text-transform:uppercase; letter-spacing:.18em; font-size:.64rem; color:var(--brass); }
+  h1 { margin:8px 0 6px; color:var(--paper); font-size:1.5rem; line-height:1.2; }
+  p { margin:10px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; margin-top:16px; }
+  .role { display:flex; gap:10px; align-items:flex-start; margin:10px 0; font-size:.92rem; }
+  .role .b { color:var(--paper); font-weight:700; }
+  .pill { font-family:var(--mono); direction:ltr; font-size:.62rem; color:var(--brass); border:1px solid var(--line); border-radius:999px; padding:3px 9px; white-space:nowrap; flex:none; margin-top:2px; }
+  label { display:block; font-size:.85rem; color:var(--parch); margin:14px 0 6px; }
+  textarea { width:100%; min-height:96px; background:#0c0a09; color:var(--brass-hi); border:1px solid var(--line);
+    border-radius:8px; padding:11px; font-family:var(--mono); font-size:.72rem; direction:ltr; resize:vertical; line-height:1.5; }
+  textarea:focus { outline:none; border-color:var(--brass); }
+  .btn { appearance:none; border:none; width:100%; margin-top:14px; padding:14px; border-radius:10px;
+    background:linear-gradient(180deg,#d8b25a,#c0912f); color:#1a1206; font-family:var(--sans); font-weight:700; font-size:1rem; cursor:pointer; min-height:50px; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.secondary { background:transparent; color:var(--paper); border:1px solid var(--line); }
+  .steps { font-size:.9rem; color:var(--parch); padding-inline-start:18px; margin:8px 0; }
+  .steps li { margin:6px 0; }
+  .msg { margin-top:12px; font-size:.9rem; padding:10px 12px; border-radius:8px; display:none; }
+  .msg.err { display:block; background:rgba(208,88,74,.12); border:1px solid var(--bad); color:#f0b3ab; }
+  .msg.ok { display:block; background:rgba(111,191,143,.12); border:1px solid var(--ok); color:#bfe6cd; }
+  code { font-family:var(--mono); color:var(--brass-hi); direction:ltr; font-size:.85em; }
+  #stage { position:fixed; inset:0; display:none; background:#000; }
+  #stage.on { display:block; }
+  rtk-meeting { width:100%; height:100%; display:block; }
+  .hint { color:var(--faint); font-size:.82rem; }
+</style>
+</head>
+<body>
+  <div class="wrap" id="gate">
+    <div class="kicker">Cloudflare RealtimeKit · Voice Spike</div>
+    <h1>اختبار الصوت الجماعيّ</h1>
+    <p>هذا يختبر منصّة الصوت الفعلية (اجتماع RealtimeKit، صوت فقط) بين هاتفين، ويثبت <b>الكتم الخادميّ</b>: هاتف الليدر يكتم اللاعب فيصمت فوراً مهما فعل — وهي مكافحة الغش التي نريدها.</p>
+
+    <div class="card">
+      <div class="role"><span class="pill">Phone A · Leader</span><span>هاتف الليدر — يملك أزرار كتم/طرد المشاركين (Preset <code>mafia_leader</code>).</span></div>
+      <div class="role"><span class="pill">Phone B · Player</span><span>هاتف اللاعب — يتكلّم عادةً، ولا يملك صلاحيات مضيف (Preset <code>mafia_player</code>).</span></div>
+    </div>
+
+    <div class="card">
+      <label for="tok">ألصق توكن هذا الهاتف (Leader على هاتف، Player على الآخر):</label>
+      <textarea id="tok" placeholder="eyJhbGciOi..."></textarea>
+      <button class="btn" id="join">🎙️ دخول الاجتماع (يطلب إذن الميكروفون)</button>
+      <div class="msg" id="msg"></div>
+      <p class="hint" id="hint">يمكن أيضاً فتح الرابط مع <code>?authToken=...</code> للدخول التلقائي.</p>
+    </div>
+
+    <div class="card">
+      <b style="color:var(--paper)">خطوات الاختبار</b>
+      <ol class="steps">
+        <li>افتح الرابط على هاتفين على <b>بياناتٍ خلويّة مختلفة</b>.</li>
+        <li>الهاتف A: الصق توكن <b>Leader</b> ← دخول. الهاتف B: الصق توكن <b>Player</b> ← دخول.</li>
+        <li>تكلّما — يجب أن يسمع كلٌّ الآخر بوضوح.</li>
+        <li>من هاتف الليدر: اضغط على المشارك «Player» ← <b>Mute</b>. يجب أن يصمت فوراً ولا يستطيع فكّ كتم نفسه.</li>
+        <li>راقب وضوح الصوت وأي تأخير.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div id="stage"><rtk-meeting id="m" show-setup-screen="true"></rtk-meeting></div>
+
+  <script>
+    (function () {
+      var params = new URL(location.href).searchParams;
+      var urlTok = params.get("authToken");
+      var tokEl = document.getElementById("tok");
+      var msg = document.getElementById("msg");
+      var joinBtn = document.getElementById("join");
+      if (urlTok) tokEl.value = urlTok;
+
+      function showMsg(text, cls) { msg.textContent = text; msg.className = "msg " + cls; }
+
+      async function join() {
+        var authToken = tokEl.value.trim();
+        if (!authToken) { showMsg("ألصق التوكن أولاً.", "err"); return; }
+        if (typeof RealtimeKitClient === "undefined") {
+          showMsg("لم تُحمَّل مكتبة RealtimeKit (تحقّق من الاتصال/حاجب الإعلانات).", "err"); return;
+        }
+        joinBtn.disabled = true; showMsg("جارٍ الاتصال…", "ok");
+        try {
+          var meeting = await RealtimeKitClient.init({
+            authToken: authToken,
+            defaults: { audio: true, video: false }
+          });
+          document.getElementById("m").meeting = meeting;
+          document.getElementById("gate").style.display = "none";
+          document.getElementById("stage").classList.add("on");
+          try { await meeting.join(); } catch (e) { /* UI kit setup screen handles join */ }
+        } catch (e) {
+          joinBtn.disabled = false;
+          showMsg("فشل الاتصال: " + (e && e.message ? e.message : e) + " — قد يكون التوكن منتهياً؛ اطلب توكناً جديداً.", "err");
+        }
+      }
+
+      joinBtn.addEventListener("click", join);
+      if (urlTok) join();
+
+      if (!navigator.mediaDevices || !window.isSecureContext) {
+        showMsg("يجب فتح الصفحة عبر HTTPS ليعمل الميكروفون.", "err");
+      }
+    })();
+  </script>
+</body>
+</html>
