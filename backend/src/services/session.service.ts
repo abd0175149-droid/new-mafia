@@ -16,6 +16,8 @@ export async function createSession(
   maxPlayers: number,
   activityId?: number,
   createdBy?: number | null,
+  isRemote: boolean = false,        // 🌐 غرفة عن بُعد
+  hostPlayerId?: number | null,     // 🔗 مُضيف الغرفة البعيدة (players.id)
 ): Promise<number | null> {
   const db = getDB();
   if (!db) {
@@ -32,6 +34,8 @@ export async function createSession(
       isActive: true,
       activityId: activityId || null,
       createdBy: createdBy ?? null, // 👤 مُنشئ الغرفة (staff)
+      isRemote,                     // 🌐 غرفة عن بُعد (الافتراضي false)
+      hostPlayerId: hostPlayerId ?? null, // 🔗 مُضيف الغرفة البعيدة
     } as any).returning({ id: sessions.id });
 
     const sessionId = result[0]?.id;

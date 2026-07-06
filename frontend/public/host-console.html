@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>وحدة تحكّم المُضيف — اختبار اللعب عن بُعد</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  :root{--ink:#0d0b0c;--panel:#17120f;--panel2:#201a15;--line:rgba(205,163,73,.18);--brass:#cda349;--brass-hi:#e6c778;
+    --ok:#6fbf8f;--bad:#d0584a;--paper:#ece4d3;--parch:#b3a993;--faint:#7d7365;
+    --mono:ui-monospace,"Cascadia Mono","Consolas",monospace;--sans:"Segoe UI","Noto Sans Arabic","Tahoma",system-ui,sans-serif;}
+  *{box-sizing:border-box;} html,body{margin:0;min-height:100%;}
+  body{background:radial-gradient(800px 480px at 85% -10%,rgba(205,163,73,.10),transparent 60%),var(--ink);
+    color:var(--parch);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:640px;margin:0 auto;padding:20px 16px 60px;}
+  .kick{font-family:var(--mono);direction:ltr;text-transform:uppercase;letter-spacing:.18em;font-size:.64rem;color:var(--brass);}
+  h1{margin:8px 0 6px;color:var(--paper);font-size:1.45rem;} p{margin:9px 0;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px;}
+  code{font-family:var(--mono);color:var(--brass-hi);direction:ltr;font-size:.85em;}
+  label{display:block;font-size:.85rem;color:var(--parch);margin:10px 0 5px;}
+  input{width:100%;background:#0c0a09;color:var(--brass-hi);border:1px solid var(--line);border-radius:8px;padding:11px;font-family:var(--sans);font-size:.95rem;}
+  input:focus{outline:none;border-color:var(--brass);}
+  .btn{appearance:none;border:none;width:100%;margin-top:12px;padding:13px;border-radius:10px;background:linear-gradient(180deg,#d8b25a,#c0912f);color:#1a1206;font-family:var(--sans);font-weight:700;font-size:1rem;cursor:pointer;min-height:48px;}
+  .btn:disabled{opacity:.5;} .btn.sec{background:transparent;color:var(--paper);border:1px solid var(--line);}
+  .msg{margin-top:10px;font-size:.9rem;padding:9px 11px;border-radius:8px;display:none;}
+  .msg.err{display:block;background:rgba(208,88,74,.12);border:1px solid var(--bad);color:#f0b3ab;}
+  .msg.ok{display:block;background:rgba(111,191,143,.12);border:1px solid var(--ok);color:#bfe6cd;}
+  .status{display:flex;align-items:center;gap:9px;font-size:.9rem;}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--faint);} .dot.on{background:var(--ok);box-shadow:0 0 9px var(--ok);}
+  .big{font-family:var(--mono);direction:ltr;font-size:2.2rem;color:var(--brass-hi);letter-spacing:.15em;text-align:center;margin:6px 0;}
+  .join{font-family:var(--mono);direction:ltr;font-size:.72rem;color:var(--parch);word-break:break-all;background:#0c0a09;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;}
+  .plist{list-style:none;padding:0;margin:8px 0 0;}
+  .plist li{display:flex;align-items:center;gap:10px;padding:9px 6px;border-top:1px solid var(--line);font-size:.95rem;}
+  .plist li .n{flex:1;color:var(--paper);} .plist li .s{font-size:.85rem;} .seat{font-family:var(--mono);direction:ltr;color:var(--faint);font-size:.8rem;}
+  .empty{color:var(--faint);font-size:.88rem;padding:10px;text-align:center;}
+  #log{background:#0c0a09;border:1px solid var(--line);border-radius:8px;padding:10px;margin-top:14px;font-family:var(--mono);direction:ltr;font-size:.68rem;color:var(--parch);white-space:pre-wrap;max-height:200px;overflow:auto;line-height:1.5;}
+  .hidden{display:none!important;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kick">Remote Play · Host Console (test)</div>
+  <h1>وحدة تحكّم المُضيف</h1>
+  <p style="font-size:.9rem;color:var(--faint)">أداة اختبارٍ لتدفّق الاستضافة الخلفيّ (<code>room:create-remote</code>). الواجهة النهائيّة المدمجة لاحقاً.</p>
+
+  <div class="card" id="authCard">
+    <div class="status"><span class="dot" id="cdot"></span><span id="cstat">يُقرأ التوكن…</span></div>
+    <div class="msg" id="authMsg"></div>
+  </div>
+
+  <div class="card" id="createCard">
+    <label for="gn">اسم الغرفة</label>
+    <input id="gn" value="غرفة عن بُعد" />
+    <div class="row2">
+      <div><label for="mp">أقصى عدد لاعبين</label><input id="mp" type="number" value="10" min="6" max="50" /></div>
+      <div><label>&nbsp;</label><button class="btn" id="createBtn" disabled>🌐 إنشاء غرفة عن بُعد</button></div>
+    </div>
+    <div class="msg" id="createMsg"></div>
+  </div>
+
+  <div class="card hidden" id="lobbyCard">
+    <div style="font-size:.8rem;color:var(--faint)">رمز الغرفة — شاركه مع اللاعبين</div>
+    <div class="big" id="roomCode">—</div>
+    <div class="join" id="joinLink"></div>
+    <button class="btn sec" id="copyLink" style="margin-top:8px">📋 نسخ رابط الانضمام</button>
+
+    <label style="margin-top:16px">اللاعبون المنضمّون (<span id="pcount">0</span>)</label>
+    <ul class="plist" id="plist"><li class="empty">لا لاعبين بعد — شارك الرمز.</li></ul>
+
+    <button class="btn" id="startBtn" style="margin-top:14px">▶️ بدء توليد الأدوار (اختبار صلاحيّة الليدر)</button>
+    <div class="msg" id="startMsg"></div>
+    <p style="font-size:.8rem;color:var(--faint);margin-top:10px">اختبار الحصر الأمنيّ: زرّ يحاول التحكّم بغرفةٍ أخرى (يجب أن يُرفَض).</p>
+    <button class="btn sec" id="scopeBtn">🔒 اختبار حصر المُضيف بغرفته</button>
+    <div class="msg" id="scopeMsg"></div>
+  </div>
+
+  <div class="card"><div style="font-size:.8rem;color:var(--faint);margin-bottom:6px">سجلّ</div><div id="log"></div></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(id){return document.getElementById(id);};
+  function log(m){var l=$("log");l.textContent=new Date().toLocaleTimeString()+"  "+m+"\n"+l.textContent;}
+  function msg(el,t,c){el.textContent=t;el.className="msg "+c;}
+  var roomId=null, roomCode=null, socket=null;
+
+  var token=null;
+  try{ token=localStorage.getItem("mafia_player_token"); }catch(e){}
+  if(!token){
+    $("cstat").textContent="لم تُسجّل الدخول";
+    msg($("authMsg"),"سجّل الدخول من تطبيق اللاعب أولاً (نفس المتصفّح)، ثم أعد فتح هذه الصفحة.","err");
+    var a=document.createElement("a"); a.href="/player/login"; a.textContent="اذهب لتسجيل الدخول ←"; a.style.color="var(--brass-hi)";
+    $("authCard").appendChild(a);
+    return;
+  }
+
+  socket=io({ auth:{ playerToken: token }, transports:["polling","websocket"] });
+  socket.on("connect",function(){ $("cdot").className="dot on"; $("cstat").textContent="متّصل ✓ ("+socket.id+")"; $("createBtn").disabled=false; log("connected"); });
+  socket.on("disconnect",function(r){ $("cdot").className="dot"; $("cstat").textContent="انقطع: "+r; log("disconnect: "+r); });
+  socket.on("connect_error",function(e){ log("connect_error: "+(e&&e.message)); });
+
+  // بثّ الحالة عند انضمام اللاعبين
+  function renderPlayers(state){
+    if(!state||!Array.isArray(state.players))return;
+    var alive=state.players;
+    $("pcount").textContent=alive.length;
+    var ul=$("plist"); ul.innerHTML="";
+    if(!alive.length){ ul.innerHTML='<li class="empty">لا لاعبين بعد — شارك الرمز.</li>'; return; }
+    alive.forEach(function(p){
+      var li=document.createElement("li");
+      li.innerHTML='<span class="seat">#'+p.physicalId+'</span><span class="n">'+(p.playerName||p.name||"?")+'</span>'+
+        '<span class="s">'+(p.isConnected===false?"🔌":"🟢")+'</span>';
+      ul.appendChild(li);
+    });
+  }
+  socket.on("game:state-sync",function(s){ log("state-sync ("+((s&&s.players&&s.players.length)||0)+" players)"); renderPlayers(s); });
+  socket.on("game:state-updated",function(s){ renderPlayers(s); });
+  socket.on("room:player-joined",function(){ refreshState(); });
+
+  function refreshState(){
+    if(!roomId)return;
+    socket.emit("game:get-state",{roomId:roomId},function(res){
+      if(res&&res.state) renderPlayers(res.state);
+      else if(res&&res.players) renderPlayers(res);
+    });
+  }
+
+  $("createBtn").onclick=function(){
+    var gameName=$("gn").value.trim()||"غرفة عن بُعد";
+    var maxPlayers=parseInt($("mp").value,10)||10;
+    $("createBtn").disabled=true; msg($("createMsg"),"جارٍ الإنشاء…","ok");
+    socket.emit("room:create-remote",{ gameName:gameName, maxPlayers:maxPlayers },function(res){
+      $("createBtn").disabled=false;
+      log("create-remote → "+JSON.stringify(res));
+      if(res&&res.success){
+        roomId=res.roomId; roomCode=res.roomCode;
+        $("createCard").classList.add("hidden");
+        $("lobbyCard").classList.remove("hidden");
+        $("roomCode").textContent=roomCode;
+        var link=location.origin+"/player/join?code="+roomCode;
+        $("joinLink").textContent=link;
+        msg($("createMsg"),"","ok");
+        log("✓ remote room created: "+roomId+" (code "+roomCode+")");
+        setInterval(refreshState,3000);
+      } else {
+        msg($("createMsg"),(res&&res.error)||"فشل الإنشاء — تأكّد أنّ حسابك مسموحٌ له بالاستضافة (can_host_remote).","err");
+      }
+    });
+  };
+
+  $("copyLink").onclick=function(){ try{ navigator.clipboard.writeText($("joinLink").textContent); log("link copied"); }catch(e){} };
+
+  $("startBtn").onclick=function(){
+    if(!roomId)return;
+    msg($("startMsg"),"جارٍ البدء…","ok");
+    socket.emit("room:start-generation",{roomId:roomId},function(res){
+      log("start-generation → "+JSON.stringify(res));
+      if(res&&res.success!==false) msg($("startMsg"),"✓ بدأ التوليد — صلاحيّة الليدر تعمل للمُضيف.","ok");
+      else msg($("startMsg"),"الردّ: "+JSON.stringify(res),"err");
+    });
+  };
+
+  // اختبار الحصر: محاولة التحكّم بغرفةٍ وهميّة أخرى — يجب أن يُرفَض بحارس socket.use
+  $("scopeBtn").onclick=function(){
+    var fakeRoom="not-my-room-xyz";
+    msg($("scopeMsg"),"محاولة استهداف غرفةٍ أخرى…","ok");
+    var answered=false;
+    socket.emit("room:start-generation",{roomId:fakeRoom},function(res){ answered=true; log("scope test callback: "+JSON.stringify(res)); msg($("scopeMsg"),"⚠️ لم يُرفَض! ردّ: "+JSON.stringify(res),"err"); });
+    setTimeout(function(){ if(!answered){ msg($("scopeMsg"),"✓ رُفض/حُجب (لا استجابة للغرفة الأخرى) — الحصر يعمل.","ok"); log("✓ scope guard blocked cross-room event"); } },2500);
+  };
+  socket.on("error",function(e){ log("socket error (guard?): "+(e&&e.message?e.message:e)); });
+})();
+</script>
+</body>
+</html>

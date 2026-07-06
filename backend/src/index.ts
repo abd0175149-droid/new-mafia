@@ -491,6 +491,21 @@ app.set('io', io);
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
 
+  // 🔒 حصر اللاعب-المُضيف بغرفته فقط: أي حدثٍ يحمل roomId مختلفاً عن غرفة استضافته يُرفض.
+  // المُضيف يُمنح role='leader' مسوّرة بـ hostRoomId، فهذا يمنع استغلاله للتحكّم بغرفٍ أخرى.
+  // لا يمسّ الموظّفين/اللاعبين/الشاشة (يعمل فقط عند socket.data.isPlayerHost).
+  socket.use((packet, next) => {
+    try {
+      if (socket.data?.isPlayerHost && socket.data?.hostRoomId) {
+        const arg: any = packet[1];
+        if (arg && typeof arg === 'object' && typeof arg.roomId === 'string' && arg.roomId !== socket.data.hostRoomId) {
+          return next(new Error('forbidden: host is scoped to its own room'));
+        }
+      }
+    } catch { /* لا نمنع في حال خطأ غير متوقّع */ }
+    next();
+  });
+
   // 📋 مُلتقِط سجل عمليات الموظفين — يوثّق كل تدخّل يدوي للّيدر تلقائياً (قبل تسجيل الأحداث)
   registerAuditLogging(socket);
 
@@ -538,6 +553,34 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ welcome_bonus_applied migration:', err.message);
+  }
+
+  // ── إضافة أعمدة اللعب عن بُعد على sessions (إن لم تكن موجودة) — إضافيّ لا يمسّ غرف القاعة ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS is_remote BOOLEAN DEFAULT false`);
+      await db.execute(sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS host_player_id INTEGER`);
+      console.log('✅ sessions remote-play columns ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ sessions remote-play columns migration:', err.message);
+  }
+
+  // ── إضافة أعمدة صلاحيّات اللعب عن بُعد على players (إن لم تكن موجودة) — بوّابتا الاستضافة والانضمام ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS can_host_remote BOOLEAN DEFAULT false`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS remote_access_until TIMESTAMP`);
+      console.log('✅ players remote-access columns ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ players remote-access columns migration:', err.message);
   }
 
   // ── إنشاء جداول الإشعارات (إن لم تكن موجودة) ──

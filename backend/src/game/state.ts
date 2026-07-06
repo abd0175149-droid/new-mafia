@@ -215,6 +215,8 @@ export interface GameConfig {
   witchDisableRounds?: number;     // 🧙‍♀️ عدد راوندات تعطيل الساحرة (الافتراضي 3)
   autoNightTime?: number;          // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي بالثواني (الافتراضي 15)
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
+  isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
+  hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
 }
 
 export interface GameState {
@@ -340,6 +342,8 @@ export async function createRoom(
   overrideCode?: string, // كود خارجي (من DB session) — لتوحيد الكود بين Redis و PostgreSQL
   maxPenalties: number = 3,
   penaltyScope: 'game' | 'room' = 'room',
+  isRemote: boolean = false,        // 🌐 غرفة عن بُعد — يفرض nightMode='auto'
+  hostPlayerId?: number | null,     // 🔗 مُضيف الغرفة البعيدة (players.id)
 ): Promise<GameState> {
   const roomId = uuidv4().substring(0, 8);
   const roomCode = overrideCode || generateRoomCode();
@@ -356,7 +360,8 @@ export async function createRoom(
       maxPlayers: Math.min(Math.max(maxPlayers, 6), 50),
       displayPin: displayPin || generateDisplayPin(),
       allowMafiaReveal: true,
-      nightMode: 'manual',
+      // 🌐 الغرف البعيدة تعمل بوضع الليل الأوتوماتيكي (اللاعبون يرسلون من أجهزتهم)؛ القاعة تبقى 'manual'
+      nightMode: isRemote ? 'auto' : 'manual',
       gameTimerEnabled: false,
       gameTimerMinutes: 30,
       useDynamicEngine: true,
@@ -364,6 +369,8 @@ export async function createRoom(
       penaltyScope,
       bombEnabled: true,
       maxConsecutiveMafiaGames: 3,
+      isRemote,
+      hostPlayerId: hostPlayerId ?? null,
     },
     players: [],
     rolesPool: [],

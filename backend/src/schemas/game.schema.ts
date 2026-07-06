@@ -28,6 +28,10 @@ export const sessions = pgTable('sessions', {
   createdBy: integer('created_by'),
   // 🔗 ربط بالنشاط (activities.id) — يُملأ لاحقاً من admin.schema
   activityId: integer('activity_id'),
+  // 🌐 غرفة لعبٍ عن بُعد (كل اللاعبين على أجهزتهم من أماكن مختلفة). الافتراضي false = غرفة قاعة عادية
+  isRemote: boolean('is_remote').default(false),
+  // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب الذي أنشأها ويُديرها كليدر (null لغرف الموظّفين)
+  hostPlayerId: integer('host_player_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });

@@ -606,6 +606,25 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'الغرفة غير موجودة' });
 
+      // ── 🌐 بوّابة الانضمام للغرف البعيدة فقط (غرف القاعة لا تتأثّر إطلاقاً) ──
+      // تُطبَّق على الوافدين الجدد فقط؛ العائد (موجودٌ في state.players) يمرّ. مجّانيّ أثناء الإطلاق.
+      if ((state.config as any)?.isRemote) {
+        const joinerPlayerId = socket.data.authPlayer?.playerId;
+        const alreadyIn = joinerPlayerId
+          ? state.players.some((p: any) => p.playerId === joinerPlayerId)
+          : false;
+        if (!alreadyIn) {
+          if (!joinerPlayerId) {
+            return callback({ success: false, error: 'يجب تسجيل الدخول للانضمام لغرفة عن بُعد' });
+          }
+          const { getPlayerRemoteAccess, canJoinRemote } = await import('../services/remote-access.service.js');
+          const access = await getPlayerRemoteAccess(joinerPlayerId);
+          if (!canJoinRemote(access)) {
+            return callback({ success: false, error: 'انضمامك للغرف البعيدة يتطلّب اشتراكاً', code: 'REMOTE_SUB_REQUIRED' });
+          }
+        }
+      }
+
       // ── بوّابة الفيدباك: منع الانضمام لغرفة جديدة عند وجود استبيانات إلزامية معلّقة (مرّت مهلتها) ──
       // يُسمح للاعب العائد لنفس الغرفة بالدخول دون فحص.
       if (data.playerId && !state.players.some((p: any) => p.playerId === data.playerId)) {
@@ -3129,6 +3148,104 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.data.roomId = data.roomId;
       console.log(`👑 Leader rejoined room: ${data.roomId}`);
     }
+  });
+
+  // ── 🌐 إنشاء غرفة لعبٍ عن بُعد بواسطة لاعب-مُضيف ──────────────────
+  // منفصلٌ تماماً عن room:create الخاص بالموظّفين (لا يمسّه). المُضيف مُوجِّهٌ لا لاعب،
+  // ويُمنح صلاحيات ليدر مسوّرة بغرفته فقط (isPlayerHost + hostRoomId؛ الحصر مضمونٌ بحارس socket.use).
+  socket.on('room:create-remote', async (data: {
+    gameName?: string;
+    maxPlayers?: number;
+    maxJustifications?: number;
+    maxPenalties?: number;
+    penaltyScope?: 'game' | 'room';
+    displayPin?: string;
+  }, callback) => {
+    try {
+      // 1) هويّة المُضيف من التوكن الموثّق فقط (لا نثق بأي معرّف من العميل)
+      const hostPlayerId = socket.data.authPlayer?.playerId;
+      if (!hostPlayerId) {
+        if (typeof callback === 'function') callback({ success: false, error: 'يجب تسجيل الدخول كلاعب' });
+        return;
+      }
+      // 2) بوّابة الاستضافة — قائمة سماحٍ يديرها الأدمن (players.can_host_remote)
+      const { getPlayerRemoteAccess, canHostRemote } = await import('../services/remote-access.service.js');
+      const access = await getPlayerRemoteAccess(hostPlayerId);
+      if (!canHostRemote(access)) {
+        if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح لك بإنشاء غرف عن بُعد' });
+        return;
+      }
+      // 3) إنشاء الغرفة: isRemote=true يفرض nightMode='auto'، والمُضيف = هذا اللاعب
+      const gameName = data.gameName || 'غرفة عن بُعد';
+      const maxPlayers = clampCapacity(data.maxPlayers || 10);
+      const state = await createRoom(
+        gameName,
+        maxPlayers,
+        data.maxJustifications || 2,
+        data.displayPin,
+        undefined,
+        data.maxPenalties ?? 3,
+        data.penaltyScope || 'room',
+        true,          // 🌐 isRemote
+        hostPlayerId,  // 🔗 hostPlayerId
+      );
+      // 4) جلسة DB (بلا نشاط، بلا موظّف — المُضيف لاعب)
+      const sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, undefined, null, true, hostPlayerId);
+      if (sessionId) {
+        state.sessionId = sessionId;
+        state.sessionCode = state.roomCode;
+      }
+      await setGameState(state.roomId, state);
+
+      // 5) منح المُضيف صلاحيات الليدر — مسوّرة بهذه الغرفة فقط (يفرضها حارس socket.use)
+      socket.join(state.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = state.roomId;
+      socket.data.isPlayerHost = true;
+      socket.data.hostRoomId = state.roomId;
+
+      // 6) تتبّع الغرفة النشطة
+      activeRooms.set(state.roomId, {
+        roomId: state.roomId, roomCode: state.roomCode, gameName,
+        playerCount: 0, maxPlayers, displayPin: state.config.displayPin,
+      });
+
+      console.log(`🌐 Remote room ${state.roomId} created by player-host #${hostPlayerId}`);
+      if (typeof callback === 'function') callback({
+        success: true,
+        roomId: state.roomId,
+        roomCode: state.roomCode,
+        displayPin: state.config.displayPin,
+        gameName,
+        sessionId: sessionId || undefined,
+        maxPlayers,
+        isRemote: true,
+      });
+    } catch (err: any) {
+      console.error('❌ room:create-remote failed:', err?.message);
+      if (typeof callback === 'function') callback({ success: false, error: 'تعذّر إنشاء الغرفة' });
+    }
+  });
+
+  // ── 🌐 إعادة انضمام المُضيف لغرفته البعيدة بعد انقطاع — يُعيد منح صلاحية الليدر المسوّرة ──
+  socket.on('room:rejoin-host', async (data: { roomId: string }, callback) => {
+    try {
+      const hostPlayerId = socket.data.authPlayer?.playerId;
+      if (!hostPlayerId || !data.roomId) { if (typeof callback === 'function') callback({ success: false }); return; }
+      const state = await getGameState(data.roomId);
+      // يجب أن تكون غرفةً بعيدة وأن يكون هذا اللاعب مُضيفها فعلاً (تحقّق من الحالة الموثّقة)
+      if (!state || !state.config?.isRemote || state.config?.hostPlayerId !== hostPlayerId) {
+        if (typeof callback === 'function') callback({ success: false, error: 'لست مُضيف هذه الغرفة' });
+        return;
+      }
+      socket.join(data.roomId);
+      socket.data.role = 'leader';
+      socket.data.roomId = data.roomId;
+      socket.data.isPlayerHost = true;
+      socket.data.hostRoomId = data.roomId;
+      console.log(`🌐 Player-host #${hostPlayerId} rejoined remote room ${data.roomId}`);
+      if (typeof callback === 'function') callback({ success: true });
+    } catch { if (typeof callback === 'function') callback({ success: false }); }
   });
   // ── خروج اللاعب من الغرفة (EXIT button) ─────────────
   socket.on('room:player-exit', async (data: {

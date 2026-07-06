@@ -44,6 +44,9 @@ export const players = pgTable('players', {
   genderConstraint: varchar('gender_constraint', { length: 20 }).default('NONE'),
   // ── ربط بحساب موظف (Staff) ──
   linkedStaffId: integer('linked_staff_id'),
+  // ── 🌐 صلاحيّات اللعب عن بُعد ──
+  canHostRemote: boolean('can_host_remote').default(false),   // 👑 مسموح له إنشاء غرف عن بُعد (يضبطها الأدمن؛ لاحقاً اشتراك استضافة)
+  remoteAccessUntil: timestamp('remote_access_until'),        // 🎟️ نهاية اشتراك الانضمام للغرف البعيدة (null = بلا اشتراك؛ مُتجاوَز أثناء فترة المجّانيّة)
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
