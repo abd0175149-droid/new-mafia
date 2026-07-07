@@ -17,6 +17,10 @@ export default function RankPage() {
   const [activeSeasonId, setActiveSeasonId] = useState<number | null>(null);
   const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null);
   const [seasonBoard, setSeasonBoard] = useState<any[] | null>(null);
+  // 🌐 وضع الرانك: وجاهيّ (مواسم عاديّة) أو أونلاين (مواسم الأونلاين المنفصلة)
+  const [mode, setMode] = useState<'inperson' | 'online'>('inperson');
+  const [onlineSeasons, setOnlineSeasons] = useState<any[]>([]);
+  const [activeOnlineSeasonId, setActiveOnlineSeasonId] = useState<number | null>(null);
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [coPlayers, setCoPlayers] = useState<any[]>([]);
   const [myProfile, setMyProfile] = useState<any>(null);
@@ -44,7 +48,8 @@ export default function RankPage() {
       fetch('/api/progression-settings/public').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/active').then(r => r.json()).catch(() => null),
       fetch('/api/seasons/public/list').then(r => r.json()).catch(() => null),
-    ]).then(([lbData, cpData, profData, progCfg, seasonData, seasonsData]) => {
+      fetch('/api/seasons/public/online-list').then(r => r.json()).catch(() => null),
+    ]).then(([lbData, cpData, profData, progCfg, seasonData, seasonsData, onlineData]) => {
       if (lbData.success) setLiveLeaderboard(lbData.leaderboard || []);
       if (cpData.success) setCoPlayers(cpData.coPlayers || []);
       if (profData.success) setMyProfile(profData);
@@ -56,6 +61,7 @@ export default function RankPage() {
         setSelectedSeasonId(prev => prev ?? activeId);
       }
       if (seasonsData?.success) setSeasons(seasonsData.seasons || []);
+      if (onlineData?.success) { setOnlineSeasons(onlineData.seasons || []); setActiveOnlineSeasonId(onlineData.activeOnlineSeasonId ?? null); }
     }).finally(() => setLoading(false));
   }, [player]);
 
@@ -131,10 +137,13 @@ export default function RankPage() {
   const isCoPlayer = (id: number) => coPlayers.some(p => p.id === id);
   const isFollowing = (id: number) => coPlayers.find(p => p.id === id)?.isFollowing || false;
 
-  // ── الموسم المعروض: النشط (مباشر) أو موسم مختار سابق ──
-  const viewingActive = !selectedSeasonId || selectedSeasonId === activeSeasonId;
+  // ── الموسم المعروض: الوجاهيّ النشط (مباشر) أو موسم مختار (وجاهيّ سابق أو أونلاين) ──
+  // الأونلاين ليس له جدول «مباشر» (players.* وجاهيّ فقط) → يُجلَب دائماً من لوحة الموسم.
+  const viewingActive = mode === 'inperson' && (!selectedSeasonId || selectedSeasonId === activeSeasonId);
   const leaderboard = viewingActive ? liveLeaderboard : (seasonBoard || []);
-  const selectedSeasonName = seasons.find(s => s.id === selectedSeasonId)?.name || season?.name || '';
+  const currentSeasonList = mode === 'online' ? onlineSeasons : seasons;
+  const selectedSeasonName = currentSeasonList.find(s => s.id === selectedSeasonId)?.name || season?.name || '';
+  const switchMode = (m: 'inperson' | 'online') => { setMode(m); setSelectedSeasonId(m === 'online' ? activeOnlineSeasonId : activeSeasonId); };
 
   // ── حساب الترتيب الخاص بي ──
   const myRank = leaderboard.findIndex(p => p.id === player?.playerId) + 1;
@@ -211,23 +220,31 @@ export default function RankPage() {
 
       <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
         <h1 className="text-white text-lg font-bold">🏆 التصنيف والرتب</h1>
-        {seasons.length > 0 ? (
-          <select
-            value={selectedSeasonId ?? ''}
-            onChange={(e) => setSelectedSeasonId(Number(e.target.value))}
-            className="text-[12px] font-bold px-3 py-1.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 outline-none cursor-pointer max-w-[60%]"
-          >
-            {seasons.map((s) => (
-              <option key={s.id} value={s.id} className="bg-gray-900 text-white">
-                🗓️ {s.name}{s.id === activeSeasonId ? ' • الحالي' : ''}
-              </option>
-            ))}
-          </select>
-        ) : season?.name && (
-          <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 whitespace-nowrap">
-            🗓️ موسم: {season.name}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {onlineSeasons.length > 0 && (
+            <div className="flex rounded-full bg-black/40 border border-[#2a2a2a] p-0.5">
+              <button onClick={() => switchMode('inperson')} className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${mode === 'inperson' ? 'bg-amber-500/25 text-amber-200' : 'text-[#888]'}`}>وجاهيّ</button>
+              <button onClick={() => switchMode('online')} className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${mode === 'online' ? 'bg-sky-500/25 text-sky-200' : 'text-[#888]'}`}>🌐 أونلاين</button>
+            </div>
+          )}
+          {currentSeasonList.length > 0 ? (
+            <select
+              value={selectedSeasonId ?? ''}
+              onChange={(e) => setSelectedSeasonId(Number(e.target.value))}
+              className={`text-[12px] font-bold px-3 py-1.5 rounded-full outline-none cursor-pointer max-w-[52vw] border ${mode === 'online' ? 'bg-sky-500/15 text-sky-300 border-sky-500/25' : 'bg-amber-500/15 text-amber-300 border-amber-500/25'}`}
+            >
+              {currentSeasonList.map((s) => (
+                <option key={s.id} value={s.id} className="bg-gray-900 text-white">
+                  🗓️ {s.name}{s.id === (mode === 'online' ? activeOnlineSeasonId : activeSeasonId) ? ' • الحالي' : ''}
+                </option>
+              ))}
+            </select>
+          ) : mode === 'online' ? (
+            <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-sky-500/10 text-sky-300/70 border border-sky-500/20 whitespace-nowrap">🌐 لا مواسم أونلاين بعد</span>
+          ) : season?.name && (
+            <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/25 whitespace-nowrap">🗓️ موسم: {season.name}</span>
+          )}
+        </div>
       </div>
 
       {/* ── رتبتي في موسم سابق مختار ── */}
