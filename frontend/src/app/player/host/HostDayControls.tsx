@@ -19,11 +19,36 @@ interface Props {
 
 export default function HostDayControls({ gameState, emit, setError }: Props) {
   const ds = gameState.discussionState;
-  // دوك مخصّص فقط لحالتَي النقاش الشائعتين؛ البقيّة تفوّض إلى LeaderDayView
-  if (gameState.phase === 'DAY_DISCUSSION' && (!ds || !ds.isFinished)) {
+  if (gameState.phase === 'DAY_DISCUSSION') {
+    if (ds?.isFinished) return <DiscussionFinished gameState={gameState} emit={emit} setError={setError} />;
     return <DiscussionDock gameState={gameState} emit={emit} setError={setError} />;
   }
+  // بقيّة أطوار النهار (تصويت/تبرير/كشف) تُفوَّض حالياً إلى LeaderDayView — قيد إعادة التصميم
   return <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
+}
+
+// ── نهاية النقاش → التصويت (بلا تسجيل ديلات من الليدر؛ الديلات تُؤخذ ممّا سجّله اللاعبون) ──
+function DiscussionFinished({ gameState, emit, setError }: Props) {
+  const [votingDur, setVotingDur] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async (fn: () => Promise<any>) => { setBusy(true); try { await fn(); } catch (e: any) { setError(e?.message || 'تعذّر'); } finally { setBusy(false); } };
+  return (
+    <div className="px-3 pt-1 pb-3">
+      <div className="rounded-2xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0a0a0b] p-3.5">
+        <div className="text-center text-[#C5A059] font-bold text-lg" style={{ fontFamily: 'Amiri, serif' }}>انتهت جولة النقاش</div>
+        <div className="text-[10px] text-center text-[#808080] font-mono mb-3.5">الصفقات تُؤخذ تلقائياً ممّا سجّله اللاعبون</div>
+        <div className="text-[10px] font-mono text-[#808080] uppercase tracking-wider mb-1.5 text-center">مدّة التصويت</div>
+        <div className="flex gap-1.5 mb-3.5">
+          {[null, 10, 20, 30].map((d) => (
+            <button key={String(d)} onClick={() => setVotingDur(d)}
+              className={`flex-1 py-2 rounded-lg text-xs font-mono border ${votingDur === d ? 'bg-[#C5A059] text-black border-[#C5A059]' : 'border-[#222] text-[#888] bg-[#0c0c0c]'}`}>{d === null ? 'بدون' : `${d}s`}</button>
+          ))}
+        </div>
+        <button disabled={busy} onClick={() => run(() => emit('day:start-voting', { roomId: gameState.roomId, durationSeconds: votingDur || undefined }))}
+          className="btn-premium w-full !py-3 !rounded-xl disabled:opacity-50"><span>🗳️ بدء التصويت</span></button>
+      </div>
+    </div>
+  );
 }
 
 function DiscussionDock({ gameState, emit, setError }: Props) {

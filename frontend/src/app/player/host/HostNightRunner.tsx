@@ -8,6 +8,7 @@
 
 import { useState, useEffect } from 'react';
 import LeaderNightView from '@/app/leader/LeaderNightView';
+import HostMorningRecap from './HostMorningRecap';
 
 interface HostNightRunnerProps {
   gameState: any;
@@ -321,10 +322,12 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
         </div>
       )}
 
-      {/* المانوال فقط — أو MORNING_RECAP (كشف أحداث الصباح + معالجة التقاطعات) */}
-      {((gameState.config as any).nightMode !== 'auto' || gameState.phase === 'MORNING_RECAP') && (
+      {/* أحداث الصباح: عرض هاتفيّ مُعاد تصميمه (عمود واحد)؛ الليل اليدويّ (نادر عن بُعد) يبقى على LeaderNightView */}
+      {gameState.phase === 'MORNING_RECAP' ? (
+        <HostMorningRecap gameState={gameState} emit={emit} setError={setError} />
+      ) : (gameState.config as any).nightMode !== 'auto' ? (
         <LeaderNightView gameState={gameState} emit={emit} setError={setError} />
-      )}
+      ) : null}
     </div>
   );
 }
