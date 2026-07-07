@@ -27,6 +27,8 @@ interface PhoneSpectatorViewProps {
   winnerReveal?: { winner: string | null; players: any[] } | null; // 🏁 كشف الفائز + الأدوار على الطاولة
   revealRoles?: boolean;   // 👑 وضع المضيف: تُظهر دور كل لاعب على كارته (الليدر يرى كل شيء)
   hostView?: boolean;      // 👑 وضع المضيف: يخفي شارة «أنت» وتلميحات اللاعب
+  lobby?: boolean;         // 🕰️ وضع اللوبي: حلقة انتظار قبل توزيع الأدوار (بلا متحدّث/عدّادات/تفاعل)
+  maxPlayers?: number;     // السعة القصوى — لمؤشّر المقاعد في اللوبي
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -37,6 +39,7 @@ const PHASE_LABELS: Record<string, string> = {
   DAY_TIEBREAKER: 'كسر التعادل',
   NIGHT: 'الليل',
   MORNING_RECAP: 'أحداث الصباح',
+  LOBBY: 'غرفة الانتظار',
 };
 
 function roleMeta(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -77,7 +80,7 @@ function VideoTile({ track }: { track: MediaStreamTrack }) {
   return <video ref={ref} autoPlay muted playsInline className="rt-avimg" />;
 }
 
-export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal, revealRoles, hostView }: PhoneSpectatorViewProps) {
+export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal, revealRoles, hostView, lobby, maxPlayers }: PhoneSpectatorViewProps) {
   const [mode, setMode] = useState<'focus' | 'overview'>('focus');
   const [discussion, setDiscussion] = useState<any>(initialDiscussionState || null);
   const [justTimer, setJustTimer] = useState<{ physicalId: number; timeLimitSeconds: number; startTime: number } | null>(null);
@@ -307,10 +310,20 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
           {PHASE_LABELS[gamePhase] || gamePhase}
         </div>
         <div className="flex items-center gap-3 text-[11px] font-mono">
-          {cit != null && <span className="text-blue-400">🛡️ {cit}</span>}
-          {maf != null && <span className="text-red-400">🔪 {maf}</span>}
-          <span className="text-[#808080]">أحياء {aliveCount}</span>
-          {gameClock && <span className="text-white font-black tabular-nums border-r border-[#2a2a2a] pr-3" style={{ fontVariantNumeric: 'tabular-nums' }}>⏱ {gameClock}</span>}
+          {!lobby && (
+            <>
+              {cit != null && <span className="text-blue-400">🛡️ {cit}</span>}
+              {maf != null && <span className="text-red-400">🔪 {maf}</span>}
+              <span className="text-[#808080]">أحياء {aliveCount}</span>
+              {gameClock && <span className="text-white font-black tabular-nums border-r border-[#2a2a2a] pr-3" style={{ fontVariantNumeric: 'tabular-nums' }}>⏱ {gameClock}</span>}
+            </>
+          )}
+          {lobby && (
+            <>
+              <span className="text-[#808080]" style={{ fontFamily: 'Amiri, serif' }}>مقاعد</span>
+              <span className="rt-fill">{N}<span className="rt-fill-max">/{maxPlayers ?? N}</span></span>
+            </>
+          )}
         </div>
       </div>
 
@@ -341,6 +354,14 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             <span className="rt-morning-ic">{morningBanner.icon}</span>
             <span className="rt-morning-t">{morningBanner.text}</span>
             {morningBanner.sub && <span className="rt-morning-sub">{morningBanner.sub}</span>}
+          </div>
+        )}
+        {lobby && !gameOver && (
+          <div className="rt-lobby">
+            <span className="rt-lobby-ic">🎴</span>
+            <span className="rt-lobby-t">الطاولة تكتمل</span>
+            <span className="rt-lobby-sub">بانتظار المضيف لبدء الجولة</span>
+            <span className="rt-lobby-status">STATUS: STANDBY · TABLE SEALED</span>
           </div>
         )}
         {gameOver && (
@@ -395,7 +416,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                 key={p.physicalId}
                 className={`rt-card ${isDead ? 'dead' : ''} ${isFlipped && isDead ? 'revealed' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''}`}
                 style={style}
-                onClick={() => onTapCard(p.physicalId)}
+                onClick={lobby ? undefined : () => onTapCard(p.physicalId)}
               >
                 <div className={`rt-inner ${isFlipped ? 'flip' : ''}`}>
                   {/* الوجه الأمامي — مقلوب (بلا دور) */}
@@ -442,11 +463,13 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
           })}
         </div>
 
-        {mode === 'overview' && <div className="rt-hint">اضغط أي كارد لتكبيره عندك</div>}
-        <button className="rt-modebtn" onClick={toggleMode}>
-          {mode === 'focus' ? '◱ عرض الحلقة كاملة' : '⊡ تكبير المتحدّث'}
-        </button>
-        {mode === 'focus' && serverActiveId != null && focusId !== serverActiveId && (
+        {!lobby && mode === 'overview' && <div className="rt-hint">اضغط أي كارد لتكبيره عندك</div>}
+        {!lobby && (
+          <button className="rt-modebtn" onClick={toggleMode}>
+            {mode === 'focus' ? '◱ عرض الحلقة كاملة' : '⊡ تكبير المتحدّث'}
+          </button>
+        )}
+        {!lobby && mode === 'focus' && serverActiveId != null && focusId !== serverActiveId && (
           <button className="rt-backbtn" onClick={backToSpeaker}>↺ للمتحدّث</button>
         )}
       </div>
@@ -512,6 +535,14 @@ const RT_CSS = `
 .rt-morning-ic{font-size:34px;filter:drop-shadow(0 0 16px rgba(63,131,196,.5))}
 .rt-morning-t{font-family:'Amiri',serif;font-weight:700;font-size:19px;color:#7fb4e6;text-shadow:0 2px 14px rgba(0,0,0,.85)}
 .rt-morning-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#cbd5e1;text-shadow:0 1px 8px rgba(0,0,0,.9)}
+.rt-lobby{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:30;display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none;animation:rtwin .5s ease-out;text-align:center}
+.rt-lobby-ic{font-size:34px;filter:drop-shadow(0 0 16px rgba(197,160,89,.5));animation:rtbreath 3.2s ease-in-out infinite}
+.rt-lobby-t{font-family:'Amiri',serif;font-weight:700;font-size:19px;color:#C5A059;text-shadow:0 2px 14px rgba(0,0,0,.85)}
+.rt-lobby-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8578;text-shadow:0 1px 8px rgba(0,0,0,.9)}
+.rt-lobby-status{margin-top:3px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;color:#555;text-transform:uppercase}
+.rt-fill{direction:ltr;display:inline-flex;align-items:baseline;font-family:'JetBrains Mono',monospace;font-weight:800;color:#C5A059;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.rt-fill-max{color:#6b6255;font-weight:700}
+@keyframes rtbreath{50%{opacity:.55;transform:scale(.97)}}
 .rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55)}
 /* مُقصىً لكن دوره مكشوف: يبقى الدور واضحاً للجميع (تعتيم خفيف فقط للإشارة للموت) */
 .rt-card.dead.revealed .rt-inner{filter:grayscale(.12) brightness(.94)}
@@ -528,5 +559,5 @@ const RT_CSS = `
 .rt-backbtn{position:absolute;bottom:10px;right:10px;z-index:45;background:rgba(10,10,10,.86);border:1px solid rgba(63,131,196,.35);
   color:#3f83c4;border-radius:999px;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer}
 .rt-hint{position:absolute;bottom:48px;left:0;right:0;z-index:44;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8578;pointer-events:none}
-@media (prefers-reduced-motion: reduce){.rt-card,.rt-inner{transition:none}}
+@media (prefers-reduced-motion: reduce){.rt-card,.rt-inner{transition:none}.rt-lobby-ic{animation:none}}
 `;

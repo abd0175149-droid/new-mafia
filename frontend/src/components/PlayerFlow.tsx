@@ -2732,6 +2732,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         </span>
                       </div>
                     )}
+                    {isRemote && (!gamePhase || gamePhase === 'LOBBY') ? (
+                      /* ── لوبي اللعب عن بُعد: حلقة كروت الطاولة (نفس تصميم باقي المراحل) ── */
+                      <>
+                        <PhoneSpectatorView
+                          roster={roster}
+                          physicalId={physicalId}
+                          gamePhase={gamePhase || 'LOBBY'}
+                          on={on}
+                          lobby
+                          maxPlayers={maxPlayers}
+                          videoByPid={voiceMaps.videoByPid}
+                          speakingByPid={voiceMaps.audioByPid}
+                        />
+                        <div className="mt-2 flex items-center justify-center gap-3 rounded-xl px-4 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40">
+                          <span className="text-[10px] text-[#808080]" style={{ fontFamily: 'Amiri, serif' }}>رمز الغرفة</span>
+                          <b className="text-[#C5A059] text-xl font-mono tracking-[0.18em]">{roomCode}</b>
+                        </div>
+                        <div className="mt-2 h-1.5 rounded-full bg-[#1a1a1a] overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-[#C5A059] to-[#E8C97A] transition-[width] duration-500" style={{ width: `${Math.min(100, (roster.length / (maxPlayers || roster.length || 1)) * 100)}%` }} />
+                        </div>
+                        <div className="mt-1 text-center text-[10px] font-mono text-[#808080]">انضمّ {roster.length} من {maxPlayers}</div>
+                      </>
+                    ) : (
+                    <>
                     <motion.div
                       className="text-[#C5A059] flex justify-center mb-6"
                       animate={{ opacity: [0.5, 1, 0.5] }}
@@ -2763,6 +2787,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     <p className="text-[#555] text-[9px] font-mono uppercase tracking-widest">
                       STATUS ACTIVE. INTERFACE LOCKED.
                     </p>
+                    </>
+                    )}
                   </>
                 ) : (
                   /* ── حالة الدور المُعيَّن (كارد سري قابل للقلب) ── */
@@ -3178,6 +3204,30 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                         </span>
                       </div>
                     )}
+                    {isRemote && (!gamePhase || gamePhase === 'LOBBY') ? (
+                      /* ── لوبي اللعب عن بُعد (بعد عودة اللاعب): حلقة كروت الطاولة ── */
+                      <>
+                        <PhoneSpectatorView
+                          roster={roster}
+                          physicalId={physicalId}
+                          gamePhase={gamePhase || 'LOBBY'}
+                          on={on}
+                          lobby
+                          maxPlayers={maxPlayers}
+                          videoByPid={voiceMaps.videoByPid}
+                          speakingByPid={voiceMaps.audioByPid}
+                        />
+                        <div className="mt-2 flex items-center justify-center gap-3 rounded-xl px-4 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40">
+                          <span className="text-[10px] text-[#808080]" style={{ fontFamily: 'Amiri, serif' }}>رمز الغرفة</span>
+                          <b className="text-[#C5A059] text-xl font-mono tracking-[0.18em]">{roomCode}</b>
+                        </div>
+                        <div className="mt-2 h-1.5 rounded-full bg-[#1a1a1a] overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-[#C5A059] to-[#E8C97A] transition-[width] duration-500" style={{ width: `${Math.min(100, (roster.length / (maxPlayers || roster.length || 1)) * 100)}%` }} />
+                        </div>
+                        <div className="mt-1 text-center text-[10px] font-mono text-[#808080]">انضمّ {roster.length} من {maxPlayers}</div>
+                      </>
+                    ) : (
+                    <>
                     <motion.div className="text-[#C5A059] flex justify-center mb-6"
                       animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 3, repeat: Infinity }}>
                       <ShieldCheckIcon />
@@ -3201,6 +3251,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                     <p className="text-[#C5A059] text-[11px] font-mono uppercase tracking-[0.2em]">
                       SECURE YOUR DEVICE. AWAIT ROLE ASSIGNMENT.
                     </p>
+                    </>
+                    )}
                   </>
                 )
               ) : null}
