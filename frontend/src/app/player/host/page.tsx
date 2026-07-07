@@ -12,7 +12,7 @@ import { usePlayer } from '@/context/PlayerContext';
 import LeaderLobbyView from '@/app/leader/LeaderLobbyView';
 import LeaderRoleConfigurator from '@/app/leader/LeaderRoleConfigurator';
 import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
-import LeaderDayView from '@/app/leader/LeaderDayView';
+import HostDayControls from './HostDayControls';
 import HostNightRunner from './HostNightRunner';
 import RemoteVoice from '@/components/RemoteVoice';
 import PhoneSpectatorView from '@/components/PhoneSpectatorView';
@@ -339,7 +339,7 @@ export default function HostPage() {
   } else if (phase === 'ROLE_BINDING') {
     body = <LeaderRoleBinding gameState={gameState} emit={emit} setError={setError} />;
   } else if (phase.startsWith('DAY_')) {
-    body = <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
+    body = <HostDayControls gameState={gameState} emit={emit} setError={setError} />;
   } else if (phase === 'NIGHT' || phase === 'MORNING_RECAP') {
     body = <HostNightRunner gameState={gameState} emit={emit} on={on} setError={setError} readOnlyChoices />;
   } else if (phase === 'GAME_OVER') {
