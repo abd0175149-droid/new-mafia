@@ -80,6 +80,8 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   const [gameTimer, setGameTimer] = useState<{ totalSeconds: number; startedAt: number; expired?: boolean } | null>(null);
   const [revealing, setRevealing] = useState<{ id: number; role: string } | null>(null);
   const [localDead, setLocalDead] = useState<Set<number>>(new Set());
+  const [silencedPids, setSilencedPids] = useState<Set<number>>(new Set()); // 🔇 لاعبون مُسكَتون هذا النهار
+  const [morningBanner, setMorningBanner] = useState<{ icon: string; text: string; sub?: string } | null>(null); // 🛡️ حدث صباحيّ غير مميت (حماية…)
   const [focusId, setFocusId] = useState<number | null>(initialDiscussionState?.currentSpeakerId ?? null);
   const [tick, setTick] = useState(0);
 
@@ -136,10 +138,17 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         if (d?.teamCounts) setTeamCounts(d.teamCounts);
         if (d?.phase && d.phase !== 'DAY_DISCUSSION') setDiscussion(null);
         if (d?.phase !== 'DAY_JUSTIFICATION') setJustTimer(null);
+        // الإسكات يدوم نهاراً واحداً → يُصفَّر مع دخول الليل؛ وبانر الصباح مؤقّت
+        if (d?.phase === 'NIGHT') setSilencedPids(new Set());
+        setMorningBanner(null);
       }),
       on('day:elimination-revealed', (d: any) => {
         if (d?.teamCounts) setTeamCounts(d.teamCounts);
         if (Array.isArray(d?.revealedRoles) && d.revealedRoles.length) runReveal(d.revealedRoles);
+      }),
+      // 🔇 إشارة إسكات: لاعب مُسكَت جاء دوره — تظهر عليه علامة (بلا كشف دوره)
+      on('day:show-silenced', (d: any) => {
+        if (d?.physicalId != null) setSilencedPids((prev) => new Set(prev).add(d.physicalId));
       }),
       on('game:timer-adjusted', (d: any) => { if (d?.gameTimer) setGameTimer(d.gameTimer); }),
       on('game:started', (d: any) => { if (d?.gameTimer) setGameTimer(d.gameTimer); }),
@@ -147,10 +156,24 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         setJustTimer({ physicalId: d.physicalId, timeLimitSeconds: d.timeLimitSeconds || 30, startTime: d.startTime || Date.now() }),
       ),
       on('day:justification-timer-stopped', () => setJustTimer(null)),
+      // حدث صباحيّ: نميّز نوعه — الموت يقلب الكارد ويكشف الدور؛ غير الموت (حماية…) يُظهر بانراً ولا يُميت أحداً
       on('display:morning-event', (d: any) => {
-        const role = d?.extra?.targetRole || d?.targetRole || d?.role;
-        if (d?.targetPhysicalId != null && role) runReveal([{ physicalId: d.targetPhysicalId, role }]);
-        else if (d?.targetPhysicalId != null) setLocalDead((prev) => new Set(prev).add(d.targetPhysicalId));
+        const type = d?.type;
+        const pid = d?.targetPhysicalId;
+        if (pid == null) return;
+        const DEATH = ['SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSINATION', 'ASSASSIN_KILL', 'MAFIA_KILL'];
+        if (DEATH.includes(type)) {
+          const role = d?.extra?.targetRole || d?.targetRole || d?.role;
+          if (role) runReveal([{ physicalId: pid, role }]);              // قلب + كشف الدور
+          else setLocalDead((prev) => new Set(prev).add(pid));           // موت بلا دور معروف → تجميد فقط (لا قلب فارغ)
+        } else if (type === 'ASSASSINATION_BLOCKED' || type === 'ASSASSIN_BLOCKED') {
+          setMorningBanner({ icon: '🛡️', text: 'فشل الاغتيال', sub: `نجت الحماية · ${d?.targetName || ''}`.trim() });
+          setTimeout(() => setMorningBanner(null), 4500);
+        } else if (type === 'PROTECTION_FAILED') {
+          setMorningBanner({ icon: '⚠️', text: 'لم تنفع الحماية', sub: d?.targetName || '' });
+          setTimeout(() => setMorningBanner(null), 4500);
+        }
+        // SILENCED / SHERIFF_RESULT / ABILITY_DISABLED: سرّية أو للّيدر — لا تُعرض على الحلقة
       }),
     ];
     return () => subs.forEach((u) => u && u());
@@ -261,19 +284,32 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
       {/* شريط المتحدّث */}
       <div className={`rt-speaker ${speaker ? 'on' : ''}`}>
         {speaker && (
-          <span className="rt-pill">
-            🎙️ {gamePhase === 'DAY_JUSTIFICATION' ? 'يُدافع الآن' : 'يتحدّث الآن'}:{' '}
-            <span className="rt-mono">#{speaker.physicalId}</span> {speaker.name}
-            {speakerRemaining != null && (
-              <span className={`rt-mono ${speakerRemaining <= 10 ? 'warn' : ''}`}>· {speakerRemaining}s</span>
-            )}
-          </span>
+          silencedPids.has(speaker.physicalId) ? (
+            <span className="rt-pill silenced">
+              🔇 <span className="rt-mono">#{speaker.physicalId}</span> {speaker.name} — مُسكَت، لا يمكنه الكلام
+            </span>
+          ) : (
+            <span className="rt-pill">
+              🎙️ {gamePhase === 'DAY_JUSTIFICATION' ? 'يُدافع الآن' : 'يتحدّث الآن'}:{' '}
+              <span className="rt-mono">#{speaker.physicalId}</span> {speaker.name}
+              {speakerRemaining != null && (
+                <span className={`rt-mono ${speakerRemaining <= 10 ? 'warn' : ''}`}>· {speakerRemaining}s</span>
+              )}
+            </span>
+          )
         )}
       </div>
 
       {/* الحلقة */}
       <div className={`rt-stage ${mode}`}>
         <div className="rt-felt" />
+        {morningBanner && !gameOver && (
+          <div className="rt-morning">
+            <span className="rt-morning-ic">{morningBanner.icon}</span>
+            <span className="rt-morning-t">{morningBanner.text}</span>
+            {morningBanner.sub && <span className="rt-morning-sub">{morningBanner.sub}</span>}
+          </div>
+        )}
         {gameOver && (
           <div className="rt-winner">
             <span className="rt-winner-ic">{winnerReveal?.winner === 'MAFIA' ? '🩸' : winnerReveal?.winner === 'ASSASSIN' ? '🔪' : winnerReveal?.winner === 'JESTER' ? '🤡' : '⚖️'}</span>
@@ -284,6 +320,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         <div className="rt-ring">
           {players.map((p, i) => {
             const isDead = !p.isAlive || localDead.has(p.physicalId);
+            const silenced = silencedPids.has(p.physicalId) && !isDead;
             const isSpeaker = serverActiveId != null && p.physicalId === serverActiveId;
             const revealedRole = gameOver ? (roleByPid[p.physicalId] ?? null) : (revealing?.id === p.physicalId ? revealing?.role : null);
             const isFlipped = gameOver || revealing?.id === p.physicalId;
@@ -338,8 +375,9 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                     <div className={`rt-num ${p.gender === 'FEMALE' ? 'gf' : ''}`}>{p.physicalId}</div>
                     <div className="rt-name">{p.name}</div>
                     {p.physicalId === myId && <span className="rt-you">أنت</span>}
-                    {isSpeaker && !isDead && gamePhase !== 'DAY_JUSTIFICATION' && <span className="rt-mic">🎙️</span>}
-                    {rtimer != null && rtimer >= 0 && (
+                    {isSpeaker && !isDead && !silenced && gamePhase !== 'DAY_JUSTIFICATION' && <span className="rt-mic">🎙️</span>}
+                    {silenced && <span className="rt-silenced" title="مُسكَت — لا يمكنه الكلام">🔇</span>}
+                    {rtimer != null && rtimer >= 0 && !silenced && (
                       <span className={`rt-timer ${rtimer <= 10 ? 'warn' : ''}`}>{rtimer}s</span>
                     )}
                     {isDead && <div className="rt-skull">💀</div>}
@@ -418,6 +456,13 @@ const RT_CSS = `
   background:rgba(0,0,0,.72);border:1px solid rgba(197,160,89,.4);color:#C5A059;border-radius:7px;padding:1px 6px}
 .rt-timer.warn{color:#d13636;border-color:rgba(209,54,54,.5)}
 .rt-skull{position:absolute;inset:0 0 34% 0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);font-size:26px;z-index:4}
+.rt-silenced{position:absolute;bottom:36%;left:50%;transform:translateX(-50%);z-index:6;width:24px;height:24px;border-radius:999px;
+  background:#7c2d2d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 5px 14px rgba(124,45,45,.6)}
+.rt-pill.silenced{background:rgba(124,45,45,.2);border-color:rgba(209,54,54,.5);color:#f0a3a3}
+.rt-morning{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:30;display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none;animation:rtwin .5s ease-out;text-align:center}
+.rt-morning-ic{font-size:34px;filter:drop-shadow(0 0 16px rgba(63,131,196,.5))}
+.rt-morning-t{font-family:'Amiri',serif;font-weight:700;font-size:19px;color:#7fb4e6;text-shadow:0 2px 14px rgba(0,0,0,.85)}
+.rt-morning-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#cbd5e1;text-shadow:0 1px 8px rgba(0,0,0,.9)}
 .rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55)}
 .rt-card.spot .rt-front{border-color:#C5A059;box-shadow:0 0 0 1px #C5A059,0 0 30px rgba(197,160,89,.5)}
 .rt-talk{position:absolute;bottom:37%;right:8px;z-index:7;width:11px;height:11px;border-radius:999px;background:#34d399;box-shadow:0 0 9px #34d399;animation:rttalk 1s ease-in-out infinite}

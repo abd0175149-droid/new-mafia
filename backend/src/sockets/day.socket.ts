@@ -1405,8 +1405,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const ds = state.discussionState;
       if (ds.currentSpeakerId) ds.hasSpoken.push(ds.currentSpeakerId);
 
-      // المسكت يدخل الدور عادياً — التخطي يحدث عند محاولة START في day:timer-action
-      const nextSpeakerId = ds.speakingQueue.length > 0 ? ds.speakingQueue.shift()! : null;
+      // تخطَّ الموتى في الطابور (قد يموت لاعب أثناء النقاش — إقصاء إداريّ مثلاً) فلا يأخذ الميت دوراً
+      let nextSpeakerId: number | null = null;
+      while (ds.speakingQueue.length > 0) {
+        const cand = ds.speakingQueue.shift()!;
+        const candPlayer = state.players.find((p: any) => p.physicalId === cand);
+        if (candPlayer?.isAlive) { nextSpeakerId = cand; break; }
+      }
 
       if (nextSpeakerId !== null) {
         ds.currentSpeakerId = nextSpeakerId;
@@ -1415,9 +1420,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const nextPlayer = state.players.find((p: any) => p.physicalId === nextSpeakerId);
         const isSilenced = nextPlayer?.isSilenced === true;
         if (isSilenced) {
-          // المسكت → نتخطاه تلقائياً بتعيين WAITING
+          // المسكت → نتخطاه تلقائياً بتعيين WAITING + نُبلغ الجميع (لتظهر إشارة الإسكات على شاشات اللاعبين البعيدين
+          // حتى لو تخطّاه الليدر بـ NEXT دون الضغط على START)
           ds.startTime = null;
           ds.status = SpeakerStatus.WAITING;
+          io.to(data.roomId).emit('day:show-silenced', { physicalId: nextSpeakerId, playerName: nextPlayer?.name });
         } else {
           ds.startTime = Date.now();
           ds.status = SpeakerStatus.SPEAKING;
