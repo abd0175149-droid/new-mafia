@@ -6,7 +6,7 @@ import { Router, type Request, type Response } from 'express';
 import { authenticate, managerOrAbove } from '../middleware/auth.js';
 import {
   listSeasons, getSeasonLeaderboard, getActiveRegularSeasonId, getActiveRegularSeason,
-  startRegularSeason, startTournamentSeason, endSeason, renameSeason,
+  startRegularSeason, startTournamentSeason, startOnlineSeason, getActiveOnlineSeasonId, endSeason, renameSeason,
 } from '../services/season.service.js';
 import { getActiveRooms } from '../sockets/lobby.socket.js';
 
@@ -30,6 +30,20 @@ router.get('/public/list', async (_req: Request, res: Response) => {
       .filter((s: any) => s.type === 'REGULAR')
       .map((s: any) => ({ id: s.id, name: s.name, seasonNumber: s.seasonNumber, status: s.status, startedAt: s.startedAt, endedAt: s.endedAt }));
     res.json({ success: true, seasons: regular });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── قائمة مواسم الأونلاين + الموسم الأونلاينيّ النشط (عام — لواجهة اللاعب) ──
+router.get('/public/online-list', async (_req: Request, res: Response) => {
+  try {
+    const all = await listSeasons();
+    const online = all
+      .filter((s: any) => s.type === 'ONLINE')
+      .map((s: any) => ({ id: s.id, name: s.name, seasonNumber: s.seasonNumber, status: s.status, startedAt: s.startedAt, endedAt: s.endedAt }));
+    const activeOnlineSeasonId = await getActiveOnlineSeasonId();
+    res.json({ success: true, seasons: online, activeOnlineSeasonId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -112,6 +126,19 @@ router.post('/tournament/start', authenticate, managerOrAbove, async (req: Reque
     const userId = (req as any).user?.id;
     const season = await startTournamentSeason(String(name).trim(), parseInt(locationId), userId);
     res.json({ success: true, season, message: 'تم بدء موسم البطولة' });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── بدء موسم أونلاين جديد (مستقلّ تماماً — لا يمسّ الرانك الوجاهيّ) ──
+router.post('/online/start', authenticate, managerOrAbove, async (req: Request, res: Response) => {
+  try {
+    const { name } = req.body || {};
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'اسم الموسم مطلوب' });
+    const userId = (req as any).user?.id;
+    const season = await startOnlineSeason(String(name).trim(), userId);
+    res.json({ success: true, season, message: 'تم بدء موسم الأونلاين' });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

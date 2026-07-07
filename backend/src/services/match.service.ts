@@ -178,9 +178,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       await db.insert(matchPlayers).values(playerRows);
     }
 
-    // ── 🏆 إسناد الموسم: بطولة الموقع إن وُجدت، وإلا الموسم العادي ──
-    const { resolveSeasonForActivity, applySeasonStats, mirrorPlayerToRegularSeason } = await import('./season.service.js');
-    const { seasonId, isRegular } = await resolveSeasonForActivity(state.activityId);
+    // ── 🏆 إسناد الموسم: أونلاين إن كانت اللعبة عن بُعد، وإلا بطولة الموقع أو الموسم العادي ──
+    // الفصل: مباريات الأونلاين تُحسَم لموسم أونلاين (isRegular=false) فلا تمسّ رانك الوجاهيّ (players.*) إطلاقاً.
+    const { resolveSeasonForGame, applySeasonStats, mirrorPlayerToRegularSeason } = await import('./season.service.js');
+    const { seasonId, isRegular } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
     if (seasonId) {
       await db.update(matches).set({ seasonId } as any).where(eq(matches.id, state.matchId));
     }

@@ -20,7 +20,8 @@ export interface SeasonRow {
 
 // ── كاش الموسم العادي النشط (يُبطَل عند تغيّر المواسم) ──
 let activeRegularCache: { id: number; at: number } | null = null;
-export function invalidateSeasonCache() { activeRegularCache = null; }
+let activeOnlineCache: { id: number | null; at: number } | null = null;
+export function invalidateSeasonCache() { activeRegularCache = null; activeOnlineCache = null; }
 
 // ── جلب الموسم العادي النشط (مع كاش 30 ثانية) ──
 export async function getActiveRegularSeasonId(): Promise<number | null> {
@@ -80,6 +81,34 @@ export async function resolveSeasonForActivity(activityId: number | null | undef
   if (tournamentId) return { seasonId: tournamentId, isRegular: false };
   const regularId = await getActiveRegularSeasonId();
   return { seasonId: regularId, isRegular: true };
+}
+
+// ── جلب موسم الأونلاين النشط (النوع ONLINE) — قابل للتوسعة لعدّة مواسم أونلاين متتابعة (واحد نشط) ──
+export async function getActiveOnlineSeasonId(): Promise<number | null> {
+  if (activeOnlineCache && Date.now() - activeOnlineCache.at < 30000) return activeOnlineCache.id;
+  const db = getDB();
+  if (!db) return null;
+  const [row] = await db.select({ id: seasons.id })
+    .from(seasons)
+    .where(and(eq(seasons.type, 'ONLINE'), eq(seasons.status, 'ACTIVE')))
+    .limit(1);
+  activeOnlineCache = { id: row?.id ?? null, at: Date.now() };
+  return row?.id ?? null;
+}
+
+// ── تحديد موسم المباراة مع فصل الأونلاين عن الوجاهيّ ──
+// الأونلاين (isRemote) → موسم أونلاين نشط، isRegular=false (يُكتَب على player_season_stats فقط، بلا مسّ players.*
+//   أو الرانك العادي) — نفس نمط البطولات. إن غاب موسم أونلاين نشط → seasonId=null فلا يُطبَّق رانك (fail-safe، لا تسريب).
+// الوجاهيّ → المنطق الحاليّ (بطولة الموقع أو الموسم العادي).
+export async function resolveSeasonForGame(
+  activityId: number | null | undefined,
+  isRemote: boolean | undefined,
+): Promise<{ seasonId: number | null; isRegular: boolean }> {
+  if (isRemote) {
+    const onlineId = await getActiveOnlineSeasonId();
+    return { seasonId: onlineId, isRegular: false };
+  }
+  return resolveSeasonForActivity(activityId);
 }
 
 // ── ضمان وجود صف إحصاءات للاعب في موسم ──
@@ -226,6 +255,23 @@ export async function startRegularSeason(name: string, createdBy?: number): Prom
     totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0,
   } as any);
 
+  invalidateSeasonCache();
+  return row as any;
+}
+
+// ── بدء موسم أونلاين جديد: ينهي الأونلاين الحاليّ + يبدأ موسماً أونلاين (لا يمسّ players.* ولا الرانك الوجاهيّ) ──
+// قابل للتوسعة: عدّة مواسم أونلاين متتابعة (واحد ACTIVE)، مستقلّة تماماً عن المواسم العاديّة والبطولات.
+export async function startOnlineSeason(name: string, createdBy?: number): Promise<SeasonRow> {
+  const db = getDB();
+  if (!db) throw new Error('DB unavailable');
+  const currentId = await getActiveOnlineSeasonId();
+  if (currentId) {
+    await db.update(seasons).set({ status: 'ENDED', endedAt: new Date() } as any).where(eq(seasons.id, currentId));
+  }
+  const [{ maxNum }] = await db.select({ maxNum: sql<number>`COALESCE(MAX(${seasons.seasonNumber}),0)::int` }).from(seasons);
+  const [row] = await db.insert(seasons).values({
+    name, seasonNumber: (maxNum || 0) + 1, type: 'ONLINE', status: 'ACTIVE', createdBy: createdBy ?? null,
+  } as any).returning();
   invalidateSeasonCache();
   return row as any;
 }

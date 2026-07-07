@@ -119,6 +119,7 @@ export async function reconcileSeasonProgression(
     winner: matches.winner,
     seasonId: matches.seasonId,
     isTestLocation: locations.isTestLocation,
+    isRemote: sessions.isRemote,
   })
     .from(matchPlayers)
     .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
@@ -138,15 +139,23 @@ export async function reconcileSeasonProgression(
     const { getActiveRegularSeasonId } = await import('./season.service.js');
     targetSeasonId = await getActiveRegularSeasonId();
   }
-  log(`🏆 Target season: ${targetSeasonId ?? '(none — counting all)'}`);
+  // نوع الموسم المستهدف — لفصل الأونلاين: موسم أونلاين ⇒ مباريات أونلاين فقط؛ غيره ⇒ استبعاد الأونلاين تماماً
+  let targetIsOnline = false;
+  if (targetSeasonId != null) {
+    const { seasons } = await import('../schemas/season.schema.js');
+    const [ts] = await db.select({ type: seasons.type }).from(seasons).where(eq(seasons.id, targetSeasonId)).limit(1);
+    targetIsOnline = ts?.type === 'ONLINE';
+  }
+  log(`🏆 Target season: ${targetSeasonId ?? '(none — counting all)'} ${targetIsOnline ? '(ONLINE)' : '(non-online → excluding remote matches)'}`);
 
-  // 3) فلترة: استبعاد مواقع الاختبار + قصر على الموسم المستهدف (إن وُجد)
+  // 3) فلترة: استبعاد مواقع الاختبار + قصر على الموسم المستهدف + فصل الأونلاين عن الوجاهيّ
   const counted = rows.filter(r =>
     r.isTestLocation !== true &&
-    (targetSeasonId == null || r.seasonId === targetSeasonId)
+    (targetSeasonId == null || r.seasonId === targetSeasonId) &&
+    (targetIsOnline ? r.isRemote === true : r.isRemote !== true)
   );
   const skipped = rows.length - counted.length;
-  log(`✅ Counted: ${counted.length} | ⛔ Skipped (test/other-season): ${skipped}`);
+  log(`✅ Counted: ${counted.length} | ⛔ Skipped (test/other-season/remote): ${skipped}`);
 
   // 4) إعادة اللعب في الذاكرة لكل لاعب (بالترتيب الزمني)
   const accs = new Map<number, PlayerAcc>();
