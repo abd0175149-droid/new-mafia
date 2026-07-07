@@ -156,24 +156,30 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         setJustTimer({ physicalId: d.physicalId, timeLimitSeconds: d.timeLimitSeconds || 30, startTime: d.startTime || Date.now() }),
       ),
       on('day:justification-timer-stopped', () => setJustTimer(null)),
-      // حدث صباحيّ: نميّز نوعه — الموت يقلب الكارد ويكشف الدور؛ غير الموت (حماية…) يُظهر بانراً ولا يُميت أحداً
+      // حدث صباحيّ (قائمة سلبيّة آمنة): الحجب/الحماية بانر؛ السرّية/التحوّل تُتجاهَل (منعاً لتسريب الدور)؛
+      // ما عداها = موت → إن عُرف الدور نقلب ونكشف وإلّا نتركه للروستر ليُجمّده. هكذا يشمل كلّ القتل (ثابت/ديناميكي/شرطية/توأم).
       on('display:morning-event', (d: any) => {
-        const type = d?.type;
+        const type: string = d?.type || '';
         const pid = d?.targetPhysicalId;
         if (pid == null) return;
-        const DEATH = ['SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSINATION', 'ASSASSIN_KILL', 'MAFIA_KILL'];
-        if (DEATH.includes(type)) {
-          const role = d?.extra?.targetRole || d?.targetRole || d?.role;
-          if (role) runReveal([{ physicalId: pid, role }]);              // قلب + كشف الدور
-          else setLocalDead((prev) => new Set(prev).add(pid));           // موت بلا دور معروف → تجميد فقط (لا قلب فارغ)
-        } else if (type === 'ASSASSINATION_BLOCKED' || type === 'ASSASSIN_BLOCKED') {
+        if (type === 'ASSASSINATION_BLOCKED' || type === 'ASSASSIN_BLOCKED' || type === 'PROTECTION') {
           setMorningBanner({ icon: '🛡️', text: 'فشل الاغتيال', sub: `نجت الحماية · ${d?.targetName || ''}`.trim() });
           setTimeout(() => setMorningBanner(null), 4500);
-        } else if (type === 'PROTECTION_FAILED') {
+          return;
+        }
+        if (type === 'PROTECTION_FAILED') {
           setMorningBanner({ icon: '⚠️', text: 'لم تنفع الحماية', sub: d?.targetName || '' });
           setTimeout(() => setMorningBanner(null), 4500);
+          return;
         }
-        // SILENCED / SHERIFF_RESULT / ABILITY_DISABLED: سرّية أو للّيدر — لا تُعرض على الحلقة
+        // أحداث ليست موتاً (سرّية/تحقيق/إسكات/تعطيل/تحوّل/نتائج) — لا تُعرض على الحلقة
+        const NON_DEATH = ['SILENCED', 'SILENCE', 'SHERIFF_RESULT', 'INVESTIGATION', 'ABILITY_DISABLED', 'DISABLE_ABILITY',
+          'TRANSFORM', 'TWIN_TRANSFORM', 'ASSASSINATION_ATTEMPT', 'ELIMINATE_ALL', 'SINGLE_WINNER', 'TIE', 'ELIMINATION'];
+        if (NON_DEATH.includes(type)) return;
+        // موت: اكشف الدور إن وُجد، وإلّا جمّد الكارد (الروستر سيؤكّده خلال ثوانٍ)
+        const role = d?.extra?.targetRole || d?.targetRole || d?.role;
+        if (role) runReveal([{ physicalId: pid, role }]);
+        else setLocalDead((prev) => new Set(prev).add(pid));
       }),
     ];
     return () => subs.forEach((u) => u && u());

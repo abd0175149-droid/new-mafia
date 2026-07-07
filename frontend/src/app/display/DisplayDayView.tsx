@@ -328,8 +328,9 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     const onDiscussionUpdated = (data: { discussionState: any }) => {
       setDiscussionState(data.discussionState);
       setLocalTimeRemaining(data.discussionState.timeRemaining);
-      // إخفاء أنيميشن الإسكات عند انتقال المتحدث (الليدر ضغط NEXT)
-      setSilencedPlayerId(null);
+      // إخفاء أنيميشن الإسكات عند الانتقال لمتحدّث آخر — لكن أبقِه إن كان المتحدّث الحاليّ نفسه المُسكَت
+      // (day:next-speaker صار يبثّ day:show-silenced قبل هذا الحدث عند الوصول لمُسكَت، فلا نمسحه فوراً).
+      setSilencedPlayerId((prev) => (prev !== null && prev === data.discussionState?.currentSpeakerId ? prev : null));
     };
 
     const onShowSilenced = (data: { physicalId: number }) => {

@@ -1520,6 +1520,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
                 type: 'TWIN_SUICIDE',
                 targetPhysicalId: twinResult.suicidePhysicalId,
                 targetName: twinResult.suicideName,
+                // ندرج الدور كي تكشفه حلقة اللاعب البعيد (كما تفعل شاشة العرض)
+                extra: { targetRole: state.players.find((p: any) => p.physicalId === twinResult.suicidePhysicalId)?.role },
               });
             }
           } else if (twinResult.type === 'TRANSFORM') {
