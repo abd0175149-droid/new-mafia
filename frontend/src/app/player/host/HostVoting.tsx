@@ -27,8 +27,8 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
   const candidates: any[] = vs.candidates || [];
   const playerVotes: Record<number, number> = vs.playerVotes || {};
   const proxyVotes: Record<number, number> = vs.leaderProxyVotes || {};
-  const hidden: number[] = vs.hiddenPlayersFromVoting || [];
-  const votingAlive = alive.filter((p: any) => !hidden.includes(p.physicalId));
+  // كل الأحياء يصوّتون (بما فيهم أهداف الصفقات) — المقام والاكتمال يطابقان الباكند وLeaderDayView
+  const votingAlive = alive;
   const totalVotes = candidates.reduce((s: number, c: any) => s + (c.votes || 0), 0);
   const isComplete = totalVotes >= votingAlive.length;
   const tbl = vs.tieBreakerLevel || 0;
@@ -37,9 +37,18 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
   const citizen = alive.length - mafia;
 
   const run = async (fn: () => Promise<any>) => { setBusy(true); try { await fn(); } catch (e: any) { setError(e?.message || 'تعذّر'); } finally { setBusy(false); } };
-  const castVote = (candidateIndex: number, delta: 1 | -1) => {
-    if (selectedVoter == null) { setError('اختر المصوِّت أولاً'); return; }
-    run(() => emit('day:cast-vote', { roomId: gameState.roomId, candidateIndex, delta, voterPhysicalId: selectedVoter }));
+  // تصويت: يتطلّب مصوِّتاً مختاراً؛ يبثّ +1 على المرشّح ثم يُصفّر الاختيار
+  const addVote = (candidateIndex: number) => {
+    if (selectedVoter == null) { setError('اختر مصوِّتاً أولاً'); return; }
+    const v = selectedVoter;
+    setSelectedVoter(null);
+    run(() => emit('day:cast-vote', { roomId: gameState.roomId, candidateIndex, delta: 1, voterPhysicalId: v }));
+  };
+  // تراجع: يُنقص المرشّح الذي صوّت له هذا المصوِّت فعلاً (لا مرشّحاً عشوائياً)
+  const removeVote = (pid: number) => {
+    const idx = proxyVotes[pid] ?? playerVotes[pid];
+    if (idx === undefined) return;
+    run(() => emit('day:cast-vote', { roomId: gameState.roomId, candidateIndex: idx, delta: -1, voterPhysicalId: pid }));
   };
   const voterStatus = (pid: number) => (proxyVotes[pid] !== undefined ? 'proxy' : playerVotes[pid] !== undefined ? 'self' : 'pending');
 
@@ -61,7 +70,8 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
           const isDeal = c.type === 'DEAL';
           const g = target?.gender === 'FEMALE' ? '👩' : '👨';
           return (
-            <div key={i} className="relative rounded-2xl border border-[#2a2a2a] bg-gradient-to-b from-[#121013] to-[#0a090a] p-2 pt-4 text-center">
+            <button key={i} onClick={() => addVote(i)} disabled={selectedVoter == null || busy}
+              className={`relative rounded-2xl border bg-gradient-to-b from-[#121013] to-[#0a090a] p-2 pt-4 text-center transition-all ${selectedVoter != null ? 'border-sky-600/50 active:scale-95' : 'border-[#2a2a2a] opacity-80'} disabled:active:scale-100`}>
               {c.votes > 0 && (
                 <span className="absolute -top-2.5 -left-2 min-w-[24px] h-6 px-1 rounded-full bg-[#b0362f] text-white font-mono font-extrabold text-xs flex items-center justify-center shadow-[0_4px_10px_-3px_#b0362f]">{c.votes}</span>
               )}
@@ -70,25 +80,20 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
               </div>
               <div className="text-[10px] text-white/90 truncate leading-tight">#{c.targetPhysicalId} {target?.name || ''}</div>
               {isDeal && <div className="text-[8px] font-mono text-[#C5A059] mt-0.5">🤝 صفقة</div>}
-              <div className="flex gap-1 mt-1.5">
-                <button onClick={() => castVote(i, 1)} disabled={selectedVoter == null || busy}
-                  className="flex-1 py-1.5 rounded-lg bg-[#153a20] border border-[#265e33] text-[#a7e0b8] text-sm font-bold disabled:opacity-30">+</button>
-                <button onClick={() => castVote(i, -1)} disabled={busy}
-                  className="flex-1 py-1.5 rounded-lg bg-[#3a1513] border border-[#5e2622] text-[#eba9a4] text-sm font-bold disabled:opacity-40">−</button>
-              </div>
-            </div>
+              {selectedVoter != null && <div className="text-[8px] font-mono text-sky-300/80 mt-1">اضغط للتصويت</div>}
+            </button>
           );
         })}
       </div>
 
-      {/* اختيار المصوِّت (وكالة) */}
-      <div className="text-[10px] font-mono text-[#808080] uppercase tracking-wider mb-1.5">صوِّت بالوكالة عن — اختر المصوِّت ثم اضغط + على مرشّح</div>
+      {/* اختيار المصوِّت (وكالة) — معلّق: اضغطه ثم اضغط مرشّحاً · صوّت/وكالة: اضغطه للتراجع عن صوته */}
+      <div className="text-[10px] font-mono text-[#808080] uppercase tracking-wider mb-1.5">صوِّت بالوكالة — اختر مصوِّتاً معلّقاً ثم اضغط مرشّحاً · اضغط مَن صوّت للتراجع</div>
       <div className="flex flex-wrap gap-1.5 mb-4">
         {votingAlive.map((p: any) => {
           const st = voterStatus(p.physicalId);
           const sel = selectedVoter === p.physicalId;
           return (
-            <button key={p.physicalId} onClick={() => setSelectedVoter(p.physicalId)}
+            <button key={p.physicalId} onClick={() => (st === 'pending' ? setSelectedVoter(p.physicalId) : removeVote(p.physicalId))}
               className={`px-2 py-1.5 rounded-lg text-[11px] font-mono border transition-all ${sel ? 'border-sky-500 text-sky-100 bg-sky-500/15 scale-105' : st === 'self' ? 'border-emerald-600/50 text-emerald-300 bg-emerald-900/10' : st === 'proxy' ? 'border-amber-600/50 text-amber-300 bg-amber-900/10' : 'border-[#222] text-[#999] bg-[#0c0c0c]'}`}>
               #{p.physicalId} {st === 'self' ? '✅' : st === 'proxy' ? '🟠' : ''}
             </button>

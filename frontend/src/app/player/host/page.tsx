@@ -49,16 +49,21 @@ export default function HostPage() {
   // 🕵️ DAY_REVEALED طورٌ جبهيّ فقط (الخادم يبقى على DAY_ELIMINATION). نُبقيه محليّاً حتى لا يرجعنا الاستطلاع
   // للخلف فيختفي زر «بدء الليل» — تماماً كما تفعل صفحة /leader.
   const revealOverrideRef = useRef<any | null>(null);
+  // 👮‍♀️ اختيار الشرطية حقلٌ جبهيّ فقط (يصل عبر حدث policewoman:choice-available، لا في حالة الخادم).
+  // نُبقيه محليّاً خلال طور الصباح وإلّا مسحه الاستطلاع الدوريّ فتعلق اللعبة عند تفعيل الشرطية.
+  const policewomanChoiceRef = useRef<any | null>(null);
 
   const applyState = useCallback((s: any) => {
     if (!s) return;
+    if (s.phase !== 'MORNING_RECAP') policewomanChoiceRef.current = null;
+    const pw = policewomanChoiceRef.current && s.phase === 'MORNING_RECAP' ? { policewomanChoice: policewomanChoiceRef.current } : {};
     const ov = revealOverrideRef.current;
     if (ov && s.phase === 'DAY_ELIMINATION') {
       // الخادم ما زال على DAY_ELIMINATION لكننا كشفنا محليّاً → أبقِ DAY_REVEALED مع بيانات الكشف
-      setGameState({ ...s, phase: 'DAY_REVEALED', revealedData: ov, pendingWinner: ov.pendingWinner ?? s.pendingWinner ?? null });
+      setGameState({ ...s, ...pw, phase: 'DAY_REVEALED', revealedData: ov, pendingWinner: ov.pendingWinner ?? s.pendingWinner ?? null });
     } else {
       if (ov) revealOverrideRef.current = null; // تقدّمنا للأمام (ليل/نهاية) → أنهِ التجاوز
-      setGameState(s);
+      setGameState({ ...s, ...pw });
     }
   }, []);
 
@@ -114,6 +119,11 @@ export default function HostPage() {
     offs.push(on('night:morning-recap', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('game:over', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
     offs.push(on('day:voting-started', () => { if (roomIdRef.current) refreshState(roomIdRef.current); }));
+    // 👮‍♀️ تفعيل صلاحية الشرطية (حدث للّيدر فقط) — نضبطه محليّاً كما /leader ليظهر تدفّق الشرطية بدل التعليق
+    offs.push(on('policewoman:choice-available', (data: any) => {
+      policewomanChoiceRef.current = data;
+      setGameState((prev: any) => (prev ? { ...prev, policewomanChoice: data } : prev));
+    }));
     // كشف الهوية: انتقل محليّاً لـ DAY_REVEALED (كما /leader) ليظهر زر «بدء الليل» — الخادم يبقى DAY_ELIMINATION
     offs.push(on('day:elimination-revealed', (data: any) => {
       revealOverrideRef.current = data || {};
