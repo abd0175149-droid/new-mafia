@@ -11,7 +11,7 @@ import { useSocket } from '@/hooks/useSocket';
 import { usePlayer } from '@/context/PlayerContext';
 import HostLobby from './HostLobby';
 import LeaderRoleConfigurator from '@/app/leader/LeaderRoleConfigurator';
-import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
+import HostRoleBinding from './HostRoleBinding';
 import HostDayControls from './HostDayControls';
 import HostNightRunner from './HostNightRunner';
 import RemoteVoice from '@/components/RemoteVoice';
@@ -348,7 +348,7 @@ export default function HostPage() {
   } else if (phase === 'ROLE_GENERATION') {
     body = <LeaderRoleConfigurator gameState={gameState} emit={emit} setError={setError} hideMafiaChat />;
   } else if (phase === 'ROLE_BINDING') {
-    body = <LeaderRoleBinding gameState={gameState} emit={emit} setError={setError} />;
+    body = <HostRoleBinding gameState={gameState} emit={emit} setError={setError} />;
   } else if (phase.startsWith('DAY_')) {
     body = <HostDayControls gameState={gameState} emit={emit} setError={setError} />;
   } else if (phase === 'NIGHT' || phase === 'MORNING_RECAP') {
