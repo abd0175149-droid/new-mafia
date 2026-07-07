@@ -15,8 +15,17 @@ import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
 import LeaderDayView from '@/app/leader/LeaderDayView';
 import HostNightRunner from './HostNightRunner';
 import RemoteVoice from '@/components/RemoteVoice';
+import PhoneSpectatorView from '@/components/PhoneSpectatorView';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import ConfrontationControls from '@/components/ConfrontationControls';
+import { MAFIA_ROLES } from '@/lib/constants';
+
+const PHASE_SHORT: Record<string, string> = {
+  LOBBY: 'لوبي', ROLE_GENERATION: 'أدوار', ROLE_BINDING: 'ربط',
+  DAY_DISCUSSION: 'نقاش', DAY_VOTING: 'تصويت', DAY_JUSTIFICATION: 'دفاع',
+  DAY_ELIMINATION: 'كشف', ELIMINATION_PENDING: 'كشف', DAY_REVEALED: 'كشف', DAY_TIEBREAKER: 'تعادل',
+  NIGHT: 'ليل', MORNING_RECAP: 'صباح', GAME_OVER: 'نهاية',
+};
 
 export default function HostPage() {
   const { player } = usePlayer();
@@ -26,6 +35,8 @@ export default function HostPage() {
   const [creating, setCreating] = useState(false);
   const [gameName, setGameName] = useState('غرفة عن بُعد');
   const [maxPlayers, setMaxPlayers] = useState(12);
+  // 📷🔊 خرائط الكاميرا/الصوت للمضيف — تُغذّي حلقة العرض (نفس كارت اللاعب + الكاميرا)
+  const [voiceMaps, setVoiceMaps] = useState<{ videoByPid: Record<number, MediaStreamTrack | null>; audioByPid: Record<number, boolean> }>({ videoByPid: {}, audioByPid: {} });
   // ── إعدادات الغرفة (تُضبط قبل الإنشاء بدل اللوبي) ──
   const [autoNightTime, setAutoNightTime] = useState(15);          // ثوانٍ لكل خطوة ليل
   const [gameTimerMinutes, setGameTimerMinutes] = useState(0);     // 0 = مطفأ
@@ -255,6 +266,45 @@ export default function HostPage() {
     <div className="mx-4 mt-3 p-2.5 rounded-lg bg-red-900/30 border border-red-700 text-red-200 text-sm">{error}</div>
   ) : null;
 
+  // ── 👑 حلقة المضيف: نفس كارت اللاعب + الكاميرا + كشف الأدوار للّيدر ──
+  const hostRoster = (gameState.players || []).map((p: any) => ({
+    physicalId: p.physicalId, name: p.name, role: p.role ?? null,
+    isAlive: p.isAlive !== false, gender: p.gender, avatarUrl: p.avatarUrl ?? null,
+  }));
+  const aliveCount = hostRoster.filter((p: any) => p.isAlive).length;
+  const mafiaAlive = hostRoster.filter((p: any) => p.isAlive && p.role && (MAFIA_ROLES as string[]).includes(p.role)).length;
+  const showRing = ['NIGHT', 'MORNING_RECAP', 'DAY_DISCUSSION', 'DAY_JUSTIFICATION', 'DAY_VOTING', 'DAY_ELIMINATION', 'ELIMINATION_PENDING', 'DAY_REVEALED', 'DAY_TIEBREAKER', 'GAME_OVER'].includes(phase);
+  const hostRing = gameState?.config?.isRemote && showRing && hostRoster.length > 0 ? (
+    <div className="px-2 pt-1">
+      <div className="flex gap-2 px-2 mb-1">
+        <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
+          <div className="font-mono font-extrabold text-[17px] leading-none text-emerald-400">{aliveCount}</div>
+          <div className="text-[9px] text-[#808080] mt-0.5">أحياء</div>
+        </div>
+        <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
+          <div className="font-mono font-extrabold text-[17px] leading-none text-red-400">{mafiaAlive}</div>
+          <div className="text-[9px] text-[#808080] mt-0.5">مافيا</div>
+        </div>
+        <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
+          <div className="font-mono font-extrabold text-[15px] leading-none text-[#C5A059]">{PHASE_SHORT[phase] || '—'}</div>
+          <div className="text-[9px] text-[#808080] mt-0.5">الطور</div>
+        </div>
+      </div>
+      <PhoneSpectatorView
+        roster={hostRoster}
+        physicalId="-1"
+        gamePhase={phase}
+        on={on}
+        initialDiscussionState={gameState.discussionState}
+        videoByPid={voiceMaps.videoByPid}
+        speakingByPid={voiceMaps.audioByPid}
+        revealRoles
+        hostView
+        winnerReveal={phase === 'GAME_OVER' ? { winner: gameState.winner, players: gameState.players } : null}
+      />
+    </div>
+  ) : null;
+
   let body: React.ReactNode;
   if (phase === 'LOBBY') {
     body = (
@@ -341,6 +391,7 @@ export default function HostPage() {
             gamePhase={gameState?.phase ?? null}
             allowedPids={hostAllowedPids}
             nameByPid={Object.fromEntries((gameState?.players || []).map((p: any) => [p.physicalId, p.name]))}
+            onVoiceMaps={setVoiceMaps}
           />
           <ConfrontationControls
             confrontation={hostConfrontation}
@@ -353,6 +404,7 @@ export default function HostPage() {
           />
         </div>
       )}
+      {hostRing}
       {body}
     </div>
   );

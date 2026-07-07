@@ -22,6 +22,8 @@ interface PhoneSpectatorViewProps {
   videoByPid?: Record<number, MediaStreamTrack | null>; // 📷 كاميرات (self + المتحدّث فقط)
   speakingByPid?: Record<number, boolean>;              // 🔊 من يتكلّم صوتياً الآن
   winnerReveal?: { winner: string | null; players: any[] } | null; // 🏁 كشف الفائز + الأدوار على الطاولة
+  revealRoles?: boolean;   // 👑 وضع المضيف: تُظهر دور كل لاعب على كارته (الليدر يرى كل شيء)
+  hostView?: boolean;      // 👑 وضع المضيف: يخفي شارة «أنت» وتلميحات اللاعب
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -72,7 +74,7 @@ function VideoTile({ track }: { track: MediaStreamTrack }) {
   return <video ref={ref} autoPlay muted playsInline className="rt-avimg" />;
 }
 
-export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal }: PhoneSpectatorViewProps) {
+export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal, revealRoles, hostView }: PhoneSpectatorViewProps) {
   const [mode, setMode] = useState<'focus' | 'overview'>('focus');
   const [discussion, setDiscussion] = useState<any>(initialDiscussionState || null);
   const [justTimer, setJustTimer] = useState<{ physicalId: number; timeLimitSeconds: number; startTime: number } | null>(null);
@@ -331,6 +333,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             const revealedRole = gameOver ? (roleByPid[p.physicalId] ?? null) : (revealing?.id === p.physicalId ? revealing?.role : null);
             const isFlipped = gameOver || revealing?.id === p.physicalId;
             const rm = roleMeta(revealedRole);
+            const hostRole = revealRoles && !isFlipped ? roleMeta(p.role) : null; // 👑 دور ظاهر للمضيف على وجه الكارت
             const rtimer = remainingFor(p.physicalId);
             const talking = !!speakingByPid?.[p.physicalId];
             // الكاميرا تُعرض على كارد كل لاعب فتح كاميرته (يبثّها للجميع) — قلائل يفتحونها فالأداء آمن
@@ -380,7 +383,8 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                     {talking && <span className="rt-talk" />}
                     <div className={`rt-num ${p.gender === 'FEMALE' ? 'gf' : ''}`}>{p.physicalId}</div>
                     <div className="rt-name">{p.name}</div>
-                    {p.physicalId === myId && <span className="rt-you">أنت</span>}
+                    {hostRole && <span className="rt-hrole" style={{ color: hostRole.mafia ? '#e07070' : '#7fb4e6' }}>{hostRole.icon} {hostRole.text}</span>}
+                    {!hostView && p.physicalId === myId && <span className="rt-you">أنت</span>}
                     {isSpeaker && !isDead && !silenced && gamePhase !== 'DAY_JUSTIFICATION' && <span className="rt-mic">🎙️</span>}
                     {silenced && <span className="rt-silenced" title="مُسكَت — لا يمكنه الكلام">🔇</span>}
                     {rtimer != null && rtimer >= 0 && !silenced && (
@@ -450,6 +454,9 @@ const RT_CSS = `
 .rt-num.gf{color:rgba(216,180,254,.95)}
 .rt-name{position:absolute;bottom:0;left:0;right:0;height:34%;display:flex;align-items:center;justify-content:center;
   background:#000;font-family:'Amiri',serif;font-weight:700;font-size:14px;color:#fff;padding:0 4px;text-align:center}
+.rt-hrole{position:absolute;bottom:34%;left:0;right:0;z-index:8;display:flex;align-items:center;justify-content:center;gap:2px;
+  background:rgba(0,0,0,.82);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:8.5px;letter-spacing:.02em;padding:2px 3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(197,160,89,.25)}
 .rt-back{transform:rotateY(180deg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
   background:radial-gradient(120% 120% at 50% 25%,#1a1410,#070605)}
 .rt-role-ic{font-size:34px}
