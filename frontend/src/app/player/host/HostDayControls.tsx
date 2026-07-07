@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import LeaderDayView from '@/app/leader/LeaderDayView';
+import HostVoting from './HostVoting';
 
 interface Props {
   gameState: any;
@@ -23,7 +24,8 @@ export default function HostDayControls({ gameState, emit, setError }: Props) {
     if (ds?.isFinished) return <DiscussionFinished gameState={gameState} emit={emit} setError={setError} />;
     return <DiscussionDock gameState={gameState} emit={emit} setError={setError} />;
   }
-  // بقيّة أطوار النهار (تصويت/تبرير/كشف) تُفوَّض حالياً إلى LeaderDayView — قيد إعادة التصميم
+  if (gameState.phase === 'DAY_VOTING') return <HostVoting gameState={gameState} emit={emit} setError={setError} />;
+  // بقيّة أطوار النهار (تبرير/كشف) تُفوَّض حالياً إلى LeaderDayView — قيد إعادة التصميم
   return <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
 }
 

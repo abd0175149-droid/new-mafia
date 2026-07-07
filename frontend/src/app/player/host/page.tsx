@@ -273,7 +273,8 @@ export default function HostPage() {
   }));
   const aliveCount = hostRoster.filter((p: any) => p.isAlive).length;
   const mafiaAlive = hostRoster.filter((p: any) => p.isAlive && p.role && (MAFIA_ROLES as string[]).includes(p.role)).length;
-  const showRing = ['NIGHT', 'MORNING_RECAP', 'DAY_DISCUSSION', 'DAY_JUSTIFICATION', 'DAY_VOTING', 'DAY_ELIMINATION', 'ELIMINATION_PENDING', 'DAY_REVEALED', 'DAY_TIEBREAKER', 'GAME_OVER'].includes(phase);
+  // التصويت والليل واجهتان موحّدتان قائمتان بذاتهما (بلا حلقة منفصلة فوقهما) حسب طلب التصميم
+  const showRing = ['MORNING_RECAP', 'DAY_DISCUSSION', 'DAY_JUSTIFICATION', 'DAY_ELIMINATION', 'ELIMINATION_PENDING', 'DAY_REVEALED', 'DAY_TIEBREAKER', 'GAME_OVER'].includes(phase);
   const hostRing = gameState?.config?.isRemote && showRing && hostRoster.length > 0 ? (
     <div className="px-2 pt-1">
       <div className="flex gap-2 px-2 mb-1">
@@ -346,23 +347,18 @@ export default function HostPage() {
     const winner = gameState.winner;
     const winTitle = winner === 'MAFIA' ? 'انتصار المافيا' : winner === 'ASSASSIN' ? 'انتصار السفّاح' : winner === 'JESTER' ? 'فوز المهرج' : 'تطهير المدينة';
     const winIcon = winner === 'MAFIA' ? '🩸' : winner === 'ASSASSIN' ? '🔪' : winner === 'JESTER' ? '🤡' : '⚖️';
+    const winSub = winner === 'MAFIA' ? 'ALL CITIZENS ELIMINATED' : winner === 'ASSASSIN' ? 'CONTRACTS FULFILLED' : winner === 'JESTER' ? 'THE JESTER WINS' : 'THREAT NEUTRALIZED';
+    // الطاولة تكشف كل الأدوار على الحلقة أعلاه (winnerReveal) — هنا الإعلان والأزرار فقط
     body = (
-      <div className="p-5 text-center">
-        <div className="text-7xl mb-3 grayscale">{winIcon}</div>
-        <h2 className="text-3xl font-black text-white mb-4" style={{ fontFamily: 'Amiri, serif' }}>{winTitle}</h2>
-        <div className="grid grid-cols-2 gap-2 max-w-md mx-auto mb-6">
-          {(gameState.players || []).map((p: any) => (
-            <div key={p.physicalId} className={`p-2 rounded-lg border text-sm ${p.isAlive ? 'border-[#2a2a2a] bg-[#0a0a0a]' : 'border-[#1a1a1a] bg-black/40 opacity-60'}`}>
-              <div className="text-white/90">#{p.physicalId} {p.name}</div>
-              <div className="text-[#C5A059] text-xs font-mono">{p.role || '—'}</div>
-            </div>
-          ))}
-        </div>
+      <div className="px-4 pt-2 pb-7 text-center">
+        <div className="text-6xl mb-1 leading-none" style={{ filter: 'drop-shadow(0 0 26px rgba(197,160,89,0.45))' }}>{winIcon}</div>
+        <h2 className="text-2xl font-black text-white mb-1" style={{ fontFamily: 'Amiri, serif' }}>{winTitle}</h2>
+        <p className="text-[9px] font-mono text-[#808080] tracking-[0.25em] uppercase mb-6">{winSub}</p>
         <div className="flex gap-2 max-w-md mx-auto">
           <button onClick={async () => { try { await emit('room:new-game', { roomId: gameState.roomId }); } catch (e: any) { setError(e?.message || 'تعذّر'); } }}
-            className="btn-premium flex-1 !py-3 !rounded-lg"><span>🔄 لعبة جديدة</span></button>
+            className="btn-premium flex-1 !py-3.5 !rounded-xl"><span>🔄 لعبة جديدة</span></button>
           <button onClick={async () => { try { await emit('room:close-event', { roomId: gameState.roomId }); localStorage.removeItem('mafia_host_room'); roomIdRef.current = null; setGameState(null); } catch (e: any) { setError(e?.message || 'تعذّر'); } }}
-            className="flex-1 py-3 rounded-lg border border-[#333] text-[#aaa]">إنهاء الغرفة</button>
+            className="flex-1 py-3.5 rounded-xl border border-[#333] text-[#aaa] font-bold">إنهاء الغرفة</button>
         </div>
       </div>
     );
