@@ -12,6 +12,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
+import { useGameConfig } from '@/hooks/useGameConfig';
+
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 
 interface PhoneSpectatorViewProps {
   roster: any[];
@@ -103,7 +106,18 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
     (winnerReveal?.players || []).forEach((p: any) => { if (p?.physicalId != null && p.role) m[p.physicalId] = p.role; });
     return m;
   }, [winnerReveal]);
-  useEffect(() => { if (gameOver) setMode('overview'); }, [gameOver]);
+  const { getCardForRole } = useGameConfig();
+  // 🏁 نهاية اللعبة: تُركَّب الكروت غير مقلوبة ثم تُقلَب بعد لحظة (دوران عام→سرّيّ، لا ولادة مقلوبة)
+  const [gameOverRevealed, setGameOverRevealed] = useState(false);
+  useEffect(() => {
+    if (gameOver) {
+      setMode('overview');
+      setGameOverRevealed(false);
+      const t = setTimeout(() => setGameOverRevealed(true), 550);
+      return () => clearTimeout(t);
+    }
+    setGameOverRevealed(false);
+  }, [gameOver]);
 
   // صاحب الدور من السيرفر: تبرير (مؤقّت المتّهم) أو نقاش (المتحدّث الحالي)
   const serverActiveId = useMemo(() => {
@@ -331,8 +345,12 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             const silenced = silencedPids.has(p.physicalId) && !isDead;
             const isSpeaker = serverActiveId != null && p.physicalId === serverActiveId;
             const revealedRole = gameOver ? (roleByPid[p.physicalId] ?? null) : (revealing?.id === p.physicalId ? revealing?.role : null);
-            const isFlipped = gameOver || revealing?.id === p.physicalId;
+            const isFlipped = (gameOver && gameOverRevealed) || revealing?.id === p.physicalId;
             const rm = roleMeta(revealedRole);
+            const tpl = revealedRole ? getCardForRole(revealedRole) : null; // 🎴 تصميم الدور الفعليّ (الوجه السرّيّ)
+            const tplImg = tpl?.secretFace?.customImageUrl
+              ? (tpl.secretFace.customImageUrl.startsWith('http') ? tpl.secretFace.customImageUrl : `${SOCKET_URL}${tpl.secretFace.customImageUrl}`)
+              : null;
             const hostRole = revealRoles && !isFlipped ? roleMeta(p.role) : null; // 👑 دور ظاهر للمضيف على وجه الكارت
             const rtimer = remainingFor(p.physicalId);
             const talking = !!speakingByPid?.[p.physicalId];
@@ -392,15 +410,17 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                     )}
                     {isDead && <div className="rt-skull">💀</div>}
                   </div>
-                  {/* الوجه الخلفي — يظهر لحظة الإقصاء فقط */}
+                  {/* الوجه الخلفي — تصميم الدور الفعليّ (صورة مخصّصة أو تصميم بألوان الدور) */}
                   <div className="rt-face rt-back">
-                    {rm && (
-                      <>
+                    {tplImg ? (
+                      <img src={tplImg} alt={rm?.text || ''} className="rt-roleimg" />
+                    ) : rm ? (
+                      <div className="rt-roledesign" style={{ background: tpl?.gradient || undefined, borderColor: tpl?.borderColor || 'transparent' }}>
                         <div className="rt-role-ic">{rm.icon}</div>
-                        <div className="rt-role" style={{ color: rm.mafia ? '#d13636' : '#3f83c4' }}>{rm.text}</div>
+                        <div className="rt-role" style={{ color: tpl?.textColor || (rm.mafia ? '#d13636' : '#3f83c4') }}>{rm.text}</div>
                         <div className="rt-role-sub">#{p.physicalId} · {p.name}</div>
-                      </>
-                    )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -457,8 +477,10 @@ const RT_CSS = `
 .rt-hrole{position:absolute;bottom:34%;left:0;right:0;z-index:8;display:flex;align-items:center;justify-content:center;gap:2px;
   background:rgba(0,0,0,.82);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:8.5px;letter-spacing:.02em;padding:2px 3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(197,160,89,.25)}
-.rt-back{transform:rotateY(180deg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+.rt-back{transform:rotateY(180deg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;overflow:hidden;
   background:radial-gradient(120% 120% at 50% 25%,#1a1410,#070605)}
+.rt-roleimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.rt-roledesign{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-radius:14px;border:1.5px solid transparent}
 .rt-role-ic{font-size:34px}
 .rt-role{font-family:'Amiri',serif;font-size:18px;font-weight:700;text-align:center;padding:0 6px}
 .rt-role-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8578}
