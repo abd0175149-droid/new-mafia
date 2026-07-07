@@ -85,6 +85,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   const [gameTimer, setGameTimer] = useState<{ totalSeconds: number; startedAt: number; expired?: boolean } | null>(null);
   const [revealing, setRevealing] = useState<{ id: number; role: string } | null>(null);
   const [localDead, setLocalDead] = useState<Set<number>>(new Set());
+  const [revealedRoles, setRevealedRoles] = useState<Record<number, string>>({}); // 🎭 أدوار مكشوفة تبقى ثابتة على الوجه السريّ (إقصاء/موت خلال اللعبة)
   const [silencedPids, setSilencedPids] = useState<Set<number>>(new Set()); // 🔇 لاعبون مُسكَتون هذا النهار
   const [morningBanner, setMorningBanner] = useState<{ icon: string; text: string; sub?: string } | null>(null); // 🛡️ حدث صباحيّ غير مميت (حماية…)
   const [focusId, setFocusId] = useState<number | null>(initialDiscussionState?.currentSpeakerId ?? null);
@@ -119,6 +120,15 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
     setGameOverRevealed(false);
   }, [gameOver]);
 
+  // إعادة ضبط الحالة المحليّة عند بدء لعبة جديدة (مراحل ما قبل اللعب) — كي لا يبقى كشف/موت لعبة سابقة
+  useEffect(() => {
+    if (gamePhase === 'LOBBY' || gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING') {
+      setLocalDead(new Set());
+      setRevealedRoles({});
+      setSilencedPids(new Set());
+    }
+  }, [gamePhase]);
+
   // صاحب الدور من السيرفر: تبرير (مؤقّت المتّهم) أو نقاش (المتحدّث الحالي)
   const serverActiveId = useMemo(() => {
     if (gamePhase === 'DAY_JUSTIFICATION' && justTimer) return justTimer.physicalId;
@@ -128,7 +138,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   const serverActiveRef = useRef(serverActiveId);
   useEffect(() => { serverActiveRef.current = serverActiveId; }, [serverActiveId]);
 
-  // تسلسل كشف الإقصاء: يدور للكارد → فليب → يرجع مقلوب رماديّ
+  // تسلسل كشف الإقصاء: يدور للكارد → فليب للوجه السريّ → يبقى ثابتاً على الدور (رماديّ، ظاهر للجميع)
   const runReveal = useCallback(async (roles: { physicalId: number; role: string }[]) => {
     if (!roles?.length) return;
     revealSeq.current = true;
@@ -137,8 +147,9 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
       setFocusId(r.physicalId);
       await sleep(650);
       setRevealing({ id: r.physicalId, role: r.role });
+      setRevealedRoles((prev) => ({ ...prev, [r.physicalId]: r.role })); // 🎭 يثبت الدور على الوجه السريّ بعد انتهاء الأنيميشن
       await sleep(2600);
-      setRevealing(null);
+      setRevealing(null); // الكارت يبقى مقلوباً على الدور عبر revealedRoles، لا يرجع للوجه العام
       setLocalDead((prev) => new Set(prev).add(r.physicalId));
       await sleep(350);
     }
@@ -344,8 +355,11 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             const isDead = !p.isAlive || localDead.has(p.physicalId);
             const silenced = silencedPids.has(p.physicalId) && !isDead;
             const isSpeaker = serverActiveId != null && p.physicalId === serverActiveId;
-            const revealedRole = gameOver ? (roleByPid[p.physicalId] ?? null) : (revealing?.id === p.physicalId ? revealing?.role : null);
-            const isFlipped = (gameOver && gameOverRevealed) || revealing?.id === p.physicalId;
+            const persistedRole = revealedRoles[p.physicalId] ?? null; // 🎭 دور ثبت بعد الكشف — يبقى ظاهراً على الوجه السريّ
+            const revealedRole = gameOver
+              ? (roleByPid[p.physicalId] ?? null)
+              : (revealing?.id === p.physicalId ? revealing?.role : persistedRole);
+            const isFlipped = (gameOver && gameOverRevealed) || revealing?.id === p.physicalId || (!gameOver && persistedRole != null);
             const rm = roleMeta(revealedRole);
             const tpl = revealedRole ? getCardForRole(revealedRole) : null; // 🎴 تصميم الدور الفعليّ (الوجه السرّيّ)
             const tplImg = tpl?.secretFace?.customImageUrl
@@ -379,7 +393,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             return (
               <div
                 key={p.physicalId}
-                className={`rt-card ${isDead ? 'dead' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''}`}
+                className={`rt-card ${isDead ? 'dead' : ''} ${isFlipped && isDead ? 'revealed' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''}`}
                 style={style}
                 onClick={() => onTapCard(p.physicalId)}
               >
@@ -499,6 +513,8 @@ const RT_CSS = `
 .rt-morning-t{font-family:'Amiri',serif;font-weight:700;font-size:19px;color:#7fb4e6;text-shadow:0 2px 14px rgba(0,0,0,.85)}
 .rt-morning-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#cbd5e1;text-shadow:0 1px 8px rgba(0,0,0,.9)}
 .rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55)}
+/* مُقصىً لكن دوره مكشوف: يبقى الدور واضحاً للجميع (تعتيم خفيف فقط للإشارة للموت) */
+.rt-card.dead.revealed .rt-inner{filter:grayscale(.12) brightness(.94)}
 .rt-card.spot .rt-front{border-color:#C5A059;box-shadow:0 0 0 1px #C5A059,0 0 30px rgba(197,160,89,.5)}
 .rt-talk{position:absolute;bottom:37%;right:8px;z-index:7;width:11px;height:11px;border-radius:999px;background:#34d399;box-shadow:0 0 9px #34d399;animation:rttalk 1s ease-in-out infinite}
 @keyframes rttalk{50%{opacity:.35}}
