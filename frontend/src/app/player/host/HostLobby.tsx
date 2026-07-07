@@ -1,0 +1,119 @@
+'use client';
+
+// ══════════════════════════════════════════════════════
+// 🚪 HostLobby — لوبي المضيف على الهاتف: روستر مضغوط + تحكّم بالسعة + بدء التوزيع.
+// أزرار الإجراء (طرد/عقوبة) باللمس لا بالتمرير (hover). يبثّ نفس أحداث LeaderLobbyView.
+// إعدادات الغرفة تُضبط قبل الإنشاء (مخفيّة هنا). الحدّ الأدنى للبدء = 6.
+// ══════════════════════════════════════════════════════
+
+import { useState } from 'react';
+
+const MIN_PLAYERS = 6;
+
+interface Props {
+  gameState: any;
+  emit: (event: string, payload: any) => Promise<any>;
+  setError: (s: string) => void;
+}
+
+export default function HostLobby({ gameState, emit, setError }: Props) {
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [confirmKick, setConfirmKick] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const players = (gameState.players || []).filter((p: any) => !p.seatHeld).sort((a: any, b: any) => a.physicalId - b.physicalId);
+  const held = (gameState.players || []).filter((p: any) => p.seatHeld === true);
+  const maxPlayers = gameState.config?.maxPlayers || 12;
+  const maxP = gameState.config?.maxPenalties || 3;
+  const canStart = players.length >= MIN_PLAYERS;
+
+  const run = async (fn: () => Promise<any>) => { setBusy(true); try { await fn(); } catch (e: any) { setError(e?.message || 'تعذّر'); } finally { setBusy(false); } };
+  const setMax = (m: number) => run(() => emit('room:update-max-players', { roomId: gameState.roomId, maxPlayers: Math.max(MIN_PLAYERS, Math.min(50, m)) }));
+
+  return (
+    <div className="px-3 pb-6">
+      {/* سعة الغرفة */}
+      <div className="flex items-center justify-between rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2.5 mb-3">
+        <span className="text-xs text-[#b3b3b3]">اللاعبون <span className="font-mono font-bold text-[#C5A059]">{players.length}</span> / {maxPlayers}</span>
+        <div className="flex items-center bg-[#050505] border border-[#222] rounded-lg">
+          <button onClick={() => setMax(maxPlayers - 1)} disabled={busy} className="px-3 py-1.5 text-[#888]">−</button>
+          <span className="px-2 font-mono text-white text-sm">{maxPlayers}</span>
+          <button onClick={() => setMax(maxPlayers + 1)} disabled={busy} className="px-3 py-1.5 text-[#888]">+</button>
+        </div>
+      </div>
+
+      {/* الروستر */}
+      {players.length === 0 ? (
+        <div className="text-center text-[#555] font-mono text-sm py-8">بانتظار انضمام اللاعبين…</div>
+      ) : (
+        <div className="space-y-1.5">
+          {players.map((p: any) => {
+            const open = openId === p.physicalId;
+            const fallback = p.gender === 'FEMALE' ? '👩' : '👨';
+            return (
+              <div key={p.physicalId} className="rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0d0d0e] to-[#0a0a0a] overflow-hidden">
+                <button onClick={() => setOpenId(open ? null : p.physicalId)} className="w-full flex items-center gap-2.5 px-2.5 py-2 text-right">
+                  <span className="w-9 h-9 rounded-full bg-gradient-to-b from-[#221e18] to-[#131110] border border-[#2a2a2a] flex items-center justify-center text-base overflow-hidden shrink-0">
+                    {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" /> : fallback}
+                  </span>
+                  <span className="font-mono text-[11px] text-[#C5A059] w-7 shrink-0">#{p.physicalId}</span>
+                  <span className="flex-1 text-sm text-white/90 truncate text-right">{p.name}</span>
+                  {(p.penalties || 0) > 0 && (
+                    <span className="flex gap-0.5 shrink-0">
+                      {Array.from({ length: maxP }).map((_, i) => (
+                        <span key={i} className={`w-1.5 h-1.5 rounded-full ${i < p.penalties ? 'bg-red-500' : 'bg-zinc-700'}`} />
+                      ))}
+                    </span>
+                  )}
+                  <span className="text-[#555] text-xs shrink-0">{open ? '▴' : '▾'}</span>
+                </button>
+                {open && (
+                  <div className="flex gap-2 px-2.5 pb-2.5 pt-1">
+                    <button onClick={() => run(() => emit('leader:record-penalty', { roomId: gameState.roomId, targetPhysicalId: p.physicalId }).then(() => setOpenId(null)))}
+                      className="flex-1 py-2 rounded-lg text-xs font-bold border border-amber-500/40 text-amber-300 bg-amber-950/20">⚠️ عقوبة</button>
+                    <button onClick={() => setConfirmKick(p.physicalId)}
+                      className="flex-1 py-2 rounded-lg text-xs font-bold border border-red-700/50 text-red-300 bg-red-950/20">✕ طرد</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* مقاعد محجوزة */}
+      {held.length > 0 && (
+        <div className="mt-3 rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-2.5">
+          <div className="text-[10px] font-mono text-[#808080] mb-1.5">مقاعد محجوزة ({held.length})</div>
+          <div className="flex flex-wrap gap-1.5">
+            {held.map((p: any) => (
+              <button key={p.physicalId} onClick={() => run(() => emit('room:release-held-seat', { roomId: gameState.roomId, physicalId: p.physicalId }))}
+                className="text-[10px] font-mono text-[#aaa] border border-[#333] rounded-md px-2 py-1">#{p.physicalId} {p.name} ✕</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* بدء التوزيع */}
+      <div className="mt-4">
+        <button disabled={!canStart || busy} onClick={() => run(() => emit('room:start-generation', { roomId: gameState.roomId }))}
+          className="btn-premium w-full !py-3.5 !rounded-xl disabled:opacity-40"><span>🎴 بدء توزيع الأدوار</span></button>
+        {!canStart && <p className="text-center text-[#555] font-mono text-[9px] mt-2">الحدّ الأدنى {MIN_PLAYERS} لاعبين</p>}
+      </div>
+
+      {/* تأكيد الطرد */}
+      {confirmKick !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/80 backdrop-blur-sm" onClick={() => setConfirmKick(null)}>
+          <div className="w-full max-w-xs rounded-2xl border border-red-800/50 bg-[#0a0a0a] p-5 text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="text-3xl mb-2">✕</div>
+            <div className="text-white font-bold mb-4">طرد {players.find((p: any) => p.physicalId === confirmKick)?.name}؟</div>
+            <div className="flex gap-2">
+              <button onClick={() => { const id = confirmKick; setConfirmKick(null); setOpenId(null); run(() => emit('room:kick-player', { roomId: gameState.roomId, physicalId: id })); }}
+                className="flex-1 py-2.5 rounded-lg bg-red-900/40 border border-red-700 text-red-200 font-bold">تأكيد الطرد</button>
+              <button onClick={() => setConfirmKick(null)} className="flex-1 py-2.5 rounded-lg border border-[#333] text-[#aaa]">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

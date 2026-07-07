@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSocket } from '@/hooks/useSocket';
 import { usePlayer } from '@/context/PlayerContext';
-import LeaderLobbyView from '@/app/leader/LeaderLobbyView';
+import HostLobby from './HostLobby';
 import LeaderRoleConfigurator from '@/app/leader/LeaderRoleConfigurator';
 import LeaderRoleBinding from '@/app/leader/LeaderRoleBinding';
 import HostDayControls from './HostDayControls';
@@ -326,7 +326,7 @@ export default function HostPage() {
           <button onClick={() => { try { navigator.clipboard.writeText(joinLink); } catch {} }}
             className="mt-2 text-xs text-white/80 border border-[#222] rounded-md px-3 py-1.5">📋 نسخ</button>
         </div>
-        <LeaderLobbyView gameState={gameState} emit={emit} setError={setError} hideOfflineAgent hideRoomSettings allowStartBeforeFull />
+        <HostLobby gameState={gameState} emit={emit} setError={setError} />
         <div className="px-4 mt-4 mb-6">
           <button
             onClick={async () => {
