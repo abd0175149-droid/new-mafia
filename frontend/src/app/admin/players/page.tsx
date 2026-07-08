@@ -55,6 +55,7 @@ export default function PlayersManagementPage() {
   const [resettingId, setResettingId] = useState<number | null>(null);
   const [togglingTestId, setTogglingTestId] = useState<number | null>(null);
   const [togglingFreeId, setTogglingFreeId] = useState<number | null>(null);
+  const [togglingHostId, setTogglingHostId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   // ── Pagination ──
@@ -138,6 +139,20 @@ export default function PlayersManagementPage() {
       showToast(err.message || 'فشل', 'error');
     } finally {
       setTogglingFreeId(null);
+    }
+  }
+
+  // ── Toggle Can-Host-Remote (صلاحيّة إنشاء الغرف أونلاين) ──
+  async function handleToggleHostRemote(player: any) {
+    setTogglingHostId(player.id);
+    try {
+      await apiFetch(`/api/player/${player.id}/toggle-host-remote`, { method: 'POST' });
+      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, canHostRemote: !p.canHostRemote } : p));
+      showToast(`${player.name}: ${player.canHostRemote ? 'تم سحب صلاحيّة إنشاء الغرف أونلاين' : 'تم منح صلاحيّة إنشاء الغرف أونلاين'}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'فشل', 'error');
+    } finally {
+      setTogglingHostId(null);
     }
   }
 
@@ -301,6 +316,9 @@ export default function PlayersManagementPage() {
                           {p.isFreeAccount && (
                             <span className="text-[10px] px-2 py-0.5 rounded-full border bg-teal-500/10 text-teal-400 border-teal-500/20">🏷️ مجاني</span>
                           )}
+                          {p.canHostRemote && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-400 border-sky-500/20">🌐 مضيف أونلاين</span>
+                          )}
                         </div>
                       </td>
                       {/* Actions */}
@@ -338,6 +356,14 @@ export default function PlayersManagementPage() {
                             title={p.isFreeAccount ? 'إلغاء حساب مجاني' : 'تفعيل حساب مجاني'}
                           >
                             {togglingFreeId === p.id ? '⏳' : '🏷️'}
+                          </button>
+                          <button
+                            onClick={() => handleToggleHostRemote(p)}
+                            disabled={togglingHostId === p.id}
+                            className={`p-1.5 rounded-lg transition ${p.canHostRemote ? 'text-sky-400 hover:bg-sky-500/10' : 'text-gray-500/50 hover:text-sky-400 hover:bg-sky-500/10'}`}
+                            title={p.canHostRemote ? 'سحب صلاحيّة إنشاء الغرف أونلاين' : 'منح صلاحيّة إنشاء الغرف أونلاين'}
+                          >
+                            {togglingHostId === p.id ? '⏳' : '🌐'}
                           </button>
                           <button
                             onClick={() => handleDeletePlayer(p)}

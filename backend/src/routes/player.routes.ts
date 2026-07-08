@@ -48,6 +48,7 @@ router.get('/all', authenticate, authorize('admin', 'accountant'), async (_req: 
       email: playersTable.email,
       isTestAccount: playersTable.isTestAccount,
       isFreeAccount: playersTable.isFreeAccount,
+      canHostRemote: playersTable.canHostRemote,
       genderConstraint: playersTable.genderConstraint,
     }).from(playersTable).orderBy(desc(playersTable.createdAt));
 
@@ -171,6 +172,35 @@ router.post('/:id/toggle-free', authenticate, adminOnly, async (req: Request, re
     return res.json({ success: true, isFreeAccount: newValue });
   } catch (err: any) {
     console.error('❌ toggle-free error:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── POST /api/player/:id/toggle-host-remote — تبديل صلاحيّة إنشاء الغرف أونلاين (Admin only) ──
+router.post('/:id/toggle-host-remote', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const playerId = parseInt(req.params.id);
+    if (!playerId || isNaN(playerId)) {
+      return res.status(400).json({ success: false, error: 'معرّف غير صالح' });
+    }
+
+    const db = getDB();
+    if (!db) return res.status(503).json({ success: false, error: 'DB unavailable' });
+
+    const [player] = await db.select({ id: playersTable.id, canHostRemote: playersTable.canHostRemote })
+      .from(playersTable).where(eq(playersTable.id, playerId)).limit(1);
+
+    if (!player) return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
+
+    const newValue = !player.canHostRemote;
+    await db.update(playersTable)
+      .set({ canHostRemote: newValue } as any)
+      .where(eq(playersTable.id, playerId));
+
+    console.log(`🌐 Player #${playerId} canHostRemote → ${newValue}`);
+    return res.json({ success: true, canHostRemote: newValue });
+  } catch (err: any) {
+    console.error('❌ toggle-host-remote error:', err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
