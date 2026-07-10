@@ -200,10 +200,10 @@ export default function ReservationsPage() {
     return () => clearTimeout(t);
   }, [formName, showForm, formPlayerId]);
 
-  // 🔗 بحث اللاعبين برقم الهاتف (حقل الهاتف) — للربط عبر الرقم
+  // 🔗 بحث اللاعبين برقم الهاتف (حقل الهاتف) — مطابقة جزئيّة (لا يلزم الرقم كاملاً)
   useEffect(() => {
     const term = formPhone.trim();
-    if (!showForm || term.length < 3 || formPlayerId) { setPhoneSuggest([]); return; }
+    if (!showForm || term.length < 2 || formPlayerId) { setPhoneSuggest([]); return; }
     const t = setTimeout(async () => {
       try {
         const data = await apiFetch(`/api/staff-notifications/players/search?q=${encodeURIComponent(term)}`);

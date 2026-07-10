@@ -67,17 +67,13 @@ router.get('/search', authenticatePlayer, async (req: Request, res: Response) =>
   const raw = String(req.query.q || '').trim();
   if (raw.length < 2) return res.json({ success: true, results: [] });
 
-  // اسم: مطابقة جزئيّة (مع تحييد رموز LIKE). هاتف: مطابقة تامّة على الرقم (لا تخمين بجزء منه).
-  const nameQ = raw.replace(/[%_]/g, '');
-  const phoneQ = raw.replace(/[\s-]/g, '');
-  const digitsOnly = /^\+?\d{4,}$/.test(phoneQ); // يبدو رقم هاتف؟ (٤ خانات فأكثر)
-  // نطابق الرقم بصيغتيه (بصفرٍ بادئ وبدونه) لأنّ الأرقام تُخزَّن بصفرٍ بادئ في تدفّق الانضمام
-  const phoneCandidates = phoneQ.startsWith('0') ? [phoneQ, phoneQ.slice(1)] : [phoneQ, `0${phoneQ}`];
+  // مطابقة جزئيّة لكليهما (بلا حساسيّة لحالة الأحرف): بالاسم أو بجزءٍ من الرقم — لا يلزم الرقم كاملاً.
+  // النتائج لا تُعيد الهاتف إطلاقاً (id/name/avatar فقط).
+  const nameQ = raw.replace(/[%_]/g, '');       // تحييد رموز LIKE
+  const phoneQ = raw.replace(/[\s%_-]/g, '');   // أرقام/رمز فقط
 
   try {
-    const match = digitsOnly
-      ? or(ilike(players.name, `%${nameQ}%`), inArray(players.phone, phoneCandidates))
-      : ilike(players.name, `%${nameQ}%`);
+    const match = or(ilike(players.name, `%${nameQ}%`), ilike(players.phone, `%${phoneQ}%`));
 
     const results = await db.select({
       id: players.id,
