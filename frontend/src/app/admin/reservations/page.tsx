@@ -42,6 +42,10 @@ function normalizePhoneIntl(raw: string): string | null {
   if (p.startsWith('0')) return WA_COUNTRY + p.slice(1);
   return WA_COUNTRY + p; // رقم محلّيّ بلا صفر بادئ
 }
+// أرقام فقط بلا صفرٍ بادئ — لمقارنة الهواتف بصرف النظر عن التنسيق
+function normPhoneKey(p: string): string {
+  return String(p || '').replace(/\D/g, '').replace(/^0+/, '');
+}
 function confirmMessage(name: string, activityName: string, count: number): string {
   const ppl = count === 1 ? 'شخص واحد' : count === 2 ? 'شخصين' : `${count} أشخاص`;
   return `مرحباً ${name || ''} 👋\nنؤكّد حجزك في «${activityName}» لعدد ${ppl}.\nيُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭`;
@@ -76,6 +80,9 @@ export default function ReservationsPage() {
   const [showSuggest, setShowSuggest] = useState(false);
   const [phoneSuggest, setPhoneSuggest] = useState<any[]>([]);
   const [showPhoneSuggest, setShowPhoneSuggest] = useState(false);
+  // ⚠️ كشف تكرار الحجز: تمييز الحجز الموجود + رسالة تنبيه
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  const [dupWarn, setDupWarn] = useState<string>('');
 
   // ── Edit Modal ──
   const [editing, setEditing] = useState<any | null>(null);
@@ -223,9 +230,42 @@ export default function ReservationsPage() {
     setShowPhoneSuggest(false);
   }
 
+  // ⚠️ كشف حجزٍ مسبق لنفس اللاعب في نفس الفعالية (بالمُعرّف أو الهاتف أو الاسم)
+  function findDuplicate(activityId: number | null): any | null {
+    const nm = formName.trim().toLowerCase();
+    const ph = normPhoneKey(formPhone);
+    return reservations.find((r: any) => {
+      if (r.deletedAt) return false;
+      if ((r.activityId ?? null) !== (activityId ?? null)) return false;
+      const pidMatch = !!formPlayerId && r.playerId === formPlayerId;
+      const phoneMatch = ph.length >= 6 && normPhoneKey(r.phone) === ph;
+      const nameMatch = !formPlayerId && ph.length < 6 && !!nm && (r.contactName || '').trim().toLowerCase() === nm;
+      return pidMatch || phoneMatch || nameMatch;
+    }) || null;
+  }
+
+  // سكرول تلقائيّ للحجز المميَّز عند اكتشاف تكرار
+  useEffect(() => {
+    if (highlightId == null) return;
+    const el = document.getElementById(`res-${highlightId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightId, filtered]);
+
   // ══ Create ══
   async function handleCreate() {
     if (!formName.trim()) return;
+    // منع التكرار: إن وُجد حجزٌ مسبق لنفس الشخص في الفعالية → تنبيه + سكرول إليه بلا إنشاء
+    const targetActivityId = formActivity ? Number(formActivity) : (filterActivity && filterActivity !== 'all' ? Number(filterActivity) : null);
+    const dup = findDuplicate(targetActivityId);
+    if (dup) {
+      if (targetActivityId != null) setFilterActivity(String(targetActivityId));
+      setFilterStatus('all'); setFilterAttendance('all'); setFilterSearch('');
+      setDupWarn(`⚠️ يوجد حجز مسبق لـ«${dup.contactName}» في هذه الفعالية — تمّ الانتقال إليه.`);
+      setHighlightId(dup.id);
+      setTimeout(() => setDupWarn(''), 5000);
+      setTimeout(() => setHighlightId(null), 3500);
+      return;
+    }
     setFormSubmitting(true);
     try {
       await apiFetch('/api/reservations', {
@@ -342,6 +382,21 @@ export default function ReservationsPage() {
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto" dir="rtl">
+
+      {/* ⚠️ تنبيه تكرار الحجز */}
+      <AnimatePresence>
+        {dupWarn && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[80] px-4 py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-sm font-bold shadow-xl backdrop-blur-md max-w-[92vw] text-center"
+            onClick={() => setDupWarn('')}
+          >
+            {dupWarn}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ══════ HEADER ══════ */}
       <div className="flex items-center justify-between gap-3">
@@ -644,10 +699,11 @@ export default function ReservationsPage() {
                 return (
                   <motion.div
                     key={r.id}
+                    id={`res-${r.id}`}
                     layout
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`${cardBg} border rounded-xl p-3.5 transition-all ${cardBorder} ${cardGlow}`}
+                    className={`${cardBg} border rounded-xl p-3.5 transition-all ${cardBorder} ${cardGlow} ${highlightId === r.id ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-black' : ''}`}
                   >
                     {/* الصف الأول: الاسم + Badge + حالة الحضور */}
                     <div className="flex items-start justify-between gap-2 mb-2">
