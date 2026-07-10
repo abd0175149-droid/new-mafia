@@ -31,6 +31,13 @@ export default function InviteModal({ roomId, emit, onClose }: InviteModalProps)
   const [sentIds, setSentIds] = useState<Record<number, 'sending' | 'sent' | 'error'>>({});
   const [toast, setToast] = useState('');
 
+  // ── منع تمرير الخلفية أثناء فتح المودال ──
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // ── جلب المتابَعين (تبويب الأصدقاء) مرّة واحدة ──
   useEffect(() => {
     if (friendsLoaded) return;
