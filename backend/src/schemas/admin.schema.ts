@@ -312,7 +312,8 @@ export const reservations = pgTable('reservations', {
   contactMethod: varchar('contact_method', { length: 200 }).default(''),
   phone: varchar('phone', { length: 30 }).default(''),
   peopleCount: integer('people_count').default(1),
-  status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | confirmed | paid_all
+  playerId: integer('player_id'),  // 🔗 ربط بحساب لاعب مسجّل (اختياريّ) — يُملأ عند اختيار لاعب أو مطابقة الهاتف
+  status: varchar('status', { length: 20 }).default('pending').notNull(), // pending (غير مثبّت) | confirmed (مثبّت). paid_all قديم يُعامَل كمثبّت
   attended: boolean('attended'),  // null = لم يُحدد بعد | true = حضر | false = لم يحضر
   notes: text('notes').default(''),
   createdBy: varchar('created_by', { length: 100 }).default(''),

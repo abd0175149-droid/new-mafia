@@ -581,7 +581,8 @@ async function main() {
     if (db) {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS can_host_remote BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS remote_access_until TIMESTAMP`);
-      console.log('✅ players remote-access columns ensured');
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS player_id INTEGER`);
+      console.log('✅ players remote-access + reservations.player_id columns ensured');
     }
   } catch (err: any) {
     console.warn('⚠️ players remote-access columns migration:', err.message);
