@@ -7,6 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useState } from 'react';
+import HostSettingsModal from './HostSettingsModal';
 
 const MIN_PLAYERS = 6;
 
@@ -19,6 +20,7 @@ interface Props {
 export default function HostLobby({ gameState, emit, setError }: Props) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [confirmKick, setConfirmKick] = useState<number | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const players = (gameState.players || []).filter((p: any) => !p.seatHeld).sort((a: any, b: any) => a.physicalId - b.physicalId);
   const held = (gameState.players || []).filter((p: any) => p.seatHeld === true);
@@ -31,6 +33,12 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
 
   return (
     <div className="px-3 pb-6">
+      {/* زرّ إعدادات اللعبة */}
+      <button onClick={() => setShowSettings(true)}
+        className="w-full mb-3 py-2.5 rounded-xl border border-[#C5A059]/40 bg-[#C5A059]/10 text-[#C5A059] text-sm font-bold flex items-center justify-center gap-2">
+        ⚙️ إعدادات اللعبة
+      </button>
+
       {/* سعة الغرفة */}
       <div className="flex items-center justify-between rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2.5 mb-3">
         <span className="text-xs text-[#b3b3b3]">اللاعبون <span className="font-mono font-bold text-[#C5A059]">{players.length}</span> / {maxPlayers}</span>
@@ -113,6 +121,11 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* مودال إعدادات اللعبة */}
+      {showSettings && (
+        <HostSettingsModal gameState={gameState} emit={emit} onClose={() => setShowSettings(false)} />
       )}
     </div>
   );

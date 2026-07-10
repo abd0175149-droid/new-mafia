@@ -2011,9 +2011,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     physicalId: number;
   }, callback) => {
     try {
-      // Auto-join as leader
+      // Auto-join as leader — يُسمح لليدر الموظّف أو لمُضيف الغرفة البعيدة (اللاعب-الليدر) لغرفته فقط
       socket.join(data.roomId);
-      if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; } socket.data.role = 'leader';
+      const isStaffLeader = !!socket.data.authStaff;
+      const isPlayerHostOfRoom = socket.data.isPlayerHost === true && socket.data.hostRoomId === data.roomId;
+      if (!isStaffLeader && !isPlayerHostOfRoom) {
+        if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' });
+        return;
+      }
+      socket.data.role = 'leader';
       socket.data.roomId = data.roomId;
 
       const state = await getRoom(data.roomId);
@@ -2526,6 +2532,56 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       console.log(`👑 Leader updated max consecutive mafia games limit: ${data.maxConsecutiveMafiaGames}`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── ⚙️ تحديث موحّد لكل إعدادات اللعبة من لوبي المضيف (يقبل الحقول المُرسَلة فقط) ──
+  socket.on('room:update-settings', async (data: {
+    roomId: string;
+    gameName?: string;
+    autoNightTime?: number;
+    gameTimerMinutes?: number;
+    maxPenalties?: number;
+    penaltyScope?: 'game' | 'room';
+    bombEnabled?: boolean;
+    maxJustifications?: number;
+    mafiaChatEnabled?: boolean;
+    allowPlayerInvites?: boolean;
+  }, callback) => {
+    const done = (r: any) => { if (typeof callback === 'function') callback(r); };
+    try {
+      if (socket.data.role !== 'leader') return done({ success: false, error: 'Only leader' });
+
+      const state = await getRoom(data.roomId);
+      if (!state) return done({ success: false, error: 'Room not found' });
+      if (state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER) {
+        return done({ success: false, error: 'يمكن التعديل في اللوبي فقط' });
+      }
+
+      const c = state.config;
+      if (typeof data.gameName === 'string' && data.gameName.trim()) c.gameName = data.gameName.trim().slice(0, 60);
+      if (typeof data.autoNightTime === 'number') c.autoNightTime = Math.min(Math.max(Math.floor(data.autoNightTime), 5), 60);
+      if (typeof data.gameTimerMinutes === 'number') {
+        const m = Math.max(0, Math.floor(data.gameTimerMinutes));
+        c.gameTimerEnabled = m > 0;
+        c.gameTimerMinutes = m > 0 ? m : 30;
+      }
+      if (typeof data.maxPenalties === 'number') c.maxPenalties = Math.min(Math.max(Math.floor(data.maxPenalties), 1), 10);
+      if (data.penaltyScope === 'game' || data.penaltyScope === 'room') c.penaltyScope = data.penaltyScope;
+      if (typeof data.bombEnabled === 'boolean') c.bombEnabled = data.bombEnabled;
+      if (typeof data.maxJustifications === 'number') c.maxJustifications = Math.min(Math.max(Math.floor(data.maxJustifications), 1), 5);
+      if (typeof data.mafiaChatEnabled === 'boolean') c.mafiaChatEnabled = data.mafiaChatEnabled;
+      if (typeof data.allowPlayerInvites === 'boolean') c.allowPlayerInvites = data.allowPlayerInvites;
+
+      await updateRoom(data.roomId, { config: c });
+      // بثّ الحالة الكاملة المُعقّمة → واجهة المضيف تحدّث فوراً عبر مستمع game:state-updated
+      await emitStateSanitized(io, data.roomId, 'game:state-updated', state);
+      io.to(data.roomId).emit('room:config-updated', { updated: true });
+
+      console.log(`⚙️ Leader updated room settings for ${data.roomId}`);
+      done({ success: true, config: c });
+    } catch (err: any) {
+      done({ success: false, error: err.message });
     }
   });
 
