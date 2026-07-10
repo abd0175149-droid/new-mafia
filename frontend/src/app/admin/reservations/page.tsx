@@ -74,6 +74,8 @@ export default function ReservationsPage() {
   const [formPlayerId, setFormPlayerId] = useState<number | null>(null);
   const [playerSuggest, setPlayerSuggest] = useState<any[]>([]);
   const [showSuggest, setShowSuggest] = useState(false);
+  const [phoneSuggest, setPhoneSuggest] = useState<any[]>([]);
+  const [showPhoneSuggest, setShowPhoneSuggest] = useState(false);
 
   // ── Edit Modal ──
   const [editing, setEditing] = useState<any | null>(null);
@@ -198,12 +200,27 @@ export default function ReservationsPage() {
     return () => clearTimeout(t);
   }, [formName, showForm, formPlayerId]);
 
+  // 🔗 بحث اللاعبين برقم الهاتف (حقل الهاتف) — للربط عبر الرقم
+  useEffect(() => {
+    const term = formPhone.trim();
+    if (!showForm || term.length < 3 || formPlayerId) { setPhoneSuggest([]); return; }
+    const t = setTimeout(async () => {
+      try {
+        const data = await apiFetch(`/api/staff-notifications/players/search?q=${encodeURIComponent(term)}`);
+        setPhoneSuggest(Array.isArray(data?.players) ? data.players.slice(0, 6) : []);
+      } catch { setPhoneSuggest([]); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [formPhone, showForm, formPlayerId]);
+
   function selectPlayer(p: any) {
     setFormName(p.name || '');
     if (p.phone) setFormPhone(p.phone);
     setFormPlayerId(p.id);
     setPlayerSuggest([]);
     setShowSuggest(false);
+    setPhoneSuggest([]);
+    setShowPhoneSuggest(false);
   }
 
   // ══ Create ══
@@ -517,14 +534,35 @@ export default function ReservationsPage() {
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="tel"
-                      value={formPhone}
-                      onChange={e => setFormPhone(e.target.value)}
-                      placeholder="📞 رقم الهاتف"
-                      dir="ltr"
-                      className="w-full px-3 py-2.5 bg-gray-900/60 border border-gray-600/40 rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30"
-                    />
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        value={formPhone}
+                        onChange={e => { setFormPhone(e.target.value); setFormPlayerId(null); setShowPhoneSuggest(true); }}
+                        onFocus={() => setShowPhoneSuggest(true)}
+                        onBlur={() => setTimeout(() => setShowPhoneSuggest(false), 150)}
+                        placeholder="📞 رقم الهاتف"
+                        dir="ltr"
+                        className={`w-full px-3 py-2.5 bg-gray-900/60 border rounded-xl text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-amber-500/30 ${formPlayerId ? 'border-sky-500/50' : 'border-gray-600/40'}`}
+                      />
+                      {showPhoneSuggest && phoneSuggest.length > 0 && (
+                        <div className="absolute z-20 top-full mt-1 w-[240px] max-w-[80vw] bg-[#0d0d0d] border border-gray-700/50 rounded-xl overflow-hidden shadow-xl max-h-60 overflow-y-auto" dir="rtl">
+                          <div className="px-3 py-1.5 text-[10px] text-gray-500 border-b border-gray-800/60">مطابقة بالرقم — اختر للربط</div>
+                          {phoneSuggest.map(p => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => selectPlayer(p)}
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-800/60 text-right border-b border-gray-800/40 last:border-0"
+                            >
+                              <img src={p.avatarUrl || '/avatars/male.png'} alt="" className="w-7 h-7 rounded-full object-cover bg-gray-700 shrink-0" onError={e => { (e.target as HTMLImageElement).src = '/avatars/male.png'; }} />
+                              <span className="flex-1 text-white text-sm truncate">{p.name}</span>
+                              <span className="text-gray-500 text-[11px] font-mono" dir="ltr">{p.phone}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <input
                       type="text"
                       value={formContact}

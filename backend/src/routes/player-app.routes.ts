@@ -8,7 +8,7 @@ import { eq, ne, desc, and, sql, inArray, or, isNull, ilike } from 'drizzle-orm'
 import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
-import { bookings, activities, locations } from '../schemas/admin.schema.js';
+import { bookings, activities, locations, reservations } from '../schemas/admin.schema.js';
 import { authenticatePlayer, requireNoPendingFeedback } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
@@ -156,6 +156,35 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
       createdBy: 'player-app',
       offerItems: offerId ? [offerId] : [],
     } as any).returning();
+
+    // 📋 حجز متابعة تلقائيّ (غير مثبّت) إن لم يكن للاعب حجزُ متابعةٍ لهذا النشاط — يظهر في صفحة متابعة الحجوزات
+    try {
+      const existingRes = await db.select({ id: reservations.id })
+        .from(reservations)
+        .where(and(
+          eq(reservations.activityId, activityId),
+          isNull(reservations.deletedAt),
+          or(
+            player.playerId ? eq(reservations.playerId, player.playerId) : sql`false`,
+            player.phone ? eq(reservations.phone, player.phone) : sql`false`,
+          ),
+        ))
+        .limit(1);
+      if (existingRes.length === 0) {
+        await db.insert(reservations).values({
+          activityId,
+          contactName: player.name,
+          phone: player.phone || '',
+          peopleCount: 1,
+          playerId: player.playerId ?? null,
+          status: 'pending',
+          notes: 'حجز تلقائيّ من تطبيق اللاعب',
+          createdBy: 'player-app',
+        } as any);
+      }
+    } catch (e: any) {
+      console.warn('⚠️ auto-reservation on player booking failed:', e?.message);
+    }
 
     res.status(201).json({ success: true, booking: result[0] });
 
