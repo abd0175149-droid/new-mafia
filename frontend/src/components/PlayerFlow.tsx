@@ -10,6 +10,7 @@ import PhoneSpectatorView from './PhoneSpectatorView';
 import RemoteVoice from './RemoteVoice';
 import { useActiveSpeaker } from '../hooks/useActiveSpeaker';
 import ConfrontationControls from './ConfrontationControls';
+import InviteModal from './InviteModal';
 import RolesInfoModal from './RolesInfoModal';
 import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
@@ -20,6 +21,8 @@ type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticke
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
+  inviteFlag?: boolean;    // 📨 وصل عبر دعوة (?invite=1) → يعرض تأكيداً قبل الانضمام الصامت
+  inviterName?: string;    // اسم الداعي (من ?by=) لعرضه في التأكيد
 }
 
 // ── SVG Icons ──
@@ -91,7 +94,7 @@ function getSavedPhone(): string {
   return '';
 }
 
-export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
+export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, inviterName = '' }: PlayerFlowProps) {
   const { joinRoom, isConnected, error, loading, emit, on } = useGameState();
   const [step, setStep] = useState<Step>(() => {
     // إذا فيه كود QR + توكن محفوظ → نبدأ بـ code مؤقتاً (الـ auto-find يتكفل)
@@ -192,10 +195,16 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
     targetGameName: string;
   } | null>(null);
   const [joinConfirmation, setJoinConfirmation] = useState<{message: string} | null>(null);
+  // 📨 تأكيد الدعوة قبل الانضمام: يُعرض عند فتح إشعار دعوة (?invite=1)
+  const [inviteConfirmed, setInviteConfirmed] = useState(false);
+  const [invitePrompt, setInvitePrompt] = useState<{ roomName: string; inviterName: string } | null>(null);
+  const [inviteError, setInviteError] = useState<string>('');
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [roster, setRoster] = useState<any[]>([]);
   const [isRemote, setIsRemote] = useState(false); // 🌐 غرفة عن بُعد → أظهر طاولة الطور للاعب
+  const [allowPlayerInvites, setAllowPlayerInvites] = useState(false); // 📨 القائد سمح للاعبين بدعوة أصدقائهم
+  const [showInvite, setShowInvite] = useState(false); // 📨 مودال إرسال الدعوة
   const [voiceMaps, setVoiceMaps] = useState<{ videoByPid: Record<number, MediaStreamTrack | null>; audioByPid: Record<number, boolean> }>({ videoByPid: {}, audioByPid: {} });
   const [gameOverData, setGameOverData] = useState<{ winner: string | null; players: any[] } | null>(null); // 🏁 كشف الفائز على الطاولة
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
@@ -429,6 +438,8 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
   useEffect(() => {
+    // 📨 عند الوصول عبر دعوة: لا ننضمّ صامتاً — ننتظر تأكيد اللاعب أولاً (invite-resolve أدناه)
+    if (inviteFlag && !inviteConfirmed) return;
     if (initialRoomCode && isConnected && !roomId && tokenChecked) {
       // اللاعب فتح رابط غرفة جديد → يعني يريد الدخول — مسح علامة الخروج
       if (userExited) {
@@ -437,7 +448,29 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       }
       handleFindRoom(initialRoomCode);
     }
-  }, [initialRoomCode, isConnected, tokenChecked]);
+  }, [initialRoomCode, isConnected, tokenChecked, inviteFlag, inviteConfirmed]);
+
+  // ── 📨 دعوة: نحلّ اسم الغرفة (بلا انضمام) ونعرض تأكيداً «هل تريد الانضمام…؟» قبل أيّ دخول ──
+  useEffect(() => {
+    if (!inviteFlag || inviteConfirmed || invitePrompt || inviteError) return;
+    if (!initialRoomCode || !isConnected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await emit('room:find-by-code', { roomCode: initialRoomCode });
+        if (cancelled) return;
+        // room:find-by-code قد يُرجع {success:false} دون رفض الوعد → نعامله كغرفة غير متاحة
+        if (!res || res.success === false || !res.roomId) {
+          setInviteError('الغرفة لم تعد متاحة');
+          return;
+        }
+        setInvitePrompt({ roomName: res.gameName || 'غرفة عن بُعد', inviterName: inviterName || 'لاعب' });
+      } catch {
+        if (!cancelled) setInviteError('الغرفة لم تعد متاحة');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [inviteFlag, inviteConfirmed, invitePrompt, inviteError, initialRoomCode, isConnected, emit, inviterName]);
 
   // ── التحقق من التوكن المحفوظ عند فتح الصفحة ──
   useEffect(() => {
@@ -788,6 +821,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       if (!state || !state.players) return;
       setRoster(state.players);
       if (state.config?.isRemote != null) setIsRemote(!!state.config.isRemote);
+      if (state.config?.allowPlayerInvites != null) setAllowPlayerInvites(!!state.config.allowPlayerInvites);
 
       // البحث بـ playerId أولاً (الطريقة الموثوقة)
       let me = playerId
@@ -1017,6 +1051,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
       console.log(`🔄 Phase changed event: ${data.phase}`);
       setGamePhase(data.phase);
       if (data.state?.config?.isRemote != null) setIsRemote(!!data.state.config.isRemote); // 🌐 كشف الغرفة البعيدة عند بدء اللعب
+      if (data.state?.config?.allowPlayerInvites != null) setAllowPlayerInvites(!!data.state.config.allowPlayerInvites);
       // حماية من الـ polling: لا نسمح للـ polling بإعادة كتابة المرحلة لـ 10 ثواني
       phaseOverrideRef.current = { phase: data.phase };
       
@@ -1306,6 +1341,7 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
 
           // 🌐 غرفة بعيدة + طاولة الطور (للاستعادة الفوريّة عند reconnect)
           if (res.isRemote != null) setIsRemote(!!res.isRemote);
+          if (res.allowPlayerInvites != null) setAllowPlayerInvites(!!res.allowPlayerInvites);
           if (Array.isArray(res.rosterInfo) && res.rosterInfo.length) setRoster(res.rosterInfo);
 
           // تمرير بيانات المراحل لـ PlayerPhaseView (للاستعادة عند reconnect)
@@ -1958,6 +1994,61 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
         )}
       </AnimatePresence>
 
+      {/* 📨 تأكيد الدعوة قبل الانضمام */}
+      <AnimatePresence>
+        {invitePrompt && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+          >
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-[#0c0c0c] border border-sky-500/40 rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+              <div className="text-4xl mb-3">📨</div>
+              <h3 className="text-sky-300 text-xl font-black mb-2" style={{ fontFamily: 'Amiri, serif' }}>دعوة للانضمام</h3>
+              <p className="text-white text-base leading-relaxed mb-1">هل تريد الانضمام إلى غرفة «<b className="text-sky-300">{invitePrompt.roomName}</b>»؟</p>
+              <p className="text-[#888] text-xs mb-6">دعاك <b className="text-[#C5A059]">{invitePrompt.inviterName}</b></p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setInvitePrompt(null); try { window.location.assign('/player/home'); } catch { /* ignore */ } }}
+                  className="flex-1 py-3 rounded-xl border border-[#333] text-[#888] font-mono text-sm hover:bg-[#222] transition-colors"
+                >
+                  ليس الآن
+                </button>
+                <button
+                  onClick={() => { setInvitePrompt(null); setInviteConfirmed(true); }}
+                  className="flex-1 py-3 rounded-xl bg-sky-600 text-white font-bold text-sm shadow-[0_0_15px_rgba(2,132,199,0.4)] hover:bg-sky-500 transition-colors"
+                >
+                  انضمام
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {inviteError && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+          >
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
+              className="bg-[#0c0c0c] border border-[#333] rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+              <div className="text-4xl mb-3">🚪</div>
+              <p className="text-white text-base leading-relaxed mb-6">{inviteError}</p>
+              <button
+                onClick={() => { setInviteError(''); try { window.location.assign('/player/home'); } catch { /* ignore */ } }}
+                className="w-full py-3 rounded-xl bg-[#1a1a1a] border border-[#333] text-white font-mono text-sm hover:bg-[#222] transition-colors"
+              >
+                العودة للرئيسية
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 📨 مودال إرسال الدعوة (للاعب المصرّح له) */}
+      {showInvite && isRemote && roomId && (
+        <InviteModal roomId={roomId} emit={emit} onClose={() => setShowInvite(false)} />
+      )}
+
       {isExpelled ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
@@ -2479,6 +2570,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                 />
               )}
 
+              {/* 📨 دعوة الأصدقاء — يظهر للاعب فقط إذا سمح القائد بذلك */}
+              {isRemote && allowPlayerInvites && roomId && (
+                <div className="w-full max-w-lg mx-auto px-1 mt-2">
+                  <button
+                    onClick={() => setShowInvite(true)}
+                    className="w-full py-2.5 rounded-xl bg-sky-600/90 text-white text-sm font-bold shadow-[0_0_12px_rgba(2,132,199,0.3)] hover:bg-sky-500 transition flex items-center justify-center gap-2"
+                  >
+                    📨 دعوة صديق للغرفة
+                  </button>
+                </div>
+              )}
+
               {/* ⚔️ المواجهة الثنائية */}
               {isRemote && (
                 <ConfrontationControls
@@ -2914,6 +3017,18 @@ export default function PlayerFlow({ initialRoomCode = '' }: PlayerFlowProps) {
                   onVoiceMaps={setVoiceMaps}
                   shouldOpenMic={voiceAllowedPids.includes(parseInt(physicalId)) && !isPlayerDead}
                 />
+              )}
+
+              {/* 📨 دعوة الأصدقاء — يظهر للاعب فقط إذا سمح القائد بذلك */}
+              {isRemote && allowPlayerInvites && roomId && (
+                <div className="w-full max-w-lg mx-auto px-1 mt-2">
+                  <button
+                    onClick={() => setShowInvite(true)}
+                    className="w-full py-2.5 rounded-xl bg-sky-600/90 text-white text-sm font-bold shadow-[0_0_12px_rgba(2,132,199,0.3)] hover:bg-sky-500 transition flex items-center justify-center gap-2"
+                  >
+                    📨 دعوة صديق للغرفة
+                  </button>
+                </div>
               )}
 
               {/* ⚔️ المواجهة الثنائية */}

@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, and, sql, inArray, or, isNull } from 'drizzle-orm';
+import { eq, ne, desc, and, sql, inArray, or, isNull, ilike } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
@@ -52,6 +52,45 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
     res.json({ success: true, leaderboard: rows });
   } catch (err: any) {
     console.error('❌ leaderboard error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 🔎 GET /search?q= — بحث عن لاعب لإرسال دعوة (بالاسم جزئيّاً أو برقم الهاتف تامّاً) ──
+// الخصوصيّة: الاسم مطابقة جزئيّة، أمّا الهاتف فمطابقة تامّة حصريّاً (لا تخمين بجزءٍ من الرقم)،
+// ولا يُعاد الهاتف في النتائج إطلاقاً. يستبعد الباحث نفسه.
+router.get('/search', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+  const callerId = req.playerAccount?.playerId;
+  const raw = String(req.query.q || '').trim();
+  if (raw.length < 2) return res.json({ success: true, results: [] });
+
+  // اسم: مطابقة جزئيّة (مع تحييد رموز LIKE). هاتف: مطابقة تامّة على الرقم (لا تخمين بجزء منه).
+  const nameQ = raw.replace(/[%_]/g, '');
+  const phoneQ = raw.replace(/[\s-]/g, '');
+  const digitsOnly = /^\+?\d{4,}$/.test(phoneQ); // يبدو رقم هاتف؟ (٤ خانات فأكثر)
+  // نطابق الرقم بصيغتيه (بصفرٍ بادئ وبدونه) لأنّ الأرقام تُخزَّن بصفرٍ بادئ في تدفّق الانضمام
+  const phoneCandidates = phoneQ.startsWith('0') ? [phoneQ, phoneQ.slice(1)] : [phoneQ, `0${phoneQ}`];
+
+  try {
+    const match = digitsOnly
+      ? or(ilike(players.name, `%${nameQ}%`), inArray(players.phone, phoneCandidates))
+      : ilike(players.name, `%${nameQ}%`);
+
+    const results = await db.select({
+      id: players.id,
+      name: players.name,
+      avatarUrl: players.avatarUrl,
+    })
+      .from(players)
+      .where(callerId ? and(ne(players.id, callerId), match) : match)
+      .limit(20);
+
+    res.json({ success: true, results });
+  } catch (err: any) {
+    console.error('❌ player search error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -148,6 +148,10 @@ function resolveNotificationUrl(type, data) {
       return data.roomCode
         ? `/player/join?code=${data.roomCode}`
         : '/player/home';
+    case 'room_invite':
+      return data.url || (data.roomCode
+        ? `/player/join?code=${data.roomCode}&invite=1${data.inviterName ? `&by=${encodeURIComponent(data.inviterName)}` : ''}`
+        : '/player/home');
     case 'new_activity':
       return data.activityId
         ? `/player/games?activityId=${data.activityId}`

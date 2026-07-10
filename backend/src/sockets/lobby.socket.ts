@@ -168,6 +168,10 @@ export function markRoomAsFinished(roomId: string) {
   activeRooms.delete(roomId);
 }
 
+// ── 📨 كبح دعوات اللعب عن بُعد — على مستوى العمليّة (لا لكل اتصال) لمنع التحايل بفتح عدّة سوكِتات ──
+const inviteRateWindow = new Map<number, number[]>();       // مُرسِل → طوابع الدقيقة الأخيرة (≤10/دقيقة)
+const inviteDedupe = new Map<string, number>();             // "senderId:inviteeId" → آخر طابع (منع تكرار نفس الدعوة خلال دقيقة)
+
 // ── إعادة بناء activeRooms من Redis عند بدء السيرفر ──
 export async function rehydrateActiveRooms(): Promise<void> {
   try {
@@ -2963,6 +2967,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         },
         phase: state.phase,
         isRemote: !!state.config?.isRemote, // 🌐 ليعرف اللاعب أنه في غرفة بعيدة → يعرض طاولة الطور
+        allowPlayerInvites: !!state.config?.allowPlayerInvites, // 📨 يسمح للاعب برؤية زرّ إرسال الدعوة
         rolesConfirmed: state.rolesConfirmed || false,
         votingState: votingData,
         maxPenalties: state.config?.maxPenalties || 3,
@@ -3181,6 +3186,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     gameTimerMinutes?: number;   // ⏳ مؤقّت اللعبة بالدقائق (0 = مطفأ)
     bombEnabled?: boolean;       // 💣 قنبلة الأب الروحيّ
     mafiaChatEnabled?: boolean;  // 🗣️ غرفة تشاور المافيا السرّية
+    allowPlayerInvites?: boolean; // 📨 السماح للاعبين بدعوة أصدقائهم
   }, callback) => {
     try {
       // 1) هويّة المُضيف من التوكن الموثّق فقط (لا نثق بأي معرّف من العميل)
@@ -3224,6 +3230,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (typeof data.mafiaChatEnabled === 'boolean') {
         state.config.mafiaChatEnabled = data.mafiaChatEnabled;
       }
+      if (typeof data.allowPlayerInvites === 'boolean') {
+        state.config.allowPlayerInvites = data.allowPlayerInvites;
+      }
 
       // 4) جلسة DB (بلا نشاط، بلا موظّف — المُضيف لاعب)
       const sessionId = await createSession(gameName, state.roomCode, state.config.displayPin, maxPlayers, undefined, null, true, hostPlayerId);
@@ -3260,6 +3269,77 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     } catch (err: any) {
       console.error('❌ room:create-remote failed:', err?.message);
       if (typeof callback === 'function') callback({ success: false, error: 'تعذّر إنشاء الغرفة' });
+    }
+  });
+
+  // ── 📨 دعوة لاعبٍ لغرفةٍ بعيدة عبر إشعار بوش (المضيف دائماً؛ الأعضاء الجالسون عند تفعيل allowPlayerInvites) ──
+  socket.on('room:invite-player', async (data: { roomId: string; inviteePlayerId: number }, callback) => {
+    const done = (r: any) => { if (typeof callback === 'function') callback(r); };
+    try {
+      // 1) هويّة المُرسِل من التوكن الموثّق فقط
+      const senderId = socket.data.authPlayer?.playerId;
+      if (!senderId) return done({ success: false, error: 'يجب تسجيل الدخول كلاعب' });
+      const inviteeId = Number(data?.inviteePlayerId);
+      if (!inviteeId || !Number.isFinite(inviteeId)) return done({ success: false, error: 'لاعب غير صالح' });
+
+      // 2) الغرفة يجب أن تكون بعيدة وقائمة
+      const state = await getGameState(data.roomId);
+      if (!state || !state.config?.isRemote) return done({ success: false, error: 'الغرفة غير متاحة' });
+
+      // 3) التفويض: المُضيف دائماً، أو عضوٌ جالس عند تفعيل allowPlayerInvites
+      const isHost = state.config.hostPlayerId === senderId;
+      const isSeated = Array.isArray(state.players) && state.players.some((p: any) => p.playerId === senderId);
+      if (!isHost && !(state.config.allowPlayerInvites && isSeated)) {
+        return done({ success: false, error: 'غير مصرّح لك بإرسال دعوات في هذه الغرفة' });
+      }
+
+      // 4) لا دعوةَ للنفس، ولا للمُضيف (لا يلعب)، ولا لمن هو جالسٌ أصلاً
+      if (inviteeId === senderId) return done({ success: false, error: 'لا يمكنك دعوة نفسك' });
+      if (state.config.hostPlayerId && inviteeId === state.config.hostPlayerId) return done({ success: false, error: 'لا يمكن دعوة المُضيف' });
+      if (Array.isArray(state.players) && state.players.some((p: any) => p.playerId === inviteeId)) {
+        return done({ success: false, error: 'اللاعب في الغرفة بالفعل' });
+      }
+
+      // 5) المدعوّ يجب أن يكون لاعباً حقيقيّاً (يمنع إغراق player_notifications بمعرّفات وهميّة)
+      const db = getDB();
+      if (!db) return done({ success: false, error: 'الخدمة غير متاحة' });
+      const { players: playersTable } = await import('../schemas/player.schema.js');
+      const [invitee] = await db.select({ id: playersTable.id }).from(playersTable).where(eq(playersTable.id, inviteeId)).limit(1);
+      if (!invitee) return done({ success: false, error: 'اللاعب غير موجود' });
+
+      // 6) كبح المعدّل (على مستوى العمليّة): ≤10 دعوات/دقيقة لكل مُرسِل + منع تكرار نفس الدعوة خلال دقيقة
+      const now = Date.now();
+      const win = (inviteRateWindow.get(senderId) || []).filter((t) => now - t < 60_000);
+      if (win.length >= 10) return done({ success: false, error: 'أرسلت الكثير من الدعوات، انتظر قليلاً' });
+      const dedupeKey = `${senderId}:${inviteeId}`;
+      const lastSent = inviteDedupe.get(dedupeKey);
+      if (lastSent && now - lastSent < 60_000) return done({ success: false, error: 'أرسلت دعوة لهذا اللاعب للتوّ' });
+      win.push(now); inviteRateWindow.set(senderId, win);
+      inviteDedupe.set(dedupeKey, now);
+      if (inviteDedupe.size > 5000) { for (const [k, t] of inviteDedupe) if (now - t > 60_000) inviteDedupe.delete(k); } // تنظيف دوريّ
+
+      // 7) الإرسال عبر خطّ البوش الموجود (يحفظ الإشعار في player_notifications أيضاً كنسخة داخل التطبيق)
+      const inviterName = socket.data.authPlayer?.name || 'لاعب';
+      const roomName = state.config.gameName || 'غرفة عن بُعد';
+      const roomCode = state.roomCode;
+      await sendPushToPlayer(
+        inviteeId,
+        '📨 دعوة للانضمام',
+        `${inviterName} يدعوك للانضمام إلى ${roomName}`,
+        'room_invite',
+        {
+          roomCode: String(roomCode),
+          roomName: String(roomName),
+          inviterName: String(inviterName),
+          url: `/player/join?code=${roomCode}&invite=1&by=${encodeURIComponent(inviterName)}`,
+        },
+      );
+
+      console.log(`📨 Invite: #${senderId} (${inviterName}) → #${inviteeId} · room ${roomCode}`);
+      done({ success: true });
+    } catch (err: any) {
+      console.error('❌ room:invite-player failed:', err?.message);
+      done({ success: false, error: 'تعذّر إرسال الدعوة' });
     }
   });
 

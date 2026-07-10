@@ -18,6 +18,7 @@ import RemoteVoice from '@/components/RemoteVoice';
 import PhoneSpectatorView from '@/components/PhoneSpectatorView';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import ConfrontationControls from '@/components/ConfrontationControls';
+import InviteModal from '@/components/InviteModal';
 import { MAFIA_ROLES } from '@/lib/constants';
 
 const PHASE_SHORT: Record<string, string> = {
@@ -45,6 +46,8 @@ export default function HostPage() {
   const [bombEnabled, setBombEnabled] = useState(true);
   const [maxJustifications, setMaxJustifications] = useState(2);
   const [mafiaChatEnabled, setMafiaChatEnabled] = useState(false); // 🗣️ غرفة تشاور المافيا السرّية
+  const [allowPlayerInvites, setAllowPlayerInvites] = useState(false); // 📨 السماح للاعبين بدعوة أصدقائهم
+  const [showInvite, setShowInvite] = useState(false); // 📨 مودال إرسال الدعوات
   const roomIdRef = useRef<string | null>(null);
   // 🕵️ DAY_REVEALED طورٌ جبهيّ فقط (الخادم يبقى على DAY_ELIMINATION). نُبقيه محليّاً حتى لا يرجعنا الاستطلاع
   // للخلف فيختفي زر «بدء الليل» — تماماً كما تفعل صفحة /leader.
@@ -87,6 +90,7 @@ export default function HostPage() {
         gameTimerMinutes,
         bombEnabled,
         mafiaChatEnabled,
+        allowPlayerInvites,
       });
       roomIdRef.current = res.roomId;
       try { localStorage.setItem('mafia_host_room', res.roomId); } catch { /* ignore */ }
@@ -96,7 +100,7 @@ export default function HostPage() {
     } finally {
       setCreating(false);
     }
-  }, [emit, gameName, maxPlayers, refreshState]);
+  }, [emit, gameName, maxPlayers, maxJustifications, maxPenalties, penaltyScope, autoNightTime, gameTimerMinutes, bombEnabled, mafiaChatEnabled, allowPlayerInvites, refreshState]);
 
   // ── استئناف غرفة المُضيف بعد إعادة تحميل الصفحة ──
   useEffect(() => {
@@ -150,7 +154,6 @@ export default function HostPage() {
   // 🎙️ من يُسمح له بالكلام (للمضيف: يكتم الباقي) + حالة المواجهة
   const { allowedPids: hostAllowedPids, confrontation: hostConfrontation } = useActiveSpeaker({ on, gamePhase: gameState?.phase ?? null, initialDiscussionState: gameState?.discussionState });
 
-  const joinLink = gameState ? `${typeof window !== 'undefined' ? window.location.origin : ''}/player/join?code=${gameState.roomCode}` : '';
 
   // ── شاشة الإنشاء ──
   if (!gameState) {
@@ -226,6 +229,15 @@ export default function HostPage() {
                   <button type="button" onClick={() => setMafiaChatEnabled(true)} className={`flex-1 py-2 rounded-lg text-sm border ${mafiaChatEnabled ? 'bg-emerald-500/15 border-emerald-600 text-emerald-300' : 'border-[#222] text-[#888]'}`}>مفعّلة</button>
                   <button type="button" onClick={() => setMafiaChatEnabled(false)} className={`flex-1 py-2 rounded-lg text-sm border ${!mafiaChatEnabled ? 'bg-[#1a1a1a] border-[#333] text-white' : 'border-[#222] text-[#888]'}`}>معطّلة</button>
                 </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-2">📨 دعوة اللاعبين لأصدقائهم</div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAllowPlayerInvites(true)} className={`flex-1 py-2 rounded-lg text-sm border ${allowPlayerInvites ? 'bg-sky-500/15 border-sky-600 text-sky-300' : 'border-[#222] text-[#888]'}`}>مسموح</button>
+                  <button type="button" onClick={() => setAllowPlayerInvites(false)} className={`flex-1 py-2 rounded-lg text-sm border ${!allowPlayerInvites ? 'bg-[#1a1a1a] border-[#333] text-white' : 'border-[#222] text-[#888]'}`}>للمضيف فقط</button>
+                </div>
+                <div className="text-[9px] text-[#666] mt-1">عند التفعيل يظهر زرّ «إرسال دعوة» لكل لاعب في الغرفة، لا للمضيف وحده.</div>
               </div>
 
               <div>
@@ -320,11 +332,13 @@ export default function HostPage() {
   if (phase === 'LOBBY') {
     body = (
       <>
-        <div className="mx-4 mt-3 p-3 rounded-xl bg-[#0a0a0a] border border-[#1a1a1a]">
-          <div className="text-[10px] font-mono text-[#808080] tracking-widest uppercase mb-1">رابط الانضمام — شاركه</div>
-          <div className="font-mono text-xs text-[#C5A059] break-all" dir="ltr">{joinLink}</div>
-          <button onClick={() => { try { navigator.clipboard.writeText(joinLink); } catch {} }}
-            className="mt-2 text-xs text-white/80 border border-[#222] rounded-md px-3 py-1.5">📋 نسخ</button>
+        <div className="mx-4 mt-3">
+          <button
+            onClick={() => setShowInvite(true)}
+            className="w-full py-3 rounded-xl bg-sky-600 text-white text-sm font-bold shadow-[0_0_15px_rgba(2,132,199,0.35)] hover:bg-sky-500 transition flex items-center justify-center gap-2"
+          >
+            📨 إرسال دعوة للاعبين
+          </button>
         </div>
         <HostLobby gameState={gameState} emit={emit} setError={setError} />
         <div className="px-4 mt-4 mb-6">
@@ -412,6 +426,9 @@ export default function HostPage() {
       )}
       {hostRing}
       {body}
+      {showInvite && gameState?.roomId && (
+        <InviteModal roomId={gameState.roomId} emit={emit} onClose={() => setShowInvite(false)} />
+      )}
     </div>
   );
 }

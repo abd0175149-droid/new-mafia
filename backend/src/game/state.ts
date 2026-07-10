@@ -217,6 +217,7 @@ export interface GameConfig {
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false
   hostPlayerId?: number | null;    // 🔗 مُضيف الغرفة البعيدة (players.id) — اللاعب-الليدر (null لغرف الموظّفين)
+  allowPlayerInvites?: boolean;    // 📨 السماح للاعبين (لا المضيف فقط) بدعوة أصدقائهم لغرفة بعيدة — الافتراضي false
   voiceMeetingId?: string | null;  // 🎙️ مُعرّف اجتماع RealtimeKit للصوت/الفيديو (يُنشأ عند أول طلب توكن)
 }
 
@@ -381,6 +382,7 @@ export async function createRoom(
       maxConsecutiveMafiaGames: 3,
       isRemote,
       hostPlayerId: hostPlayerId ?? null,
+      allowPlayerInvites: false,
     },
     players: [],
     rolesPool: [],

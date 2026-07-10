@@ -12,6 +12,9 @@ function JoinContent() {
 
   // قراءة كود الغرفة من URL: /player/join?code=XXXX
   const roomCode = searchParams.get('code') || '';
+  // 📨 دعوة: /player/join?code=XXXX&invite=1&by=الاسم → يعرض تأكيداً قبل الانضمام
+  const inviteFlag = searchParams.get('invite') === '1';
+  const inviterName = searchParams.get('by') || '';
 
   useEffect(() => {
     // حفظ بيانات اللاعب في localStorage للـ PlayerFlow
@@ -29,7 +32,7 @@ function JoinContent() {
 
   if (!mounted) return null;
 
-  return <PlayerFlow initialRoomCode={roomCode} />;
+  return <PlayerFlow initialRoomCode={roomCode} inviteFlag={inviteFlag} inviterName={inviterName} />;
 }
 
 export default function JoinPage() {
