@@ -222,7 +222,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [selectedTargetForConfirm, setSelectedTargetForConfirm] = useState<number | null>(null);
   const [nurseActivationPending, setNurseActivationPending] = useState(false);
   const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const phaseOverrideRef = useRef<{ phase: string } | null>(null);
+  // ⏱️ override يحمي المرحلة المحليّة من poll قديم — لكن ينتهي بعد OVERRIDE_TTL كي لا يعلق جهازٌ فوّت حدث انتقال
+  const phaseOverrideRef = useRef<{ phase: string; at: number } | null>(null);
+  const OVERRIDE_TTL = 6000;
+  const setPhaseOverride = (phase: string) => { phaseOverrideRef.current = { phase, at: Date.now() }; };
 
 
   const [votingCountdown, setVotingCountdown] = useState<number | null>(null);
@@ -992,6 +995,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     // بدء التصويت
     const cleanupVotingStarted = on('day:voting-started', (data: any) => {
       setGamePhase('DAY_VOTING');
+      setPhaseOverride('DAY_VOTING');
       setVotingCandidates(data.candidates || []);
       if (data.playersInfo) setVotingPlayersInfo(data.playersInfo);
       setPlayerVotes(data.playerVotes || {});
@@ -1052,8 +1056,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setGamePhase(data.phase);
       if (data.state?.config?.isRemote != null) setIsRemote(!!data.state.config.isRemote); // 🌐 كشف الغرفة البعيدة عند بدء اللعب
       if (data.state?.config?.allowPlayerInvites != null) setAllowPlayerInvites(!!data.state.config.allowPlayerInvites);
-      // حماية من الـ polling: لا نسمح للـ polling بإعادة كتابة المرحلة لـ 10 ثواني
-      phaseOverrideRef.current = { phase: data.phase };
+      // حماية من الـ polling القديم لمدّة OVERRIDE_TTL فقط (ثمّ يُسمح للـ poll بمزامنة أيّ مرحلة أحدث)
+      setPhaseOverride(data.phase);
       
       // مسح أدوار المافيا + الملاحظات عند بدء جولة جديدة لتجنب تسريبها
       if (data.phase === 'LOBBY' || data.phase === 'ROLE_GENERATION' || data.phase === 'ROLE_BINDING') {
@@ -1086,14 +1090,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       if (data && data.playerVotes) {
         setPlayerVotes(data.playerVotes);
       }
-      phaseOverrideRef.current = { phase: 'DAY_JUSTIFICATION' };
+      setPhaseOverride('DAY_JUSTIFICATION');
     });
 
     // الإقصاء
     const cleanupElimination = on('day:elimination-pending', () => {
       console.log('💀 Elimination pending');
       setGamePhase('ELIMINATION_PENDING');
-      phaseOverrideRef.current = { phase: 'ELIMINATION_PENDING' };
+      setPhaseOverride('ELIMINATION_PENDING');
       // مسح التصويت
       setVotingCandidates([]);
       setMyVote(null);
@@ -1108,7 +1112,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       console.log('🏁 Game over — clearing voting only');
       if (data && Array.isArray(data.players)) setGameOverData({ winner: data.winner ?? null, players: data.players });
       setGamePhase('GAME_OVER');
-      phaseOverrideRef.current = { phase: 'GAME_OVER' };
+      setPhaseOverride('GAME_OVER');
       // مسح التصويت
       setVotingCandidates([]);
       setMyVote(null);
@@ -1289,21 +1293,23 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
           // تحديث مرحلة اللعبة (مع حماية من الـ phase-changed event)
           if (res.phase) {
+            // تحويل DAY_ELIMINATION للتوافق مع واجهة اللاعب (نطابق الـ override على القيمة المُحوّلة)
+            const mappedPhase = res.phase === 'DAY_ELIMINATION' ? 'ELIMINATION_PENDING' : res.phase;
             const override = phaseOverrideRef.current;
-            if (override && res.phase !== override.phase) {
-              console.log(`🛡️ Poll blocked: server=${res.phase}, override=${override.phase}`);
-              // لا نسمح للـ polling بإرجاع المرحلة القديمة
+            const overrideExpired = override ? (Date.now() - override.at > OVERRIDE_TTL) : false;
+            if (override && mappedPhase !== override.phase && !overrideExpired) {
+              console.log(`🛡️ Poll blocked (fresh override): server=${mappedPhase}, override=${override.phase}`);
+              // override حديث → لا نسمح للـ poll بالكتابة (نحمي انتقالاً محليّاً حديثاً)
             } else {
-              // السيرفر تطابق مع الـ override أو لا يوجد override
-              if (override && res.phase === override.phase) phaseOverrideRef.current = null;
-              // تحويل DAY_ELIMINATION للتوافق مع واجهة اللاعب
-              const mappedPhase = res.phase === 'DAY_ELIMINATION' ? 'ELIMINATION_PENDING' : res.phase;
+              // إمّا تطابق، أو لا يوجد override، أو انتهت صلاحيّته → نُزامن مع السيرفر (يشفي الأجهزة التي فوّتت الحدث)
+              if (override && (mappedPhase === override.phase || overrideExpired)) phaseOverrideRef.current = null;
               setGamePhase(mappedPhase);
             }
           }
 
-          // استعادة بيانات التصويت بعد reconnect (مع حماية override)
-          const overrideActive = phaseOverrideRef.current !== null;
+          // استعادة بيانات التصويت بعد reconnect (مع حماية override الحديث فقط)
+          const ovr = phaseOverrideRef.current;
+          const overrideActive = ovr !== null && (Date.now() - ovr.at <= OVERRIDE_TTL);
           if (!overrideActive && res.votingState && res.phase === 'DAY_VOTING') {
             setVotingCandidates(res.votingState.candidates || []);
             setTotalVotesCast(res.votingState.totalVotesCast || 0);
@@ -1375,7 +1381,19 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     pollState();
     const interval = setInterval(pollState, 3000);
 
-    return () => clearInterval(interval);
+    // 📲 مزامنة فوريّة عند عودة التطبيق للمقدّمة/التركيز — مؤقّتات الخلفيّة تُخنَق على الهاتف
+    // فلا يكفي الـ interval وحده؛ هذا يضمن التقاط أيّ انتقالٍ فات أثناء الخلفيّة خلال لحظة.
+    const onWake = () => { if (document.visibilityState === 'visible') pollState(); };
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    window.addEventListener('online', onWake);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+      window.removeEventListener('online', onWake);
+    };
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead, votingPlayersInfo]);
 
   // ── Auto-Vote on Self ──
