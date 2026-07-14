@@ -31,6 +31,14 @@ function resolveNotificationUrl(type: string, data: any): string | null {
   }
 }
 
+function isExternalUrl(u?: string): boolean {
+  return !!u && /^https?:\/\//i.test(u);
+}
+// إشعار غنيّ = يحمل صورة أو فيديو → يُفتح في شاشة تفصيل داخل التطبيق
+function isRich(data: any): boolean {
+  return !!(data && (data.imageUrl || data.videoUrl));
+}
+
 const TYPE_ICONS: Record<string, string> = {
   new_activity: '📅', game_ended: '🎮', custom: '📢', reminder: '⏰',
   friend_booked: '👥', level_up: '🏆', booking_confirmed: '✅', comeback: '🔥',
@@ -51,7 +59,15 @@ export function NotificationBell() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [enabling, setEnabling] = useState(false);
+  const [detail, setDetail] = useState<any | null>(null); // 🖼️ إشعار غنيّ مفتوح
   const ref = useRef<HTMLDivElement>(null);
+
+  // فتح هدفٍ: رابط خارجيّ بتبويب جديد، أو مسار داخليّ عبر الراوتر
+  const go = (url?: string | null) => {
+    if (!url) return;
+    if (isExternalUrl(url)) { window.open(url, '_blank', 'noopener,noreferrer'); }
+    else { setOpen(false); router.push(url); }
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -192,16 +208,17 @@ export function NotificationBell() {
                   لا توجد إشعارات
                 </div>
               ) : (
-                notifications.slice(0, 30).map(n => (
+                notifications.slice(0, 30).map(n => {
+                  const rich = isRich(n.data);
+                  const thumb = n.data?.imageUrl as string | undefined;
+                  const isVideo = !!n.data?.videoUrl;
+                  return (
                   <div
                     key={n.id}
                     onClick={() => {
                       if (!n.isRead) markAsRead(n.id);
-                      const url = resolveNotificationUrl(n.type, n.data);
-                      if (url) {
-                        setOpen(false);
-                        router.push(url);
-                      }
+                      if (rich) { setDetail(n); return; }            // إشعار غنيّ → شاشة تفصيل داخل التطبيق
+                      go(resolveNotificationUrl(n.type, n.data));     // وإلّا: توجيه (داخليّ/خارجيّ)
                     }}
                     style={{
                       padding: '12px 16px',
@@ -212,13 +229,22 @@ export function NotificationBell() {
                     }}
                   >
                     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <span style={{
-                        fontSize: 22, width: 32, height: 32, borderRadius: 8,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: `${TYPE_COLORS[n.type] || '#666'}20`, flexShrink: 0,
-                      }}>
-                        {TYPE_ICONS[n.type] || '🔔'}
-                      </span>
+                      {thumb ? (
+                        <div style={{ position: 'relative', width: 44, height: 44, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: '#000' }}>
+                          <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          {isVideo && (
+                            <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', fontSize: 16 }}>▶️</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{
+                          fontSize: 22, width: 32, height: 32, borderRadius: 8,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: `${TYPE_COLORS[n.type] || '#666'}20`, flexShrink: 0,
+                        }}>
+                          {TYPE_ICONS[n.type] || '🔔'}
+                        </span>
+                      )}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{
                           color: n.isRead ? 'rgba(255,255,255,0.6)' : '#fff',
@@ -228,7 +254,8 @@ export function NotificationBell() {
                         </div>
                         <div style={{
                           color: 'rgba(255,255,255,0.4)', fontSize: 12,
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
                         }}>
                           {n.body}
                         </div>
@@ -243,15 +270,67 @@ export function NotificationBell() {
                             background: '#f59e0b',
                           }} />
                         )}
-                        {resolveNotificationUrl(n.type, n.data) && (
+                        {(rich || resolveNotificationUrl(n.type, n.data)) && (
                           <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 14 }}>◀</span>
                         )}
                       </div>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── شاشة تفصيل الإشعار الغنيّ (صورة/فيديو/رابط) ── */}
+      <AnimatePresence>
+        {detail && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setDetail(null)}
+            style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          >
+            <motion.div
+              initial={{ scale: 0.92, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              dir="rtl"
+              style={{ width: '100%', maxWidth: 420, maxHeight: '88vh', overflowY: 'auto', background: '#0f0f0f', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                <span style={{ color: '#fff', fontWeight: 700, fontSize: 15, display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span>{TYPE_ICONS[detail.type] || '🔔'}</span>{detail.title}
+                </span>
+                <button onClick={() => setDetail(null)} style={{ background: 'none', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+              </div>
+
+              {detail.data?.videoUrl ? (
+                <video src={detail.data.videoUrl} poster={detail.data.imageUrl || undefined} controls playsInline
+                  style={{ width: '100%', maxHeight: '50vh', background: '#000', display: 'block' }} />
+              ) : detail.data?.imageUrl ? (
+                <img src={detail.data.imageUrl} alt="" style={{ width: '100%', maxHeight: '55vh', objectFit: 'contain', background: '#000', display: 'block' }} />
+              ) : null}
+
+              {(detail.data?.richBody || detail.body) && (
+                <div style={{ padding: '14px 16px', color: 'rgba(255,255,255,0.82)', fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                  {detail.data?.richBody || detail.body}
+                </div>
+              )}
+
+              {detail.data?.url && (
+                <div style={{ padding: '0 16px 16px' }}>
+                  <button
+                    onClick={() => { const u = detail.data.url; setDetail(null); go(u); }}
+                    style={{ width: '100%', padding: '12px 0', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}
+                  >
+                    {isExternalUrl(detail.data.url) ? '🔗 فتح الرابط' : 'انتقال ◀'}
+                  </button>
+                </div>
+              )}
+
+              <div style={{ padding: '0 16px 14px', color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>{formatTimeAgo(detail.createdAt)}</div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

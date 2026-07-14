@@ -35,6 +35,11 @@ export default function AdminNotificationsPage() {
   // ── حالة الإرسال ──
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  // 🖼️ إشعار غنيّ: وسائط (صورة/فيديو) + رابط (داخليّ أو خارجيّ)
+  const [imageUrl, setImageUrl] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [target, setTarget] = useState<'all' | 'booked' | 'specific'>('all');
   const [targetAudience, setTargetAudience] = useState<'players' | 'staff' | 'both'>('players');
   const [activityId, setActivityId] = useState('');
@@ -142,6 +147,24 @@ export default function AdminNotificationsPage() {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
+  // ── رفع وسائط الإشعار (صورة/فيديو) ──
+  const uploadMedia = async (file: File) => {
+    setUploadingMedia(true);
+    try {
+      const fd = new FormData();
+      fd.append('media', file);
+      const res = await fetch('/api/staff-notifications/upload-media', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const d = await res.json();
+      if (d.success) {
+        if (d.mediaType === 'video') { setVideoUrl(d.url); }
+        else { setImageUrl(d.url); }
+      } else { alert(d.error || 'فشل رفع الملف'); }
+    } catch (e: any) { alert(e.message || 'فشل الرفع'); }
+    finally { setUploadingMedia(false); }
+  };
+
   // ── إرسال مخصص ──
   const handleSend = async () => {
     if (!title.trim() || !body.trim()) return;
@@ -166,12 +189,16 @@ export default function AdminNotificationsPage() {
           title: title.trim(), body: body.trim(), target, targetAudience,
           activityId: target === 'booked' ? parseInt(activityId) : null,
           targetIds: target === 'specific' ? ids : [],
-          data: { url: '/player/home' },
+          data: {
+            url: linkUrl.trim() || '/player/home',
+            ...(imageUrl ? { imageUrl } : {}),
+            ...(videoUrl ? { videoUrl, mediaType: 'video' } : {}),
+          },
         }),
       });
       const data = await res.json();
       setResult(data);
-      if (data.success) { setTitle(''); setBody(''); }
+      if (data.success) { setTitle(''); setBody(''); setImageUrl(''); setVideoUrl(''); setLinkUrl(''); }
     } catch (err: any) {
       setResult({ success: false, error: err.message });
     } finally { setSending(false); }
@@ -424,6 +451,49 @@ export default function AdminNotificationsPage() {
                     borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', resize: 'vertical',
                   }}
                 />
+              </div>
+
+              {/* 🖼️ وسائط غنيّة: صورة/فيديو + رابط */}
+              <div>
+                <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 6 }}>وسائط (اختياريّ)</label>
+                {!imageUrl && !videoUrl ? (
+                  <label style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8, cursor: uploadingMedia ? 'wait' : 'pointer',
+                    padding: '10px 14px', borderRadius: 10, border: '1px dashed rgba(255,255,255,0.2)',
+                    background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.6)', fontSize: 13,
+                  }}>
+                    {uploadingMedia ? '⏳ جارٍ الرفع…' : '📎 إرفاق صورة أو فيديو'}
+                    <input type="file" accept="image/*,video/*" disabled={uploadingMedia}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f); e.currentTarget.value = ''; }}
+                      style={{ display: 'none' }} />
+                  </label>
+                ) : (
+                  <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', background: '#000' }}>
+                    {videoUrl ? (
+                      <video src={videoUrl} controls playsInline style={{ width: '100%', maxHeight: 220, display: 'block' }} />
+                    ) : (
+                      <img src={imageUrl} alt="" style={{ width: '100%', maxHeight: 220, objectFit: 'contain', display: 'block' }} />
+                    )}
+                    <button type="button" onClick={() => { setImageUrl(''); setVideoUrl(''); }}
+                      style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', fontSize: 14 }}>✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* 🔗 رابط عند النقر (داخليّ /player/... أو خارجيّ https://) */}
+              <div>
+                <label style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginBottom: 6 }}>رابط عند النقر (اختياريّ)</label>
+                <input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} dir="ltr"
+                  placeholder="https://example.com  أو  /player/games"
+                  style={{
+                    width: '100%', padding: '10px 14px',
+                    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 10, color: '#fff', fontSize: 13, outline: 'none',
+                  }}
+                />
+                <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, margin: '4px 0 0' }}>
+                  رابط يبدأ بـ http يُفتح خارجيّاً بتبويب جديد؛ وإلّا يُوجَّه داخل التطبيق.
+                </p>
               </div>
 
               {/* الجمهور */}

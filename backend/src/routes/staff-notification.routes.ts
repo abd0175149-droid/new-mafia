@@ -11,8 +11,44 @@ import { registerStaffToken, sendPushToAllPlayers, sendPushToPlayers, sendPushTo
 import { playerNotifications } from '../schemas/notification.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { bookings } from '../schemas/admin.schema.js';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
+
+// ── رفع وسائط الإشعارات الغنيّة (صور/فيديو) → uploads/notifications ──
+const NOTIF_MEDIA_DIR = path.resolve(process.cwd(), 'uploads/notifications');
+if (!fs.existsSync(NOTIF_MEDIA_DIR)) fs.mkdirSync(NOTIF_MEDIA_DIR, { recursive: true });
+
+const notifMediaUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, NOTIF_MEDIA_DIR),
+    filename: (_req, file, cb) => {
+      const ext = (path.extname(file.originalname) || '').toLowerCase() || '.bin';
+      cb(null, `n${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 60 * 1024 * 1024 }, // 60MB — يكفي صورة أو فيديو قصير
+  fileFilter: (_req, file, cb) => {
+    const img = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+    const vid = ['video/mp4', 'video/webm', 'video/quicktime'];
+    if (img.includes(file.mimetype) || vid.includes(file.mimetype)) cb(null, true);
+    else cb(new Error(`صيغة غير مدعومة: ${file.mimetype} (المسموح: صور PNG/JPG/WEBP/GIF أو فيديو MP4/WEBM)`));
+  },
+});
+
+// ── POST /upload-media — رفع صورة/فيديو لإشعار غنيّ (Admin only) ──
+router.post('/upload-media', authenticate, adminOnly, (req: Request, res: Response) => {
+  notifMediaUpload.single('media')(req, res, (err: any) => {
+    if (err) return res.status(400).json({ error: err.message || 'فشل رفع الملف' });
+    const f = (req as any).file;
+    if (!f) return res.status(400).json({ error: 'لا يوجد ملف' });
+    const url = `/uploads/notifications/${f.filename}`;
+    const mediaType = String(f.mimetype).startsWith('video/') ? 'video' : 'image';
+    res.json({ success: true, url, mediaType });
+  });
+});
 
 // ── POST /register-token — تسجيل FCM Token للموظف ──
 router.post('/register-token', authenticate, async (req: Request, res: Response) => {

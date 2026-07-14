@@ -53,6 +53,7 @@ try {
       body,
       icon: '/mafia_logo.png',
       badge: '/mafia_logo.png',
+      ...(d.imageUrl ? { image: d.imageUrl } : {}), // 🖼️ صورة كبيرة (أندرويد/سطح المكتب)
       tag,
       data: { url, type, ...d },
       vibrate: [200, 100, 200],
@@ -211,6 +212,7 @@ self.addEventListener('push', (event) => {
         body,
         icon: '/mafia_logo.png',
         badge: '/mafia_logo.png',
+        ...(fcmData.imageUrl ? { image: fcmData.imageUrl } : {}), // 🖼️ صورة كبيرة (المتصفحات الداعمة)
         tag,
         data: { url, type, ...fcmData },
         vibrate: [200, 100, 200],
@@ -226,7 +228,13 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};
   const url = data.url || resolveNotificationUrl(data.type, data) || '/player/home';
 
+  // 🔗 رابط خارجيّ (http لأصلٍ مختلف): افتحه بنافذة/تبويب جديد بدل إخراج التطبيق من مكانه
+  const isExternal = /^https?:\/\//i.test(url) && !url.startsWith(self.location.origin);
+
   event.waitUntil((async () => {
+    if (isExternal) {
+      return self.clients.openWindow(url);
+    }
     const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
 
     // التطبيق مفتوح بالفعل → وجّه ثم ركّز (داخل التطبيق — يعمل بدقّة)
