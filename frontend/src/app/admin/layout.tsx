@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { href: '/admin/locations', icon: '📍', label: 'المواقع' },
   { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
   { href: '/admin/players', icon: '🎮', label: 'اللاعبون', roles: ['admin', 'accountant'] },
+  { href: '/admin/analytics/players', icon: '📊', label: 'تحليل اللاعبين', roles: ['admin', 'manager'] },
   { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
   { href: '/admin/reports', icon: '📋', label: 'التقارير', roles: ['admin', 'manager', 'accountant'] },
   { href: '/admin/reports/layout', icon: '🖨️', label: 'تخطيط الطباعة', roles: ['admin', 'manager'] },

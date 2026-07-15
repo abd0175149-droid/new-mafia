@@ -1,0 +1,53 @@
+// ══════════════════════════════════════════════════════
+// 📊 مسارات تحليلات اللاعبين — Player Analytics Routes (admin)
+// ══════════════════════════════════════════════════════
+
+import { Router, type Request, type Response } from 'express';
+import { authenticate, adminOnly } from '../middleware/auth.js';
+import { getCache, refreshCache, getConfig, saveConfig, DEFAULT_CONFIG, METRIC_DEFS } from '../services/analytics.service.js';
+
+const router = Router();
+
+// ── GET /players — المقاييس المُخزّنة (كاش) لكل اللاعبين ──
+router.get('/players', authenticate, async (_req: Request, res: Response) => {
+  try {
+    const { payload, refreshedAt } = await getCache();
+    res.json({ success: true, refreshedAt, generatedAt: payload.generatedAt, today: payload.today, players: payload.players || [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /refresh — إعادة حساب الكاش يدويّاً (Admin) ──
+router.post('/refresh', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const r = await refreshCache();
+    res.json({ success: true, ...r });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /config — قواعد الشرائح + المقاييس المتاحة + الافتراضيّ ──
+router.get('/config', authenticate, async (_req: Request, res: Response) => {
+  try {
+    const config = await getConfig();
+    res.json({ success: true, config, defaults: DEFAULT_CONFIG, metrics: METRIC_DEFS });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PUT /config — حفظ قواعد الشرائح (Admin) ──
+router.put('/config', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const config = req.body?.config;
+    if (!config || !Array.isArray(config.segments)) return res.status(400).json({ error: 'قواعد غير صالحة' });
+    await saveConfig(config);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;

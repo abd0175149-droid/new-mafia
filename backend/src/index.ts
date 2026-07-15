@@ -46,6 +46,7 @@ import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
 import seasonsRoutes from './routes/seasons.routes.js';
+import analyticsRoutes from './routes/analytics.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
@@ -160,6 +161,7 @@ app.use('/api/game-config', gameConfigRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/seasons', seasonsRoutes);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
@@ -582,7 +584,9 @@ async function main() {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS can_host_remote BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS remote_access_until TIMESTAMP`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS player_id INTEGER`);
-      console.log('✅ players remote-access + reservations.player_id columns ensured');
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      console.log('✅ players remote-access + reservations.player_id + analytics tables ensured');
     }
   } catch (err: any) {
     console.warn('⚠️ players remote-access columns migration:', err.message);
@@ -1002,6 +1006,24 @@ async function main() {
 ╚══════════════════════════════════════════════════╝
     `);
   });
+
+  // ── 📊 تحديث كاش التحليلات: عند الإقلاع إن كان قديماً + ليليّاً الساعة ٤ فجراً ──
+  try {
+    const { refreshCache, isCacheStale } = await import('./services/analytics.service.js');
+    if (await isCacheStale(26)) {
+      refreshCache().then(r => console.log(`📊 analytics cache refreshed on boot: ${r.count} players`)).catch(e => console.warn('⚠️ analytics boot refresh:', e.message));
+    }
+    // فحص كل ساعة: عند بلوغ الساعة ٤ فجراً ولم يُحدَّث اليوم → أعِد الحساب
+    let lastRefreshDay = -1;
+    setInterval(async () => {
+      const now = new Date();
+      if (now.getHours() === 4 && now.getDate() !== lastRefreshDay) {
+        lastRefreshDay = now.getDate();
+        try { const r = await refreshCache(); console.log(`📊 nightly analytics refresh: ${r.count} players`); }
+        catch (e: any) { console.warn('⚠️ nightly analytics refresh:', e.message); }
+      }
+    }, 60 * 60 * 1000);
+  } catch (e: any) { console.warn('⚠️ analytics scheduler init:', e.message); }
 }
 
 main().catch(console.error);

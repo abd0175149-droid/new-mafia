@@ -262,6 +262,18 @@ export const progressionConfig = pgTable('progression_config', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ── 📊 تحليلات اللاعبين: كاش المقاييس + إعدادات قواعد الشرائح ──
+export const analyticsCache = pgTable('analytics_cache', {
+  key: varchar('key', { length: 40 }).primaryKey(),   // 'players'
+  payload: jsonb('payload').notNull(),                 // المقاييس المحسوبة لكل اللاعبين
+  refreshedAt: timestamp('refreshed_at').defaultNow().notNull(),
+});
+export const analyticsConfig = pgTable('analytics_config', {
+  key: varchar('key', { length: 40 }).primaryKey(),   // 'segments'
+  value: jsonb('value').notNull(),                     // قواعد الشرائح القابلة للتخصيص
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ══════════════════════════════════════════════════════
 // 📲 WhatsApp — سجلات الإرسال وقوالب الرسائل
 // ══════════════════════════════════════════════════════
