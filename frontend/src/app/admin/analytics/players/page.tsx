@@ -223,7 +223,7 @@ export default function AnalyticsPlayersPage() {
           </div>
         </>
       ) : (
-        <RuleBuilder config={config} metricDefs={metricDefs} segCounts={segCounts} poolCount={pool.length}
+        <RuleBuilder config={config} metricDefs={metricDefs} segCounts={segCounts} pool={pool}
           onEdit={editConfig} onSave={saveConfig} onReset={resetConfig} saving={saving} dirty={dirty} />
       )}
 
@@ -234,7 +234,7 @@ export default function AnalyticsPlayersPage() {
 }
 
 // ═══════════ بنّاء القواعد ═══════════
-function RuleBuilder({ config, metricDefs, segCounts, poolCount, onEdit, onSave, onReset, saving, dirty }: any) {
+function RuleBuilder({ config, metricDefs, segCounts, pool, onEdit, onSave, onReset, saving, dirty }: any) {
   const move = (i: number, dir: number) => onEdit((c: any) => { const s = c.segments; const j = i + dir; if (j < 0 || j >= s.length) return; [s[i], s[j]] = [s[j], s[i]]; });
   const addSeg = () => onEdit((c: any) => c.segments.push({ id: 'seg_' + Date.now(), name: 'شريحة جديدة', color: '#c5a059', match: 'all', conditions: [{ metric: 'activitiesAll', op: '>=', value: 1 }] }));
   const delSeg = (i: number) => onEdit((c: any) => c.segments.splice(i, 1));
@@ -247,14 +247,18 @@ function RuleBuilder({ config, metricDefs, segCounts, poolCount, onEdit, onSave,
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-gray-500 max-w-2xl leading-relaxed">تُطبَّق القواعد بالترتيب و<b className="text-gray-300">أوّل شريحة تنطبق شروطها تفوز</b>. رتّب من الأخصّ للأعمّ. «كامل التاريخ عبر كل المواسم». التغييرات تنعكس فوراً على اللوحة؛ اضغط حفظ للتثبيت.</p>
+        <p className="text-xs text-gray-500 max-w-2xl leading-relaxed">تُطبَّق القواعد بالترتيب و<b className="text-gray-300">أوّل شريحة تنطبق شروطها تفوز</b>. القاعدة الذهبيّة: <b className="text-amber-400/90">رتّب من الأخصّ (الأضيق) في الأعلى إلى الأعمّ (الأوسع) في الأسفل</b>. «يلتقط» = ما تأخذه فعليّاً بعد الأولويّة؛ التغييرات تنعكس فوراً، واضغط حفظ للتثبيت.</p>
         <div className="flex gap-2">
           <button onClick={onReset} className="px-3 py-2 rounded-xl text-xs bg-gray-800/40 text-gray-400 border border-gray-700/40">استعادة الافتراضيّ</button>
           <button onClick={onSave} disabled={saving || !dirty} className="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 text-black disabled:opacity-40">{saving ? '⏳' : dirty ? '💾 حفظ القواعد' : '✓ محفوظ'}</button>
         </div>
       </div>
 
-      {(config?.segments || []).map((seg: any, i: number) => (
+      {(config?.segments || []).map((seg: any, i: number) => {
+        const captured = segCounts[seg.id] || 0;
+        const iso = (pool || []).filter((p: any) => matchesSeg(p, seg)).length;   // يحقّق الشروط بمعزل عن الترتيب
+        const shadowed = iso - captured;                                          // فقدهم لشرائح أعلى
+        return (
         <div key={seg.id} className="bg-gray-800/30 border border-gray-700/30 rounded-2xl p-4" style={{ borderInlineStartWidth: 3, borderInlineStartColor: seg.color }}>
           <div className="flex items-center gap-2.5 flex-wrap">
             <input type="color" value={seg.color} onChange={e => setSeg(i, 'color', e.target.value)} className="w-8 h-8 rounded-lg bg-transparent border border-gray-700/40 cursor-pointer p-0.5" />
@@ -263,13 +267,19 @@ function RuleBuilder({ config, metricDefs, segCounts, poolCount, onEdit, onSave,
               <button onClick={() => setSeg(i, 'match', 'all')} className={`px-2.5 py-1.5 ${seg.match !== 'any' ? 'bg-amber-500/15 text-amber-400' : 'text-gray-500'}`}>كل الشروط (و)</button>
               <button onClick={() => setSeg(i, 'match', 'any')} className={`px-2.5 py-1.5 ${seg.match === 'any' ? 'bg-amber-500/15 text-amber-400' : 'text-gray-500'}`}>أيّ شرط (أو)</button>
             </div>
-            <span className="text-[11px] text-gray-400">يطابق <b className="text-white tabular-nums">{segCounts[seg.id] || 0}</b> لاعباً</span>
+            <span className="text-[11px] text-gray-400">يلتقط <b className="text-white tabular-nums">{captured}</b>{shadowed > 0 && <span className="text-gray-600"> / <span className="tabular-nums">{iso}</span> محقّق</span>}</span>
             <div className="flex gap-1 mr-auto">
-              <button onClick={() => move(i, -1)} className="w-7 h-7 rounded-lg bg-gray-800/50 text-gray-400 hover:text-white text-xs">▲</button>
-              <button onClick={() => move(i, 1)} className="w-7 h-7 rounded-lg bg-gray-800/50 text-gray-400 hover:text-white text-xs">▼</button>
+              <button onClick={() => move(i, -1)} title="تحريك للأعلى" className="w-7 h-7 rounded-lg bg-gray-800/50 text-gray-400 hover:text-white text-xs">▲</button>
+              <button onClick={() => move(i, 1)} title="تحريك للأسفل" className="w-7 h-7 rounded-lg bg-gray-800/50 text-gray-400 hover:text-white text-xs">▼</button>
               <button onClick={() => delSeg(i)} className="w-7 h-7 rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-xs">🗑</button>
             </div>
           </div>
+          {shadowed > 0 && (
+            <div className="mt-2.5 flex items-center gap-2 text-[11px] bg-amber-500/8 border border-amber-500/25 text-amber-300/90 rounded-lg px-3 py-2">
+              <span>⚠️</span>
+              <span><b className="tabular-nums">{shadowed}</b> لاعباً يحقّقون شروط هذه الشريحة لكن التقطتهم شرائح أعلى منها. حرّكها للأعلى <button onClick={() => move(i, -1)} className="text-amber-400 underline underline-offset-2">▲</button> لتلتقطهم.</span>
+            </div>
+          )}
           <div className="mt-3 space-y-1.5">
             {(seg.conditions || []).map((c: any, ci: number) => (
               <div key={ci} className="flex items-center gap-2 flex-wrap">
@@ -286,7 +296,8 @@ function RuleBuilder({ config, metricDefs, segCounts, poolCount, onEdit, onSave,
             <button onClick={() => addCond(i)} className="text-[11px] text-amber-400/80 hover:text-amber-400 mt-1">+ إضافة شرط</button>
           </div>
         </div>
-      ))}
+        );
+      })}
 
       <button onClick={addSeg} className="w-full py-3 rounded-2xl border border-dashed border-gray-700/50 text-gray-400 text-sm hover:border-amber-500/40 hover:text-amber-400">+ إضافة شريحة</button>
 

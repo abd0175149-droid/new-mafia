@@ -49,7 +49,7 @@ export const METRIC_DEFS = [
   { key: 'survivalPct', label: 'نسبة النجاة', unit: '%' },
   { key: 'seasonsCount', label: 'عدد المواسم', unit: '' },
   { key: 'remotePct', label: 'حصّة اللعب عن بُعد', unit: '%' },
-  { key: 'accountAgeDays', label: 'عمر الحساب', unit: 'يوم' },
+  { key: 'accountAgeDays', label: 'أيّام منذ إنشاء الحساب', unit: 'يوم' },
   { key: 'level', label: 'المستوى', unit: '' },
 ];
 
