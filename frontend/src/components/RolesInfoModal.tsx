@@ -24,7 +24,7 @@ interface RoleDef {
 const ROLE_ICONS: Record<string, string> = {
   GODFATHER: '🎩', SILENCER: '🤫', CHAMELEON: '🦎', MAFIA_REGULAR: '🔪',
   SHERIFF: '🕵️', DOCTOR: '🩺', SNIPER: '🎯', POLICEWOMAN: '👮‍♀️',
-  NURSE: '💉', CITIZEN: '👤', JESTER: '🃏',
+  NURSE: '💉', MAYOR: '🏛️', CITIZEN: '👤', JESTER: '🃏',
 };
 
 const TEAM_DEFAULT_ICON: Record<string, string> = {

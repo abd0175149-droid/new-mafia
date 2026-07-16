@@ -26,7 +26,7 @@ async function apiFetch(path: string, opts?: RequestInit) {
 const ROLE_LABELS: Record<string, string> = {
   GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'حرباية المافيا', WITCH: 'الساحرة',
   OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا عادي', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
-  SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', CITIZEN: 'مواطن صالح',
+  SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', MAYOR: 'العمدة', CITIZEN: 'مواطن صالح',
   YOUNGER_BROTHER: 'الأخ الأصغر', JESTER: 'المهرج', ASSASSIN: 'السفّاح',
 };
 

@@ -15,6 +15,7 @@ import {
   Crown,
   Drama,
   Scissors,
+  Landmark,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -97,6 +98,17 @@ function getRoleTheme(role: Role | string | null): RoleTheme {
         text: 'text-indigo-300',
         glow: 'shadow-[0_0_30px_rgba(129,140,248,0.2)]',
         Icon: BadgeAlert,
+        teamBadge: 'فريق المدينة 🔵',
+        teamColor: 'bg-blue-900/60 text-blue-300 border-blue-500/30',
+      };
+
+    case Role.MAYOR:
+      return {
+        gradient: 'from-yellow-800 via-amber-900 to-stone-950',
+        border: 'border-yellow-500/60',
+        text: 'text-yellow-200',
+        glow: 'shadow-[0_0_30px_rgba(234,179,8,0.22)]',
+        Icon: Landmark,
         teamBadge: 'فريق المدينة 🔵',
         teamColor: 'bg-blue-900/60 text-blue-300 border-blue-500/30',
       };

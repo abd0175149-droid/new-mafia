@@ -8,7 +8,7 @@ import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
 import {
   User, HeartPulse, Shield, Syringe, Crosshair,
   BadgeAlert, Skull, Crown, Drama, Scissors,
-  Flame, Ghost, Eye, Zap, Sword, Heart,
+  Flame, Ghost, Eye, Zap, Sword, Heart, Landmark,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -24,7 +24,7 @@ const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 const LUCIDE_ICONS: Record<string, LucideIcon> = {
   User, HeartPulse, Shield, Syringe, Crosshair,
   BadgeAlert, Skull, Crown, Drama, Scissors,
-  Flame, Ghost, Eye, Zap, Sword, Heart,
+  Flame, Ghost, Eye, Zap, Sword, Heart, Landmark,
 };
 
 function getLucideIcon(name: string): LucideIcon {
@@ -160,7 +160,7 @@ export default function DynamicMafiaCard({
     const classicIcons: Record<string, LucideIcon> = {
       GODFATHER: Crown, SILENCER: Scissors, CHAMELEON: Drama,
       MAFIA_REGULAR: Skull, SHERIFF: Shield, DOCTOR: HeartPulse,
-      SNIPER: Crosshair, POLICEWOMAN: BadgeAlert, NURSE: Syringe, CITIZEN: User,
+      SNIPER: Crosshair, POLICEWOMAN: BadgeAlert, NURSE: Syringe, MAYOR: Landmark, CITIZEN: User,
     };
     RoleIcon = role ? (classicIcons[role] || User) : User;
   }

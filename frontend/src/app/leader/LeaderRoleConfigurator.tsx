@@ -44,7 +44,8 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
     const totalCitizens = playerCount - totalMafia - totalNeutral;
 
     const mafiaOrder = [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.WITCH, Role.MAFIA_REGULAR];
-    const citizenOrder = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.CITIZEN];
+    // 🎩 العمدة في المرتبة السادسة — لا يدخل تلقائيّاً إلا بستّة مقاعد مواطنين (≈ ٩+ لاعبين، كالمحرّك الديناميكيّ)
+    const citizenOrder = [Role.SHERIFF, Role.DOCTOR, Role.SNIPER, Role.POLICEWOMAN, Role.NURSE, Role.MAYOR, Role.CITIZEN];
 
     let generated: Role[] = [];
     

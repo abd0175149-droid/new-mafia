@@ -14,6 +14,7 @@ const ROLE_NAMES_AR: Record<string, string> = {
   DOCTOR: 'الطبيب',
   SNIPER: 'القناص',
   POLICEWOMAN: 'الشرطية',
+  MAYOR: 'العمدة',
   NURSE: 'الممرضة',
   CITIZEN: 'مواطن صالح',
   WITCH: 'الساحرة',
