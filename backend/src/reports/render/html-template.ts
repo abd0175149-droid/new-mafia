@@ -133,7 +133,7 @@ export function renderDocumentHtml(doc: ReportDocument, layout?: ResolvedLayout 
 </style></head>
 <body>
   <div class="cover">
-    <div class="logo">🎭</div>
+    <!-- كروميوم الحاوية بلا خطّ إيموجي: شعار 🎭 كان يُطبع مربّعاً في كلّ التقارير فأُزيل -->
     <h1>نادي المافيا</h1>
     <p class="sub">Mafia Club — نظام التقارير</p>
     <h2>${esc(doc.header.titleAr)}</h2>
