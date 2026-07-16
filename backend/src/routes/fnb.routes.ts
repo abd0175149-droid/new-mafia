@@ -13,6 +13,7 @@ import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
+import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -196,6 +197,102 @@ venueRouter.delete('/menu-items/:id', authenticate, requireVenuePermission('menu
       .where(and(eq(menuItems.id, id), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt))).returning();
     if (!item) return res.status(404).json({ error: 'الصنف غير موجود' });
     res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════
+// 📥 صندوق طلبات المكان — /api/venue/orders
+// ════════════════════════════════════════════
+
+const ORDERS_LOOKBACK_HOURS = 24;
+
+// ── GET /orders — طلبات المكان (آخر 24 ساعة افتراضاً، أو فعاليّة محدّدة) ──
+venueRouter.get('/orders', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(String(req.query.activityId || ''));
+  try {
+    const conds = [eq(orders.locationId, locId)];
+    if (Number.isFinite(activityId)) conds.push(eq(orders.activityId, activityId));
+    else conds.push(gte(orders.createdAt, new Date(Date.now() - ORDERS_LOOKBACK_HOURS * 3600_000)));
+
+    const rows = await db.select().from(orders).where(and(...conds)).orderBy(desc(orders.createdAt)).limit(300);
+    const orderIds = rows.map(o => o.id);
+    const items = orderIds.length > 0
+      ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds))
+      : [];
+    const actIds = [...new Set(rows.map(o => o.activityId))];
+    const acts = actIds.length > 0
+      ? await db.select({ id: activities.id, name: activities.name }).from(activities).where(inArray(activities.id, actIds))
+      : [];
+    const actName = new Map(acts.map(a => [a.id, a.name]));
+
+    res.json({
+      success: true,
+      orders: rows.map(o => ({
+        id: o.id, status: o.status, total: o.total, note: o.note, createdAt: o.createdAt,
+        playerName: o.playerName, physicalId: o.physicalId,
+        activityId: o.activityId, activityName: actName.get(o.activityId) || '',
+        items: items.filter(i => i.orderId === o.id).map(i => ({
+          name: i.nameSnapshot, unitPrice: i.unitPriceSnapshot, quantity: i.quantity,
+        })),
+      })),
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// انتقالات الحالة المسموحة للمكان
+const STATUS_FLOW: Record<string, string[]> = {
+  new: ['preparing', 'delivered', 'cancelled'],
+  preparing: ['delivered', 'cancelled'],
+  delivered: [],
+  cancelled: [],
+};
+
+const PLAYER_STATUS_PUSH: Record<string, { title: string; body: (loc: string) => string }> = {
+  preparing: { title: '👨‍🍳 طلبك قيد التحضير', body: (loc) => `بدأ ${loc} بتحضير طلبك` },
+  delivered: { title: '✅ تمّ تسليم طلبك', body: (loc) => `سلّمك ${loc} طلبك — بالهناء!` },
+  cancelled: { title: '✖️ أُلغي طلبك', body: (loc) => `ألغى ${loc} طلبك — راجعهم إن كان ذلك غير متوقّع` },
+};
+
+// ── PUT /orders/:id/status — تغيير حالة الطلب (تحضير/تسليم/إلغاء) ──
+venueRouter.put('/orders/:id/status', authenticate, requireVenuePermission('orders.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const id = parseInt(req.params.id);
+  const status = String(req.body.status || '');
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  if (!['preparing', 'delivered', 'cancelled'].includes(status)) return res.status(400).json({ error: 'حالة غير صالحة' });
+  try {
+    const [existing] = await db.select().from(orders)
+      .where(and(eq(orders.id, id), eq(orders.locationId, locId))).limit(1);
+    if (!existing) return res.status(404).json({ error: 'الطلب غير موجود' });
+    if (!STATUS_FLOW[existing.status]?.includes(status)) {
+      return res.status(400).json({ error: `لا يمكن الانتقال من «${existing.status}» إلى «${status}»` });
+    }
+
+    const [updated] = await db.update(orders).set({
+      status, statusChangedBy: req.venueStaff!.id, statusChangedAt: new Date(),
+    } as any).where(eq(orders.id, id)).returning();
+
+    // بثّ لحظيّ لبقيّة أجهزة المكان
+    const io = req.app.get('io');
+    if (io) io.to(`location:${locId}`).emit('fnb:order-updated', { orderId: id, status, activityId: existing.activityId });
+
+    // إشعار اللاعب بحالة طلبه (بوش + جرس)
+    const push = PLAYER_STATUS_PUSH[status];
+    if (push) {
+      const [loc] = await db.select({ name: locations.name }).from(locations).where(eq(locations.id, locId)).limit(1);
+      sendPushToPlayer(existing.playerId, push.title, push.body(loc?.name || 'المكان'), 'order_status', {
+        url: '/player/order', orderId: String(id), status,
+      }).catch(err => console.error('❌ order_status push:', err.message));
+    }
+
+    res.json({ success: true, order: updated });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -413,7 +510,26 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
       return o;
     });
 
-    // 📥 إشعار المكان الفوريّ (سوكيت + بوش) — يُفعَّل في المرحلة ٣
+    // 📥 إشعار المكان الفوريّ: بثّ لغرفة location:{id} + بوش لحسابات المكان المصرَّح لها
+    const emittedItems = dbItems.map(m => ({ name: m.name, unitPrice: m.price, quantity: qtyById.get(m.id)! }));
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`location:${ctx.locationId}`).emit('fnb:new-order', {
+        order: {
+          id: order.id, status: order.status, total: order.total, note: order.note, createdAt: order.createdAt,
+          playerName: order.playerName, physicalId: order.physicalId,
+          activityId: ctx.activityId, activityName: ctx.activityName,
+          items: emittedItems,
+        },
+      });
+    }
+    const summary = emittedItems.map(i => `${i.name} ×${i.quantity}`).join('، ');
+    sendPushToLocationStaff(ctx.locationId, 'orders.receive',
+      `🍽️ طلب جديد من ${order.playerName}`,
+      `${summary} — ${total.toFixed(2)} د.أ${note ? ` • ${note}` : ''}`,
+      'new_order', { url: '/venue/orders', orderId: String(order.id) },
+    ).catch(err => console.error('❌ new_order push:', err.message));
+
     res.json({ success: true, order });
   } catch (err: any) {
     console.error('❌ fnb create order error:', err.message);

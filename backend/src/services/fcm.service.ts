@@ -3,7 +3,7 @@
 // إرسال Push Notifications للاعبين والموظفين
 // ══════════════════════════════════════════════════════
 
-import { eq, and, inArray, sql, like } from 'drizzle-orm';
+import { eq, and, inArray, sql, like, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { getMessaging } from '../config/firebase.js';
 import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas/notification.schema.js';
@@ -440,6 +440,35 @@ export async function sendPushToStaffByPermission(
 
   for (const sid of targetIds) {
     await sendPushToStaff(sid, title, body, type, data);
+  }
+}
+
+// ── 🏪 إرسال Push لحسابات مكان محدّد (حسب الصلاحيّة) ──
+// لا يشمل الأدمن — إشعارات المكان تخصّ حساباته المرتبطة فقط.
+export async function sendPushToLocationStaff(
+  locationId: number,
+  permission: string,
+  title: string,
+  body: string,
+  type: string,
+  data: Record<string, any> = {},
+) {
+  const db = getDB();
+  if (!db) return;
+
+  const rows = await db.select({ id: staff.id, permissions: staff.permissions })
+    .from(staff)
+    .where(and(
+      eq(staff.locationId, locationId),
+      eq(staff.role, 'location_owner' as any),
+      eq(staff.isActive, true),
+      isNull(staff.deletedAt),
+    ));
+
+  for (const s of rows) {
+    const perms = (s.permissions as string[]) || [];
+    if (!perms.includes(permission)) continue;
+    await sendPushToStaff(s.id, title, body, type, data);
   }
 }
 

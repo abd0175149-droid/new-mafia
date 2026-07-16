@@ -12,7 +12,7 @@ import { VenueContext, type VenueCtx, type VenueMe } from './context';
 
 const TABS = [
   { href: '/venue/menu', label: '🍽️ المنيو', perm: 'menu.manage', ready: true },
-  { href: '/venue/orders', label: '📥 الطلبات', perm: 'orders.receive', ready: false },
+  { href: '/venue/orders', label: '📥 الطلبات', perm: 'orders.receive', ready: true },
   { href: '/venue/invoices', label: '🧾 الفواتير', perm: 'invoices.print', ready: false },
 ];
 

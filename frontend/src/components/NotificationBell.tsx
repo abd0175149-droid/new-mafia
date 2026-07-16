@@ -42,13 +42,13 @@ function isRich(data: any): boolean {
 const TYPE_ICONS: Record<string, string> = {
   new_activity: '📅', game_ended: '🎮', custom: '📢', reminder: '⏰',
   friend_booked: '👥', level_up: '🏆', booking_confirmed: '✅', comeback: '🔥',
-  feedback_survey: '📋',
+  feedback_survey: '📋', order_status: '🍽️',
 };
 
 const TYPE_COLORS: Record<string, string> = {
   new_activity: '#f59e0b', game_ended: '#ef4444', custom: '#8b5cf6', reminder: '#3b82f6',
   friend_booked: '#22c55e', level_up: '#f59e0b', booking_confirmed: '#22c55e', comeback: '#ef4444',
-  feedback_survey: '#8b5cf6',
+  feedback_survey: '#8b5cf6', order_status: '#10b981',
 };
 
 export function NotificationBell() {

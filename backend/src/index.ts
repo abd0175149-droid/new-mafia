@@ -49,6 +49,7 @@ import seasonsRoutes from './routes/seasons.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
+import { registerVenueEvents } from './sockets/venue.socket.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -94,6 +95,9 @@ io.use((socket, next) => {
         if (dec && ['admin', 'manager', 'leader'].includes(dec.role)) {
           socket.data.authStaff = { id: dec.id, role: dec.role, username: dec.username };
           socket.data.role = 'leader';
+        } else if (dec && dec.role === 'location_owner') {
+          // 🏪 حساب مكان — هويّة فقط، بلا دور leader (لا يدير ألعاباً)
+          socket.data.authVenue = { id: dec.id };
         }
       } catch { /* توكن موظف غير صالح — نتجاهل بلا رفض الاتصال */ }
     }
@@ -524,6 +528,7 @@ io.on('connection', (socket) => {
   registerMafiaChatEvents(io, socket);
   registerVoiceEvents(io, socket);
   registerConfrontationEvents(io, socket);
+  registerVenueEvents(io, socket);  // 🏪 انضمام حسابات الأماكن لغرف location:{id}
 });
 
 // ══════════════════════════════════════════════════════

@@ -163,6 +163,10 @@ function resolveNotificationUrl(type, data) {
       return '/player/home';
     case 'feedback_survey':
       return data.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
+    case 'order_status':
+      return data.url || '/player/order';
+    case 'new_order':
+      return data.url || '/venue/orders';
     case 'custom':
       return data.url || '/player/home';
     default:
