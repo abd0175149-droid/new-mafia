@@ -94,6 +94,28 @@ export async function renderPdf(doc: ReportDocument, layout?: ResolvedLayout | n
   }
 }
 
+// ── 🧾 توليد PDF من HTML خام (فواتير المنيو A6 وغيرها) ──
+// يشارك متصفّح التقارير نفسه؛ للمستندات الصغيرة ذات القالب الخاص خارج نظام ReportDocument.
+export async function renderRawHtmlPdf(
+  html: string,
+  opts: { format?: 'A4' | 'A5' | 'A6'; landscape?: boolean } = {},
+): Promise<Buffer> {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
+    const pdf = await page.pdf({
+      format: opts.format || 'A6',
+      landscape: opts.landscape === true,
+      printBackground: true,
+      margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' },
+    });
+    return Buffer.from(pdf);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
 /** إغلاق المتصفح عند إيقاف الخادم. */
 export async function closePdfBrowser(): Promise<void> {
   if (!browserPromise) return;

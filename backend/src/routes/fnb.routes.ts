@@ -7,13 +7,15 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, and, ne, desc, asc, isNull, inArray, gte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { menuItems, orders, orderItems } from '../schemas/fnb.schema.js';
+import { menuItems, orders, orderItems, orderInvoices } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
+import { buildInvoiceData, issueInvoiceNumber, invoiceHtml } from '../services/fnb-invoice.service.js';
+import { renderRawHtmlPdf } from '../reports/render/pdf.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -294,6 +296,119 @@ venueRouter.put('/orders/:id/status', authenticate, requireVenuePermission('orde
 
     res.json({ success: true, order: updated });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════
+// 🧾 فواتير المكان — /api/venue/invoices
+// ════════════════════════════════════════════
+
+// ── GET /invoice-activities — فعاليّات المكان المفعَّلة المنيو (آخر 7 أيّام حتى يومين قادمين) ──
+venueRouter.get('/invoice-activities', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const acts = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+      .from(activities)
+      .where(and(
+        eq(activities.locationId, locId),
+        eq(activities.menuOrderingEnabled, true),
+        isNull(activities.deletedAt),
+        gte(activities.date, new Date(Date.now() - 7 * 24 * 3600_000)),
+      ))
+      .orderBy(desc(activities.date))
+      .limit(30);
+    res.json({ success: true, activities: acts });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /invoices/candidates?activityId= — لاعبو الفعاليّة أصحاب الطلبات مع مجاميعهم ──
+venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(String(req.query.activityId || ''));
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'activityId مطلوب' });
+  try {
+    const [act] = await db.select({
+      id: activities.id, addGameFee: activities.addGameFeeToBill, basePrice: activities.basePrice,
+    }).from(activities)
+      .where(and(eq(activities.id, activityId), eq(activities.locationId, locId), isNull(activities.deletedAt))).limit(1);
+    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
+
+    const rows = await db.select({
+      playerId: orders.playerId,
+      playerName: sql<string>`max(${orders.playerName})`,
+      bookingId: sql<number>`max(${orders.bookingId})`,
+      ordersCount: sql<number>`count(*)::int`,
+      ordersTotal: sql<string>`sum(${orders.total})::text`,
+    }).from(orders)
+      .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')))
+      .groupBy(orders.playerId);
+
+    // حالة دفع الحجوزات (لسطر رسوم اللعبة) + الفواتير المُصدَرة سابقاً
+    const bookingIds = rows.map(r => Number(r.bookingId)).filter(Boolean);
+    const bks = bookingIds.length > 0
+      ? await db.select({ id: bookings.id, isPaid: bookings.isPaid, isFree: bookings.isFree })
+          .from(bookings).where(inArray(bookings.id, bookingIds))
+      : [];
+    const bkById = new Map(bks.map(b => [b.id, b]));
+    const invs = await db.select({ playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt })
+      .from(orderInvoices)
+      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
+    const invByPlayer = new Map(invs.map(i => [i.playerId, i]));
+
+    res.json({
+      success: true,
+      gameFeeEnabled: act.addGameFee === true,
+      candidates: rows.map(r => {
+        const bk = bkById.get(Number(r.bookingId));
+        const gameFee = act.addGameFee === true && bk && bk.isPaid !== true && bk.isFree !== true
+          ? parseFloat(act.basePrice || '0') : 0;
+        const ordersTotal = parseFloat(r.ordersTotal || '0');
+        const inv = invByPlayer.get(r.playerId);
+        return {
+          playerId: r.playerId,
+          playerName: r.playerName,
+          ordersCount: r.ordersCount,
+          ordersTotal,
+          gameFee,
+          grandTotal: ordersTotal + gameFee,
+          invoiceNo: inv?.invoiceNo ?? null,
+          printedAt: inv?.printedAt ?? null,
+        };
+      }),
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /invoices/:activityId/:playerId/pdf — إصدار/إعادة طباعة فاتورة A6 (inline PDF) ──
+// يثبّت الرقم التسلسليّ ويسجّل التدقيق ثم يعيد الـPDF مباشرة.
+venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  try {
+    const data = await buildInvoiceData(db, locId, activityId, playerId);
+    if ('error' in data) return res.status(404).json({ error: data.error });
+
+    const invoiceNo = await issueInvoiceNumber(db, data, req.venueStaff!.id);
+    const printedByName = req.user?.displayName || req.user?.username || '';
+    const pdf = await renderRawHtmlPdf(invoiceHtml(data, invoiceNo, printedByName), { format: 'A6' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(`invoice-${invoiceNo}`)}.pdf`);
+    res.send(pdf);
+  } catch (err: any) {
+    console.error('❌ fnb invoice pdf:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ════════════════════════════════════════════
