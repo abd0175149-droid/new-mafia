@@ -194,6 +194,22 @@ export async function rehydrateActiveRooms(): Promise<void> {
       });
     }
 
+    // ⏱️ إعادة تسليح مؤقّتات اللعبة — الحرج: مؤقّت اللعبة هو setTimeout في ذاكرة السيرفر،
+    // فيضيع عند أيّ إعادة تشغيل/نشر. بدون هذا لا يُعلَن فوز المافيا عند انتهاء الوقت.
+    // restoreGameTimer إمّا يُعيد التسليح بالمدة المتبقية أو يُنهي اللعبة فوراً إن مضى الوقت.
+    const rehydrateIo = (global as any).io as Server | undefined;
+    if (rehydrateIo) {
+      for (const state of allStates) {
+        if (!state?.roomId || !state.gameTimer) continue;
+        if (state.phase === Phase.GAME_OVER || state.phase === Phase.LOBBY) continue;
+        try {
+          restoreGameTimer(rehydrateIo, state.roomId, state.gameTimer);
+        } catch (e: any) {
+          console.warn(`⚠️ Failed to restore game timer for ${state.roomId}:`, e?.message);
+        }
+      }
+    }
+
     if (activeRooms.size > 0) {
       console.log(`♻️  Rehydrated ${activeRooms.size} active room(s) from Redis`);
 

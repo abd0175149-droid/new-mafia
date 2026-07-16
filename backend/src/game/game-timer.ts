@@ -110,12 +110,14 @@ async function expireGameByTimeout(io: Server, roomId: string): Promise<void> {
  * يُستدعى عند إعادة تشغيل السيرفر — يعيد تشغيل المؤقتات للألعاب النشطة
  */
 export function restoreGameTimer(io: Server, roomId: string, gameTimer: { totalSeconds: number; startedAt: number; expired: boolean }): void {
-  if (gameTimer.expired) return;
-
+  // getRemainingSeconds يُرجع 0 إذا expired=true أو مضى الوقت — فيغطّي الحالتين:
+  // (أ) مؤقّت انتهى وقته أثناء توقّف السيرفر، (ب) مؤقّت expired=true لكن لم تُنهَ اللعبة
+  // (إنهاء مُقاطَع أثناء إعادة التشغيل — الحالة التي كانت تُترك عالقة سابقاً).
+  // expireGameByTimeout يحرس GAME_OVER/LOBBY فلا يُنهي لعبةً منتهية فعلاً مرّتين.
   const remaining = getRemainingSeconds(gameTimer);
   if (remaining <= 0) {
-    // الوقت انتهى أثناء إعادة التشغيل
-    expireGameByTimeout(io, roomId);
+    console.log(`⏱️ Game timer for room ${roomId} already elapsed on boot → finalizing now`);
+    void expireGameByTimeout(io, roomId);
     return;
   }
 
