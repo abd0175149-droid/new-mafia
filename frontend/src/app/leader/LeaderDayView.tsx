@@ -799,8 +799,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   const handleMayorDecision = async (decision: 'PASS' | 'REVOTE' | 'POSTPONE') => {
     const msgs: Record<string, string> = {
       PASS: 'لا تدخّل من العمدة — تنفيذ الإعدام كالمعتاد؟',
-      REVOTE: 'العمدة يكشف نفسه ويُلغي الإعدام — تصويت جديد كامل على الجميع؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
-      POSTPONE: 'العمدة يكشف نفسه ويؤجّل — لا موت اليوم وتبدأ الليلة؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
+      REVOTE: 'العمدة يكشف نفسه ويُلغي الإعدام — تصويت جديد كامل على الجميع؟\n(كشفٌ دائم + صوته المضاعف + تُستهلك القدرة)',
+      POSTPONE: 'العمدة يكشف نفسه ويؤجّل — لا موت اليوم وتبدأ الليلة؟\n(كشفٌ دائم + صوته المضاعف + تُستهلك القدرة)',
     };
     if (!(await swalConfirm(msgs[decision]))) return;
     setMayorBusy(true);
@@ -866,7 +866,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             </button>
           </div>
           <p className="text-center text-[9px] text-[#655c4e] mt-3">
-            أيّ خيارَي عمدةٍ = كشفٌ دائم للجميع + صوت ×2 فوريّ + استهلاك القدرة (مرّة واحدة باللعبة)
+            أيّ خيارَي عمدةٍ = كشفٌ دائم للجميع + صوت ×{gameState.config?.mayorVoteWeight ?? 2} فوريّ + استهلاك القدرة (مرّة واحدة باللعبة)
           </p>
         </div>
       </div>
@@ -1262,7 +1262,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
             </h2>
             <p className="text-[#9a8f7d] text-sm leading-relaxed mb-6">
               كشف <b className="text-white">{nameOfSeat(gameState.mayorState?.mayorPhysicalId)}</b> نفسه عمدةً
-              وألغى إعدام اليوم — لا موت. صوته يُحسب <b className="text-[#C5A059]">×2</b> من الآن،
+              وألغى إعدام اليوم — لا موت. صوته يُحسب <b className="text-[#C5A059]">×{gameState.config?.mayorVoteWeight ?? 2}</b> من الآن،
               وغداً نهارٌ جديد طبيعيّ.
             </p>
             <button
@@ -2027,6 +2027,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const isComplete = totalVotes >= votingAliveCount;
     // 🎩 عمدة مكشوف؟ (شارة ×2 + لافتة إعادة التصويت بأمره)
     const mayorRevealedId = gameState.mayorState?.revealed ? gameState.mayorState.mayorPhysicalId : null;
+    const mayorW = gameState.config?.mayorVoteWeight ?? 2;
     const isMayorRevote = gameState.votingState?.mayorRevote === true;
 
     // عداد الفرق
@@ -2119,7 +2120,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   const hasVotedProxy = leaderProxyVotes[p.physicalId] !== undefined;
                   const isSelected = selectedVoter === p.physicalId;
 
-                  const mayorTag = p.physicalId === mayorRevealedId ? ' 🎩×2' : '';
+                  const mayorTag = p.physicalId === mayorRevealedId ? ` 🎩×${mayorW}` : '';
                   // اللاعب صوّت بنفسه
                   if (hasVotedSelf) {
                     return (

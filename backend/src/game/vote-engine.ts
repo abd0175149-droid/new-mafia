@@ -84,7 +84,7 @@ export async function castVote(
   roomId: string,
   candidateIndex: number,
   delta: 1 | -1,
-  weight: 1 | 2 = 1
+  weight: number = 1
 ): Promise<GameState> {
   const state = await getGameState(roomId);
   if (!state) throw new Error(`Room ${roomId} not found`);

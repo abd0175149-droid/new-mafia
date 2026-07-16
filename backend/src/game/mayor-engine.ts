@@ -56,15 +56,21 @@ export function isMayorEligible(state: GameState): boolean {
   return !!p && p.isAlive && !p.penaltyKicked;
 }
 
-// ── وزن صوت لاعبٍ (2 للعمدة المكشوف غير المجمَّد، وإلا 1) ──
+// ── وزن الصوت المعتمَد للعمدة بعد الكشف — يحدّده الليدر في شاشة الأدوار (نمط عقود السفّاح) ──
+export function configuredMayorWeight(state: GameState): number {
+  const w = state.config?.mayorVoteWeight ?? 2;
+  return Math.min(4, Math.max(1, Math.round(w)));
+}
+
+// ── وزن صوت لاعبٍ (وزن الليدر للعمدة المكشوف غير المجمَّد، وإلا 1) ──
 // قرار ⑥: تعطيل الساحرة النشط يجمّد المضاعفة (disabledUntilRound شامل للجولة الأخيرة).
-export function mayorVoteWeight(state: GameState, voterPhysicalId: number): 1 | 2 {
+export function mayorVoteWeight(state: GameState, voterPhysicalId: number): number {
   const ms = state.mayorState;
   if (!ms || !ms.revealed || ms.mayorPhysicalId !== voterPhysicalId) return 1;
   const p = state.players.find(pl => pl.physicalId === voterPhysicalId);
   if (!p || !p.isAlive) return 1;
   if (p.disabledUntilRound !== undefined && state.round <= p.disabledUntilRound) return 1;
-  return 2;
+  return configuredMayorWeight(state);
 }
 
 // ── فتح النافذة: لقطة الفائز وأعلى اثنين (تُستدعى قبل resolveVoting حصراً) ──
@@ -139,6 +145,7 @@ export function mayorRevealPayload(state: GameState) {
     name: p?.name || '',
     decision: ms.decision,
     round: state.round,
+    voteWeight: configuredMayorWeight(state), // للواجهات: شارة ×N الصحيحة
   };
 }
 

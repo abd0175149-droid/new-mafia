@@ -16,6 +16,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const [loading, setLoading] = useState(true);
   const [openDropdown, setOpenDropdown] = useState<number | null>(null);
   const [assassinContractCount, setAssassinContractCount] = useState(4);  // 🔪 عدد عقود السفّاح
+  const [mayorVoteWeight, setMayorVoteWeight] = useState(2);              // 🎩 وزن صوت العمدة بعد كشفه
   const [jesterSurviveRounds, setJesterSurviveRounds] = useState(2);      // 🤡 عدد جولات نجاة المهرج
   const [witchDisableRounds, setWitchDisableRounds] = useState(3);        // 🧙‍♀️ عدد راوندات تعطيل الساحرة
   // 🗣️ غرفة تشاور المافيا السرّية — خيار الليدر عند بداية كل جولة (يتذكّر آخر اختيار من config)
@@ -137,6 +138,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
         roomId: gameState.roomId,
         roles,
         assassinContractCount: roles.includes(Role.ASSASSIN) ? assassinContractCount : undefined,
+        mayorVoteWeight: roles.includes(Role.MAYOR) ? mayorVoteWeight : undefined,
         jesterSurviveRounds: roles.includes(Role.JESTER) ? jesterSurviveRounds : undefined,
         witchDisableRounds: roles.includes(Role.WITCH) ? witchDisableRounds : undefined,
       });
@@ -154,6 +156,7 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
   const citizenRoles = roles.filter(r => !MAFIA_ROLES.includes(r) && !NEUTRAL_ROLES.includes(r));
   const neutralRoles = roles.filter(r => NEUTRAL_ROLES.includes(r));
   const hasJesterInRoles = roles.includes(Role.JESTER);
+  const hasMayorInRoles = roles.includes(Role.MAYOR);
   const hasAssassinInRoles = roles.includes(Role.ASSASSIN);
   const hasTwinsInRoles = roles.includes(Role.OLDER_BROTHER) && roles.includes(Role.YOUNGER_BROTHER);
   const playerCount = gameState.players.filter((p: any) => p.isAlive !== false).length;
@@ -425,6 +428,33 @@ export default function LeaderRoleConfigurator({ gameState, emit, setError, hide
                   <button 
                     onClick={() => setAssassinContractCount(Math.min(6, assassinContractCount + 1))}
                     className="w-7 h-7 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-bold transition-colors"
+                  >+</button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* 🎩 إعدادات العمدة */}
+          {hasMayorInRoles && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="mt-4 p-4 bg-amber-500/5 border border-amber-500/10 rounded-lg space-y-3"
+            >
+              <p className="text-amber-400/80 text-xs font-mono leading-relaxed" dir="rtl">
+                🎩 العمدة: مرّة واحدة بعد فرز التصويت يكشف نفسه ويُلغي الإعدام — تصويت جديد على الجميع أو تأجيل بلا موت. بعد الكشف يُحسب صوته بالوزن المحدَّد هنا.
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-amber-400/60 text-xs font-mono" dir="rtl">وزن صوته بعد الكشف:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setMayorVoteWeight(Math.max(1, mayorVoteWeight - 1))}
+                    className="w-7 h-7 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-sm font-bold transition-colors"
+                  >−</button>
+                  <span className="text-amber-300 font-mono font-bold w-10 text-center">×{mayorVoteWeight}</span>
+                  <button
+                    onClick={() => setMayorVoteWeight(Math.min(4, mayorVoteWeight + 1))}
+                    className="w-7 h-7 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 text-sm font-bold transition-colors"
                   >+</button>
                 </div>
               </div>

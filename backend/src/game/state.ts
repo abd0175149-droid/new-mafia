@@ -215,6 +215,7 @@ export interface GameConfig {
    jesterSurviveRounds?: number;    // 🤡 جولات نجاة المهرج (الافتراضي 2)
   maxConsecutiveMafiaGames?: number; // ♟️ الحد الأقصى لتكرار المافيا المتتالية (الافتراضي 3)
   witchDisableRounds?: number;     // 🧙‍♀️ عدد راوندات تعطيل الساحرة (الافتراضي 3)
+  mayorVoteWeight?: number;        // 🎩 وزن صوت العمدة بعد كشفه — يحدّده الليدر (الافتراضي 2، المدى 1-4)
   autoNightTime?: number;          // ⏱️ مهلة إجراء اللاعب في الليل الأوتوماتيكي بالثواني (الافتراضي 15)
   mafiaChatEnabled?: boolean;      // 🗣️ غرفة تشاور المافيا السرّية (يحددها الليدر كل جولة؛ الافتراضي false)
   isRemote?: boolean;              // 🌐 غرفة لعبٍ عن بُعد (اللاعبون في أماكن مختلفة) — الافتراضي false

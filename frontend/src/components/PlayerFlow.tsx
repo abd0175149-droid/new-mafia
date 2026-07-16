@@ -270,8 +270,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // 🎩 العمدة: برومبت قراره (يصله وحده — عن بُعد)، إعلان الكشف للجميع، ومَن العمدة المكشوف
   const [mayorPrompt, setMayorPrompt] = useState<any>(null);
   const [mayorPromptLeft, setMayorPromptLeft] = useState(30);
-  const [mayorBanner, setMayorBanner] = useState<{ physicalId: number; name: string; decision: string } | null>(null);
+  const [mayorBanner, setMayorBanner] = useState<{ physicalId: number; name: string; decision: string; voteWeight?: number } | null>(null);
   const [mayorRevealedId, setMayorRevealedId] = useState<number | null>(null);
+  const [mayorWeight, setMayorWeight] = useState(2);
   const [mayorSending, setMayorSending] = useState(false);
   // 🎙️ من يُسمح له بالكلام (نقاش/تبرير/مواجهة) — لفتح مايكي + عرض المواجهة
   const { confrontation, allowedPids: voiceAllowedPids } = useActiveSpeaker({ on, gamePhase, initialDiscussionState: phasePollData?.discussionState });
@@ -1008,6 +1009,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     const cleanupRevealed = on('day:mayor-revealed', (data: any) => {
       setMayorPrompt(null);
       setMayorRevealedId(data.physicalId);
+      if (data.voteWeight) setMayorWeight(data.voteWeight);
       setMayorBanner(data);
       setTimeout(() => setMayorBanner(null), 8000);
     });
@@ -2159,7 +2161,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   🤐 أبقى مخفيّاً — نفّذوا الإعدام
                 </button>
               </div>
-              <p className="text-center text-[9px] text-[#655c4e] mt-3">الكشف دائم للجميع + صوتك ×2 فوراً + القدرة تُستهلك (مرّة واحدة)</p>
+              <p className="text-center text-[9px] text-[#655c4e] mt-3">الكشف دائم للجميع + صوتك ×{mayorPrompt.voteWeight || 2} فوراً + القدرة تُستهلك (مرّة واحدة)</p>
             </motion.div>
           </motion.div>
         )}
@@ -2177,7 +2179,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               <p className="text-[#C5A059] font-black text-sm">🎩 العمدة يكشف نفسه: #{mayorBanner.physicalId} {mayorBanner.name}</p>
               <p className="text-[#9a8f7d] text-[11px] mt-0.5">
                 {mayorBanner.decision === 'REVOTE' ? 'أُلغي الإعدام — تصويت جديد على الجميع' : 'أُلغي الإعدام — لا موت اليوم'}
-                {' '}• صوته يُحسب ⚖️×2
+                {' '}• صوته يُحسب ⚖️×{mayorBanner.voteWeight || 2}
               </p>
             </div>
           </motion.div>
@@ -2188,7 +2190,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {gamePhase === 'DAY_VOTING' && mayorRevealedId !== null && !mayorBanner && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[40]" dir="rtl">
           <span className="text-[10px] px-2.5 py-1 rounded-full border border-[#C5A059]/60 text-[#C5A059] bg-[#151007]/90">
-            {mayorRevealedId === parseInt(physicalId) ? '⚖️ أنت العمدة — صوتك يُحسب ×2' : `🎩 العمدة #${mayorRevealedId} — صوته ×2`}
+            {mayorRevealedId === parseInt(physicalId) ? `⚖️ أنت العمدة — صوتك يُحسب ×${mayorWeight}` : `🎩 العمدة #${mayorRevealedId} — صوته ×${mayorWeight}`}
           </span>
         </div>
       )}

@@ -146,7 +146,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [discussionState, setDiscussionState] = useState<any>(initialDiscussionState || null);
   const [silencedPlayerId, setSilencedPlayerId] = useState<number | null>(null);
   // 🎩 العمدة: مشهد الكشف + لافتة إعادة التصويت بأمره + تأجيل اليوم
-  const [mayorScene, setMayorScene] = useState<{ physicalId: number; name: string; decision: string } | null>(null);
+  const [mayorScene, setMayorScene] = useState<{ physicalId: number; name: string; decision: string; voteWeight?: number } | null>(null);
   const [mayorRevote, setMayorRevote] = useState(false);
   const [mayorPostponed, setMayorPostponed] = useState(false);
   const [localTimeRemaining, setLocalTimeRemaining] = useState<number>(initialDiscussionState?.timeRemaining || 0);
@@ -519,7 +519,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               animate={{ opacity: [0, 1, 0.6, 1] }}
               transition={{ delay: 1.8, duration: 1.6 }}
               className="mt-6 text-[#9a8f7d] font-mono text-lg tracking-[0.35em] uppercase"
-            >⚖️ HIS VOTE NOW COUNTS ×2</motion.p>
+            >⚖️ HIS VOTE NOW COUNTS ×{mayorScene.voteWeight || 2}</motion.p>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1819,6 +1819,7 @@ async function emitMayorWindow(io: Server, roomId: string, state: any, window: a
   const payload = {
     ...sanitizeWindowForLeader(state, window),
     mayorPhysicalId: state.mayorState.mayorPhysicalId,
+    voteWeight: state.config?.mayorVoteWeight ?? 2, // 🎩 وزن الليدر المعتمَد — لنصوص الواجهات
     timeoutSeconds: 30, // إرشاديّ لواجهة هاتف العمدة — لا مؤقّت خادميّاً (الليدر خطّ الرجعة)
   };
   const sockets = await io.in(roomId).fetchSockets();

@@ -145,6 +145,18 @@ async function run() {
 
     mayor.isAlive = false;
     check('عمدة ميّت → وزن 1', mayorVoteWeight(s, 5) === 1);
+    mayor.isAlive = true;
+    mayor.disabledUntilRound = undefined;
+
+    // 🎛️ الوزن يحدّده الليدر من الإعدادات (نمط عقود السفّاح) — الافتراضي 2، المدى 1-4
+    s.config.mayorVoteWeight = 3;
+    check('وزن مُعدّ من الليدر = 3', mayorVoteWeight(s, 5) === 3);
+    s.config.mayorVoteWeight = 9;
+    check('قصّ الوزن للسقف 4', mayorVoteWeight(s, 5) === 4);
+    s.config.mayorVoteWeight = 1;
+    check('وزن 1 = بلا مضاعفة', mayorVoteWeight(s, 5) === 1);
+    delete s.config.mayorVoteWeight;
+    check('بلا إعداد → الافتراضي 2', mayorVoteWeight(s, 5) === 2);
   }
 
   // ════════ ٣) castVote بالوزن — عدّادا المرشّح والمصوّتين ════════
