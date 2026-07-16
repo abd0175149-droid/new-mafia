@@ -486,7 +486,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     );
   };
 
-  const renderContent = (content: React.ReactNode) => renderWithGlobals(content);
+  // 🎩 مودال نافذة العمدة يعلو أيّ طور نهاريّ ما دامت مفتوحة (null = لا شيء)
+  const renderContent = (content: React.ReactNode) => renderWithGlobals(
+    <>
+      {content}
+      {renderMayorWindowModal()}
+    </>
+  );
 
   // Timer Tick Effect for Leader
   useEffect(() => {
@@ -744,6 +750,10 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     setLoading(true);
     try {
       const res = await emit('day:execute-elimination', { roomId: gameState.roomId, skipWithdrawal: true });
+      if (res?.mayorWindow) {
+        // 🎩 فُتحت نافذة العمدة — النتيجة لم تُطبَّق بعد
+        setMayorWindowLocal(res.window || null);
+      }
       if (res?.revote) {
         // إعادة تصويت — تصفير كل شيء
         setJustCurrentIdx(0);
@@ -758,6 +768,109 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     } finally {
       setLoading(false);
     }
+  };
+
+  // ══════════════════════════════════════════════
+  // 🎩 نافذة العمدة — بين فرز التصويت وتنفيذ الإعدام
+  // ══════════════════════════════════════════════
+  const [mayorWindowLocal, setMayorWindowLocal] = useState<any>(null);
+  const [mayorBusy, setMayorBusy] = useState(false);
+
+  // مصدر النافذة: حالة الخادم (تنجو من إعادة الاتصال) أو ردّ execute-elimination المباشر
+  const mayorStateSrv = gameState.mayorState || null;
+  const nameOfSeat = (pid: number | null | undefined) =>
+    gameState.players?.find((p: any) => p.physicalId === pid)?.name || '';
+  const describeCand = (c: any) => c ? {
+    type: c.type,
+    targetPhysicalId: c.targetPhysicalId ?? null,
+    targetName: c.targetName || nameOfSeat(c.targetPhysicalId),
+    initiatorPhysicalId: c.initiatorPhysicalId ?? null,
+    initiatorName: c.initiatorName || (c.initiatorPhysicalId ? nameOfSeat(c.initiatorPhysicalId) : null),
+    votes: c.votes,
+  } : null;
+  const mayorWindow = mayorStateSrv?.window
+    ? { winner: describeCand(mayorStateSrv.window.winner), top2: (mayorStateSrv.window.top2 || []).map(describeCand), topVotes: mayorStateSrv.window.topVotes }
+    : mayorWindowLocal;
+
+  const handleMayorDecision = async (decision: 'PASS' | 'REVOTE_TOP2' | 'POSTPONE') => {
+    const msgs: Record<string, string> = {
+      PASS: 'لا تدخّل من العمدة — تنفيذ الإعدام كالمعتاد؟',
+      REVOTE_TOP2: 'العمدة يكشف نفسه ويأمر بإعادة التصويت بين الأعلى اثنين؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
+      POSTPONE: 'العمدة يكشف نفسه ويؤجّل — لا موت اليوم وتبدأ الليلة؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
+    };
+    if (!(await swalConfirm(msgs[decision]))) return;
+    setMayorBusy(true);
+    try {
+      await emit('day:mayor-decision', { roomId: gameState.roomId, decision });
+      setMayorWindowLocal(null);
+      if (decision === 'REVOTE_TOP2') {
+        setJustCurrentIdx(0);
+        setJustTimerStarted(false);
+        setJustAllDone(false);
+        localVoteTotalRef.current = 0;
+        setLeaderProxyVotes({});
+        setSelectedVoter(null);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setMayorBusy(false);
+    }
+  };
+
+  // مودال نافذة العمدة (يُعرض فوق أيّ طور ما دامت النافذة مفتوحة)
+  const renderMayorWindowModal = () => {
+    if (!mayorWindow?.winner) return null;
+    const w = mayorWindow.winner;
+    const targetLabel = w.type === 'DEAL'
+      ? `صفقة: #${w.initiatorPhysicalId} ${w.initiatorName} ← #${w.targetPhysicalId} ${w.targetName}`
+      : `#${w.targetPhysicalId} ${w.targetName}`;
+    const t2 = mayorWindow.top2 || [];
+    const revoteLabel = t2.length >= 2
+      ? `بين ${t2.map((c: any) => c.type === 'DEAL' ? 'الصفقة' : `#${c.targetPhysicalId}`).join(' و')}`
+      : '';
+    return (
+      <div className="fixed inset-0 z-[90] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+        <div className="w-full max-w-md rounded-2xl p-5 border-2 border-[#C5A059] shadow-[0_0_40px_rgba(197,160,89,0.25)]"
+          style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}>
+          <div className="text-center text-4xl mb-1">🎩</div>
+          <h3 className="text-center text-[#C5A059] font-black text-lg mb-1">نافذة العمدة</h3>
+          <p className="text-center text-[11px] text-[#9a8f7d] mb-3 leading-relaxed">
+            نتيجة التصويت: إعدام <b className="text-[#ff6b64]">{targetLabel}</b> ({mayorWindow.topVotes} أصوات)
+            <br />اسأل: هل يُعلن العمدة نفسه ويستخدم نفوذه؟
+          </p>
+          <div className="space-y-2">
+            <button
+              onClick={() => handleMayorDecision('PASS')}
+              disabled={mayorBusy}
+              className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg,#a5322b,#7e241f)', border: '1px solid #c94a42' }}
+            >
+              ⚔️ لا تدخّل — تنفيذ الإعدام
+            </button>
+            <button
+              onClick={() => handleMayorDecision('REVOTE_TOP2')}
+              disabled={mayorBusy || t2.length < 2}
+              className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg,#3b6fd4,#2b4f9e)', border: '1px solid #4f8ef7' }}
+            >
+              🎩🔄 إعادة التصويت {revoteLabel}
+            </button>
+            <button
+              onClick={() => handleMayorDecision('POSTPONE')}
+              disabled={mayorBusy}
+              className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg,#7a4b8f,#5b3570)', border: '1px solid #9b6dd6' }}
+            >
+              🎩🌙 تأجيل — لا موت اليوم
+            </button>
+          </div>
+          <p className="text-center text-[9px] text-[#655c4e] mt-3">
+            أيّ خيارَي عمدةٍ = كشفٌ دائم للجميع + صوت ×2 فوريّ + استهلاك القدرة (مرّة واحدة باللعبة)
+          </p>
+        </div>
+      </div>
+    );
   };
 
   // ==========================================
@@ -1136,6 +1249,33 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const pendingRolesArr = pending?.revealedRoles || [];
     const pendingRolesMap: Record<number, string> = {};
     pendingRolesArr.forEach((r: any) => { pendingRolesMap[r.physicalId] = r.role; });
+
+    // 🎩 تأجيل العمدة — لا موت اليوم: شاشة خاصّة بدل كروت المُقصَين الفارغة
+    if ((pending as any)?.type === 'MAYOR_POSTPONED') {
+      return renderContent(
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <div className="w-full max-w-md rounded-2xl p-8 border-2 border-[#C5A059]/60"
+            style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}>
+            <div className="text-6xl mb-3">🎩</div>
+            <h2 className="text-2xl font-black text-[#C5A059] mb-2" style={{ fontFamily: 'Amiri, serif' }}>
+              العمدة أجّل الإعدام
+            </h2>
+            <p className="text-[#9a8f7d] text-sm leading-relaxed mb-6">
+              كشف <b className="text-white">{nameOfSeat(gameState.mayorState?.mayorPhysicalId)}</b> نفسه عمدةً
+              وألغى إعدام اليوم — لا موت. صوته يُحسب <b className="text-[#C5A059]">×2</b> من الآن،
+              وغداً نهارٌ جديد طبيعيّ.
+            </p>
+            <button
+              onClick={handleTriggerReveal}
+              className="w-full py-3.5 rounded-xl font-bold text-white"
+              style={{ background: 'linear-gradient(135deg,#3b2f1a,#241c0e)', border: '1px solid #C5A059' }}
+            >
+              📢 إعلان قرار العمدة ← ثم بدء الليل
+            </button>
+          </div>
+        </div>
+      );
+    }
 
     // 💣 هل في قنبلة معلقة؟
     const bomb = gameState.pendingBomb;
@@ -1881,10 +2021,13 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   // RENDER DAY_VOTING (Live Vote Collection)
   // ==========================================
   if (gameState.phase === 'DAY_VOTING') {
-    // حساب مجموع الأصوات
-    const totalVotes = candidates.reduce((sum: number, c: any) => sum + c.votes, 0);
+    // حساب مجموع الأصوات — عدّاد المصوّتين من الخادم (صوت العمدة ×2 لا يستهلك مصوّتَين)
+    const totalVotes = gameState.votingState?.totalVotesCast ?? candidates.reduce((sum: number, c: any) => sum + c.votes, 0);
     const votingAliveCount = alivePlayers.length;
     const isComplete = totalVotes >= votingAliveCount;
+    // 🎩 عمدة مكشوف؟ (شارة ×2 + لافتة إعادة التصويت بأمره)
+    const mayorRevealedId = gameState.mayorState?.revealed ? gameState.mayorState.mayorPhysicalId : null;
+    const isMayorRevote = !!mayorRevealedId && gameState.mayorState?.decision === 'REVOTE_TOP2' && (gameState.votingState?.tieBreakerLevel ?? 0) >= 2;
 
     // عداد الفرق
     const citizenCount = alivePlayers.filter((p: any) => !['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'].includes(p.role)).length;
@@ -1917,7 +2060,11 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
 
           {/* Voting Status + Counter */}
           <div className="flex items-center gap-3">
-            {votingLabel !== 'LIVE' && (
+            {isMayorRevote ? (
+              <span className="px-2 py-0.5 border text-[9px] font-bold tracking-wide animate-pulse bg-[#C5A059]/15 border-[#C5A059] text-[#C5A059]">
+                🎩 إعادة تصويت بأمر العمدة
+              </span>
+            ) : votingLabel !== 'LIVE' && (
               <span className={`px-2 py-0.5 border text-[8px] font-mono tracking-widest uppercase animate-pulse ${
                 votingLabel === 'NARROWED' ? 'bg-[#8A0303]/20 border-[#8A0303] text-[#ff4444]' : 'bg-[#C5A059]/10 border-[#C5A059]/50 text-[#C5A059]'
               }`}>{votingLabel}</span>
@@ -1972,11 +2119,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   const hasVotedProxy = leaderProxyVotes[p.physicalId] !== undefined;
                   const isSelected = selectedVoter === p.physicalId;
 
+                  const mayorTag = p.physicalId === mayorRevealedId ? ' 🎩×2' : '';
                   // اللاعب صوّت بنفسه
                   if (hasVotedSelf) {
                     return (
                       <span key={p.physicalId} className="text-[10px] font-mono text-green-500 bg-green-500/10 border border-green-500/20 px-1.5 py-1 rounded opacity-60" title="صوّت بنفسه">
-                        ✅ #{p.physicalId}
+                        ✅ #{p.physicalId}{mayorTag}
                       </span>
                     );
                   }
@@ -2008,7 +2156,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                           : 'text-[#C5A059] bg-[#C5A059]/5 border border-[#C5A059]/20 hover:bg-[#C5A059]/10'
                       }`}
                     >
-                      {isSelected ? '🎯' : '⬜'} #{p.physicalId}
+                      {isSelected ? '🎯' : '⬜'} #{p.physicalId}{mayorTag}
                     </button>
                   );
                 })}

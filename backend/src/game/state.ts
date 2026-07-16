@@ -143,6 +143,7 @@ export const ROLE_NAMES_AR: Record<string, string> = {
   CHAMELEON: 'الحرباء',
   NURSE: 'الممرضة',
   POLICEWOMAN: 'الشرطية',
+  MAYOR: 'العمدة',   // 🎩 ضمن مجمّع عقود السفّاح (قرار ⑧)
   JESTER: 'المهرج',
   WITCH: 'الساحرة',
   OLDER_BROTHER: 'الأخ الأكبر',
@@ -308,6 +309,8 @@ export interface GameState {
   witchPreviousTargets?: number[];
   // 👥 حالة التوأمين
   twinState?: TwinState | null;
+  // 🎩 حالة العمدة (فيتو الإعدام مرّة واحدة + صوت ×2 بعد الكشف)
+  mayorState?: import('./mayor-engine.js').MayorState | null;
   // 🎁 سحب «اختيار رابح» — توزيع هدايا الفعالية (منفصل تماماً عن منطق اللعبة/الرانك)
   luckyDraw?: LuckyDrawState | null;
   // ── حالة خطوة الليل الحالية ──

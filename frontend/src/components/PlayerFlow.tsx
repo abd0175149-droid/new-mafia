@@ -267,6 +267,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [votingComplete, setVotingComplete] = useState(false);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
   const [phasePollData, setPhasePollData] = useState<any>(null);
+  // 🎩 العمدة: برومبت قراره (يصله وحده — عن بُعد)، إعلان الكشف للجميع، ومَن العمدة المكشوف
+  const [mayorPrompt, setMayorPrompt] = useState<any>(null);
+  const [mayorPromptLeft, setMayorPromptLeft] = useState(30);
+  const [mayorBanner, setMayorBanner] = useState<{ physicalId: number; name: string; decision: string } | null>(null);
+  const [mayorRevealedId, setMayorRevealedId] = useState<number | null>(null);
+  const [mayorSending, setMayorSending] = useState(false);
   // 🎙️ من يُسمح له بالكلام (نقاش/تبرير/مواجهة) — لفتح مايكي + عرض المواجهة
   const { confrontation, allowedPids: voiceAllowedPids } = useActiveSpeaker({ on, gamePhase, initialDiscussionState: phasePollData?.discussionState });
 
@@ -987,6 +993,44 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
     return () => clearTimeout(timer);
   }, [step, emit, roomId]); // deps بسيطة — يشتغل فقط عند rejoin
+
+  // ── 🎩 أحداث العمدة: نافذة قراره (له وحده) + إعلان الكشف (للجميع) ──
+  useEffect(() => {
+    if ((step !== 'done' && step !== 'rejoined') || !on) return;
+
+    const cleanupWindow = on('day:mayor-window', (data: any) => {
+      if (!data?.forMayor) return; // البثّ الموثوق (ليدر/عرض) لا يعنينا هنا
+      setMayorPrompt(data);
+      setMayorPromptLeft(data.timeoutSeconds || 30);
+      if (navigator.vibrate) navigator.vibrate([120, 80, 120, 80, 240]);
+    });
+    const cleanupClosed = on('day:mayor-window-closed', () => setMayorPrompt(null));
+    const cleanupRevealed = on('day:mayor-revealed', (data: any) => {
+      setMayorPrompt(null);
+      setMayorRevealedId(data.physicalId);
+      setMayorBanner(data);
+      setTimeout(() => setMayorBanner(null), 8000);
+    });
+
+    return () => { cleanupWindow?.(); cleanupClosed?.(); cleanupRevealed?.(); };
+  }, [step, on]);
+
+  // عدّاد برومبت العمدة (إرشاديّ — انتهاؤه لا يقرّر شيئاً؛ الليدر خطّ الرجعة)
+  useEffect(() => {
+    if (!mayorPrompt) return;
+    const iv = setInterval(() => setMayorPromptLeft(p => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [mayorPrompt]);
+
+  const sendMayorDecision = async (decision: 'PASS' | 'REVOTE_TOP2' | 'POSTPONE') => {
+    if (mayorSending) return;
+    setMayorSending(true);
+    try {
+      await emit('day:mayor-decision', { roomId, decision });
+      setMayorPrompt(null);
+    } catch { /* الليدر يستطيع التنفيذ يدويّاً */ }
+    setMayorSending(false);
+  };
 
   // ── استقبال أحداث التصويت ──
   useEffect(() => {
@@ -2065,6 +2109,88 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {/* 📨 مودال إرسال الدعوة (للاعب المصرّح له) */}
       {showInvite && isRemote && roomId && (
         <InviteModal roomId={roomId} emit={emit} onClose={() => setShowInvite(false)} />
+      )}
+
+      {/* 🎩 برومبت قرار العمدة — يصل لهاتف العمدة وحده (اللعب عن بُعد) */}
+      <AnimatePresence>
+        {mayorPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[85] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md" dir="rtl"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24 }} animate={{ scale: 1, y: 0 }}
+              className="w-full max-w-sm rounded-2xl p-5 border-2 border-[#C5A059] shadow-[0_0_40px_rgba(197,160,89,0.3)]"
+              style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}
+            >
+              <div className="text-center text-4xl mb-1">🎩</div>
+              <h3 className="text-center text-[#C5A059] font-black text-lg">أنت العمدة — لحظة القرار</h3>
+              <p className="text-center text-[11px] text-[#9a8f7d] mb-1 leading-relaxed">
+                نتيجة التصويت: إعدام{' '}
+                <b className="text-[#ff6b64]">
+                  {mayorPrompt.winner?.type === 'DEAL'
+                    ? `صفقة #${mayorPrompt.winner?.initiatorPhysicalId} ← #${mayorPrompt.winner?.targetPhysicalId}`
+                    : `#${mayorPrompt.winner?.targetPhysicalId} ${mayorPrompt.winner?.targetName || ''}`}
+                </b>{' '}({mayorPrompt.topVotes} أصوات)
+              </p>
+              <p className="text-center text-[10px] text-[#655c4e] mb-3">⏳ {mayorPromptLeft} ثانية — وبعدها يحسم الموجّه</p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => sendMayorDecision('REVOTE_TOP2')}
+                  disabled={mayorSending || (mayorPrompt.top2 || []).length < 2}
+                  className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#3b6fd4,#2b4f9e)', border: '1px solid #4f8ef7' }}
+                >
+                  🔄 أكشف نفسي — إعادة التصويت بين الأعلى اثنين
+                </button>
+                <button
+                  onClick={() => sendMayorDecision('POSTPONE')}
+                  disabled={mayorSending}
+                  className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg,#7a4b8f,#5b3570)', border: '1px solid #9b6dd6' }}
+                >
+                  🌙 أكشف نفسي — تأجيل: لا موت اليوم
+                </button>
+                <button
+                  onClick={() => sendMayorDecision('PASS')}
+                  disabled={mayorSending}
+                  className="w-full py-2.5 rounded-xl text-sm border border-[#4a3f31] text-[#9a8f7d] disabled:opacity-50"
+                >
+                  🤐 أبقى مخفيّاً — نفّذوا الإعدام
+                </button>
+              </div>
+              <p className="text-center text-[9px] text-[#655c4e] mt-3">الكشف دائم للجميع + صوتك ×2 فوراً + القدرة تُستهلك (مرّة واحدة)</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 🎩 إعلان كشف العمدة — لكلّ اللاعبين */}
+      <AnimatePresence>
+        {mayorBanner && (
+          <motion.div
+            initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -30 }}
+            className="fixed top-4 inset-x-4 z-[84] flex justify-center" dir="rtl"
+          >
+            <div className="max-w-sm w-full rounded-2xl px-4 py-3 border border-[#C5A059] text-center shadow-[0_0_30px_rgba(197,160,89,0.25)]"
+              style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}>
+              <p className="text-[#C5A059] font-black text-sm">🎩 العمدة يكشف نفسه: #{mayorBanner.physicalId} {mayorBanner.name}</p>
+              <p className="text-[#9a8f7d] text-[11px] mt-0.5">
+                {mayorBanner.decision === 'REVOTE_TOP2' ? 'أُلغي الإعدام — إعادة تصويت بين الأعلى اثنين' : 'أُلغي الإعدام — لا موت اليوم'}
+                {' '}• صوته يُحسب ⚖️×2
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 🎩 شارة دائمة أثناء التصويت: عمدة مكشوف */}
+      {gamePhase === 'DAY_VOTING' && mayorRevealedId !== null && !mayorBanner && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[40]" dir="rtl">
+          <span className="text-[10px] px-2.5 py-1 rounded-full border border-[#C5A059]/60 text-[#C5A059] bg-[#151007]/90">
+            {mayorRevealedId === parseInt(physicalId) ? '⚖️ أنت العمدة — صوتك يُحسب ×2' : `🎩 العمدة #${mayorRevealedId} — صوته ×2`}
+          </span>
+        </div>
       )}
 
       {isExpelled ? (

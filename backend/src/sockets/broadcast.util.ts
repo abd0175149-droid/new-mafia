@@ -17,6 +17,10 @@ function stripSecrets(state: any): any {
     players: state.players.map((p: any) => ({ ...p, role: null })),
     nightActions: undefined,
     autoNightChoices: undefined,
+    // 🎩 هويّة العمدة سرّ حتى يكشف نفسه؛ وبعد الكشف تُمرَّر الهويّة بلا النافذة السرّية
+    mayorState: state.mayorState?.revealed
+      ? { mayorPhysicalId: state.mayorState.mayorPhysicalId, revealed: true, vetoUsed: state.mayorState.vetoUsed, decision: state.mayorState.decision, revealedAtRound: state.mayorState.revealedAtRound }
+      : undefined,
   };
 }
 

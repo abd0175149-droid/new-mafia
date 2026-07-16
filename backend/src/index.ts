@@ -622,7 +622,14 @@ async function main() {
         game_fee_amount DECIMAL(10,2) DEFAULT 0, grand_total DECIMAL(10,2) DEFAULT 0,
         printed_by INTEGER, printed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'new_order'`);
-      console.log('✅ players remote-access + reservations.player_id + analytics + fnb tables ensured');
+      // 🎩 دور العمدة في المحرّك الديناميكيّ — إدراج آمن لا يمسّ أدوار الإنتاج المعدَّلة يدويّاً
+      await db.execute(sql`
+        INSERT INTO role_definitions (id, name_ar, name_en, team, abilities, gen_priority, gen_max_count, gen_min_players, gen_is_required, card_template_id, description, card_overrides)
+        VALUES ('MAYOR', 'العمدة', 'Mayor', 'CITIZEN', '[]'::jsonb, 6, 1, 9, false, 'master',
+                'مرّة واحدة بعد فرز التصويت: يكشف نفسه ويلغي الإعدام — إعادة تصويت بين الأعلى اثنين أو تأجيل بلا موت. بعد الكشف صوته ×2',
+                '{"icon":{"type":"lucide","value":"Landmark"}}'::jsonb)
+        ON CONFLICT (id) DO NOTHING`);
+      console.log('✅ players remote-access + reservations.player_id + analytics + fnb tables + MAYOR role ensured');
     }
   } catch (err: any) {
     console.warn('⚠️ players remote-access columns migration:', err.message);

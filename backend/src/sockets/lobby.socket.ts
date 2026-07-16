@@ -16,6 +16,7 @@ import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
+import { initMayorState } from '../game/mayor-engine.js';
 import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
@@ -3150,6 +3151,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       state.twinState = initTwinState(state);
       if (state.twinState) {
         console.log(`👥 Twin Bond initialized at binding for room ${data.roomId}: Older #${state.twinState.olderBrotherPhysicalId} ↔ Younger #${state.twinState.youngerBrotherPhysicalId}`);
+      }
+
+      // ── 🎩 تهيئة حالة العمدة (نفس منطق التوأمين: تُعاد دائماً — null إن لا عمدة) ──
+      state.mayorState = initMayorState(state);
+      if (state.mayorState) {
+        console.log(`🎩 Mayor initialized at binding for room ${data.roomId}: #${state.mayorState.mayorPhysicalId}`);
       }
 
       // ── حفظ وقت البداية + إنشاء سجل المباراة في PostgreSQL ──

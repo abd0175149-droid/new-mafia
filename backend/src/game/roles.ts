@@ -20,6 +20,7 @@ export enum Role {
   SNIPER = 'SNIPER',                 // القناص
   POLICEWOMAN = 'POLICEWOMAN',       // الشرطية
   NURSE = 'NURSE',                   // الممرضة
+  MAYOR = 'MAYOR',                   // 🎩 العمدة
   CITIZEN = 'CITIZEN',               // مواطن صالح
   YOUNGER_BROTHER = 'YOUNGER_BROTHER', // 👥 الأخ الأصغر (توأم مواطن)
 
@@ -45,6 +46,7 @@ export const CITIZEN_ROLES: Role[] = [
   Role.SNIPER,
   Role.POLICEWOMAN,
   Role.NURSE,
+  Role.MAYOR,
   Role.CITIZEN,
   Role.YOUNGER_BROTHER,
 ];
@@ -90,6 +92,7 @@ export const ROLE_NAMES_AR: Record<Role, string> = {
   [Role.SNIPER]: 'القناص',
   [Role.POLICEWOMAN]: 'الشرطية',
   [Role.NURSE]: 'الممرضة',
+  [Role.MAYOR]: 'العمدة',
   [Role.CITIZEN]: 'مواطن صالح',
   [Role.YOUNGER_BROTHER]: 'الأخ الأصغر',
   [Role.JESTER]: 'المهرج',

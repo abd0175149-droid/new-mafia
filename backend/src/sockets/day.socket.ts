@@ -27,6 +27,15 @@ import { processTwinBond, applySuicide, applyTransform } from '../game/twin-engi
 import { notifyTwinTransform } from './twin-notify.js';
 import { clearGameTimer, adjustGameTimer } from '../game/game-timer.js';
 import { emitStateSanitized, emitPhaseChangedSanitized } from './broadcast.util.js';
+import {
+  isMayorEligible,
+  mayorVoteWeight,
+  openMayorWindow,
+  applyMayorVeto,
+  closeMayorWindow,
+  rebuildVotingForMayorRevote,
+  mayorRevealPayload,
+} from '../game/mayor-engine.js';
 
 export function registerDayEvents(io: Server, socket: Socket) {
 
@@ -116,6 +125,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'اكتمل التصويت — لا يمكن إضافة صوت جديد' });
       }
 
+      // 🎩 وزن الصوت: العمدة المكشوف = 2 (عدّاد المرشّح فقط — عدّاد المصوّتين يبقى 1)
+      const voteWeight = mayorVoteWeight(state, data.physicalId);
+
       // ── سحب الصوت القديم إذا كان موجوداً (تغيير الصوت) ──
       const previousVote = state.votingState.playerVotes[data.physicalId];
       if (previousVote !== undefined) {
@@ -126,14 +138,14 @@ export function registerDayEvents(io: Server, socket: Socket) {
         // سحب الصوت القديم
         const oldCandidate = state.votingState.candidates[previousVote];
         if (oldCandidate && oldCandidate.votes > 0) {
-          oldCandidate.votes -= 1;
+          oldCandidate.votes = Math.max(0, oldCandidate.votes - voteWeight);
           state.votingState.totalVotesCast -= 1;
         }
         console.log(`🔄 Player #${data.physicalId} changing vote: candidate[${previousVote}] → candidate[${data.candidateIndex}]`);
       }
 
       // تسجيل الصوت الجديد
-      candidate.votes += 1;
+      candidate.votes += voteWeight;
       state.votingState.totalVotesCast += 1;
       state.votingState.playerVotes[data.physicalId] = data.candidateIndex;
 
@@ -194,7 +206,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
         if (selfCandidateIndex !== -1) {
           const candidate = state.votingState.candidates[selfCandidateIndex];
-          candidate.votes += 1;
+          // 🎩 وزن العمدة المكشوف يسري حتى على التصويت التلقائيّ (اتساق العدّ)
+          candidate.votes += mayorVoteWeight(state, player.physicalId);
           state.votingState.totalVotesCast += 1;
           state.votingState.playerVotes[player.physicalId] = selfCandidateIndex;
           autoVotedCount++;
@@ -328,7 +341,12 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Only leader' });
       }
 
-      const state = await castVote(data.roomId, data.candidateIndex, data.delta);
+      // 🎩 وزن الوكالة: تصويت الليدر باسم العمدة المكشوف يُحسب ×2 (بلا وكالة = تعداد يدويّ ×1)
+      const preState = await getGameState(data.roomId);
+      const proxyWeight = (preState && data.voterPhysicalId !== undefined)
+        ? mayorVoteWeight(preState, data.voterPhysicalId) : 1;
+
+      const state = await castVote(data.roomId, data.candidateIndex, data.delta, proxyWeight);
 
       // تسجيل التصويت بالوكالة
       if (data.voterPhysicalId !== undefined && data.delta === 1) {
@@ -336,11 +354,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
         const player = state.players.find((p: any) => p.physicalId === data.voterPhysicalId && p.isAlive);
         if (!player) {
           // إلغاء الصوت الذي أضفناه للتو
-          await castVote(data.roomId, data.candidateIndex, -1);
+          await castVote(data.roomId, data.candidateIndex, -1, proxyWeight);
           return callback({ success: false, error: 'Player not found or not alive' });
         }
         if (state.votingState.playerVotes[data.voterPhysicalId] !== undefined) {
-          await castVote(data.roomId, data.candidateIndex, -1);
+          await castVote(data.roomId, data.candidateIndex, -1, proxyWeight);
           return callback({ success: false, error: 'Player already voted' });
         }
         // تسجيل في playerVotes
@@ -801,53 +819,122 @@ export function registerDayEvents(io: Server, socket: Socket) {
         io.to(data.roomId).emit('day:withdrawal-result', { revote: false });
       }
 
-      // ── الخطوة 3: تنفيذ الإقصاء فعلياً ──
-      const result = await resolveVoting(data.roomId);
-
-      if (result.type === 'TIE') {
-        await setPhase(data.roomId, Phase.DAY_TIEBREAKER);
-        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_TIEBREAKER });
-        io.to(data.roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
-      } else {
-        // حفظ نتيجة الإقصاء + تغيير المرحلة
-        const stateAfter = await getGameState(data.roomId);
-        if (stateAfter) {
-          stateAfter.pendingResolution = {
-            eliminated: result.eliminated,
-            revealedRoles: result.revealedRoles,
-            winResult: result.winResult,
-            type: result.type,
-            neutralWin: result.neutralWin || null,
-          };
-          stateAfter.phase = Phase.DAY_ELIMINATION;
-          await setGameState(data.roomId, stateAfter);
-        }
-        await setPhase(data.roomId, Phase.DAY_ELIMINATION);
-        // ⚠️ مهم: إرسال state مع phase-changed لمنع REST fallback من مسح pendingBomb
-        await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state: stateAfter });
-        io.to(data.roomId).emit('day:elimination-pending', {
-          eliminated: result.eliminated,
-          revealedRoles: result.revealedRoles,
-          winResult: result.winResult,
-          type: result.type,
-          pendingBomb: stateAfter?.pendingBomb || null,
-          neutralWin: result.neutralWin || null,
-        });
-        console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
-        console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
-        console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
-
-        // ⏳ إن حُسم فائز (ولا قنبلة معلّقة) نبدأ مهلة 3 دقائق: إن لم يكشف الليدر الأدوار
-        // ويُنهِ اللعبة خلالها، تُنهى تلقائياً بالفائز المحسوم + إشعار للاعبين (منع بقائها عالقة).
-        const decidedWinner = result.neutralWin?.won || result.winResult !== WinResult.GAME_CONTINUES;
-        if (decidedWinner && !stateAfter?.pendingBomb) {
-          scheduleRevealGrace(io, data.roomId);
-        } else {
-          clearRevealGrace(data.roomId);
+      // ── 🎩 نافذة العمدة — قبل تطبيق أيّ أثر (قرار ⑦: فائز واحد فقط) ──
+      // نفرز النتيجة بلا تنفيذ؛ إن تأهّل العمدة تُفتح نافذة سرّية (ليدر + هاتف العمدة)
+      // ولا يُستدعى resolveVoting إلا بعد قراره — فلا حاجة لأيّ تراجعٍ عن مهرج/قنبلة/توأمين.
+      if (!(data as any).skipMayor) {
+        const stateNow = await getGameState(data.roomId);
+        if (stateNow && isMayorEligible(stateNow)) {
+          const sort = await getVoteResult(data.roomId);
+          if (sort.type === 'SINGLE_WINNER' && sort.topVotes > 0) {
+            const window = openMayorWindow(stateNow, sort.topCandidates[0], sort.topVotes);
+            await setGameState(data.roomId, stateNow);
+            await emitMayorWindow(io, data.roomId, stateNow, window);
+            // مزامنة الحالة (الليدر يرى النافذة بعد إعادة الاتصال؛ نسخ اللاعبين تُجرَّد منها)
+            await emitStateSanitized(io, data.roomId, 'game:state-sync', stateNow);
+            console.log(`🎩 Mayor window opened in room ${data.roomId} — would-be: ${JSON.stringify(window.winner)}`);
+            return callback({ success: true, mayorWindow: true, window: sanitizeWindowForLeader(stateNow, window) });
+          }
         }
       }
 
+      // ── الخطوة 3: تنفيذ الإقصاء فعلياً ──
+      const result = await performElimination(io, data.roomId);
       callback({ success: true, result });
+    } catch (err: any) {
+      callback({ success: false, error: err.message });
+    }
+  });
+
+  // ── 🎩 قرار العمدة: تمرير / إعادة تصويت بين الأعلى اثنين / تأجيل ──
+  // المصدر: الليدر (وجاهيّاً — ينقل إعلان اللاعب)، أو هاتف العمدة نفسه (عن بُعد).
+  socket.on('day:mayor-decision', async (data: {
+    roomId: string;
+    decision: 'PASS' | 'REVOTE_TOP2' | 'POSTPONE';
+  }, callback) => {
+    try {
+      const state = await getGameState(data.roomId);
+      if (!state) return callback({ success: false, error: 'Room not found' });
+
+      const ms = state.mayorState;
+      if (!ms || !ms.window) return callback({ success: false, error: 'لا نافذة عمدةٍ مفتوحة' });
+
+      const isLeader = socket.data.role === 'leader';
+      const isMayorSelf = socket.data.role === 'player' && socket.data.physicalId === ms.mayorPhysicalId;
+      if (!isLeader && !isMayorSelf) {
+        return callback({ success: false, error: 'غير مصرّح — الليدر أو العمدة فقط' });
+      }
+
+      // ── تمرير: لا تدخّل → التنفيذ يمضي كما لو لا عمدة (القدرة تبقى متاحة) ──
+      if (data.decision === 'PASS') {
+        closeMayorWindow(state);
+        await setGameState(data.roomId, state);
+        io.to(data.roomId).emit('day:mayor-window-closed', {}); // للّيدر/هاتف العمدة — لا يكشف شيئاً للبقيّة
+        const result = await performElimination(io, data.roomId);
+        console.log(`🎩 Mayor passed in room ${data.roomId} — elimination proceeded`);
+        return callback({ success: true, passed: true, result });
+      }
+
+      // ── فيتو: كشفٌ دائم + حرق القدرة (×2 يسري فوراً — قرار ②) ──
+      const window = ms.window;
+      applyMayorVeto(state, data.decision);
+      const revealPayload = mayorRevealPayload(state);
+      clearRevealGrace(data.roomId);
+
+      if (data.decision === 'REVOTE_TOP2') {
+        // إعادة التصويت بين الأعلى اثنين — بدلالات «التضييق» الحاليّة فتعمل كلّ الواجهات
+        rebuildVotingForMayorRevote(state, window.top2);
+        state.phase = Phase.DAY_VOTING;
+        await setGameState(data.roomId, state);
+        await setPhase(data.roomId, Phase.DAY_VOTING);
+
+        io.to(data.roomId).emit('day:mayor-revealed', { ...revealPayload, savedPhysicalId: (window.winner as any).targetPhysicalId ?? null });
+        io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING });
+        io.to(data.roomId).emit('day:voting-started', {
+          candidates: state.votingState.candidates,
+          hiddenPlayers: state.votingState.hiddenPlayersFromVoting,
+          teamCounts: getTeamCounts(state.players),
+          playersInfo: state.players.filter((p: any) => p.isAlive).map((p: any) => ({
+            physicalId: p.physicalId, name: p.name, avatarUrl: p.avatarUrl || null,
+          })),
+          playerVotes: {},
+          leaderProxyVotes: {},
+          durationSeconds: state.votingState.durationSeconds || null,
+          mayorRevote: true,                    // 🎩 شارة «بأمر العمدة» في الواجهات
+          mayorPhysicalId: ms.mayorPhysicalId,  // للشارة ⚖️×2
+        });
+        console.log(`🎩 Mayor REVOTE_TOP2 in room ${data.roomId} — candidates reset to top-2`);
+        return callback({ success: true, decision: data.decision });
+      }
+
+      // POSTPONE — لا موت اليوم (قرار ③): نمرّ بمسار DAY_ELIMINATION الفارغ المعتاد
+      // (pendingResolution بلا مُقصَين) فتعمل إعادةُ الاتصال وزرّا الكشف/بدء الليل كما هما.
+      state.pendingResolution = {
+        eliminated: [],
+        revealedRoles: [],
+        winResult: WinResult.GAME_CONTINUES,
+        type: 'MAYOR_POSTPONED',
+        neutralWin: null,
+      } as any;
+      state.withdrawalState = null;
+      state.justificationData = null;
+      state.phase = Phase.DAY_ELIMINATION;
+      await setGameState(data.roomId, state);
+      await setPhase(data.roomId, Phase.DAY_ELIMINATION);
+
+      io.to(data.roomId).emit('day:mayor-revealed', { ...revealPayload, savedPhysicalId: (window.winner as any).targetPhysicalId ?? null });
+      await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state });
+      io.to(data.roomId).emit('day:elimination-pending', {
+        eliminated: [],
+        revealedRoles: [],
+        winResult: WinResult.GAME_CONTINUES,
+        type: 'MAYOR_POSTPONED',
+        pendingBomb: null,
+        neutralWin: null,
+        mayorPostponed: true,
+      });
+      console.log(`🎩 Mayor POSTPONE in room ${data.roomId} — day ends with no death`);
+      callback({ success: true, decision: data.decision });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -1694,4 +1781,95 @@ export function registerDayEvents(io: Server, socket: Socket) {
     io.to(data.roomId).emit('admin:hide-reveal');
     callback?.({ success: true });
   });
+}
+
+// ══════════════════════════════════════════════════════
+// 🎩 مساعدو العمدة (على مستوى الوحدة)
+// ══════════════════════════════════════════════════════
+
+// إثراء لقطة نافذة العمدة بأسماء اللاعبين (للواجهات)
+function sanitizeWindowForLeader(state: any, window: { winner: any; top2: any[]; topVotes: number }) {
+  const nameOf = (pid: number | undefined) =>
+    state.players.find((p: any) => p.physicalId === pid)?.name || '';
+  const describe = (c: any) => ({
+    type: c.type,
+    targetPhysicalId: c.targetPhysicalId ?? null,
+    targetName: nameOf(c.targetPhysicalId),
+    initiatorPhysicalId: c.initiatorPhysicalId ?? null,
+    initiatorName: c.initiatorPhysicalId ? nameOf(c.initiatorPhysicalId) : null,
+    votes: c.votes,
+  });
+  return {
+    winner: describe(window.winner),
+    top2: window.top2.map(describe),
+    topVotes: window.topVotes,
+  };
+}
+
+// بثّ نافذة العمدة سرّيّاً: الليدر/العرض لا يكشفان شيئاً، وهاتف العمدة وحده من اللاعبين
+// (بثّها للغرفة كلّها كان سيفضح وجود عمدةٍ في اللعبة قبل قراره).
+async function emitMayorWindow(io: Server, roomId: string, state: any, window: any) {
+  const payload = {
+    ...sanitizeWindowForLeader(state, window),
+    mayorPhysicalId: state.mayorState.mayorPhysicalId,
+    timeoutSeconds: 30, // إرشاديّ لواجهة هاتف العمدة — لا مؤقّت خادميّاً (الليدر خطّ الرجعة)
+  };
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) {
+    const isTrusted = s.data.role === 'leader' || s.data.role === 'display';
+    const isMayorSelf = s.data.role === 'player' && s.data.physicalId === state.mayorState.mayorPhysicalId;
+    if (isTrusted) s.emit('day:mayor-window', payload);
+    else if (isMayorSelf) s.emit('day:mayor-window', { ...payload, forMayor: true });
+  }
+}
+
+// تنفيذ الإقصاء فعليّاً (المسار الأصليّ حرفيّاً) — يُستدعى من execute-elimination
+// ومن day:mayor-decision(PASS) حتى لا يتكرّر المنطق.
+async function performElimination(io: Server, roomId: string) {
+  const result = await resolveVoting(roomId);
+
+  if (result.type === 'TIE') {
+    await setPhase(roomId, Phase.DAY_TIEBREAKER);
+    io.to(roomId).emit('game:phase-changed', { phase: Phase.DAY_TIEBREAKER });
+    io.to(roomId).emit('day:tie', { tiedCandidates: result.tiedCandidates });
+  } else {
+    // حفظ نتيجة الإقصاء + تغيير المرحلة
+    const stateAfter = await getGameState(roomId);
+    if (stateAfter) {
+      stateAfter.pendingResolution = {
+        eliminated: result.eliminated,
+        revealedRoles: result.revealedRoles,
+        winResult: result.winResult,
+        type: result.type,
+        neutralWin: result.neutralWin || null,
+      } as any;
+      stateAfter.phase = Phase.DAY_ELIMINATION;
+      await setGameState(roomId, stateAfter);
+    }
+    await setPhase(roomId, Phase.DAY_ELIMINATION);
+    // ⚠️ مهم: إرسال state مع phase-changed لمنع REST fallback من مسح pendingBomb
+    await emitPhaseChangedSanitized(io, roomId, { phase: Phase.DAY_ELIMINATION, state: stateAfter });
+    io.to(roomId).emit('day:elimination-pending', {
+      eliminated: result.eliminated,
+      revealedRoles: result.revealedRoles,
+      winResult: result.winResult,
+      type: result.type,
+      pendingBomb: stateAfter?.pendingBomb || null,
+      neutralWin: result.neutralWin || null,
+    });
+    console.log(`📦 elimination-pending sent — pendingBomb: ${JSON.stringify(stateAfter?.pendingBomb || null)}${result.neutralWin?.won ? ' — 🤡 JESTER WIN!' : ''}`);
+    console.log(`📦 eliminated: ${result.eliminated}, revealedRoles: ${JSON.stringify(result.revealedRoles)}`);
+    console.log(`📦 bombEnabled config: ${stateAfter?.config?.bombEnabled}`);
+
+    // ⏳ إن حُسم فائز (ولا قنبلة معلّقة) نبدأ مهلة 3 دقائق: إن لم يكشف الليدر الأدوار
+    // ويُنهِ اللعبة خلالها، تُنهى تلقائياً بالفائز المحسوم + إشعار للاعبين (منع بقائها عالقة).
+    const decidedWinner = result.neutralWin?.won || result.winResult !== WinResult.GAME_CONTINUES;
+    if (decidedWinner && !stateAfter?.pendingBomb) {
+      scheduleRevealGrace(io, roomId);
+    } else {
+      clearRevealGrace(roomId);
+    }
+  }
+
+  return result;
 }

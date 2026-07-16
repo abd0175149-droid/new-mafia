@@ -145,6 +145,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   // Discussion UI States
   const [discussionState, setDiscussionState] = useState<any>(initialDiscussionState || null);
   const [silencedPlayerId, setSilencedPlayerId] = useState<number | null>(null);
+  // 🎩 العمدة: مشهد الكشف + لافتة إعادة التصويت بأمره + تأجيل اليوم
+  const [mayorScene, setMayorScene] = useState<{ physicalId: number; name: string; decision: string } | null>(null);
+  const [mayorRevote, setMayorRevote] = useState(false);
+  const [mayorPostponed, setMayorPostponed] = useState(false);
   const [localTimeRemaining, setLocalTimeRemaining] = useState<number>(initialDiscussionState?.timeRemaining || 0);
   const prevTimeRef = useRef<number>(initialDiscussionState?.timeRemaining || 0);
 
@@ -277,6 +281,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       setCandidates(data.candidates);
       setTotalVotesCast(0);
       setTieBreakerLevel(data.tieBreakerLevel || 0);
+      setMayorRevote(!!data.mayorRevote);
       // تحديث عدادات الفرق من البيانات القادمة من الباك اند
       if (data.teamCounts) {
         setLocalTeamCounts(data.teamCounts);
@@ -300,7 +305,14 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     const onPending = (data: any) => {
       setEliminatedIds(data.eliminated);
       setRevealType(data.type);
+      setMayorPostponed(!!data.mayorPostponed);
       setPhase('PENDING');
+    };
+
+    // 🎩 كشف العمدة — مشهد سينمائيّ يعلو كلّ شيء لثوانٍ
+    const onMayorRevealed = (data: { physicalId: number; name: string; decision: string }) => {
+      setMayorScene(data);
+      setTimeout(() => setMayorScene(null), 7000);
     };
 
     const onRevealed = (data: any) => {
@@ -379,6 +391,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:justification-timer-started', onJustificationTimerStarted);
     socket.on('day:justification-timer-stopped', onJustificationTimerStopped);
     socket.on('day:bomb-result', onBombResult);
+    socket.on('day:mayor-revealed', onMayorRevealed);
 
     const onVotingComplete = () => {
       playGameSound('voting_complete');
@@ -413,6 +426,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
       socket.off('day:justification-timer-started', onJustificationTimerStarted);
       socket.off('day:justification-timer-stopped', onJustificationTimerStopped);
       socket.off('day:bomb-result', onBombResult);
+      socket.off('day:mayor-revealed', onMayorRevealed);
       socket.off('day:voting-complete', onVotingComplete);
       socket.off('day:withdrawal-update', onWithdrawalUpdate);
       socket.off('day:withdrawal-result', onWithdrawalResult);
@@ -454,6 +468,61 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
   return (
     <div className="w-full mx-auto flex flex-col items-center justify-center px-4 py-2">
+      {/* 🎩 مشهد كشف العمدة — يعلو كلّ شيء لثوانٍ */}
+      <AnimatePresence>
+        {mayorScene && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.05 }}
+            className="fixed inset-0 z-[95] flex flex-col items-center justify-center bg-[#050505]/96 backdrop-blur-md"
+          >
+            <motion.div
+              className="absolute inset-0 pointer-events-none"
+              animate={{ opacity: [0, 0.16, 0] }}
+              transition={{ duration: 2.4, repeat: Infinity }}
+              style={{ background: 'radial-gradient(circle at center, rgba(197,160,89,0.5) 0%, transparent 65%)' }}
+            />
+            <motion.div
+              initial={{ scale: 0.4, rotate: -14 }}
+              animate={{ scale: [0.4, 1.25, 1], rotate: [-14, 6, 0] }}
+              transition={{ duration: 0.9, ease: 'easeOut' }}
+              className="text-[10rem] leading-none mb-6 drop-shadow-[0_0_50px_rgba(197,160,89,0.5)]"
+            >🎩</motion.div>
+            <motion.h2
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="text-7xl font-black text-[#C5A059] mb-3"
+              style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 40px rgba(197,160,89,0.45)' }}
+            >العمدة يكشف نفسه!</motion.h2>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.9 }}
+              className="text-white text-4xl mb-5"
+              style={{ fontFamily: 'Amiri, serif' }}
+            >#{mayorScene.physicalId} {mayorScene.name}</motion.p>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.3 }}
+              className="text-2xl text-[#C5A059]/90"
+              style={{ fontFamily: 'Amiri, serif' }}
+            >
+              {mayorScene.decision === 'REVOTE_TOP2'
+                ? '🔄 أُلغي الإعدام — إعادة التصويت بين الأعلى اثنين'
+                : '🌙 أُلغي الإعدام — لا موت اليوم'}
+            </motion.p>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 1, 0.6, 1] }}
+              transition={{ delay: 1.8, duration: 1.6 }}
+              className="mt-6 text-[#9a8f7d] font-mono text-lg tracking-[0.35em] uppercase"
+            >⚖️ HIS VOTE NOW COUNTS ×2</motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence mode="wait">
         
         {/* DISCUSSION AREA */}
@@ -666,7 +735,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                   </div>
                   <div className="w-[1px] h-8 bg-[#2a2a2a] mx-2" />
                   <div className="flex flex-col">
-                    {tieBreakerLevel >= 2 ? (
+                    {mayorRevote ? (
+                      <>
+                        <span className="text-lg font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>🎩 إعادة تصويت بأمر العمدة</span>
+                        <span className="text-[8px] font-mono text-[#C5A059] tracking-[0.3em] uppercase animate-pulse">MAYOR&apos;S REVOTE</span>
+                      </>
+                    ) : tieBreakerLevel >= 2 ? (
                       <>
                         <span className="text-lg font-black text-[#8A0303]" style={{ fontFamily: 'Amiri, serif' }}>تصويت الحسم</span>
                         <span className="text-[8px] font-mono text-[#ff4444] tracking-[0.3em] uppercase animate-pulse">NARROWED VOTE</span>
@@ -1011,23 +1085,49 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               style={{ background: 'radial-gradient(circle at center, rgba(138,3,3,0.4) 0%, transparent 70%)' }}
             />
 
-            <motion.div
-              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 1, 0.4] }}
-              transition={{ repeat: Infinity, duration: 1.5 }}
-              className="text-9xl mb-8"
-            >⚖️</motion.div>
-            <h2 className="text-6xl font-black text-white mb-6 uppercase tracking-widest" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.4)' }}>بانتظار القرار</h2>
-            <motion.p
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 2, repeat: Infinity }}
-              className="text-[#808080] font-mono text-xl tracking-[0.5em] uppercase"
-            >AWAITING DECLASSIFICATION ORDER...</motion.p>
+            {mayorPostponed ? (
+              <>
+                <motion.div
+                  animate={{ scale: [1, 1.15, 1] }}
+                  transition={{ repeat: Infinity, duration: 2 }}
+                  className="text-9xl mb-8"
+                >🎩</motion.div>
+                <h2 className="text-6xl font-black text-[#C5A059] mb-6" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(197,160,89,0.4)' }}>لا إعدام اليوم</h2>
+                <motion.p
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="text-[#C5A059]/80 font-mono text-xl tracking-[0.4em] uppercase"
+                >BY ORDER OF THE MAYOR</motion.p>
+              </>
+            ) : (
+              <>
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1], opacity: [0.4, 1, 0.4] }}
+                  transition={{ repeat: Infinity, duration: 1.5 }}
+                  className="text-9xl mb-8"
+                >⚖️</motion.div>
+                <h2 className="text-6xl font-black text-white mb-6 uppercase tracking-widest" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 30px rgba(138,3,3,0.4)' }}>بانتظار القرار</h2>
+                <motion.p
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="text-[#808080] font-mono text-xl tracking-[0.5em] uppercase"
+                >AWAITING DECLASSIFICATION ORDER...</motion.p>
+              </>
+            )}
           </motion.div>
         )}
 
-        {/* REVEALED — كشف الهوية السينمائي */}
+        {/* REVEALED — كشف الهوية السينمائي (تأجيل العمدة: لا كروت — نبقي مشهد اللا-إعدام) */}
         {phase === 'REVEALED' && (
-          <RevealCeremony players={players} revealedRoles={revealedRoles} revealType={revealType} />
+          revealedRoles.length === 0 && mayorPostponed ? (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+              <div className="text-9xl mb-8">🎩</div>
+              <h2 className="text-6xl font-black text-[#C5A059] mb-4" style={{ fontFamily: 'Amiri, serif' }}>العمدة أجّل الإعدام</h2>
+              <p className="text-[#9a8f7d] text-2xl" style={{ fontFamily: 'Amiri, serif' }}>لا موت اليوم — الليلة تبدأ</p>
+            </motion.div>
+          ) : (
+            <RevealCeremony players={players} revealedRoles={revealedRoles} revealType={revealType} />
+          )
         )}
 
         {/* TIE */}

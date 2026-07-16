@@ -77,11 +77,14 @@ export async function initVoting(roomId: string): Promise<GameState> {
 /**
  * تسجيل صوت (+1 أو -1)
  * - delta: +1 لإضافة صوت، -1 لإزالة صوت
+ * - weight: وزن الصوت على عدّاد المرشّح (🎩 العمدة المكشوف = 2).
+ *   totalVotesCast يبقى عدّاد «مصوّتين» (±1 دائماً) حتى يصحّ فحص الاكتمال ضدّ عدد الأحياء.
  */
 export async function castVote(
   roomId: string,
   candidateIndex: number,
-  delta: 1 | -1
+  delta: 1 | -1,
+  weight: 1 | 2 = 1
 ): Promise<GameState> {
   const state = await getGameState(roomId);
   if (!state) throw new Error(`Room ${roomId} not found`);
@@ -90,7 +93,7 @@ export async function castVote(
   if (!candidate) throw new Error(`Candidate at index ${candidateIndex} not found`);
 
   // منع الأصوات السالبة
-  if (candidate.votes + delta < 0) {
+  if (candidate.votes + delta * weight < 0) {
     throw new Error('Cannot have negative votes');
   }
 
@@ -103,7 +106,7 @@ export async function castVote(
     }
   }
 
-  candidate.votes += delta;
+  candidate.votes += delta * weight;
   state.votingState.totalVotesCast += delta;
 
   await setGameState(roomId, state);

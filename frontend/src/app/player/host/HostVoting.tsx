@@ -29,10 +29,14 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
   const proxyVotes: Record<number, number> = vs.leaderProxyVotes || {};
   // كل الأحياء يصوّتون (بما فيهم أهداف الصفقات) — المقام والاكتمال يطابقان الباكند وLeaderDayView
   const votingAlive = alive;
-  const totalVotes = candidates.reduce((s: number, c: any) => s + (c.votes || 0), 0);
+  // عدّاد المصوّتين من الخادم (🎩 صوت العمدة ×2 لا يستهلك مصوّتَين من النصاب)
+  const totalVotes = vs.totalVotesCast ?? candidates.reduce((s: number, c: any) => s + (c.votes || 0), 0);
   const isComplete = totalVotes >= votingAlive.length;
   const tbl = vs.tieBreakerLevel || 0;
-  const label = tbl >= 2 ? 'مُضيّق' : tbl === 1 ? 'إعادة' : 'مباشر';
+  // 🎩 عمدة مكشوف؟ (المضيف ليدر موثوق — يصله mayorState كاملاً، واللاعبون يصلهم بعد الكشف فقط)
+  const mayorRevealedId = gameState.mayorState?.revealed ? gameState.mayorState.mayorPhysicalId : null;
+  const isMayorRevote = !!mayorRevealedId && gameState.mayorState?.decision === 'REVOTE_TOP2' && tbl >= 2;
+  const label = isMayorRevote ? '🎩 بأمر العمدة' : tbl >= 2 ? 'مُضيّق' : tbl === 1 ? 'إعادة' : 'مباشر';
   const mafia = alive.filter((p: any) => (MAFIA_ROLES as string[]).includes(p.role)).length;
   const citizen = alive.length - mafia;
 
@@ -95,7 +99,7 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
           return (
             <button key={p.physicalId} onClick={() => (st === 'pending' ? setSelectedVoter(p.physicalId) : removeVote(p.physicalId))}
               className={`px-2 py-1.5 rounded-lg text-[11px] font-mono border transition-all ${sel ? 'border-sky-500 text-sky-100 bg-sky-500/15 scale-105' : st === 'self' ? 'border-emerald-600/50 text-emerald-300 bg-emerald-900/10' : st === 'proxy' ? 'border-amber-600/50 text-amber-300 bg-amber-900/10' : 'border-[#222] text-[#999] bg-[#0c0c0c]'}`}>
-              #{p.physicalId} {st === 'self' ? '✅' : st === 'proxy' ? '🟠' : ''}
+              #{p.physicalId}{p.physicalId === mayorRevealedId ? ' 🎩×2' : ''} {st === 'self' ? '✅' : st === 'proxy' ? '🟠' : ''}
             </button>
           );
         })}
