@@ -14,34 +14,90 @@ interface User {
   role: string;
 }
 
-const NAV_ITEMS = [
+interface NavLink {
+  href: string;
+  icon: string;
+  label: string;
+  roles?: string[];
+}
+
+interface NavGroup {
+  key: string;
+  icon: string;
+  label: string;
+  items: NavLink[];
+}
+
+// ── بنية السايدبار: عناصر مفردة + مجموعات قابلة للطيّ ──
+const NAV_TOP: NavLink[] = [
   { href: '/admin', icon: '📊', label: 'لوحة التحكم' },
-  { href: '/admin/activities', icon: '🎯', label: 'الأنشطة' },
-  { href: '/admin/bookings', icon: '📅', label: 'الحجوزات' },
-  { href: '/admin/reservations', icon: '📋', label: 'متابعة الحجوزات' },
-  { href: '/admin/finance', icon: '💰', label: 'المالية' },
-  { href: '/admin/locations', icon: '📍', label: 'المواقع' },
-  { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
-  { href: '/admin/players', icon: '🎮', label: 'اللاعبون', roles: ['admin', 'accountant'] },
-  { href: '/admin/analytics/players', icon: '📊', label: 'تحليل اللاعبين', roles: ['admin', 'manager'] },
-  { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
-  { href: '/admin/reports', icon: '📋', label: 'التقارير', roles: ['admin', 'manager', 'accountant'] },
-  { href: '/admin/reports/layout', icon: '🖨️', label: 'تخطيط الطباعة', roles: ['admin', 'manager'] },
-  { href: '/admin/staff-log', icon: '🕵️', label: 'سجل عمليات الموظفين', roles: ['admin'] },
-  { href: '/admin/notifications', icon: '🔔', label: 'الإشعارات' },
-  { href: '/admin/feedback', icon: '📋', label: 'تقييمات اللاعبين', roles: ['admin', 'manager'] },
-  { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },
-  { href: '/admin/tickets', icon: '🎫', label: 'التذاكر', roles: ['admin', 'accountant'] },
-  { href: '/admin/game-config', icon: '🧩', label: 'الأدوار والشخصيات', roles: ['admin'] },
-  { href: '/admin/progression', icon: '🏆', label: 'نظام التقدم', roles: ['admin'] },
-  { href: '/admin/seat-templates', icon: '📐', label: 'قوالب المقاعد', roles: ['admin', 'manager'] },
-  { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
-  // ── فاصل ──
-  { href: '/__separator__', icon: '', label: '' },
-  // ── روابط اللعبة ──
+];
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    key: 'ops', icon: '🎯', label: 'التشغيل والحجوزات',
+    items: [
+      { href: '/admin/activities', icon: '🎯', label: 'الأنشطة' },
+      { href: '/admin/bookings', icon: '📅', label: 'الحجوزات' },
+      { href: '/admin/reservations', icon: '📋', label: 'متابعة الحجوزات' },
+      { href: '/admin/tickets', icon: '🎫', label: 'التذاكر', roles: ['admin', 'accountant'] },
+    ],
+  },
+  {
+    key: 'players', icon: '🎮', label: 'اللاعبون',
+    items: [
+      { href: '/admin/players', icon: '🎮', label: 'اللاعبون', roles: ['admin', 'accountant'] },
+      { href: '/admin/analytics/players', icon: '📊', label: 'تحليل اللاعبين', roles: ['admin', 'manager'] },
+      { href: '/admin/feedback', icon: '📋', label: 'تقييمات اللاعبين', roles: ['admin', 'manager'] },
+      { href: '/admin/notifications', icon: '🔔', label: 'الإشعارات' },
+    ],
+  },
+  {
+    key: 'games', icon: '⚔️', label: 'الألعاب',
+    items: [
+      { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
+      { href: '/admin/game-config', icon: '🧩', label: 'الأدوار والشخصيات', roles: ['admin'] },
+      { href: '/admin/progression', icon: '🏆', label: 'نظام التقدم', roles: ['admin'] },
+      { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },
+      { href: '/admin/seat-templates', icon: '📐', label: 'قوالب المقاعد', roles: ['admin', 'manager'] },
+    ],
+  },
+  {
+    key: 'finance', icon: '💰', label: 'المالية والتقارير',
+    items: [
+      { href: '/admin/finance', icon: '💰', label: 'المالية' },
+      { href: '/admin/reports', icon: '📋', label: 'التقارير', roles: ['admin', 'manager', 'accountant'] },
+      { href: '/admin/reports/layout', icon: '🖨️', label: 'تخطيط الطباعة', roles: ['admin', 'manager'] },
+    ],
+  },
+  {
+    key: 'system', icon: '🏢', label: 'الإدارة والنظام',
+    items: [
+      { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
+      { href: '/admin/locations', icon: '📍', label: 'المواقع' },
+      { href: '/admin/staff-log', icon: '🕵️', label: 'سجل عمليات الموظفين', roles: ['admin'] },
+      { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
+    ],
+  },
+];
+
+const NAV_EXTERNAL: (NavLink & { external: true })[] = [
   { href: '/leader', icon: '🕹️', label: 'واجهة القائد', external: true, roles: ['admin', 'manager', 'leader'] },
   { href: '/', icon: '🏠', label: 'الصفحة الرئيسية', external: true },
-] as const;
+];
+
+const NAV_OPEN_KEY = 'admin_nav_open_groups';
+
+// أدقّ تطابق يفوز: /admin/reports/layout لا يُفعّل «التقارير»
+const ALL_HREFS = [...NAV_TOP, ...NAV_GROUPS.flatMap(g => g.items)].map(i => i.href);
+function isLinkActive(href: string, pathname: string | null): boolean {
+  if (!pathname) return false;
+  if (pathname === href) return true;
+  if (href === '/admin') return false;
+  if (!pathname.startsWith(href + '/') && !pathname.startsWith(href + '?')) return false;
+  // يوجد رابط آخر أطول يطابق؟ إذن هو الأولى
+  return !ALL_HREFS.some(h => h !== href && h.startsWith(href) && (pathname === h || pathname.startsWith(h + '/')));
+}
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -50,6 +106,29 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  // مجموعات مفتوحة — تُسترجع من التخزين، والمجموعة الحاويّة للصفحة الحاليّة تُفتح تلقائيّاً
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [groupsLoaded, setGroupsLoaded] = useState(false);
+
+  useEffect(() => {
+    let saved: string[] = [];
+    try { saved = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) || '[]'); } catch { /* تجاهل */ }
+    const initial = new Set(saved);
+    const current = NAV_GROUPS.find(g => g.items.some(i => pathname === i.href || pathname?.startsWith(i.href + '/')));
+    if (current) initial.add(current.key);
+    setOpenGroups(initial);
+    setGroupsLoaded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleGroup = (key: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify(Array.from(next))); } catch { /* تجاهل */ }
+      return next;
+    });
+  };
 
   useEffect(() => {
     // صفحة اللوقن لا تحتاج تحقق
@@ -183,70 +262,124 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </AnimatePresence>
         </div>
 
-        {/* Nav Items */}
+        {/* Nav Items — عناصر مفردة ثم مجموعات قابلة للطيّ */}
         <nav className="flex-1 min-h-0 p-2 space-y-1 overflow-y-auto overflow-x-hidden" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.1) transparent' }}>
-          {NAV_ITEMS.filter((item) => {
-            // إذا العنصر محدد لأدوار معينة فقط
-            if ((item as any).roles && user) {
-              return (item as any).roles.includes(user.role);
-            }
-            return true;
-          }).map((item) => {
-            // فاصل
-            if (item.href === '/__separator__') {
-              return <div key="sep" className="border-t border-gray-800/50 my-2" />;
-            }
-
-            const isExternal = (item as any).external;
-            const isActive = !isExternal && (pathname === item.href || (item.href !== '/admin' && pathname?.startsWith(item.href)));
+          {(() => {
             const showLabel = sidebarOpen || isMobile;
+            const roleOk = (l: NavLink) => !l.roles || !user || l.roles.includes(user.role);
 
-            if (isExternal) {
+            const renderLink = (item: NavLink, indented = false) => {
+              const isActive = isLinkActive(item.href, pathname);
               return (
-                <a
+                <Link
                   key={item.href}
                   href={item.href}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-400 hover:text-amber-400 hover:bg-amber-500/5 border border-transparent hover:border-amber-500/20 transition-all"
+                  className={`flex items-center gap-3 rounded-xl transition-all ${indented && showLabel ? 'px-3 py-2 mr-4 border-r border-gray-800/70' : 'px-3 py-2.5'} ${
+                    isActive
+                      ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                      : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                  }`}
                 >
-                  <span className="text-lg shrink-0 w-6 text-center">{item.icon}</span>
+                  <span className={`shrink-0 w-6 text-center ${indented && showLabel ? 'text-base' : 'text-lg'}`}>{item.icon}</span>
                   <AnimatePresence>
                     {showLabel && (
-                      <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium whitespace-nowrap">
+                      <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`font-medium whitespace-nowrap ${indented ? 'text-[13px]' : 'text-sm'}`}>
                         {item.label}
                       </motion.span>
                     )}
                   </AnimatePresence>
-                  {showLabel && <span className="mr-auto text-xs text-gray-600">↗</span>}
-                </a>
+                </Link>
               );
-            }
+            };
 
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
-                  isActive
-                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
-                }`}
-              >
-                <span className="text-lg shrink-0 w-6 text-center">{item.icon}</span>
-                <AnimatePresence>
-                  {showLabel && (
-                    <motion.span
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="text-sm font-medium whitespace-nowrap"
-                    >
-                      {item.label}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </Link>
+              <>
+                {NAV_TOP.filter(roleOk).map(item => renderLink(item))}
+
+                {NAV_GROUPS.map(group => {
+                  const items = group.items.filter(roleOk);
+                  if (items.length === 0) return null;
+                  const childActive = items.some(i => isLinkActive(i.href, pathname));
+                  const isOpen = openGroups.has(group.key);
+
+                  // الشريط المطويّ (أيقونات فقط): نقر المجموعة يفتح الشريط ويفرد المجموعة
+                  if (!showLabel) {
+                    return (
+                      <button
+                        key={group.key}
+                        onClick={() => {
+                          setSidebarOpen(true);
+                          if (!isOpen) toggleGroup(group.key);
+                        }}
+                        title={group.label}
+                        className={`w-full flex items-center justify-center px-3 py-2.5 rounded-xl transition-all ${
+                          childActive ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
+                        }`}
+                      >
+                        <span className="text-lg w-6 text-center">{group.icon}</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div key={group.key}>
+                      <button
+                        onClick={() => toggleGroup(group.key)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                          childActive && !isOpen
+                            ? 'text-amber-400/90 bg-amber-500/5'
+                            : 'text-gray-300 hover:text-white hover:bg-gray-800/50'
+                        }`}
+                      >
+                        <span className="text-lg shrink-0 w-6 text-center">{group.icon}</span>
+                        <span className="text-sm font-semibold whitespace-nowrap flex-1 text-right">{group.label}</span>
+                        <motion.span
+                          animate={{ rotate: isOpen ? 90 : 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="text-[10px] text-gray-600 shrink-0"
+                        >
+                          ◀
+                        </motion.span>
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {isOpen && groupsLoaded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.22, ease: 'easeInOut' }}
+                            className="overflow-hidden space-y-0.5 pt-0.5"
+                          >
+                            {items.map(item => renderLink(item, true))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+
+                <div className="border-t border-gray-800/50 my-2" />
+
+                {NAV_EXTERNAL.filter(roleOk).map(item => (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-400 hover:text-amber-400 hover:bg-amber-500/5 border border-transparent hover:border-amber-500/20 transition-all"
+                  >
+                    <span className="text-lg shrink-0 w-6 text-center">{item.icon}</span>
+                    <AnimatePresence>
+                      {showLabel && (
+                        <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-sm font-medium whitespace-nowrap">
+                          {item.label}
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                    {showLabel && <span className="mr-auto text-xs text-gray-600">↗</span>}
+                  </a>
+                ))}
+              </>
             );
-          })}
+          })()}
 
           {/* ── رابط العودة لواجهة اللاعب (PWA) ── */}
           <div className="border-t border-gray-800/50 my-2" />
