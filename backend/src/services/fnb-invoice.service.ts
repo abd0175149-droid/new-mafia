@@ -192,7 +192,7 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
   .foot { margin-top: auto; text-align: center; font-size: 7.5px; color: #777; border-top: .5px dashed #bbb; padding-top: 2mm; }
   </style></head><body>
     <div class="head">
-      <div class="club">🎭 نادي المافيا</div>
+      <div class="club">نادي المافيا</div>
       <div class="loc">${esc(data.locationName)}</div>
     </div>
     <div class="meta">
@@ -212,6 +212,6 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
       ${data.gameFeeApplied ? `<div class="sum fee"><span>رسوم اللعبة</span><span>${fmt(data.gameFeeAmount)} د.أ</span></div>` : ''}
       <div class="sum grand"><span>الإجماليّ</span><span>${fmt(data.grandTotal)} د.أ</span></div>
     </div>
-    <div class="foot">أصدرها: ${esc(printedByName)} — شكراً لزيارتكم 🌹</div>
+    <div class="foot">أصدرها: ${esc(printedByName)} — شكراً لزيارتكم</div>
   </body></html>`;
 }
