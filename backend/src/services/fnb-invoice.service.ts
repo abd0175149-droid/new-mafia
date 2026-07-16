@@ -122,12 +122,14 @@ export async function issueInvoiceNumber(
       return existing.invoiceNo;
     }
 
-    const [{ next }] = (await tx.execute(sql`
+    // execute يعيد {rows} مع درايفر pg ومصفوفةً مع postgres-js — نتعامل مع الشكلين
+    const result: any = await tx.execute(sql`
       SELECT COALESCE(MAX(invoice_no), 0) + 1 AS next FROM order_invoices WHERE location_id = ${data.locationId}
-    `)) as unknown as { next: number }[];
+    `);
+    const next = Number((result?.rows?.[0] ?? result?.[0])?.next ?? 1);
 
     await tx.insert(orderInvoices).values({
-      invoiceNo: Number(next),
+      invoiceNo: next,
       locationId: data.locationId,
       activityId: data.activityId,
       playerId: data.playerId,
@@ -138,7 +140,7 @@ export async function issueInvoiceNumber(
       grandTotal: data.grandTotal.toFixed(2),
       printedBy,
     } as any);
-    return Number(next);
+    return next;
   });
 }
 
