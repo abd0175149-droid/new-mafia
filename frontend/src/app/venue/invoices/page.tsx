@@ -171,7 +171,7 @@ export default function VenueInvoicesPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
           {toast}
         </div>
       )}

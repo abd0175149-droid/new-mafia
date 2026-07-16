@@ -33,6 +33,8 @@ export default function VenueMenuPage() {
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
   const [toast, setToast] = useState('');
+  const [search, setSearch] = useState('');
+  const [catFilter, setCatFilter] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // للأدمن تُمرَّر locationId صراحةً (تجاوز HQ في requireVenuePermission)
@@ -115,26 +117,70 @@ export default function VenueMenuPage() {
     return <div className="text-center py-16 text-gray-500 text-sm">ليس لدى حسابك صلاحيّة إدارة المنيو</div>;
   }
 
-  // تجميع بالفئة
-  const categories = Array.from(new Set(items.map(i => i.category || '')));
-  const existingCats = categories.filter(Boolean);
+  // تجميع بالفئة + بحث/تصفية (صفحة إعدادٍ تُزار نادراً لكن يجب أن يكون إيجاد الصنف فوريّاً)
+  const allCategories = Array.from(new Set(items.map(i => i.category || '')));
+  const existingCats = allCategories.filter(Boolean);
   const availCount = items.filter(i => i.isAvailable).length;
 
+  const q = search.trim().toLowerCase();
+  const visibleItems = items.filter(i =>
+    (catFilter === null || (i.category || '') === catFilter) &&
+    (!q || i.name.toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q))
+  );
+  const categories = Array.from(new Set(visibleItems.map(i => i.category || '')));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* ── شريط علويّ ── */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold">منيو {locationName}</h2>
-          <p className="text-[11px] text-gray-500 mt-0.5">{items.length} صنفاً • {availCount} متاح • الأسعار بالدينار الأردنيّ</p>
+          <h2 className="text-base font-bold">⚙️ إعدادات المنيو</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            {locationName} • {items.length} صنفاً ({availCount} متاح) • يُعدّ مرّةً ويظهر للاعبين في كلّ فعاليّة مفعَّلة
+          </p>
         </div>
         <button
           onClick={openAdd}
-          className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform"
+          className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform shrink-0"
         >
           + صنف جديد
         </button>
       </div>
+
+      {/* ── بحث + فئات ── */}
+      {items.length > 0 && (
+        <div className="space-y-2">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="🔎 ابحث باسم الصنف…"
+            className="w-full bg-gray-800/70 border border-gray-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-gray-600"
+          />
+          {existingCats.length > 1 && (
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              <button
+                onClick={() => setCatFilter(null)}
+                className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors ${
+                  catFilter === null ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-transparent'
+                }`}
+              >
+                الكل ({items.length})
+              </button>
+              {allCategories.map(c => (
+                <button
+                  key={c || '_none'}
+                  onClick={() => setCatFilter(prev => prev === c ? null : c)}
+                  className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors ${
+                    catFilter === c ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-transparent'
+                  }`}
+                >
+                  {c || 'بلا فئة'} ({items.filter(i => (i.category || '') === c).length})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">
@@ -146,6 +192,11 @@ export default function VenueMenuPage() {
           <p className="text-gray-400 text-sm mb-1">المنيو فارغ</p>
           <p className="text-gray-600 text-xs">أضف أوّل صنف ليظهر للاعبين الحاجزين أثناء الفعاليّات</p>
         </div>
+      ) : visibleItems.length === 0 ? (
+        <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
+          <p className="text-gray-500 text-sm">لا نتائج لبحثك</p>
+          <button onClick={() => { setSearch(''); setCatFilter(null); }} className="text-emerald-400 text-xs underline mt-2">مسح البحث والتصفية</button>
+        </div>
       ) : (
         categories.map(cat => (
           <div key={cat || '_none'}>
@@ -154,7 +205,7 @@ export default function VenueMenuPage() {
               <span className="flex-1 h-px bg-emerald-500/10" />
             </h3>
             <div className="space-y-2">
-              {items.filter(i => (i.category || '') === cat).map(it => (
+              {visibleItems.filter(i => (i.category || '') === cat).map(it => (
                 <div
                   key={it.id}
                   className={`rounded-xl p-3 flex items-center gap-3 border transition-opacity ${it.isAvailable ? 'bg-white/[0.03] border-white/[0.07]' : 'bg-white/[0.01] border-white/[0.04] opacity-50'}`}
@@ -286,7 +337,7 @@ export default function VenueMenuPage() {
 
       {/* ── توست ── */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
           {toast}
         </div>
       )}

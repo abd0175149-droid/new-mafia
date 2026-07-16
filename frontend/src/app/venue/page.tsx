@@ -3,9 +3,9 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-// /venue → التبويب الافتراضيّ (المنيو)
+// /venue → الصفحة التشغيليّة الرئيسيّة: صندوق الطلبات
 export default function VenueIndex() {
   const router = useRouter();
-  useEffect(() => { router.replace('/venue/menu'); }, [router]);
+  useEffect(() => { router.replace('/venue/orders'); }, [router]);
   return null;
 }

@@ -10,10 +10,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { VenueContext, type VenueCtx, type VenueMe } from './context';
 
-const TABS = [
-  { href: '/venue/menu', label: '🍽️ المنيو', perm: 'menu.manage', ready: true },
-  { href: '/venue/orders', label: '📥 الطلبات', perm: 'orders.receive', ready: true },
-  { href: '/venue/invoices', label: '🧾 الفواتير', perm: 'invoices.print', ready: true },
+// ترتيب حسب تواتر الاستخدام: الطلبات (كلّ ليلة) ← الفواتير (آخر الليلة) ← المنيو (إعداد نادر)
+const TABS: { href: string; icon: string; label: string; shortLabel?: string; perm: string }[] = [
+  { href: '/venue/orders', icon: '📥', label: 'الطلبات', perm: 'orders.receive' },
+  { href: '/venue/invoices', icon: '🧾', label: 'الفواتير', perm: 'invoices.print' },
+  { href: '/venue/menu', icon: '⚙️', label: 'إعدادات المنيو', shortLabel: 'المنيو', perm: 'menu.manage' },
 ];
 
 export default function VenueLayout({ children }: { children: React.ReactNode }) {
@@ -122,38 +123,60 @@ export default function VenueLayout({ children }: { children: React.ReactNode })
               </button>
             </div>
           </div>
-          {/* ── التبويبات ── */}
-          <nav className="max-w-3xl mx-auto px-4 flex gap-1 pb-2">
+          {/* ── التبويبات (سطح المكتب) ── */}
+          <nav className="max-w-3xl mx-auto px-4 hidden sm:flex gap-1 pb-2">
             {TABS.map(tab => {
               const active = pathname === tab.href;
-              const allowed = ctx.can(tab.perm);
-              if (!allowed) return null;
+              if (!ctx.can(tab.perm)) return null;
               return (
                 <Link
                   key={tab.href}
-                  href={tab.ready ? tab.href : '#'}
-                  onClick={(e) => { if (!tab.ready) e.preventDefault(); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  href={tab.href}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                      : tab.ready ? 'text-gray-400 hover:text-white hover:bg-white/5'
-                      : 'text-gray-600 cursor-not-allowed'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  {tab.label}
-                  {!tab.ready && <span className="mr-1 text-[9px] text-gray-600">قريباً</span>}
+                  {tab.icon} {tab.label}
                 </Link>
               );
             })}
           </nav>
         </header>
 
-        <main className="max-w-3xl mx-auto px-4 py-5">
+        <main className="max-w-3xl mx-auto px-4 py-5 pb-24 sm:pb-8">
           {!loc ? (
             <div className="text-center py-16 text-gray-500 text-sm">
               {isHQ ? 'اختر مكاناً من القائمة أعلاه لإدارة منيوه' : 'الحساب غير مرتبط بمكان'}
             </div>
           ) : children}
         </main>
+
+        {/* ── شريط سفليّ للجوال — أهداف لمس كبيرة لليلة التشغيل ── */}
+        {loc && (
+          <nav className="sm:hidden fixed bottom-0 inset-x-0 z-40 bg-gray-900/95 backdrop-blur-xl border-t border-emerald-500/15"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            <div className="flex">
+              {TABS.map(tab => {
+                const active = pathname === tab.href;
+                if (!ctx.can(tab.perm)) return null;
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 transition-colors ${
+                      active ? 'text-emerald-400' : 'text-gray-500 active:text-gray-300'
+                    }`}
+                  >
+                    <span className="text-xl leading-none">{tab.icon}</span>
+                    <span className="text-[10px] font-medium">{tab.shortLabel || tab.label}</span>
+                    <span className={`h-0.5 w-8 rounded-full mt-0.5 ${active ? 'bg-emerald-400' : 'bg-transparent'}`} />
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        )}
       </div>
     </VenueContext.Provider>
   );
