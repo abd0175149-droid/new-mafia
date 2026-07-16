@@ -622,6 +622,10 @@ async function main() {
         game_fee_amount DECIMAL(10,2) DEFAULT 0, grand_total DECIMAL(10,2) DEFAULT 0,
         printed_by INTEGER, printed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'new_order'`);
+      // 📱 وسم «تأكّد من التطبيق» على حجوزات المتابعة (+ تعبئة رجعيّة لما أنشأه التطبيق سابقاً)
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS app_confirmed BOOLEAN DEFAULT false`);
+      await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS app_confirmed_at TIMESTAMP`);
+      await db.execute(sql`UPDATE reservations SET app_confirmed = true, app_confirmed_at = COALESCE(app_confirmed_at, created_at) WHERE created_by = 'player-app' AND app_confirmed = false`);
       // 🎩 دور العمدة في المحرّك الديناميكيّ — إدراج آمن لا يمسّ أدوار الإنتاج المعدَّلة يدويّاً
       await db.execute(sql`
         INSERT INTO role_definitions (id, name_ar, name_en, team, abilities, gen_priority, gen_max_count, gen_min_players, gen_is_required, card_template_id, description, card_overrides)

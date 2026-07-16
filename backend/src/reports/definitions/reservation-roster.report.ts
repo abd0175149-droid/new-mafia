@@ -45,6 +45,7 @@ export const reservationRosterReport: ReportDefinition = {
       attended: reservations.attended,
       notes: reservations.notes,
       createdBy: reservations.createdBy,
+      appConfirmed: reservations.appConfirmed,
       linkedPlayerName: players.name,
     }).from(reservations)
       .leftJoin(players, eq(reservations.playerId, players.id))
@@ -97,7 +98,7 @@ export const reservationRosterReport: ReportDefinition = {
             contactName: r.contactName,
             phone: r.phone || '—',
             peopleCount: num(r.peopleCount) || 1,
-            statusAr: isConfirmed(r.status) ? 'مثبّت' : 'غير مثبّت',
+            statusAr: `${isConfirmed(r.status) ? 'مثبّت' : 'غير مثبّت'}${r.appConfirmed ? ' (تطبيق)' : ''}`,
             attendedAr: r.attended === true ? 'حضر' : r.attended === false ? 'لم يحضر' : '—',
             linkedAr: r.linkedPlayerName ? '✓ مرتبط' : '—',
             notes: r.notes || '',

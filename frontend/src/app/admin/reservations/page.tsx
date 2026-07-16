@@ -792,6 +792,14 @@ export default function ReservationsPage() {
                               👤 لاعب
                             </span>
                           )}
+                          {r.appConfirmed && (
+                            <span
+                              className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/40 font-bold whitespace-nowrap shadow-[0_0_10px_rgba(139,92,246,0.15)]"
+                              title={`اللاعب حجز بنفسه من التطبيق${r.appConfirmedAt ? ' — ' + new Date(r.appConfirmedAt).toLocaleString('ar-JO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}`}
+                            >
+                              📱 تأكّد من التطبيق
+                            </span>
+                          )}
                         </div>
                         {r.contactMethod && (
                           <p className="text-gray-500 text-xs" dir="ltr">{r.contactMethod}</p>

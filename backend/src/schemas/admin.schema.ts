@@ -330,6 +330,9 @@ export const reservations = pgTable('reservations', {
   peopleCount: integer('people_count').default(1),
   playerId: integer('player_id'),  // 🔗 ربط بحساب لاعب مسجّل (اختياريّ) — يُملأ عند اختيار لاعب أو مطابقة الهاتف
   status: varchar('status', { length: 20 }).default('pending').notNull(), // pending (غير مثبّت) | confirmed (مثبّت). paid_all قديم يُعامَل كمثبّت
+  // 📱 اللاعب حجز فعليّاً من التطبيق (وسمٌ دائم — أقوى من تثبيت الواتساب): يُرفع عند حجز التطبيق
+  appConfirmed: boolean('app_confirmed').default(false),
+  appConfirmedAt: timestamp('app_confirmed_at'),
   attended: boolean('attended'),  // null = لم يُحدد بعد | true = حضر | false = لم يحضر
   notes: text('notes').default(''),
   createdBy: varchar('created_by', { length: 100 }).default(''),

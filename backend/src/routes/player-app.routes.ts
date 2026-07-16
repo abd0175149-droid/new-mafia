@@ -153,9 +153,11 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
       offerItems: offerId ? [offerId] : [],
     } as any).returning();
 
-    // 📋 حجز متابعة تلقائيّ (غير مثبّت) إن لم يكن للاعب حجزُ متابعةٍ لهذا النشاط — يظهر في صفحة متابعة الحجوزات
+    // 📋 حجز المتابعة: إن وُجد حجزٌ مُدخَل مسبقاً لهذا اللاعب (يدويّاً من الموظّفين) →
+    // يُوسم «📱 تأكّد من التطبيق» ويُثبَّت تلقائيّاً (حجز اللاعب بنفسه أقوى تأكيدٍ من ردّ الواتساب)،
+    // ويُربط بحسابه إن كانت المطابقة بالهاتف فقط. وإن لم يوجد → يُنشأ تلقائيّاً (غير مثبّت) بالوسم نفسه.
     try {
-      const existingRes = await db.select({ id: reservations.id })
+      const existingRes = await db.select({ id: reservations.id, status: reservations.status, playerId: reservations.playerId })
         .from(reservations)
         .where(and(
           eq(reservations.activityId, activityId),
@@ -176,7 +178,21 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
           status: 'pending',
           notes: 'حجز تلقائيّ من تطبيق اللاعب',
           createdBy: 'player-app',
+          appConfirmed: true,
+          appConfirmedAt: new Date(),
         } as any);
+      } else {
+        const ex = existingRes[0];
+        await db.update(reservations).set({
+          appConfirmed: true,
+          appConfirmedAt: new Date(),
+          // رفع «غير مثبّت» إلى «مثبّت» فقط — الحالات الأقوى (paid_all القديمة) تبقى كما هي
+          ...(ex.status === 'pending' ? { status: 'confirmed' } : {}),
+          // مطابقة بالهاتف بلا ربط؟ اربطه بحسابه الآن
+          ...(!ex.playerId && player.playerId ? { playerId: player.playerId } : {}),
+          updatedAt: new Date(),
+        } as any).where(eq(reservations.id, ex.id));
+        console.log(`📱 Reservation #${ex.id} app-confirmed by player booking (activity ${activityId})`);
       }
     } catch (e: any) {
       console.warn('⚠️ auto-reservation on player booking failed:', e?.message);
