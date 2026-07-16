@@ -67,7 +67,9 @@ router.post('/generate', authenticate, accountantOrAbove, async (req: Request, r
 });
 
 // ── تصدير ملف (PDF/Excel) ──
-router.post('/export', authenticate, accountantOrAbove, async (req: Request, res: Response) => {
+// الحارس الفعليّ هو def.roles لكلّ تقرير (أدناه) — فتح المسار لأيّ موظّف مصادَق يتيح
+// كشوفاً تشغيليّة (كشف الحجوزات) للّيدر دون توسيع أيّ تقرير ماليّ (أدواره كما هي).
+router.post('/export', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 

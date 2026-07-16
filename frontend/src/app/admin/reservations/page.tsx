@@ -59,6 +59,9 @@ export default function ReservationsPage() {
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ── 🖨️ كشف الحاجزين (PDF/Excel عبر نظام التقارير) ──
+  const [rosterBusy, setRosterBusy] = useState<null | 'pdf' | 'excel'>(null);
+
   // ── Filters ── (default: no activity selected → don't show reservations)
   const [filterActivity, setFilterActivity] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -192,6 +195,44 @@ export default function ReservationsPage() {
   function getActivityName(activityId: number | null) {
     if (!activityId) return 'بدون نشاط';
     return activities.find(a => a.id === activityId)?.name || 'غير معروف';
+  }
+
+  // ══ 🖨️ توليد كشف الحاجزين — عبر نظام التقارير (يرث تخطيط الطباعة والترويسة) ══
+  async function exportRoster(format: 'pdf' | 'excel') {
+    if (!filterActivity || filterActivity === 'all') return;
+    setRosterBusy(format);
+    try {
+      const res = await fetch(`${API_URL}/api/reports/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          key: 'reservation-roster',
+          format,
+          params: { activityId: Number(filterActivity) },
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({} as any));
+        throw new Error(d?.error || 'فشل توليد الكشف');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (format === 'pdf') {
+        // فتح للعرض — والطباعة من عارض المتصفّح
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } else {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `كشف حجوزات - ${getActivityName(Number(filterActivity))}.xlsx`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+    } catch (err: any) {
+      alert('فشل توليد الكشف: ' + (err.message || ''));
+    } finally {
+      setRosterBusy(null);
+    }
   }
 
   // ══ 🔗 بحث اللاعبين أثناء الكتابة (اسم أو رقم) — للربط الذكيّ ══
@@ -407,16 +448,39 @@ export default function ReservationsPage() {
           )}
         </div>
         {activitySelected && (
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-              showForm
-                ? 'bg-gray-700/50 text-gray-300 hover:bg-gray-700/70'
-                : 'bg-gradient-to-r from-amber-500 to-rose-600 text-white hover:opacity-90 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
-            }`}
-          >
-            {showForm ? '✕ إغلاق' : '+ حجز سريع'}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* 🖨️ كشف الحاجزين — PDF للطباعة + Excel (لنشاط محدّد فقط) */}
+            {filterActivity !== 'all' && (
+              <>
+                <button
+                  onClick={() => exportRoster('pdf')}
+                  disabled={rosterBusy !== null}
+                  title="كشف الحاجزين PDF — يُفتح للعرض والطباعة"
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-gray-800/60 border border-gray-600/40 text-gray-200 hover:border-amber-500/40 hover:text-amber-400 transition-all disabled:opacity-50"
+                >
+                  {rosterBusy === 'pdf' ? '⏳' : '🖨️'} كشف
+                </button>
+                <button
+                  onClick={() => exportRoster('excel')}
+                  disabled={rosterBusy !== null}
+                  title="تنزيل الكشف Excel"
+                  className="px-3 py-2.5 rounded-xl text-sm bg-gray-800/60 border border-gray-600/40 text-gray-400 hover:border-emerald-500/40 hover:text-emerald-400 transition-all disabled:opacity-50"
+                >
+                  {rosterBusy === 'excel' ? '⏳' : '📊'}
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                showForm
+                  ? 'bg-gray-700/50 text-gray-300 hover:bg-gray-700/70'
+                  : 'bg-gradient-to-r from-amber-500 to-rose-600 text-white hover:opacity-90 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
+              }`}
+            >
+              {showForm ? '✕ إغلاق' : '+ حجز سريع'}
+            </button>
+          </div>
         )}
       </div>
 

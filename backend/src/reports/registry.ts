@@ -19,6 +19,7 @@ import { locationPerformanceReport } from './definitions/location-performance.re
 import { partnerSettlementReport } from './definitions/partner-settlement.report.js';
 import { staffPerformanceReport } from './definitions/staff-performance.report.js';
 import { reservationsAttendanceReport } from './definitions/reservations-attendance.report.js';
+import { reservationRosterReport } from './definitions/reservation-roster.report.js';
 import { offersAddonSalesReport } from './definitions/offers-addon-sales.report.js';
 import { ticketsReport } from './definitions/tickets.report.js';
 import { seasonLeaderboardReport } from './definitions/season-leaderboard.report.js';
@@ -40,6 +41,7 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   activitySummaryReport,
   locationPerformanceReport,
   reservationsAttendanceReport,
+  reservationRosterReport,
   offersAddonSalesReport,
   ticketsReport,
   noShowReport,
