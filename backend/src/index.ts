@@ -586,7 +586,35 @@ async function main() {
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS player_id INTEGER`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
-      console.log('✅ players remote-access + reservations.player_id + analytics tables ensured');
+      // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS menu_ordering_enabled BOOLEAN DEFAULT false`);
+      await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS add_game_fee_to_bill BOOLEAN DEFAULT false`);
+      await db.execute(sql`DO $$ BEGIN CREATE TYPE order_status AS ENUM ('new','preparing','delivered','cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_items (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+        category VARCHAR(50) DEFAULT '', name VARCHAR(150) NOT NULL, description TEXT DEFAULT '',
+        price DECIMAL(10,2) NOT NULL, club_share DECIMAL(10,2) DEFAULT 0, image_url TEXT,
+        is_available BOOLEAN DEFAULT true, sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, deleted_at TIMESTAMP)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS orders (
+        id SERIAL PRIMARY KEY, activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+        location_id INTEGER NOT NULL REFERENCES locations(id), player_id INTEGER NOT NULL REFERENCES players(id),
+        player_name VARCHAR(100) NOT NULL, booking_id INTEGER NOT NULL, session_id INTEGER, physical_id INTEGER,
+        status order_status DEFAULT 'new' NOT NULL, total DECIMAL(10,2) NOT NULL, note TEXT DEFAULT '',
+        status_changed_by INTEGER, status_changed_at TIMESTAMP, created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS order_items (
+        id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+        menu_item_id INTEGER REFERENCES menu_items(id) ON DELETE SET NULL,
+        name_snapshot VARCHAR(150) NOT NULL, unit_price_snapshot DECIMAL(10,2) NOT NULL,
+        club_share_snapshot DECIMAL(10,2) DEFAULT 0, quantity INTEGER DEFAULT 1 NOT NULL)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS order_invoices (
+        id SERIAL PRIMARY KEY, invoice_no INTEGER NOT NULL, location_id INTEGER NOT NULL,
+        activity_id INTEGER NOT NULL, player_id INTEGER NOT NULL, booking_id INTEGER,
+        orders_total DECIMAL(10,2) DEFAULT 0, game_fee_applied BOOLEAN DEFAULT false,
+        game_fee_amount DECIMAL(10,2) DEFAULT 0, grand_total DECIMAL(10,2) DEFAULT 0,
+        printed_by INTEGER, printed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      await db.execute(sql`ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'new_order'`);
+      console.log('✅ players remote-access + reservations.player_id + analytics + fnb tables ensured');
     }
   } catch (err: any) {
     console.warn('⚠️ players remote-access columns migration:', err.message);

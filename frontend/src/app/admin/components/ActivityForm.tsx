@@ -30,6 +30,9 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [requireTicket, setRequireTicket] = useState(false);
   const [seatTemplateId, setSeatTemplateId] = useState<string>('');
   const [seatTemplates, setSeatTemplates] = useState<any[]>([]);
+  // 🍽️ طلبات المنيو
+  const [menuOrderingEnabled, setMenuOrderingEnabled] = useState(false);
+  const [addGameFeeToBill, setAddGameFeeToBill] = useState(false);
 
 
 
@@ -115,6 +118,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, sendNotification, requireTicket,
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
+        menuOrderingEnabled,
+        addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
       });
     } finally { setSubmitting(false); }
   }
@@ -258,6 +263,37 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         {requireTicket && (
           <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 text-xs text-purple-400">
             💡 عند دخول اللاعب سيُطلب منه رقم تذكرة — النظام يبحث تلقائياً في كل التذاكر المتاحة
+          </div>
+        )}
+
+        {/* 🍽️ Menu Ordering Toggle */}
+        <div onClick={() => setMenuOrderingEnabled(v => { const nv = !v; if (!nv) setAddGameFeeToBill(false); return nv; })}
+          className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${menuOrderingEnabled ? 'bg-sky-500/10 border-sky-500/30' : 'bg-gray-900/40 border-gray-700/30'}`}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🍽️</span>
+            <div>
+              <p className="text-sm font-medium text-white">تفعيل طلبات المنيو</p>
+              <p className="text-xs text-gray-500 mt-0.5">اللاعبون يطلبون من منيو المكان عبر التطبيق وتصل الطلبات لحساب المكان</p>
+            </div>
+          </div>
+          <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${menuOrderingEnabled ? 'bg-sky-500' : 'bg-gray-600'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${menuOrderingEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </div>
+        </div>
+
+        {menuOrderingEnabled && (
+          <div onClick={() => setAddGameFeeToBill(v => !v)}
+            className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${addGameFeeToBill ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-900/40 border-gray-700/30'}`}>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">💰</span>
+              <div>
+                <p className="text-sm font-medium text-white">إضافة رسوم اللعبة إلى فاتورة اللاعب</p>
+                <p className="text-xs text-gray-500 mt-0.5">يظهر بند رسوم اللعبة (سعر العرض أو السعر الأساسي) في فاتورة كل لاعب حجزه غير مدفوع</p>
+              </div>
+            </div>
+            <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${addGameFeeToBill ? 'bg-amber-500' : 'bg-gray-600'}`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${addGameFeeToBill ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
           </div>
         )}
 

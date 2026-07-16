@@ -43,6 +43,14 @@ const AVAILABLE_PERMISSIONS = [
   { id: 'finances', label: 'الصلاحيات المالية' },
 ];
 
+// 🍽️ صلاحيّات حساب المكان (تظهر لدور «مالك مكان» فقط)
+const VENUE_PERMISSIONS = [
+  { id: 'orders.receive', label: '📥 استقبال الطلبات' },
+  { id: 'orders.manage', label: '🔁 إدارة الطلبات' },
+  { id: 'invoices.print', label: '🧾 طباعة الفواتير' },
+  { id: 'menu.manage', label: '📋 إدارة المنيو' },
+];
+
 export default function StaffManagementPage() {
   const currentUserId = useMemo(() => getCurrentUserId(), []);
   const [users, setUsers] = useState<any[]>([]);
@@ -61,6 +69,9 @@ export default function StaffManagementPage() {
   const [role, setRole] = useState('manager');
   const [isPartner, setIsPartner] = useState(false);
   const [permissions, setPermissions] = useState<string[]>(['activities', 'bookings', 'finances', 'locations']);
+  // 🍽️ ربط حساب المكان
+  const [locationId, setLocationId] = useState<string>('');
+  const [locationsList, setLocationsList] = useState<any[]>([]);
 
   // ── Linked Player State ──
   const [linkedPlayer, setLinkedPlayer] = useState<any | null>(null);
@@ -81,6 +92,7 @@ export default function StaffManagementPage() {
     }
   }
   useEffect(() => { loadUsers(); }, []);
+  useEffect(() => { apiFetch('/api/locations').then(setLocationsList).catch(() => {}); }, []);
 
   // ══ Open Dialogs ══
   function handleOpenNew() {
@@ -92,6 +104,7 @@ export default function StaffManagementPage() {
     setRole('manager');
     setIsPartner(false);
     setPermissions(['activities', 'bookings', 'finances', 'locations']);
+    setLocationId('');
     setIsDialogOpen(true);
   }
 
@@ -103,6 +116,7 @@ export default function StaffManagementPage() {
     setPassword(''); // فارغ ليختار التحديث أم لا
     setRole(userItem.role || 'manager');
     setIsPartner(!!userItem.isPartner);
+    setLocationId(userItem.locationId ? String(userItem.locationId) : '');
     try {
       const parsedPerms = typeof userItem.permissions === 'string' 
         ? JSON.parse(userItem.permissions) 
@@ -141,7 +155,7 @@ export default function StaffManagementPage() {
         // تحديث
         await apiFetch(`/api/staff/${editingUser.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ displayName, phone, role, isPartner, permissions }),
+          body: JSON.stringify({ displayName, phone, role, isPartner, permissions, locationId: locationId ? Number(locationId) : null }),
         });
         // تحديث كلمة المرور إن وُجدت
         if (password.trim() !== '') {
@@ -159,7 +173,7 @@ export default function StaffManagementPage() {
         }
         await apiFetch('/api/staff', {
           method: 'POST',
-          body: JSON.stringify({ displayName, username, phone, password, role, isPartner, permissions }),
+          body: JSON.stringify({ displayName, username, phone, password, role, isPartner, permissions, locationId: locationId ? Number(locationId) : null }),
         });
       }
       setIsDialogOpen(false);
@@ -344,10 +358,23 @@ export default function StaffManagementPage() {
                       <option value="manager">مدير (Manager)</option>
                       <option value="leader">قائد لعبة (Leader)</option>
                       <option value="accountant">محاسب (Accountant)</option>
+                      <option value="location_owner">حساب مكان (Location)</option>
                       <option value="admin">مسؤول (Admin)</option>
                     </select>
                   </div>
                 </div>
+
+                {/* 🍽️ ربط حساب المكان */}
+                {role === 'location_owner' && (
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">المكان المرتبط <span className="text-rose-400">*</span></label>
+                    <select value={locationId} onChange={e => setLocationId(e.target.value)} className="w-full px-4 py-2.5 bg-gray-900/60 border border-sky-500/40 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500/30">
+                      <option value="">— اختر المكان —</option>
+                      {locationsList.map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                    <p className="text-[10px] text-gray-500 mt-1">كل حساب يخدم مكاناً واحداً فقط — الطلبات والفواتير تُعزل على هذا المكان.</p>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-2 px-1">
                   <input type="checkbox" id="isPartnerCheck" checked={isPartner} onChange={e => setIsPartner(e.target.checked)} className="accent-amber-500 w-4 h-4 cursor-pointer" />
@@ -401,6 +428,20 @@ export default function StaffManagementPage() {
                   ) : role === 'accountant' ? (
                      <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-xl p-3 text-cyan-400 text-sm">
                       <p>يمتلك **المحاسب (Accountant)** صلاحيات مالية كاملة (تكاليف، تأسيسية، مدفوعات) + إدارة المواقع، مع اطلاع (قراءة فقط) على الأنشطة والحجوزات واللاعبين.</p>
+                    </div>
+                  ) : role === 'location_owner' ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {VENUE_PERMISSIONS.map(perm => (
+                        <label key={perm.id} className="flex items-center gap-2 cursor-pointer bg-gray-900/40 p-2.5 rounded-lg border border-sky-500/20 hover:border-sky-500/40 transition">
+                          <input
+                            type="checkbox"
+                            checked={permissions.includes(perm.id)}
+                            onChange={() => togglePermission(perm.id)}
+                            className="accent-sky-500 w-4 h-4"
+                          />
+                          <span className="text-sm text-gray-300">{perm.label}</span>
+                        </label>
+                      ))}
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-3">

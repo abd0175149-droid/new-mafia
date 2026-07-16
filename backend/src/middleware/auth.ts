@@ -131,3 +131,61 @@ export const leaderOrAbove = authorize('admin', 'manager', 'leader');
 // ── Middleware: admin أو manager أو accountant ────────
 
 export const accountantOrAbove = authorize('admin', 'manager', 'accountant');
+
+// ── 🍽️ Middleware: صلاحيّات حساب المكان — requireVenuePermission ──
+// أوّل فرضٍ حقيقيّ لـ staff.permissions. يقرأ الربط والصلاحيّات من قاعدة البيانات
+// في كلّ طلب (لا من التوكن — التوكن لا يحمل locationId أصلاً، وتغيير الصلاحيّة يسري فوراً).
+// admin/manager يتجاوزان (يخدمان أيّ مكان عبر معاملة locationId في الطلب).
+// عند النجاح: req.venueLocationId = مكان الحساب (أو المطلوب صراحةً للأدمن)، و req.venueStaff = صفّ الموظّف.
+declare global {
+  namespace Express {
+    interface Request {
+      venueLocationId?: number;
+      venueStaff?: { id: number; role: string; permissions: string[] };
+    }
+  }
+}
+
+export const VENUE_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage'] as const;
+
+export function requireVenuePermission(perm: string) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    if (!req.user) { res.status(401).json({ error: 'غير مصادق' }); return; }
+    try {
+      const { getDB } = await import('../config/db.js');
+      const { staff } = await import('../schemas/admin.schema.js');
+      const { eq, and, isNull } = await import('drizzle-orm');
+      const db = getDB();
+      if (!db) { res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' }); return; }
+
+      const [row] = await db.select({
+        id: staff.id, role: staff.role, permissions: staff.permissions,
+        isActive: staff.isActive, locationId: staff.locationId,
+      }).from(staff).where(and(eq(staff.id, req.user.id), isNull(staff.deletedAt))).limit(1);
+
+      if (!row || row.isActive === false) { res.status(403).json({ error: 'الحساب غير نشط' }); return; }
+
+      const perms: string[] = Array.isArray(row.permissions) ? (row.permissions as string[]) : [];
+      req.venueStaff = { id: row.id, role: row.role, permissions: perms };
+
+      // HQ bypass: الأدمن/المدير يخدم أيّ مكان — يحدّده من معاملة الطلب
+      if (row.role === 'admin' || row.role === 'manager') {
+        const reqLoc = parseInt((req.params.locationId as string) || (req.query.locationId as string) || (req.body?.locationId as string) || '');
+        req.venueLocationId = Number.isFinite(reqLoc) ? reqLoc : undefined;
+        return next();
+      }
+
+      // حساب مكان: يجب ربطٌ بمكان + الصلاحيّة المطلوبة
+      if (row.role !== 'location_owner' || !row.locationId) {
+        res.status(403).json({ error: 'هذا الحساب غير مرتبط بمكان' }); return;
+      }
+      if (!perms.includes(perm)) {
+        res.status(403).json({ error: 'ليس لدى حسابك صلاحيّة هذا الإجراء' }); return;
+      }
+      req.venueLocationId = row.locationId;
+      next();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  };
+}

@@ -39,7 +39,7 @@ router.post('/', authenticate, adminOnly, async (req: Request, res: Response) =>
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { username, password, displayName, phone, role, permissions, isPartner } = req.body;
+  const { username, password, displayName, phone, role, permissions, isPartner, locationId } = req.body;
   if (!username || !password || !displayName) {
     return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
   }
@@ -61,6 +61,8 @@ router.post('/', authenticate, adminOnly, async (req: Request, res: Response) =>
     role: role || 'manager',
     permissions: perms,
     isPartner: isPartner || false,
+    // 🍽️ ربط الحساب بمكان — ذو معنى لدور location_owner فقط
+    locationId: (role === 'location_owner' && locationId) ? parseInt(locationId) : null,
   } as any).returning();
 
   // Create default settings
@@ -91,7 +93,7 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { displayName, phone, role, permissions, isPartner } = req.body;
+  const { displayName, phone, role, permissions, isPartner, locationId } = req.body;
   if (!displayName) return res.status(400).json({ error: 'الاسم مطلوب' });
 
   await db.update(staff).set({
@@ -100,6 +102,8 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
     role: role || 'manager',
     permissions: permissions || ['activities', 'bookings', 'finances', 'locations'],
     isPartner: isPartner || false,
+    // 🍽️ ربط/فكّ ربط الحساب بمكان — location_owner فقط، وإلّا يُصفَّر
+    locationId: (role === 'location_owner' && locationId) ? parseInt(locationId) : null,
   } as any).where(eq(staff.id, id));
 
   res.json({ success: true });

@@ -77,6 +77,9 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
 
   // ── نظام التذاكر ──
   const [requireTicket, setRequireTicket] = useState(activity.requireTicket || false);
+  // 🍽️ طلبات المنيو
+  const [menuOrderingEnabled, setMenuOrderingEnabled] = useState(activity.menuOrderingEnabled || false);
+  const [addGameFeeToBill, setAddGameFeeToBill] = useState(activity.addGameFeeToBill || false);
 
   // ── قالب المقاعد (ربط/إلغاء الربط) ──
   const [seatTemplateId, setSeatTemplateId] = useState<string>(activity.seatTemplateId ? String(activity.seatTemplateId) : '');
@@ -136,6 +139,8 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     if (JSON.stringify(enabledOfferIds) !== JSON.stringify(activity.enabledOfferIds || [])) return true;
     if (requireTicket !== (activity.requireTicket || false)) return true;
     if (seatTemplateId !== (activity.seatTemplateId ? String(activity.seatTemplateId) : '')) return true;
+    if (menuOrderingEnabled !== (activity.menuOrderingEnabled || false)) return true;
+    if (addGameFeeToBill !== (activity.addGameFeeToBill || false)) return true;
     return false;
   })();
 
@@ -151,6 +156,8 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, requireTicket,
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
+        menuOrderingEnabled,
+        addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
       });
     } finally { setSubmitting(false); }
   }
@@ -331,6 +338,38 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
           {requireTicket && (
             <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 text-xs text-purple-400">
               💡 عند دخول اللاعب سيُطلب منه رقم تذكرة — النظام يبحث تلقائياً في كل التذاكر المتاحة
+            </div>
+          )}
+        </Section>
+
+        {/* القسم 6: 🍽️ طلبات المنيو */}
+        <Section id="fnb" title="طلبات المنيو" icon="🍽️" activeSection={activeSection} setActiveSection={setActiveSection}>
+          <div onClick={() => setMenuOrderingEnabled((v: boolean) => { const nv = !v; if (!nv) setAddGameFeeToBill(false); return nv; })}
+            className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${menuOrderingEnabled ? 'bg-sky-500/10 border-sky-500/30 hover:bg-sky-500/15' : 'bg-gray-900/40 border-gray-700/30 hover:border-gray-600/50'}`}>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🍽️</span>
+              <div>
+                <p className="text-sm font-medium text-white">تفعيل طلبات المنيو</p>
+                <p className="text-xs text-gray-500 mt-0.5">اللاعبون يطلبون من منيو المكان عبر التطبيق وتصل الطلبات لحساب المكان</p>
+              </div>
+            </div>
+            <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${menuOrderingEnabled ? 'bg-sky-500' : 'bg-gray-600'}`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${menuOrderingEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </div>
+          </div>
+          {menuOrderingEnabled && (
+            <div onClick={() => setAddGameFeeToBill((v: boolean) => !v)}
+              className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all select-none ${addGameFeeToBill ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-900/40 border-gray-700/30'}`}>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">💰</span>
+                <div>
+                  <p className="text-sm font-medium text-white">إضافة رسوم اللعبة إلى فاتورة اللاعب</p>
+                  <p className="text-xs text-gray-500 mt-0.5">بند رسوم اللعبة يظهر في فاتورة كل لاعب حجزه غير مدفوع</p>
+                </div>
+              </div>
+              <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${addGameFeeToBill ? 'bg-amber-500' : 'bg-gray-600'}`}>
+                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${addGameFeeToBill ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </div>
             </div>
           )}
         </Section>

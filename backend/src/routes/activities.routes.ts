@@ -508,11 +508,16 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  // location_owner: filtered by locationId
-  if (req.user?.role === 'location_owner' && (req.user as any).locationId) {
+  // location_owner: يرى أنشطة مكانه فقط — الربط يُقرأ من قاعدة البيانات
+  // (كان الكود يقرأ locationId من التوكن والتوكن لا يحمله إطلاقاً — فلتر ميّت أصلحناه)
+  if (req.user?.role === 'location_owner') {
+    const { staff } = await import('../schemas/admin.schema.js');
+    const [me] = await db.select({ locationId: staff.locationId }).from(staff)
+      .where(eq(staff.id, req.user.id)).limit(1);
+    if (!me?.locationId) return res.json([]); // حساب مكان غير مربوط → لا يرى شيئاً
     const rows = await db.select().from(activities)
       .where(and(
-        eq(activities.locationId, (req.user as any).locationId),
+        eq(activities.locationId, me.locationId),
         isNull(activities.deletedAt)
       ))
       .orderBy(desc(activities.date));
@@ -531,7 +536,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
 
   const result = await db.insert(activities).values({
@@ -548,6 +553,9 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     requireTicket: requireTicket ?? false,
     seatConstraints: seatConstraints || null,
     seatTemplateId: seatTemplateId || null,
+    // 🍽️ طلبات المنيو: المفتاح الرئيس + علَم إضافة رسوم اللعبة للفاتورة
+    menuOrderingEnabled: menuOrderingEnabled === true,
+    addGameFeeToBill: menuOrderingEnabled === true && addGameFeeToBill === true,
     createdBy: req.user?.id || null, // 👤 مُنشئ الفعالية (للتمييز عن بقية الأدمن لاحقاً)
   } as any).returning();
 
@@ -675,7 +683,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill } = req.body;
 
   const updates: any = {};
   if (name !== undefined) updates.name = name;
@@ -693,6 +701,8 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (requireTicket !== undefined) updates.requireTicket = requireTicket;
   if (seatConstraints !== undefined) updates.seatConstraints = seatConstraints;
   if (seatTemplateId !== undefined) updates.seatTemplateId = seatTemplateId;
+  if (menuOrderingEnabled !== undefined) updates.menuOrderingEnabled = menuOrderingEnabled === true;
+  if (addGameFeeToBill !== undefined) updates.addGameFeeToBill = addGameFeeToBill === true;
 
   if (Object.keys(updates).length === 0) {
     return res.status(400).json({ error: 'لا توجد بيانات للتحديث' });

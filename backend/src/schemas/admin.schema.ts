@@ -19,6 +19,7 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'new_booking', 'upcoming_activity', 'cost_alert',
   'financial', 'new_location', 'new_activity',
   'foundational_cost', 'game_started', 'game_ended',
+  'new_order', // 🍽️ طلب منيو جديد (تُضاف على قاعدة البيانات بـ ALTER TYPE في إقلاع index.ts)
 ]);
 
 // ── Locations (أماكن الاستضافة) ─────────────────────
@@ -71,6 +72,9 @@ export const activities = pgTable('activities', {
   requireTicket: boolean('require_ticket').default(false),
   seatConstraints: jsonb('seat_constraints').default(null),
   seatTemplateId: integer('seat_template_id'),           // ربط بقالب مقاعد
+  // ── 🍽️ نظام طلبات المنيو (لكل فعاليّة) ──
+  menuOrderingEnabled: boolean('menu_ordering_enabled').default(false),  // المفتاح الرئيس: طلبات المنيو من التطبيق
+  addGameFeeToBill: boolean('add_game_fee_to_bill').default(false),      // إضافة رسوم اللعبة لفاتورة اللاعب
   // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
   // 👤 مُنشئ الفعالية (staff.id) — للتمييز عن بقية الأدمن لاحقاً (صلاحيات خاصة)

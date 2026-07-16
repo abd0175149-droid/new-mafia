@@ -65,6 +65,46 @@ export default function LocationsPage() {
   // ── Owner account dialog ──
   const [ownerAccount, setOwnerAccount] = useState<{ username: string; password: string } | null>(null);
 
+  // ── 🍽️ الحسابات المرتبطة بالمكان ──
+  const [accountsFor, setAccountsFor] = useState<any | null>(null); // المكان المفتوح
+  const [accountsList, setAccountsList] = useState<any[]>([]);
+  const [loadingAccts, setLoadingAccts] = useState(false);
+  const [newAcctUsername, setNewAcctUsername] = useState('');
+  const [newAcctName, setNewAcctName] = useState('');
+  const [newAcctPerms, setNewAcctPerms] = useState<string[]>(['orders.receive']);
+  const [creatingAcct, setCreatingAcct] = useState(false);
+  const [createdAcct, setCreatedAcct] = useState<{ username: string; password: string } | null>(null);
+  const VENUE_PERMS = [
+    { id: 'orders.receive', label: '📥 استقبال الطلبات' },
+    { id: 'orders.manage', label: '🔁 إدارة الطلبات' },
+    { id: 'invoices.print', label: '🧾 طباعة الفواتير' },
+    { id: 'menu.manage', label: '📋 إدارة المنيو' },
+  ];
+
+  async function openAccounts(loc: any) {
+    setAccountsFor(loc); setAccountsList([]); setCreatedAcct(null);
+    setNewAcctUsername(''); setNewAcctName(''); setNewAcctPerms(['orders.receive']);
+    setLoadingAccts(true);
+    try { const d = await apiFetch(`/api/locations/${loc.id}/staff`); setAccountsList(d.accounts || []); }
+    catch (e) { console.error(e); }
+    finally { setLoadingAccts(false); }
+  }
+
+  async function createLinkedAccount() {
+    if (!accountsFor) return;
+    setCreatingAcct(true);
+    try {
+      const d = await apiFetch(`/api/locations/${accountsFor.id}/staff`, {
+        method: 'POST',
+        body: JSON.stringify({ username: newAcctUsername.trim() || undefined, displayName: newAcctName.trim() || undefined, permissions: newAcctPerms }),
+      });
+      setCreatedAcct({ username: d.account.username, password: d.password });
+      setAccountsList(prev => [...prev, d.account]);
+      setNewAcctUsername(''); setNewAcctName('');
+    } catch (e: any) { alert(e.message || 'فشل إنشاء الحساب'); }
+    finally { setCreatingAcct(false); }
+  }
+
   // ══ Fetch ══
   async function fetchLocations() {
     try { setLocations(await apiFetch('/api/locations')); }
@@ -196,6 +236,7 @@ export default function LocationsPage() {
                 <div className="p-4 pb-2 flex items-center justify-between">
                   <h3 className="text-base font-bold text-white">{loc.name}</h3>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => openAccounts(loc)} className="p-1.5 rounded-lg text-gray-500 hover:text-sky-400 hover:bg-sky-500/10 transition" title="الحسابات المرتبطة">👥</button>
                     <button onClick={() => handleOpenEdit(loc)} className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 transition" title="تعديل">✏️</button>
                     <button onClick={() => handleDelete(loc.id)} className="p-1.5 rounded-lg text-rose-400/40 hover:text-rose-400 hover:bg-rose-500/10 transition" title="حذف">🗑️</button>
                   </div>
@@ -382,6 +423,72 @@ export default function LocationsPage() {
               <button onClick={() => setOwnerAccount(null)} className="w-full py-2.5 bg-emerald-500/20 text-emerald-400 rounded-xl hover:bg-emerald-500/30 transition text-sm font-bold">
                 تم
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ══ 🍽️ LINKED ACCOUNTS DIALOG ══ */}
+      <AnimatePresence>
+        {accountsFor && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setAccountsFor(null)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} onClick={e => e.stopPropagation()} className="bg-gray-800 border border-gray-700/50 rounded-2xl p-6 w-full max-w-[560px] space-y-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white">👥 الحسابات المرتبطة — {accountsFor.name}</h3>
+                <button onClick={() => setAccountsFor(null)} className="text-gray-500 hover:text-white transition">✕</button>
+              </div>
+
+              {loadingAccts ? (
+                <div className="py-8 text-center"><div className="animate-spin h-7 w-7 border-4 border-sky-500 border-t-transparent rounded-full mx-auto" /></div>
+              ) : (
+                <>
+                  {accountsList.length === 0 ? (
+                    <p className="text-xs text-gray-500 text-center py-4">لا حسابات مرتبطة بهذا المكان بعد</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {accountsList.map((a: any) => (
+                        <div key={a.id} className="flex items-center gap-3 bg-gray-900/40 border border-gray-700/30 rounded-xl p-3">
+                          <div className="w-9 h-9 rounded-lg bg-sky-500/15 text-sky-400 flex items-center justify-center font-bold">{(a.displayName || '?')[0]}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white truncate">{a.displayName} <span className="text-[10px] text-gray-500 font-mono" dir="ltr">{a.username}</span>{a.isActive === false && <span className="text-[9px] text-rose-400 border border-rose-500/40 rounded px-1 mr-1.5">موقوف</span>}</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(Array.isArray(a.permissions) ? a.permissions : []).filter((p: string) => p.includes('.')).map((p: string) => (
+                                <span key={p} className="text-[9px] px-1.5 py-0.5 rounded-full border border-sky-500/30 text-sky-400">{VENUE_PERMS.find(v => v.id === p)?.label || p}</span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <hr className="border-gray-700/30" />
+                  <p className="text-sm font-bold text-white">+ إضافة حساب مرتبط</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="text" value={newAcctName} onChange={e => setNewAcctName(e.target.value)} placeholder="الاسم الظاهر (مثل: موظّف البار)" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm outline-none focus:ring-1 focus:ring-sky-500/30" />
+                    <input type="text" value={newAcctUsername} onChange={e => setNewAcctUsername(e.target.value)} placeholder="اسم المستخدم (اختياريّ)" dir="ltr" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm font-mono outline-none focus:ring-1 focus:ring-sky-500/30" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {VENUE_PERMS.map(p => (
+                      <label key={p.id} className="flex items-center gap-2 cursor-pointer bg-gray-900/40 p-2 rounded-lg border border-gray-700/30">
+                        <input type="checkbox" checked={newAcctPerms.includes(p.id)} onChange={() => setNewAcctPerms(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} className="accent-sky-500 w-4 h-4" />
+                        <span className="text-xs text-gray-300">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button onClick={createLinkedAccount} disabled={creatingAcct} className="w-full py-2.5 bg-sky-500/20 text-sky-300 border border-sky-500/40 rounded-xl hover:bg-sky-500/30 transition text-sm font-bold disabled:opacity-50">
+                    {creatingAcct ? '⏳ جارٍ الإنشاء…' : 'إنشاء الحساب'}
+                  </button>
+
+                  {createdAcct && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center space-y-2">
+                      <p className="text-xs text-emerald-300 font-bold">✅ أُنشئ الحساب — احفظ كلمة المرور الآن، لن تظهر مرّة أخرى</p>
+                      <p className="text-sm font-mono text-white" dir="ltr">{createdAcct.username}</p>
+                      <p className="text-sm font-mono font-bold text-amber-400" dir="ltr">{createdAcct.password}</p>
+                    </div>
+                  )}
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
