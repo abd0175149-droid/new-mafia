@@ -65,7 +65,7 @@ export const reservationRosterReport: ReportDefinition = {
     return {
       header: {
         titleAr: `كشف حجوزات — ${act.name}`,
-        subtitleAr: `${dateAr}${act.locationName ? ` • 📍 ${act.locationName}` : ''}`,
+        subtitleAr: `${dateAr}${act.locationName ? ` • ${act.locationName}` : ''}`,
         generatedAt: new Date().toISOString(),
         generatedByAr: user.displayName,
         currency: 'IQD',
@@ -74,10 +74,10 @@ export const reservationRosterReport: ReportDefinition = {
       sections: [
         {
           type: 'kpis', items: [
-            { icon: '📋', labelAr: 'حجوزات', value: rows.length, format: 'number', tone: 'blue' },
-            { icon: '👥', labelAr: 'أشخاص', value: totalPeople, format: 'number', tone: 'amber', sub: act.maxCapacity ? `السعة ${act.maxCapacity}` : undefined },
-            { icon: '✅', labelAr: 'مثبّت', value: `${confirmedRows.length} (${confirmedPeople} شخصاً)`, tone: 'green' },
-            { icon: '🎯', labelAr: 'حضر', value: `${attendedRows.length} (${attendedPeople} شخصاً)`, tone: 'purple', sub: noShowRows.length ? `${noShowRows.length} لم يحضر` : undefined },
+            { labelAr: 'حجوزات', value: rows.length, format: 'number', tone: 'blue' },
+            { labelAr: 'أشخاص', value: totalPeople, format: 'number', tone: 'amber', sub: act.maxCapacity ? `السعة ${act.maxCapacity}` : undefined },
+            { labelAr: 'مثبّت', value: `${confirmedRows.length} (${confirmedPeople} شخصاً)`, tone: 'green' },
+            { labelAr: 'حضر', value: `${attendedRows.length} (${attendedPeople} شخصاً)`, tone: 'purple', sub: noShowRows.length ? `${noShowRows.length} لم يحضر` : undefined },
           ],
         },
         {
@@ -99,7 +99,7 @@ export const reservationRosterReport: ReportDefinition = {
             peopleCount: num(r.peopleCount) || 1,
             statusAr: isConfirmed(r.status) ? 'مثبّت' : 'غير مثبّت',
             attendedAr: r.attended === true ? 'حضر' : r.attended === false ? 'لم يحضر' : '—',
-            linkedAr: r.linkedPlayerName ? '👤 مرتبط' : '—',
+            linkedAr: r.linkedPlayerName ? '✓ مرتبط' : '—',
             notes: r.notes || '',
           })),
           totalsRow: {
