@@ -39,7 +39,8 @@ export default function AdminLoginPage() {
       localStorage.setItem('leader_token', data.token);
       localStorage.setItem('leader_name', data.profile?.displayName || username);
 
-      window.location.href = '/admin';
+      // 🏪 حساب المكان → كونسول المكان مباشرةً (لا صفحات إدارة النادي)
+      window.location.href = data.profile?.role === 'location_owner' ? '/venue' : '/admin';
     } catch (err) {
       setError('خطأ في الاتصال بالسيرفر');
     } finally {

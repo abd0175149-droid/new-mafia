@@ -48,6 +48,7 @@ import reservationsRoutes from './routes/reservations.routes.js';
 import seasonsRoutes from './routes/seasons.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
+import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -166,6 +167,8 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
+app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
+app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 // مصدر واحد ثابت (config/vapid.ts) — نفس المفتاح الذي يوقّع به السيرفر الإرسال

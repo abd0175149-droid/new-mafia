@@ -35,6 +35,8 @@ export default function HomePage() {
   const [staffPanelOpen, setStaffPanelOpen] = useState(false);
   // 💬 تنبيه الانضمام لمجموعة الواتساب — يظهر مرة واحدة لكل مستخدم (مفتاح جديد ⇒ يظهر للجميع بعد النشر)
   const [waGroupPrompt, setWaGroupPrompt] = useState(false);
+  // 🍽️ سياق طلب المنيو — يظهر البطاقة فقط عندما يكون للاعب حجزٌ ضمن نافذة فعاليّة مفعَّلة المنيو
+  const [fnbCtx, setFnbCtx] = useState<any>(null);
 
   // ── منع السكرول + swipe-to-close ──
   const activityModal = useModalScrollLock({
@@ -66,6 +68,14 @@ export default function HomePage() {
       if (actData.success) setUpcoming((actData.activities || []).slice(0, 3));
       if (roomsData.success && roomsData.rooms?.length > 0) setActiveRooms(roomsData.rooms);
     }).finally(() => setLoading(false));
+
+    // 🍽️ مستقلّ عن Promise.all حتى لا يؤخّر الصفحة
+    if (token) {
+      fetch('/api/fnb/context', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(d => { if (d.success && d.context) setFnbCtx(d.context); })
+        .catch(() => {});
+    }
   }, [player]);
 
   // 💬 إظهار تنبيه مجموعة الواتساب مرة واحدة (أول دخول بعد النشر)
@@ -488,6 +498,26 @@ export default function HomePage() {
             </motion.div>
           ))}
         </div>
+      )}
+
+      {/* 🍽️ اطلب من المكان — تظهر فقط عندما يكون للاعب سياق طلب فعّال */}
+      {fnbCtx && (
+        <button
+          onClick={() => router.push('/player/order')}
+          className="w-full rounded-2xl p-4 text-right transition-all"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.14), rgba(5,5,5,0.9))',
+            border: '1px solid rgba(16,185,129,0.3)',
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-emerald-400 text-xs font-medium">🍽️ اطلب من {fnbCtx.locationName}</span>
+              <p className="text-white text-sm mt-1">منيو المكان متاح لحجزك — {fnbCtx.activityName}</p>
+            </div>
+            <span className="px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap" style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)', color: '#fff' }}>اطلب →</span>
+          </div>
+        </button>
       )}
 
       {/* 🌐 استضافة لعبة عن بُعد — تظهر فقط للحسابات المصرّح لها (can_host_remote) */}
