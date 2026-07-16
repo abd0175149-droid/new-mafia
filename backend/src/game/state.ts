@@ -102,6 +102,7 @@ export interface VotingState {
   leaderProxyVotes?: Record<number, number>; // physicalId → candidateIndex (أصوات الليدر بالوكالة)
   durationSeconds?: number;
   votingStartTime?: number;
+  mayorRevote?: boolean; // 🎩 هذه الجولة أُعيدت بأمر العمدة (يزول مع أيّ initVoting لاحق)
 }
 
 export interface NightActions {

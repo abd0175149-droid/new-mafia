@@ -846,11 +846,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
     }
   });
 
-  // ── 🎩 قرار العمدة: تمرير / إعادة تصويت بين الأعلى اثنين / تأجيل ──
+  // ── 🎩 قرار العمدة: تمرير / إعادة تصويت كاملة على الجميع / تأجيل ──
   // المصدر: الليدر (وجاهيّاً — ينقل إعلان اللاعب)، أو هاتف العمدة نفسه (عن بُعد).
   socket.on('day:mayor-decision', async (data: {
     roomId: string;
-    decision: 'PASS' | 'REVOTE_TOP2' | 'POSTPONE';
+    decision: 'PASS' | 'REVOTE' | 'REVOTE_TOP2' | 'POSTPONE'; // REVOTE_TOP2 اسم قديم مقبول
   }, callback) => {
     try {
       const state = await getGameState(data.roomId);
@@ -877,18 +877,20 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       // ── فيتو: كشفٌ دائم + حرق القدرة (×2 يسري فوراً — قرار ②) ──
       const window = ms.window;
-      applyMayorVeto(state, data.decision);
+      const decision = data.decision === 'REVOTE_TOP2' ? 'REVOTE' : data.decision;
+      applyMayorVeto(state, decision as any);
       const revealPayload = mayorRevealPayload(state);
       clearRevealGrace(data.roomId);
 
-      if (data.decision === 'REVOTE_TOP2') {
-        // إعادة التصويت بين الأعلى اثنين — بدلالات «التضييق» الحاليّة فتعمل كلّ الواجهات
-        rebuildVotingForMayorRevote(state, window.top2);
+      if (decision === 'REVOTE') {
+        // إعادة تصويت كاملة على كلّ الأحياء (قرار المالك المعدَّل — لا حصر بالأعلى اثنين)
+        rebuildVotingForMayorRevote(state);
         state.phase = Phase.DAY_VOTING;
         await setGameState(data.roomId, state);
         await setPhase(data.roomId, Phase.DAY_VOTING);
 
         io.to(data.roomId).emit('day:mayor-revealed', { ...revealPayload, savedPhysicalId: (window.winner as any).targetPhysicalId ?? null });
+        io.to(data.roomId).emit('day:mayor-window-closed', {});
         io.to(data.roomId).emit('game:phase-changed', { phase: Phase.DAY_VOTING });
         io.to(data.roomId).emit('day:voting-started', {
           candidates: state.votingState.candidates,
@@ -903,8 +905,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
           mayorRevote: true,                    // 🎩 شارة «بأمر العمدة» في الواجهات
           mayorPhysicalId: ms.mayorPhysicalId,  // للشارة ⚖️×2
         });
-        console.log(`🎩 Mayor REVOTE_TOP2 in room ${data.roomId} — candidates reset to top-2`);
-        return callback({ success: true, decision: data.decision });
+        // مزامنة كاملة — واجهة الليدر تعتمدها لإغلاق النافذة وعرض جولة العمدة (قرار الهاتف خاصّة)
+        await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
+        console.log(`🎩 Mayor REVOTE in room ${data.roomId} — fresh vote on all alive players`);
+        return callback({ success: true, decision });
       }
 
       // POSTPONE — لا موت اليوم (قرار ③): نمرّ بمسار DAY_ELIMINATION الفارغ المعتاد
@@ -923,6 +927,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
       await setPhase(data.roomId, Phase.DAY_ELIMINATION);
 
       io.to(data.roomId).emit('day:mayor-revealed', { ...revealPayload, savedPhysicalId: (window.winner as any).targetPhysicalId ?? null });
+      io.to(data.roomId).emit('day:mayor-window-closed', {});
       await emitPhaseChangedSanitized(io, data.roomId, { phase: Phase.DAY_ELIMINATION, state });
       io.to(data.roomId).emit('day:elimination-pending', {
         eliminated: [],
@@ -933,8 +938,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
         neutralWin: null,
         mayorPostponed: true,
       });
+      // مزامنة كاملة لواجهة الليدر (إغلاق النافذة + حالة العمدة المكشوفة)
+      await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
       console.log(`🎩 Mayor POSTPONE in room ${data.roomId} — day ends with no death`);
-      callback({ success: true, decision: data.decision });
+      callback({ success: true, decision });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

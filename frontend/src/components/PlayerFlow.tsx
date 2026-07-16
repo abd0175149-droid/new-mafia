@@ -1022,7 +1022,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     return () => clearInterval(iv);
   }, [mayorPrompt]);
 
-  const sendMayorDecision = async (decision: 'PASS' | 'REVOTE_TOP2' | 'POSTPONE') => {
+  const sendMayorDecision = async (decision: 'PASS' | 'REVOTE' | 'POSTPONE') => {
     if (mayorSending) return;
     setMayorSending(true);
     try {
@@ -2136,12 +2136,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               <p className="text-center text-[10px] text-[#655c4e] mb-3">⏳ {mayorPromptLeft} ثانية — وبعدها يحسم الموجّه</p>
               <div className="space-y-2">
                 <button
-                  onClick={() => sendMayorDecision('REVOTE_TOP2')}
-                  disabled={mayorSending || (mayorPrompt.top2 || []).length < 2}
+                  onClick={() => sendMayorDecision('REVOTE')}
+                  disabled={mayorSending}
                   className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg,#3b6fd4,#2b4f9e)', border: '1px solid #4f8ef7' }}
                 >
-                  🔄 أكشف نفسي — إعادة التصويت بين الأعلى اثنين
+                  🔄 أكشف نفسي — إلغاء الإعدام وتصويت جديد على الجميع
                 </button>
                 <button
                   onClick={() => sendMayorDecision('POSTPONE')}
@@ -2176,7 +2176,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}>
               <p className="text-[#C5A059] font-black text-sm">🎩 العمدة يكشف نفسه: #{mayorBanner.physicalId} {mayorBanner.name}</p>
               <p className="text-[#9a8f7d] text-[11px] mt-0.5">
-                {mayorBanner.decision === 'REVOTE_TOP2' ? 'أُلغي الإعدام — إعادة تصويت بين الأعلى اثنين' : 'أُلغي الإعدام — لا موت اليوم'}
+                {mayorBanner.decision === 'REVOTE' ? 'أُلغي الإعدام — تصويت جديد على الجميع' : 'أُلغي الإعدام — لا موت اليوم'}
                 {' '}• صوته يُحسب ⚖️×2
               </p>
             </div>

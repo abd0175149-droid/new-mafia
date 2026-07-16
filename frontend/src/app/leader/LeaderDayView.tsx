@@ -788,14 +788,18 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     initiatorName: c.initiatorName || (c.initiatorPhysicalId ? nameOfSeat(c.initiatorPhysicalId) : null),
     votes: c.votes,
   } : null;
-  const mayorWindow = mayorStateSrv?.window
-    ? { winner: describeCand(mayorStateSrv.window.winner), top2: (mayorStateSrv.window.top2 || []).map(describeCand), topVotes: mayorStateSrv.window.topVotes }
+  // حالة الخادم هي الحقيقة متى وُجد mayorState (يصل الليدر كاملاً): نافذة مغلقة خادميّاً
+  // (قرار وصل من هاتف العمدة مثلاً) تُغلق المودال حتى لو بقيت نسخة محليّة عالقة.
+  const mayorWindow = mayorStateSrv
+    ? (mayorStateSrv.window
+      ? { winner: describeCand(mayorStateSrv.window.winner), topVotes: mayorStateSrv.window.topVotes }
+      : null)
     : mayorWindowLocal;
 
-  const handleMayorDecision = async (decision: 'PASS' | 'REVOTE_TOP2' | 'POSTPONE') => {
+  const handleMayorDecision = async (decision: 'PASS' | 'REVOTE' | 'POSTPONE') => {
     const msgs: Record<string, string> = {
       PASS: 'لا تدخّل من العمدة — تنفيذ الإعدام كالمعتاد؟',
-      REVOTE_TOP2: 'العمدة يكشف نفسه ويأمر بإعادة التصويت بين الأعلى اثنين؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
+      REVOTE: 'العمدة يكشف نفسه ويُلغي الإعدام — تصويت جديد كامل على الجميع؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
       POSTPONE: 'العمدة يكشف نفسه ويؤجّل — لا موت اليوم وتبدأ الليلة؟\n(كشفٌ دائم + صوته ×2 + تُستهلك القدرة)',
     };
     if (!(await swalConfirm(msgs[decision]))) return;
@@ -803,7 +807,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     try {
       await emit('day:mayor-decision', { roomId: gameState.roomId, decision });
       setMayorWindowLocal(null);
-      if (decision === 'REVOTE_TOP2') {
+      if (decision === 'REVOTE') {
         setJustCurrentIdx(0);
         setJustTimerStarted(false);
         setJustAllDone(false);
@@ -825,10 +829,6 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const targetLabel = w.type === 'DEAL'
       ? `صفقة: #${w.initiatorPhysicalId} ${w.initiatorName} ← #${w.targetPhysicalId} ${w.targetName}`
       : `#${w.targetPhysicalId} ${w.targetName}`;
-    const t2 = mayorWindow.top2 || [];
-    const revoteLabel = t2.length >= 2
-      ? `بين ${t2.map((c: any) => c.type === 'DEAL' ? 'الصفقة' : `#${c.targetPhysicalId}`).join(' و')}`
-      : '';
     return (
       <div className="fixed inset-0 z-[90] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
         <div className="w-full max-w-md rounded-2xl p-5 border-2 border-[#C5A059] shadow-[0_0_40px_rgba(197,160,89,0.25)]"
@@ -849,12 +849,12 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
               ⚔️ لا تدخّل — تنفيذ الإعدام
             </button>
             <button
-              onClick={() => handleMayorDecision('REVOTE_TOP2')}
-              disabled={mayorBusy || t2.length < 2}
+              onClick={() => handleMayorDecision('REVOTE')}
+              disabled={mayorBusy}
               className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
               style={{ background: 'linear-gradient(135deg,#3b6fd4,#2b4f9e)', border: '1px solid #4f8ef7' }}
             >
-              🎩🔄 إعادة التصويت {revoteLabel}
+              🎩🔄 إلغاء الإعدام — تصويت جديد على الجميع
             </button>
             <button
               onClick={() => handleMayorDecision('POSTPONE')}
@@ -2027,7 +2027,7 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     const isComplete = totalVotes >= votingAliveCount;
     // 🎩 عمدة مكشوف؟ (شارة ×2 + لافتة إعادة التصويت بأمره)
     const mayorRevealedId = gameState.mayorState?.revealed ? gameState.mayorState.mayorPhysicalId : null;
-    const isMayorRevote = !!mayorRevealedId && gameState.mayorState?.decision === 'REVOTE_TOP2' && (gameState.votingState?.tieBreakerLevel ?? 0) >= 2;
+    const isMayorRevote = gameState.votingState?.mayorRevote === true;
 
     // عداد الفرق
     const citizenCount = alivePlayers.filter((p: any) => !['GODFATHER','SILENCER','CHAMELEON','WITCH','OLDER_BROTHER','MAFIA_REGULAR'].includes(p.role)).length;

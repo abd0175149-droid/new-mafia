@@ -78,6 +78,21 @@ async function seed() {
   await db.insert(schema.cardTemplates).values(witchTemplate).onConflictDoNothing();
   console.log(`✅ تم بذر قالب بطاقة الساحرة (witch_card)`);
 
+  // 🎩 قالب بطاقة العمدة — ذهبيّ ملكيّ يليق بالنفوذ
+  const mayorTemplate = {
+    id: 'mayor_card',
+    gradient: 'from-amber-700 via-yellow-900 to-stone-950',
+    borderColor: '#eab308',
+    textColor: '#fde68a',
+    glowEffect: '0 0 30px rgba(234,179,8,0.35)',
+    teamBadge: { text: 'مواطنون', bgColor: '#064e3b', textColor: '#a7f3d0', borderColor: '#10b981' },
+    icon: { type: 'EMOJI', value: '🎩' },
+    secretFace: { type: 'GENERATED' },
+    elements: { showPlayerNumber: true, showClubBranding: true, showDescription: false },
+  };
+  await db.insert(schema.cardTemplates).values(mayorTemplate).onConflictDoNothing();
+  console.log(`✅ تم بذر قالب بطاقة العمدة (mayor_card)`);
+
   // ══════════════════════════════════════════════
   // 3. الأدوار — جميعها تشير للقالب الرئيسي
   // ══════════════════════════════════════════════
@@ -95,7 +110,7 @@ async function seed() {
     { id: 'SNIPER', nameAr: 'القناص', nameEn: 'Sniper', team: 'CITIZEN' as const, abilities: ['SNIPE'], genPriority: 3, genMaxCount: 1, genMinPlayers: 7, genIsRequired: false, cardTemplateId: 'master', description: 'يقنص لاعباً — إذا أصاب مافيا يقتله وإلا يموت معه', cardOverrides: { icon: { type: 'lucide', value: 'Crosshair' } } },
     { id: 'POLICEWOMAN', nameAr: 'الشرطية', nameEn: 'Policewoman', team: 'CITIZEN' as const, abilities: [], genPriority: 4, genMaxCount: 1, genMinPlayers: 8, genIsRequired: false, cardTemplateId: 'master', description: 'عند إقصائها تكشف هوية قاتلها لاحقاً', cardOverrides: { icon: { type: 'lucide', value: 'BadgeAlert' } } },
     { id: 'NURSE', nameAr: 'الممرضة', nameEn: 'Nurse', team: 'CITIZEN' as const, abilities: ['PROTECT'], genPriority: 5, genMaxCount: 1, genMinPlayers: 9, genIsRequired: false, cardTemplateId: 'master', description: 'تُفعّل بعد موت الطبيب — نفس قدرة الحماية', cardOverrides: { icon: { type: 'lucide', value: 'Syringe' } } },
-    { id: 'MAYOR', nameAr: 'العمدة', nameEn: 'Mayor', team: 'CITIZEN' as const, abilities: [], genPriority: 6, genMaxCount: 1, genMinPlayers: 9, genIsRequired: false, cardTemplateId: 'master', description: 'مرّة واحدة بعد فرز التصويت: يكشف نفسه ويلغي الإعدام — إعادة تصويت بين الأعلى اثنين أو تأجيل بلا موت. بعد الكشف صوته ×2', cardOverrides: { icon: { type: 'lucide', value: 'Landmark' } } },
+    { id: 'MAYOR', nameAr: 'العمدة', nameEn: 'Mayor', team: 'CITIZEN' as const, abilities: [], genPriority: 6, genMaxCount: 1, genMinPlayers: 9, genIsRequired: false, cardTemplateId: 'mayor_card', description: 'مرّة واحدة بعد فرز التصويت: يكشف نفسه ويلغي الإعدام — تصويت جديد على الجميع أو تأجيل بلا موت. بعد الكشف صوته ×2', cardOverrides: { icon: { type: 'EMOJI', value: '🎩' } } },
     { id: 'CITIZEN', nameAr: 'مواطن صالح', nameEn: 'Citizen', team: 'CITIZEN' as const, abilities: [], genPriority: 99, genMaxCount: 10, genMinPlayers: 6, genIsRequired: false, cardTemplateId: 'master', description: 'مواطن عادي — يشارك بالنقاش والتصويت فقط', cardOverrides: { icon: { type: 'lucide', value: 'User' } } },
   ];
 

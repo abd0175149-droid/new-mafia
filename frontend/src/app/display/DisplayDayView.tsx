@@ -510,8 +510,8 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               className="text-2xl text-[#C5A059]/90"
               style={{ fontFamily: 'Amiri, serif' }}
             >
-              {mayorScene.decision === 'REVOTE_TOP2'
-                ? '🔄 أُلغي الإعدام — إعادة التصويت بين الأعلى اثنين'
+              {mayorScene.decision === 'REVOTE'
+                ? '🔄 أُلغي الإعدام — تصويت جديد على الجميع'
                 : '🌙 أُلغي الإعدام — لا موت اليوم'}
             </motion.p>
             <motion.p

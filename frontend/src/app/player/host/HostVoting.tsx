@@ -35,7 +35,7 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
   const tbl = vs.tieBreakerLevel || 0;
   // 🎩 عمدة مكشوف؟ (المضيف ليدر موثوق — يصله mayorState كاملاً، واللاعبون يصلهم بعد الكشف فقط)
   const mayorRevealedId = gameState.mayorState?.revealed ? gameState.mayorState.mayorPhysicalId : null;
-  const isMayorRevote = !!mayorRevealedId && gameState.mayorState?.decision === 'REVOTE_TOP2' && tbl >= 2;
+  const isMayorRevote = vs.mayorRevote === true;
   const label = isMayorRevote ? '🎩 بأمر العمدة' : tbl >= 2 ? 'مُضيّق' : tbl === 1 ? 'إعادة' : 'مباشر';
   const mafia = alive.filter((p: any) => (MAFIA_ROLES as string[]).includes(p.role)).length;
   const citizen = alive.length - mafia;
@@ -107,7 +107,7 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
 
       {/* أزرار */}
       <div className="flex gap-2">
-        {label !== 'مباشر' && (
+        {label !== 'مباشر' && !isMayorRevote && (
           <button onClick={() => run(() => emit('day:un-narrow', { roomId: gameState.roomId }))} disabled={busy}
             className="px-3 py-3 rounded-xl border border-[#2a2a2a] text-[#aaa] bg-[#0e0e10] text-xs">🔓 مباشر</button>
         )}

@@ -629,10 +629,21 @@ async function main() {
       // 🎩 دور العمدة في المحرّك الديناميكيّ — إدراج آمن لا يمسّ أدوار الإنتاج المعدَّلة يدويّاً
       await db.execute(sql`
         INSERT INTO role_definitions (id, name_ar, name_en, team, abilities, gen_priority, gen_max_count, gen_min_players, gen_is_required, card_template_id, description, card_overrides)
-        VALUES ('MAYOR', 'العمدة', 'Mayor', 'CITIZEN', '[]'::jsonb, 6, 1, 9, false, 'master',
-                'مرّة واحدة بعد فرز التصويت: يكشف نفسه ويلغي الإعدام — إعادة تصويت بين الأعلى اثنين أو تأجيل بلا موت. بعد الكشف صوته ×2',
-                '{"icon":{"type":"lucide","value":"Landmark"}}'::jsonb)
+        VALUES ('MAYOR', 'العمدة', 'Mayor', 'CITIZEN', '[]'::jsonb, 6, 1, 9, false, 'mayor_card',
+                'مرّة واحدة بعد فرز التصويت: يكشف نفسه ويلغي الإعدام — تصويت جديد على الجميع أو تأجيل بلا موت. بعد الكشف صوته ×2',
+                '{"icon":{"type":"EMOJI","value":"🎩"}}'::jsonb)
         ON CONFLICT (id) DO NOTHING`);
+      // 🎩 قالب بطاقة العمدة الذهبيّ + ربط الدور به (مرّة واحدة — تعديلات المالك اللاحقة تُحترم)
+      await db.execute(sql`
+        INSERT INTO card_templates (id, gradient, border_color, text_color, glow_effect, team_badge, icon, secret_face, elements)
+        VALUES ('mayor_card', 'from-amber-700 via-yellow-900 to-stone-950', '#eab308', '#fde68a', '0 0 30px rgba(234,179,8,0.35)',
+                '{"text":"مواطنون","bgColor":"#064e3b","textColor":"#a7f3d0","borderColor":"#10b981"}'::jsonb,
+                '{"type":"EMOJI","value":"🎩"}'::jsonb, '{"type":"GENERATED"}'::jsonb,
+                '{"showPlayerNumber":true,"showClubBranding":true,"showDescription":false}'::jsonb)
+        ON CONFLICT (id) DO NOTHING`);
+      await db.execute(sql`
+        UPDATE role_definitions SET card_template_id = 'mayor_card', card_overrides = '{"icon":{"type":"EMOJI","value":"🎩"}}'::jsonb
+        WHERE id = 'MAYOR' AND card_template_id = 'master'`);
       console.log('✅ players remote-access + reservations.player_id + analytics + fnb tables + MAYOR role ensured');
     }
   } catch (err: any) {

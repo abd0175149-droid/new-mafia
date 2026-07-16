@@ -15,7 +15,7 @@
 import type { GameState, Candidate } from './state.js';
 import { Role } from './roles.js';
 
-export type MayorDecision = 'REVOTE_TOP2' | 'POSTPONE';
+export type MayorDecision = 'REVOTE' | 'POSTPONE';
 
 export interface MayorWindow {
   winner: Candidate;          // المرشّح الذي كان سيُعدم (لقطة)
@@ -96,14 +96,33 @@ export function closeMayorWindow(state: GameState): void {
   if (state.mayorState) state.mayorState.window = null;
 }
 
-// ── إعادة بناء التصويت لمرشَّحَي العمدة (إعادة التصويت بين الأعلى اثنين) ──
-// نعيد استخدام دلالات «التضييق» الحاليّة (tieBreakerLevel=2) فتعمل كلّ الواجهات كما هي.
-export function rebuildVotingForMayorRevote(state: GameState, top2: Candidate[]): void {
-  state.votingState.candidates = top2.map(c => ({ ...c, votes: 0 }));
+// ── إعادة بناء التصويت بأمر العمدة: تصويت جديد كامل على **كلّ الأحياء** ──
+// (قرار المالك المعدَّل 2026-07-16: لا حصر بالأعلى اثنين). الصفقات القائمة تبقى مرشّحين
+// وتُخفي أهدافها كالمعتاد. علم mayorRevote على votingState يعرّف الواجهات بهويّة الجولة
+// ويزول تلقائيّاً مع أيّ تصويتٍ لاحق (initVoting يبني votingState جديدة).
+export function rebuildVotingForMayorRevote(state: GameState): void {
+  const alive = state.players.filter(p => p.isAlive && !p.penaltyKicked);
+  const deals = state.votingState.deals || [];
+  const dealTargets = deals.map(d => d.targetPhysicalId);
+
+  const dealCandidates: Candidate[] = deals.map(d => ({
+    type: 'DEAL' as any,
+    id: d.id,
+    initiatorPhysicalId: d.initiatorPhysicalId,
+    targetPhysicalId: d.targetPhysicalId,
+    votes: 0,
+  })) as any;
+  const playerCandidates: Candidate[] = alive
+    .filter(p => !dealTargets.includes(p.physicalId))
+    .map(p => ({ type: 'PLAYER' as any, targetPhysicalId: p.physicalId, votes: 0 })) as any;
+
+  state.votingState.candidates = [...dealCandidates, ...playerCandidates];
+  state.votingState.hiddenPlayersFromVoting = dealTargets;
   state.votingState.totalVotesCast = 0;
-  state.votingState.tieBreakerLevel = 2;
+  state.votingState.tieBreakerLevel = 0;
   state.votingState.playerVotes = {};
   state.votingState.leaderProxyVotes = {};
+  (state.votingState as any).mayorRevote = true;
   if (state.votingState.durationSeconds) {
     state.votingState.votingStartTime = Date.now();
   }

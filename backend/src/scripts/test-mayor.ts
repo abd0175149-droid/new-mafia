@@ -132,7 +132,7 @@ async function run() {
     check('قبل الكشف: وزن العمدة 1', mayorVoteWeight(s, 5) === 1);
     check('لاعب عاديّ: وزن 1', mayorVoteWeight(s, 6) === 1);
 
-    applyMayorVeto(s, 'REVOTE_TOP2');
+    applyMayorVeto(s, 'REVOTE');
     check('بعد الكشف: وزن العمدة 2 (قرار ② — فوريّ)', mayorVoteWeight(s, 5) === 2);
     check('بعد الكشف: بقيّة اللاعبين 1', mayorVoteWeight(s, 6) === 1);
 
@@ -151,7 +151,7 @@ async function run() {
   section('٣) castVote(weight): عدّاد المرشّح ×2 وعدّاد المصوّتين ×1');
   {
     const s = await mkRoom('m3');
-    applyMayorVeto(s, 'REVOTE_TOP2'); // كشفٌ لتفعيل ×2
+    applyMayorVeto(s, 'REVOTE'); // كشفٌ لتفعيل ×2
     await setGameState('m3', s);
 
     await castVote('m3', 0, 1, 2);   // وكالة الليدر عن العمدة
@@ -171,7 +171,7 @@ async function run() {
   }
 
   // ════════ ٤) المسار الكامل: نافذة → إعادة تصويت بين الأعلى اثنين ════════
-  section('٤) REVOTE_TOP2 — النافذة واللقطة وإعادة البناء');
+  section('٤) REVOTE — النافذة وإعادة التصويت الكاملة على الجميع');
   {
     const s = await mkRoom('m4');
     // 5 أصوات على الشريف(#3)، 3 على الشيخ(#1)، 1 على مواطن(#6)
@@ -185,17 +185,19 @@ async function run() {
     const cur = await getGameState('m4');
     check('مؤهّل قبل الفتح', isMayorEligible(cur));
     const win = openMayorWindow(cur, sort.topCandidates[0], sort.topVotes);
-    check('لقطة الأعلى اثنين: الشريف ثم الشيخ', (win.top2[0] as any).targetPhysicalId === 3 && (win.top2[1] as any).targetPhysicalId === 1);
+    check('لقطة النافذة تحمل الفائز الصحيح', (win.winner as any).targetPhysicalId === 3 && win.topVotes === 5);
 
-    applyMayorVeto(cur, 'REVOTE_TOP2');
-    rebuildVotingForMayorRevote(cur, win.top2);
+    applyMayorVeto(cur, 'REVOTE');
+    rebuildVotingForMayorRevote(cur);
     await setGameState('m4', cur);
 
-    check('مرشَّحان فقط وأصوات صفر', cur.votingState.candidates.length === 2 && cur.votingState.candidates.every((c: any) => c.votes === 0));
-    check('دلالات التضييق tieBreakerLevel=2', cur.votingState.tieBreakerLevel === 2);
+    check('إعادة كاملة: كلّ الأحياء مرشّحون بأصوات صفر (قرار المالك المعدَّل)',
+      cur.votingState.candidates.length === cur.players.filter((p: any) => p.isAlive).length &&
+      cur.votingState.candidates.every((c: any) => c.votes === 0));
+    check('بلا تضييق (tieBreakerLevel=0) + علم mayorRevote', cur.votingState.tieBreakerLevel === 0 && cur.votingState.mayorRevote === true);
     check('playerVotes صُفّرت', Object.keys(cur.votingState.playerVotes).length === 0);
     check('الشريف لم يُقتل (لا resolveVoting)', cur.players.find((p: any) => p.physicalId === 3).isAlive === true);
-    check('القدرة احترقت والكشف دائم', cur.mayorState.vetoUsed && cur.mayorState.revealed && cur.mayorState.decision === 'REVOTE_TOP2');
+    check('القدرة احترقت والكشف دائم', cur.mayorState.vetoUsed && cur.mayorState.revealed && cur.mayorState.decision === 'REVOTE');
     check('النافذة أُغلقت', !cur.mayorState.window);
     check('غير مؤهّل لفيتو ثانٍ (مرّة واحدة)', isMayorEligible(cur) === false);
 
@@ -206,7 +208,7 @@ async function run() {
 
     check('الحمولة العلنيّة بعد الكشف صحيحة', JSON.stringify(publicMayorInfo(after)) === JSON.stringify({ revealed: true, physicalId: 5, vetoUsed: true }));
     const payload = mayorRevealPayload(after);
-    check('حمولة إعلان الكشف تحمل الاسم والقرار', payload.physicalId === 5 && payload.name === 'العمدة' && payload.decision === 'REVOTE_TOP2');
+    check('حمولة إعلان الكشف تحمل الاسم والقرار', payload.physicalId === 5 && payload.name === 'العمدة' && payload.decision === 'REVOTE');
   }
 
   // ════════ ٥) التأجيل (قرار ③) — لا موت اليوم ════════
@@ -251,10 +253,11 @@ async function run() {
     check('الفائز صفقة', sort.type === 'SINGLE_WINNER' && (sort.topCandidates[0] as any).type === 'DEAL');
 
     const cur = await getGameState('m7');
-    const win = openMayorWindow(cur, sort.topCandidates[0], sort.topVotes);
-    applyMayorVeto(cur, 'REVOTE_TOP2');
-    rebuildVotingForMayorRevote(cur, win.top2);
-    check('قرار ④: الصفقة تبقى مرشّحاً في الإعادة', cur.votingState.candidates.some((c: any) => c.type === 'DEAL'));
+    openMayorWindow(cur, sort.topCandidates[0], sort.topVotes);
+    applyMayorVeto(cur, 'REVOTE');
+    rebuildVotingForMayorRevote(cur);
+    check('قرار ④: الصفقة تبقى مرشّحاً في الإعادة الكاملة', cur.votingState.candidates.some((c: any) => c.type === 'DEAL'));
+    check('هدف الصفقة مخفيّ من مرشّحي اللاعبين', cur.votingState.hiddenPlayersFromVoting.includes(1) && !cur.votingState.candidates.some((c: any) => c.type === 'PLAYER' && c.targetPhysicalId === 1));
     check('طرفا الصفقة أحياء (أُلغي موتهما)', cur.players.find((p: any) => p.physicalId === 1).isAlive && cur.players.find((p: any) => p.physicalId === 6).isAlive);
   }
 
