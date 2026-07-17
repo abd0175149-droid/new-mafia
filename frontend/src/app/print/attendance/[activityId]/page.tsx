@@ -6,7 +6,7 @@
 // عدّاد الأشخاص + نداء الحجز، صفحات A4 داكنة كاملة، طباعة/حفظ PDF من المتصفّح.
 // ══════════════════════════════════════════════════════
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -47,6 +47,31 @@ export default function AttendancePrintPage() {
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState('');
   const [light, setLight] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  // 📷 تصدير الكشف كصورة PNG واحدة (يلتقط رندر المتصفّح: الإيموجي/التدرّجات/الصور)
+  const saveImage = async () => {
+    const node = sheetRef.current;
+    if (!node || capturing) return;
+    setCapturing(true);
+    try {
+      const { toPng } = await import('html-to-image');
+      node.classList.add('capturing');
+      await new Promise(r => setTimeout(r, 80)); // ترك اللمسات الأخيرة تستقرّ
+      const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true, backgroundColor: '#0a0805' });
+      node.classList.remove('capturing');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `كشف الحضور - ${data?.activity?.name || 'الفعاليّة'}.png`;
+      a.click();
+    } catch {
+      node?.classList.remove('capturing');
+      alert('تعذّر إنشاء الصورة — يمكنك استخدام «طباعة / حفظ PDF» بدلاً منها');
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -104,10 +129,12 @@ export default function AttendancePrintPage() {
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="toolbar">
         <button className="btn gold" onClick={() => window.print()}>🖨️ طباعة / حفظ PDF</button>
+        <button className="btn" onClick={saveImage} disabled={capturing}>{capturing ? '⏳ يُنشئ الصورة…' : '📷 حفظ كصورة'}</button>
         <button className="btn" onClick={() => setLight(v => !v)}>{light ? '🌙 داكن (فاخر)' : '☀️ فاتح (للطباعة)'}</button>
         <span className="hint">{activity.name} · {stats.persons} شخصاً</span>
       </div>
 
+      <div className="sheetwrap" ref={sheetRef}>
       {pages.map((pg, pi) => (
         <div className="page" key={pi}>
           {pg.first && (
@@ -151,6 +178,7 @@ export default function AttendancePrintPage() {
             : <div className="pgn">نادي المافيا 🎭 — صفحة {ar(pi + 1)}</div>}
         </div>
       ))}
+      </div>
     </div>
   );
 }
@@ -162,6 +190,9 @@ const CSS = `
   .att .serif{font-family:"Amiri","Arabic Typesetting","Traditional Arabic","Segoe UI",serif}
   .att .spin{width:38px;height:38px;border:3px solid rgba(201,164,87,.3);border-top-color:#c9a457;border-radius:50%;animation:asp 1s linear infinite}
   @keyframes asp{to{transform:rotate(360deg)}}
+
+  /* 📷 أثناء التقاط الصورة: نلصق الصفحات بلا فجوات ولا ظلال فتخرج صورةً واحدة متّصلة */
+  .att .sheetwrap.capturing .page{margin:0 auto !important;box-shadow:none !important}
 
   .att .page{width:210mm;height:calc(297mm - 1px);margin:0 auto 22px;position:relative;overflow:hidden;padding:13mm 12mm;display:flex;flex-direction:column;
     break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;
