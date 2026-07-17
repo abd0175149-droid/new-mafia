@@ -48,52 +48,35 @@ export default function AttendancePrintPage() {
   const [err, setErr] = useState('');
   const [light, setLight] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLDivElement>(null);
 
-  // 📷 تصدير الكشف كصورة PNG واحدة (يلتقط رندر المتصفّح: الإيموجي/التدرّجات/الصور)
-  // نلتقط كلّ صفحةٍ على حِدة بأبعادها الصريحة ثمّ نرصّها عموديّاً — يتجنّب انزياح RTL
-  // الذي يحدث عند التقاط الغلاف الموحّد (المحتوى ينحاز يميناً ويُقصّ).
+  // 📷 تصدير الكشف كصورة PNG واحدة — نلتقط «اللوحة المدمجة» (تصميمٌ مخصّصٌ للصورة،
+  // متدفّقٌ بلا ارتفاع صفحاتٍ زائد) بأعلى كثافةٍ آمنةٍ ضمن حدود canvas في المتصفّح.
   const saveImage = async () => {
-    const node = sheetRef.current;
-    if (!node || capturing) return;
-    const dl = (href: string, name: string) => { const a = document.createElement('a'); a.href = href; a.download = name; a.click(); };
+    const el = imgRef.current;
+    if (!el || capturing) return;
     const baseName = `كشف الحضور - ${data?.activity?.name || 'الفعاليّة'}`;
     setCapturing(true);
     try {
       const { toCanvas } = await import('html-to-image');
-      node.classList.add('capturing');
-      await new Promise(r => setTimeout(r, 80)); // ترك اللمسات الأخيرة تستقرّ
-      const pageEls = Array.from(node.querySelectorAll('.page')) as HTMLElement[];
-      const shots: HTMLCanvasElement[] = [];
-      for (const el of pageEls) {
-        const r = el.getBoundingClientRect();
-        // eslint-disable-next-line no-await-in-loop
-        shots.push(await toCanvas(el, {
-          pixelRatio: 2, cacheBust: true, backgroundColor: '#0a0805',
-          width: Math.round(r.width), height: Math.round(r.height),
-        }));
-      }
-      node.classList.remove('capturing');
-      const W = Math.max(...shots.map(c => c.width));
-      const totalH = shots.reduce((s, c) => s + c.height, 0);
-      // حدّ المتصفّح لارتفاع الـ canvas ≈ 16384px؛ فوقها نصدّر صفحةً لكلّ ملفّ
-      if (totalH > 16000 && shots.length > 1) {
-        for (let i = 0; i < shots.length; i++) {
-          dl(shots[i].toDataURL('image/png'), `${baseName} - صفحة ${i + 1}.png`);
-          if (i < shots.length - 1) await new Promise(r => setTimeout(r, 350));
-        }
-        return;
-      }
-      const out = document.createElement('canvas');
-      out.width = W; out.height = totalH;
-      const ctx = out.getContext('2d');
-      if (!ctx) throw new Error('canvas ctx');
-      ctx.fillStyle = '#0a0805'; ctx.fillRect(0, 0, W, totalH);
-      let y = 0;
-      for (const c of shots) { ctx.drawImage(c, 0, y); y += c.height; }
-      dl(out.toDataURL('image/png'), `${baseName}.png`);
+      await new Promise(r => setTimeout(r, 60)); // ترك اللمسات الأخيرة تستقرّ
+      const rect = el.getBoundingClientRect();
+      const W = Math.round(rect.width), H = Math.round(rect.height);
+      // أعلى كثافةٍ ممكنة (4× ← 3× ← 2×) تبقى ضمن حدود canvas — لتفادي خروج صورةٍ
+      // فارغة على بعض الهواتف (خاصّة آيفون) بسبب تجاوز حدّ المساحة/البُعد.
+      const SAFE_AREA = 16_000_000, SAFE_DIM = 16000;
+      let pr = 4;
+      while (pr > 2 && (W * pr > SAFE_DIM || H * pr > SAFE_DIM || W * H * pr * pr > SAFE_AREA)) pr--;
+      const canvas = await toCanvas(el, {
+        pixelRatio: pr, cacheBust: true,
+        backgroundColor: light ? '#f4efe2' : '#0a0805',
+        width: W, height: H,
+      });
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `${baseName}.png`;
+      a.click();
     } catch {
-      node?.classList.remove('capturing');
       alert('تعذّر إنشاء الصورة — يمكنك استخدام «طباعة / حفظ PDF» بدلاً منها');
     } finally {
       setCapturing(false);
@@ -161,7 +144,44 @@ export default function AttendancePrintPage() {
         <span className="hint">{activity.name} · {stats.persons} شخصاً</span>
       </div>
 
-      <div className="sheetwrap" ref={sheetRef}>
+      {/* ===== اللوحة المدمجة: تصميم الصورة (معاينة الشاشة = الملفّ المُصدَّر) ===== */}
+      <div className="imgsheet" ref={imgRef}>
+        <div className="head">
+          <svg className="crest" viewBox="0 0 100 100" fill="none">
+            <defs><linearGradient id="ig" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#f7e9be" /><stop offset="1" stopColor="#9a7b3a" /></linearGradient></defs>
+            <path d="M50 3 L94 25 V60 Q94 84 50 97 Q6 84 6 60 V25 Z" stroke="url(#ig)" strokeWidth="2.5" fill="rgba(201,164,87,.06)" />
+            <path d="M50 11 L86 29 V58 Q86 78 50 89 Q14 78 14 58 V29 Z" stroke="rgba(201,164,87,.45)" strokeWidth="1" />
+            <text x="50" y="60" textAnchor="middle" fontSize="30" fill="url(#ig)">🎭</text>
+          </svg>
+          <div className="kicker">قائمة الحضور</div>
+          <div className="wm serif">نادي المافيا</div>
+          <h1 className="serif">{activity.name}</h1>
+          <div className="cbband"><span>🗓️ <b>{day}</b> — {time}</span>{activity.locationName && <span>📍 <b>{activity.locationName}</b></span>}</div>
+        </div>
+        <div className="hero">
+          <div className="count"><span className="big">{ar(stats.persons)}</span>{cap > 0 && <span className="of">/ {ar(cap)}</span>}</div>
+          <div className="clabel"><b>شخصاً</b> حجزوا مكانهم حتى الآن</div>
+          {cap > 0 && <div className="prog"><span style={{ width: pct + '%' }} /></div>}
+          {cap > 0 && (remaining > 0
+            ? <div className="cta">🔥 بقيت <b>&nbsp;{ar(remaining)}&nbsp;</b> مقعداً — سارِع بالحجز قبل اكتمال العدد</div>
+            : <div className="cta">🔴 اكتمل العدد — انضمّ لقائمة الانتظار</div>)}
+        </div>
+        {members.length > 0 && (
+          <>
+            <div className="seclabel"><span className="di">❖</span><h2>العائلة — الأعضاء</h2><i /><span className="c">مرتبطون بحساباتهم</span></div>
+            <div className="grid">{members.map((m: Member, i: number) => memberCard(m, i))}</div>
+          </>
+        )}
+        {guests.length > 0 && (
+          <>
+            <div className="seclabel gsep"><span className="di">❖</span><h2>ضيوف وحجوزات جديدة</h2><i /><span className="c">تشمل الجماعيّة</span></div>
+            <div className="grid">{guests.map((g: Guest, i: number) => guestCard(g, i))}</div>
+          </>
+        )}
+        <div className="ifoot"><i /><b>نادي المافيا</b> 🎭 — كشف حضورٍ رسميّ · أُعدّ آليّاً من متابعة الحجوزات</div>
+      </div>
+
+      <div className="sheetwrap">
       {pages.map((pg, pi) => (
         <div className="page" key={pi}>
           {pg.first && (
@@ -218,10 +238,23 @@ const CSS = `
   .att .spin{width:38px;height:38px;border:3px solid rgba(201,164,87,.3);border-top-color:#c9a457;border-radius:50%;animation:asp 1s linear infinite}
   @keyframes asp{to{transform:rotate(360deg)}}
 
-  /* غلاف الصفحات: بعرض الورقة تماماً ليخرج التصدير كصورةٍ محكمة بلا هوامش جانبيّة */
+  /* غلاف صفحات A4 — للطباعة/الـPDF فقط (مخفيّ على الشاشة) */
   .att .sheetwrap{width:210mm;margin:0 auto}
-  /* 📷 أثناء التقاط الصورة: نلصق الصفحات بلا فجوات ولا ظلال فتخرج صورةً واحدة متّصلة */
-  .att .sheetwrap.capturing .page{margin:0 auto !important;box-shadow:none !important}
+  @media screen{.att .sheetwrap{display:none}}
+
+  /* ===== اللوحة المدمجة: تصميم الصورة (متدفّق بلا ارتفاع زائد، يُلتقط بالكامل) ===== */
+  .att .imgsheet{width:820px;margin:22px auto;position:relative;overflow:hidden;padding:30px 28px 26px;border-radius:6px;
+    background:radial-gradient(120% 30% at 50% -4%, rgba(201,164,87,.10), transparent 60%),radial-gradient(70% 40% at 100% 0%, rgba(138,3,3,.07), transparent 55%),linear-gradient(180deg,var(--obs2),var(--obs));
+    box-shadow:0 30px 90px -30px #000}
+  .att .imgsheet::before{content:"";position:absolute;inset:11px;border:1px solid rgba(201,164,87,.22);pointer-events:none;z-index:2;border-radius:3px}
+  .att .imgsheet::after{content:"";position:absolute;inset:14px;border:1px solid rgba(201,164,87,.08);pointer-events:none;z-index:2}
+  .att .imgsheet .gsep{margin-top:6mm}
+  .att .imgsheet .ifoot{text-align:center;color:var(--faint);font-size:10.5px;padding-top:15px;position:relative}
+  .att .imgsheet .ifoot i{display:block;max-width:220px;margin:0 auto 8px;height:1px;background:linear-gradient(90deg,transparent,var(--f-dim),transparent)}
+  .att .imgsheet .ifoot b{color:var(--gold)}
+  .att.light .imgsheet{background:linear-gradient(180deg,#fbf6ea,#f4efe2)}
+  .att.light .imgsheet::before{border-color:rgba(160,120,50,.4)}
+  .att.light .imgsheet::after{border-color:rgba(160,120,50,.16)}
 
   .att .page{width:210mm;height:calc(297mm - 1px);margin:0 auto 22px;position:relative;overflow:hidden;padding:13mm 12mm;display:flex;flex-direction:column;
     break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;
@@ -317,6 +350,7 @@ const CSS = `
     html,body{background:#0a0805 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     .att{background:#0a0805;padding:0}
     .att .toolbar{display:none}
+    .att .imgsheet{display:none}
     .att .page{margin:0;box-shadow:none}
     .att .page + .page{break-before:page;page-break-before:always}
   }
