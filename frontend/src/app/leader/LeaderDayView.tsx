@@ -788,13 +788,29 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
     initiatorName: c.initiatorName || (c.initiatorPhysicalId ? nameOfSeat(c.initiatorPhysicalId) : null),
     votes: c.votes,
   } : null;
-  // حالة الخادم هي الحقيقة متى وُجد mayorState (يصل الليدر كاملاً): نافذة مغلقة خادميّاً
-  // (قرار وصل من هاتف العمدة مثلاً) تُغلق المودال حتى لو بقيت نسخة محليّة عالقة.
-  const mayorWindow = mayorStateSrv
-    ? (mayorStateSrv.window
-      ? { winner: describeCand(mayorStateSrv.window.winner), topVotes: mayorStateSrv.window.topVotes }
-      : null)
-    : mayorWindowLocal;
+  // 🎩 اشتراك مباشر بأحداث نافذة العمدة — المصدر الموثوق للفتح/الإغلاق.
+  // سابقاً كانت الرؤية تعتمد على game:state-sync/polling، وسباقٌ بينها كان يُخفي المودال
+  // أحياناً فتتعلّق واجهة الليدر (الإقصاء محجوبٌ خادميّاً بانتظار قرار العمدة بلا واجهة لاتّخاذه).
+  useEffect(() => {
+    const s = getSocket();
+    const onWin = (p: any) => { if (p?.winner) setMayorWindowLocal({ winner: p.winner, topVotes: p.topVotes }); };
+    const onClosed = () => setMayorWindowLocal(null);
+    s.on('day:mayor-window', onWin);
+    s.on('day:mayor-window-closed', onClosed);
+    s.on('day:mayor-revealed', onClosed);
+    return () => {
+      s.off('day:mayor-window', onWin);
+      s.off('day:mayor-window-closed', onClosed);
+      s.off('day:mayor-revealed', onClosed);
+    };
+  }, []);
+
+  // النافذة المحليّة (من الحدث المباشر أو ردّ execute-elimination) هي الأساس، وحالة الخادم
+  // احتياطٌ لإعادة الاتصال فقط. متى أكّد الخادم استهلاك الفيتو → أُغلقت نهائيّاً (لا تعود تظهر).
+  const serverWindow = mayorStateSrv?.window
+    ? { winner: describeCand(mayorStateSrv.window.winner), topVotes: mayorStateSrv.window.topVotes }
+    : null;
+  const mayorWindow = mayorStateSrv?.vetoUsed ? null : (mayorWindowLocal || serverWindow);
 
   const handleMayorDecision = async (decision: 'PASS' | 'REVOTE' | 'POSTPONE') => {
     const msgs: Record<string, string> = {
