@@ -489,6 +489,14 @@ export default function ReservationsPage() {
                 >
                   {rosterBusy === 'excel' ? '⏳' : '📊'}
                 </button>
+                {/* 🖼️ كشف الحضور المصوّر (بطاقات) — يُفتح في تبويب جديد للعرض/الطباعة/المشاركة */}
+                <button
+                  onClick={() => window.open(`/print/attendance/${filterActivity}`, '_blank')}
+                  title="كشف الحضور المصوّر — بطاقات بالصور والرتب، للطباعة أو المشاركة"
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-amber-600/20 to-yellow-700/10 border border-amber-500/40 text-amber-300 hover:from-amber-600/30 hover:text-amber-200 transition-all"
+                >
+                  🖼️ كشف مصوّر
+                </button>
               </>
             )}
             {/* ✅ تحديث الحضور من الألعاب المسجّلة */}

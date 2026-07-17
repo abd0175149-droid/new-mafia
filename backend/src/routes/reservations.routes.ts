@@ -6,9 +6,11 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, desc, and, isNull, inArray, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { reservations, activities } from '../schemas/admin.schema.js';
+import { reservations, activities, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { authenticate } from '../middleware/auth.js';
+
+const RANK_ORDER: Record<string, number> = { GODFATHER: 5, UNDERBOSS: 4, CAPO: 3, SOLDIER: 2, INFORMANT: 1 };
 
 const router = Router();
 
@@ -112,6 +114,56 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
 
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
   res.json({ success: true });
+});
+
+// ── GET /attendance/:activityId — بيانات «كشف الحضور المصوّر» (بطاقات) ──
+// يجمع حجوزات الفعاليّة مع بيانات اللاعب المرتبط (الصورة/الرتبة/المستوى) + إحصاءات السعة.
+router.get('/attendance/:activityId', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+  const actId = parseInt(req.params.activityId);
+  if (!Number.isFinite(actId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const [act] = await db.select({
+      id: activities.id, name: activities.name, date: activities.date,
+      maxCapacity: activities.maxCapacity, locationName: locations.name,
+    }).from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
+      .where(and(eq(activities.id, actId), isNull(activities.deletedAt))).limit(1);
+    if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة' });
+
+    const rows = await db.select({
+      contactName: reservations.contactName, peopleCount: reservations.peopleCount,
+      status: reservations.status, attended: reservations.attended, playerId: reservations.playerId,
+      pName: players.name, avatarUrl: players.avatarUrl, rankTier: players.rankTier, level: players.level,
+    }).from(reservations).leftJoin(players, eq(reservations.playerId, players.id))
+      .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt)));
+
+    const members = rows.filter(r => r.playerId).map(r => ({
+      name: r.pName || r.contactName, avatarUrl: r.avatarUrl || null,
+      rankTier: r.rankTier || 'INFORMANT', level: r.level || 1,
+      peopleCount: r.peopleCount || 1, attended: r.attended === true,
+    })).sort((a, b) => (RANK_ORDER[b.rankTier] || 1) - (RANK_ORDER[a.rankTier] || 1) || (b.level - a.level) || a.name.localeCompare(b.name, 'ar'));
+
+    const guests = rows.filter(r => !r.playerId).map(r => ({
+      name: r.contactName, peopleCount: r.peopleCount || 1, attended: r.attended === true,
+    })).sort((a, b) => b.peopleCount - a.peopleCount || a.name.localeCompare(b.name, 'ar'));
+
+    const persons = rows.reduce((s, r) => s + (r.peopleCount || 1), 0);
+    const cap = act.maxCapacity || 0;
+
+    res.json({
+      success: true,
+      activity: { name: act.name, date: act.date, locationName: act.locationName || '', maxCapacity: cap },
+      stats: {
+        reservations: rows.length, persons, members: members.length, guests: guests.length,
+        remaining: cap > 0 ? Math.max(0, cap - persons) : null,
+      },
+      members, guests,
+    });
+  } catch (err: any) {
+    console.error('❌ attendance data:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── POST /mark-attendance-from-games ──
