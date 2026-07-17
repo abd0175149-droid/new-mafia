@@ -42,7 +42,7 @@ export const METRIC_DEFS = [
   { key: 'activities30', label: 'فعاليّات (آخر ٣٠ي)', unit: '' },
   { key: 'games30', label: 'ألعاب (آخر ٣٠ي)', unit: '' },
   { key: 'daysSince', label: 'أيّام منذ آخر لعبة', unit: 'يوم' },
-  { key: 'matchesSince', label: 'مباريات النادي منذ آخر لعبة له', unit: 'مباراة' },
+  { key: 'activitiesSince', label: 'فعاليّات النادي منذ آخر حضور له', unit: 'فعاليّة' },
   { key: 'tenureDays', label: 'مدّة النشاط', unit: 'يوم' },
   { key: 'avgGpa', label: 'متوسّط الألعاب/فعاليّة', unit: '' },
   { key: 'freqPerMonth', label: 'فعاليّات/شهر (تكرار)', unit: '' },
@@ -72,9 +72,10 @@ export async function computeMetrics(): Promise<any> {
       LEFT JOIN locations l ON l.id = a.location_id
       WHERE mp.player_id IS NOT NULL AND (l.is_test_location IS NOT TRUE) AND m.game_name NOT ILIKE '%auto seeded%'
     ),
-    all_matches AS (
-      -- كون مباريات النادي المحتسَبة (مباراة واحدة لكل match_id) — لحساب «مباريات مضت منذ آخر لعبة له»
-      SELECT DISTINCT match_id, played_at FROM base
+    all_activities AS (
+      -- كون فعاليّات النادي المحتسَبة — كلّ فعاليّة = وحدة واحدة مهما كثُرت غرفها ومبارياتها
+      SELECT DISTINCT activity_id, activity_date::date AS adate
+      FROM base WHERE activity_id IS NOT NULL
     ),
     per_pa AS (
       SELECT pid, activity_id, MAX(activity_name) AS activity_name, activity_date::date AS activity_date,
@@ -89,7 +90,7 @@ export async function computeMetrics(): Promise<any> {
         COUNT(DISTINCT b.match_id) FILTER (WHERE b.played_at >= now()-interval '30 days') AS games_30,
         COUNT(DISTINCT b.activity_id) FILTER (WHERE b.played_at >= now()-interval '30 days' AND b.activity_id IS NOT NULL) AS activities_30,
         MIN(b.played_at)::date AS first_seen, MAX(b.played_at)::date AS last_seen,
-        MAX(b.played_at) AS last_played_ts,
+        MAX(b.activity_date) FILTER (WHERE b.activity_id IS NOT NULL)::date AS last_act_date,
         (now()::date - MAX(b.played_at)::date) AS days_since,
         COUNT(*) FILTER (WHERE b.survived_to_end) AS survived,
         COUNT(*) AS parts,
@@ -106,7 +107,7 @@ export async function computeMetrics(): Promise<any> {
             'gamesAll', pa.games_all, 'activitiesAll', pa.activities_all,
             'games30', pa.games_30, 'activities30', pa.activities_30,
             'firstSeen', pa.first_seen, 'lastSeen', pa.last_seen, 'daysSince', pa.days_since,
-            'matchesSince', COALESCE((SELECT count(*)::int FROM all_matches am WHERE am.played_at > pa.last_played_ts), 0),
+            'activitiesSince', COALESCE((SELECT count(*)::int FROM all_activities aa WHERE aa.adate > pa.last_act_date), 0),
             'survived', pa.survived, 'parts', pa.parts, 'remoteParts', pa.remote_parts,
             'seasons', COALESCE((SELECT json_agg(DISTINCT b2.season_id) FROM base b2 WHERE b2.pid=pa.pid AND b2.season_id IS NOT NULL), '[]'::json),
             'acts', COALESCE((

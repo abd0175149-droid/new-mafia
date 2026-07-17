@@ -54,7 +54,7 @@ const fmtDay = (s: string | null) => s ? new Date(s).toLocaleDateString('ar-EG',
 const WA_VARS: { token: string; label: string; get: (p: any) => string }[] = [
   { token: '{الاسم}', label: 'الاسم', get: p => (p.name || '').trim() },
   { token: '{الأيام}', label: 'أيّام منذ آخر لعبة', get: p => String(p.daysSince ?? '') },
-  { token: '{المباريات}', label: 'مباريات فاتته', get: p => String(p.matchesSince ?? '') },
+  { token: '{الغياب}', label: 'فعاليّات غاب عنها', get: p => String(p.activitiesSince ?? '') },
   { token: '{الفعاليات}', label: 'عدد فعاليّاته', get: p => String(p.activitiesAll ?? '') },
   { token: '{آخر_ظهور}', label: 'تاريخ آخر ظهور', get: p => fmtDay(p.lastSeen) },
   { token: '{الشريحة}', label: 'الشريحة', get: p => p._seg?.name || '' },
@@ -93,7 +93,7 @@ export default function AnalyticsPlayersPage() {
   // 💬 قالب رسالة الواتساب (محفوظ محليّاً) + لوحة تحريره
   const [waTemplate, setWaTemplate] = useState(WA_DEFAULT_TEMPLATE);
   const [showTemplate, setShowTemplate] = useState(false);
-  // 🎯 شريحة «لم يلعب آخر N مباراة» — فلتر عرض قابل للضبط
+  // 🎯 شريحة «لم يلعب آخر N فعاليّة» — فلتر عرض قابل للضبط
   const [unplayed, setUnplayed] = useState(false);
   const [unplayedN, setUnplayedN] = useState(10);
 
@@ -156,11 +156,11 @@ export default function AnalyticsPlayersPage() {
     ];
   })();
 
-  const unplayedCount = pool.filter(p => Number(p.matchesSince) >= unplayedN).length;
+  const unplayedCount = pool.filter(p => Number(p.activitiesSince) >= unplayedN).length;
   const rows = (() => {
     let r = segmented as any[];
     if (segFilter) r = r.filter(p => p._seg.id === segFilter);
-    if (unplayed) r = r.filter(p => Number(p.matchesSince) >= unplayedN); // 🎯 لم يلعب آخر N مباراة
+    if (unplayed) r = r.filter(p => Number(p.activitiesSince) >= unplayedN); // 🎯 لم يحضر آخر N فعاليّة
     const s = q.trim().toLowerCase();
     if (s) r = r.filter(p => (p.name || '').toLowerCase().includes(s) || (p.phone || '').includes(s));
     return r.slice().sort((a, b) => {
@@ -246,7 +246,7 @@ export default function AnalyticsPlayersPage() {
             <button onClick={() => setShowTemplate(v => !v)} className={`px-3 py-2 rounded-xl text-xs border ${showTemplate ? 'bg-green-500/15 text-green-400 border-green-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>💬 قالب الرسالة</button>
           </div>
 
-          {/* 🎯 شريحة: لم يلعب آخر N مباراة (فلتر عرض قابل للضبط) */}
+          {/* 🎯 شريحة: لم يلعب آخر N فعاليّة (فلتر عرض قابل للضبط) */}
           <div className="flex flex-wrap items-center gap-2.5 bg-gray-800/20 border border-gray-700/30 rounded-xl px-3 py-2.5">
             <button onClick={() => setUnplayed(v => !v)}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${unplayed ? 'bg-rose-500/15 text-rose-300 border-rose-500/40' : 'bg-gray-800/50 text-gray-300 border-gray-700/50'}`}>
@@ -258,7 +258,7 @@ export default function AnalyticsPlayersPage() {
                 className="w-14 text-center bg-gray-900/60 border border-gray-700/50 rounded-lg py-1 text-sm text-white tabular-nums outline-none focus:border-rose-500/50" />
               <button onClick={() => setUnplayedN(n => n + 5)} className="w-7 h-7 rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-300 text-sm">+</button>
             </div>
-            <span className="text-xs text-gray-400">مباراة من مباريات النادي</span>
+            <span className="text-xs text-gray-400">فعاليّة من فعاليّات النادي</span>
             <span className="text-[11px] text-rose-300/80 mr-auto">مطابقون: <b className="tabular-nums">{unplayedCount}</b></span>
           </div>
 
@@ -287,7 +287,7 @@ export default function AnalyticsPlayersPage() {
             </div>
           )}
 
-          <div className="text-[11px] text-gray-500">عرض <b className="tabular-nums">{rows.length}</b> لاعب{segFilter ? ` · ${segList.find((s: any) => s.id === segFilter)?.name}` : ''}{unplayed ? ` · لم يلعب آخر ${unplayedN} مباراة` : ''}</div>
+          <div className="text-[11px] text-gray-500">عرض <b className="tabular-nums">{rows.length}</b> لاعب{segFilter ? ` · ${segList.find((s: any) => s.id === segFilter)?.name}` : ''}{unplayed ? ` · لم يحضر آخر ${unplayedN} فعاليّة` : ''}</div>
 
           <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
             <div className="grid grid-cols-[2.1fr_1.1fr_.7fr_.7fr_.8fr_.5fr] bg-gray-900/40 border-b border-gray-700/30 text-[10px] uppercase tracking-wider text-gray-500">
@@ -426,7 +426,7 @@ function PlayerDetail({ p, onClose, onWa }: any) {
   const stats = [
     { v: p.activitiesAll, c: 'فعاليّات (كلّيّاً)' }, { v: p.gamesAll, c: 'ألعاب (كلّيّاً)' },
     { v: p.activities30, c: 'فعاليّات ٣٠ي' }, { v: p.games30, c: 'ألعاب ٣٠ي' },
-    { v: p.daysSince + 'ي', c: 'منذ آخر لعبة' }, { v: (p.matchesSince ?? 0) + ' مباراة', c: 'مباريات فاتته' },
+    { v: p.daysSince + 'ي', c: 'منذ آخر لعبة' }, { v: (p.activitiesSince ?? 0) + ' فعاليّة', c: 'فعاليّات غاب عنها' },
     { v: p.tenureDays + 'ي', c: 'مدّة النشاط' },
     { v: p.avgGpa, c: 'ألعاب/فعاليّة' }, { v: p.freqPerMonth, c: 'فعاليّات/شهر' },
     { v: p.longestGapDays + 'ي', c: 'أطول انقطاع' }, { v: p.seasonsCount, c: 'عدد المواسم' },
