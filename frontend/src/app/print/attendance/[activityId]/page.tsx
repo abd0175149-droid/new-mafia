@@ -191,6 +191,8 @@ const CSS = `
   .att .spin{width:38px;height:38px;border:3px solid rgba(201,164,87,.3);border-top-color:#c9a457;border-radius:50%;animation:asp 1s linear infinite}
   @keyframes asp{to{transform:rotate(360deg)}}
 
+  /* غلاف الصفحات: بعرض الورقة تماماً ليخرج التصدير كصورةٍ محكمة بلا هوامش جانبيّة */
+  .att .sheetwrap{width:210mm;margin:0 auto}
   /* 📷 أثناء التقاط الصورة: نلصق الصفحات بلا فجوات ولا ظلال فتخرج صورةً واحدة متّصلة */
   .att .sheetwrap.capturing .page{margin:0 auto !important;box-shadow:none !important}
 
