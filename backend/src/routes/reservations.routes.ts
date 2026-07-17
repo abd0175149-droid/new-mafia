@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, desc, and, isNull, inArray } from 'drizzle-orm';
+import { eq, desc, and, isNull, inArray, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { reservations, activities } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -112,6 +112,53 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
 
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
   res.json({ success: true });
+});
+
+// ── POST /mark-attendance-from-games ──
+// يراجع الحجوزات المثبّتة ويحوّل «حاضر» كلّ لاعبٍ له لعبةٌ فعليّة مسجّلة في فعاليّة حجزه.
+// المطابقة: بحساب اللاعب (الأقوى) أو بآخر ٩ أرقام من الهاتف أو بالاسم. لا يمسّ من ثبت حضوره،
+// ولا يُعلّم غياباً (الألعاب دليل حضورٍ لا دليل غياب — قد لا يُطابق الاسم فيُترك للتحديد اليدويّ).
+router.post('/mark-attendance-from-games', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const rawAct = req.body?.activityId;
+  const activityId = (rawAct && rawAct !== 'all') ? parseInt(rawAct) : null;
+
+  try {
+    const result: any = await db.execute(sql`
+      UPDATE reservations r
+      SET attended = true, updated_at = now()
+      WHERE r.deleted_at IS NULL
+        AND r.status <> 'pending'                 -- المثبّتة فقط
+        AND r.attended IS DISTINCT FROM true       -- لا نلمس من ثبت حضوره
+        AND r.activity_id IS NOT NULL
+        ${activityId ? sql`AND r.activity_id = ${activityId}` : sql``}
+        AND EXISTS (
+          SELECT 1 FROM session_players sp
+          JOIN sessions s ON s.id = sp.session_id AND s.deleted_at IS NULL
+          WHERE s.activity_id = r.activity_id
+            AND (
+              (r.player_id IS NOT NULL AND sp.player_id = r.player_id)
+              OR (
+                length(regexp_replace(COALESCE(r.phone,''), '[^0-9]', '', 'g')) >= 9
+                AND right(regexp_replace(COALESCE(sp.phone,''), '[^0-9]', '', 'g'), 9)
+                  = right(regexp_replace(COALESCE(r.phone,''), '[^0-9]', '', 'g'), 9)
+              )
+              OR (
+                btrim(r.contact_name) <> ''
+                AND lower(btrim(sp.player_name)) = lower(btrim(r.contact_name))
+              )
+            )
+        )
+      RETURNING r.id
+    `);
+    const marked = (result.rows ? result.rows.length : (Array.isArray(result) ? result.length : (result.rowCount ?? 0)));
+    res.json({ success: true, marked });
+  } catch (err: any) {
+    console.error('❌ mark-attendance-from-games:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

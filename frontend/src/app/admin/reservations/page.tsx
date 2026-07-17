@@ -235,6 +235,27 @@ export default function ReservationsPage() {
     }
   }
 
+  // ══ ✅ تحديث الحضور من الألعاب — يحوّل المثبّت إلى «حاضر» لمن له لعبة مسجّلة في يوم فعاليّته ══
+  const [attBusy, setAttBusy] = useState(false);
+  async function markAttendanceFromGames() {
+    if (attBusy) return;
+    const scope = filterActivity && filterActivity !== 'all' ? getActivityName(Number(filterActivity)) : 'كلّ الفعاليّات';
+    if (!confirm(`مراجعة الحجوزات المثبّتة في «${scope}» وتحويل من له لعبة مسجّلة إلى «حاضر»؟`)) return;
+    setAttBusy(true);
+    try {
+      const r = await apiFetch('/api/reservations/mark-attendance-from-games', {
+        method: 'POST',
+        body: JSON.stringify({ activityId: filterActivity || 'all' }),
+      });
+      await fetchAll();
+      alert(r.marked > 0 ? `✅ حُوّل ${r.marked} حجزاً إلى «حاضر» بناءً على الألعاب المسجّلة.` : 'لا حجوزات جديدة للتحويل — كلّ من له ألعاب مُعلَّم حاضراً بالفعل.');
+    } catch (err: any) {
+      alert('فشل التحديث: ' + (err.message || ''));
+    } finally {
+      setAttBusy(false);
+    }
+  }
+
   // ══ 🔗 بحث اللاعبين أثناء الكتابة (اسم أو رقم) — للربط الذكيّ ══
   useEffect(() => {
     const term = formName.trim();
@@ -470,6 +491,15 @@ export default function ReservationsPage() {
                 </button>
               </>
             )}
+            {/* ✅ تحديث الحضور من الألعاب المسجّلة */}
+            <button
+              onClick={markAttendanceFromGames}
+              disabled={attBusy}
+              title="مراجعة المثبّتين وتحويل من لعب فعليّاً إلى «حاضر»"
+              className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-emerald-600/15 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-600/25 transition-all disabled:opacity-50"
+            >
+              {attBusy ? '⏳ يراجع…' : '✅ تحديث الحضور'}
+            </button>
             <button
               onClick={() => setShowForm(!showForm)}
               className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${

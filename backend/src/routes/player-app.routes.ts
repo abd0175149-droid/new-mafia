@@ -153,9 +153,9 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
       offerItems: offerId ? [offerId] : [],
     } as any).returning();
 
-    // 📋 حجز المتابعة: إن وُجد حجزٌ مُدخَل مسبقاً لهذا اللاعب (يدويّاً من الموظّفين) →
-    // يُوسم «📱 تأكّد من التطبيق» ويُثبَّت تلقائيّاً (حجز اللاعب بنفسه أقوى تأكيدٍ من ردّ الواتساب)،
-    // ويُربط بحسابه إن كانت المطابقة بالهاتف فقط. وإن لم يوجد → يُنشأ تلقائيّاً (غير مثبّت) بالوسم نفسه.
+    // 📋 حجز المتابعة: حجز اللاعب بنفسه من التطبيق = تثبيتٌ تلقائيّ (أقوى تأكيدٍ من ردّ الواتساب).
+    // إن وُجد حجزٌ مُدخَل مسبقاً (يدويّاً) → يُوسم ويُثبَّت ويُربط بحسابه. وإن لم يوجد → يُنشأ
+    // «مثبّتاً» مباشرةً (لا «غير مثبّت») بالوسم نفسه.
     try {
       const existingRes = await db.select({ id: reservations.id, status: reservations.status, playerId: reservations.playerId })
         .from(reservations)
@@ -175,7 +175,7 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
           phone: player.phone || '',
           peopleCount: 1,
           playerId: player.playerId ?? null,
-          status: 'pending',
+          status: 'confirmed',   // ✅ تثبيت تلقائيّ لحجز التطبيق
           notes: 'حجز تلقائيّ من تطبيق اللاعب',
           createdBy: 'player-app',
           appConfirmed: true,
