@@ -51,20 +51,47 @@ export default function AttendancePrintPage() {
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // 📷 تصدير الكشف كصورة PNG واحدة (يلتقط رندر المتصفّح: الإيموجي/التدرّجات/الصور)
+  // نلتقط كلّ صفحةٍ على حِدة بأبعادها الصريحة ثمّ نرصّها عموديّاً — يتجنّب انزياح RTL
+  // الذي يحدث عند التقاط الغلاف الموحّد (المحتوى ينحاز يميناً ويُقصّ).
   const saveImage = async () => {
     const node = sheetRef.current;
     if (!node || capturing) return;
+    const dl = (href: string, name: string) => { const a = document.createElement('a'); a.href = href; a.download = name; a.click(); };
+    const baseName = `كشف الحضور - ${data?.activity?.name || 'الفعاليّة'}`;
     setCapturing(true);
     try {
-      const { toPng } = await import('html-to-image');
+      const { toCanvas } = await import('html-to-image');
       node.classList.add('capturing');
       await new Promise(r => setTimeout(r, 80)); // ترك اللمسات الأخيرة تستقرّ
-      const dataUrl = await toPng(node, { pixelRatio: 2, cacheBust: true, backgroundColor: '#0a0805' });
+      const pageEls = Array.from(node.querySelectorAll('.page')) as HTMLElement[];
+      const shots: HTMLCanvasElement[] = [];
+      for (const el of pageEls) {
+        const r = el.getBoundingClientRect();
+        // eslint-disable-next-line no-await-in-loop
+        shots.push(await toCanvas(el, {
+          pixelRatio: 2, cacheBust: true, backgroundColor: '#0a0805',
+          width: Math.round(r.width), height: Math.round(r.height),
+        }));
+      }
       node.classList.remove('capturing');
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = `كشف الحضور - ${data?.activity?.name || 'الفعاليّة'}.png`;
-      a.click();
+      const W = Math.max(...shots.map(c => c.width));
+      const totalH = shots.reduce((s, c) => s + c.height, 0);
+      // حدّ المتصفّح لارتفاع الـ canvas ≈ 16384px؛ فوقها نصدّر صفحةً لكلّ ملفّ
+      if (totalH > 16000 && shots.length > 1) {
+        for (let i = 0; i < shots.length; i++) {
+          dl(shots[i].toDataURL('image/png'), `${baseName} - صفحة ${i + 1}.png`);
+          if (i < shots.length - 1) await new Promise(r => setTimeout(r, 350));
+        }
+        return;
+      }
+      const out = document.createElement('canvas');
+      out.width = W; out.height = totalH;
+      const ctx = out.getContext('2d');
+      if (!ctx) throw new Error('canvas ctx');
+      ctx.fillStyle = '#0a0805'; ctx.fillRect(0, 0, W, totalH);
+      let y = 0;
+      for (const c of shots) { ctx.drawImage(c, 0, y); y += c.height; }
+      dl(out.toDataURL('image/png'), `${baseName}.png`);
     } catch {
       node?.classList.remove('capturing');
       alert('تعذّر إنشاء الصورة — يمكنك استخدام «طباعة / حفظ PDF» بدلاً منها');
