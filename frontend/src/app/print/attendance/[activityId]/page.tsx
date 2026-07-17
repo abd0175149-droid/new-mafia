@@ -163,7 +163,8 @@ const CSS = `
   .att .spin{width:38px;height:38px;border:3px solid rgba(201,164,87,.3);border-top-color:#c9a457;border-radius:50%;animation:asp 1s linear infinite}
   @keyframes asp{to{transform:rotate(360deg)}}
 
-  .att .page{width:210mm;height:297mm;margin:0 auto 22px;position:relative;overflow:hidden;padding:13mm 12mm;display:flex;flex-direction:column;
+  .att .page{width:210mm;height:calc(297mm - 1px);margin:0 auto 22px;position:relative;overflow:hidden;padding:13mm 12mm;display:flex;flex-direction:column;
+    break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;
     background:radial-gradient(120% 34% at 50% -6%, rgba(201,164,87,.10), transparent 60%),radial-gradient(80% 46% at 100% 0%, rgba(138,3,3,.07), transparent 55%),linear-gradient(180deg,var(--obs2),var(--obs));box-shadow:0 26px 80px -24px #000}
   .att .page::before{content:"";position:absolute;inset:6mm;border:1px solid rgba(201,164,87,.22);pointer-events:none;z-index:2}
   .att .page::after{content:"";position:absolute;inset:7.2mm;border:1px solid rgba(201,164,87,.08);pointer-events:none;z-index:2}
@@ -253,11 +254,11 @@ const CSS = `
   .att.light .cn{border-color:rgba(160,120,50,.5)}
 
   @media print{
-    html,body{background:#fff !important}
-    .att{background:#fff;padding:0}
+    html,body{background:#0a0805 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .att{background:#0a0805;padding:0}
     .att .toolbar{display:none}
-    .att .page{margin:0;box-shadow:none;break-after:page}
-    .att .page:last-child{break-after:auto}
+    .att .page{margin:0;box-shadow:none}
+    .att .page + .page{break-before:page;page-break-before:always}
   }
   @page{size:A4;margin:0}
 `;
