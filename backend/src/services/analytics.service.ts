@@ -108,6 +108,7 @@ export async function computeMetrics(): Promise<any> {
             'games30', pa.games_30, 'activities30', pa.activities_30,
             'firstSeen', pa.first_seen, 'lastSeen', pa.last_seen, 'daysSince', pa.days_since,
             'activitiesSince', COALESCE((SELECT count(*)::int FROM all_activities aa WHERE aa.adate > pa.last_act_date), 0),
+            'hasPush', EXISTS (SELECT 1 FROM player_fcm_tokens t WHERE t.player_id = pa.pid AND t.is_active = true),
             'survived', pa.survived, 'parts', pa.parts, 'remoteParts', pa.remote_parts,
             'seasons', COALESCE((SELECT json_agg(DISTINCT b2.season_id) FROM base b2 WHERE b2.pid=pa.pid AND b2.season_id IS NOT NULL), '[]'::json),
             'acts', COALESCE((

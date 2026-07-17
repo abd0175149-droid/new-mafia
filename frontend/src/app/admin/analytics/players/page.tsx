@@ -90,9 +90,11 @@ export default function AnalyticsPlayersPage() {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState('');
-  // 💬 قالب رسالة الواتساب (محفوظ محليّاً) + لوحة تحريره
+  // 💬 قالب الرسالة (واتساب + إشعار) محفوظ محليّاً + لوحة تحريره
   const [waTemplate, setWaTemplate] = useState(WA_DEFAULT_TEMPLATE);
+  const [notifTitle, setNotifTitle] = useState('نادي المافيا 🎭');
   const [showTemplate, setShowTemplate] = useState(false);
+  const [sendingPushId, setSendingPushId] = useState<number | null>(null);
   // 🎯 شريحة «لم يلعب آخر N فعاليّة» — فلتر عرض قابل للضبط
   const [unplayed, setUnplayed] = useState(false);
   const [unplayedN, setUnplayedN] = useState(10);
@@ -100,8 +102,10 @@ export default function AnalyticsPlayersPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try { const t = localStorage.getItem('analytics_wa_template'); if (t) setWaTemplate(t); } catch { /* ignore */ }
+    try { const n = localStorage.getItem('analytics_notif_title'); if (n) setNotifTitle(n); } catch { /* ignore */ }
   }, []);
   const saveTemplate = (t: string) => { setWaTemplate(t); try { localStorage.setItem('analytics_wa_template', t); } catch { /* ignore */ } };
+  const saveNotifTitle = (t: string) => { setNotifTitle(t); try { localStorage.setItem('analytics_notif_title', t); } catch { /* ignore */ } };
 
   useEffect(() => {
     (async () => {
@@ -115,6 +119,19 @@ export default function AnalyticsPlayersPage() {
   }, []);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2600); };
+
+  // 🔔 دفع نصّ القالب كإشعار لجهاز اللاعب (يظهر زرّه فقط لمن عنده جهاز مسجّل: p.hasPush)
+  const sendPush = async (p: any) => {
+    const body = fillTemplate(waTemplate, p);
+    if (!body.trim()) { flash('نصّ الرسالة فارغ'); return; }
+    if (!window.confirm(`إرسال إشعار إلى ${p.name || 'اللاعب'}؟\n\n${notifTitle}\n${body}`)) return;
+    setSendingPushId(p.id);
+    try {
+      await apiFetch('/api/analytics/notify', { method: 'POST', body: JSON.stringify({ playerId: p.id, title: notifTitle, body }) });
+      flash(`🔔 أُرسل الإشعار إلى ${p.name || 'اللاعب'}`);
+    } catch (e: any) { flash(e.message || 'فشل إرسال الإشعار'); }
+    finally { setSendingPushId(null); }
+  };
 
   const pool = useMemo(() => players.filter(p => showTest || !p.isTest), [players, showTest]);
   const segmented = useMemo(() => config ? pool.map(p => ({ ...p, _seg: segmentOf(p, config) })) : [], [pool, config]);
@@ -262,13 +279,19 @@ export default function AnalyticsPlayersPage() {
             <span className="text-[11px] text-rose-300/80 mr-auto">مطابقون: <b className="tabular-nums">{unplayedCount}</b></span>
           </div>
 
-          {/* 💬 محرّر قالب رسالة الواتساب */}
+          {/* 💬🔔 محرّر قالب الرسالة (واتساب + إشعار) */}
           {showTemplate && (
             <div className="bg-gray-800/30 border border-green-500/20 rounded-2xl p-4 space-y-2.5">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-green-400">💬 قالب رسالة الواتساب</h3>
-                <button onClick={() => saveTemplate(WA_DEFAULT_TEMPLATE)} className="text-[11px] text-gray-400 hover:text-white">استعادة الافتراضيّ</button>
+                <h3 className="text-sm font-bold text-green-400">💬 قالب الرسالة — واتساب وإشعار</h3>
+                <button onClick={() => { saveTemplate(WA_DEFAULT_TEMPLATE); saveNotifTitle('نادي المافيا 🎭'); }} className="text-[11px] text-gray-400 hover:text-white">استعادة الافتراضيّ</button>
               </div>
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">🔔 عنوان الإشعار (يظهر بالخطّ العريض على الجهاز — لا يُستخدم في الواتساب)</label>
+                <input value={notifTitle} onChange={e => saveNotifTitle(e.target.value)}
+                  className="w-full bg-gray-900/60 border border-gray-700/50 rounded-xl px-3.5 py-2 text-sm text-white outline-none focus:border-sky-500/50" dir="rtl" />
+              </div>
+              <label className="block text-[11px] text-gray-400">نصّ الرسالة (مشترك للواتساب والإشعار)</label>
               <textarea value={waTemplate} onChange={e => saveTemplate(e.target.value)} rows={4}
                 className="w-full bg-gray-900/60 border border-gray-700/50 rounded-xl px-3.5 py-2.5 text-sm text-white outline-none focus:border-green-500/50 leading-relaxed resize-y"
                 placeholder="اكتب نصّ الرسالة… استخدم المتغيّرات أدناه" dir="rtl" />
@@ -282,7 +305,7 @@ export default function AnalyticsPlayersPage() {
                 ))}
               </div>
               <p className="text-[10px] text-gray-500 leading-relaxed">
-                المتغيّرات تُستبدل بقيم كلّ لاعب عند الضغط على 💬 في صفّه. القالب يُحفظ على جهازك تلقائيّاً.
+                المتغيّرات تُستبدل بقيم كلّ لاعب. 💬 يفتح واتساب بالنصّ · 🔔 يدفع النصّ كإشعار لجهاز اللاعب (يظهر فقط لمن عنده جهاز مسجّل). كلّها تُحفظ على جهازك تلقائيّاً.
               </p>
             </div>
           )}
@@ -290,7 +313,7 @@ export default function AnalyticsPlayersPage() {
           <div className="text-[11px] text-gray-500">عرض <b className="tabular-nums">{rows.length}</b> لاعب{segFilter ? ` · ${segList.find((s: any) => s.id === segFilter)?.name}` : ''}{unplayed ? ` · لم يحضر آخر ${unplayedN} فعاليّة` : ''}</div>
 
           <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
-            <div className="grid grid-cols-[2.1fr_1.1fr_.7fr_.7fr_.8fr_.5fr] bg-gray-900/40 border-b border-gray-700/30 text-[10px] uppercase tracking-wider text-gray-500">
+            <div className="grid grid-cols-[2fr_1fr_.7fr_.7fr_.75fr_.85fr] bg-gray-900/40 border-b border-gray-700/30 text-[10px] uppercase tracking-wider text-gray-500">
               {[['name', 'اللاعب'], ['seg', 'الشريحة'], ['activitiesAll', 'فعاليّات'], ['games30', 'آخر ٣٠ي'], ['daysSince', 'آخر ظهور']].map(([k, l]) => (
                 <button key={k} onClick={() => sortBy(k)} className="px-3.5 py-2.5 text-right hover:text-gray-300">{l}{sortKey === k && <span className="text-amber-400 mr-1">{sortDir < 0 ? '▼' : '▲'}</span>}</button>
               ))}
@@ -299,7 +322,7 @@ export default function AnalyticsPlayersPage() {
             <div className="max-h-[560px] overflow-y-auto">
               {rows.length === 0 ? <div className="p-10 text-center text-gray-600 text-sm">لا لاعبين مطابقين</div> :
                 rows.map(p => (
-                  <div key={p.id} onClick={() => setDetail(p)} className="grid grid-cols-[2.1fr_1.1fr_.7fr_.7fr_.8fr_.5fr] items-center border-b border-gray-800/40 hover:bg-gray-800/40 cursor-pointer">
+                  <div key={p.id} onClick={() => setDetail(p)} className="grid grid-cols-[2fr_1fr_.7fr_.7fr_.75fr_.85fr] items-center border-b border-gray-800/40 hover:bg-gray-800/40 cursor-pointer">
                     <div className="px-3.5 py-2.5 flex items-center gap-2.5 min-w-0">
                       <span className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-black shrink-0" style={{ background: p._seg.color }}>{initials(p.name)}</span>
                       <span className="min-w-0"><div className="text-[13px] font-semibold text-white truncate">{p.name || '—'}{p.isTest && <span className="text-[9px] text-amber-400 border border-amber-500/40 rounded px-1 mr-1.5">اختبار</span>}</div><div className="text-[10px] text-gray-500 tabular-nums" dir="ltr">{p.phone}</div></span>
@@ -308,15 +331,28 @@ export default function AnalyticsPlayersPage() {
                     <div className="px-3.5 text-center text-[13px] tabular-nums">{p.activitiesAll}</div>
                     <div className="px-3.5 text-center text-[13px] tabular-nums text-gray-400">{p.games30 || '·'}</div>
                     <div className="px-3.5 text-center text-[13px] tabular-nums" style={{ color: p.daysSince <= 21 ? '#34d399' : p.daysSince <= 45 ? '#f5a524' : '#e5484d' }}>{p.daysSince}ي</div>
-                    <div className="px-2 flex justify-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); if (normalizePhoneIntl(p.phone)) openWhatsApp(p, waTemplate, flash); else flash('لا رقم هاتف صالح لهذا اللاعب'); }}
-                        title={normalizePhoneIntl(p.phone) ? 'إرسال رسالة واتساب' : 'لا رقم هاتف'}
-                        disabled={!normalizePhoneIntl(p.phone)}
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${normalizePhoneIntl(p.phone) ? 'bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25' : 'bg-gray-800/40 border border-gray-700/40 text-gray-600 cursor-not-allowed'}`}
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
-                      </button>
+                    <div className="px-1.5 flex justify-center items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                      {/* 💬 واتساب — يظهر لمن له رقم صالح */}
+                      {normalizePhoneIntl(p.phone) && (
+                        <button
+                          onClick={() => openWhatsApp(p, waTemplate, flash)}
+                          title="إرسال رسالة واتساب"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition shrink-0"
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
+                        </button>
+                      )}
+                      {/* 🔔 إشعار — يظهر فقط لمن عنده جهاز مسجّل في الإشعارات */}
+                      {p.hasPush && (
+                        <button
+                          onClick={() => sendPush(p)}
+                          disabled={sendingPushId === p.id}
+                          title="دفع النصّ كإشعار لجهاز اللاعب"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition shrink-0 disabled:opacity-50"
+                        >
+                          {sendingPushId === p.id ? <span className="text-[11px]">⏳</span> : <span className="text-[15px]">🔔</span>}
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -328,7 +364,7 @@ export default function AnalyticsPlayersPage() {
           onEdit={editConfig} onSave={saveConfig} onReset={resetConfig} saving={saving} dirty={dirty} />
       )}
 
-      {detail && <PlayerDetail p={detail} onClose={() => setDetail(null)} onWa={(pp: any) => openWhatsApp(pp, waTemplate, flash)} />}
+      {detail && <PlayerDetail p={detail} onClose={() => setDetail(null)} onWa={(pp: any) => openWhatsApp(pp, waTemplate, flash)} onPush={sendPush} pushBusy={sendingPushId === detail.id} />}
       {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-900 border border-amber-500/40 text-amber-200 text-sm px-4 py-2.5 rounded-xl shadow-2xl">{toast}</div>}
     </div>
   );
@@ -415,7 +451,7 @@ function RuleBuilder({ config, metricDefs, segCounts, pool, onEdit, onSave, onRe
 }
 
 // ═══════════ تفاصيل اللاعب (بصريّ) ═══════════
-function PlayerDetail({ p, onClose, onWa }: any) {
+function PlayerDetail({ p, onClose, onWa, onPush, pushBusy }: any) {
   const waOk = !!normalizePhoneIntl(p.phone);
   const c = p._seg.color, acts = p.acts || [];
   const bm: Record<string, { g: number; a: number }> = {};
@@ -444,6 +480,12 @@ function PlayerDetail({ p, onClose, onWa }: any) {
                 className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
                 واتساب
+              </button>
+            )}
+            {p.hasPush && (
+              <button onClick={() => onPush?.(p)} disabled={pushBusy} title="دفع النصّ كإشعار لجهاز اللاعب"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition disabled:opacity-50">
+                {pushBusy ? '⏳' : '🔔'} إشعار
               </button>
             )}
             <button onClick={onClose} className="self-start text-gray-500 hover:text-white text-2xl leading-none">✕</button>
