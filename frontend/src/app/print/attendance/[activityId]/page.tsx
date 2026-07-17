@@ -145,7 +145,9 @@ export default function AttendancePrintPage() {
       </div>
 
       {/* ===== اللوحة المدمجة: تصميم الصورة (معاينة الشاشة = الملفّ المُصدَّر) ===== */}
-      <div className="imgsheet" ref={imgRef}>
+      {/* .imgsheet غلافٌ بعرض اللوحة تماماً؛ نلتقط .isheet فتكون إزاحتها صفراً (يمنع انزياح RTL) */}
+      <div className="imgsheet">
+        <div className="isheet" ref={imgRef}>
         <div className="head">
           <svg className="crest" viewBox="0 0 100 100" fill="none">
             <defs><linearGradient id="ig" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#f7e9be" /><stop offset="1" stopColor="#9a7b3a" /></linearGradient></defs>
@@ -179,6 +181,7 @@ export default function AttendancePrintPage() {
           </>
         )}
         <div className="ifoot"><i /><b>نادي المافيا</b> 🎭 — كشف حضورٍ رسميّ · أُعدّ آليّاً من متابعة الحجوزات</div>
+        </div>
       </div>
 
       <div className="sheetwrap">
@@ -243,18 +246,20 @@ const CSS = `
   @media screen{.att .sheetwrap{display:none}}
 
   /* ===== اللوحة المدمجة: تصميم الصورة (متدفّق بلا ارتفاع زائد، يُلتقط بالكامل) ===== */
-  .att .imgsheet{width:820px;margin:22px auto;position:relative;overflow:hidden;padding:30px 28px 26px;border-radius:6px;
+  /* .imgsheet = غلافٌ بعرض اللوحة تماماً يمنع انزياح RTL في الالتقاط؛ .isheet = اللوحة المُصوَّرة */
+  .att .imgsheet{width:820px;margin:22px auto}
+  .att .isheet{position:relative;overflow:hidden;padding:30px 28px 26px;border-radius:6px;
     background:radial-gradient(120% 30% at 50% -4%, rgba(201,164,87,.10), transparent 60%),radial-gradient(70% 40% at 100% 0%, rgba(138,3,3,.07), transparent 55%),linear-gradient(180deg,var(--obs2),var(--obs));
     box-shadow:0 30px 90px -30px #000}
-  .att .imgsheet::before{content:"";position:absolute;inset:11px;border:1px solid rgba(201,164,87,.22);pointer-events:none;z-index:2;border-radius:3px}
-  .att .imgsheet::after{content:"";position:absolute;inset:14px;border:1px solid rgba(201,164,87,.08);pointer-events:none;z-index:2}
-  .att .imgsheet .gsep{margin-top:6mm}
-  .att .imgsheet .ifoot{text-align:center;color:var(--faint);font-size:10.5px;padding-top:15px;position:relative}
-  .att .imgsheet .ifoot i{display:block;max-width:220px;margin:0 auto 8px;height:1px;background:linear-gradient(90deg,transparent,var(--f-dim),transparent)}
-  .att .imgsheet .ifoot b{color:var(--gold)}
-  .att.light .imgsheet{background:linear-gradient(180deg,#fbf6ea,#f4efe2)}
-  .att.light .imgsheet::before{border-color:rgba(160,120,50,.4)}
-  .att.light .imgsheet::after{border-color:rgba(160,120,50,.16)}
+  .att .isheet::before{content:"";position:absolute;inset:11px;border:1px solid rgba(201,164,87,.22);pointer-events:none;z-index:2;border-radius:3px}
+  .att .isheet::after{content:"";position:absolute;inset:14px;border:1px solid rgba(201,164,87,.08);pointer-events:none;z-index:2}
+  .att .isheet .gsep{margin-top:6mm}
+  .att .isheet .ifoot{text-align:center;color:var(--faint);font-size:10.5px;padding-top:15px;position:relative}
+  .att .isheet .ifoot i{display:block;max-width:220px;margin:0 auto 8px;height:1px;background:linear-gradient(90deg,transparent,var(--f-dim),transparent)}
+  .att .isheet .ifoot b{color:var(--gold)}
+  .att.light .isheet{background:linear-gradient(180deg,#fbf6ea,#f4efe2)}
+  .att.light .isheet::before{border-color:rgba(160,120,50,.4)}
+  .att.light .isheet::after{border-color:rgba(160,120,50,.16)}
 
   .att .page{width:210mm;height:calc(297mm - 1px);margin:0 auto 22px;position:relative;overflow:hidden;padding:13mm 12mm;display:flex;flex-direction:column;
     break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;
