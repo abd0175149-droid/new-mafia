@@ -96,16 +96,16 @@ export default function InviteModal({ roomId, emit, onClose }: InviteModalProps)
 
   return (
     <div dir="rtl" className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-[#0a0a0a] border border-sky-500/30 rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-[#0a0a0a] border border-[#C5A059]/30 rounded-t-2xl sm:rounded-2xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={e => e.stopPropagation()}>
         {/* الرأس */}
         <div className="flex items-center justify-between p-4 border-b border-[#1a1a1a]">
-          <div className="text-sky-300 font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>📨 إرسال دعوة</div>
+          <div className="text-[#C5A059] font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>📨 إرسال دعوة</div>
           <button onClick={onClose} className="text-[#888] hover:text-white text-xl w-8 h-8 leading-none">✕</button>
         </div>
         {/* التبويبات */}
         <div className="flex gap-2 p-3">
-          <button onClick={() => setTab('friends')} className={`flex-1 py-2 rounded-lg text-sm border transition ${tab === 'friends' ? 'bg-sky-500/15 border-sky-600 text-sky-300' : 'border-[#222] text-[#888]'}`}>الأصدقاء</button>
-          <button onClick={() => setTab('all')} className={`flex-1 py-2 rounded-lg text-sm border transition ${tab === 'all' ? 'bg-sky-500/15 border-sky-600 text-sky-300' : 'border-[#222] text-[#888]'}`}>الجميع</button>
+          <button onClick={() => setTab('friends')} className={`flex-1 py-2 rounded-lg text-sm border transition ${tab === 'friends' ? 'bg-[#C5A059]/10 border-[#C5A059]/50 text-[#C5A059]' : 'border-[#222] text-[#888]'}`}>الأصدقاء</button>
+          <button onClick={() => setTab('all')} className={`flex-1 py-2 rounded-lg text-sm border transition ${tab === 'all' ? 'bg-[#C5A059]/10 border-[#C5A059]/50 text-[#C5A059]' : 'border-[#222] text-[#888]'}`}>الجميع</button>
         </div>
         {/* البحث */}
         <div className="px-3 pb-2">
@@ -113,9 +113,9 @@ export default function InviteModal({ roomId, emit, onClose }: InviteModalProps)
             value={q}
             onChange={e => setQ(e.target.value)}
             placeholder={tab === 'all' ? 'ابحث بالاسم أو برقم الهاتف كاملاً' : 'ابحث في أصدقائك بالاسم'}
-            className="w-full bg-[#050505] border border-[#222] rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-sky-500"
+            className="w-full bg-[#050505] border border-[#222] rounded-lg px-3 py-2.5 text-white text-base outline-none focus:border-[#C5A059]"
           />
-          {tab === 'all' && <div className="text-[9px] text-[#666] mt-1">رقم الهاتف يُظهر اللاعب فقط عند كتابته كاملاً وصحيحاً.</div>}
+          {tab === 'all' && <div className="text-[10px] text-[#9a9a9a] mt-1">رقم الهاتف يُظهر اللاعب فقط عند كتابته كاملاً وصحيحاً.</div>}
         </div>
         {/* النتائج */}
         <div className="flex-1 overflow-y-auto px-3 pb-3">
@@ -141,7 +141,7 @@ export default function InviteModal({ roomId, emit, onClose }: InviteModalProps)
                     <button
                       onClick={() => invite(p)}
                       disabled={st === 'sending' || st === 'sent'}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${st === 'sent' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-600' : st === 'sending' ? 'bg-[#222] text-[#888]' : 'bg-sky-600 text-white hover:bg-sky-500'}`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${st === 'sent' ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-600' : st === 'sending' ? 'bg-[#222] text-[#888]' : 'border border-[#C5A059]/50 bg-[#C5A059]/10 text-[#C5A059] hover:bg-[#C5A059]/20'}`}
                     >
                       {st === 'sent' ? '✓ أُرسلت' : st === 'sending' ? '…' : 'دعوة'}
                     </button>
@@ -151,7 +151,7 @@ export default function InviteModal({ roomId, emit, onClose }: InviteModalProps)
             </div>
           )}
         </div>
-        {toast && <div className="mx-3 mb-3 text-center text-xs text-sky-300 bg-sky-500/10 border border-sky-500/30 rounded-lg py-2">{toast}</div>}
+        {toast && <div className="absolute bottom-3 inset-x-3 z-10 text-center text-xs text-[#C5A059] bg-[#0a0a0a] border border-[#C5A059]/30 rounded-lg py-2 shadow-lg">{toast}</div>}
       </div>
     </div>
   );

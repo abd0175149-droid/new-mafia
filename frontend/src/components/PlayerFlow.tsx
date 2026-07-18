@@ -12,6 +12,8 @@ import { useActiveSpeaker } from '../hooks/useActiveSpeaker';
 import ConfrontationControls from './ConfrontationControls';
 import InviteModal from './InviteModal';
 import RolesInfoModal from './RolesInfoModal';
+import PhaseLoading from '@/components/PhaseLoading';
+import RoomCodeCard from '@/components/RoomCodeCard';
 import { useGameState } from '@/hooks/useGameState';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import { Users } from 'lucide-react';
@@ -2161,7 +2163,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   🤐 أبقى مخفيّاً — نفّذوا الإعدام
                 </button>
               </div>
-              <p className="text-center text-[9px] text-[#655c4e] mt-3">الكشف دائم للجميع + صوتك ×{mayorPrompt.voteWeight || 2} فوراً + القدرة تُستهلك (مرّة واحدة)</p>
+              <p className="text-center text-[10px] text-[#9a9a9a] mt-3">الكشف دائم للجميع + صوتك ×{mayorPrompt.voteWeight || 2} فوراً + القدرة تُستهلك (مرّة واحدة)</p>
             </motion.div>
           </motion.div>
         )}
@@ -2327,7 +2329,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 autoFocus
               />
 
-              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mb-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+              {apiError && <p className="text-[#8A0303] text-[11px] font-mono text-center mb-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <button
                 onClick={() => handleFindRoom()}
@@ -2378,7 +2380,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     />
                   </div>
 
-                  {apiError && roomId && <p className="text-[#8A0303] text-[10px] font-mono text-center mb-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+                  {apiError && roomId && <p className="text-[#8A0303] text-[11px] font-mono text-center mb-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
                   <button
                     onClick={handlePhoneLookup}
@@ -2490,7 +2492,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 </div>
               </div>
 
-              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mt-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+              {apiError && <p className="text-[#8A0303] text-[11px] font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <div className="mt-6">
                 <button
@@ -2528,7 +2530,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 </div>
               </div>
 
-              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mt-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+              {apiError && <p className="text-[#8A0303] text-[11px] font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <div className="mt-6">
                 <button
@@ -2565,7 +2567,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               </div>
 
-              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mt-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+              {apiError && <p className="text-[#8A0303] text-[11px] font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <div className="mt-6">
                 <button
@@ -2607,7 +2609,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               </div>
 
-              {apiError && <p className="text-[#8A0303] text-[10px] font-mono text-center mb-4 tracking-[0.1em] uppercase bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
+              {apiError && <p className="text-[#8A0303] text-[11px] font-mono text-center mb-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
 
               <button
                 onClick={() => handleAutoJoin(false, ticketNumber)}
@@ -2681,7 +2683,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
-              <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
+              <div className="text-[10px] font-mono text-[#9a9a9a] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
               </div>
               )}
@@ -2721,7 +2723,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 <div className="w-full max-w-lg mx-auto px-1 mt-2">
                   <button
                     onClick={() => setShowInvite(true)}
-                    className="w-full py-2.5 rounded-xl bg-sky-600/90 text-white text-sm font-bold shadow-[0_0_12px_rgba(2,132,199,0.3)] hover:bg-sky-500 transition flex items-center justify-center gap-2"
+                    className="w-full py-2.5 rounded-xl border border-sky-600/40 text-sky-300 bg-transparent text-sm font-bold hover:bg-sky-500/10 transition flex items-center justify-center gap-2"
                   >
                     📨 دعوة صديق للغرفة
                   </button>
@@ -2761,15 +2763,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
               {/* ── مرحلة التصويت: تحميل أو عرض ── */}
               {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center py-10"
-                >
-                  <div className="text-3xl mb-3">🗳️</div>
-                  <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-[#C5A059] text-sm font-mono">جاري تحميل التصويت...</p>
-                </motion.div>
+                <PhaseLoading icon="🗳️" text="جاري تحميل التصويت..." />
               ) : gamePhase === 'DAY_VOTING' && votingCandidates.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -2790,7 +2784,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           <h2 className="text-2xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
                             مرحلة التصويت
                           </h2>
-                          <p className="text-[#808080] text-xs font-mono uppercase tracking-[0.1em] mt-2">
+                          <p className="text-[#808080] text-xs font-mono mt-2">
                             {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? (
                               voteWindowOpen ? (
                                 <span className="text-amber-500 font-bold">يمكنك تغيير تصويتك خلال {secondsLeft} ثانية</span>
@@ -2936,7 +2930,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                               {votersForThisCandidate.map(vId => {
                                 const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `لاعب ${vId}`;
                                 return (
-                                  <span key={vId} className="text-[9px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                  <span key={vId} className="text-[10px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
                                     <span className="font-black text-[#ff4444]">{vId}</span>
                                     <span className="truncate max-w-[50px] text-gray-300">{vName}</span>
                                   </span>
@@ -2947,7 +2941,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
                           {/* شارة "أنت" */}
                           {isSelf && (
-                            <span className="absolute top-1.5 right-1.5 text-[8px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
+                            <span className="absolute top-1.5 right-1.5 text-[10px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
                           )}
                         </motion.button>
                       );
@@ -2994,9 +2988,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           videoByPid={voiceMaps.videoByPid}
                           speakingByPid={voiceMaps.audioByPid}
                         />
-                        <div className="mt-2 flex items-center justify-center gap-3 rounded-xl px-4 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40">
-                          <span className="text-[10px] text-[#808080]" style={{ fontFamily: 'Amiri, serif' }}>رمز الغرفة</span>
-                          <b className="text-[#C5A059] text-xl font-mono tracking-[0.18em]">{roomCode}</b>
+                        <div className="mt-2">
+                          <RoomCodeCard code={roomCode} />
                         </div>
                         <div className="mt-2 h-1.5 rounded-full bg-[#1a1a1a] overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-[#C5A059] to-[#E8C97A] transition-[width] duration-500" style={{ width: `${Math.min(100, (roster.length / (maxPlayers || roster.length || 1)) * 100)}%` }} />
@@ -3130,7 +3123,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
-              <div className="text-[8px] font-mono text-[#555] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
+              <div className="text-[10px] font-mono text-[#9a9a9a] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
               </div>
               )}
@@ -3170,7 +3163,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 <div className="w-full max-w-lg mx-auto px-1 mt-2">
                   <button
                     onClick={() => setShowInvite(true)}
-                    className="w-full py-2.5 rounded-xl bg-sky-600/90 text-white text-sm font-bold shadow-[0_0_12px_rgba(2,132,199,0.3)] hover:bg-sky-500 transition flex items-center justify-center gap-2"
+                    className="w-full py-2.5 rounded-xl border border-sky-600/40 text-sky-300 bg-transparent text-sm font-bold hover:bg-sky-500/10 transition flex items-center justify-center gap-2"
                   >
                     📨 دعوة صديق للغرفة
                   </button>
@@ -3246,7 +3239,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
                   {/* شريط التقدم */}
                   <div className="mb-5">
-                    <div className="flex justify-between text-[9px] font-mono text-[#666] mb-1">
+                    <div className="flex justify-between text-[10px] font-mono text-[#9a9a9a] mb-1">
                       <span>VOTES: {totalVotesCast}</span>
                       <span>{votingComplete ? '✅ COMPLETE' : '⏳ IN PROGRESS'}</span>
                     </div>
@@ -3356,7 +3349,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                               {votersForThisCandidate.map(vId => {
                                 const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `لاعب ${vId}`;
                                 return (
-                                  <span key={vId} className="text-[9px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                  <span key={vId} className="text-[10px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
                                     <span className="font-black text-[#ff4444]">{vId}</span>
                                     <span className="truncate max-w-[50px] text-gray-300">{vName}</span>
                                   </span>
@@ -3367,7 +3360,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
                           {/* شارة "أنت" */}
                           {isSelf && (
-                            <span className="absolute top-1.5 right-1.5 text-[8px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
+                            <span className="absolute top-1.5 right-1.5 text-[10px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
                           )}
                         </motion.button>
                       );
@@ -3478,9 +3471,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           videoByPid={voiceMaps.videoByPid}
                           speakingByPid={voiceMaps.audioByPid}
                         />
-                        <div className="mt-2 flex items-center justify-center gap-3 rounded-xl px-4 py-2 bg-[#C5A059]/10 border border-[#C5A059]/40">
-                          <span className="text-[10px] text-[#808080]" style={{ fontFamily: 'Amiri, serif' }}>رمز الغرفة</span>
-                          <b className="text-[#C5A059] text-xl font-mono tracking-[0.18em]">{roomCode}</b>
+                        <div className="mt-2">
+                          <RoomCodeCard code={roomCode} />
                         </div>
                         <div className="mt-2 h-1.5 rounded-full bg-[#1a1a1a] overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-[#C5A059] to-[#E8C97A] transition-[width] duration-500" style={{ width: `${Math.min(100, (roster.length / (maxPlayers || roster.length || 1)) * 100)}%` }} />

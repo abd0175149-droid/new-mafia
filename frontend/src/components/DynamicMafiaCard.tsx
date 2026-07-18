@@ -227,7 +227,7 @@ export default function DynamicMafiaCard({
 
             {isSilenced && (
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-900/80 border border-rose-500/40 px-2 py-0.5 rounded-full" style={{ zIndex: 20 }}>
-                <span className="text-[10px] text-rose-300 font-mono tracking-widest">🔇 MUTED</span>
+                <span className="text-[10px] text-rose-300 font-bold">🔇 مُسكَت</span>
               </div>
             )}
           </div>
@@ -250,7 +250,7 @@ export default function DynamicMafiaCard({
                 <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
                 {flippable && (
-                  <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>
+                  <span className="text-[10px] text-zinc-500 mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>
                 )}
               </>
             )}
@@ -337,7 +337,7 @@ export default function DynamicMafiaCard({
                 position: 'absolute', top: 4 + (fx.badge.offsetY || 0), left: 4 + (fx.badge.offsetX || 0), zIndex: 55,
                 display: 'flex', alignItems: 'center', gap: 2,
                 padding: '2px 5px', borderRadius: 6,
-                fontSize: 8, fontWeight: 700, fontFamily: 'Inter, sans-serif', letterSpacing: '0.05em',
+                fontSize: 10, fontWeight: 700, fontFamily: 'Inter, sans-serif', letterSpacing: '0.05em',
                 backdropFilter: 'blur(4px)', pointerEvents: rankEditable ? 'auto' : 'none',
                 cursor: rankEditable ? 'grab' : undefined,
                 background: fx.badge.bgColor, color: fx.badge.textColor,
@@ -490,9 +490,9 @@ export default function DynamicMafiaCard({
                 {/* اسم اللاعب — يُخفى عند hideIdentity */}
                 {!hideIdentity && cardTemplate?.elements?.showPlayerNumber !== false && (
                   <p
-                    className="text-white/40 text-sm font-mono tracking-widest"
-                    dir="ltr"
-                    style={cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}}
+                    className="text-white/50 text-sm max-w-[85%] truncate mx-auto"
+                    dir="auto"
+                    style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}) }}
                   >
                     {playerName}
                   </p>

@@ -374,7 +374,7 @@ export default function MafiaCardLegacy({
             {/* أيقونة الإسكات */}
             {isSilenced && (
               <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-rose-900/80 border border-rose-500/40 px-2 py-0.5 rounded-full z-20">
-                <span className="text-[10px] text-rose-300 font-mono tracking-widest">🔇 MUTED</span>
+                <span className="text-[10px] text-rose-300 font-bold">🔇 مُسكَت</span>
               </div>
             )}
           </div>
@@ -442,7 +442,7 @@ export default function MafiaCardLegacy({
                   MAFIA CLUB
                 </p>
                 {flippable && (
-                  <span className="text-[7px] text-zinc-600 font-mono tracking-widest uppercase mt-1">
+                  <span className="text-[10px] text-zinc-500 mt-1">
                     اضغط للكشف
                   </span>
                 )}
@@ -503,7 +503,7 @@ export default function MafiaCardLegacy({
             </h3>
 
             {/* اسم اللاعب */}
-            <p className="text-white/40 text-sm font-mono tracking-widest" dir="ltr">
+            <p className="text-white/50 text-sm max-w-[85%] truncate mx-auto" dir="auto" style={{ fontFamily: 'Amiri, serif' }}>
               {playerName}
             </p>
 

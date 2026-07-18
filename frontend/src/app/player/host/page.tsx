@@ -19,6 +19,8 @@ import PhoneSpectatorView from '@/components/PhoneSpectatorView';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import ConfrontationControls from '@/components/ConfrontationControls';
 import InviteModal from '@/components/InviteModal';
+import PhaseLoading from '@/components/PhaseLoading';
+import RoomCodeCard from '@/components/RoomCodeCard';
 import { MAFIA_ROLES } from '@/lib/constants';
 
 const PHASE_SHORT: Record<string, string> = {
@@ -151,6 +153,13 @@ export default function HostPage() {
     return () => clearInterval(iv);
   }, [refreshState]);
 
+  // ── إخفاء توست الخطأ تلقائيّاً بعد 4 ثوانٍ ──
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(''), 4000);
+    return () => clearTimeout(t);
+  }, [error]);
+
   // 🎙️ من يُسمح له بالكلام (للمضيف: يكتم الباقي) + حالة المواجهة
   const { allowedPids: hostAllowedPids, confrontation: hostConfrontation } = useActiveSpeaker({ on, gamePhase: gameState?.phase ?? null, initialDiscussionState: gameState?.discussionState });
 
@@ -237,7 +246,7 @@ export default function HostPage() {
                   <button type="button" onClick={() => setAllowPlayerInvites(true)} className={`flex-1 py-2 rounded-lg text-sm border ${allowPlayerInvites ? 'bg-sky-500/15 border-sky-600 text-sky-300' : 'border-[#222] text-[#888]'}`}>مسموح</button>
                   <button type="button" onClick={() => setAllowPlayerInvites(false)} className={`flex-1 py-2 rounded-lg text-sm border ${!allowPlayerInvites ? 'bg-[#1a1a1a] border-[#333] text-white' : 'border-[#222] text-[#888]'}`}>للمضيف فقط</button>
                 </div>
-                <div className="text-[9px] text-[#666] mt-1">عند التفعيل يظهر زرّ «إرسال دعوة» لكل لاعب في الغرفة، لا للمضيف وحده.</div>
+                <div className="text-[10px] text-[#9a9a9a] mt-1">عند التفعيل يظهر زرّ «إرسال دعوة» لكل لاعب في الغرفة، لا للمضيف وحده.</div>
               </div>
 
               <div>
@@ -256,7 +265,7 @@ export default function HostPage() {
             {!player && <div className="text-xs text-yellow-400">يجب تسجيل الدخول كلاعب أولاً.</div>}
           </div>
 
-          <p className="text-xs text-[#555] mt-4 leading-relaxed">
+          <p className="text-xs text-[#9a9a9a] mt-4 leading-relaxed">
             إنشاء الغرف مقصورٌ على الحسابات المصرّح لها. إن ظهر «غير مصرّح لك» فتواصل مع الإدارة لتفعيل الاستضافة لحسابك.
           </p>
         </div>
@@ -284,8 +293,9 @@ export default function HostPage() {
       </div>
     </div>
   );
+  // توست سفلي ثابت — يُرى حتى عند الضغط على أزرار أسفل الصفحة (يختفي تلقائيّاً بعد 4ث)
   const errBar = error ? (
-    <div className="mx-4 mt-3 p-2.5 rounded-lg bg-red-900/30 border border-red-700 text-red-200 text-sm">{error}</div>
+    <div className="fixed bottom-4 inset-x-4 z-40 p-3 rounded-xl bg-red-900/90 border border-red-700 text-red-100 text-sm text-center shadow-lg">{error}</div>
   ) : null;
 
   // ── 👑 حلقة المضيف: نفس كارت اللاعب + الكاميرا + كشف الأدوار للّيدر ──
@@ -302,15 +312,15 @@ export default function HostPage() {
       <div className="flex gap-2 px-2 mb-1">
         <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
           <div className="font-mono font-extrabold text-[17px] leading-none text-emerald-400">{aliveCount}</div>
-          <div className="text-[9px] text-[#808080] mt-0.5">أحياء</div>
+          <div className="text-[10px] text-[#9a9a9a] mt-0.5">أحياء</div>
         </div>
         <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
           <div className="font-mono font-extrabold text-[17px] leading-none text-red-400">{mafiaAlive}</div>
-          <div className="text-[9px] text-[#808080] mt-0.5">مافيا</div>
+          <div className="text-[10px] text-[#9a9a9a] mt-0.5">مافيا</div>
         </div>
         <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
           <div className="font-mono font-extrabold text-[15px] leading-none text-[#C5A059]">{PHASE_SHORT[phase] || '—'}</div>
-          <div className="text-[9px] text-[#808080] mt-0.5">الطور</div>
+          <div className="text-[10px] text-[#9a9a9a] mt-0.5">الطور</div>
         </div>
       </div>
       <PhoneSpectatorView
@@ -333,9 +343,12 @@ export default function HostPage() {
     body = (
       <>
         <div className="mx-4 mt-3">
+          <RoomCodeCard code={gameState.roomCode} />
+        </div>
+        <div className="mx-4 mt-3">
           <button
             onClick={() => setShowInvite(true)}
-            className="w-full py-3 rounded-xl bg-sky-600 text-white text-sm font-bold shadow-[0_0_15px_rgba(2,132,199,0.35)] hover:bg-sky-500 transition flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl border border-sky-600/40 text-sky-300 bg-transparent text-sm font-bold hover:bg-sky-500/10 transition flex items-center justify-center gap-2"
           >
             📨 إرسال دعوة للاعبين
           </button>
@@ -377,7 +390,7 @@ export default function HostPage() {
       <div className="px-4 pt-2 pb-7 text-center">
         <div className="text-6xl mb-1 leading-none" style={{ filter: 'drop-shadow(0 0 26px rgba(197,160,89,0.45))' }}>{winIcon}</div>
         <h2 className="text-2xl font-black text-white mb-1" style={{ fontFamily: 'Amiri, serif' }}>{winTitle}</h2>
-        <p className="text-[9px] font-mono text-[#808080] tracking-[0.25em] uppercase mb-6">{winSub}</p>
+        <p className="text-[10px] font-mono text-[#808080] tracking-[0.25em] uppercase mb-6">{winSub}</p>
         <div className="flex gap-2 max-w-md mx-auto">
           <button onClick={async () => { try { await emit('room:new-game', { roomId: gameState.roomId }); } catch (e: any) { setError(e?.message || 'تعذّر'); } }}
             className="btn-premium flex-1 !py-3.5 !rounded-xl"><span>🔄 لعبة جديدة</span></button>
@@ -387,12 +400,7 @@ export default function HostPage() {
       </div>
     );
   } else {
-    body = (
-      <div className="p-8 text-center text-[#808080]">
-        <div className="text-4xl mb-3">⏳</div>
-        <p className="text-lg text-white/90 mb-1">الطور «{phase}»</p>
-      </div>
-    );
+    body = <PhaseLoading text={`الطور «${phase}»`} />;
   }
 
   return (

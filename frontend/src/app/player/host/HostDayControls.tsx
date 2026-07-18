@@ -113,11 +113,11 @@ function DiscussionDock({ gameState, emit, setError }: Props) {
       )}
       <div className="flex items-center justify-between mb-2 px-1">
         <span className="text-xs text-[#c9c3b5]">{silenced ? '🔇 مُسكَت' : 'الدور'}: <span className="font-mono text-[#C5A059]">#{ds.currentSpeakerId}</span> {cur?.name || ''}</span>
-        <span className="text-[10px] font-mono text-[#666]">طابور {ds.speakingQueue?.length ?? 0} · تكلّم {ds.hasSpoken?.length ?? 0}</span>
+        <span className="text-[10px] font-mono text-[#9a9a9a]">طابور {ds.speakingQueue?.length ?? 0} · تكلّم {ds.hasSpoken?.length ?? 0}</span>
       </div>
       <div className="flex gap-2">
         <button onClick={() => run(() => emit('day:prev-speaker', { roomId: gameState.roomId }))} disabled={busy || (ds.hasSpoken?.length ?? 0) === 0}
-          className="px-3.5 py-3 rounded-xl border border-[#2a2a2a] text-[#aaa] bg-[#0e0e10] disabled:opacity-40 text-sm">⏮</button>
+          className="px-3.5 py-3 rounded-xl border border-[#2a2a2a] text-[#aaa] bg-[#0e0e10] disabled:opacity-40 text-sm">⏭</button>
         {speaking ? (
           <button onClick={() => run(() => emit('day:timer-action', { roomId: gameState.roomId, action: 'PAUSE' }))}
             className="flex-1 py-3 rounded-xl font-bold text-sm bg-gradient-to-b from-[#c9a45a] to-[#9c7a33] text-black border border-[#d9be82]">⏸ إيقاف</button>
@@ -126,7 +126,7 @@ function DiscussionDock({ gameState, emit, setError }: Props) {
             className="flex-1 py-3 rounded-xl font-bold text-sm bg-gradient-to-b from-[#c9a45a] to-[#9c7a33] text-black border border-[#d9be82]">▶ {ds.status === 'WAITING' ? 'ابدأ' : 'استئناف'}</button>
         )}
         <button onClick={() => run(() => emit('day:next-speaker', { roomId: gameState.roomId }))}
-          className="flex-1 py-3 rounded-xl font-bold text-sm bg-gradient-to-b from-[#3a1513] to-[#230d0c] text-[#eba9a4] border border-[#5e2622]">⏭ التالي</button>
+          className="flex-1 py-3 rounded-xl font-bold text-sm bg-gradient-to-b from-[#3a1513] to-[#230d0c] text-[#eba9a4] border border-[#5e2622]">⏮ التالي</button>
         <button onClick={() => setShowAdjust((s) => !s)}
           className={`px-3.5 py-3 rounded-xl border text-sm ${showAdjust ? 'border-[#C5A059]/50 text-[#C5A059] bg-[#C5A059]/10' : 'border-[#2a2a2a] text-[#888] bg-[#0e0e10]'}`}>⏱</button>
       </div>

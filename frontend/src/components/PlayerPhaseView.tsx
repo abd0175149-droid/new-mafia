@@ -624,7 +624,7 @@ export default function PlayerPhaseView({
         <div className="text-4xl mb-3">⚙️</div>
         <div className="w-10 h-10 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-4" />
         <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>جاري تجهيز الأدوار</h3>
-        <p className="text-[#666] text-xs mt-2">يُرجى الانتظار...</p>
+        <p className="text-[#9a9a9a] text-xs mt-2">يُرجى الانتظار...</p>
       </motion.div>
     );
   }
@@ -635,7 +635,7 @@ export default function PlayerPhaseView({
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
         <motion.div animate={{ rotateY: [0, 180, 360] }} transition={{ duration: 2, repeat: Infinity }} className="text-4xl mb-3">🎴</motion.div>
         <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>جاري توزيع الأدوار</h3>
-        <p className="text-[#666] text-xs mt-2">يُرجى الانتظار...</p>
+        <p className="text-[#9a9a9a] text-xs mt-2">يُرجى الانتظار...</p>
       </motion.div>
     );
   }
@@ -752,7 +752,7 @@ export default function PlayerPhaseView({
             {pollData?.round === 1 ? (
               <div className="p-3.5 rounded-xl bg-black/20 border border-[#C5A059]/10 text-center">
                 <p className="text-[#C5A059] text-xs font-bold">🤝 ميزة الديل (Deals)</p>
-                <p className="text-[#666] text-[10px] mt-1.5 leading-relaxed">
+                <p className="text-[#9a9a9a] text-[10px] mt-1.5 leading-relaxed">
                   🔒 الاتفاقيات غير متاحة في الجولة الأولى.<br />
                   سيبدأ تفعيل ميزة الديل تلقائياً بدءاً من الجولة الثانية.
                 </p>
@@ -798,7 +798,7 @@ export default function PlayerPhaseView({
                     <p className="text-[#C5A059] text-xs font-bold">
                       🔒 تم الوصول للحد الأقصى للاتفاقيات في هذه الجولة (3/3)
                     </p>
-                    <p className="text-[#666] text-[10px] mt-1">لا يمكن إرسال اتفاقيات جديدة حالياً</p>
+                    <p className="text-[#9a9a9a] text-[10px] mt-1">لا يمكن إرسال اتفاقيات جديدة حالياً</p>
                   </div>
                 );
               }
@@ -818,7 +818,7 @@ export default function PlayerPhaseView({
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-sm text-white focus:outline-none focus:border-[#C5A059] transition-colors"
                     disabled={dealSubmitting}
                   >
-                    <option value="" className="bg-[#111] text-[#666]">-- اختر لاعباً لإبرام اتفاقية معه --</option>
+                    <option value="" className="bg-[#111] text-[#9a9a9a]">-- اختر لاعباً لإبرام اتفاقية معه --</option>
                     {eligibleTargets.map(p => {
                       const isTargeted = deals.some(d => d.targetPhysicalId === p.physicalId);
                       return (
@@ -950,7 +950,7 @@ export default function PlayerPhaseView({
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mx-2 mt-4 bg-gradient-to-br from-blue-500/15 to-blue-900/10 border border-blue-500/30 rounded-2xl p-4 text-center">
             <p className="text-blue-300 text-sm mb-2 font-bold">أنت صوّتت على هذا اللاعب</p>
             <p className="text-[#888] text-xs mb-3">هل تريد سحب صوتك؟ إذا سحب أكثر من النصف تُعاد عملية التصويت</p>
-            <p className="text-[#666] text-xs mb-3 font-mono">{effectiveCount}/{effectiveNeeded} سحبوا أصواتهم</p>
+            <p className="text-[#9a9a9a] text-xs mb-3 font-mono">{effectiveCount}/{effectiveNeeded} سحبوا أصواتهم</p>
             {!hasWithdrawn ? (
               <button onClick={handleWithdraw} className="bg-blue-500/20 border border-blue-500/40 text-blue-300 font-bold py-3 px-8 rounded-xl hover:bg-blue-500/30 transition-all text-base">
                 🗳️ سحب صوتي
@@ -984,7 +984,7 @@ export default function PlayerPhaseView({
             );
           })}
         </div>
-        <p className="text-[#666] text-xs font-bold mt-4">بانتظار قرار الليدر...</p>
+        <p className="text-[#9a9a9a] text-xs font-bold mt-4">بانتظار قرار الليدر...</p>
       </motion.div>
     );
   }
@@ -1037,7 +1037,7 @@ export default function PlayerPhaseView({
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-10">
         <motion.div animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }} transition={{ duration: 3, repeat: Infinity }} className="text-6xl mb-4">🌙</motion.div>
         <h3 className="text-xl font-bold text-indigo-300" style={{ fontFamily: 'Amiri, serif' }}>الليل يسدل ستاره</h3>
-        <p className="text-[#555] text-xs font-bold mt-3">مرحلة الليل</p>
+        <p className="text-[#9a9a9a] text-xs font-bold mt-3">مرحلة الليل</p>
         
         {nightStepInfo && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 inline-block bg-[#111] border border-[#C5A059]/30 rounded-lg px-6 py-3">
@@ -1074,10 +1074,10 @@ export default function PlayerPhaseView({
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mt-6 mx-4 bg-red-500/20 border border-red-500/40 rounded-2xl p-6">
             <div className="text-4xl mb-3">💀</div>
             <p className="text-red-400 font-bold text-lg">لقد اُغتلت!</p>
-            <p className="text-[#666] text-xs mt-2">تم إخراجك من اللعبة</p>
+            <p className="text-[#9a9a9a] text-xs mt-2">تم إخراجك من اللعبة</p>
           </motion.div>
         ) : myEvents.length === 0 ? (
-          <p className="text-[#666] text-sm mt-6">بانتظار كشف الأحداث...</p>
+          <p className="text-[#9a9a9a] text-sm mt-6">بانتظار كشف الأحداث...</p>
         ) : (
           <div className="mt-4 mx-4 space-y-2">
             {myEvents.map((e: any, i: number) => {
@@ -1118,7 +1118,7 @@ export default function PlayerPhaseView({
           <h3 className="text-2xl font-black text-white" style={{ fontFamily: 'Amiri, serif' }}>
             {gameWinner === 'MAFIA' ? 'انتصار المافيا' : gameWinner === 'ASSASSIN' ? 'انتصار السفاح!' : gameWinner === 'JESTER' ? 'فوز المهرج!' : 'تطهير المدينة'}
           </h3>
-          <p className="text-[#666] text-xs font-bold mt-2">
+          <p className="text-[#9a9a9a] text-xs font-bold mt-2">
             {gameWinner === 'MAFIA' ? 'سيطرة مطلقة' : gameWinner === 'ASSASSIN' ? 'تم إنجاز العقود بنجاح' : gameWinner === 'JESTER' ? 'نجح المهرج في الانتحار' : 'العدالة انتصرت'}
           </p>
         </div>
@@ -1134,11 +1134,11 @@ export default function PlayerPhaseView({
                   'bg-white/5 border-white/10'
                 }`}>
                 <p className="text-white text-xs font-bold">#{p.physicalId}</p>
-                <p className="text-[#999] text-[10px] truncate">{p.name}</p>
+                <p className="text-[#b3b3b3] text-[11px] truncate">{p.name}</p>
                 <p className={`text-[10px] mt-1 ${p.role && (MAFIA_ROLES as string[]).includes(p.role) ? 'text-red-400' : 'text-green-400'}`}>
                   {p.role ? ((ROLE_NAMES as Record<string, string>)[p.role] || p.role) : '?'}
                 </p>
-                {!p.isAlive && <span className="text-red-500 text-[8px]">💀</span>}
+                {!p.isAlive && <span className="text-red-500 text-[10px]">💀</span>}
               </motion.div>
             ))}
           </div>

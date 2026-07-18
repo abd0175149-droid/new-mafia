@@ -17,12 +17,12 @@ interface Props {
 
 export default function HostVoting({ gameState, emit, setError }: Props) {
   const vs = gameState.votingState;
-  const alive = (gameState.players || []).filter((p: any) => p.isAlive);
+  const alive = (gameState.players || []).filter((p: any) => p.isAlive).sort((a: any, b: any) => a.physicalId - b.physicalId);
   const [selectedVoter, setSelectedVoter] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setSelectedVoter(null); }, [gameState.phase]);
 
-  if (!vs) return <div className="text-center text-[#555] py-10 font-mono text-sm">جارٍ تحضير التصويت…</div>;
+  if (!vs) return <div className="text-center text-[#9a9a9a] py-10 font-mono text-sm">جارٍ تحضير التصويت…</div>;
 
   const candidates: any[] = vs.candidates || [];
   const playerVotes: Record<number, number> = vs.playerVotes || {};
@@ -65,7 +65,7 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
           <span className="text-[#6be06b]">🏛 {citizen}</span><span className="text-[#2a2a2a]">|</span><span className="text-[#ff6b6b]">🎭 {mafia}</span>
         </div>
         <span className="text-[9px] font-mono text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-0.5 uppercase tracking-widest">{label}</span>
-        <span className="text-sm font-mono font-bold text-white">{totalVotes}<span className="text-[#555]">/{votingAlive.length}</span></span>
+        <span className="text-sm font-mono font-bold text-white">{totalVotes}<span className="text-[#9a9a9a]">/{votingAlive.length}</span></span>
       </div>
 
       {/* المرشّحون */}
@@ -84,22 +84,22 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
                 {target?.avatarUrl ? <img src={target.avatarUrl} alt="" className="w-full h-full object-cover" /> : g}
               </div>
               <div className="text-[10px] text-white/90 truncate leading-tight">#{c.targetPhysicalId} {target?.name || ''}</div>
-              {isDeal && <div className="text-[8px] font-mono text-[#C5A059] mt-0.5">🤝 صفقة</div>}
-              {selectedVoter != null && <div className="text-[8px] font-mono text-sky-300/80 mt-1">اضغط للتصويت</div>}
+              {isDeal && <div className="text-[10px] font-mono text-[#C5A059] mt-0.5">🤝 صفقة</div>}
+              {selectedVoter != null && <div className="text-[10px] font-mono text-sky-300/80 mt-1">اضغط للتصويت</div>}
             </button>
           );
         })}
       </div>
 
       {/* اختيار المصوِّت (وكالة) — معلّق: اضغطه ثم اضغط مرشّحاً · صوّت/وكالة: اضغطه للتراجع عن صوته */}
-      <div className="text-[10px] font-mono text-[#808080] uppercase tracking-wider mb-1.5">صوِّت بالوكالة — اختر مصوِّتاً معلّقاً ثم اضغط مرشّحاً · اضغط مَن صوّت للتراجع</div>
+      <div className="text-[10px] font-mono text-[#9a9a9a] uppercase mb-1.5">صوِّت بالوكالة — اختر مصوِّتاً معلّقاً ثم اضغط مرشّحاً · اضغط مَن صوّت للتراجع</div>
       <div className="flex flex-wrap gap-1.5 mb-4">
         {votingAlive.map((p: any) => {
           const st = voterStatus(p.physicalId);
           const sel = selectedVoter === p.physicalId;
           return (
             <button key={p.physicalId} onClick={() => (st === 'pending' ? setSelectedVoter(p.physicalId) : removeVote(p.physicalId))}
-              className={`px-2 py-1.5 rounded-lg text-[11px] font-mono border transition-all ${sel ? 'border-sky-500 text-sky-100 bg-sky-500/15 scale-105' : st === 'self' ? 'border-emerald-600/50 text-emerald-300 bg-emerald-900/10' : st === 'proxy' ? 'border-amber-600/50 text-amber-300 bg-amber-900/10' : 'border-[#222] text-[#999] bg-[#0c0c0c]'}`}>
+              className={`px-2 py-1.5 rounded-lg text-[11px] font-mono border transition-all ${sel ? 'border-sky-500 text-sky-100 bg-sky-500/15 scale-105' : st === 'self' ? 'border-emerald-600/50 text-emerald-300 bg-emerald-900/10' : st === 'proxy' ? 'border-amber-600/50 text-amber-300 bg-amber-900/10' : 'border-[#222] text-[#9a9a9a] bg-[#0c0c0c]'}`}>
               #{p.physicalId}{p.physicalId === mayorRevealedId ? ` 🎩×${mayorW}` : ''} {st === 'self' ? '✅' : st === 'proxy' ? '🟠' : ''}
             </button>
           );
@@ -114,7 +114,7 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
         )}
         {!isComplete && (
           <button onClick={() => run(() => emit('day:voting-timeout', { roomId: gameState.roomId }))} disabled={busy}
-            className="px-3.5 py-3 rounded-xl border border-[#2a2a2a] text-[#888] bg-[#0e0e10] text-sm" title="تصويت الغائبين على أنفسهم">⏰</button>
+            className="px-3.5 py-3 rounded-xl border border-[#2a2a2a] text-[#9a9a9a] bg-[#0e0e10] text-sm" title="تصويت الغائبين على أنفسهم">⏰</button>
         )}
         <button onClick={() => run(() => emit('day:resolve', { roomId: gameState.roomId }))} disabled={!isComplete || busy}
           className="btn-premium flex-1 !py-3 !rounded-xl disabled:opacity-40"><span>⚖️ حسم التصويت</span></button>

@@ -9,6 +9,7 @@
 import { useState, useEffect } from 'react';
 import LeaderNightView from '@/app/leader/LeaderNightView';
 import HostMorningRecap from './HostMorningRecap';
+import PhaseLoading from '@/components/PhaseLoading';
 
 interface HostNightRunnerProps {
   gameState: any;
@@ -59,7 +60,7 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
   return (
     <div dir="rtl">
       {isAutoNight && (
-        <div className="mb-4 px-1">
+        <div className="mb-4 px-3">
           <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4">
             {/* عنوان */}
             <div className="flex items-center justify-between mb-3">
@@ -75,14 +76,14 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
             {autoNightStep ? (
               <div className="space-y-3">
                 <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-3 text-center">
-                  <p className="text-[9px] font-mono text-[#666] tracking-widest uppercase mb-1">CURRENT STEP</p>
+                  <p className="text-[10px] font-mono text-[#666] tracking-widest uppercase mb-1">CURRENT STEP</p>
                   <p className="text-[#C5A059] font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>
                     {autoNightStep.roleName}
                   </p>
                   <p className="text-[#555] text-xs font-mono mt-1">
                     #{autoNightStep.performerPhysicalId} — {autoNightStep.performerName}
                   </p>
-                  <p className="text-[10px] text-[#444] font-mono mt-1">
+                  <p className="text-[10px] text-[#9a9a9a] font-mono mt-1">
                     المدة: {customNightTimer || autoNightStep.timeoutSeconds} ثانية
                   </p>
                   {!autoNightStep.dispatched && (
@@ -149,15 +150,15 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
                                   #{chooser?.physicalId} {chooser?.name}
                                   {isReal && <span className="mr-2 px-2 py-0.5 bg-[#C5A059] text-black rounded text-[10px] font-bold">صاحب الدور</span>}
                                   {isRandom ? (
-                                    <span className="mr-1 px-1.5 py-0.5 bg-gray-600 text-white rounded text-[9px]">عشوائي</span>
+                                    <span className="mr-1 px-1.5 py-0.5 bg-gray-600 text-white rounded text-[10px]">عشوائي</span>
                                   ) : (
-                                    <span className="mr-1 px-1.5 py-0.5 bg-[#4CAF50] text-white rounded text-[9px]">يدوي</span>
+                                    <span className="mr-1 px-1.5 py-0.5 bg-[#4CAF50] text-white rounded text-[10px]">يدوي</span>
                                   )}
                                 </span>
                               </div>
-                              <div className="mt-2 text-left">
+                              <div className="mt-2">
                                 <select
-                                  className={`text-[11px] bg-black border ${isReal ? 'border-[#C5A059]/50 focus:border-[#C5A059]' : 'border-[#444] opacity-70'} focus:outline-none text-white p-1.5 rounded w-full`}
+                                  className={`text-base bg-black border ${isReal ? 'border-[#C5A059]/50 focus:border-[#C5A059]' : 'border-[#444] opacity-70'} focus:outline-none text-white p-1.5 rounded w-full`}
                                   value={c.targetPhysicalId || ''}
                                   disabled={!isReal || readOnlyChoices}
                                   onChange={(e) => {
@@ -192,7 +193,8 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
                           else setAutoNightApproval(null);
                         } catch (err: any) { setError(err.message); }
                       }}
-                      className="w-full py-2 bg-[#C5A059] text-black font-bold text-sm rounded hover:bg-[#d4af63] transition-colors"
+                      className="w-full py-3.5 bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black text-sm rounded-xl hover:from-[#d4af63] hover:to-[#c49b52] transition-all"
+                      style={{ boxShadow: '0 0 20px rgba(197,160,89,0.3)' }}
                     >
                       اعتماد الإجراء
                     </button>
@@ -227,10 +229,10 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
                                     <div className="flex items-center justify-between mb-1">
                                       <span className={`text-[11px] font-mono ${isReal ? 'font-bold text-white' : 'text-[#aaa]'}`}>
                                         #{chooser?.physicalId} {chooser?.name}
-                                        {isReal && <span className="mr-1 px-1.5 py-0.5 bg-[#C5A059] text-black rounded text-[9px] font-bold">صاحب الدور</span>}
+                                        {isReal && <span className="mr-1 px-1.5 py-0.5 bg-[#C5A059] text-black rounded text-[10px] font-bold">صاحب الدور</span>}
                                       </span>
                                       <span className={`text-[11px] ${isReal ? 'text-[#C5A059] font-bold' : 'text-[#888]'}`}>
-                                        ← {target ? `#${target.physicalId} ${target.name}` : 'تخطي'}
+                                        استهدف: {target ? `#${target.physicalId} ${target.name}` : 'تخطي'}
                                       </span>
                                     </div>
                                   </div>
@@ -240,7 +242,7 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
                         )}
                         {autoNightProgress.missingPlayers && autoNightProgress.missingPlayers.length > 0 && (
                           <div className="bg-[#111] border border-[#2a2a2a] rounded-lg p-2 max-h-32 overflow-y-auto">
-                            <p className="text-[9px] text-[#888] font-mono mb-1">في انتظار الإرسال:</p>
+                            <p className="text-[10px] text-[#888] font-mono mb-1">في انتظار الإرسال:</p>
                             <div className="flex flex-wrap gap-1">
                               {autoNightProgress.missingPlayers.map((p) => (
                                 <span key={p.physicalId} className="text-[10px] px-2 py-0.5 bg-[#222] border border-[#333] text-[#ccc] rounded-md">
@@ -304,10 +306,7 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
               </div>
             ) : (
               <div className="text-center py-4">
-                <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-2" />
-                <p className="text-[10px] text-[#555] font-mono tracking-widest">
-                  جارٍ تحضير الخطوة التالية...
-                </p>
+                <PhaseLoading text="جارٍ تحضير الخطوة التالية..." />
                 <button
                   onClick={async () => {
                     try { await emit('night:retry-auto', { roomId: gameState.roomId }); } catch { /* ignore */ }

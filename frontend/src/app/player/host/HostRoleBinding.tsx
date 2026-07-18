@@ -106,9 +106,9 @@ export default function HostRoleBinding({ gameState, emit, setError }: Props) {
     <div className="px-3 pb-6">
       {/* ملخّص التوزيع */}
       <div className="flex items-center justify-around rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] py-2 mb-3 text-center">
-        <div><div className="font-mono font-bold text-white text-sm">{roleSlots.length}</div><div className="text-[8px] text-[#666]">أدوار</div></div>
-        <div><div className="font-mono font-bold text-emerald-400 text-sm">{specials.length - unassignedSpecial.length}/{specials.length}</div><div className="text-[8px] text-[#666]">خاصّة</div></div>
-        <div><div className="font-mono font-bold text-[#C5A059] text-sm">{citizens.length}</div><div className="text-[8px] text-[#666]">مواطن</div></div>
+        <div><div className="font-mono font-bold text-white text-sm">{roleSlots.length}</div><div className="text-[10px] text-[#9a9a9a]">أدوار</div></div>
+        <div><div className="font-mono font-bold text-emerald-400 text-sm">{specials.length - unassignedSpecial.length}/{specials.length}</div><div className="text-[10px] text-[#9a9a9a]">خاصّة</div></div>
+        <div><div className="font-mono font-bold text-[#C5A059] text-sm">{citizens.length}</div><div className="text-[10px] text-[#9a9a9a]">مواطن</div></div>
       </div>
 
       {/* الأدوار الخاصّة */}
@@ -151,7 +151,7 @@ export default function HostRoleBinding({ gameState, emit, setError }: Props) {
       <button onClick={() => { const v = !allowMafiaReveal; setAllowMafiaReveal(v); emit('room:update-mafia-reveal', { roomId: gameState.roomId, allowMafiaReveal: v }).catch(() => {}); }}
         className="w-full flex items-center justify-between rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2.5 mb-3 text-xs text-[#b3b3b3]">
         🎭 المافيا تعرف بعضها
-        <span className={`w-9 h-5 rounded-full relative transition-colors ${allowMafiaReveal ? 'bg-[#C5A059]' : 'bg-[#333]'}`}><span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${allowMafiaReveal ? 'right-0.5' : 'left-0.5'}`} /></span>
+        <span className={`w-9 h-5 rounded-full relative transition-colors ${allowMafiaReveal ? 'bg-[#C5A059]' : 'bg-[#333]'}`}><span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${allowMafiaReveal ? 'end-0.5' : 'start-0.5'}`} /></span>
       </button>
 
       {/* أزرار */}
@@ -162,7 +162,7 @@ export default function HostRoleBinding({ gameState, emit, setError }: Props) {
           {rolesConfirmed ? '✅ تمّ التأكيد والإرسال للاعبين' : '📨 تأكيد الأدوار وإرسالها'}
         </button>
         <button onClick={handleStart} disabled={!rolesConfirmed || loading} className="btn-premium w-full !py-3.5 !rounded-xl disabled:opacity-40"><span>🔒 قفل الهويّات وبدء اللعبة</span></button>
-        {unassignedSpecial.length > 0 && <p className="text-center text-amber-400/80 font-mono text-[9px]">تبقّى {unassignedSpecial.length} دور خاصّ بلا توزيع</p>}
+        {unassignedSpecial.length > 0 && <p className="text-center text-amber-400/80 font-mono text-[10px]">تبقّى {unassignedSpecial.length} دور خاصّ بلا توزيع</p>}
       </div>
     </div>
   );

@@ -94,7 +94,7 @@ export default function HostSettingsModal({ gameState, emit, onClose }: Props) {
           <div>
             {label('🏷️ اسم الغرفة')}
             <input value={gameName} onChange={e => setGameName(e.target.value)} maxLength={60}
-              className="w-full bg-[#050505] border border-[#222] rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-[#C5A059]" />
+              className="w-full bg-[#050505] border border-[#222] rounded-lg px-3 py-2.5 text-white text-base outline-none focus:border-[#C5A059]" />
           </div>
 
           <div>

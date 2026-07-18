@@ -344,6 +344,10 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             </span>
           )
         )}
+        {/* placeholder بين الأدوار — يثبّت ارتفاع الشريط فلا تقفز الطاولة */}
+        {!speaker && !lobby && !gameOver && (
+          <span style={{ fontSize: 11, color: '#7a7466', fontFamily: "'JetBrains Mono',monospace" }}>— بانتظار المتحدّث التالي —</span>
+        )}
       </div>
 
       {/* الحلقة */}
@@ -478,8 +482,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
 }
 
 const RT_CSS = `
-.rt-speaker{display:flex;justify-content:center;min-height:0;padding:0;transition:.3s}
-.rt-speaker.on{padding:8px 10px 2px}
+.rt-speaker{min-height:38px;display:flex;align-items:center;justify-content:center;padding:8px 10px 2px}
 .rt-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(197,160,89,.15);border:1px solid rgba(197,160,89,.4);
   color:#C5A059;border-radius:999px;padding:5px 13px;font-size:12px;font-weight:700}
 .rt-pill .rt-mono{font-family:'JetBrains Mono',monospace;font-weight:800}

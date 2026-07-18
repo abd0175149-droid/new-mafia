@@ -288,7 +288,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAss
                           </p>
 
                           {/* الدور */}
-                          <span className="text-red-400/80 text-[10px] font-mono text-center leading-tight px-2 py-0.5 rounded-full bg-[#8A0303]/10 border border-[#8A0303]/20">
+                          <span className="text-red-400/80 text-[10px] text-center leading-tight px-2 py-0.5 rounded-full bg-[#8A0303]/10 border border-[#8A0303]/20">
                             {getRoleName(member.role)}
                           </span>
                         </motion.div>

@@ -51,7 +51,11 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
 
       {/* الروستر */}
       {players.length === 0 ? (
-        <div className="text-center text-[#555] font-mono text-sm py-8">بانتظار انضمام اللاعبين…</div>
+        <div className="rounded-xl border border-dashed border-[#2a2a2a] bg-[#0a0a0a] py-10 px-4 text-center">
+          <div className="text-3xl">🎴</div>
+          <div className="text-sm text-[#b3a985] mt-2" style={{ fontFamily: 'Amiri, serif' }}>بانتظار انضمام اللاعبين…</div>
+          <div className="text-[11px] text-[#9a9a9a] mt-1.5">شارك رمز الغرفة أو استخدم زر الدعوة لجلب أصدقائك</div>
+        </div>
       ) : (
         <div className="space-y-1.5">
           {players.map((p: any) => {
@@ -95,7 +99,7 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
           <div className="flex flex-wrap gap-1.5">
             {held.map((p: any) => (
               <button key={p.physicalId} onClick={() => run(() => emit('room:release-held-seat', { roomId: gameState.roomId, physicalId: p.physicalId }))}
-                className="text-[10px] font-mono text-[#aaa] border border-[#333] rounded-md px-2 py-1">#{p.physicalId} {p.name} ✕</button>
+                className="text-[11px] font-mono text-[#aaa] border border-[#333] rounded-md px-2 py-1">#{p.physicalId} {p.name} ✕</button>
             ))}
           </div>
         </div>
@@ -103,9 +107,16 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
 
       {/* بدء التوزيع */}
       <div className="mt-4">
-        <button disabled={!canStart || busy} onClick={() => run(() => emit('room:start-generation', { roomId: gameState.roomId }))}
-          className="btn-premium w-full !py-3.5 !rounded-xl disabled:opacity-40"><span>🎴 بدء توزيع الأدوار</span></button>
-        {!canStart && <p className="text-center text-[#555] font-mono text-[9px] mt-2">الحدّ الأدنى {MIN_PLAYERS} لاعبين</p>}
+        {canStart ? (
+          <button disabled={busy} onClick={() => run(() => emit('room:start-generation', { roomId: gameState.roomId }))}
+            className="w-full py-3.5 rounded-xl font-black text-base text-black bg-gradient-to-b from-[#C5A059] to-[#8a6d3b] disabled:opacity-40"
+            style={{ boxShadow: '0 0 18px rgba(197,160,89,0.4)' }}>🎴 بدء توزيع الأدوار</button>
+        ) : (
+          <button disabled
+            className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#0c0c0c] border border-[#2a2a2a] text-[#C5A059]/50">
+            🎴 بدء التوزيع — {players.length}/{MIN_PLAYERS} لاعبين
+          </button>
+        )}
       </div>
 
       {/* تأكيد الطرد */}

@@ -57,7 +57,7 @@ export default function HostMorningRecap({ gameState, emit, setError }: Props) {
       <div className="text-center mb-3">
         <div className="text-3xl leading-none">☀️</div>
         <div className="font-bold text-lg text-white" style={{ fontFamily: 'Amiri, serif' }}>ملخّص الليلة</div>
-        <div className="text-[9px] font-mono text-[#666] tracking-widest uppercase mt-0.5">{events.length} تقرير</div>
+        <div className="text-[10px] font-mono text-[#666] tracking-widest uppercase mt-0.5">{events.length} تقرير</div>
       </div>
 
       {events.length === 0 ? (
@@ -76,7 +76,7 @@ export default function HostMorningRecap({ gameState, emit, setError }: Props) {
                   <div className="flex-1 min-w-0">
                     <div className={`font-bold text-sm ${m.color} flex items-center gap-1.5`} style={{ fontFamily: 'Amiri, serif' }}>
                       {m.title}
-                      {ev.wasRandom && <span className="text-[8px] font-mono text-[#C5A059]/70">🎲 تلقائي</span>}
+                      {ev.wasRandom && <span className="text-[10px] font-mono text-[#C5A059]/70">🎲 تلقائي</span>}
                     </div>
                     {ev.targetName != null && (
                       <div className="text-[11px] font-mono text-white/85 mt-0.5">
@@ -85,12 +85,12 @@ export default function HostMorningRecap({ gameState, emit, setError }: Props) {
                       </div>
                     )}
                     {ev.performerName != null && (
-                      <div className="text-[9px] font-mono text-[#555] mt-0.5">← #{ev.performerPhysicalId} {ev.performerName}</div>
+                      <div className="text-[10px] font-mono text-[#9a9a9a] mt-0.5">بواسطة: #{ev.performerPhysicalId} {ev.performerName}</div>
                     )}
                     {isSheriff && ev.extra && (
                       <div className={`mt-1.5 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-sm font-black ${ev.extra.result === 'MAFIA' ? 'border-[#ff4444]/40 bg-[#ff4444]/10 text-[#ff6b6b]' : 'border-[#44ff44]/30 bg-[#44ff44]/10 text-[#6be06b]'}`} style={{ fontFamily: 'Amiri, serif' }}>
                         {ev.extra.result === 'MAFIA' ? '🎭 مافيا' : '🏛 مواطن'}
-                        <span className="text-[8px] font-mono text-[#888]">🔒 سرّي لك</span>
+                        <span className="text-[10px] font-mono text-[#888]">🔒 سرّي لك</span>
                       </div>
                     )}
                   </div>
@@ -100,7 +100,7 @@ export default function HostMorningRecap({ gameState, emit, setError }: Props) {
                       {isRev ? '🔄 إعادة' : '👁 عرض'}
                     </button>
                   ) : (
-                    <span className="shrink-0 text-[8px] font-mono text-[#C5A059]/60 border border-[#C5A059]/20 rounded px-1.5 py-1.5">سرّي</span>
+                    <span className="shrink-0 text-[10px] font-mono text-[#C5A059]/60 border border-[#C5A059]/20 rounded px-1.5 py-1.5">سرّي</span>
                   )}
                 </div>
               </div>
@@ -118,7 +118,7 @@ export default function HostMorningRecap({ gameState, emit, setError }: Props) {
             className="btn-premium w-full !py-3.5 !rounded-xl disabled:opacity-40"><span>☀️ بدء نقاش اليوم</span></button>
         )}
         {!allRevealed && displayableCount > 0 && (
-          <p className="text-center text-[#555] font-mono text-[9px] mt-2 tracking-widest">اعرض جميع الأحداث أولاً</p>
+          <p className="text-center text-[#9a9a9a] font-mono text-[10px] mt-2 tracking-widest">اعرض جميع الأحداث أولاً</p>
         )}
       </div>
     </div>

@@ -7,6 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useState, useEffect, useRef } from 'react';
+import PhaseLoading from '@/components/PhaseLoading';
 
 interface Props {
   gameState: any;
@@ -57,7 +58,7 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
     else setAllDone(true);
   };
 
-  if (!jd) return <div className="text-center text-[#555] py-10 font-mono text-sm">جارٍ تحضير التبرير…</div>;
+  if (!jd) return <PhaseLoading text="جارٍ تحضير التبرير…" />;
 
   const showDecision = allDone || canJustifyList.length === 0;
   const cur = !showDecision ? canJustifyList[idx] : null;
@@ -131,11 +132,11 @@ export default function HostJustification({ gameState, emit, setError }: Props) 
       {votersTotal > 0 && (
         <div className="rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] p-3 mb-3 text-center">
           <div className="flex items-center justify-center gap-3 font-mono">
-            <div><div className={`text-2xl font-black ${canRevoteByWithdrawal ? 'text-green-400' : 'text-blue-400'}`}>{wsCount}</div><div className="text-[8px] text-[#666]">مسحوب</div></div>
-            <div className="text-[#555]">/</div>
-            <div><div className="text-2xl font-black text-[#808080]">{wsNeeded}</div><div className="text-[8px] text-[#666]">للنصاب</div></div>
-            <div className="text-[#555]">من</div>
-            <div><div className="text-2xl font-black text-[#808080]">{votersTotal}</div><div className="text-[8px] text-[#666]">مصوّت</div></div>
+            <div><div className={`text-2xl font-black ${canRevoteByWithdrawal ? 'text-green-400' : 'text-blue-400'}`}>{wsCount}</div><div className="text-[10px] text-[#9a9a9a]">مسحوب</div></div>
+            <div className="text-[#9a9a9a]">/</div>
+            <div><div className="text-2xl font-black text-[#808080]">{wsNeeded}</div><div className="text-[10px] text-[#9a9a9a]">للنصاب</div></div>
+            <div className="text-[#9a9a9a]">من</div>
+            <div><div className="text-2xl font-black text-[#808080]">{votersTotal}</div><div className="text-[10px] text-[#9a9a9a]">مصوّت</div></div>
           </div>
           <div className="w-full h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden mt-2">
             <div className={`h-full rounded-full ${canRevoteByWithdrawal ? 'bg-green-500' : 'bg-blue-500/50'}`} style={{ width: `${wsNeeded > 0 ? Math.min(100, (wsCount / wsNeeded) * 100) : 0}%` }} />
