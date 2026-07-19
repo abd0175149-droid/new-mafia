@@ -437,6 +437,14 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         {!speaker && !lobby && !gameOver && (
           <span style={{ fontSize: 11, color: '#7a7466', fontFamily: "'JetBrains Mono',monospace" }}>— بانتظار المتحدّث التالي —</span>
         )}
+        {/* 🕰️ حالة اللوبي في المكبَّر: في شريط الرأس (لا تطفو فوق الكارد) */}
+        {!speaker && lobby && !gameOver && mode === 'focus' && (
+          <span className="rt-pill">
+            {gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING'
+              ? 'جارٍ توزيع الأدوار… بطاقتك ستصلك خلال لحظات'
+              : 'الطاولة تكتمل — بانتظار المضيف لبدء الجولة'}
+          </span>
+        )}
       </div>
 
       {/* الحلقة */}
@@ -456,24 +464,22 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             {morningBanner.sub && <span className="rt-morning-sub">{morningBanner.sub}</span>}
           </div>
         )}
-        {lobby && !gameOver && (
+        {/* لافتة اللوبي: في المصغَّر فقط — وسط الحلقة الفارغ (بلا أيقونة، لا تطفو فوق أي كارد) */}
+        {lobby && !gameOver && mode === 'overview' && (
           gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING' ? (
-            /* 🎴 طور التوزيع عن بُعد: لافتة عربية واضحة بدل نص «الشاشة الرئيسية» الحضوري */
             <div className="rt-lobby">
-              <span className="rt-lobby-ic">🎴</span>
               <span className="rt-lobby-t">جارٍ توزيع الأدوار…</span>
-              <span className="rt-lobby-sub">بطاقتك ستصلك خلال لحظات — أبقِ هاتفك معك</span>
+              <span className="rt-lobby-sub">بطاقتك ستصلك خلال لحظات</span>
             </div>
           ) : (
             <div className="rt-lobby">
-              <span className="rt-lobby-ic">🎴</span>
               <span className="rt-lobby-t">الطاولة تكتمل</span>
               <span className="rt-lobby-sub">بانتظار المضيف لبدء الجولة</span>
-              <span className="rt-lobby-status">STATUS: STANDBY · TABLE SEALED</span>
             </div>
           )
         )}
-        {gameOver && (
+        {/* لافتة الفائز: في المصغَّر وسط الحلقة — وفي المكبَّر لا تطفو فوق الكارد (الرأس والشبكة يعلنانه) */}
+        {gameOver && mode === 'overview' && (
           <div className="rt-winner">
             <span className="rt-winner-ic">{winnerReveal?.winner === 'MAFIA' ? '🩸' : winnerReveal?.winner === 'ASSASSIN' ? '🔪' : winnerReveal?.winner === 'JESTER' ? '🤡' : '⚖️'}</span>
             <span className="rt-winner-t">{winnerReveal?.winner === 'MAFIA' ? 'انتصار المافيا' : winnerReveal?.winner === 'ASSASSIN' ? 'انتصار السفّاح' : winnerReveal?.winner === 'JESTER' ? 'فوز المهرج' : 'تطهير المدينة'}</span>
@@ -737,10 +743,8 @@ const RT_CSS = `
 .rt-morning-t{font-family:'Amiri',serif;font-weight:700;font-size:19px;color:#7fb4e6;text-shadow:0 2px 14px rgba(0,0,0,.85)}
 .rt-morning-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#cbd5e1;text-shadow:0 1px 8px rgba(0,0,0,.9)}
 .rt-lobby{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:30;display:flex;flex-direction:column;align-items:center;gap:1px;pointer-events:none;animation:rtwin .5s ease-out;text-align:center}
-.rt-lobby-ic{font-size:34px;filter:drop-shadow(0 0 16px rgba(197,160,89,.5));animation:rtbreath 3.2s ease-in-out infinite}
 .rt-lobby-t{font-family:'Amiri',serif;font-weight:700;font-size:19px;color:#C5A059;text-shadow:0 2px 14px rgba(0,0,0,.85)}
 .rt-lobby-sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:#8a8578;text-shadow:0 1px 8px rgba(0,0,0,.9)}
-.rt-lobby-status{margin-top:3px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.18em;color:#555;text-transform:uppercase}
 .rt-fill{direction:ltr;display:inline-flex;align-items:baseline;font-family:'JetBrains Mono',monospace;font-weight:800;color:#C5A059;letter-spacing:.02em;font-variant-numeric:tabular-nums}
 .rt-fill-max{color:#6b6255;font-weight:700}
 @keyframes rtbreath{50%{opacity:.55;transform:scale(.97)}}
@@ -771,5 +775,5 @@ const RT_CSS = `
 .rt-seat{pointer-events:none}
 .rt-seat-in{width:100%;height:100%;border-radius:14px;border:1.5px dashed #2a2a2a;background:rgba(10,10,10,.4);
   display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:800;color:#2f2b24}
-@media (prefers-reduced-motion: reduce){.rt-card,.rt-inner{transition:none}.rt-lobby-ic{animation:none}}
+@media (prefers-reduced-motion: reduce){.rt-card,.rt-inner{transition:none}}
 `;
