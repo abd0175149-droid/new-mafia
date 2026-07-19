@@ -145,6 +145,19 @@ export default function HostPage() {
         .then(() => refreshState(roomIdRef.current!))
         .catch(() => { roomIdRef.current = null; try { localStorage.removeItem('mafia_host_room'); } catch { /* ignore */ } });
     }
+    // 🔎 لا غرفة محفوظة محلياً (متصفح جديد/مسح تخزين)؟ اسأل الخادم عن غرفتي النشطة —
+    // المضيف يستعيد غرفته من أي جهاز، لا من متصفح الإنشاء فقط.
+    if (isConnected && !roomIdRef.current) {
+      emit('room:my-hosted-room', {})
+        .then((res: any) => {
+          if (res?.success && res.roomId) {
+            roomIdRef.current = res.roomId;
+            try { localStorage.setItem('mafia_host_room', res.roomId); } catch { /* ignore */ }
+            return emit('room:rejoin-host', { roomId: res.roomId }).then(() => refreshState(res.roomId));
+          }
+        })
+        .catch(() => { /* لا غرفة نشطة — تبقى شاشة الإنشاء */ });
+    }
   }, [isConnected, emit, refreshState]);
 
   // ── استطلاع دوريّ للحالة الكاملة (يُبقي مكوّنات النهار/الليل المُعادة محدّثة، إذ تعتمد على prop) ──

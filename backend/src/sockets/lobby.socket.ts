@@ -3447,6 +3447,22 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (typeof callback === 'function') callback({ success: true });
     } catch { if (typeof callback === 'function') callback({ success: false }); }
   });
+
+  // ── 🔎 غرفتي المستضافة النشطة — يستعيد المُضيف غرفته من أيّ جهاز (لا اعتماد على تخزين المتصفّح) ──
+  socket.on('room:my-hosted-room', async (_data: any, callback) => {
+    try {
+      const pid = socket.data.authPlayer?.playerId;
+      if (!pid) { if (typeof callback === 'function') callback({ success: false }); return; }
+      for (const [roomId] of activeRooms) {
+        const st = await getGameState(roomId);
+        if (st?.config?.isRemote && (st.config as any)?.hostPlayerId === pid && st.phase !== 'GAME_OVER') {
+          if (typeof callback === 'function') callback({ success: true, roomId, roomCode: st.roomCode });
+          return;
+        }
+      }
+      if (typeof callback === 'function') callback({ success: false });
+    } catch { if (typeof callback === 'function') callback({ success: false }); }
+  });
   // ── خروج اللاعب من الغرفة (EXIT button) ─────────────
   socket.on('room:player-exit', async (data: {
     roomId: string;
