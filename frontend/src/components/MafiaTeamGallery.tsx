@@ -83,12 +83,12 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAss
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-sm mx-auto flex flex-col items-center justify-center p-4"
+            className="relative w-full max-w-sm mx-auto flex flex-col items-center justify-center p-4 max-h-[90dvh] overflow-y-auto overscroll-contain"
           >
             {/* Close Button */}
             <button
               onClick={onClose}
-              className="absolute -top-12 right-4 p-2 bg-[#1a0505] border border-[#8A0303]/50 rounded-full text-[#8A0303] hover:bg-[#8A0303] hover:text-white transition-colors z-10"
+              className="fixed top-3 right-3 w-11 h-11 flex items-center justify-center bg-[#1a0505] border border-[#8A0303]/50 rounded-full text-[#8A0303] hover:bg-[#8A0303] hover:text-white transition-colors z-20"
             >
               <X size={24} />
             </button>
@@ -254,7 +254,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAss
                     </div>
 
                     {/* Grid: 3 أعمدة — كل شيء مرئي دفعة واحدة */}
-                    <div className="w-full grid grid-cols-3 gap-2.5 px-1">
+                    <div className="w-full grid grid-cols-2 gap-2.5 px-1">
                       {team.map((member, i) => (
                         <motion.div
                           key={member.physicalId}
@@ -269,7 +269,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAss
                               <img
                                 src={member.avatarUrl}
                                 alt={member.name}
-                                className="w-[72px] h-[72px] rounded-full object-cover border-2 border-[#8A0303]/60 shadow-[0_0_10px_rgba(138,3,3,0.3)]"
+                                width={72} height={72} loading="lazy" decoding="async" className="w-[72px] h-[72px] rounded-full object-cover border-2 border-[#8A0303]/60 shadow-[0_0_10px_rgba(138,3,3,0.3)]"
                               />
                             ) : (
                               <div className="w-[72px] h-[72px] rounded-full bg-[#0d0202] border-2 border-[#8A0303]/60 flex items-center justify-center text-3xl shadow-[0_0_10px_rgba(138,3,3,0.3)]">
@@ -288,7 +288,7 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAss
                           </p>
 
                           {/* الدور */}
-                          <span className="text-red-400/80 text-[10px] text-center leading-tight px-2 py-0.5 rounded-full bg-[#8A0303]/10 border border-[#8A0303]/20">
+                          <span className="text-red-400/80 text-[10px] text-center leading-tight px-2 py-0.5 rounded-full bg-[#8A0303]/10 border border-[#8A0303]/20 max-w-full truncate">
                             {getRoleName(member.role)}
                           </span>
                         </motion.div>

@@ -117,7 +117,7 @@ export default function DynamicMafiaCard({
 
   // ── تحديد الألوان (CSS values مباشرة) ──
   const gradient = cardTemplate?.gradient || 'linear-gradient(to bottom, #3f3f46, #18181b)';
-  const borderColor = cardTemplate?.borderColor || 'rgba(161,161,170,0.6)';
+  const borderColor = cardTemplate?.borderColor || 'rgba(197,160,89,0.55)'; // fallback ذهبي (كان zinc رمادياً خارج الهوية)
   const textColor = cardTemplate?.textColor || '#d4d4d8';
   const glowEffect = cardTemplate?.glowEffect || '';
 
@@ -511,7 +511,7 @@ export default function DynamicMafiaCard({
                       {cardTemplate.elements.customFooterText}
                     </span>
                   ) : (
-                    flippable && <span className="text-[9px] text-zinc-600 font-mono tracking-widest uppercase" dir="ltr">
+                    flippable && <span className="text-[10px] text-zinc-500">
                       اضغط للإخفاء
                     </span>
                   )}

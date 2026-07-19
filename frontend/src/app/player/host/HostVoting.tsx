@@ -8,6 +8,8 @@
 
 import { useState, useEffect } from 'react';
 import { MAFIA_ROLES } from '@/lib/constants';
+import PhaseHeader from '@/components/PhaseHeader';
+import PhaseLoading from '@/components/PhaseLoading';
 
 interface Props {
   gameState: any;
@@ -22,7 +24,7 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
   const [busy, setBusy] = useState(false);
   useEffect(() => { setSelectedVoter(null); }, [gameState.phase]);
 
-  if (!vs) return <div className="text-center text-[#9a9a9a] py-10 font-mono text-sm">جارٍ تحضير التصويت…</div>;
+  if (!vs) return <PhaseLoading icon="🗳️" text="جارٍ تحضير التصويت…" />;
 
   const candidates: any[] = vs.candidates || [];
   const playerVotes: Record<number, number> = vs.playerVotes || {};
@@ -59,12 +61,13 @@ export default function HostVoting({ gameState, emit, setError }: Props) {
 
   return (
     <div className="px-3 pb-5">
+      <PhaseHeader icon="🗳️" title="مرحلة التصويت" sub="VOTING" />
       {/* رأس: فرق + حالة + عدّاد */}
       <div className="flex items-center justify-between mb-3 px-0.5">
         <div className="flex items-center gap-2 text-xs font-mono">
           <span className="text-[#6be06b]">🏛 {citizen}</span><span className="text-[#2a2a2a]">|</span><span className="text-[#ff6b6b]">🎭 {mafia}</span>
         </div>
-        <span className="text-[9px] font-mono text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-0.5 uppercase tracking-widest">{label}</span>
+        <span className="text-[10px] font-mono text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-0.5">{label}</span>
         <span className="text-sm font-mono font-bold text-white">{totalVotes}<span className="text-[#9a9a9a]">/{votingAlive.length}</span></span>
       </div>
 

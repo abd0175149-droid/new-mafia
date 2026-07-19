@@ -8,6 +8,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useVoice, VOICE_HOST_KEY } from '../hooks/useVoice';
 
+// ── 🎨 أيقونات SVG موحّدة (بديل إيموجي OS المتفاوت بين الأنظمة) — تلوّن بـ currentColor ──
+const ic = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+const MicIcon = () => (<svg {...ic}><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><line x1="12" y1="17" x2="12" y2="21" /></svg>);
+const MicOffIcon = () => (<svg {...ic}><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10a7 7 0 0 0 14 0" /><line x1="12" y1="17" x2="12" y2="21" /><line x1="4" y1="4" x2="20" y2="20" stroke="#d13636" /></svg>);
+const CamIcon = () => (<svg {...ic}><rect x="2" y="6" width="13" height="12" rx="2" /><path d="M15 10l6-3v10l-6-3" /></svg>);
+const SpeakerIcon = () => (<svg {...ic}><path d="M4 9v6h4l5 4V5L8 9H4z" /><path d="M16 8a5 5 0 0 1 0 8" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></svg>);
+const EarIcon = () => (<svg {...ic}><path d="M4 9v6h4l5 4V5L8 9H4z" /></svg>);
+const LockIcon = () => (<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z" /></svg>);
+
 // معاينة كاميرا اللاعب نفسه (مرآة) — تظهر دائماً حين تُفتح الكاميرا
 function SelfPreview({ track }: { track: MediaStreamTrack }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -75,39 +84,57 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
     .filter(([pid, on]) => on && Number(pid) !== VOICE_HOST_KEY && Number(pid) !== selfPhysicalId)
     .map(([pid]) => Number(pid));
 
-  // ── اللاعب: زرّان عائمان (مايك آليّ + كاميرا) — بلا شريط حالة/عدد ──
+  // ── اللاعب: شريط صوت سفليّ ثابت ممركز (لا يتراكب مع كروت الحلقة) + مؤشّر اتصال ──
   if (!isHost) {
+    const micLocked = !freeMic && !v.selfAudioOn; // 🔒 مقفول سيادياً — يُفتح في دوره
     return (
-      <div className="fixed left-3 bottom-28 z-40 flex flex-col gap-2 items-center">
-        {v.selfVideoOn && v.selfVideoTrack && <SelfPreview track={v.selfVideoTrack} />}
-        <button
-          onClick={() => { if (freeMic && v.connected) { if (v.selfAudioOn) v.disableSelfAudio(); else v.enableSelfAudio(); } }}
-          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${freeMic ? 'cursor-pointer' : 'cursor-default'} ${
-            v.selfAudioOn ? 'bg-emerald-500/25 border-emerald-500/60 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
-          }`}
-          title={freeMic ? (v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك (لوبي)') : (v.selfAudioOn ? 'دورك — مايكك مفتوح' : 'مايكك مغلق (يُفتح في دورك)')}
-        >
-          {v.selfAudioOn ? '🎙️' : '🔇'}
-        </button>
-        <button
-          onClick={() => { if (gamePhase !== 'NIGHT') (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo()); }}
-          disabled={!v.connected || gamePhase === 'NIGHT'}
-          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all disabled:opacity-40 ${
-            v.selfVideoOn ? 'bg-sky-500/25 border-sky-500/60 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
-          }`}
-          title={gamePhase === 'NIGHT' ? 'الكاميرا معطّلة ليلاً' : 'الكاميرا'}
-        >
-          📷
-        </button>
-        <button
-          onClick={() => v.setSpeakerphone(!v.speakerMode)}
-          className={`w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur transition-all ${
-            v.speakerMode ? 'bg-amber-500/25 border-amber-500/60 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,.4)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
-          }`}
-          title={v.speakerMode ? 'الصوت من السمّاعة الخارجية (اضغط للأذن)' : 'الصوت من سمّاعة الأذن (اضغط للسبيكر)'}
-        >
-          {v.speakerMode ? '🔊' : '📞'}
-        </button>
+      <div className="fixed inset-x-0 bottom-0 z-40 flex flex-col items-center pointer-events-none">
+        {v.selfVideoOn && v.selfVideoTrack && (
+          <div className="self-end pe-3 pb-1 pointer-events-auto"><SelfPreview track={v.selfVideoTrack} /></div>
+        )}
+        <div className="pointer-events-auto flex items-center gap-2 rounded-t-2xl border border-b-0 border-[#1f1c17] bg-[#0a0a0acc] backdrop-blur-md px-4 pt-2"
+          style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom))' }}>
+          {/* مؤشّر الاتصال الصوتي — اللاعب لم يعُد أعمى عن حالة صوته */}
+          <span className="flex items-center gap-1.5 me-1">
+            <span className={`inline-block w-2 h-2 rounded-full ${v.connected ? 'bg-emerald-500' : v.error ? 'bg-red-500' : 'bg-amber-500 animate-pulse'}`} />
+            <span className="text-[10px] font-mono text-[#9a9a9a]">{v.connected ? 'متصل' : v.error ? 'غير متاح' : 'يتصل…'}</span>
+          </span>
+          <div className="relative flex flex-col items-center">
+            <button
+              onClick={() => { if (freeMic && v.connected) { if (v.selfAudioOn) v.disableSelfAudio(); else v.enableSelfAudio(); } }}
+              className={`w-12 h-12 rounded-full flex items-center justify-center border transition-all ${freeMic ? 'cursor-pointer' : 'cursor-default'} ${
+                v.selfAudioOn ? 'bg-emerald-500/25 border-emerald-500/60 text-emerald-200 shadow-[0_0_16px_rgba(52,211,153,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
+              }`}
+              title={freeMic ? (v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك (لوبي)') : (v.selfAudioOn ? 'دورك — مايكك مفتوح' : 'مايكك مقفول — يُفتح في دورك')}
+            >
+              {v.selfAudioOn ? <MicIcon /> : <MicOffIcon />}
+              {/* 🔒 قفل سياديّ ظاهر — ليس عطلاً بل قاعدة لعب */}
+              {micLocked && (
+                <span className="absolute -top-1 -left-1 w-5 h-5 rounded-full bg-[#1a1610] border border-[#C5A059]/50 text-[#C5A059] flex items-center justify-center"><LockIcon /></span>
+              )}
+            </button>
+            {micLocked && <span className="absolute -bottom-3.5 text-[8.5px] text-[#9a9a9a] whitespace-nowrap">يُفتح في دورك</span>}
+          </div>
+          <button
+            onClick={() => { if (gamePhase !== 'NIGHT') (v.selfVideoOn ? v.disableSelfVideo() : v.enableSelfVideo()); }}
+            disabled={!v.connected || gamePhase === 'NIGHT'}
+            className={`w-12 h-12 rounded-full flex items-center justify-center border transition-all disabled:opacity-40 ${
+              v.selfVideoOn ? 'bg-sky-500/25 border-sky-500/60 text-sky-200 shadow-[0_0_16px_rgba(56,189,248,.45)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
+            }`}
+            title={gamePhase === 'NIGHT' ? 'الكاميرا معطّلة ليلاً' : 'الكاميرا'}
+          >
+            <CamIcon />
+          </button>
+          <button
+            onClick={() => v.setSpeakerphone(!v.speakerMode)}
+            className={`w-12 h-12 rounded-full flex items-center justify-center border transition-all ${
+              v.speakerMode ? 'bg-amber-500/25 border-amber-500/60 text-amber-200 shadow-[0_0_16px_rgba(251,191,36,.4)]' : 'bg-black/65 border-[#2a2a2a] text-[#808080]'
+            }`}
+            title={v.speakerMode ? 'الصوت من السمّاعة الخارجية (اضغط للأذن)' : 'الصوت من سمّاعة الأذن (اضغط للسبيكر)'}
+          >
+            {v.speakerMode ? <SpeakerIcon /> : <EarIcon />}
+          </button>
+        </div>
       </div>
     );
   }
@@ -128,7 +155,7 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
             className={`px-2 py-1.5 rounded-lg text-xs font-bold border transition-all ${v.speakerMode ? 'border-amber-500/50 text-amber-300 bg-amber-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
             title={v.speakerMode ? 'الصوت من السمّاعة الخارجية' : 'الصوت من سمّاعة الأذن'}
           >
-            {v.speakerMode ? '🔊' : '📞'}
+            {v.speakerMode ? <SpeakerIcon /> : <EarIcon />}
           </button>
           <button
             onClick={() => setShowLog((s) => !s)}
@@ -143,7 +170,7 @@ export default function RemoteVoice({ roomId, enabled, isHost, selfPhysicalId, e
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all disabled:opacity-40 ${v.selfAudioOn ? 'border-emerald-500/50 text-emerald-300 bg-emerald-500/10' : 'border-[#2a2a2a] text-[#808080] bg-black/40'}`}
             title={v.selfAudioOn ? 'اضغط لكتم مايكك' : 'اضغط لفتح مايكك'}
           >
-            {v.selfAudioOn ? '🎙️ مايكك مفتوح' : '🔇 مايكك مغلق'}
+            <span className="inline-flex items-center gap-1.5">{v.selfAudioOn ? <MicIcon /> : <MicOffIcon />} {v.selfAudioOn ? 'مايكك مفتوح' : 'مايكك مغلق'}</span>
           </button>
         </div>
       </div>

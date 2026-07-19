@@ -535,6 +535,17 @@ router.post('/:id/avatar', staffOrSelf('id'), async (req: Request, res: Response
     // حفظ الملف
     fs.writeFileSync(filePath, buffer);
 
+    // 🖼️ مصغّر WebP 192px للقوائم (يوفّر ~90% من الباندويدث) — فشله لا يُفشل الرفع
+    try {
+      const sharp = (await import('sharp')).default;
+      const thumbsDir = path.join(uploadDir, 'thumbs');
+      if (!fs.existsSync(thumbsDir)) fs.mkdirSync(thumbsDir, { recursive: true });
+      await sharp(buffer).resize(192, 192, { fit: 'cover' }).webp({ quality: 80 })
+        .toFile(path.join(thumbsDir, `${playerId}.webp`));
+    } catch (thumbErr: any) {
+      console.warn(`⚠️ avatar thumb failed for #${playerId}:`, thumbErr.message);
+    }
+
     const avatarUrl = `/uploads/avatars/${fileName}?v=${Date.now()}`;
 
     const db = getDB();

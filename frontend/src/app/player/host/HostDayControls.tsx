@@ -12,6 +12,7 @@ import { useState } from 'react';
 import LeaderDayView from '@/app/leader/LeaderDayView';
 import HostVoting from './HostVoting';
 import HostJustification from './HostJustification';
+import HostElimination from './HostElimination';
 
 interface Props {
   gameState: any;
@@ -27,7 +28,14 @@ export default function HostDayControls({ gameState, emit, setError }: Props) {
   }
   if (gameState.phase === 'DAY_VOTING') return <HostVoting gameState={gameState} emit={emit} setError={setError} />;
   if (gameState.phase === 'DAY_JUSTIFICATION') return <HostJustification gameState={gameState} emit={emit} setError={setError} />;
-  // الكشف/التعادل (DAY_ELIMINATION/DAY_REVEALED/DAY_TIEBREAKER) تُفوَّض إلى LeaderDayView
+  // 💀 الكشف/التعادل: دوك هاتفيّ موحّد — والحالات الخاصّة (قنبلة شيخ المافيا / تأجيل العمدة)
+  // تبقى مفوَّضة إلى LeaderDayView كما هي حفاظاً على منطقها الكامل.
+  const pendingType = (gameState.pendingResolution as any)?.type;
+  const hasBombFlow = !!gameState.pendingBomb;
+  if (['DAY_ELIMINATION', 'DAY_REVEALED', 'DAY_TIEBREAKER'].includes(gameState.phase)
+    && pendingType !== 'MAYOR_POSTPONED' && !hasBombFlow) {
+    return <HostElimination gameState={gameState} emit={emit} setError={setError} />;
+  }
   return <LeaderDayView gameState={gameState} emit={emit} setError={setError} />;
 }
 

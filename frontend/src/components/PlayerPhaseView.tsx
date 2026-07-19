@@ -910,6 +910,16 @@ export default function PlayerPhaseView({
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-4">
+        {/* عن بُعد: الحلقة تعرض المُدافِع وعدّاده — نعرض هنا سطراً واحداً مختصراً فقط (كما عولج النقاش) */}
+        {isRemote ? (
+          accused.length > 0 && (
+            <div className="mx-2 mb-1 rounded-xl border border-red-500/25 bg-red-950/15 px-3 py-2 text-center text-[12px] text-red-200">
+              ⚖️ يُدافع الآن: <b>{votingPlayersInfo.find((p: any) => p.physicalId === accused[0]?.targetPhysicalId)?.name || `#${accused[0]?.targetPhysicalId}`}</b>
+              {' '}— يمكنك سحب صوتك بعد انتهاء الدفاع
+            </div>
+          )
+        ) : (
+        <>
         <div className="text-center mb-4">
           <div className="text-3xl mb-2">⚖️</div>
           <h3 className="text-lg font-bold text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>مرحلة التبرير</h3>
@@ -925,8 +935,10 @@ export default function PlayerPhaseView({
               animate={{ scale: 1 }}
               className="bg-gradient-to-br from-red-500/15 to-red-900/10 border border-red-500/30 rounded-2xl p-5 mx-2 mb-3 text-center"
             >
-              <div className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl font-black text-red-400">#{a.targetPhysicalId}</span>
+              <div className="w-16 h-16 rounded-full overflow-hidden bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center mx-auto mb-3">
+                {info?.avatarUrl
+                  ? <img src={info.avatarUrl} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                  : <span className="text-2xl font-black text-red-400">#{a.targetPhysicalId}</span>}
               </div>
               <p className="text-white font-bold text-lg">{info?.name || a.name || `لاعب #${a.targetPhysicalId}`}</p>
               <p className="text-red-400 text-xs font-bold mt-1">{topVotes} صوت ضده</p>
@@ -943,6 +955,8 @@ export default function PlayerPhaseView({
               <span className={`text-2xl font-black font-mono ${justTimer <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{justTimer}s</span>
             </div>
           </div>
+        )}
+        </>
         )}
 
         {/* سحب الصوت — يظهر بعد انتهاء التبرير لمن صوّت على المتهم */}

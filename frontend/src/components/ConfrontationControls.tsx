@@ -53,10 +53,10 @@ export default function ConfrontationControls({ confrontation, myPid, isHost, pl
     const mine = myPid === confrontation.requesterId || myPid === confrontation.targetId;
     return (
       <div className="mb-3 rounded-xl border border-red-500/40 bg-gradient-to-r from-red-950/40 to-black px-3 py-2.5 text-center">
-        <div className="text-red-300 font-black text-sm" style={{ fontFamily: 'Amiri, serif' }}>
-          ⚔️ مواجهة: <span className="font-mono">#{confrontation.requesterId}</span> {nameOf(confrontation.requesterId)}
-          {' × '}
-          <span className="font-mono">#{confrontation.targetId}</span> {nameOf(confrontation.targetId)}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5 text-red-300 font-black text-sm" style={{ fontFamily: 'Amiri, serif' }}>
+          <span className="truncate text-left" dir="auto"><span className="font-mono">#{confrontation.requesterId}</span> {nameOf(confrontation.requesterId)}</span>
+          <span className="shrink-0">⚔️ ×</span>
+          <span className="truncate text-right" dir="auto"><span className="font-mono">#{confrontation.targetId}</span> {nameOf(confrontation.targetId)}</span>
         </div>
         <div className={`mt-1 font-mono font-black text-2xl ${remaining <= 10 ? 'text-red-400 animate-pulse' : 'text-white'}`}>{remaining}s</div>
         {mine && <div className="text-[11px] text-red-300/80 mt-0.5">مايكك مفتوح — تكلّم الآن</div>}
@@ -73,9 +73,9 @@ export default function ConfrontationControls({ confrontation, myPid, isHost, pl
         </div>
         <div className="flex gap-2 justify-center">
           <button disabled={busy} onClick={() => send('player:respond-confrontation', { accept: true })}
-            className="px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/15 border border-emerald-500/50 text-emerald-300 disabled:opacity-40">قبول</button>
+            className="px-5 py-3 min-h-[44px] rounded-xl text-sm font-bold bg-emerald-500/15 border border-emerald-500/50 text-emerald-300 disabled:opacity-40">قبول</button>
           <button disabled={busy} onClick={() => send('player:respond-confrontation', { accept: false })}
-            className="px-4 py-1.5 rounded-lg text-xs font-bold bg-red-500/15 border border-red-500/50 text-red-300 disabled:opacity-40">رفض</button>
+            className="px-5 py-3 min-h-[44px] rounded-xl text-sm font-bold bg-red-500/15 border border-red-500/50 text-red-300 disabled:opacity-40">رفض</button>
         </div>
         {err && <div className="text-[10px] text-red-400/80 mt-1">{err}</div>}
       </div>
@@ -91,9 +91,9 @@ export default function ConfrontationControls({ confrontation, myPid, isHost, pl
         </div>
         <div className="flex gap-2 justify-center">
           <button disabled={busy} onClick={() => send('leader:approve-confrontation', { approve: true })}
-            className="px-4 py-1.5 rounded-lg text-xs font-bold bg-emerald-500/15 border border-emerald-500/50 text-emerald-300 disabled:opacity-40">اعتمِد (30ث)</button>
+            className="px-5 py-3 min-h-[44px] rounded-xl text-sm font-bold bg-emerald-500/15 border border-emerald-500/50 text-emerald-300 disabled:opacity-40">اعتمِد (30ث)</button>
           <button disabled={busy} onClick={() => send('leader:approve-confrontation', { approve: false })}
-            className="px-4 py-1.5 rounded-lg text-xs font-bold bg-red-500/15 border border-red-500/50 text-red-300 disabled:opacity-40">ارفض</button>
+            className="px-5 py-3 min-h-[44px] rounded-xl text-sm font-bold bg-red-500/15 border border-red-500/50 text-red-300 disabled:opacity-40">ارفض</button>
         </div>
         {err && <div className="text-[10px] text-red-400/80 mt-1">{err}</div>}
       </div>
@@ -115,20 +115,20 @@ export default function ConfrontationControls({ confrontation, myPid, isHost, pl
       <div className="mb-3">
         {!pickerOpen ? (
           <button onClick={() => { setPickerOpen(true); setErr(null); }}
-            className="w-full px-3 py-2 rounded-xl text-xs font-bold border border-red-500/40 text-red-300 bg-red-500/10">
+            className="w-full px-3 py-3 min-h-[44px] rounded-xl text-sm font-bold border border-red-500/40 text-red-300 bg-red-500/10">
             ⚔️ اطلب مواجهة لاعب
           </button>
         ) : (
           <div className="rounded-xl border border-red-500/40 bg-black/50 p-2.5">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-red-300">اختر خصمك للمواجهة</span>
-              <button onClick={() => setPickerOpen(false)} className="text-[#808080] text-xs">✕</button>
+              <button onClick={() => setPickerOpen(false)} className="w-9 h-9 -me-1.5 flex items-center justify-center rounded-lg text-[#808080] text-base">✕</button>
             </div>
-            <div className="grid grid-cols-3 gap-1.5 max-h-40 overflow-y-auto">
+            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto overscroll-contain">
               {targets.map((p) => (
                 <button key={p.physicalId} disabled={busy}
                   onClick={() => send('player:request-confrontation', { targetPhysicalId: p.physicalId })}
-                  className="px-2 py-1.5 rounded-lg text-[11px] font-bold border border-[#2a2a2a] bg-[#0a0a0a] text-white disabled:opacity-40 truncate">
+                  className="px-2.5 py-3 min-h-[44px] rounded-lg text-xs font-bold border border-[#2a2a2a] bg-[#0a0a0a] text-white disabled:opacity-40 truncate">
                   <span className="font-mono text-[#C5A059]">#{p.physicalId}</span> {p.name}
                 </button>
               ))}

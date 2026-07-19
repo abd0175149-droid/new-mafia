@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import HostSettingsModal from './HostSettingsModal';
+import { avatarThumb } from '@/lib/avatar';
 
 const MIN_PLAYERS = 6;
 
@@ -43,9 +44,9 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
       <div className="flex items-center justify-between rounded-xl border border-[#1a1a1a] bg-[#0a0a0a] px-3 py-2.5 mb-3">
         <span className="text-xs text-[#b3b3b3]">اللاعبون <span className="font-mono font-bold text-[#C5A059]">{players.length}</span> / {maxPlayers}</span>
         <div className="flex items-center bg-[#050505] border border-[#222] rounded-lg">
-          <button onClick={() => setMax(maxPlayers - 1)} disabled={busy} className="px-3 py-1.5 text-[#888]">−</button>
+          <button onClick={() => setMax(maxPlayers - 1)} disabled={busy} className="w-11 h-11 flex items-center justify-center text-lg text-[#888]">−</button>
           <span className="px-2 font-mono text-white text-sm">{maxPlayers}</span>
-          <button onClick={() => setMax(maxPlayers + 1)} disabled={busy} className="px-3 py-1.5 text-[#888]">+</button>
+          <button onClick={() => setMax(maxPlayers + 1)} disabled={busy} className="w-11 h-11 flex items-center justify-center text-lg text-[#888]">+</button>
         </div>
       </div>
 
@@ -64,11 +65,16 @@ export default function HostLobby({ gameState, emit, setError }: Props) {
             return (
               <div key={p.physicalId} className="rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0d0d0e] to-[#0a0a0a] overflow-hidden">
                 <button onClick={() => setOpenId(open ? null : p.physicalId)} className="w-full flex items-center gap-2.5 px-2.5 py-2 text-right">
-                  <span className="w-9 h-9 rounded-full bg-gradient-to-b from-[#221e18] to-[#131110] border border-[#2a2a2a] flex items-center justify-center text-base overflow-hidden shrink-0">
-                    {p.avatarUrl ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" /> : fallback}
+                  <span className="relative w-9 h-9 rounded-full bg-gradient-to-b from-[#221e18] to-[#131110] border border-[#2a2a2a] flex items-center justify-center text-base shrink-0">
+                    <span className="w-full h-full rounded-full overflow-hidden flex items-center justify-center">
+                      {p.avatarUrl ? <img src={avatarThumb(p.avatarUrl) || p.avatarUrl} alt="" width={36} height={36} loading="lazy" decoding="async" className="w-full h-full object-cover"
+                        onError={(e) => { const el = e.target as HTMLImageElement; if (el.src !== location.origin + p.avatarUrl && !el.dataset.fb) { el.dataset.fb = '1'; el.src = p.avatarUrl; } }} /> : fallback}
+                    </span>
+                    {/* 🟢 نقطة الاتصال — يعرف المضيف من انقطع قبل بدء التوزيع */}
+                    <span className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full border-2 border-[#0a0a0a] ${p.isConnected !== false ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
                   </span>
                   <span className="font-mono text-[11px] text-[#C5A059] w-7 shrink-0">#{p.physicalId}</span>
-                  <span className="flex-1 text-sm text-white/90 truncate text-right">{p.name}</span>
+                  <span className={`flex-1 text-sm truncate text-right ${p.isConnected !== false ? 'text-white/90' : 'text-white/40'}`}>{p.name}</span>
                   {(p.penalties || 0) > 0 && (
                     <span className="flex gap-0.5 shrink-0">
                       {Array.from({ length: maxP }).map((_, i) => (

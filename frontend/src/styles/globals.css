@@ -194,6 +194,17 @@
     @apply uppercase tracking-[0.2em];
   }
 
+  /* ── 🧱 توكنات الغرفة عن بُعد (لغة سطح موحّدة بين شاشات المضيف واللاعب) ── */
+  .card-surface {
+    @apply rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0a0a0b];
+  }
+
+  /* زرّ خطر ناعم بلون العلامة #8A0303 (بديل صيغ red-500/rose المتفرقة) */
+  .btn-danger-soft {
+    @apply rounded-xl font-bold border border-[#8A0303]/50 text-[#ff6b6b] bg-[#8A0303]/15
+           hover:bg-[#8A0303]/25 active:scale-[0.98] transition-all disabled:opacity-40;
+  }
+
   .btn-premium::before {
     content: '';
     @apply absolute inset-0 border-2 border-[#8A0303] opacity-0 transition-opacity duration-300 pointer-events-none;
@@ -313,4 +324,11 @@
     75% { clip-path: inset(55% 0 15% 0); }
     100% { clip-path: inset(45% 0 25% 0); }
   }
+}
+
+/* ── 🌐 خلفية الغرفة عن بُعد: vignette دموي/ذهبي خفيف يعيد هوية العلامة بدل الأسود المسطّح ── */
+.remote-vignette {
+  background-image:
+    radial-gradient(90% 40% at 50% -5%, rgba(197, 160, 89, 0.05), transparent 60%),
+    radial-gradient(120% 70% at 50% 115%, rgba(138, 3, 3, 0.09), transparent 55%);
 }

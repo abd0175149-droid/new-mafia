@@ -29,6 +29,7 @@ interface PhoneSpectatorViewProps {
   hostView?: boolean;      // 👑 وضع المضيف: يخفي شارة «أنت» وتلميحات اللاعب
   lobby?: boolean;         // 🕰️ وضع اللوبي: حلقة انتظار قبل توزيع الأدوار (بلا متحدّث/عدّادات/تفاعل)
   maxPlayers?: number;     // السعة القصوى — لمؤشّر المقاعد في اللوبي
+  collapsed?: boolean;     // 🗳️ وضع مطويّ (أثناء التصويت): يبقى المكوّن مركّباً — الرأس ظاهر والمسرح ينطوي بسلاسة
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -40,6 +41,9 @@ const PHASE_LABELS: Record<string, string> = {
   NIGHT: 'الليل',
   MORNING_RECAP: 'أحداث الصباح',
   LOBBY: 'غرفة الانتظار',
+  ROLE_GENERATION: 'تجهيز الأدوار',
+  ROLE_BINDING: 'توزيع الأدوار',
+  DAY_VOTING: 'التصويت',
 };
 
 function roleMeta(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -80,7 +84,7 @@ function VideoTile({ track }: { track: MediaStreamTrack }) {
   return <video ref={ref} autoPlay muted playsInline className="rt-avimg" />;
 }
 
-export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal, revealRoles, hostView, lobby, maxPlayers }: PhoneSpectatorViewProps) {
+export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, initialDiscussionState, videoByPid, speakingByPid, winnerReveal, revealRoles, hostView, lobby, maxPlayers, collapsed }: PhoneSpectatorViewProps) {
   const [mode, setMode] = useState<'focus' | 'overview'>('focus');
   const [discussion, setDiscussion] = useState<any>(initialDiscussionState || null);
   const [justTimer, setJustTimer] = useState<{ physicalId: number; timeLimitSeconds: number; startTime: number } | null>(null);
@@ -301,7 +305,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   }
 
   return (
-    <div className="rt-root rounded-xl border border-[#1a1a1a] bg-[#070707] overflow-hidden mb-3">
+    <div className={`rt-root rounded-xl border border-[#1a1a1a] bg-[#070707] overflow-hidden mb-3${collapsed ? ' rt-collapsed' : ''}`}>
       <style>{RT_CSS}</style>
 
       {/* الرأس */}
@@ -361,12 +365,21 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
           </div>
         )}
         {lobby && !gameOver && (
-          <div className="rt-lobby">
-            <span className="rt-lobby-ic">🎴</span>
-            <span className="rt-lobby-t">الطاولة تكتمل</span>
-            <span className="rt-lobby-sub">بانتظار المضيف لبدء الجولة</span>
-            <span className="rt-lobby-status">STATUS: STANDBY · TABLE SEALED</span>
-          </div>
+          gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING' ? (
+            /* 🎴 طور التوزيع عن بُعد: لافتة عربية واضحة بدل نص «الشاشة الرئيسية» الحضوري */
+            <div className="rt-lobby">
+              <span className="rt-lobby-ic">🎴</span>
+              <span className="rt-lobby-t">جارٍ توزيع الأدوار…</span>
+              <span className="rt-lobby-sub">بطاقتك ستصلك خلال لحظات — أبقِ هاتفك معك</span>
+            </div>
+          ) : (
+            <div className="rt-lobby">
+              <span className="rt-lobby-ic">🎴</span>
+              <span className="rt-lobby-t">الطاولة تكتمل</span>
+              <span className="rt-lobby-sub">بانتظار المضيف لبدء الجولة</span>
+              <span className="rt-lobby-status">STATUS: STANDBY · TABLE SEALED</span>
+            </div>
+          )
         )}
         {gameOver && (
           <div className="rt-winner">
@@ -405,11 +418,14 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                 zIndex: 100 - a,
               };
             } else {
-              const ang = (i / N) * 2 * Math.PI - Math.PI / 2;
+              // 🕰️ اللوبي: المقام = السعة الكاملة فيحجز كل لاعب موقعه النهائي من أول انضمام (لا تدور الحلقة مع كل منضمّ)
+              const denom = lobby ? Math.max(maxPlayers || N, N) : N;
+              const ang = (i / denom) * 2 * Math.PI - Math.PI / 2;
               const foc = p.physicalId === focusId;
               const dz = Math.sin(ang) * 70; // عمق: الكروت الأماميّة أقرب، الخلفيّة تتراجع
+              // أرضية scale مرفوعة (0.58) كي تبقى الأسماء والأرقام مقروءة في العرض المصغّر
               style = {
-                transform: `translate(${Math.cos(ang) * 120}px, ${Math.sin(ang) * 120}px) translateZ(${dz}px) scale(${foc ? 0.62 : 0.44 + (Math.sin(ang) + 1) * 0.05})`,
+                transform: `translate(${Math.cos(ang) * 120}px, ${Math.sin(ang) * 120}px) translateZ(${dz}px) scale(${foc ? 0.68 : 0.58 + (Math.sin(ang) + 1) * 0.03})`,
                 opacity: 1,
                 zIndex: foc ? 70 : Math.round(50 + dz),
               };
@@ -420,7 +436,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                 key={p.physicalId}
                 className={`rt-card ${isDead ? 'dead' : ''} ${isFlipped && isDead ? 'revealed' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''}`}
                 style={style}
-                onClick={lobby ? undefined : () => onTapCard(p.physicalId)}
+                onClick={() => onTapCard(p.physicalId)}
               >
                 <div className={`rt-inner ${isFlipped ? 'flip' : ''}`}>
                   {/* الوجه الأمامي — مقلوب (بلا دور) */}
@@ -433,7 +449,9 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
                           src={p.avatarUrl || fallback}
                           alt={p.name}
                           className="rt-avimg"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          loading="lazy"
+                          decoding="async"
+                          onError={(e) => { const el = e.target as HTMLImageElement; if (!el.src.endsWith(fallback)) el.src = fallback; else el.style.display = 'none'; }}
                         />
                       )}
                     </div>
@@ -465,18 +483,36 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
               </div>
             );
           })}
+          {/* 🕰️ مقاعد شاغرة في اللوبي — placeholder متقطّع يوضّح كم مقعداً تبقّى بصرياً */}
+          {lobby && !gameOver && (maxPlayers || 0) > N && Array.from({ length: (maxPlayers || 0) - N }).map((_, k) => {
+            const denom = Math.max(maxPlayers || N, N);
+            const ang = ((N + k) / denom) * 2 * Math.PI - Math.PI / 2;
+            const dz = Math.sin(ang) * 70;
+            return (
+              <div key={`seat-${k}`} className="rt-card rt-seat" style={{
+                transform: `translate(${Math.cos(ang) * 120}px, ${Math.sin(ang) * 120}px) translateZ(${dz}px) scale(0.55)`,
+                zIndex: Math.round(40 + dz),
+              }}>
+                <div className="rt-seat-in">؟</div>
+              </div>
+            );
+          })}
         </div>
 
-        {!lobby && mode === 'overview' && <div className="rt-hint">اضغط أي كارد لتكبيره عندك</div>}
-        {!lobby && (
+        {mode === 'overview' && <div className="rt-hint">اضغط أي كارد لتكبيره عندك</div>}
+      </div>
+
+      {/* شريط التحكم — صفّ ثابت أسفل المسرح (لا يتراكب مع البطاقات الأمامية) */}
+      {!lobby && (
+        <div className="rt-controls">
           <button className="rt-modebtn" onClick={toggleMode}>
             {mode === 'focus' ? '◱ عرض الحلقة كاملة' : '⊡ تكبير المتحدّث'}
           </button>
-        )}
-        {!lobby && mode === 'focus' && serverActiveId != null && focusId !== serverActiveId && (
-          <button className="rt-backbtn" onClick={backToSpeaker}>↺ للمتحدّث</button>
-        )}
-      </div>
+          {mode === 'focus' && serverActiveId != null && focusId !== serverActiveId && (
+            <button className="rt-backbtn" onClick={backToSpeaker}>↺ للمتحدّث</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -488,6 +524,12 @@ const RT_CSS = `
 .rt-pill .rt-mono{font-family:'JetBrains Mono',monospace;font-weight:800}
 .rt-pill .rt-mono.warn{color:#d13636}
 .rt-stage{position:relative;height:410px;perspective:1000px;perspective-origin:50% 42%;overflow:hidden;transition:perspective-origin .5s}
+/* 🗳️ الوضع المطويّ (أثناء التصويت): المسرح والشريط ينطويان بسلاسة، الرأس والإحصاءات تبقى ظاهرة */
+.rt-root .rt-stage,.rt-root .rt-controls,.rt-root .rt-speaker{transition:max-height .45s ease,opacity .3s ease,padding .3s ease}
+.rt-root .rt-stage{max-height:410px}
+.rt-collapsed .rt-stage{max-height:0;opacity:0;pointer-events:none}
+.rt-collapsed .rt-controls{max-height:0;opacity:0;padding:0;overflow:hidden;pointer-events:none;border-top:none}
+.rt-collapsed .rt-speaker{max-height:0;min-height:0;opacity:0;padding:0;overflow:hidden}
 .rt-stage.overview{perspective-origin:50% 30%}
 .rt-felt{position:absolute;left:50%;top:57%;width:150%;height:82%;transform:translate(-50%,-50%) rotateX(72deg);
   background:radial-gradient(closest-side,rgba(46,92,49,.30),rgba(14,26,18,.55) 70%,transparent);border-radius:50%;filter:blur(2px);pointer-events:none}
@@ -513,7 +555,8 @@ const RT_CSS = `
   font-family:'JetBrains Mono',monospace;font-weight:800;font-size:54px;color:rgba(197,160,89,.95);text-shadow:0 3px 10px rgba(0,0,0,.85);pointer-events:none}
 .rt-num.gf{color:rgba(216,180,254,.95)}
 .rt-name{position:absolute;bottom:0;left:0;right:0;height:34%;display:flex;align-items:center;justify-content:center;
-  background:#000;font-family:'Amiri',serif;font-weight:700;font-size:14px;color:#fff;padding:0 4px;text-align:center}
+  background:#000;font-family:'Amiri',serif;font-weight:700;font-size:16px;color:#fff;padding:0 4px;text-align:center;
+  overflow:hidden;line-height:1.25}
 .rt-hrole{position:absolute;bottom:34%;left:0;right:0;z-index:8;display:flex;align-items:center;justify-content:center;gap:2px;
   background:rgba(0,0,0,.82);font-family:'JetBrains Mono',monospace;font-weight:700;font-size:8.5px;letter-spacing:.02em;padding:2px 3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid rgba(197,160,89,.25)}
@@ -546,9 +589,14 @@ const RT_CSS = `
 .rt-fill{direction:ltr;display:inline-flex;align-items:baseline;font-family:'JetBrains Mono',monospace;font-weight:800;color:#C5A059;letter-spacing:.02em;font-variant-numeric:tabular-nums}
 .rt-fill-max{color:#6b6255;font-weight:700}
 @keyframes rtbreath{50%{opacity:.55;transform:scale(.97)}}
-.rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55)}
-/* مُقصىً لكن دوره مكشوف: يبقى الدور واضحاً للجميع (تعتيم خفيف فقط للإشارة للموت) */
-.rt-card.dead.revealed .rt-inner{filter:grayscale(.12) brightness(.94)}
+/* 💀 تمييز الأموات متعدد الوسوم: فلتر + حدود قانية + شطب الاسم + شفافية (لا يعتمد اللون وحده) */
+.rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55);opacity:.62}
+.rt-card.dead .rt-face{border-color:#3a1010}
+.rt-card.dead .rt-name{text-decoration:line-through;color:#8a8a8a}
+/* مُقصىً لكن دوره مكشوف: يبقى الدور واضحاً للجميع (تعتيم خفيف + شارة جمجمة بزاوية الكارت) */
+.rt-card.dead.revealed .rt-inner{filter:grayscale(.12) brightness(.94);opacity:1}
+.rt-card.dead.revealed .rt-back::after{content:"💀";position:absolute;top:5px;left:5px;z-index:8;width:20px;height:20px;
+  display:flex;align-items:center;justify-content:center;font-size:11px;border-radius:999px;background:rgba(58,16,16,.9);border:1px solid #6b2020}
 .rt-card.spot .rt-front{border-color:#C5A059;box-shadow:0 0 0 1px #C5A059,0 0 30px rgba(197,160,89,.5)}
 .rt-talk{position:absolute;bottom:37%;right:8px;z-index:7;width:11px;height:11px;border-radius:999px;background:#34d399;box-shadow:0 0 9px #34d399;animation:rttalk 1s ease-in-out infinite}
 @keyframes rttalk{50%{opacity:.35}}
@@ -556,11 +604,17 @@ const RT_CSS = `
 .rt-winner-ic{font-size:38px;filter:drop-shadow(0 0 20px rgba(197,160,89,.55))}
 .rt-winner-t{font-family:'Amiri',serif;font-weight:700;font-size:22px;color:#C5A059;text-shadow:0 2px 14px rgba(0,0,0,.85)}
 @keyframes rtwin{from{opacity:0;transform:translateX(-50%) scale(.7)}}
-.rt-modebtn{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:45;display:inline-flex;align-items:center;gap:6px;
-  background:rgba(10,10,10,.86);border:1px solid #262119;color:#C5A059;border-radius:999px;padding:8px 15px;
-  font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;cursor:pointer;backdrop-filter:blur(6px)}
-.rt-backbtn{position:absolute;bottom:10px;right:10px;z-index:45;background:rgba(10,10,10,.86);border:1px solid rgba(63,131,196,.35);
-  color:#3f83c4;border-radius:999px;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer}
-.rt-hint{position:absolute;bottom:48px;left:0;right:0;z-index:44;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8578;pointer-events:none}
+/* شريط التحكم صفٌّ ثابت أسفل المسرح — أهداف لمس ≥44px بلا تراكب مع البطاقات */
+.rt-controls{display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 10px;border-top:1px solid #1a1a1a;background:#0a0a0a}
+.rt-modebtn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;flex:1;max-width:240px;
+  background:#0f0e0c;border:1px solid #262119;color:#C5A059;border-radius:12px;padding:10px 15px;
+  font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:700;cursor:pointer}
+.rt-backbtn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;background:#0f0e0c;border:1px solid rgba(63,131,196,.35);
+  color:#3f83c4;border-radius:12px;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer}
+.rt-hint{position:absolute;bottom:8px;left:0;right:0;z-index:44;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:#8a8578;pointer-events:none}
+/* 🕰️ مقعد شاغر في اللوبي */
+.rt-seat{pointer-events:none}
+.rt-seat-in{width:100%;height:100%;border-radius:14px;border:1.5px dashed #2a2a2a;background:rgba(10,10,10,.4);
+  display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:800;color:#2f2b24}
 @media (prefers-reduced-motion: reduce){.rt-card,.rt-inner{transition:none}.rt-lobby-ic{animation:none}}
 `;

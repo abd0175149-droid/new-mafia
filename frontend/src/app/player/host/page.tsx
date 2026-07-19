@@ -307,22 +307,27 @@ export default function HostPage() {
   const mafiaAlive = hostRoster.filter((p: any) => p.isAlive && p.role && (MAFIA_ROLES as string[]).includes(p.role)).length;
   // التصويت والليل واجهتان موحّدتان قائمتان بذاتهما (بلا حلقة منفصلة فوقهما) حسب طلب التصميم
   const showRing = ['MORNING_RECAP', 'DAY_DISCUSSION', 'DAY_JUSTIFICATION', 'DAY_ELIMINATION', 'ELIMINATION_PENDING', 'DAY_REVEALED', 'DAY_TIEBREAKER', 'GAME_OVER'].includes(phase);
+  // 📊 شريط الإحصاءات منفصل عن الحلقة: يظهر في كل أطوار اللعب (بما فيها الليل والتصويت)
+  // كي لا يفقد المضيف مرجع «كم حياً؟ أي طور؟» في أحسّ اللحظات.
+  const inPlayPhase = phase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(phase);
+  const statsBar = gameState?.config?.isRemote && inPlayPhase && hostRoster.length > 0 ? (
+    <div className="flex gap-2 px-4 pt-1 mb-1">
+      <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
+        <div className="font-mono font-extrabold text-[17px] leading-none text-emerald-400">{aliveCount}</div>
+        <div className="text-[10px] text-[#9a9a9a] mt-0.5">أحياء</div>
+      </div>
+      <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
+        <div className="font-mono font-extrabold text-[17px] leading-none text-red-400">{mafiaAlive}</div>
+        <div className="text-[10px] text-[#9a9a9a] mt-0.5">مافيا</div>
+      </div>
+      <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
+        <div className="font-mono font-extrabold text-[15px] leading-none text-[#C5A059]">{PHASE_SHORT[phase] || '—'}</div>
+        <div className="text-[10px] text-[#9a9a9a] mt-0.5">الطور</div>
+      </div>
+    </div>
+  ) : null;
   const hostRing = gameState?.config?.isRemote && showRing && hostRoster.length > 0 ? (
     <div className="px-2 pt-1">
-      <div className="flex gap-2 px-2 mb-1">
-        <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
-          <div className="font-mono font-extrabold text-[17px] leading-none text-emerald-400">{aliveCount}</div>
-          <div className="text-[10px] text-[#9a9a9a] mt-0.5">أحياء</div>
-        </div>
-        <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
-          <div className="font-mono font-extrabold text-[17px] leading-none text-red-400">{mafiaAlive}</div>
-          <div className="text-[10px] text-[#9a9a9a] mt-0.5">مافيا</div>
-        </div>
-        <div className="flex-1 rounded-xl border border-[#1a1a1a] bg-gradient-to-b from-[#0e0e10] to-[#0b0b0c] py-1.5 text-center">
-          <div className="font-mono font-extrabold text-[15px] leading-none text-[#C5A059]">{PHASE_SHORT[phase] || '—'}</div>
-          <div className="text-[10px] text-[#9a9a9a] mt-0.5">الطور</div>
-        </div>
-      </div>
       <PhoneSpectatorView
         roster={hostRoster}
         physicalId="-1"
@@ -432,6 +437,7 @@ export default function HostPage() {
           />
         </div>
       )}
+      {statsBar}
       {hostRing}
       {body}
       {showInvite && gameState?.roomId && (

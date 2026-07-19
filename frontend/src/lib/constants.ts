@@ -57,13 +57,13 @@ export const ROLE_ICONS: Record<Role, string> = {
   [Role.GODFATHER]: '🔪',
   [Role.SILENCER]: '🤐',
   [Role.CHAMELEON]: '🦎',
-  [Role.WITCH]: '🧙‍♀️',
+  [Role.WITCH]: '🔮', // مفردة آمنة — 🧙‍♀️ (ZWJ) تتفكك على أندرويد القديم وWindows
   [Role.OLDER_BROTHER]: '👥',
   [Role.MAFIA_REGULAR]: '🎭',
   [Role.SHERIFF]: '🔍',
   [Role.DOCTOR]: '💉',
   [Role.SNIPER]: '🎯',
-  [Role.POLICEWOMAN]: '👮‍♀️',
+  [Role.POLICEWOMAN]: '👮', // مفردة آمنة بلا ZWJ
   [Role.NURSE]: '🏥',
   [Role.MAYOR]: '🎩',
   [Role.CITIZEN]: '👤',

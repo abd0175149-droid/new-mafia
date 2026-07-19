@@ -1926,7 +1926,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   };
 
   return (
-    <div className={`min-h-screen flex flex-col items-center font-sans relative overflow-hidden selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3 bg-[#050505]' : 'justify-center p-4 sm:p-6 display-bg blood-vignette'}`}>
+    <div className={`min-h-screen flex flex-col items-center font-sans relative overflow-hidden selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3 pb-24 bg-[#050505] remote-vignette' : 'justify-center p-4 sm:p-6 display-bg blood-vignette'}`}>
       {/* ── Dynamic Toast Notification Overlay ── */}
       <AnimatePresence>
         {activeToast && (
@@ -2689,12 +2689,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               )}
 
               {/* 📱 الطاولة 3D أعلى الشاشة (بديل شاشة العرض — بلا كشف أدوار) */}
-              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
+              {isRemote && gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase) && (
                 <PhoneSpectatorView
                   roster={roster}
                   physicalId={physicalId}
                   gamePhase={gamePhase}
                   on={on}
+                  collapsed={gamePhase === 'DAY_VOTING'}
                   initialDiscussionState={phasePollData?.discussionState}
                   videoByPid={voiceMaps.videoByPid}
                   speakingByPid={voiceMaps.audioByPid}
@@ -2744,7 +2745,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               )}
 
               {/* ── عرض مرحلة اللعبة الحالية (نُخفي كشف الفائز عن بُعد — الطاولة تكشفه) ── */}
-              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && !(isRemote && gamePhase === 'GAME_OVER') && (
+              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
                 <PlayerPhaseView
                   gamePhase={gamePhase}
                   physicalId={physicalId}
@@ -2975,7 +2976,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         </span>
                       </div>
                     )}
-                    {isRemote && (!gamePhase || gamePhase === 'LOBBY') ? (
+                    {isRemote && (!gamePhase || gamePhase === 'LOBBY' || gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING') ? (
                       /* ── لوبي اللعب عن بُعد: حلقة كروت الطاولة (نفس تصميم باقي المراحل) ── */
                       <>
                         <PhoneSpectatorView
@@ -3129,12 +3130,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               )}
 
               {/* 📱 الطاولة 3D أعلى الشاشة (بديل شاشة العرض — بلا كشف أدوار) */}
-              {isRemote && gamePhase && gamePhase !== 'LOBBY' && gamePhase !== 'DAY_VOTING' && (
+              {isRemote && gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase) && (
                 <PhoneSpectatorView
                   roster={roster}
                   physicalId={physicalId}
                   gamePhase={gamePhase}
                   on={on}
+                  collapsed={gamePhase === 'DAY_VOTING'}
                   initialDiscussionState={phasePollData?.discussionState}
                   videoByPid={voiceMaps.videoByPid}
                   speakingByPid={voiceMaps.audioByPid}
@@ -3184,7 +3186,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               )}
 
               {/* ── عرض مرحلة اللعبة الحالية (نُخفي كشف الفائز عن بُعد — الطاولة تكشفه) ── */}
-              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && !(isRemote && gamePhase === 'GAME_OVER') && (
+              {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
                 <PlayerPhaseView
                   gamePhase={gamePhase}
                   physicalId={physicalId}
@@ -3458,7 +3460,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         </span>
                       </div>
                     )}
-                    {isRemote && (!gamePhase || gamePhase === 'LOBBY') ? (
+                    {isRemote && (!gamePhase || gamePhase === 'LOBBY' || gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING') ? (
                       /* ── لوبي اللعب عن بُعد (بعد عودة اللاعب): حلقة كروت الطاولة ── */
                       <>
                         <PhoneSpectatorView

@@ -62,9 +62,11 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
       {isAutoNight && (
         <div className="mb-4 px-3">
           <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl p-4">
-            {/* عنوان */}
+            {/* عنوان الطور — عربي فاخر بدل AUTO NIGHT الإنجليزي */}
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-mono text-[#808080] tracking-widest">🌙 AUTO NIGHT</span>
+              <span className="text-base font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
+                🌙 الليل{gameState.round ? ` — الجولة ${gameState.round}` : ''}
+              </span>
               {autoNightProgress && (
                 <span className="text-xs font-mono text-[#C5A059]">
                   {autoNightProgress.submitted} / {autoNightProgress.total} أرسلوا
@@ -212,24 +214,40 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
                         <p className="text-[10px] text-[#555] font-mono text-center tracking-widest mb-3">
                           اللاعبون يختارون من أجهزتهم...
                         </p>
-                        {autoNightProgress.choices && autoNightProgress.choices.length > 0 && (
-                          <div className="space-y-2 mb-3">
-                            {[...autoNightProgress.choices]
-                              .sort((a, b) => {
-                                if (a.isReal && !b.isReal) return -1;
-                                if (!a.isReal && b.isReal) return 1;
-                                return a.physicalId - b.physicalId;
-                              })
-                              .map((c: any) => {
+                        {/* قائمة موحّدة ثابتة: المُرسِلون + المنتظرون معاً، مفروزة مرة واحدة بالمقعد —
+                            كل صف يبدّل حالته في مكانه (⏳ ينتظر → الاختيار) بلا إدراج ولا قفز */}
+                        {(() => {
+                          const choices: any[] = autoNightProgress.choices || [];
+                          const missing: any[] = autoNightProgress.missingPlayers || [];
+                          const byPid = new Map(choices.map((c: any) => [c.physicalId, c]));
+                          const rows = [
+                            ...choices.map((c: any) => ({ pid: c.physicalId })),
+                            ...missing.filter((m: any) => !byPid.has(m.physicalId)).map((m: any) => ({ pid: m.physicalId })),
+                          ].sort((a, b) => a.pid - b.pid);
+                          if (rows.length === 0) return null;
+                          return (
+                            <div className="space-y-2 mb-3">
+                              {rows.map(({ pid }) => {
+                                const c: any = byPid.get(pid);
+                                const chooser = gameState.players.find((p: any) => p.physicalId === pid);
+                                if (!c) {
+                                  return (
+                                    <div key={pid} className="p-2 rounded-lg border bg-[#111] border-[#222]">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-mono text-[#9a9a9a]">#{pid} {chooser?.name || ''}</span>
+                                        <span className="text-[11px] text-[#9a9a9a]">⏳ ينتظر…</span>
+                                      </div>
+                                    </div>
+                                  );
+                                }
                                 const isReal = c.isReal;
-                                const chooser = gameState.players.find((p: any) => p.physicalId === c.physicalId);
                                 const target = gameState.players.find((p: any) => p.physicalId === c.targetPhysicalId);
                                 return (
-                                  <div key={c.physicalId} className={`p-2 rounded-lg border ${isReal ? 'bg-[#C5A059]/10 border-[#C5A059]/50 shadow-[0_0_8px_rgba(197,160,89,0.1)]' : 'bg-[#222] border-[#333]'}`}>
-                                    <div className="flex items-center justify-between mb-1">
+                                  <div key={pid} className={`p-2 rounded-lg border ${isReal ? 'bg-[#C5A059]/10 border-[#C5A059]/50 shadow-[0_0_8px_rgba(197,160,89,0.1)]' : 'bg-[#222] border-[#333]'}`}>
+                                    <div className="flex items-center justify-between">
                                       <span className={`text-[11px] font-mono ${isReal ? 'font-bold text-white' : 'text-[#aaa]'}`}>
-                                        #{chooser?.physicalId} {chooser?.name}
-                                        {isReal && <span className="mr-1 px-1.5 py-0.5 bg-[#C5A059] text-black rounded text-[10px] font-bold">صاحب الدور</span>}
+                                        #{pid} {chooser?.name}
+                                        {isReal && <span className="me-1 px-1.5 py-0.5 bg-[#C5A059] text-black rounded text-[10px] font-bold">صاحب الدور</span>}
                                       </span>
                                       <span className={`text-[11px] ${isReal ? 'text-[#C5A059] font-bold' : 'text-[#888]'}`}>
                                         استهدف: {target ? `#${target.physicalId} ${target.name}` : 'تخطي'}
@@ -238,20 +256,9 @@ export default function HostNightRunner({ gameState, emit, on, setError, readOnl
                                   </div>
                                 );
                               })}
-                          </div>
-                        )}
-                        {autoNightProgress.missingPlayers && autoNightProgress.missingPlayers.length > 0 && (
-                          <div className="bg-[#111] border border-[#2a2a2a] rounded-lg p-2 max-h-32 overflow-y-auto">
-                            <p className="text-[10px] text-[#888] font-mono mb-1">في انتظار الإرسال:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {autoNightProgress.missingPlayers.map((p) => (
-                                <span key={p.physicalId} className="text-[10px] px-2 py-0.5 bg-[#222] border border-[#333] text-[#ccc] rounded-md">
-                                  #{p.physicalId} {p.name}
-                                </span>
-                              ))}
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

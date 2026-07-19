@@ -24,9 +24,9 @@ const ACTION_META: Record<string, { icon: string; color: string; bgGlow: string 
   PROTECT:    { icon: '💉', color: 'text-[#2E5C31]', bgGlow: 'shadow-[0_0_40px_rgba(46,92,49,0.2)]' },
   SNIPE:      { icon: '🎯', color: 'text-[#8A0303]', bgGlow: 'shadow-[0_0_40px_rgba(138,3,3,0.2)]' },
   ASSASSINATE:{ icon: '🗡️', color: 'text-[#6b21a8]', bgGlow: 'shadow-[0_0_40px_rgba(107,33,168,0.3)]' },
-  DISABLE_ABILITY:{ icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
-  WITCH:      { icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
-  DISABLE:    { icon: '🧙‍♀️', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
+  DISABLE_ABILITY:{ icon: '🔮', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
+  WITCH:      { icon: '🔮', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
+  DISABLE:    { icon: '🔮', color: 'text-[#9333ea]', bgGlow: 'shadow-[0_0_40px_rgba(147,51,234,0.3)]' },
 };
 
 // أيقونة أحداث الصباح
@@ -40,7 +40,7 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   SHERIFF_RESULT:       { icon: '🔍', title: 'نتيجة التحقيق',     color: 'text-[#C5A059]', displayable: false },
   ASSASSIN_KILL:        { icon: '🔪', title: 'السفّاح اغتال',     color: 'text-[#DC143C]', displayable: true },
   ASSASSIN_BLOCKED:     { icon: '🛡️', title: 'حماية ضد السفّاح',   color: 'text-[#2E5C31]', displayable: true },
-  ABILITY_DISABLED:     { icon: '🧙‍♀️', title: 'تعطيل قدرة',        color: 'text-[#9333ea]', displayable: true },
+  ABILITY_DISABLED:     { icon: '🔮', title: 'تعطيل قدرة',        color: 'text-[#9333ea]', displayable: true },
   TWIN_SUICIDE:         { icon: '🩸', title: 'انتحار التوأم',      color: 'text-[#8A0303]', displayable: true },
   TWIN_TRANSFORM:       { icon: '🌑', title: 'الصحوة المظلمة',     color: 'text-[#6b21a8]', displayable: true },
 };
