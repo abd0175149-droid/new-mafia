@@ -10,9 +10,10 @@
 // - الإقصاء: يدور للمُقصى → فليب يكشف الدور → يرجع مقلوب رماديّ (بلا إعادة كشف).
 // لا يُكشف أي دور حيّ: الـ roster معقّم (role=null)؛ الكشف الوحيد لحظة الإقصاء عبر revealedRoles.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
 import { useGameConfig } from '@/hooks/useGameConfig';
+import { avatarThumb } from '@/lib/avatar';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || '';
 
@@ -97,6 +98,14 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
   const [morningBanner, setMorningBanner] = useState<{ icon: string; text: string; sub?: string } | null>(null); // 🛡️ حدث صباحيّ غير مميت (حماية…)
   const [focusId, setFocusId] = useState<number | null>(initialDiscussionState?.currentSpeakerId ?? null);
   const [tick, setTick] = useState(0);
+  // 🎡 العجلة: مؤشّر دوران متّصل (float — يتبع الإصبع أثناء السحب ثم يثبت على أقرب كارد)
+  const [rot, setRot] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageW, setStageW] = useState(360);
+  const dragRef = useRef({ active: false, moved: false, startX: 0, startRot: 0, lastX: 0, lastT: 0, vel: 0 });
+  const rotRef = useRef(0);
+  useEffect(() => { rotRef.current = rot; }, [rot]);
 
   const revealSeq = useRef(false);
 
@@ -161,7 +170,8 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
       await sleep(350);
     }
     revealSeq.current = false;
-    if (serverActiveRef.current == null) setMode('overview'); // بعد الكشف: بلا متحدّث → مصغّر
+    // بعد الكشف نبقى في المكبَّر (الافتراضي الجديد) — وإن كان ثمة متحدّث نعود إليه
+    if (serverActiveRef.current != null) setFocusId(serverActiveRef.current);
   }, []);
 
   // اشتراكات السيرفر
@@ -219,16 +229,43 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
     return () => subs.forEach((u) => u && u());
   }, [on, runReveal]);
 
-  // الوضع التلقائيّ: صاحب دور → مكبّر عليه؛ بين الأدوار → مصغّر
+  // الوضع التلقائيّ: صاحب دور → العجلة تدور إليه (المكبَّر هو الافتراضي دائماً؛
+  // بين الأدوار لا ننزلق للمصغَّر — المصغَّر خيارٌ يدويّ بالزرّ فقط)
   useEffect(() => {
     if (revealSeq.current) return; // لا نقاطع حركة الكشف
     if (serverActiveId != null) {
       setMode('focus');
       setFocusId(serverActiveId);
-    } else {
-      setMode('overview');
     }
   }, [serverActiveId]);
+
+  // 🎯 الافتراضي عند الدخول: كاردي أنا في الصدارة (وللمضيف: أول كارد)
+  const didInitFocus = useRef(false);
+  useEffect(() => {
+    if (didInitFocus.current || !players.length) return;
+    didInitFocus.current = true;
+    if (focusId == null) {
+      const mine = players.find((p) => p.physicalId === myId);
+      setFocusId(mine ? myId : players[0].physicalId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [players.length]);
+
+  // 🎡 مزامنة العجلة مع الهدف: دوران بأقصر مسار (transition الكارد يتولّى النعومة)
+  useEffect(() => {
+    if (focusId == null || !players.length) return;
+    const idx = players.findIndex((p) => p.physicalId === focusId);
+    if (idx < 0) return;
+    setRot((r) => r + shortest(idx, ((r % players.length) + players.length) % players.length, players.length));
+  }, [focusId, players]);
+
+  // 📏 قياس عرض المسرح (نصفا قطرَي حلقة المصغَّر يُحسبان منه — لا قصّ على أي شاشة)
+  useLayoutEffect(() => {
+    const measure = () => { if (stageRef.current) setStageW(stageRef.current.clientWidth); };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   // مؤقّت العدّاد (تبرير أو نقاش). base = الوقت المتبقّي عند startTime؛ ونطرح المنقضي فقط أثناء التحدّث.
   // نستعمل timeRemaining (يحدّثه السيرفر مع كل تعديل +/-) وليس timeLimitSeconds الثابت — كي تنعكس تعديلات الليدر.
@@ -274,20 +311,68 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
 
   // تفاعل محلّي
   const onTapCard = (id: number) => {
-    if (mode !== 'overview') return;
-    setFocusId(id); // محلّي فقط
-    setMode('focus');
+    if (dragRef.current.moved) return;               // سحبٌ لا نقرة
+    if (mode === 'overview') {
+      setFocusId(id);                                 // نقرة قطعة مقعد → تكبير فوري
+      setMode('focus');
+    } else if (focusId !== id) {
+      setFocusId(id);                                 // نقرة كارد جانبي → العجلة تدور إليه
+    }
   };
   const toggleMode = () => {
     setMode((m) => {
       const next = m === 'focus' ? 'overview' : 'focus';
-      if (next === 'overview' && serverActiveId != null) setFocusId(serverActiveId);
+      if (next === 'focus') setRot((r) => Math.round(r));
       return next;
     });
   };
   const backToSpeaker = () => {
     if (serverActiveId != null) { setFocusId(serverActiveId); setMode('focus'); }
   };
+
+  // 🎡 سحب = تدوير العجلة (وضع المكبَّر فقط): تتبع الإصبع، وعند الإفلات زخمٌ خفيف وتثبيت على أقرب كارد
+  const clientX = (e: any) => (e.touches ? e.touches[0]?.clientX : e.clientX) ?? 0;
+  const dragStart = (e: any) => {
+    if (mode !== 'focus' || collapsed || revealSeq.current || N < 2) return;
+    const d = dragRef.current;
+    d.active = true; d.moved = false;
+    d.startX = d.lastX = clientX(e);
+    d.startRot = rotRef.current;
+    d.lastT = performance.now(); d.vel = 0;
+  };
+  const dragMove = (e: any) => {
+    const d = dragRef.current;
+    if (!d.active) return;
+    const x = clientX(e);
+    const dx = x - d.startX;
+    if (Math.abs(dx) > 6 && !d.moved) { d.moved = true; setIsDragging(true); }
+    const t = performance.now();
+    d.vel = (x - d.lastX) / Math.max(1, t - d.lastT);
+    d.lastX = x; d.lastT = t;
+    if (d.moved) setRot(d.startRot - dx / 150);       // كل ~150px = كارد واحد
+  };
+  const dragEnd = () => {
+    const d = dragRef.current;
+    if (!d.active) return;
+    d.active = false;
+    if (d.moved) {
+      setIsDragging(false);
+      const cur = rotRef.current;
+      let target = Math.round(cur - d.vel * 5);       // زخم خفيف
+      target = Math.max(Math.round(cur) - 2, Math.min(Math.round(cur) + 2, target));
+      setRot(target);
+      const idx = ((target % N) + N) % N;
+      if (players[idx]) setFocusId(players[idx].physicalId);
+      setTimeout(() => { d.moved = false; }, 60);     // يمنع «نقرة» تعقب السحب مباشرة
+    }
+  };
+  // إنهاء السحب حتى لو أفلت الإصبع خارج المسرح
+  useEffect(() => {
+    window.addEventListener('pointerup', dragEnd);
+    window.addEventListener('touchend', dragEnd);
+    return () => { window.removeEventListener('pointerup', dragEnd); window.removeEventListener('touchend', dragEnd); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [N, players]);
 
   const aliveCount = players.filter((p) => p.isAlive && !localDead.has(p.physicalId)).length;
   const { cit, maf } = readCounts(teamCounts);
@@ -355,7 +440,14 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
       </div>
 
       {/* الحلقة */}
-      <div className={`rt-stage ${mode}`}>
+      <div
+        ref={stageRef}
+        className={`rt-stage ${mode}${isDragging ? ' dragging' : ''}`}
+        onPointerDown={dragStart}
+        onPointerMove={dragMove}
+        onTouchStart={dragStart}
+        onTouchMove={dragMove}
+      >
         <div className="rt-felt" />
         {morningBanner && !gameOver && (
           <div className="rt-morning">
@@ -409,35 +501,55 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             // الكاميرا تُعرض على كارد كل لاعب فتح كاميرته (يبثّها للجميع) — قلائل يفتحونها فالأداء آمن
             const vTrack = videoByPid?.[p.physicalId] ?? null;
             let style: CSSProperties;
+            const frontIdx = ((Math.round(rot) % N) + N) % N;
             if (mode === 'focus') {
-              const off = shortest(i, focusIdx, N);
+              // 🎡 العجلة المتصلة: o قد يكون كسرياً أثناء السحب — الكروت تتبع الإصبع
+              const off = shortest(i, ((rot % N) + N) % N, N);
               const a = Math.abs(off);
               style = {
-                transform: `translateX(${off * 150}px) translateZ(${-a * 210}px) rotateY(${-off * 46}deg) rotateZ(${off * 3}deg) scale(${off === 0 ? 1 : 0.72})`,
-                opacity: a > 2.4 ? 0 : off === 0 ? 1 : 0.5,
-                zIndex: 100 - a,
+                transform: `translateX(${off * 150}px) translateZ(${-a * 205}px) rotateY(${-off * 45}deg) rotateZ(${off * 3}deg) scale(${a < 0.5 ? 1 - a * 0.3 : 0.72})`,
+                opacity: a > 2.6 ? 0 : a < 0.5 ? 1 : 0.5,
+                zIndex: 100 - Math.round(a * 10),
+                pointerEvents: a > 2.6 ? 'none' : undefined, // المخفي كلياً لا يسرق الضغط
               };
             } else {
-              // 🕰️ اللوبي: المقام = السعة الكاملة فيحجز كل لاعب موقعه النهائي من أول انضمام (لا تدور الحلقة مع كل منضمّ)
+              // 🪙 حلقة «قطع المقاعد»: مقاس ثابت 72×88 ونصفا قطرين من الشاشة — لا تراكب رياضياً
               const denom = lobby ? Math.max(maxPlayers || N, N) : N;
+              const Rx = Math.min(stageW / 2 - 36 - 8, 168);
+              const Ry = 147;
               const ang = (i / denom) * 2 * Math.PI - Math.PI / 2;
-              const foc = p.physicalId === focusId;
-              const dz = Math.sin(ang) * 70; // عمق: الكروت الأماميّة أقرب، الخلفيّة تتراجع
-              // أرضية scale مرفوعة (0.58) كي تبقى الأسماء والأرقام مقروءة في العرض المصغّر
               style = {
-                transform: `translate(${Math.cos(ang) * 120}px, ${Math.sin(ang) * 120}px) translateZ(${dz}px) scale(${foc ? 0.68 : 0.58 + (Math.sin(ang) + 1) * 0.03})`,
+                transform: `translate(${Math.cos(ang) * Rx}px, ${Math.sin(ang) * Ry + 4}px)`,
                 opacity: 1,
-                zIndex: foc ? 70 : Math.round(50 + dz),
+                zIndex: 50 + Math.round(Math.sin(ang) * 10),
               };
             }
             const fallback = p.gender === 'FEMALE' ? '/avatars/female.png' : '/avatars/male.png';
+            const tokAv = avatarThumb(p.avatarUrl) || p.avatarUrl || fallback;
+            const gRole = gameOver ? roleMeta(roleByPid[p.physicalId] ?? null) : null; // 🏁 دور معلن على القطعة عند النهاية
             return (
               <div
                 key={p.physicalId}
-                className={`rt-card ${isDead ? 'dead' : ''} ${isFlipped && isDead ? 'revealed' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''}`}
+                className={`rt-card ${isDead ? 'dead' : ''} ${isFlipped && isDead ? 'revealed' : ''} ${isSpeaker ? 'spot' : ''} ${talking ? 'talking' : ''} ${mode === 'focus' && i === frontIdx && !isDragging ? 'front' : ''}`}
                 style={style}
                 onClick={() => onTapCard(p.physicalId)}
               >
+                {/* 🪙 قطعة المقعد — وجه وضع التصغير (مقاس مدمج بلا تراكب) */}
+                <div className="rt-tok">
+                  <div className={`rt-tav ${p.gender === 'FEMALE' ? 'gf' : ''} ${gRole ? (gRole.mafia ? 'tm' : 'tc') : ''}`}>
+                    <span className="rt-tin">
+                      <img src={tokAv} alt="" loading="lazy" decoding="async"
+                        onError={(e) => { const el = e.target as HTMLImageElement; if (!el.dataset.fb) { el.dataset.fb = '1'; el.src = p.avatarUrl || fallback; } else if (!el.src.endsWith(fallback)) el.src = fallback; }} />
+                    </span>
+                    <span className={`rt-tnum ${p.gender === 'FEMALE' ? 'gf' : ''}`}>{p.physicalId}</span>
+                    {!hostView && p.physicalId === myId && <span className="rt-tyou">أنت</span>}
+                    {isDead && <span className="rt-tbadge">💀</span>}
+                    {!isDead && silenced && <span className="rt-tbadge sil">🔇</span>}
+                    {!isDead && !silenced && talking && <span className="rt-ttalk" />}
+                    {gRole && <span className="rt-trole">{gRole.icon}</span>}
+                  </div>
+                  <span className={`rt-tnm ${isDead ? 'dead' : ''}`}>{gRole ? gRole.text : p.name}</span>
+                </div>
                 <div className={`rt-inner ${isFlipped ? 'flip' : ''}`}>
                   {/* الوجه الأمامي — مقلوب (بلا دور) */}
                   <div className="rt-face rt-front">
@@ -483,36 +595,37 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
               </div>
             );
           })}
-          {/* 🕰️ مقاعد شاغرة في اللوبي — placeholder متقطّع يوضّح كم مقعداً تبقّى بصرياً */}
-          {lobby && !gameOver && (maxPlayers || 0) > N && Array.from({ length: (maxPlayers || 0) - N }).map((_, k) => {
+          {/* 🕰️ مقاعد شاغرة في اللوبي — قطع متقطّعة على حلقة المصغَّر فقط */}
+          {mode === 'overview' && lobby && !gameOver && (maxPlayers || 0) > N && Array.from({ length: (maxPlayers || 0) - N }).map((_, k) => {
             const denom = Math.max(maxPlayers || N, N);
+            const Rx = Math.min(stageW / 2 - 36 - 8, 168);
             const ang = ((N + k) / denom) * 2 * Math.PI - Math.PI / 2;
-            const dz = Math.sin(ang) * 70;
             return (
               <div key={`seat-${k}`} className="rt-card rt-seat" style={{
-                transform: `translate(${Math.cos(ang) * 120}px, ${Math.sin(ang) * 120}px) translateZ(${dz}px) scale(0.55)`,
-                zIndex: Math.round(40 + dz),
+                transform: `translate(${Math.cos(ang) * Rx}px, ${Math.sin(ang) * 147 + 4}px)`,
+                zIndex: 45,
               }}>
-                <div className="rt-seat-in">؟</div>
+                <div className="rt-tok on">
+                  <div className="rt-tav empty"><span className="rt-tin empty">؟</span></div>
+                  <span className="rt-tnm empty">شاغر</span>
+                </div>
               </div>
             );
           })}
         </div>
 
-        {mode === 'overview' && <div className="rt-hint">اضغط أي كارد لتكبيره عندك</div>}
+        <div className="rt-hint">{mode === 'focus' ? 'اسحب لتدوير الحلقة · اضغط كارداً جانبياً للانتقال' : 'اضغط أي مقعد لتكبيره فوراً'}</div>
       </div>
 
       {/* شريط التحكم — صفّ ثابت أسفل المسرح (لا يتراكب مع البطاقات الأمامية) */}
-      {!lobby && (
-        <div className="rt-controls">
-          <button className="rt-modebtn" onClick={toggleMode}>
-            {mode === 'focus' ? '◱ عرض الحلقة كاملة' : '⊡ تكبير المتحدّث'}
-          </button>
-          {mode === 'focus' && serverActiveId != null && focusId !== serverActiveId && (
-            <button className="rt-backbtn" onClick={backToSpeaker}>↺ للمتحدّث</button>
-          )}
-        </div>
-      )}
+      <div className="rt-controls">
+        <button className="rt-modebtn" onClick={toggleMode}>
+          {mode === 'focus' ? '◱ تصغير — عرض الحلقة كاملة' : '⊡ تكبير كاردي'}
+        </button>
+        {mode === 'focus' && serverActiveId != null && focusId !== serverActiveId && (
+          <button className="rt-backbtn" onClick={backToSpeaker}>↺ للمتحدّث</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -537,10 +650,52 @@ const RT_CSS = `
   background:radial-gradient(closest-side,rgba(197,160,89,.16),transparent);filter:blur(10px);opacity:0;transition:.5s;pointer-events:none}
 .rt-stage.focus .rt-glow{opacity:1}
 .rt-ring{position:absolute;inset:0;transform-style:preserve-3d;transition:transform .6s cubic-bezier(.15,.5,.3,.95)}
-.rt-stage.overview .rt-ring{transform:rotateX(24deg)}
+.rt-stage.overview .rt-ring{transform:rotateX(8deg)}
 .rt-card{position:absolute;top:50%;left:50%;width:140px;height:196px;margin:-98px 0 0 -70px;
-  transform-style:preserve-3d;transition:transform .6s cubic-bezier(.15,.5,.3,.95),opacity .45s;cursor:default}
-.rt-stage.overview .rt-card{cursor:pointer}
+  transform-style:preserve-3d;transition:transform .55s cubic-bezier(.15,.5,.3,.95),opacity .45s;cursor:pointer}
+/* 🎡 أثناء السحب: الكروت تتبع الإصبع بلا تباطؤ */
+.rt-stage.dragging .rt-card{transition:opacity .45s}
+.rt-stage{touch-action:pan-y;user-select:none;-webkit-user-select:none}
+/* الكارد الأمامي في العجلة — تمييز خفيف */
+.rt-card.front .rt-front{box-shadow:0 0 0 1px rgba(197,160,89,.55),0 0 26px rgba(197,160,89,.28)}
+
+/* 🪙 قطعة المقعد (وضع التصغير): 72×88 ثابتة — دائرة صورة + شارة رقم + شريحة اسم */
+.rt-tok{position:absolute;top:50%;left:50%;width:72px;height:88px;margin:-44px 0 0 -36px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  opacity:0;pointer-events:none;transition:opacity .35s}
+.rt-stage.overview .rt-tok{opacity:1;pointer-events:auto}
+/* !important: كي لا تغلبها قاعدة opacity الخاصة بالأموات على .rt-inner */
+.rt-stage.overview .rt-inner{opacity:0 !important;pointer-events:none}
+.rt-inner{transition:transform .7s cubic-bezier(.5,.05,.2,1),opacity .35s}
+/* اللافتات (لوبي/فائز) تنتقل إلى مركز الحلقة الفارغ في المصغَّر — كوسط طاولة حقيقية */
+.rt-lobby,.rt-winner{transition:top .5s cubic-bezier(.4,0,.2,1),transform .5s cubic-bezier(.4,0,.2,1)}
+.rt-stage.overview .rt-lobby,.rt-stage.overview .rt-winner{top:50%;transform:translate(-50%,-50%) scale(.92)}
+.rt-tav{position:relative;width:56px;height:56px;border-radius:50%;padding:2px;
+  background:conic-gradient(from 40deg,#e8cf8f,#8a6d31,#e8cf8f,#8a6d31,#e8cf8f);box-shadow:0 5px 14px rgba(0,0,0,.6)}
+.rt-tav.gf{background:conic-gradient(from 40deg,#d8b4fe,#6b21a8,#d8b4fe,#6b21a8,#d8b4fe)}
+.rt-tav.tm{background:conic-gradient(from 40deg,#f0a5a0,#8A0303,#f0a5a0,#8A0303,#f0a5a0)}
+.rt-tav.tc{background:conic-gradient(from 40deg,#a8cdf0,#1d4f82,#a8cdf0,#1d4f82,#a8cdf0)}
+.rt-tav.empty{background:none;padding:0}
+.rt-tin{display:flex;width:100%;height:100%;border-radius:50%;overflow:hidden;border:2px solid #0e0a05;background:#241c10}
+.rt-tin img{width:100%;height:100%;object-fit:cover}
+.rt-tin.empty{align-items:center;justify-content:center;border:1.5px dashed #2f2b24;background:rgba(10,10,10,.4);
+  color:#3a352c;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:18px}
+.rt-tnum{position:absolute;top:-3px;right:-3px;min-width:19px;height:19px;border-radius:999px;display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono',monospace;font-weight:800;font-size:10.5px;color:#000;background:#C5A059;border:2px solid #0a0a0a;padding:0 3px;z-index:3}
+.rt-tnum.gf{background:#d8b4fe}
+.rt-tyou{position:absolute;bottom:-2px;left:-4px;background:#C5A059;color:#000;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:8.5px;border-radius:5px;padding:0.5px 4px;z-index:3}
+.rt-tbadge{position:absolute;bottom:-3px;right:-3px;width:19px;height:19px;border-radius:999px;display:flex;align-items:center;justify-content:center;
+  font-size:10px;background:rgba(20,10,10,.95);border:1.5px solid #6b2020;z-index:3}
+.rt-tbadge.sil{border-color:#7c2d2d;background:#3a1515}
+.rt-ttalk{position:absolute;bottom:0;right:0;width:11px;height:11px;border-radius:999px;background:#34d399;border:2px solid #0a0a0a;box-shadow:0 0 8px #34d399;animation:rttalk 1s ease-in-out infinite;z-index:3}
+.rt-trole{position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);font-size:13px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.9));z-index:3}
+.rt-tnm{max-width:72px;font-family:'Amiri',serif;font-weight:700;font-size:11.5px;color:#fff;background:rgba(0,0,0,.72);
+  border:1px solid rgba(197,160,89,.22);border-radius:999px;padding:1px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.45}
+.rt-tnm.dead{color:#8a8a8a;text-decoration:line-through}
+.rt-tnm.empty{color:#4a443a;border-color:#2a2a2a}
+/* على القطعة: المتحدّث بهالة نابضة */
+.rt-stage.overview .rt-card.spot .rt-tav{box-shadow:0 0 0 2px #C5A059,0 0 18px rgba(197,160,89,.55)}
+/* موت القطعة: فلتر على الدائرة لا على القطعة كلها (الاسم يبقى مقروءاً بشطبه) */
+.rt-stage.overview .rt-card.dead .rt-tav{filter:grayscale(1) brightness(.6)}
 .rt-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.5,.05,.2,1)}
 .rt-inner.flip{transform:rotateY(180deg)}
 .rt-face{position:absolute;inset:0;-webkit-backface-visibility:hidden;backface-visibility:hidden;border-radius:14px;overflow:hidden;
