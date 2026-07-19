@@ -10,11 +10,13 @@
 import type { Server } from 'socket.io';
 
 // إزالة كل ما يكشف الأدوار أو نيّات الليل من نسخة اللاعب
+// ⚰️ دور الميت يُكشف: أُعلن للجميع لحظة الإقصاء/الصباح أصلاً — إبقاؤه في الروستر
+// يجعل الكارد المقلوب على الحلقة يصمد لتحديث الصفحة والمنضمّين الجدد.
 function stripSecrets(state: any): any {
   if (!state || !Array.isArray(state.players)) return state;
   return {
     ...state,
-    players: state.players.map((p: any) => ({ ...p, role: null })),
+    players: state.players.map((p: any) => ({ ...p, role: p.isAlive === false ? (p.role ?? null) : null })),
     nightActions: undefined,
     autoNightChoices: undefined,
     // 🎩 هويّة العمدة سرّ حتى يكشف نفسه؛ وبعد الكشف تُمرَّر الهويّة بلا النافذة السرّية
@@ -102,7 +104,7 @@ export async function emitMorningRecapSanitized(
   const playerPayload = {
     ...payload,
     players: Array.isArray(payload?.players)
-      ? payload.players.map((p: any) => ({ ...p, role: null }))
+      ? payload.players.map((p: any) => ({ ...p, role: p.isAlive === false ? (p.role ?? null) : null }))
       : payload?.players,
     assassinState: null,
   };

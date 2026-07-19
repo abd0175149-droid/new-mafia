@@ -491,7 +491,7 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
             const isDead = !p.isAlive || localDead.has(p.physicalId);
             const silenced = silencedPids.has(p.physicalId) && !isDead;
             const isSpeaker = serverActiveId != null && p.physicalId === serverActiveId;
-            const persistedRole = revealedRoles[p.physicalId] ?? null; // 🎭 دور ثبت بعد الكشف — يبقى ظاهراً على الوجه السريّ
+            const persistedRole = revealedRoles[p.physicalId] ?? ((!p.isAlive && p.role) ? p.role : null); // 🎭 دور ثبت بعد الكشف — من الحدث أو من روستر الأموات (يصمد للتحديث)
             const revealedRole = gameOver
               ? (roleByPid[p.physicalId] ?? null)
               : (revealing?.id === p.physicalId ? revealing?.role : persistedRole);
@@ -712,9 +712,9 @@ const RT_CSS = `
 .rt-av.m{background:radial-gradient(120% 120% at 50% 18%,#6a5a34,#1c1811)}
 .rt-av.f{background:radial-gradient(120% 120% at 50% 18%,#5b4a67,#1e1725)}
 .rt-avimg{width:100%;height:100%;object-fit:cover}
-.rt-num{position:absolute;top:0;left:0;right:0;height:66%;display:flex;align-items:center;justify-content:center;
-  font-family:'JetBrains Mono',monospace;font-weight:800;font-size:54px;color:rgba(197,160,89,.95);text-shadow:0 3px 10px rgba(0,0,0,.85);pointer-events:none}
-.rt-num.gf{color:rgba(216,180,254,.95)}
+.rt-num{position:absolute;top:5px;right:7px;z-index:5;font-family:'JetBrains Mono',monospace;font-weight:800;font-size:16px;color:#f0d9a0;
+  background:rgba(0,0,0,.68);border:1px solid rgba(197,160,89,.4);border-radius:8px;padding:1px 8px;pointer-events:none;text-shadow:none}
+.rt-num.gf{color:#e9d5ff;border-color:rgba(216,180,254,.45)}
 .rt-name{position:absolute;bottom:0;left:0;right:0;height:34%;display:flex;align-items:center;justify-content:center;
   background:#000;font-family:'Amiri',serif;font-weight:700;font-size:16px;color:#fff;padding:0 4px;text-align:center;
   overflow:hidden;line-height:1.25}
@@ -749,11 +749,11 @@ const RT_CSS = `
 .rt-fill-max{color:#6b6255;font-weight:700}
 @keyframes rtbreath{50%{opacity:.55;transform:scale(.97)}}
 /* 💀 تمييز الأموات متعدد الوسوم: فلتر + حدود قانية + شطب الاسم + شفافية (لا يعتمد اللون وحده) */
-.rt-card.dead .rt-inner{filter:grayscale(1) brightness(.55);opacity:.62}
+.rt-card.dead .rt-face{filter:grayscale(1) brightness(.55);opacity:.62}
 .rt-card.dead .rt-face{border-color:#3a1010}
 .rt-card.dead .rt-name{text-decoration:line-through;color:#8a8a8a}
 /* مُقصىً لكن دوره مكشوف: يبقى الدور واضحاً للجميع (تعتيم خفيف + شارة جمجمة بزاوية الكارت) */
-.rt-card.dead.revealed .rt-inner{filter:grayscale(.12) brightness(.94);opacity:1}
+.rt-card.dead.revealed .rt-face{filter:grayscale(.12) brightness(.94);opacity:1}
 .rt-card.dead.revealed .rt-back::after{content:"💀";position:absolute;top:5px;left:5px;z-index:8;width:20px;height:20px;
   display:flex;align-items:center;justify-content:center;font-size:11px;border-radius:999px;background:rgba(58,16,16,.9);border:1px solid #6b2020}
 .rt-card.spot .rt-front{border-color:#C5A059;box-shadow:0 0 0 1px #C5A059,0 0 30px rgba(197,160,89,.5)}
