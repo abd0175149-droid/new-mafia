@@ -592,6 +592,15 @@ async function main() {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS can_host_remote BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS remote_access_until TIMESTAMP`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS player_id INTEGER`);
+      // 🎁 مكافآت RR اليدويّة (حجز مبكر وغيرها) — تدخل في إعادة الاحتساب فلا تُمحى
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS rank_bonuses (
+        id SERIAL PRIMARY KEY,
+        player_id INTEGER NOT NULL,
+        rr INTEGER NOT NULL,
+        reason VARCHAR(200) DEFAULT '',
+        season_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──

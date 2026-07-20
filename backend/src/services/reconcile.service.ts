@@ -12,7 +12,7 @@
 // التجميعة من match_players فتتجاوز أي مقاطعة. (انظر unified-mafia-deploy-and-rank-facts)
 // ══════════════════════════════════════════════════════
 
-import { eq, and, asc, inArray } from 'drizzle-orm';
+import { eq, and, asc, inArray, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { activities, locations } from '../schemas/admin.schema.js';
@@ -211,6 +211,27 @@ export async function reconcileSeasonProgression(
     acc.totalDeals += r.dealInitiated ? 1 : 0;
     acc.successfulDeals += r.dealSuccess ? 1 : 0;
   }
+
+  // 4.5) 🎁 مكافآت RR اليدويّة (rank_bonuses) — ضمن الموسم المستهدف، فلا تمحوها إعادة الاحتساب
+  try {
+    const bres: any = await db.execute(sql`SELECT player_id, rr FROM rank_bonuses WHERE ${targetSeasonId == null ? sql`TRUE` : sql`season_id = ${targetSeasonId}`} ORDER BY id ASC`);
+    const blist: any[] = bres?.rows ?? (Array.isArray(bres) ? bres : []);
+    let bonusApplied = 0;
+    for (const b of blist) {
+      const pid = Number(b.player_id);
+      if (!pid || (onlyPlayerIds && !onlyPlayerIds.has(pid))) continue;
+      let acc = accs.get(pid);
+      if (!acc) {
+        acc = { playerId: pid, name: `#${pid}`, xp: 0, level: 1, rr: 0, tierIdx: 0,
+          totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0 };
+        accs.set(pid, acc);
+      }
+      applyRRInMemory(acc, Number(b.rr) || 0);
+      bonusApplied++;
+    }
+    if (bonusApplied) log(`🎁 Applied ${bonusApplied} manual rank bonuses (rank_bonuses)`);
+  } catch { /* الجدول غير موجود بعد — لا مكافآت */ }
+
   log(`👤 Players to update: ${accs.size} | rows without playerId: ${noPlayerId} | duplicate rows skipped: ${dupSkipped}`);
 
   // هل الموسم المستهدف هو الموسم العادي النشط؟ (players.* تعكس الموسم العادي النشط فقط)
