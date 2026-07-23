@@ -181,14 +181,17 @@ export default function ReservationsPage() {
   }, [stats]);
 
   // ══ Attendance Stats ══
+  // فصل المتوقَّع عن الفعليّ: «متوقَّع» = مجموع الأشخاص (peopleCount) للتخطيط والصورة،
+  // أمّا «حضر/لعب فعليّاً» فكلّ حجز = لاعبٌ واحد فعليّ (المرافقون لا يحجزون من التطبيق ولا يدخلون اللعبة).
   const attendanceStats = useMemo(() => {
     if (!filterActivity) return null;
     const data = filterActivity === 'all' ? reservations : reservations.filter(r => r.activityId === Number(filterActivity));
-    const attended = data.filter(r => r.attended === true).reduce((s, r) => s + (r.peopleCount || 1), 0);
-    const noShow = data.filter(r => r.attended === false).reduce((s, r) => s + (r.peopleCount || 1), 0);
-    const unmarked = data.filter(r => r.attended === null || r.attended === undefined).reduce((s, r) => s + (r.peopleCount || 1), 0);
-    const total = data.reduce((s, r) => s + (r.peopleCount || 1), 0);
-    return { attended, noShow, unmarked, total };
+    const attended = data.filter(r => r.attended === true).length;
+    const noShow = data.filter(r => r.attended === false).length;
+    const unmarked = data.filter(r => r.attended === null || r.attended === undefined).length;
+    const total = data.length;                                            // لاعبون فعليّون (حجوزات)
+    const expectedPeople = data.reduce((s, r) => s + (r.peopleCount || 1), 0); // أشخاص متوقَّعون
+    return { attended, noShow, unmarked, total, expectedPeople };
   }, [reservations, filterActivity]);
 
   // ══ Helpers ══
@@ -602,7 +605,7 @@ export default function ReservationsPage() {
           {/* ══════ ATTENDANCE STATS BAR ══════ */}
           {attendanceStats && attendanceStats.total > 0 && (
             <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 bg-gray-800/30 border border-gray-700/20 rounded-xl text-xs">
-              <span className="text-gray-500 font-medium">الحضور ({attendanceStats.total} شخص):</span>
+              <span className="text-gray-500 font-medium">الحضور — لاعبون فعليّون ({attendanceStats.total}) · متوقَّع {attendanceStats.expectedPeople} شخص:</span>
               
               <button 
                 onClick={() => setFilterAttendance(filterAttendance === 'attended' ? 'all' : 'attended')}

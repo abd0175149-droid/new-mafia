@@ -55,8 +55,9 @@ export const reservationRosterReport: ReportDefinition = {
     const totalPeople = rows.reduce((s, r) => s + (r.peopleCount || 1), 0);
     const confirmedRows = rows.filter(r => isConfirmed(r.status));
     const confirmedPeople = confirmedRows.reduce((s, r) => s + (r.peopleCount || 1), 0);
+    // «حضر/لعب فعليّاً» = عدد الحجوزات (كلّ حجز لاعبٌ واحد فعليّ) لا مجموع الأشخاص —
+    // المرافقون ضمن حجز مجموعة لا يدخلون اللعبة. الأشخاص (peopleCount) رقمٌ متوقَّع للتخطيط فقط.
     const attendedRows = rows.filter(r => r.attended === true);
-    const attendedPeople = attendedRows.reduce((s, r) => s + (r.peopleCount || 1), 0);
     const noShowRows = rows.filter(r => r.attended === false);
 
     const dateAr = new Date(act.date).toLocaleDateString('ar-JO', {
@@ -76,9 +77,9 @@ export const reservationRosterReport: ReportDefinition = {
         {
           type: 'kpis', items: [
             { labelAr: 'حجوزات', value: rows.length, format: 'number', tone: 'blue' },
-            { labelAr: 'أشخاص', value: totalPeople, format: 'number', tone: 'amber', sub: act.maxCapacity ? `السعة ${act.maxCapacity}` : undefined },
+            { labelAr: 'أشخاص (متوقَّع)', value: totalPeople, format: 'number', tone: 'amber', sub: act.maxCapacity ? `السعة ${act.maxCapacity}` : undefined },
             { labelAr: 'مثبّت', value: `${confirmedRows.length} (${confirmedPeople} شخصاً)`, tone: 'green' },
-            { labelAr: 'حضر', value: `${attendedRows.length} (${attendedPeople} شخصاً)`, tone: 'purple', sub: noShowRows.length ? `${noShowRows.length} لم يحضر` : undefined },
+            { labelAr: 'حضر (لاعبون)', value: attendedRows.length, format: 'number', tone: 'purple', sub: noShowRows.length ? `${noShowRows.length} لم يحضر` : undefined },
           ],
         },
         {

@@ -22,7 +22,7 @@ const ar = (n: number) => Number(n).toLocaleString('ar-EG');
 const initial = (s: string) => (s || '?').trim().replace(/[^؀-ۿ\w]/g, '')[0] || '★';
 const chunk = <T,>(a: T[], n: number): T[][] => { const r: T[][] = []; for (let i = 0; i < a.length; i += n) r.push(a.slice(i, i + n)); return r; };
 
-type Member = { name: string; avatarUrl: string | null; rankTier: string; level: number };
+type Member = { name: string; avatarUrl: string | null; rankTier: string; level: number; peopleCount: number };
 type Guest = { name: string; peopleCount: number };
 type Block = { type: 'label'; variant: 'members' | 'guests' } | { type: 'row'; cards: (Member | Guest)[]; guest: boolean };
 type Page = { first: boolean; footer: boolean; blocks: Block[] };
@@ -106,10 +106,12 @@ export default function AttendancePrintPage() {
 
   const memberCard = (m: Member, i: number) => {
     const rk = RANK[m.rankTier] || RANK.INFORMANT;
+    const group = (m.peopleCount || 1) > 1;   // 👥 حجز مجموعة مربوط بحساب: يظهر العدد الكامل (متوقَّع) — يلعب صاحب الحساب فقط
     return (
       <div className="card" key={'m' + i}>
         <span className="cn a" /><span className="cn b" /><span className="cn c" /><span className="cn d" />
         <span className="num">№ {ar(i + 1)}</span>
+        {group && <span className="gbadge">{ar(m.peopleCount)} أشخاص</span>}
         <div className="port">
           <div className="in">{m.avatarUrl ? <img src={`${API_URL}${m.avatarUrl}`} alt="" /> : <div className="mono">{initial(m.name)}</div>}</div>
           <div className="gem" style={{ background: `radial-gradient(circle at 35% 28%, #ffffffcc, ${rk.c} 42%, ${rk.c}99)` }}>{rk.b}</div>
@@ -118,6 +120,7 @@ export default function AttendancePrintPage() {
         <div className="rname" style={{ color: rk.c }}>{rk.ar}</div>
         <div className="pips">{Array.from({ length: 5 }, (_, k) => <b key={k} className={k < m.level ? '' : 'o'} />)}</div>
         <div className="lvlt">المستوى {ar(m.level)}</div>
+        {group && <div className="partyline">مجموعة من {ar(m.peopleCount)} — يلعب صاحب الحساب</div>}
       </div>
     );
   };
