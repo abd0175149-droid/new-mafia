@@ -15,7 +15,8 @@ interface Props {
   dims: Dims;
   seats: RectSeat[];
   doorNodes: DoorNode[];
-  pinnedByChair: Record<string, string>; // "side:sideIndex" -> playerName
+  pinnedByChair: Record<string, string>; // "side:sideIndex" -> playerName (تثبيت القالب الدائم)
+  assignedByChair?: Record<string, string>; // "side:sideIndex" -> playerName (تخصيص النشاط المؤقّت — لون مميّز)
   reservedTailCount: number;
   viewMode: boolean;
   selectedSeat: number | null;     // seatNum
@@ -24,11 +25,11 @@ interface Props {
   onSelectDoor: (id: string) => void;
 }
 
-const C = { normal: '#10b981', pinned: '#f59e0b', tail: '#6b7280', selected: '#3b82f6' };
+const C = { normal: '#10b981', pinned: '#f59e0b', tail: '#6b7280', selected: '#3b82f6', assigned: '#8b5cf6' };
 const chairKey = (s: RectSeat) => `${s.side}:${s.sideIndex}`;
 
-function Chair({ seat, color, pinnedName, clickable, onClick }: {
-  seat: RectSeat; color: string; pinnedName?: string; clickable: boolean; onClick: () => void;
+function Chair({ seat, color, pinnedName, assigned, clickable, onClick }: {
+  seat: RectSeat; color: string; pinnedName?: string; assigned?: boolean; clickable: boolean; onClick: () => void;
 }) {
   return (
     <group position={[seat.x, 0, seat.z]} rotation={[0, seat.rotationY, 0]}>
@@ -44,7 +45,7 @@ function Chair({ seat, color, pinnedName, clickable, onClick }: {
       <Html position={[0, 1.0, 0]} center distanceFactor={11} style={{ pointerEvents: 'none' }}>
         <div style={{ fontWeight: 800, fontSize: 15, color: '#fff', fontFamily: 'monospace', textShadow: '0 1px 3px #000', whiteSpace: 'nowrap', textAlign: 'center' }}>
           {seat.seatNum}
-          {pinnedName && <div style={{ fontSize: 9, color: '#fbbf24', marginTop: 1 }}>📌 {pinnedName}</div>}
+          {pinnedName && <div style={{ fontSize: 9, color: assigned ? '#c4b5fd' : '#fbbf24', marginTop: 1 }}>{assigned ? '🎯' : '📌'} {pinnedName}</div>}
         </div>
       </Html>
     </group>
@@ -73,7 +74,7 @@ function Door({ door, selected, clickable, onClick }: { door: DoorNode; selected
   );
 }
 
-function Scene({ dims, seats, doorNodes, pinnedByChair, reservedTailCount, viewMode, selectedSeat, selectedDoorId, onSelectSeat, onSelectDoor }: Props) {
+function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reservedTailCount, viewMode, selectedSeat, selectedDoorId, onSelectSeat, onSelectDoor }: Props) {
   const totalChairs = seats.length;
   const tailStart = totalChairs - reservedTailCount + 1;
   const { halfW, halfD } = dims;
@@ -97,10 +98,13 @@ function Scene({ dims, seats, doorNodes, pinnedByChair, reservedTailCount, viewM
 
       {seats.map(s => {
         const isSel = selectedSeat === s.seatNum;
-        const name = pinnedByChair[chairKey(s)];
+        const k = chairKey(s);
+        const assignedName = assignedByChair?.[k];               // تخصيص النشاط المؤقّت (يتفوّق بصريّاً)
+        const pinnedName = pinnedByChair[k];                     // تثبيت القالب الدائم
+        const name = assignedName || pinnedName;
         const isTail = s.seatNum >= tailStart && reservedTailCount > 0;
-        const color = isSel ? C.selected : name ? C.pinned : isTail ? C.tail : C.normal;
-        return <Chair key={chairKey(s)} seat={s} color={color} pinnedName={name} clickable={!viewMode} onClick={() => onSelectSeat(s.seatNum)} />;
+        const color = isSel ? C.selected : assignedName ? C.assigned : pinnedName ? C.pinned : isTail ? C.tail : C.normal;
+        return <Chair key={k} seat={s} color={color} pinnedName={name} assigned={!!assignedName} clickable={!viewMode} onClick={() => onSelectSeat(s.seatNum)} />;
       })}
 
       {doorNodes.map(d => (

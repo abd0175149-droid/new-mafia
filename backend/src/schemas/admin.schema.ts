@@ -72,6 +72,8 @@ export const activities = pgTable('activities', {
   requireTicket: boolean('require_ticket').default(false),
   seatConstraints: jsonb('seat_constraints').default(null),
   seatTemplateId: integer('seat_template_id'),           // ربط بقالب مقاعد
+  // 🪑 تخصيص مقاعد مؤقّت لهذا النشاط فقط (لا يمسّ القالب المشترك) — يُدمج فوق pinnedSeats القالب عند تحميل الروم
+  seatAssignments: jsonb('seat_assignments').default([]), // [{ seatNumber, playerId?, phone?, playerName }]
   // ── 🍽️ نظام طلبات المنيو (لكل فعاليّة) ──
   menuOrderingEnabled: boolean('menu_ordering_enabled').default(false),  // المفتاح الرئيس: طلبات المنيو من التطبيق
   addGameFeeToBill: boolean('add_game_fee_to_bill').default(false),      // إضافة رسوم اللعبة لفاتورة اللاعب

@@ -9,7 +9,7 @@ import { getDB } from '../config/db.js';
 import { activities, notifications, staff, activityTickets, bookings } from '../schemas/admin.schema.js';
 import { sessions, matches, matchPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { authenticate, authorize } from '../middleware/auth.js';
+import { authenticate, authorize, leaderOrAbove } from '../middleware/auth.js';
 import { getDriveService } from './drive.routes.js';
 import { linkSessionToActivity, unlinkSessionFromActivity, createSession, deleteSession, closeSession } from '../services/session.service.js';
 import { getActivityAttendanceStats } from '../services/booking.service.js';
@@ -501,6 +501,58 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
     .limit(1);
   if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
   res.json(act);
+});
+
+// ── 🪑 PUT /api/activities/:id/seat-assignments ──
+// تخصيص مقاعد مؤقّت لهذا النشاط فقط (لا يمسّ القالب المشترك). يُدمج فوق pinnedSeats القالب
+// عند تحميل الروم (loadSeatTemplateIntoState). كلّ عنصر: { seatNumber, playerId?, phone?, playerName }.
+router.put('/:id/seat-assignments', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  const raw = Array.isArray(req.body?.seatAssignments) ? req.body.seatAssignments : null;
+  if (!raw) return res.status(400).json({ error: 'seatAssignments مطلوبة (مصفوفة)' });
+
+  const [act] = await db.select({ id: activities.id, seatTemplateId: activities.seatTemplateId, maxCapacity: activities.maxCapacity })
+    .from(activities).where(and(eq(activities.id, id), isNull(activities.deletedAt))).limit(1);
+  if (!act) return res.status(404).json({ error: 'النشاط غير موجود' });
+
+  // أقصى رقم مقعد: من القالب المرتبط إن وُجد، وإلا سعة النشاط
+  let maxSeat = Number(act.maxCapacity) || 50;
+  if (act.seatTemplateId) {
+    const { seatTemplates } = await import('../schemas/seat-templates.schema.js');
+    const [tpl] = await db.select({ totalSeats: seatTemplates.totalSeats })
+      .from(seatTemplates).where(eq(seatTemplates.id, act.seatTemplateId)).limit(1);
+    if (tpl?.totalSeats) maxSeat = Number(tpl.totalSeats);
+  }
+
+  const norm = (p?: string) => { if (!p) return ''; let c = String(p).replace(/[\s\-()+]/g, ''); if (c.startsWith('00962')) c = c.slice(5); else if (c.startsWith('962')) c = c.slice(3); return c.startsWith('0') ? c : '0' + c; };
+  const samePerson = (a: any, b: any) =>
+    (a.playerId && b.playerId && Number(a.playerId) === Number(b.playerId)) ||
+    (!!norm(a.phone) && norm(a.phone) === norm(b.phone)) ||
+    (a.playerName && b.playerName && String(a.playerName).trim().toLowerCase() === String(b.playerName).trim().toLowerCase());
+
+  const cleaned: any[] = [];
+  const seenSeats = new Set<number>();
+  for (const p of raw) {
+    const seatNumber = Number(p?.seatNumber);
+    const playerName = String(p?.playerName || '').trim();
+    if (!Number.isFinite(seatNumber) || seatNumber < 1 || seatNumber > maxSeat)
+      return res.status(400).json({ error: `رقم مقعد غير صالح: ${p?.seatNumber} (المدى 1..${maxSeat})` });
+    if (!playerName) return res.status(400).json({ error: 'كل تخصيص يحتاج اسم لاعب' });
+    if (seenSeats.has(seatNumber)) return res.status(400).json({ error: `المقعد ${seatNumber} مخصَّص أكثر من مرّة` });
+    const entry: any = { seatNumber, playerName };
+    if (p.playerId != null && Number.isFinite(Number(p.playerId))) entry.playerId = Number(p.playerId);
+    if (p.phone) entry.phone = String(p.phone);
+    if (cleaned.some(c => samePerson(c, entry))) return res.status(400).json({ error: `«${playerName}» مخصَّص لأكثر من مقعد` });
+    seenSeats.add(seatNumber);
+    cleaned.push(entry);
+  }
+
+  await db.update(activities).set({ seatAssignments: cleaned } as any).where(eq(activities.id, id));
+  res.json({ success: true, seatAssignments: cleaned });
 });
 
 // GET /api/activities

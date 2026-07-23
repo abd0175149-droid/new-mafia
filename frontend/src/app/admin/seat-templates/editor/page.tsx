@@ -8,6 +8,7 @@ import {
   computeRectLayout, seatsTo2D, totalFromSides,
   type Sides, type Numbering, type RectDoor, type Side,
 } from '@/lib/rectLayout';
+import SeatMap2D from '@/components/SeatMap2D';
 import { swalConfirm } from '@/lib/swal';
 
 const Editor3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
@@ -34,19 +35,6 @@ function defaultSides(total: number): Sides {
   while (rem > 0) { s[order[i % 4]]++; rem--; i++; }
   return s;
 }
-function gen2D(total: number, layout: string, W: number, H: number) {
-  const out: { id: number; x: number; y: number }[] = []; const pad = 40;
-  if (layout === 'circle') {
-    const cx = W / 2, cy = H / 2, r = Math.min(cx, cy) - pad;
-    for (let i = 0; i < total; i++) { const a = (2 * Math.PI * i) / total - Math.PI / 2; out.push({ id: i + 1, x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }); }
-  } else {
-    const cols = Math.ceil(Math.sqrt(total * 1.5)), rows = Math.ceil(total / cols);
-    const cw = (W - pad * 2) / cols, ch = (H - pad * 2) / rows; let p = 0;
-    for (let r = 0; r < rows && p < total; r++) for (let c = 0; c < cols && p < total; c++, p++) out.push({ id: p + 1, x: pad + cw * c + cw / 2, y: pad + ch * r + ch / 2 });
-  }
-  return out;
-}
-
 function EditorInner() {
   const router = useRouter();
   const editId = useSearchParams().get('id');
@@ -416,32 +404,11 @@ function EditorInner() {
                 onSelectDoor={(id) => { setSelectedDoorId(id); setSelectedSeat(null); }} />
             </div>
           ) : (
-            <Svg2D total={totalSeats} layout={layoutType} reservedTailCount={reservedTailCount} pinnedSet={pinned2DSet} selectedSeat={selectedSeat} onSelect={(n) => { setSelectedSeat(n); setSelectedDoorId(null); }} />
+            <SeatMap2D total={totalSeats} layout={layoutType} reservedTailCount={reservedTailCount} pinnedSet={pinned2DSet} selectedSeat={selectedSeat} onSelect={(n) => { setSelectedSeat(n); setSelectedDoorId(null); }} />
           )}
         </div>
       </div>
     </div>
-  );
-}
-
-function Svg2D({ total, layout, reservedTailCount, pinnedSet, selectedSeat, onSelect }: {
-  total: number; layout: string; reservedTailCount: number; pinnedSet: Set<number>; selectedSeat: number | null; onSelect: (n: number | null) => void;
-}) {
-  const W = 600, H = 460; const pos = gen2D(total, layout, W, H); const tailStart = total - reservedTailCount + 1;
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full bg-gray-900/70 rounded-2xl border border-gray-700/40" onClick={() => onSelect(null)}>
-      {pos.map(p => {
-        const pinned = pinnedSet.has(p.id); const isTail = p.id >= tailStart && reservedTailCount > 0; const sel = selectedSeat === p.id;
-        const c = sel ? '#3b82f6' : pinned ? '#f59e0b' : isTail ? '#6b7280' : '#10b981';
-        return (
-          <g key={p.id} transform={`translate(${p.x - 21},${p.y - 21})`} style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onSelect(sel ? null : p.id); }}>
-            <rect width={42} height={42} rx={12} fill={`${c}26`} stroke={c} strokeWidth={sel ? 2.5 : 1.5} />
-            <text x={21} y={21} textAnchor="middle" dominantBaseline="central" fill={c} fontSize={15} fontWeight="bold">{p.id}</text>
-            {pinned && <text x={21} y={34} textAnchor="middle" fill="#f59e0b" fontSize={8}>📌</text>}
-          </g>
-        );
-      })}
-    </svg>
   );
 }
 

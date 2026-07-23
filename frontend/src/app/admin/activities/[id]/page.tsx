@@ -3,10 +3,20 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
 import WhatsAppButton from '@/components/WhatsAppButton';
+import SeatMap2D from '@/components/SeatMap2D';
+import { computeRectLayout, type Numbering, type RectDoor } from '@/lib/rectLayout';
+import { checkSeatConflicts, normPhone as normSeatPhone, type PinRef } from '@/lib/seatConflicts';
 import { swalConfirm } from '@/lib/swal';
+
+// 🪑 محرّر القاعة ثلاثيّ الأبعاد (نفس مكوّن القالب) — تحميل كسول بلا SSR
+const SeatEditor3D = dynamic(() => import('@/components/SeatTemplate3DEditor'), {
+  ssr: false,
+  loading: () => <div className="h-full min-h-[380px] flex items-center justify-center text-gray-600">⏳ تحميل المشهد ثلاثي الأبعاد...</div>,
+});
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const CURRENCY = 'د.أ';
@@ -805,6 +815,250 @@ function SeatingConstraintsPanel({ activityId }: { activityId: number }) {
   );
 }
 
+// ══════════════════════════════════════════════════════
+// 🪑 قسم توزيع مقاعد النشاط — القالب المرتبط + شرائح الحاجزين + ربط مؤقّت لهذا النشاط
+// (نقر شريحة ثم نقر مقعد). يُدمج فوق تثبيت القالب عند إنشاء الروم — لا يمسّ القالب المشترك.
+// ══════════════════════════════════════════════════════
+function SeatAssignmentSection({ activityId, seatTemplateId, bookings, initialAssignments }: {
+  activityId: number; seatTemplateId: number; bookings: any[]; initialAssignments: any[];
+}) {
+  const [template, setTemplate] = useState<any>(null);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [blockedPairs, setBlockedPairs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  // تهيئة مرّة وحدة عند التركيب (النشاط محمَّل مسبقاً) — تجنّباً لإعادة التصفير عند إعادة رندر الأب
+  const [assignments, setAssignments] = useState<Record<number, PinRef>>(() => {
+    const m: Record<number, PinRef> = {};
+    (initialAssignments || []).forEach((a: any) => { if (a?.seatNumber != null) m[Number(a.seatNumber)] = { playerId: a.playerId, phone: a.phone, playerName: a.playerName }; });
+    return m;
+  });
+  const [selectedChip, setSelectedChip] = useState<string | null>(null);
+  const [selectedSeat, setSelectedSeat] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState(false); // 3D: true=دوران · false=اختيار/تعديل
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [tplRes, pls, bp] = await Promise.all([
+          apiFetch(`/api/seat-templates/${seatTemplateId}`),
+          apiFetch('/api/player/all').catch(() => []),
+          apiFetch('/api/seating/blocked-pairs').catch(() => ({ pairs: [] })),
+        ]);
+        setTemplate(tplRes.template || tplRes);
+        setPlayers(Array.isArray(pls) ? pls : pls.players || []);
+        setBlockedPairs(bp.pairs || []);
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    })();
+  }, [seatTemplateId]);
+
+  const samePerson = (a: any, b: any) =>
+    (a?.playerId && (b?.playerId ?? b?.id) && Number(a.playerId) === Number(b.playerId ?? b.id)) ||
+    (!!normSeatPhone(a?.phone) && normSeatPhone(a?.phone) === normSeatPhone(b?.phone)) ||
+    (!!(a?.playerName) && !!(b?.name || b?.playerName) && String(a.playerName).trim().toLowerCase() === String(b.name || b.playerName).trim().toLowerCase());
+
+  // إثراء الحاجزين بصورة/جنس من قائمة اللاعبين
+  const chips = useMemo(() => (bookings || []).map((b: any) => {
+    const pl = players.find((p: any) => (b.playerId && p.id === b.playerId) || (b.phone && normSeatPhone(p.phone) === normSeatPhone(b.phone)));
+    return {
+      key: String(b.id),
+      playerId: (b.playerId ?? pl?.id) || undefined,
+      phone: b.phone || pl?.phone || '',
+      name: b.name || pl?.name || 'ضيف',
+      avatarUrl: pl?.avatarUrl || null,
+      gender: pl?.gender,
+      genderConstraint: pl?.genderConstraint,
+      linked: !!(b.playerId || pl),
+    };
+  }), [bookings, players]);
+
+  const isRect = template?.layoutType === 'rectangle' && template?.layoutConfig?.shape === 'rectangle';
+  const layout = useMemo(() => {
+    if (!isRect || !template?.layoutConfig) return null;
+    const lc = template.layoutConfig;
+    const num: Numbering = { start: lc.numbering?.start ?? null, direction: lc.numbering?.direction || 'cw' };
+    const dz: RectDoor[] = (lc.doors || []).filter((d: any) => d && d.side && typeof d.pos === 'number')
+      .map((d: any, i: number) => ({ id: d.id || `d${i}`, side: d.side, pos: d.pos, type: d.type || 'entry' }));
+    try { return computeRectLayout(lc.sides, num, dz); } catch { return null; }
+  }, [isRect, template]);
+
+  const total = isRect ? (layout?.totalChairs || 0) : (template?.totalSeats || 0);
+  const reservedTail = Number(template?.reservedTailCount || 0);
+
+  const templatePinBySeat = useMemo(() => {
+    const m: Record<number, PinRef> = {};
+    (template?.pinnedSeats || []).forEach((p: any) => { if (p?.seatNumber != null) m[Number(p.seatNumber)] = { playerId: p.playerId, phone: p.phone, playerName: p.playerName }; });
+    return m;
+  }, [template]);
+
+  const seatNumToChairKey = (n: number): string | null => {
+    const s = layout?.seats.find((x: any) => x.seatNum === n); return s ? `${s.side}:${s.sideIndex}` : null;
+  };
+  const assignedByChair = useMemo(() => {
+    const m: Record<string, string> = {}; if (!layout) return m;
+    Object.entries(assignments).forEach(([seat, v]) => { const k = seatNumToChairKey(Number(seat)); if (k) m[k] = v.playerName || '؟'; });
+    return m;
+  }, [assignments, layout]);
+  const pinnedByChair = useMemo(() => {
+    const m: Record<string, string> = {}; if (!layout) return m;
+    Object.entries(templatePinBySeat).forEach(([seat, v]) => { const k = seatNumToChairKey(Number(seat)); if (k) m[k] = v.playerName || '؟'; });
+    return m;
+  }, [templatePinBySeat, layout]);
+  const assignedSet = useMemo(() => new Set(Object.keys(assignments).map(Number)), [assignments]);
+  const pinnedSet = useMemo(() => new Set(Object.keys(templatePinBySeat).map(Number)), [templatePinBySeat]);
+
+  const seatOfChip = (chip: any): number | null => {
+    for (const [seat, v] of Object.entries(assignments)) { if (samePerson(v, chip)) return Number(seat); }
+    return null;
+  };
+
+  const doAssign = async (seat: number, chip: any) => {
+    const occ = new Map<number, PinRef>();
+    for (let s = 1; s <= total; s++) { if (s === seat) continue; const eff = assignments[s] || templatePinBySeat[s]; if (eff) occ.set(s, eff); }
+    const occupant = assignments[seat];
+    if (occupant && !samePerson(occupant, chip)) {
+      if (!(await swalConfirm(`المقعد ${seat} مخصَّص لـ«${occupant.playerName}» — استبداله بـ«${chip.name}»؟`))) return;
+    }
+    const conflicts = checkSeatConflicts({ targetSeat: seat, cand: { playerId: chip.playerId, phone: chip.phone, name: chip.name, gender: chip.gender, genderConstraint: chip.genderConstraint }, occupiedBySeat: occ, players, blockedPairs, total });
+    if (conflicts.length > 0) {
+      if (!(await swalConfirm(`⚠️ تعارض مع شروط الجلوس:\n\n${conflicts.map(c => '• ' + c).join('\n')}\n\nتخصيص «${chip.name}» للمقعد ${seat} رغم ذلك؟`))) return;
+    }
+    setAssignments(prev => {
+      const next = { ...prev };
+      for (const [s, v] of Object.entries(next)) { if (samePerson(v, chip)) delete next[Number(s)]; } // انقل الشخص من مقعده السابق
+      next[seat] = { playerId: chip.playerId, phone: chip.phone || undefined, playerName: chip.name };
+      return next;
+    });
+    setDirty(true); setSelectedChip(null); setSelectedSeat(null);
+  };
+
+  const onSeatClick = (n: number | null) => {
+    if (n == null) { setSelectedSeat(null); return; }
+    if (selectedChip) { const chip = chips.find(c => c.key === selectedChip); if (chip) doAssign(n, chip); return; }
+    setSelectedSeat(prev => prev === n ? null : n);
+  };
+  const unassignSeat = (seat: number) => { setAssignments(prev => { const n = { ...prev }; delete n[seat]; return n; }); setDirty(true); setSelectedSeat(null); };
+  const clearAll = async () => { if (!(await swalConfirm('إزالة كل التخصيصات المؤقّتة لهذا النشاط؟'))) return; setAssignments({}); setDirty(true); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const arr = Object.entries(assignments).map(([seat, v]) => ({ seatNumber: Number(seat), playerId: v.playerId, phone: v.phone, playerName: v.playerName }));
+      await apiFetch(`/api/activities/${activityId}/seat-assignments`, { method: 'PUT', body: JSON.stringify({ seatAssignments: arr }) });
+      setDirty(false);
+      alert('✅ حُفظ توزيع المقاعد. يُطبَّق على الرومات الجديدة (أو عبر «تحديث المقاعد من القالب» لروم مفتوح فارغ).');
+    } catch (e: any) { alert('فشل الحفظ: ' + (e.message || '')); }
+    finally { setSaving(false); }
+  };
+
+  const selectedSeatOccupant = selectedSeat != null ? (assignments[selectedSeat] || templatePinBySeat[selectedSeat]) : null;
+  const selectedSeatIsAssigned = selectedSeat != null && !!assignments[selectedSeat];
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700/40 rounded-2xl overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between p-5 hover:bg-gray-700/20 transition">
+        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+          📐 توزيع مقاعد النشاط
+          {template && <span className="text-[11px] text-gray-500 font-normal">— {template.name} ({total} مقعد)</span>}
+          {Object.keys(assignments).length > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">🎯 {Object.keys(assignments).length} مخصَّص</span>}
+          {dirty && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">غير محفوظ</span>}
+        </h3>
+        <span className="text-gray-500">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5">
+          {loading ? (
+            <div className="flex justify-center py-12"><div className="animate-spin h-7 w-7 border-4 border-amber-500 border-t-transparent rounded-full" /></div>
+          ) : !template ? (
+            <p className="text-gray-500 text-sm text-center py-8">تعذّر تحميل القالب المرتبط.</p>
+          ) : (
+            <>
+              <p className="text-[11px] text-gray-500 mb-3">اختر حاجزاً من القائمة ثم انقر مقعداً على النموذج لتثبيته مؤقّتاً لهذا النشاط. 🟡 تثبيت القالب الدائم · 🟣 تخصيص هذا النشاط. يُطبَّق قبل دخول اللاعبين.</p>
+              <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
+                {/* شرائح الحاجزين */}
+                <div className="space-y-2 max-h-[62vh] overflow-y-auto pr-1">
+                  {chips.length === 0 && <p className="text-gray-600 text-xs text-center py-6">لا حجوزات لهذا النشاط بعد.</p>}
+                  {chips.map(chip => {
+                    const seat = seatOfChip(chip);
+                    const sel = selectedChip === chip.key;
+                    return (
+                      <div key={chip.key} className={`flex items-center gap-2 rounded-xl border px-3 py-2 transition ${sel ? 'bg-violet-500/15 border-violet-500/50' : 'bg-gray-900/50 border-gray-700/30 hover:border-gray-600/50'}`}>
+                        <button onClick={() => setSelectedChip(sel ? null : chip.key)} className="flex items-center gap-2 flex-1 text-right min-w-0">
+                          <img src={chip.avatarUrl ? `${API_URL}${chip.avatarUrl}` : '/avatars/male.png'} alt="" className="w-8 h-8 rounded-full object-cover bg-gray-700 shrink-0" onError={e => { (e.target as HTMLImageElement).src = '/avatars/male.png'; }} />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs text-white font-bold truncate">{chip.name}</span>
+                            <span className="block text-[10px] text-gray-500" dir="ltr">{chip.phone || (chip.linked ? '' : 'ضيف')}</span>
+                          </span>
+                        </button>
+                        {seat != null ? (
+                          <span className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40 font-bold">🎯 {seat}</span>
+                            <button onClick={() => unassignSeat(seat)} title="إلغاء التخصيص" className="text-rose-400/70 hover:text-rose-400 text-xs">✕</button>
+                          </span>
+                        ) : sel ? (
+                          <span className="text-[10px] text-violet-300 shrink-0">انقر مقعداً…</span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  {Object.keys(assignments).length > 0 && (
+                    <button onClick={clearAll} className="w-full mt-2 py-1.5 text-[11px] text-rose-400/80 hover:text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-500/5">إزالة كل التخصيصات</button>
+                  )}
+                </div>
+
+                {/* النموذج */}
+                <div>
+                  {isRect && layout ? (
+                    <div className="relative rounded-2xl overflow-hidden border border-gray-700/40" style={{ height: '62vh', minHeight: 400 }}>
+                      <button onClick={() => { setViewMode(v => !v); setSelectedSeat(null); }} className={`absolute top-3 right-3 z-10 px-4 py-2 rounded-xl text-xs font-bold border backdrop-blur transition ${viewMode ? 'bg-blue-500/25 text-blue-200 border-blue-400/40' : 'bg-violet-500/25 text-violet-200 border-violet-400/40'}`}>
+                        {viewMode ? '🔄 وضع الدوران (اضغط للتعديل)' : '✋ وضع التعديل (اضغط للدوران)'}
+                      </button>
+                      <div className="absolute bottom-3 right-3 left-3 z-10 flex items-center gap-3 text-[10px] text-gray-300 bg-black/40 backdrop-blur rounded-lg px-3 py-1.5 flex-wrap justify-center">
+                        <span className="text-emerald-400">■ فارغ</span><span className="text-amber-400">■ 📌 قالب</span><span className="text-violet-400">■ 🎯 هذا النشاط</span><span className="text-gray-400">■ مؤخر</span><span className="text-blue-400">■ محدد</span>
+                        <span>{viewMode ? '🖱️ اسحب للدوران' : '🖱️ انقر مقعداً'}</span>
+                      </div>
+                      <SeatEditor3D dims={layout.dims} seats={layout.seats} doorNodes={layout.doorNodes}
+                        pinnedByChair={pinnedByChair} assignedByChair={assignedByChair}
+                        reservedTailCount={reservedTail} viewMode={viewMode}
+                        selectedSeat={selectedSeat} selectedDoorId={null}
+                        onSelectSeat={(n) => onSeatClick(n)} onSelectDoor={() => {}} />
+                    </div>
+                  ) : (
+                    <SeatMap2D total={total} layout={template.layoutType || 'circle'} reservedTailCount={reservedTail}
+                      pinnedSet={pinnedSet} assignedSet={assignedSet} selectedSeat={selectedSeat} onSelect={onSeatClick} />
+                  )}
+
+                  {/* لوحة المقعد المحدَّد */}
+                  {selectedSeat != null && !selectedChip && (
+                    <div className="mt-3 bg-gray-900/60 border border-blue-500/30 rounded-xl p-3 flex items-center justify-between">
+                      <span className="text-xs text-white">
+                        🪑 المقعد {selectedSeat}
+                        {selectedSeatOccupant
+                          ? <> — <span className={selectedSeatIsAssigned ? 'text-violet-300' : 'text-amber-300'}>{selectedSeatIsAssigned ? '🎯' : '📌'} {selectedSeatOccupant.playerName}</span></>
+                          : <span className="text-gray-500"> — فارغ</span>}
+                      </span>
+                      {selectedSeatIsAssigned && <button onClick={() => unassignSeat(selectedSeat)} className="text-[11px] text-rose-400 hover:text-rose-300">إلغاء التخصيص</button>}
+                    </div>
+                  )}
+
+                  <button onClick={save} disabled={saving || !dirty} className="w-full mt-3 py-2.5 bg-gradient-to-r from-violet-500/80 to-indigo-600/80 text-white font-bold rounded-xl text-sm hover:opacity-90 transition disabled:opacity-40">
+                    {saving ? '⏳ جارٍ الحفظ…' : dirty ? '💾 حفظ توزيع المقاعد' : '✅ محفوظ'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ActivityDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -1097,6 +1351,16 @@ export default function ActivityDetailPage() {
 
       {/* ══ إعدادات الجلوس الذكي ══ */}
       <SeatingConstraintsPanel activityId={activity.id} />
+
+      {/* ══ 🪑 توزيع مقاعد النشاط (تخصيص مؤقّت على نموذج القالب) ══ */}
+      {activity.seatTemplateId && (
+        <SeatAssignmentSection
+          activityId={activity.id}
+          seatTemplateId={activity.seatTemplateId}
+          bookings={bookings}
+          initialAssignments={activity.seatAssignments || []}
+        />
+      )}
 
       {/* ══ الغرف المرتبطة (متعددة) ══ */}
       <RoomsSection activityId={activity.id} activityName={activity.name} />

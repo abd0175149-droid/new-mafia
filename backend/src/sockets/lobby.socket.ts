@@ -13,6 +13,7 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats, updateSessionMaxPlayers } from '../services/session.service.js';
 import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
+import { mergeActivityPins } from '../game/seat-merge.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
@@ -50,7 +51,7 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
   if (!activityId || !db) return false;
   try {
     const [actRow] = await db.execute(sql`
-      SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1
+      SELECT seat_template_id, seat_assignments FROM activities WHERE id = ${activityId} LIMIT 1
     `).then((r: any) => (r.rows || r || []));
     if (!actRow?.seat_template_id) return false;
     const [tplRow] = await db.execute(sql`
@@ -58,7 +59,10 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
       WHERE id = ${actRow.seat_template_id} AND deleted_at IS NULL LIMIT 1
     `).then((r: any) => (r.rows || r || []));
     if (!tplRow) return false;
-    const pinnedSeats = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+    const templatePinned = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+    // 🪑 تخصيص النشاط المؤقّت يُدمج فوق تثبيت القالب (النشاط يتفوّق)
+    const activityPins = Array.isArray(actRow.seat_assignments) ? actRow.seat_assignments : JSON.parse(actRow.seat_assignments || '[]');
+    const pinnedSeats = mergeActivityPins(templatePinned, activityPins);
     const reservedTailSeats = Number(tplRow.reserved_tail_count || 0);
     const templateTotalSeats = Number(tplRow.total_seats || 0);
     let doors: any[] = [];
@@ -87,7 +91,7 @@ async function loadSeatTemplateIntoState(state: any): Promise<boolean> {
     state.reservedTailSeats = reservedTailSeats;
     state.doors = doors;
     state.doorSeats = doorSeats;
-    console.log(`📐 [template] Preloaded seat template #${actRow.seat_template_id} into room ${state.roomId}: ${pinnedSeats.length} pinned, ${reservedTailSeats} tail, ${doorSeats.length} doorSeats`);
+    console.log(`📐 [template] Preloaded seat template #${actRow.seat_template_id} into room ${state.roomId}: ${pinnedSeats.length} pinned (${activityPins.length} من تخصيص النشاط), ${reservedTailSeats} tail, ${doorSeats.length} doorSeats`);
     return true;
   } catch (e: any) {
     console.warn('⚠️ loadSeatTemplateIntoState failed:', e.message);
@@ -106,7 +110,7 @@ async function resyncSeatTemplate(state: any): Promise<{
   const conflicts: string[] = [];
   if (!activityId || !db) return { ok: false, reason: 'no-activity', conflicts, pinned: 0 };
 
-  const [actRow] = await db.execute(sql`SELECT seat_template_id FROM activities WHERE id = ${activityId} LIMIT 1`).then((r: any) => (r.rows || r || []));
+  const [actRow] = await db.execute(sql`SELECT seat_template_id, seat_assignments FROM activities WHERE id = ${activityId} LIMIT 1`).then((r: any) => (r.rows || r || []));
   if (!actRow?.seat_template_id) return { ok: false, reason: 'no-template', conflicts, pinned: 0 };
   const [tplRow] = await db.execute(sql`
     SELECT pinned_seats, reserved_tail_count, total_seats, layout_config FROM seat_templates
@@ -114,7 +118,10 @@ async function resyncSeatTemplate(state: any): Promise<{
   `).then((r: any) => (r.rows || r || []));
   if (!tplRow) return { ok: false, reason: 'template-deleted', deleted: true, conflicts, pinned: 0 }; // لا نطمس اللقطة
 
-  const newPinned: any[] = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+  const templatePinned: any[] = Array.isArray(tplRow.pinned_seats) ? tplRow.pinned_seats : JSON.parse(tplRow.pinned_seats || '[]');
+  // 🪑 دمج تخصيص النشاط المؤقّت فوق تثبيت القالب (النشاط يتفوّق)
+  const activityPins: any[] = Array.isArray(actRow.seat_assignments) ? actRow.seat_assignments : JSON.parse(actRow.seat_assignments || '[]');
+  const newPinned: any[] = mergeActivityPins(templatePinned, activityPins);
   const newTail = Number(tplRow.reserved_tail_count || 0);
   const newTotal = Number(tplRow.total_seats || 0);
   const layout = typeof tplRow.layout_config === 'string' ? (tplRow.layout_config ? JSON.parse(tplRow.layout_config) : null) : tplRow.layout_config;
