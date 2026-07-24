@@ -73,6 +73,7 @@ interface GameState {
   reservedTailSeats?: number;
   doors?: any[];
   doorSeats?: number[];
+  luckyDrawHistory?: number[]; // 🎁 رابحو الغرفة (لاستبعادهم اختيارياً)
 }
 
 export default function LeaderPage() {
@@ -298,6 +299,9 @@ export default function LeaderPage() {
   const [luckyWinners, setLuckyWinners] = useState<number[] | null>(null); // null = لم يُسحب بعد
   const [luckyRevealed, setLuckyRevealed] = useState(false);
   const [luckyBusy, setLuckyBusy] = useState(false);
+  const [luckyExcludeWinners, setLuckyExcludeWinners] = useState(false); // استبعاد الرابحين السابقين في الغرفة
+  const [luckyPoolMode, setLuckyPoolMode] = useState<'all' | 'alive'>('all'); // نطاق السحب أثناء اللعبة
+  const [luckyHistory, setLuckyHistory] = useState<number[]>([]); // سجلّ رابحي الغرفة (لواجهة الاستبعاد)
 
   // ── 📊 ملخص نقاط اللعبة (نهاية اللعبة) + التعديل اليدوي لكل لاعب ──
   const [pointsModal, setPointsModal] = useState<any[] | null>(null); // null = مغلق
@@ -460,6 +464,7 @@ export default function LeaderPage() {
             reservedTailSeats: data.state.reservedTailSeats || 0,
             doors: data.state.doors || [],
             doorSeats: data.state.doorSeats || [],
+            luckyDrawHistory: data.state.luckyDrawHistory || [], // 🎁 رابحو الغرفة (لواجهة الاستبعاد)
           });
 
           if (phase === 'LOBBY') {
@@ -1483,6 +1488,7 @@ export default function LeaderPage() {
           nightComplete: data.state.nightComplete || false,
           morningEvents: data.state.morningEvents || [],
           pendingWinner: data.state.pendingWinner || null,
+          luckyDrawHistory: data.state.luckyDrawHistory || [], // 🎁 رابحو الغرفة (لواجهة الاستبعاد)
         });
 
         // تحديد الوضع: LOBBY → Session View | GAME_OVER → Game View (لعرض شاشة النهاية)
@@ -1659,13 +1665,32 @@ export default function LeaderPage() {
   };
 
   // ── 🎁 معالجات سحب «اختيار رابح» ──
-  const luckyPresentCount = gameState ? gameState.players.filter((p: any) => !p.seatHeld).length : 0;
+  const luckyIsGame = !!gameState && gameState.phase !== 'LOBBY';
+  const luckyAliveOnly = luckyIsGame && luckyPoolMode === 'alive';
+  // المؤهّلون للسحب حسب الخيارات: الحاضرون (± الأحياء فقط) ناقص الرابحين المستبعَدين
+  const luckyEligibleIds = gameState
+    ? gameState.players
+        .filter((p: any) => !p.seatHeld && !p.frozen && (!luckyAliveOnly || p.isAlive) && (!luckyExcludeWinners || !luckyHistory.includes(p.physicalId)))
+        .map((p: any) => p.physicalId)
+    : [];
+  const luckyEligibleCount = luckyEligibleIds.length;
+  // عدد الرابحين السابقين الحاضرين حالياً (لعرض شارة الاستبعاد)
+  const luckyPastPresent = gameState ? gameState.players.filter((p: any) => !p.seatHeld && luckyHistory.includes(p.physicalId)).length : 0;
+
+  const openLuckyDraw = () => {
+    setLuckyWinners(null); setLuckyRevealed(false); setLuckyCount(1);
+    setLuckyExcludeWinners(false); setLuckyPoolMode('all');
+    setLuckyHistory(((gameState as any)?.luckyDrawHistory as number[]) || []);
+    setShowLuckyDraw(true);
+  };
   const doLuckyDraw = async () => {
     if (!gameState) return;
     setLuckyBusy(true);
     try {
-      const res: any = await emit('room:lucky-draw:draw', { roomId: gameState.roomId, count: luckyCount });
+      const count = Math.max(1, Math.min(luckyCount, luckyEligibleCount || 1));
+      const res: any = await emit('room:lucky-draw:draw', { roomId: gameState.roomId, count, poolMode: luckyPoolMode, excludeWinners: luckyExcludeWinners });
       setLuckyWinners(res?.winners || []);
+      if (Array.isArray(res?.history)) setLuckyHistory(res.history);
       setLuckyRevealed(false);
     } catch (e: any) { setError(e.message); } finally { setLuckyBusy(false); }
   };
@@ -1673,7 +1698,8 @@ export default function LeaderPage() {
     if (!gameState) return;
     setLuckyBusy(true);
     try {
-      await emit('room:lucky-draw:reveal', { roomId: gameState.roomId });
+      const res: any = await emit('room:lucky-draw:reveal', { roomId: gameState.roomId });
+      if (Array.isArray(res?.history)) setLuckyHistory(res.history);
       setLuckyRevealed(true);
     } catch (e: any) { setError(e.message); } finally { setLuckyBusy(false); }
   };
@@ -1681,6 +1707,86 @@ export default function LeaderPage() {
     if (gameState) { try { await emit('room:lucky-draw:clear', { roomId: gameState.roomId }); } catch { /* ignore */ } }
     setLuckyWinners(null); setLuckyRevealed(false); setShowLuckyDraw(false);
   };
+
+  // 🎁 زر السحب المشترك (يظهر في عرض السشن وعرض اللعبة — كلّ المراحل)
+  const luckyDrawBtn = gameState && gameState.players.filter((p: any) => !p.seatHeld).length > 0 ? (
+    <button
+      onClick={openLuckyDraw}
+      className="text-[#C5A059] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-yellow-400 transition-colors border border-[#C5A059]/50 px-3 py-1.5 hover:border-[#C5A059] bg-[#C5A059]/5"
+    >
+      🎁 اختيار رابح
+    </button>
+  ) : null;
+
+  // 🎁 مودال السحب المشترك
+  const luckyDrawModal = showLuckyDraw && gameState ? (
+    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { if (!luckyBusy) setShowLuckyDraw(false); }}>
+      <div className="bg-[#0d0d0d] border border-[#C5A059]/40 rounded-2xl p-6 w-full max-w-md shadow-[0_0_40px_rgba(197,160,89,0.2)]" onClick={(e) => e.stopPropagation()} dir="rtl">
+        <h3 className="text-xl font-black text-[#C5A059] mb-1 text-center" style={{ fontFamily: 'Amiri, serif' }}>🎁 اختيار رابح</h3>
+        <p className="text-[#808080] text-xs text-center mb-5">سحب عشوائي لتوزيع الهدايا — يظهر على شاشة العرض</p>
+
+        {luckyWinners === null ? (
+          <>
+            {/* نطاق السحب أثناء اللعبة: الأحياء / كل اللاعبين */}
+            {luckyIsGame && (
+              <div className="mb-4">
+                <label className="block text-[#aaa] text-xs mb-2 text-center">نطاق السحب</label>
+                <div className="flex gap-2">
+                  <button onClick={() => setLuckyPoolMode('alive')} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${luckyPoolMode === 'alive' ? 'bg-[#C5A059]/15 text-[#C5A059] border-[#C5A059]/50' : 'bg-black/40 text-[#777] border-[#333]'}`}>❤️ الأحياء فقط</button>
+                  <button onClick={() => setLuckyPoolMode('all')} className={`flex-1 py-2 rounded-lg text-xs font-bold border transition ${luckyPoolMode === 'all' ? 'bg-[#C5A059]/15 text-[#C5A059] border-[#C5A059]/50' : 'bg-black/40 text-[#777] border-[#333]'}`}>👥 كل اللاعبين</button>
+                </div>
+              </div>
+            )}
+
+            {/* استبعاد الرابحين السابقين */}
+            <button
+              onClick={() => setLuckyExcludeWinners(v => !v)}
+              className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg border mb-4 transition ${luckyExcludeWinners ? 'bg-[#8A0303]/15 border-[#8A0303]/50 text-[#e0a0a0]' : 'bg-black/40 border-[#333] text-[#888]'}`}
+            >
+              <span className="text-xs font-bold">🚫 استبعاد الرابحين السابقين {luckyPastPresent > 0 && <span className="opacity-70">({luckyPastPresent})</span>}</span>
+              <span className={`w-9 h-5 rounded-full relative transition ${luckyExcludeWinners ? 'bg-[#8A0303]' : 'bg-[#333]'}`}>
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${luckyExcludeWinners ? 'left-0.5' : 'left-[18px]'}`} />
+              </span>
+            </button>
+
+            <label className="block text-[#aaa] text-sm mb-3 text-center">عدد الفائزين (من {luckyEligibleCount} مؤهّل)</label>
+            <div className="flex items-center justify-center gap-5 mb-6">
+              <button onClick={() => setLuckyCount((c) => Math.max(1, c - 1))} className="w-11 h-11 rounded-full border border-[#C5A059]/40 text-[#C5A059] text-2xl hover:bg-[#C5A059]/10">−</button>
+              <span className="text-4xl font-black text-white w-16 text-center">{Math.max(1, Math.min(luckyCount, luckyEligibleCount || 1))}</span>
+              <button onClick={() => setLuckyCount((c) => Math.min(luckyEligibleCount, c + 1))} className="w-11 h-11 rounded-full border border-[#C5A059]/40 text-[#C5A059] text-2xl hover:bg-[#C5A059]/10">+</button>
+            </div>
+            <button disabled={luckyBusy || luckyEligibleCount < 1} onClick={doLuckyDraw} className="btn-premium w-full py-3 !text-base disabled:opacity-50">
+              {luckyBusy ? '... جارٍ السحب' : luckyEligibleCount < 1 ? 'لا لاعبون مؤهّلون' : '🎲 اسحب الفائزين'}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-center text-[#C5A059] text-sm mb-3">الفائزون {luckyRevealed ? '(ظاهرون على الشاشة)' : '(سرّاً — قبل الكشف)'}:</p>
+            <div className="flex flex-wrap justify-center gap-2 mb-5">
+              {luckyWinners.map((id) => {
+                const pl = gameState.players.find((p: any) => p.physicalId === id);
+                return (
+                  <div key={id} className="px-3 py-2 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/40 text-white text-sm flex items-center gap-2">
+                    <span className="text-[#C5A059] font-mono font-bold">#{id}</span>
+                    <span>{pl?.name || ''}</span>
+                  </div>
+                );
+              })}
+            </div>
+            {!luckyRevealed ? (
+              <div className="flex gap-2">
+                <button disabled={luckyBusy} onClick={doLuckyReveal} className="btn-premium flex-1 py-3 !text-base disabled:opacity-50">{luckyBusy ? '...' : '👁️ كشف على الشاشة'}</button>
+                <button disabled={luckyBusy} onClick={doLuckyDraw} className="px-4 py-3 border border-[#555] rounded-lg text-[#aaa] hover:text-white hover:border-[#888] text-sm">🔄 إعادة</button>
+              </div>
+            ) : (
+              <p className="text-center text-green-400 text-sm mb-2">✅ تم الكشف على شاشة العرض</p>
+            )}
+            <button onClick={doLuckyClear} className="w-full mt-3 py-2 text-[#777] text-xs hover:text-white transition-colors">إنهاء السحب</button>
+          </>
+        )}
+      </div>
+    </div>
+  ) : null;
 
   // ── 📊 معالجات ملخص النقاط + التعديل اليدوي ──
   const openPointsModal = async () => {
@@ -1736,15 +1842,8 @@ export default function LeaderPage() {
               </span>
             </div>
             <div className="flex items-center gap-4">
-              {/* 🎁 زر اختيار رابح — Session View (سحب هدايا الفعالية) */}
-              {gameState.players.filter((p: any) => !p.seatHeld).length > 0 && (
-                <button
-                  onClick={() => { setLuckyWinners(null); setLuckyRevealed(false); setLuckyCount(1); setShowLuckyDraw(true); }}
-                  className="text-[#C5A059] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-yellow-400 transition-colors border border-[#C5A059]/50 px-3 py-1.5 hover:border-[#C5A059] bg-[#C5A059]/5"
-                >
-                  🎁 اختيار رابح
-                </button>
-              )}
+              {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
+              {luckyDrawBtn}
               {/* زر تعديل الأسماء — Session View */}
               {gameState.players.length > 0 && (
                 <button
@@ -1763,53 +1862,8 @@ export default function LeaderPage() {
             </div>
           </div>
 
-          {/* 🎁 مودال اختيار رابح */}
-          {showLuckyDraw && (
-            <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { if (!luckyBusy) setShowLuckyDraw(false); }}>
-              <div className="bg-[#0d0d0d] border border-[#C5A059]/40 rounded-2xl p-6 w-full max-w-md shadow-[0_0_40px_rgba(197,160,89,0.2)]" onClick={(e) => e.stopPropagation()} dir="rtl">
-                <h3 className="text-xl font-black text-[#C5A059] mb-1 text-center" style={{ fontFamily: 'Amiri, serif' }}>🎁 اختيار رابح</h3>
-                <p className="text-[#808080] text-xs text-center mb-5">سحب عشوائي لتوزيع الهدايا — يظهر على شاشة العرض</p>
-
-                {luckyWinners === null ? (
-                  <>
-                    <label className="block text-[#aaa] text-sm mb-3 text-center">عدد الفائزين (من {luckyPresentCount} لاعب)</label>
-                    <div className="flex items-center justify-center gap-5 mb-6">
-                      <button onClick={() => setLuckyCount((c) => Math.max(1, c - 1))} className="w-11 h-11 rounded-full border border-[#C5A059]/40 text-[#C5A059] text-2xl hover:bg-[#C5A059]/10">−</button>
-                      <span className="text-4xl font-black text-white w-16 text-center">{luckyCount}</span>
-                      <button onClick={() => setLuckyCount((c) => Math.min(luckyPresentCount, c + 1))} className="w-11 h-11 rounded-full border border-[#C5A059]/40 text-[#C5A059] text-2xl hover:bg-[#C5A059]/10">+</button>
-                    </div>
-                    <button disabled={luckyBusy || luckyPresentCount < 1} onClick={doLuckyDraw} className="btn-premium w-full py-3 !text-base disabled:opacity-50">
-                      {luckyBusy ? '... جارٍ السحب' : '🎲 اسحب الفائزين'}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-center text-[#C5A059] text-sm mb-3">الفائزون {luckyRevealed ? '(ظاهرون على الشاشة)' : '(سرّاً — قبل الكشف)'}:</p>
-                    <div className="flex flex-wrap justify-center gap-2 mb-5">
-                      {luckyWinners.map((id) => {
-                        const pl = gameState.players.find((p: any) => p.physicalId === id);
-                        return (
-                          <div key={id} className="px-3 py-2 rounded-lg bg-[#C5A059]/10 border border-[#C5A059]/40 text-white text-sm flex items-center gap-2">
-                            <span className="text-[#C5A059] font-mono font-bold">#{id}</span>
-                            <span>{pl?.name || ''}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {!luckyRevealed ? (
-                      <div className="flex gap-2">
-                        <button disabled={luckyBusy} onClick={doLuckyReveal} className="btn-premium flex-1 py-3 !text-base disabled:opacity-50">{luckyBusy ? '...' : '👁️ كشف على الشاشة'}</button>
-                        <button disabled={luckyBusy} onClick={doLuckyDraw} className="px-4 py-3 border border-[#555] rounded-lg text-[#aaa] hover:text-white hover:border-[#888] text-sm">🔄 إعادة</button>
-                      </div>
-                    ) : (
-                      <p className="text-center text-green-400 text-sm mb-2">✅ تم الكشف على شاشة العرض</p>
-                    )}
-                    <button onClick={doLuckyClear} className="w-full mt-3 py-2 text-[#777] text-xs hover:text-white transition-colors">إنهاء السحب</button>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
+          {/* 🎁 مودال اختيار رابح — مشترك */}
+          {luckyDrawModal}
 
           {/* Session Content */}
           <div className="flex-1 overflow-y-auto p-6">
@@ -3045,6 +3099,8 @@ export default function LeaderPage() {
           {soundToggleBtn}
           {mafiaChatBtn}
           {mafiaChatModal}
+          {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}
+          {luckyDrawModal}
           {/* ═══ Unified Global Header ═══ */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
             {/* Left: Logo + MAFIA CLUB */}
@@ -3062,6 +3118,8 @@ export default function LeaderPage() {
 
             {/* Right: Action Buttons */}
             <div className="flex items-center gap-4">
+              {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
+              {luckyDrawBtn}
               {/* زر تعديل الأسماء — يظهر فقط قبل توزيع الأدوار */}
               {(gameState.phase === 'LOBBY' || gameState.phase === 'ROLE_GENERATION') && gameState.players.length > 0 && (
                 <button

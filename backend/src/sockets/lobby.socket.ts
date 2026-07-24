@@ -3842,7 +3842,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // الخادم مصدر العشوائية (عدالة + مصدر حقيقة واحد). النتيجة تُحدَّد مسبقاً ثم تُكشف بأنيميشن
   // تجميلي على شاشة العرض. مسموح فقط في اللوبي (حيث شاشة العرض تعرض شبكة كل اللاعبين).
   // ══════════════════════════════════════════════════════
-  socket.on('room:lucky-draw:draw', async (data: { roomId: string; count: number }, callback) => {
+  socket.on('room:lucky-draw:draw', async (data: { roomId: string; count: number; poolMode?: 'all' | 'alive'; excludeWinners?: boolean }, callback) => {
     try {
       socket.join(data.roomId);
       if (!socket.data.authStaff) { if (typeof callback === 'function') callback({ success: false, error: 'غير مصرّح — صلاحية الليدر مطلوبة' }); return; }
@@ -3850,11 +3850,20 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
-      if (state.phase !== Phase.LOBBY) return callback({ success: false, error: 'السحب متاح فقط في غرفة اللوبي' });
+      // 🎁 متاح في كل المراحل (اللوبي وأثناء اللعبة). الكشف يظهر كـoverlay فوق شاشة العرض.
 
-      // المرشّحون = اللاعبون الحاضرون (نفس فلتر شبكة شاشة العرض)
-      const pool = state.players.filter((p: any) => !p.seatHeld && !p.frozen).map((p: any) => p.physicalId);
+      // نطاق المرشّحين: كل الحاضرين، أو الأحياء فقط أثناء اللعبة (لا يُطبَّق في اللوبي حيث الجميع أحياء)
+      const aliveOnly = data.poolMode === 'alive' && state.phase !== Phase.LOBBY;
+      const excludeWinners = !!data.excludeWinners;
+      const won = new Set<number>(Array.isArray(state.luckyDrawHistory) ? state.luckyDrawHistory : []);
+      const pool = state.players
+        .filter((p: any) => !p.seatHeld && !p.frozen
+          && (!aliveOnly || p.isAlive)
+          && (!excludeWinners || !won.has(p.physicalId)))
+        .map((p: any) => p.physicalId);
+
       const count = Math.floor(Number(data.count) || 0);
+      if (pool.length === 0) return callback({ success: false, error: 'لا يوجد لاعبون مؤهّلون للسحب (تحقّق من الاستبعاد/النطاق)' });
       if (count < 1 || count > pool.length) {
         return callback({ success: false, error: `العدد يجب أن يكون بين 1 و ${pool.length}` });
       }
@@ -3867,12 +3876,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       }
       const winners = shuffled.slice(0, count);
 
-      state.luckyDraw = { status: 'drawn', count, winners, pool };
+      state.luckyDraw = { status: 'drawn', count, winners, pool, poolMode: aliveOnly ? 'alive' : 'all', excludeWinners };
       await setGameState(data.roomId, state);
 
       // لا نبثّ الفائزين الآن — فقط للّيدر — حفاظاً على المفاجأة حتى الكشف
-      callback({ success: true, winners, pool });
-      console.log(`🎁 Lucky draw drawn in room ${data.roomId}: ${count} from ${pool.length} → [${winners.join(', ')}]`);
+      callback({ success: true, winners, pool, history: Array.from(won) });
+      console.log(`🎁 Lucky draw drawn in room ${data.roomId}: ${count} from ${pool.length} (mode=${aliveOnly ? 'alive' : 'all'}, exclude=${excludeWinners}) → [${winners.join(', ')}]`);
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -3896,11 +3905,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       state.luckyDraw.winners = winners;
       state.luckyDraw.status = 'revealed';
       state.luckyDraw.revealedAt = Date.now();
+      // 🎁 سجّل الفائزين المكشوفين لاستبعادهم اختيارياً لاحقاً (يستمرّ عبر ألعاب الغرفة)
+      const history = Array.from(new Set([...(Array.isArray(state.luckyDrawHistory) ? state.luckyDrawHistory : []), ...winners]));
+      state.luckyDrawHistory = history;
       await setGameState(data.roomId, state);
 
       io.to(data.roomId).emit('display:lucky-draw', { winners, pool: state.luckyDraw.pool, spinMs: 4500 });
 
-      callback({ success: true, winners });
+      callback({ success: true, winners, history });
       console.log(`🎁 Lucky draw revealed in room ${data.roomId} → [${winners.join(', ')}]`);
     } catch (err: any) {
       callback({ success: false, error: err.message });

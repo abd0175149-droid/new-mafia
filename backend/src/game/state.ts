@@ -194,6 +194,8 @@ export interface LuckyDrawState {
   winners: number[];              // physicalIds الفائزون (مُحدَّدون مسبقاً)
   pool: number[];                 // physicalIds المرشّحون وقت السحب
   revealedAt?: number;            // وقت الكشف (للمزامنة عند إعادة الاتصال)
+  poolMode?: 'all' | 'alive';     // نطاق السحب أثناء اللعبة: كل الحاضرين أو الأحياء فقط
+  excludeWinners?: boolean;       // هل استُبعد الفائزون السابقون من هذا السحب
 }
 
 export interface GameConfig {
@@ -315,6 +317,9 @@ export interface GameState {
   mayorState?: import('./mayor-engine.js').MayorState | null;
   // 🎁 سحب «اختيار رابح» — توزيع هدايا الفعالية (منفصل تماماً عن منطق اللعبة/الرانك)
   luckyDraw?: LuckyDrawState | null;
+  // 🎁 سجلّ الرابحين خلال حياة الغرفة (physicalIds) — لاستبعادهم اختيارياً من السحوبات التالية.
+  // يتراكم عند الكشف، ويستمرّ عبر ألعاب الغرفة (يُصفَّر تلقائياً بإنشاء غرفة جديدة).
+  luckyDrawHistory?: number[];
   // ── حالة خطوة الليل الحالية ──
   currentNightStep?: any;
   nightComplete?: boolean;
