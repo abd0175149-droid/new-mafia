@@ -79,6 +79,7 @@ export default function FinancePage() {
   const [exScope, setExScope] = useState('general');
   const [exActivityId, setExActivityId] = useState('');
   const [exPlayerId, setExPlayerId] = useState('');
+  const [exDate, setExDate] = useState(''); // تاريخ المصروف (اختياري — يُعتمد تاريخ الإدخال إن تُرك فارغاً)
   const [addingExpense, setAddingExpense] = useState(false);
   const [showNewCat, setShowNewCat] = useState(false);
   const [newCatName, setNewCatName] = useState('');
@@ -196,7 +197,7 @@ export default function FinancePage() {
   const finColSpan = isLocationOwner ? 4 : 6;
 
   function openExpenseModal() {
-    setExCategory(''); setExAmount(''); setExPaidBy(''); setExScope('general'); setExActivityId(''); setExPlayerId('');
+    setExCategory(''); setExAmount(''); setExPaidBy(''); setExScope('general'); setExActivityId(''); setExPlayerId(''); setExDate('');
     setShowNewCat(false); setNewCatName('');
     setShowExpenseModal(true);
   }
@@ -232,7 +233,8 @@ export default function FinancePage() {
           : (exScope === 'player' && exActivityId ? Number(exActivityId) : null),
         playerId: exScope === 'player' ? Number(exPlayerId) : null,
         type: exScope === 'activity' ? 'activity' : 'general',
-        date: new Date().toISOString(),
+        // تاريخ المصروف المُدخَل (ظهراً محليّاً لتفادي انزياح المنطقة الزمنيّة)، وإلّا تاريخ الإدخال الآن
+        date: exDate ? new Date(exDate + 'T12:00:00').toISOString() : new Date().toISOString(),
       })});
       setShowExpenseModal(false);
       fetchAll();
@@ -762,6 +764,13 @@ export default function FinancePage() {
                     <label className="block text-[11px] text-gray-400 mb-1">من دفعه</label>
                     <input type="text" value={exPaidBy} onChange={e => setExPaidBy(e.target.value)} placeholder="اختياري" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
                   </div>
+                </div>
+
+                {/* تاريخ المصروف (اختياري — الافتراضي تاريخ الإدخال) */}
+                <div>
+                  <label className="block text-[11px] text-gray-400 mb-1">تاريخ المصروف <span className="text-gray-600">(اختياري)</span></label>
+                  <input type="date" value={exDate} onChange={e => setExDate(e.target.value)} className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
+                  <p className="text-[10px] text-gray-600 mt-1">إذا تُرك فارغاً يُعتمد تاريخ الإدخال (اليوم).</p>
                 </div>
 
                 <div className="flex gap-3 pt-1">
