@@ -194,7 +194,7 @@ function Walls({ dims, doorNodes }: { dims: Dims; doorNodes: DoorNode[] }) {
         <mesh position={[0, (RAIL + 0.16) / 2, 0]} receiveShadow castShadow><boxGeometry args={[len, RAIL - 0.16, WALL_T * 1.4]} /><meshStandardMaterial color="#17100a" roughness={0.7} metalness={0.18} /></mesh>
         <mesh position={[0, RAIL, 0]}><boxGeometry args={[len, 0.07, WALL_T * 1.6]} /><meshStandardMaterial color="#6b552a" roughness={0.45} metalness={0.55} emissive="#6b552a" emissiveIntensity={0.14} /></mesh>
         <mesh position={[0, 0.08, 0]}><boxGeometry args={[len, 0.16, WALL_T * 1.5]} /><meshStandardMaterial color="#0c0906" roughness={0.8} /></mesh>
-        <mesh position={[0, WALL_H - 0.03, 0]}><boxGeometry args={[len, 0.06, WALL_T * 1.4]} /><meshStandardMaterial color="#6b552a" roughness={0.5} metalness={0.5} emissive="#6b552a" emissiveIntensity={0.12} /></mesh>
+        <mesh position={[0, WALL_H - 0.08, 0]}><boxGeometry args={[len, 0.06, WALL_T * 1.4]} /><meshStandardMaterial color="#6b552a" roughness={0.5} metalness={0.5} emissive="#6b552a" emissiveIntensity={0.12} /></mesh>
       </group>
     );
   });
@@ -206,7 +206,7 @@ function Walls({ dims, doorNodes }: { dims: Dims; doorNodes: DoorNode[] }) {
         <mesh position={[0, (RAIL + 0.16) / 2, 0]} receiveShadow castShadow><boxGeometry args={[WALL_T * 1.4, RAIL - 0.16, len]} /><meshStandardMaterial color="#17100a" roughness={0.7} metalness={0.18} /></mesh>
         <mesh position={[0, RAIL, 0]}><boxGeometry args={[WALL_T * 1.6, 0.07, len]} /><meshStandardMaterial color="#6b552a" roughness={0.45} metalness={0.55} emissive="#6b552a" emissiveIntensity={0.14} /></mesh>
         <mesh position={[0, 0.08, 0]}><boxGeometry args={[WALL_T * 1.5, 0.16, len]} /><meshStandardMaterial color="#0c0906" roughness={0.8} /></mesh>
-        <mesh position={[0, WALL_H - 0.03, 0]}><boxGeometry args={[WALL_T * 1.4, 0.06, len]} /><meshStandardMaterial color="#6b552a" roughness={0.5} metalness={0.5} emissive="#6b552a" emissiveIntensity={0.12} /></mesh>
+        <mesh position={[0, WALL_H - 0.08, 0]}><boxGeometry args={[WALL_T * 1.4, 0.06, len]} /><meshStandardMaterial color="#6b552a" roughness={0.5} metalness={0.5} emissive="#6b552a" emissiveIntensity={0.12} /></mesh>
       </group>
     );
   });
@@ -262,7 +262,7 @@ function Table({ dims }: { dims: Dims }) {
   );
 }
 
-function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reservedTailCount, viewMode, selectedSeat, selectedDoorId, onSelectSeat, onSelectDoor }: Props) {
+function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reservedTailCount, selectedSeat, selectedDoorId, onSelectSeat, onSelectDoor }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const bound = Math.max(dims.halfW, dims.halfD);
   const total = seats.length;
@@ -276,14 +276,14 @@ function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reserve
       <hemisphereLight args={['#3a4560', '#0a0806', 0.7]} />
       <directionalLight
         position={[dims.halfW + 3, 11, dims.halfD + 3]} intensity={1.45} color="#ffe6c0" castShadow
-        shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.0004}
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.00012} shadow-normalBias={0.08}
         shadow-camera-left={-bound - 4} shadow-camera-right={bound + 4}
         shadow-camera-top={bound + 4} shadow-camera-bottom={-bound - 4}
         shadow-camera-near={0.5} shadow-camera-far={44}
       />
       <directionalLight position={[-dims.halfW - 4, 6, -dims.halfD - 2]} intensity={0.4} color="#c9a457" />
-      {/* ثريّا مركزيّة دافئة + جسم مرئيّ */}
-      <pointLight position={[0, WALL_H * 1.35, 0]} intensity={11} distance={Math.max(dims.W, dims.D) * 1.6} decay={1.6} color="#ffcf8a" castShadow />
+      {/* ثريّا مركزيّة دافئة + جسم مرئيّ (بلا ظلّ نقطيّ لتفادي الوميض) */}
+      <pointLight position={[0, WALL_H * 1.35, 0]} intensity={11} distance={Math.max(dims.W, dims.D) * 1.6} decay={1.6} color="#ffcf8a" />
       <mesh position={[0, WALL_H * 1.35, 0]}>
         <sphereGeometry args={[0.16, 20, 20]} />
         <meshStandardMaterial color="#ffdfa0" emissive="#ffcf8a" emissiveIntensity={2.4} />
@@ -304,9 +304,9 @@ function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reserve
       {/* أرضيّة القاعة — خشب مصقول عاكس (واقعيّ) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[dims.W + WALL_T, dims.D + WALL_T]} />
-        <MeshReflectorMaterial resolution={1024} mixBlur={1.1} mixStrength={2.2} blur={[420, 120]}
-          roughness={0.78} depthScale={1.1} minDepthThreshold={0.4} maxDepthThreshold={1.3}
-          color="#1a130c" metalness={0.55} mirror={0.35} />
+        <MeshReflectorMaterial resolution={1024} mixBlur={1.4} mixStrength={1.3} blur={[520, 170]}
+          roughness={0.85} depthScale={1.1} minDepthThreshold={0.4} maxDepthThreshold={1.3}
+          color="#1a130c" metalness={0.5} mirror={0.2} />
       </mesh>
       {/* سجّادة تحت الطاولة بإطار ذهبيّ (لوح ذهبيّ أكبر تحت الأحمر) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.011, 0]}>
@@ -344,7 +344,6 @@ function Scene({ dims, seats, doorNodes, pinnedByChair, assignedByChair, reserve
 
       <OrbitControls
         enableDamping dampingFactor={0.08} enablePan={false}
-        autoRotate={viewMode} autoRotateSpeed={0.55}
         minDistance={bound + 2} maxDistance={bound * 4 + 12}
         maxPolarAngle={Math.PI / 2.12} target={[0, 0.55, 0]}
       />
