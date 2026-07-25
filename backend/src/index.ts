@@ -42,6 +42,7 @@ import gameConfigRoutes from './routes/game-config.routes.js';
 import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
+import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
 import seatTemplatesRoutes from './routes/seat-templates.routes.js';
 import reservationsRoutes from './routes/reservations.routes.js';
@@ -123,7 +124,11 @@ app.use((_req, res, next) => {
   res.setHeader('X-XSS-Protection', '0');
   next();
 });
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  // 💬 التقاط الجسم الخام — لازم للتحقق من توقيع webhook واتساب (X-Hub-Signature-256)
+  verify: (req, _res, buf) => { (req as any).rawBody = buf; },
+}));
 app.use('/uploads', express.static('uploads'));
 
 // ── Health Check ────────────────────────────────────
@@ -168,6 +173,7 @@ app.use('/api/progression-settings', progressionSettingsRoutes);
 app.use('/api/seasons', seasonsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp', whatsappInboxRoutes);  // 💬 مركز المحادثات: webhook + send + inbox
 app.use('/api/seating', seatingRoutes);
 app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
@@ -501,6 +507,12 @@ app.set('io', io);
 
 io.on('connection', (socket) => {
   console.log(`🔌 Client connected: ${socket.id}`);
+
+  // 💬 غرفة مركز محادثات واتساب — أدمن فقط (قرار المالك):
+  // ينضم تلقائياً فيستقبل wa:message:new / wa:status:update لحظياً
+  if (socket.data?.authStaff?.role === 'admin') {
+    socket.join('wa:inbox');
+  }
 
   // 🔒 حصر اللاعب-المُضيف بغرفته فقط: أي حدثٍ يحمل roomId مختلفاً عن غرفة استضافته يُرفض.
   // المُضيف يُمنح role='leader' مسوّرة بـ hostRoomId، فهذا يمنع استغلاله للتحكّم بغرفٍ أخرى.
@@ -885,6 +897,74 @@ async function main() {
     }
   } catch (err: any) {
     console.warn('⚠️ WhatsApp rank notifications migration:', err.message);
+  }
+
+  // ── 💬 جداول مركز محادثات واتساب (وارد + صادر + بوت) ──
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_conversations (
+          id SERIAL PRIMARY KEY,
+          phone VARCHAR(20) NOT NULL UNIQUE,
+          wa_phone VARCHAR(20) NOT NULL,
+          player_id INTEGER REFERENCES players(id) ON DELETE SET NULL,
+          display_name VARCHAR(150) DEFAULT '',
+          bot_enabled BOOLEAN DEFAULT TRUE NOT NULL,
+          bot_paused_until TIMESTAMP,
+          last_inbound_at TIMESTAMP,
+          last_message_at TIMESTAMP,
+          last_message_preview TEXT DEFAULT '',
+          unread_count INTEGER DEFAULT 0 NOT NULL,
+          status VARCHAR(20) DEFAULT 'open' NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_messages (
+          id SERIAL PRIMARY KEY,
+          conversation_id INTEGER NOT NULL REFERENCES wa_conversations(id) ON DELETE CASCADE,
+          wamid VARCHAR(255) UNIQUE,
+          direction VARCHAR(3) NOT NULL,
+          source VARCHAR(16) NOT NULL,
+          msg_type VARCHAR(20) DEFAULT 'text' NOT NULL,
+          body TEXT DEFAULT '',
+          payload JSONB DEFAULT '{}',
+          status VARCHAR(16) DEFAULT '',
+          error_message TEXT DEFAULT '',
+          staff_id INTEGER,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_customer_notes (
+          id SERIAL PRIMARY KEY,
+          phone VARCHAR(20) NOT NULL,
+          player_id INTEGER,
+          note TEXT NOT NULL,
+          source VARCHAR(16) DEFAULT 'bot' NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_optouts (
+          id SERIAL PRIMARY KEY,
+          phone VARCHAR(20) NOT NULL UNIQUE,
+          reason VARCHAR(200) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_messages_conv ON wa_messages(conversation_id, id DESC)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_messages_wamid ON wa_messages(wamid)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_conv_last_msg ON wa_conversations(last_message_at DESC)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_notes_phone ON wa_customer_notes(phone)`);
+      console.log('✅ WhatsApp inbox tables ensured');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ WhatsApp inbox migration:', err.message);
   }
 
   // ── إنشاء جدول متابعة الحجوزات (مستقل عن الحجوزات المالية) ──

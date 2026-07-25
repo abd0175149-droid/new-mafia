@@ -43,6 +43,14 @@ services:
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
       - CLOUDFLARE_REALTIMEKIT_APP_ID=${CLOUDFLARE_REALTIMEKIT_APP_ID:-}
       - CLOUDFLARE_REALTIMEKIT_TOKEN=${CLOUDFLARE_REALTIMEKIT_TOKEN:-}
+      # 💬 WhatsApp Cloud API — مركز المحادثات والبوت. القيم في .env على الخادم — لا تُكتب هنا.
+      - WA_TOKEN=${WA_TOKEN:-}
+      - WA_PHONE_NUMBER_ID=${WA_PHONE_NUMBER_ID:-}
+      - WA_WABA_ID=${WA_WABA_ID:-}
+      - WA_WEBHOOK_VERIFY_TOKEN=${WA_WEBHOOK_VERIFY_TOKEN:-}
+      - WA_APP_SECRET=${WA_APP_SECRET:-}
+      - N8N_API_KEY=${N8N_API_KEY:-}
+      - N8N_WA_WEBHOOK_URL=${N8N_WA_WEBHOOK_URL:-}
     ports:
       - "${BACKEND_PORT}:${BACKEND_PORT}"
     depends_on:

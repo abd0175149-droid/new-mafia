@@ -1,0 +1,269 @@
+// ══════════════════════════════════════════════════════
+// 💬 WhatsApp Inbox Routes — الاستقبال والإرسال والمحادثات
+// ══════════════════════════════════════════════════════
+// يُركَّب على /api/whatsapp بجانب whatsapp.routes.ts (الصادر القديم):
+//   • GET/POST /webhook            — عام (تحقق Meta + استقبال الأحداث)
+//   • POST     /send               — أدمن (JWT) أو البوت (x-api-key)
+//   • GET      /conversations      — أدمن فقط (قرار المالك)
+//   • GET      /conversations/:id/messages · POST /read · /bot-toggle — أدمن
+
+import { Router, type Request, type Response, type NextFunction } from 'express';
+import crypto from 'crypto';
+import { eq, desc, and, lt, sql, or, ilike } from 'drizzle-orm';
+import { getDB } from '../config/db.js';
+import { env } from '../config/env.js';
+import { waConversations, waMessages } from '../schemas/admin.schema.js';
+import { authenticate, adminOnly } from '../middleware/auth.js';
+import {
+  processWebhookPayload,
+  sendMessage,
+  isBotActive,
+  isFreeWindowOpen,
+} from '../services/whatsapp-inbox.service.js';
+
+const router = Router();
+
+// ══════════════════════════════════════════════════════
+// حُرّاس المصادقة
+// ══════════════════════════════════════════════════════
+
+// مقارنة آمنة زمنياً لمفاتيح API
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+// n8n (البوت) عبر x-api-key، أو موظف أدمن عبر JWT
+function botOrAdmin(req: Request, res: Response, next: NextFunction) {
+  const apiKey = req.headers['x-api-key'];
+  if (typeof apiKey === 'string' && apiKey.length > 0) {
+    if (env.N8N_API_KEY && safeEqual(apiKey, env.N8N_API_KEY)) {
+      (req as any).waCaller = 'bot';
+      return next();
+    }
+    return res.status(401).json({ error: 'مفتاح API غير صالح' });
+  }
+  // لا مفتاح ⇒ مسار الموظفين: JWT + أدمن فقط
+  authenticate(req, res, () => adminOnly(req, res, () => {
+    (req as any).waCaller = 'staff';
+    next();
+  }));
+}
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/webhook — تحقق Meta (hub.challenge)
+// ══════════════════════════════════════════════════════
+
+router.get('/webhook', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && env.WA_WEBHOOK_VERIFY_TOKEN && token === env.WA_WEBHOOK_VERIFY_TOKEN) {
+    console.log('✅ WA webhook verified by Meta');
+    return res.status(200).send(String(challenge || ''));
+  }
+  return res.sendStatus(403);
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/webhook — استقبال الأحداث
+// ══════════════════════════════════════════════════════
+// نرد 200 فوراً (وإلا تعيد Meta الإرسال وقد تعطّل الـ webhook)،
+// والمعالجة تتم بعد الرد. dedupe بالـ wamid يحمي من التكرار.
+
+router.post('/webhook', (req: Request, res: Response) => {
+  // ── التحقق من التوقيع (إن كان App Secret مضبوطاً) ──
+  if (env.WA_APP_SECRET) {
+    const signature = req.headers['x-hub-signature-256'];
+    const rawBody: Buffer | undefined = (req as any).rawBody;
+    if (typeof signature !== 'string' || !rawBody) {
+      return res.sendStatus(403);
+    }
+    const expected = 'sha256=' + crypto.createHmac('sha256', env.WA_APP_SECRET).update(rawBody).digest('hex');
+    if (!safeEqual(signature, expected)) {
+      console.warn('🚫 WA webhook: توقيع غير صالح — تم الرفض');
+      return res.sendStatus(403);
+    }
+  }
+
+  res.sendStatus(200);
+
+  // معالجة غير متزامنة بعد الرد
+  processWebhookPayload(req.body).catch((err) =>
+    console.error('❌ WA processWebhookPayload:', err.message),
+  );
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/send — أنبوب الإرسال الموحد
+// ══════════════════════════════════════════════════════
+// Body: { conversationId? | phone?, text? | interactive? }
+
+router.post('/send', botOrAdmin, async (req: Request, res: Response) => {
+  try {
+    const caller = (req as any).waCaller as 'bot' | 'staff';
+    const { conversationId, phone, text, interactive } = req.body || {};
+
+    const result = await sendMessage({
+      conversationId: conversationId ? parseInt(conversationId) : undefined,
+      phone,
+      text,
+      interactive,
+      source: caller === 'bot' ? 'bot' : 'staff',
+      staffId: caller === 'staff' ? (req as any).user?.id : undefined,
+      staffName: caller === 'staff' ? (req as any).user?.displayName : undefined,
+    });
+
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    const status = err.code === 'WINDOW_EXPIRED' ? 409 : 500;
+    console.error('❌ whatsapp/send:', err.message);
+    res.status(status).json({ error: err.message, code: err.code || 'SEND_FAILED' });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/conversations — قائمة المحادثات (أدمن)
+// ══════════════════════════════════════════════════════
+// ?q=بحث (اسم/رقم) &filter=all|unread|bot|human &limit &offset
+
+router.get('/conversations', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+    const q = String(req.query.q || '').trim();
+    const filter = String(req.query.filter || 'all');
+    const limit = Math.min(parseInt(String(req.query.limit)) || 50, 200);
+    const offset = parseInt(String(req.query.offset)) || 0;
+
+    const conds: any[] = [];
+    if (q) {
+      conds.push(or(
+        ilike(waConversations.displayName, `%${q}%`),
+        ilike(waConversations.phone, `%${q}%`),
+      ));
+    }
+    if (filter === 'unread') conds.push(sql`${waConversations.unreadCount} > 0`);
+
+    let query: any = db.select().from(waConversations);
+    if (conds.length > 0) query = query.where(and(...conds));
+
+    const rows = await query
+      .orderBy(desc(waConversations.lastMessageAt))
+      .limit(limit)
+      .offset(offset);
+
+    // حقول محسوبة للواجهة + فلترة bot/human (محسوبة زمنياً فلا تصلح شرط SQL ثابت)
+    let list = rows.map((c: any) => ({
+      ...c,
+      botActive: isBotActive(c),
+      windowOpen: isFreeWindowOpen(c),
+    }));
+    if (filter === 'bot') list = list.filter((c: any) => c.botActive);
+    if (filter === 'human') list = list.filter((c: any) => !c.botActive);
+
+    res.json({ success: true, conversations: list });
+  } catch (err: any) {
+    console.error('❌ whatsapp/conversations:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/conversations/:id/messages — رسائل محادثة
+// ══════════════════════════════════════════════════════
+// ?limit=50 &before=<messageId>  (الأحدث أولاً — الواجهة تعكس الترتيب)
+
+router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+
+    const convId = parseInt(req.params.id);
+    if (isNaN(convId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+    const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+    if (!conv) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    const limit = Math.min(parseInt(String(req.query.limit)) || 50, 200);
+    const before = parseInt(String(req.query.before)) || 0;
+
+    const conds: any[] = [eq(waMessages.conversationId, convId)];
+    if (before > 0) conds.push(lt(waMessages.id, before));
+
+    const messages = await db
+      .select()
+      .from(waMessages)
+      .where(and(...conds))
+      .orderBy(desc(waMessages.id))
+      .limit(limit);
+
+    res.json({
+      success: true,
+      conversation: { ...conv, botActive: isBotActive(conv), windowOpen: isFreeWindowOpen(conv) },
+      messages, // الأحدث أولاً
+      hasMore: messages.length === limit,
+    });
+  } catch (err: any) {
+    console.error('❌ whatsapp/messages:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/conversations/:id/read — تصفير غير المقروء
+// ══════════════════════════════════════════════════════
+
+router.post('/conversations/:id/read', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+
+    const [updated] = await db
+      .update(waConversations)
+      .set({ unreadCount: 0, updatedAt: new Date() } as any)
+      .where(eq(waConversations.id, convId))
+      .returning();
+    if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/conversations/:id/bot-toggle — تشغيل/إيقاف البوت
+// ══════════════════════════════════════════════════════
+// Body: { enabled: boolean }
+
+router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+    const enabled = !!req.body?.enabled;
+
+    const [updated] = await db
+      .update(waConversations)
+      .set({
+        botEnabled: enabled,
+        botPausedUntil: null, // التفعيل/الإيقاف الصريح يلغي أي إيقاف مؤقت
+        updatedAt: new Date(),
+      } as any)
+      .where(eq(waConversations.id, convId))
+      .returning();
+    if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;

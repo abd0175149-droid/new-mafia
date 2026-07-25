@@ -320,6 +320,64 @@ export const whatsappRankNotifications = pgTable('whatsapp_rank_notifications', 
 }));
 
 // ══════════════════════════════════════════════════════
+// 💬 WhatsApp Inbox — مركز المحادثات (وارد + صادر + بوت)
+// الهاتف يُخزَّن دائماً بالصيغة المحلية الموحّدة 07XXXXXXXX
+// (التحويل من/إلى 962... يتم حصراً عبر utils/phone.util.ts)
+// ══════════════════════════════════════════════════════
+
+// ── المحادثات: محادثة واحدة لكل رقم ──────────────────
+export const waConversations = pgTable('wa_conversations', {
+  id: serial('id').primaryKey(),
+  phone: varchar('phone', { length: 20 }).notNull().unique(),      // 07XXXXXXXX
+  waPhone: varchar('wa_phone', { length: 20 }).notNull(),          // 9627XXXXXXXX (صيغة الإرسال)
+  playerId: integer('player_id').references(() => players.id, { onDelete: 'set null' }),
+  displayName: varchar('display_name', { length: 150 }).default(''),   // اسم بروفايل واتساب أو اسم اللاعب
+  botEnabled: boolean('bot_enabled').default(true).notNull(),          // إيقاف دائم بزر صريح
+  botPausedUntil: timestamp('bot_paused_until'),                       // إيقاف مؤقت (رد بشري → +30 دقيقة)
+  lastInboundAt: timestamp('last_inbound_at'),                         // أساس نافذة الـ24 ساعة
+  lastMessageAt: timestamp('last_message_at'),
+  lastMessagePreview: text('last_message_preview').default(''),
+  unreadCount: integer('unread_count').default(0).notNull(),
+  status: varchar('status', { length: 20 }).default('open').notNull(), // open | closed
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ── الرسائل: كل وارد وصادر ───────────────────────────
+export const waMessages = pgTable('wa_messages', {
+  id: serial('id').primaryKey(),
+  conversationId: integer('conversation_id').references(() => waConversations.id, { onDelete: 'cascade' }).notNull(),
+  wamid: varchar('wamid', { length: 255 }).unique(),                   // معرّف Meta — يمنع التكرار
+  direction: varchar('direction', { length: 3 }).notNull(),            // in | out
+  source: varchar('source', { length: 16 }).notNull(),                 // customer | bot | staff | template | system
+  msgType: varchar('msg_type', { length: 20 }).default('text').notNull(), // text | interactive | button | image | ...
+  body: text('body').default(''),
+  payload: jsonb('payload').default({}),                               // الحمولة الخام (وسائط/أزرار/أخطاء)
+  status: varchar('status', { length: 16 }).default(''),               // '' | sent | delivered | read | failed
+  errorMessage: text('error_message').default(''),
+  staffId: integer('staff_id'),                                        // من ردّ (إن كان موظفاً)
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── ملاحظات العميل: الذاكرة طويلة المدى للبوت والإدارة ──
+export const waCustomerNotes = pgTable('wa_customer_notes', {
+  id: serial('id').primaryKey(),
+  phone: varchar('phone', { length: 20 }).notNull(),                   // 07XXXXXXXX
+  playerId: integer('player_id'),
+  note: text('note').notNull(),
+  source: varchar('source', { length: 16 }).default('bot').notNull(),  // bot | staff
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── قائمة إيقاف الرسائل التسويقية ─────────────────────
+export const waOptouts = pgTable('wa_optouts', {
+  id: serial('id').primaryKey(),
+  phone: varchar('phone', { length: 20 }).notNull().unique(),          // 07XXXXXXXX
+  reason: varchar('reason', { length: 200 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ══════════════════════════════════════════════════════
 // 📋 Reservations — متابعة الحجوزات (مستقل عن نظام الحجوزات المالي)
 // ══════════════════════════════════════════════════════
 
