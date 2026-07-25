@@ -717,9 +717,26 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         .select({ id: locations.id, name: locations.name, mapUrl: locations.mapUrl })
         .from(locations)
         .where(and(eq(locations.isActive, true), eq(locations.isTestLocation, false), isNull(locations.deletedAt)));
+      if (rows.length === 0) {
+        return { locations: [], note: 'لا أماكن فعالة معلنة حالياً — اعرض التحويل للإدارة' };
+      }
+      // 🔗 الروابط تُرسل من الأداة مباشرة كنص خام — النموذج يعيد كتابة الروابط
+      // فيكسرها أو يغلفها بصيغة markdown لا يعرضها واتساب كرابط قابل للضغط
+      const card = ['📍 أماكن النادي:', '']
+        .concat(rows.map((l: any) => {
+          const url = (l.mapUrl || '').trim();
+          const fixed = url && !/^https?:\/\//i.test(url) ? 'https://' + url : url;
+          return `*${l.name}*${fixed ? '\n' + fixed : ''}`;
+        }))
+        .join('\n');
+      if (dryRun) {
+        ctx.interactives.push({ kind: 'text', preview: card });
+      } else {
+        await sendMessage({ conversationId: conv.id, text: card, source: 'bot' });
+      }
       return {
-        locations: rows.map((l: any) => ({ name: l.name, mapLink: l.mapUrl || null })),
-        note: rows.length ? 'شارك اسم المكان مع رابط الخريطة مباشرة (الرابط كنص عادي)' : 'لا أماكن فعالة معلنة حالياً — اعرض التحويل للإدارة',
+        locations: rows.map((l: any) => ({ name: l.name, hasMapLink: !!l.mapUrl })),
+        note: 'أُرسلت بطاقة الأماكن بروابطها للعميل تلقائياً — اكتب جملة قصيرة واحدة فقط بعدها، ولا تكرر أي رابط بنفسك أبداً.',
       };
     }
 
