@@ -1,0 +1,14 @@
+[Unit]
+Description=🔋 Battery monitor → push alerts (Mafia laptop-server)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/battery-monitor/battery-monitor.sh
+Restart=always
+RestartSec=10
+Environment=POLL_INTERVAL=15
+
+[Install]
+WantedBy=default.target

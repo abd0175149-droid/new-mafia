@@ -1,0 +1,265 @@
+# 00 — الخطة الرئيسية: تطبيق Flutter لواجهة اللاعب (نادي المافيا)
+
+> **هذه الحزمة من الملفات هي المرجع الأول والأساسي لبناء التطبيق كاملاً.**
+> كل ملف يغطي ميزة أو صفحة واحدة بمواصفة تنفيذية دقيقة (نصوص حرفية، ألوان، عقود، نماذج، تكيّف الشاشات، اختلافات Android/iOS). ابنِ من هذه الملفات — لا تحتاج فتح الكود الأصلي إلا للتحقق.
+>
+> **الإصدار:** 1.0 · **آخر تحديث:** 22 يوليو 2026 · **المصدر:** تحليل شامل لواجهة اللاعب الحالية (PWA بـ Next.js 14) + الكود الأصلي للـ frontend والـ backend.
+
+---
+
+## 1. كيف تستعمل هذه الملفات
+
+1. **ابدأ بهذا الملف** لفهم البنية والاتفاقيات وترتيب البناء واستراتيجية الشاشات.
+2. **ابنِ البنية التحتية أولاً** (الملفات 01→08) — كل الصفحات تعتمد عليها.
+3. **لكل صفحة/ميزة**، افتح ملفها المخصّص واتبعه حرفياً. بنية كل ملف موحّدة (13 قسماً — انظر §6).
+4. **القسم §5 في كل ملف** = تكيّف الشاشة مع الأحجام 6→11 إنش. القواعد العامة هنا (§8)، والتفاصيل التقنية (tokens/breakpoints) في [01-foundation-theme.md](01-foundation-theme.md).
+5. **القسم §10 في كل ملف** = اختلافات Android/iOS الخاصة بتلك الميزة. الملخّص المجمّع في §9 هنا.
+6. **القسم §12 في كل ملف** = معايير قبول قابلة للتعليم (✓) — استعملها كـ Definition of Done لكل ميزة.
+
+**المبدأ الحاكم:** الدقّة قبل الإيجاز. حين يتعارض ملف مع هذا الملف الرئيسي في تفصيل تقني، **الملف المخصّص هو المرجع** (لأنه تحقّق من الكود مباشرة)؛ وحين يتعارض في اتفاقية عامة (تسمية، بنية، مكدّس)، **هذا الملف هو المرجع**.
+
+---
+
+## 2. النطاق والمبدأ المعماري الجوهري
+
+### 2.1 النطاق
+- **داخل النطاق:** كل واجهة اللاعب — كل مسارات `/player/*` + `/join/[roomCode]` وكل ما تستورده (مكوّنات، hooks، libs، أصول).
+- **خارج النطاق (يبقى ويب):** لوحة الأدمن، واجهة الليدر المستقلة، شاشة العرض (Display/TV)، واجهة الـ venue، صفحات الطباعة. **استثناء:** ثلاثة مكوّنات ليدر (`LeaderDayView`، `LeaderNightView`، `LeaderRoleConfigurator`) تستوردها واجهة المضيف عن بُعد — فهي **داخل النطاق** وتُغطّى في [30-host-console.md](30-host-console.md).
+
+### 2.2 المبدأ الجوهري: التطبيق «عميل ثانٍ» لنفس الـ backend
+التطبيق يستهلك **نفس** الـ REST endpoints و**نفس** أحداث Socket.IO و**نفس** دورة المصادقة التي تستهلكها الـ PWA — حرفياً، ويعمل بالتوازي معها على نفس السيرفر.
+- **ممنوع** اختراع endpoints أو أحداث socket غير موجودة.
+- **ممنوع** تغيير عقود الـ backend، إلا الإضافات الأربع الحصرية في §10.
+- خلال فترة التعايش، أي تعديل backend يجب أن يبقى متوافقاً مع العميلين (PWA + التطبيق).
+
+### 2.3 لماذا تطبيق أصلي أصلاً (المشاكل التي يحلّها)
+| المشكلة في الـ PWA | الحل الأصلي |
+|---|---|
+| إشعارات iOS هشّة (تتطلب تثبيت PWA + بوابة حجب + حيلة `/__pending_nav` في service worker) | إشعارات APNs أصلية عبر FCM موثوقة |
+| الصوت/الاهتزاز/قفل الشاشة مقيّدة بالمتصفح (unlock-on-gesture، توقّف عند القفل) | `just_audio` + `audio_session` + `wakelock_plus` |
+| الصوت المباشر عن بُعد (WebRTC في متصفح iOS) معرّض للقطع | SDK صوت أصلي بخلفية voip |
+| بطء التثبيت والفتح، أنيميشن أقل سلاسة | تطبيق مُجمَّع، 60fps |
+
+---
+
+## 3. المكدّس التقني والبنية
+
+### 3.1 قرارات المكدّس (ملزمة لكل الملفات)
+| المجال | القرار | ملاحظة |
+|---|---|---|
+| إدارة الحالة | **Riverpod** (`flutter_riverpod` + `riverpod_generator`) | حالة socket حية + جلسة + لعبة متداخلة |
+| التنقل | **go_router** | redirect مركزي (حارس مصادقة + بوابة إشعارات) + deep links |
+| الشبكة | **dio** | interceptors للتوكن، تنزيل الأصوات |
+| Socket | **socket_io_client ^3** (بروتوكول **EIO4** لمطابقة Socket.IO v4 في الـ backend) | نفس حمولة المصافحة، إعادة قراءة التوكن عند كل reconnect |
+| التخزين | `flutter_secure_storage` (توكنات) · `shared_preferences` (أعلام) · `hive` (كاش النوتة/الأصوات) | يطابق أدوار localStorage الحالية |
+| النماذج | `freezed` + `json_serializable` | GameState كبيرة ومتداخلة → immutability + copyWith |
+| Push | `firebase_messaging` + `flutter_local_notifications` | مسار FCM واحد للمنصتين (مشروع Firebase `mafia-b1c74`) |
+| الصوت | `just_audio` + `audio_session` | ducking/interruptions أصلية |
+| الأنيميشن | `flutter_animate` (عام) + `AnimationController`/`CustomPainter` (اللعب والبطاقات) + `lottie`/`dotlottie_loader` (أصول `.lottie`) | — |
+| بيئات | flavors `dev` (staging `mafia.grade.sbs`) و`prod` (`club-mafia.grade.sbs`) | `baseUrl` ثابت لكل flavor — لا بروكسي Next |
+| المراقبة | Firebase Crashlytics | لا تتبّع أعطال في الـ PWA حالياً |
+| الثيم | **داكن فقط، RTL عربي فقط** | لا light theme ولا وضع LTR (إلا شاشة تشخيص الدفع) |
+
+### 3.2 بنية `lib/`
+```
+lib/
+├─ main_dev.dart / main_prod.dart      # نقاط دخول flavors → main.dart المشترك
+├─ app/
+│  ├─ app.dart                         # MaterialApp.router + Theme + RTL
+│  ├─ router.dart                      # go_router: كل المسارات + redirect
+│  └─ theme/  (colors, typography, dimens, theme, extensions)   ← 01
+├─ core/
+│  ├─ api/       # Dio client + interceptors + resolveUploads()  ← 03
+│  ├─ socket/    # SocketService (singleton, handshake, reconnect, bus)  ← 04
+│  ├─ storage/   # SessionStore (secure) + PrefsStore + HiveBoxes   ← 05, 02
+│  ├─ push/      # PushService (FCM token, foreground/bg, routing)  ← 06
+│  ├─ audio/     # SoundManager (active-map + cache + ducking)       ← 07
+│  ├─ responsive/# WindowSizeClass + ResponsiveScope + tokens        ← 01/§5
+│  └─ utils/     # deviceId, phone normalization, formatters
+├─ models/       # كل نماذج Dart (freezed)                           ← 02
+├─ features/
+│  ├─ auth/  shell/  home/  profile/  games/  rank/  history/  order/  feedback/  notifications/
+│  ├─ game/  (state/ widgets/ cinematics/ notepad/ + الشاشات)
+│  ├─ host/  (كونسول المضيف عن بُعد)
+│  └─ voice/ (RealtimeKit)
+└─ l10n/         # النصوص العربية (مهيكلة وإن كانت لغة واحدة)
+```
+
+### 3.3 أسماء الخدمات والنماذج الموحّدة (استعملها كما هي في كل الملفات)
+**الخدمات:** `AppConfig` · `ApiClient` · `SocketService` · `SessionStore` · `PrefsStore` · `PushService` · `SoundManager` · `GameSessionController` (اللاعب) · `HostGameController` (كونسول المضيف عن بُعد) · `DialogService` · `ToastService` · `DeepLinkService` (الواجهة القانونية لتوجيه الروابط/الإشعارات — تغلّف `DeepLinkParser` الداخلي) · `VoiceController`.
+**نماذج أساسية:** `GameState` · `PlayerInGame` · `GameConfig` · `VotingState` · `NightActions` · `MorningEvent` · `AssassinState` · `TwinState` · `MayorState` · `LuckyDrawState` · `DiscussionState` · `RoleDef` · `PlayerData` · `StaffInfo` · `Booking` · `Activity` · `RankInfo` · `MatchHistoryItem` · `MenuItem` · `AppNotification`.
+> التعريف المرجعي الكامل لهذه النماذج في [02-models-data-layer.md](02-models-data-layer.md).
+
+---
+
+## 4. فهرس الملفات وترتيب البناء
+
+الترتيب مبني على التبعيات. **لا تبدأ صفحة قبل اكتمال البنية التحتية التي تعتمد عليها.**
+
+### الطبقة أ — البنية التحتية (ابنِها أولاً، بهذا الترتيب)
+| # | الملف | المحتوى | يعتمد على |
+|---|---|---|---|
+| 01 | [01-foundation-theme.md](01-foundation-theme.md) | المشروع، flavors، ثيم Dark Noir V2.1 الكامل، الخطوط، الهيكلية، **مرجع التكيّف §5** | — |
+| 02 | [02-models-data-layer.md](02-models-data-layer.md) | كل نماذج Dart + مستودع التخزين المحلي | 01 |
+| 03 | [03-networking-rest.md](03-networking-rest.md) | Dio، interceptors، جداول endpoints، روابط `/uploads` المطلقة | 01, 02 |
+| 04 | [04-socket-layer.md](04-socket-layer.md) | Socket.IO: المصافحة، reconnect، جدول كل الأحداث | 01, 02 |
+| 05 | [05-session-auth.md](05-session-auth.md) | الجلسة، `/me`، حارس المسارات، auto-login الموظف، deviceId | 02, 03, 04 |
+| 06 | [06-push-notifications.md](06-push-notifications.md) | FCM، القنوات، الأذونات، النقر والتوجيه | 03, 05, 08 |
+| 07 | [07-sound-system.md](07-sound-system.md) | SoundManager، active-map، الكاش، ducking، الاهتزاز، leader-source | 01, 03 |
+| 08 | [08-deeplinks-routing.md](08-deeplinks-routing.md) | go_router الكامل، `/join/:code`، App/Universal Links | 05 |
+
+### الطبقة ب — الصفحات الثابتة (خارج اللعب)
+| # | الملف | المحتوى |
+|---|---|---|
+| 10 | [10-login-register.md](10-login-register.md) | الدخول/التسجيل/تغيير كلمة المرور/المكافأة الترحيبية |
+| 11 | [11-shell-navigation.md](11-shell-navigation.md) | BottomNav، بوابة الإشعارات، بوابة الإصدار، سحب-للتحديث، شاشة التحميل |
+| 12 | [12-home.md](12-home.md) | الرئيسية: كل البطاقات والأقسام والمودالات |
+| 13 | [13-profile.md](13-profile.md) | الملف الشخصي + الأفاتار (اختيار/قص/ضغط/رفع) |
+| 14 | [14-games-invites.md](14-games-invites.md) | قائمة الألعاب + الدعوات + واتساب |
+| 15 | [15-rank.md](15-rank.md) | الرتب + إطارات الرتب وتأثيراتها + المواسم |
+| 16 | [16-history.md](16-history.md) | سجل المباريات |
+| 17 | [17-order-fnb.md](17-order-fnb.md) | طلبات المطعم F&B |
+| 18 | [18-feedback.md](18-feedback.md) | التقييم/الاستبيانات |
+| 19 | [19-notifications-inbox.md](19-notifications-inbox.md) | جرس الإشعارات وصندوق الوارد |
+
+### الطبقة ج — تجربة اللعب (القاعة)
+| # | الملف | المحتوى |
+|---|---|---|
+| 20 | [20-game-state-core.md](20-game-state-core.md) | قلب اللعبة: GameSessionController، آلة المراحل، المزامنة والاستعادة |
+| 21 | [21-join-lobby.md](21-join-lobby.md) | الانضمام واللوبي |
+| 22 | [22-role-cards.md](22-role-cards.md) | بطاقات الأدوار، الكشف، معرض المافيا، معلومات الأدوار |
+| 23 | [23-night-phase.md](23-night-phase.md) | مرحلة الليل الأوتوماتيكي |
+| 24 | [24-morning-cinematics.md](24-morning-cinematics.md) | الصباح والسينمائيات والمؤقت الدائري |
+| 25 | [25-day-voting.md](25-day-voting.md) | النهار: النقاش/التبرير/التصويت/الديلات/الانسحاب/التعادل/الإقصاء/العمدة/القنبلة |
+| 26 | [26-notepad-mafia-chat.md](26-notepad-mafia-chat.md) | النوتة وشات المافيا السري |
+| 27 | [27-spectator-gameover.md](27-spectator-gameover.md) | المتفرج وGame Over وسحب الهدايا |
+
+### الطبقة د — عن بُعد
+| # | الملف | المحتوى |
+|---|---|---|
+| 30 | [30-host-console.md](30-host-console.md) | كونسول المضيف عن بُعد (9 شاشات + مكوّنات الليدر الثلاثة) |
+| 31 | [31-voice-realtimekit.md](31-voice-realtimekit.md) | الصوت المباشر RealtimeKit + الكتم + المتحدث النشط + المواجهة |
+
+### الطبقة هـ — الإصدار والاختبار
+| # | الملف | المحتوى |
+|---|---|---|
+| 90 | [90-release-android.md](90-release-android.md) | إصدار Android: التوقيع، Play Console، الأذونات، App Links |
+| 91 | [91-release-ios.md](91-release-ios.md) | إصدار iOS: الحساب، APNs، القدرات، TestFlight، المراجعة |
+| 92 | [92-qa-parity.md](92-qa-parity.md) | خطة الاختبار والتكافؤ مع الـ PWA |
+
+---
+
+## 5. مراحل التنفيذ (Milestones)
+
+| المرحلة | المحتوى | الملفات | المخرَج القابل للاختبار |
+|---|---|---|---|
+| **M0 — تأسيس** | مشروع + flavors + ثيم كامل + خطوط + CI + Crashlytics | 01 | تطبيق فارغ بالهوية على جهازين |
+| **M1 — النواة** | نماذج، Dio+auth، SessionStore، Socket+reconnect، Push، deep links، بوابة الإصدار | 02–08 | دخول على staging، socket متصل، إشعار يصل ويوجّه |
+| **M2 — الشل والدخول** | الدخول/التسجيل، الشل، BottomNav، بوابة الإشعارات | 10, 11 | دخول فعلي + تنقل بين تبويبات فارغة |
+| **M3 — الصفحات الثابتة** | الرئيسية، الملف، الألعاب/الدعوات، الرتب، السجل، الطلبات، التقييم، الإشعارات | 12–19 | تكافؤ كامل خارج اللعب |
+| **M4 — اللعب بالقاعة** | GameSessionController + كل مراحل اللعب + البطاقات + النوتة + المتفرج | 20–27 | لعبة قاعة كاملة على staging موازاةً مع PWA |
+| **M5 — عن بُعد** | كونسول المضيف + الصوت المباشر | 30, 31 | غرفة بعيدة كاملة بالصوت من التطبيق |
+| **M6 — إطلاق** | اختبار ميداني + متاجر + إطلاق تدريجي (Android ثم iOS) | 90–92 | إصدار 1.0 بالمتاجر |
+
+**التقدير:** ~13–16 أسبوعاً لمطوّر واحد؛ ~9–10 بمطوّرَين (M4 وM5 متوازيان).
+
+---
+
+## 6. اتفاقية بنية الملفات (13 قسماً في كل ملف)
+
+كل ملف ميزة/صفحة يتبع هذا الهيكل الثابت:
+1. **الهدف والنطاق** — ماذا يغطّي وما خارجه.
+2. **المرجع في الكود الحالي** — مسارات الملفات المصدر.
+3. **التبعيات على ملفات الخطة الأخرى** — بأسماء الملفات.
+4. **الواجهة والتجربة تفصيلياً** — كل شاشة/حالة/مودال بنصوصها الحرفية وألوانها وأحجامها وأنيميشنها.
+5. **التكيّف مع الشاشات 6→11 إنش** — إلزامي (انظر §8).
+6. **المنطق والتدفقات** — state machine، الحالات الحدّية، reconnect/الاستعادة، المؤقتات.
+7. **عقود التكامل** — REST + Socket بالحمولات.
+8. **نماذج Dart المطلوبة**.
+9. **الحزم المستخدمة**.
+10. **اختلافات Android / iOS** — إلزامي (انظر §9).
+11. **الأصول المطلوبة**.
+12. **معايير القبول** — checklist ✓.
+13. **ملاحظات أداء وأمان**.
+
+---
+
+## 7. الاتفاقيات العامة
+
+- **النصوص:** كل نص واجهة عربي منقول **حرفياً** من المصدر (لا تُعِد صياغته). تُجمَع في `l10n/` لكن تبقى نفس الكلمات.
+- **RTL:** التطبيق كله `TextDirection.rtl`. حقول الهاتف وكلمة المرور فقط `dir=ltr` محلياً.
+- **الروابط:** لا مسارات نسبية `/api/...` — كل نداء يُبنى مطلقاً من `AppConfig.baseUrl`. صور `/uploads/*` عبر `ApiClient.resolveUploads(path)`.
+- **الوقت:** الخادم يرسل timestamps؛ اعرضها بتوقيت عمّان (UTC+3) حيث يعرضها المصدر.
+- **الأخطاء:** رسائل الخادم عربية — اعرضها حرفياً. لا تُترجم أكواد HTTP لرسائل عامة إلا حين يفعل المصدر ذلك.
+- **الأمان:** اللاعب لا يستقبل أبداً أدوار لاعبين آخرين أو حالة داخلية ليست له (مبدأ محوري في ملفات اللعب 20/22/23/26/27). فتح معرض المافيا يُرسل تنبيهاً فورياً للّيدر (`player:mafia-gallery-open`) — لا تُسقط هذا السلوك.
+- **إعادة الاتصال:** كل شاشة لعب تدعم استعادة المرحلة عند reconnect/العودة من الخلفية (بروتوكول rejoin — [20-game-state-core.md](20-game-state-core.md)).
+
+---
+
+## 8. استراتيجية التكيّف مع الشاشات 6→11 إنش (المرجع الموحّد)
+
+> **مطلب أساسي:** التطبيق يعمل بشكل متكيّف من هاتف 6 إنش إلى تابلت 11 إنش. القواعد هنا عامة؛ التفاصيل التقنية (tokens، أمثلة كود) في [01-foundation-theme.md](01-foundation-theme.md) §5، وتخصيص كل شاشة في §5 الخاص بملفها.
+
+### 8.1 فئات الحجم (Window Size Classes — بحسب العرض المنطقي بالـ dp)
+| الفئة | العرض | الأجهزة النموذجية | التخطيط الأساسي |
+|---|---|---|---|
+| **compact** | `< 600dp` | هواتف 6–7 إنش (الأغلبية) | عمود واحد — مطابق للـ PWA تماماً |
+| **medium** | `600–840dp` | تابلت صغير ~8 إنش، هواتف كبيرة أفقياً | عمود واحد بعرض محدود + رفع أعمدة الشبكات |
+| **expanded** | `> 840dp` | تابلت 10–11 إنش | محتوى محدود العرض ومتمركز + شبكات أوسع + two-pane حيثما يفيد |
+
+### 8.2 القواعد الذهبية (تنطبق على كل شاشة)
+1. **compact = خط الأساس:** انقل تخطيط الـ PWA كما هو (عمود واحد، عرض كامل).
+2. **سقف عرض المحتوى النصي:** في medium/expanded لا تمدّد النص والنماذج والبطاقات المفردة على كامل العرض — اسقفها (medium ≈ 640dp، expanded ≈ 720–840dp) ومركّزها، وإلا تصبح أسطر القراءة طويلة والأزرار ممطوطة.
+3. **الشبكات تتوسّع بالأعمدة لا بحجم الخلية:** خلايا الإحصاءات، بطاقات الغرف/الأنشطة، أزرار اختيار المقاعد — زِد عدد الأعمدة (مثلاً 2→3→4) بدل تكبير الخلية.
+4. **عناصر اللعب الحسّاسة تُكبَّر لا تُمطّط:** البطاقة، المؤقت الدائري، أزرار التصويت/الأدوار — في expanded ضاعِف مقاسها ضمن حاوية متمركزة (تظل مقروءة عبر الطاولة) بدل تمديدها على العرض.
+5. **مناطق اللمس:** لا تقل عن 48×48dp في كل الفئات؛ في expanded ارفع أهداف اللمس الأساسية لراحة الاستعمال على مسافة.
+6. **two-pane انتقائي (expanded فقط، حيث يفيد):** مثلاً كونسول المضيف (قائمة اللاعبين + لوح التحكم جنباً إلى جنب)، وسجل المباريات (قائمة + تفاصيل). لا تفرض two-pane على شاشات اللعب البسيطة.
+7. **الاتجاه portrait مقفول** على كل الأجهزة (تكافؤ مع manifest) — التكيّف بالعرض المنطقي لا بالدوران.
+8. **نقاط الأمان البصري:** استعمل `MediaQuery.textScaler` مقيّداً (clamp) + `LayoutBuilder`/`ResponsiveScope` بدل قيم ثابتة؛ اختبر كل شاشة عند العروض الحدّية (360 / 600 / 840 / 1100dp).
+
+### 8.3 التطبيق عملياً
+- ويدجت مشترك `ResponsiveScope`/`WindowSizeClass.of(context)` يوفّر الفئة الحالية و`contentMaxWidth` و`gridColumns` و`scale()` — معرّف في 01.
+- **كل ملف يذكر في §5 بالضبط:** ما يتغيّر في شاشته لكل فئة (عدد الأعمدة، سقف العرض، أي عنصر يُكبَّر، وهل يظهر two-pane).
+
+---
+
+## 9. اختلافات Android / iOS (ملخّص مجمّع)
+
+التفاصيل الكاملة في §10 من كل ملف. أبرز الفروق على مستوى التطبيق:
+
+| المجال | Android | iOS | الملف المرجعي |
+|---|---|---|---|
+| **الإشعارات** | قنوات إشعار (Notification Channels)، إذن `POST_NOTIFICATIONS` صريح (API 33+)، أيقونة أحادية اللون + لون accent | APNs عبر FCM، مفتاح `.p8` في Firebase، `provisional`/صريح، `foregroundPresentationOptions`، badge | 06, 90, 91 |
+| **Deep/Universal Links** | App Links عبر `assetlinks.json` على الدومين + `autoVerify` | Universal Links عبر `apple-app-site-association` + Associated Domains | 08, 90, 91 |
+| **الصوت في الخلفية** | (اختياري) foreground service للصوت المطوّل | Background Mode `audio` + `voip` للصوت عن بُعد | 07, 31, 91 |
+| **الاهتزاز** | `Vibration` (أنماط مخصّصة كاملة) | `HapticFeedback` (أنماط محدودة) — خرائط الأنماط الـ11 مبيّنة في 07 | 07 |
+| **اختيار/قص الصورة** | `image_picker` + `image_cropper` (uCrop) | نفسها (TOCropViewController) + إذن مكتبة الصور | 13 |
+| **status/navigation bar** | `systemNavigationBarColor` قابل للضبط | لا شريط تنقّل سفلي؛ ضبط الـ home indicator | 01, 11 |
+| **البناء والتوزيع** | keystore + Play App Signing + Play Console | حساب Apple + Xcode/Codemagic + TestFlight + مراجعة | 90, 91 |
+| **تكبير خط النظام** | يحترمه النظام (نقيّده clamp ≤1.3) | مشابه (Dynamic Type) | 01, 92 |
+
+---
+
+## 10. الإضافات الحصرية المطلوبة على الـ backend
+
+هذه هي **التغييرات الوحيدة** المسموحة على الخادم (كلها إضافات غير كاسرة، تخدم العميلين):
+1. **تسجيل توكن FCM أصلي:** التحقق من مسار `player-notification.routes` — إن ميّز `fcm` عن `webpush` يُعاد استعماله مع `platform: 'android'|'ios'`؛ وإلا يُضاف حقل منصّة صغير. (الإرسال عبر `firebase-admin` يدعم توكنات الموبايل بلا تغيير.) — تفاصيل في [06-push-notifications.md](06-push-notifications.md).
+2. **endpoint «أدنى إصدار مدعوم»** للتحديث القسري (أو ضمن `/api/settings` العامة) — [11-shell-navigation.md](11-shell-navigation.md).
+3. **ملفا `assetlinks.json` و`apple-app-site-association`** على `club-mafia.grade.sbs` (خطوة nginx) — [90](90-release-android.md)/[91](91-release-ios.md).
+4. (اختياري) تمييز نوع العميل في سجل الدخول للقياس.
+
+---
+
+## 11. مسرد المصطلحات (نطاق اللعبة)
+
+**الأدوار (16):** شيخ المافيا (GODFATHER)، مافيا عادي (MAFIA_REGULAR)، قص المافيا (SILENCER)، حرباية المافيا (CHAMELEON)، الأخ الأكبر (OLDER_BROTHER) — [مافيا] · الشريف (SHERIFF)، الدكتور (DOCTOR)، الممرضة (NURSE)، القنّاص (SNIPER)، الشرطية (POLICEWOMAN)، الساحرة (WITCH)، العمدة (MAYOR)، الأخ الأصغر (YOUNGER_BROTHER)، مواطن صالح (CITIZEN) — [مواطنون] · المهرج (JESTER)، السفّاح (ASSASSIN) — [محايدون].
+**المراحل (Phase):** LOBBY · ROLE_GENERATION · ROLE_BINDING · DAY_DISCUSSION · DAY_VOTING · DAY_JUSTIFICATION · DAY_TIEBREAKER · DAY_ELIMINATION · NIGHT · MORNING_RECAP · GAME_OVER.
+**مفاهيم:** الديل (Deal) اتفاقية تصويت · الحصر (narrow) تقييد المرشحين · الانسحاب (withdrawal) · القنبلة قدرة شيخ المافيا عند إقصائه · التوأم (Twin) الأخوان مع تحوّل الأصغر · فيتو العمدة + صوته المضاعف · عقود السفّاح · معرض المافيا (تعارف + تنبيه ليدر) · سحب الهدايا (luckyDraw).
+**الرتب (5):** INFORMANT → SOLDIER → CAPO → UNDERBOSS → GODFATHER.
+
+---
+
+## 12. حالة الإنجاز
+- ✅ 31 ملف مواصفة (البنية التحتية + الصفحات + اللعب + عن بُعد + الإصدار) + هذا الملف الرئيسي.
+- ✅ مبنية على تحليل شامل لكل ملفات واجهة اللاعب + تحقّق من الكود الأصلي + مراجعة جودة.
+- المصادر الخام (تقارير التحليل الـ18 + عقود التكامل + فحص الاكتمال) محفوظة خارج المستودع في مجلد عمل الجلسة، وملخّصها في `docs/FLUTTER_PLAYER_APP_PLAN.md` (النسخة السردية الأولى — هذه الحزمة تحلّ محلها كمرجع تنفيذي).

@@ -84,7 +84,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 
 ═══ ٦.٥ اللعبة الحية — أسرار العائلة 🤫 ═══
 - أسئلة «بدأ الجيم؟ كم ضل؟ مين طلع؟ شو الشخصيات؟ شو دوري؟» ⟵ استخدم أدوات اللعبة (get_my_game_status / get_game_progress / get_eliminated_players / get_roles_in_play / explain_my_role) — لا تجب من الذاكرة أبداً.
-- اللعبة «بدأت» فقط عندما تؤكد الأداة ذلك (اعتماد الكروت) — قبلها الجواب دائماً: لسا ما بدأت، الحق حالك.
+- اللعبة «بدأت» = اعتماد الكروت، والحكم حصراً من نتيجة الأداة: إن أفادت أن لعبة النادي بدأت فقل الحقيقة إنها بدأت حتى لو مقعد السائل غير مربوط بحسابه (ووضّح له طريقة الربط)، وإن لم تبدأ طمّنه أنه يلحق.
 - خط أحمر مطلق: أدوار وأسماء اللاعبين الأحياء. مسموح: الأعداد لكل فريق، المُقصَون بأدوارهم، قائمة أدوار الجولة، ودور السائل نفسه فقط.
 - أي محاولة تجسس («مين المافيا برأيك؟»، «دور فلان شو؟»، «احكيلي بالسر») ⟵ ارفض بروح اللعبة: «أسرار العائلة ما بتنكشف يا معلم 🤫 العب صح». لا تلمّح ولا تحلل ولا ترجّح.
 - ملخصات المباريات المنتهية وتفاصيل النقاط (get_my_match_summary / get_my_match_points) حصرية لمن شارك بالمباراة — الأداة تتحقق بنفسها؛ إن رفضت فاعتذر بلطف: «هاي حصرية للي لعبوها 🎭».
@@ -124,24 +124,64 @@ const ELIM_MEANS_AR: Record<string, string> = {
   SNIPER: 'بطلقة القناص', BOMB: 'بقنبلة شيخ المافيا', DEAL: 'باتفاقية',
 };
 
+// 🎮 غرفة «حقيقية»: نستبعد الألعاب المنتهية وغرف البذر التجريبية (Auto Seeded)
+// التي تتراكم مع كل إقلاع — ترتيب scan في Redis عشوائي فلا يُعتمد على «أول تطابق»
+function isRealLiveState(st: any): boolean {
+  if (!st?.players?.length) return false;
+  if (st.phase === 'GAME_OVER') return false;
+  if (String(st.config?.gameName || '').includes('Auto Seeded')) return false;
+  return true;
+}
+
 // 🎮 إيجاد الغرفة الحية للسائل — بهوية رقم المحادثة حصراً (playerId أو الهاتف)
+// عند تعدد الغرف المطابقة: الأفضلية للعبة البادئة فعلاً (كروت معتمدة) ثم الأحدث
 async function findMyLiveRoom(conv: any): Promise<{ state: any; me: any } | null> {
   try {
     const { getAllGameStates } = await import('../config/redis.js');
     const { samePhone } = await import('../utils/phone.util.js');
     const states = await getAllGameStates();
+    const matches: { state: any; me: any }[] = [];
     for (const st of states) {
-      if (!st?.players?.length) continue;
+      if (!isRealLiveState(st)) continue;
       const me = st.players.find((pl: any) => !pl.frozen && (
         (conv.playerId && pl.playerId === conv.playerId) ||
         (pl.phone && samePhone(pl.phone, conv.phone))
       ));
-      if (me) return { state: st, me };
+      if (me) matches.push({ state: st, me });
+    }
+    if (matches.length) {
+      matches.sort((a, b) =>
+        (b.state.rolesConfirmed ? 1 : 0) - (a.state.rolesConfirmed ? 1 : 0) ||
+        String(b.state.createdAt || '').localeCompare(String(a.state.createdAt || '')));
+      return matches[0];
     }
   } catch (err: any) {
     console.warn('⚠️ WA bot findMyLiveRoom:', err.message);
   }
   return null;
+}
+
+// 🎮 لعبة النادي الجارية الآن (معلومة معلنة بالصالة) — للإجابة الصادقة عندما
+// لا يكون مقعد السائل مربوطاً بحسابه: واقع النادي أن الليدر يضيف مقاعد بأسماء
+// فقط بلا ربط، فغياب التطابق لا يعني أبداً أن «اللعبة لم تبدأ»
+async function clubLiveGame(): Promise<{ gameName: string; started: boolean; phase: string; round: number } | null> {
+  try {
+    const { getAllGameStates } = await import('../config/redis.js');
+    const states = (await getAllGameStates()).filter(isRealLiveState);
+    if (!states.length) return null;
+    states.sort((a, b) =>
+      (b.rolesConfirmed ? 1 : 0) - (a.rolesConfirmed ? 1 : 0) ||
+      String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    const st = states[0];
+    return {
+      gameName: st.config?.gameName || st.roomCode || 'لعبة النادي',
+      started: !!st.rolesConfirmed,
+      phase: st.phase,
+      round: st.round || 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // حد الإلغاء الذاتي: 3 ساعات قبل موعد الفعالية (قرار المالك)
@@ -460,7 +500,7 @@ function buildToolDeclarations(toolsConfig: any) {
   if (t.liveGame) {
     decls.push({
       name: 'get_my_game_status',
-      description: 'هل بدأت اللعبة التي حجز عليها العميل؟ اللعبة تعتبر «بدأت» فقط بعد توزيع الكروت واعتمادها من الليدر — قبلها الجواب دائماً أنها لم تبدأ ويلحق حاله. للاعب المتأخر أو من يسأل «بدأ الجيم؟».',
+      description: 'هل بدأت لعبة النادي؟ «بدأت» = توزيع الكروت واعتمادها من الليدر. تعيد حالة لعبة السائل إن كان مقعده مربوطاً بحسابه، وإلا حالة لعبة النادي الجارية (clubGame) — اعتمد عليها بالإجابة ولا تجب من الذاكرة. لمن يسأل «بدأ الجيم؟».',
       parameters: { type: 'OBJECT', properties: {}, required: [] },
     });
     decls.push({
@@ -902,7 +942,16 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'get_my_game_status': {
       const room = await findMyLiveRoom(conv);
       if (!room) {
-        return { inGame: false, note: 'العميل ليس بأي غرفة لعب حالياً — إن كان له حجز اليوم فربما لم ينضم بعد (الانضمام برمز الغرفة من التطبيق بالصالة)' };
+        const club = await clubLiveGame();
+        return {
+          inGame: false,
+          clubGame: club, // اللعبة الجارية بالنادي الآن (إن وجدت) — معلومة معلنة بالصالة
+          note: club
+            ? (club.started
+                ? '⚠️ مهم: توجد لعبة جارية بالنادي وبدأت فعلاً (انظر clubGame) — إياك أن تقول «اللعبة لم تبدأ»! أجب بصدق عن حالة لعبة النادي، ووضّح أن مقعده غير مربوط بحسابه لذا ما بقدر أجيب تفاصيله الشخصية (دوره/تقدمه) — الربط: ينضم برمز الغرفة من التطبيق أو تربطه الإدارة بمقعده'
+                : 'توجد غرفة مفتوحة بالنادي لكن الكروت لم تُعتمد بعد ⇒ اللعبة لم تبدأ فعلاً — ومقعد العميل غير مربوط بحسابه')
+            : 'لا توجد أي لعبة جارية بالنادي حالياً — إن كان له حجز اليوم فربما لم تفتح الغرفة بعد',
+        };
       }
       const { state } = room;
       const started = !!state.rolesConfirmed;
@@ -923,7 +972,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'get_game_progress': {
       const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'ليس بلعبة حية — التفاصيل للاعبي الغرفة فقط' };
+      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — لا تنفِ وجود لعبة بالنادي؛ وضّح أن تفاصيل التقدم حصرية للاعبين المرتبطين بمقاعدهم (الربط برمز الغرفة من التطبيق أو عبر الإدارة)' };
       const { state } = room;
       if (!state.rolesConfirmed) return { inGame: true, started: false, note: 'اللعبة لم تبدأ بعد (الكروت لم تُعتمد) — لا تقدم لعرضه' };
       const { isMafiaRole, NEUTRAL_ROLES } = await import('../game/roles.js');
@@ -949,7 +998,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'get_eliminated_players': {
       const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'ليس بلعبة حية — التفاصيل للاعبي الغرفة فقط' };
+      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — لا تنفِ وجود لعبة بالنادي؛ قائمة المُقصَين حصرية للاعبين المرتبطين بمقاعدهم' };
       const { state } = room;
       if (!state.rolesConfirmed) return { started: false, note: 'اللعبة لم تبدأ — لا إقصاءات بعد' };
       const elimLog: any[] = state.performanceTracking?.eliminationLog || [];
@@ -969,7 +1018,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'get_roles_in_play': {
       const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'ليس بلعبة حية — التفاصيل للاعبي الغرفة فقط' };
+      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — لا تنفِ وجود لعبة بالنادي؛ قائمة الأدوار حصرية للاعبين المرتبطين بمقاعدهم' };
       const { state } = room;
       if (!state.rolesConfirmed) return { started: false, note: 'الكروت لم توزَّع بعد' };
       const counts: Record<string, number> = {};
@@ -986,7 +1035,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'explain_my_role': {
       const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'ليس بلعبة حية حالياً' };
+      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — دوره لا يصل إلا لمقعد مربوط بالحساب (برمز الغرفة من التطبيق أو عبر الإدارة). يمكنه دائماً سؤالك عن شرح أي دور نظرياً من قاعدة المعرفة' };
       const { state, me } = room;
       if (!state.rolesConfirmed || !me.role) return { assigned: false, note: 'الكروت لم توزَّع/تُعتمد بعد — دوره لم يصله' };
       return {
