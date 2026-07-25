@@ -338,6 +338,7 @@ export const waConversations = pgTable('wa_conversations', {
   lastMessageAt: timestamp('last_message_at'),
   lastMessagePreview: text('last_message_preview').default(''),
   unreadCount: integer('unread_count').default(0).notNull(),
+  needsAttention: boolean('needs_attention').default(false).notNull(), // ⚠️ handoff من البوت — تختفي عند رد الموظف
   status: varchar('status', { length: 20 }).default('open').notNull(), // open | closed
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -375,6 +376,24 @@ export const waOptouts = pgTable('wa_optouts', {
   phone: varchar('phone', { length: 20 }).notNull().unique(),          // 07XXXXXXXX
   reason: varchar('reason', { length: 200 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ── إعدادات البوت الذكي (صف واحد — تُدار من /admin/whatsapp تبويب البوت) ──
+export const waBotSettings = pgTable('wa_bot_settings', {
+  id: serial('id').primaryKey(),
+  enabled: boolean('enabled').default(false).notNull(),                // مفتاح التشغيل العام
+  geminiApiKey: text('gemini_api_key').default(''),                    // لا يُعاد للواجهة إلا مقنّعاً
+  model: varchar('model', { length: 60 }).default('gemini-2.5-flash').notNull(),
+  systemPrompt: text('system_prompt').default('').notNull(),           // شخصية البوت
+  knowledgeBase: text('knowledge_base').default('').notNull(),         // قاعدة المعرفة (Markdown)
+  contextMessages: integer('context_messages').default(20).notNull(),  // عمق ذاكرة المحادثة
+  pauseMinutes: integer('pause_minutes').default(30).notNull(),        // إيقاف البوت بعد رد بشري
+  maxToolLoops: integer('max_tool_loops').default(4).notNull(),
+  failMessage: text('fail_message').default('').notNull(),             // رسالة الاعتذار عند الخلل
+  failHandoff: boolean('fail_handoff').default(true).notNull(),        // تحويل للإدارة عند الفشل
+  toolsConfig: jsonb('tools_config').default({}),                      // مفاتيح تفعيل الأدوات
+  updatedBy: varchar('updated_by', { length: 100 }).default(''),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // ══════════════════════════════════════════════════════

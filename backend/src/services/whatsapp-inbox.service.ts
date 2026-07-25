@@ -154,7 +154,7 @@ export function isFreeWindowOpen(conv: { lastInboundAt: Date | null }): boolean 
 // كل حساب أدمن مرتبط بحساب لاعب (players.linked_staff_id)
 // ══════════════════════════════════════════════════════
 
-async function notifyAdmins(title: string, body: string, data: Record<string, any> = {}) {
+export async function notifyAdmins(title: string, body: string, data: Record<string, any> = {}) {
   try {
     const db = getDB();
     if (!db) return;
@@ -180,31 +180,12 @@ async function notifyAdmins(title: string, body: string, data: Record<string, an
 // تمرير الرسالة للبوت (n8n) — fire & forget
 // ══════════════════════════════════════════════════════
 
-function forwardToBot(conv: any, message: { id: number; body: string; msgType: string; payload: any }) {
-  if (!env.N8N_WA_WEBHOOK_URL) return; // البوت غير مربوط بعد (مرحلة 3)
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
-  fetch(env.N8N_WA_WEBHOOK_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.N8N_API_KEY || '',
-    },
-    body: JSON.stringify({
-      conversationId: conv.id,
-      phone: conv.phone,          // 07XXXXXXXX
-      waPhone: conv.waPhone,      // 9627XXXXXXXX
-      playerId: conv.playerId,
-      displayName: conv.displayName,
-      messageId: message.id,
-      msgType: message.msgType,
-      text: message.body,
-      payload: message.payload,
-    }),
-    signal: ctrl.signal,
-  })
-    .catch((err) => console.warn('⚠️ WA forwardToBot:', err.message))
-    .finally(() => clearTimeout(timer));
+// المحرك الأصلي في whatsapp-bot.service — استيراد ديناميكي لتفادي الاستيراد الدائري
+// (البوت يستورد sendMessage/notifyAdmins من هذا الملف)
+function forwardToBot(conv: any) {
+  import('./whatsapp-bot.service.js')
+    .then(({ handleBotIncoming }) => handleBotIncoming(conv.id))
+    .catch((err) => console.warn('⚠️ WA forwardToBot:', err.message));
 }
 
 // ══════════════════════════════════════════════════════
@@ -346,7 +327,7 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
 
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv)) {
-    forwardToBot(updatedConv, { id: saved.id, body, msgType, payload: msg });
+    forwardToBot(updatedConv);
   }
 }
 
@@ -446,8 +427,16 @@ export async function sendMessage(input: SendMessageInput) {
     updatedAt: now,
   };
   if (input.source === 'staff') {
-    patch.botPausedUntil = new Date(now.getTime() + BOT_PAUSE_AFTER_HUMAN_MS);
-    patch.unreadCount = 0; // الموظف ردّ ⇒ شاف المحادثة
+    // مدة الإيقاف من إعدادات البوت (قابلة للتعديل من الداشبورد) — الافتراضي 30 دقيقة
+    let pauseMs = BOT_PAUSE_AFTER_HUMAN_MS;
+    try {
+      const { getBotSettings } = await import('./whatsapp-bot.service.js');
+      const s = await getBotSettings();
+      if (s?.pauseMinutes) pauseMs = s.pauseMinutes * 60_000;
+    } catch { /* نبقى على الافتراضي */ }
+    patch.botPausedUntil = new Date(now.getTime() + pauseMs);
+    patch.unreadCount = 0;        // الموظف ردّ ⇒ شاف المحادثة
+    patch.needsAttention = false; // الرد البشري يزيل شارة «بحاجة تدخل»
   }
   const [updatedConv] = await db
     .update(waConversations)

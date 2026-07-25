@@ -961,6 +961,26 @@ async function main() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_messages_wamid ON wa_messages(wamid)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_conv_last_msg ON wa_conversations(last_message_at DESC)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_notes_phone ON wa_customer_notes(phone)`);
+      // 🤖 البوت الذكي: عمود «بحاجة تدخل» + جدول الإعدادات (صف واحد)
+      await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS needs_attention BOOLEAN DEFAULT FALSE NOT NULL`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_bot_settings (
+          id SERIAL PRIMARY KEY,
+          enabled BOOLEAN DEFAULT FALSE NOT NULL,
+          gemini_api_key TEXT DEFAULT '',
+          model VARCHAR(60) DEFAULT 'gemini-2.5-flash' NOT NULL,
+          system_prompt TEXT DEFAULT '' NOT NULL,
+          knowledge_base TEXT DEFAULT '' NOT NULL,
+          context_messages INTEGER DEFAULT 20 NOT NULL,
+          pause_minutes INTEGER DEFAULT 30 NOT NULL,
+          max_tool_loops INTEGER DEFAULT 4 NOT NULL,
+          fail_message TEXT DEFAULT '' NOT NULL,
+          fail_handoff BOOLEAN DEFAULT TRUE NOT NULL,
+          tools_config JSONB DEFAULT '{}',
+          updated_by VARCHAR(100) DEFAULT '',
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
       console.log('✅ WhatsApp inbox tables ensured');
     }
   } catch (err: any) {

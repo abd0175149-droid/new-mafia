@@ -167,6 +167,7 @@ router.get('/conversations', authenticate, adminOnly, async (req: Request, res: 
     }));
     if (filter === 'bot') list = list.filter((c: any) => c.botActive);
     if (filter === 'human') list = list.filter((c: any) => !c.botActive);
+    if (filter === 'attn') list = list.filter((c: any) => c.needsAttention);
 
     res.json({ success: true, conversations: list });
   } catch (err: any) {
@@ -251,18 +252,78 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
     const convId = parseInt(req.params.id);
     const enabled = !!req.body?.enabled;
 
+    const patch: any = {
+      botEnabled: enabled,
+      botPausedUntil: null, // التفعيل/الإيقاف الصريح يلغي أي إيقاف مؤقت
+      updatedAt: new Date(),
+    };
+    if (enabled) patch.needsAttention = false; // إعادة تفعيل البوت تزيل شارة «بحاجة تدخل»
     const [updated] = await db
       .update(waConversations)
-      .set({
-        botEnabled: enabled,
-        botPausedUntil: null, // التفعيل/الإيقاف الصريح يلغي أي إيقاف مؤقت
-        updatedAt: new Date(),
-      } as any)
+      .set(patch)
       .where(eq(waConversations.id, convId))
       .returning();
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
     res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 🤖 إعدادات البوت الذكي — تُدار من تبويب «البوت» (أدمن فقط)
+// ══════════════════════════════════════════════════════
+
+router.get('/bot/settings', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const { getBotSettings, maskApiKey } = await import('../services/whatsapp-bot.service.js');
+    const s: any = await getBotSettings();
+    res.json({ success: true, settings: { ...s, geminiApiKey: maskApiKey(s.geminiApiKey || ''), hasKey: !!s.geminiApiKey } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/bot/settings', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { updateBotSettings, maskApiKey } = await import('../services/whatsapp-bot.service.js');
+    const updatedBy = (req as any).user?.displayName || (req as any).user?.username || '';
+    const s: any = await updateBotSettings(req.body || {}, updatedBy);
+    res.json({ success: true, settings: { ...s, geminiApiKey: maskApiKey(s.geminiApiKey || ''), hasKey: !!s.geminiApiKey } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// اختبار المفتاح + جلب قائمة النماذج المتاحة حياً من Google
+router.post('/bot/test-key', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { testGeminiKey } = await import('../services/whatsapp-bot.service.js');
+    const result = await testGeminiKey(req.body?.apiKey);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ساحة الاختبار — نفس المحرك بلا إرسال واتساب ولا كتابة بيانات
+router.post('/bot/playground', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { runPlayground } = await import('../services/whatsapp-bot.service.js');
+    const history = Array.isArray(req.body?.history) ? req.body.history : [];
+    const result = await runPlayground(history);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// نبض البوت — إحصاءات سريعة
+router.get('/bot/stats', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const { getBotStats } = await import('../services/whatsapp-bot.service.js');
+    res.json({ success: true, stats: await getBotStats() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

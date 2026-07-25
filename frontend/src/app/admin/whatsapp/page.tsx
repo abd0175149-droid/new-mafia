@@ -43,6 +43,7 @@ const FILTERS = [
   { key: 'unread', label: 'غير مقروء' },
   { key: 'bot', label: '🤖 بوت' },
   { key: 'human', label: '👤 بشري' },
+  { key: 'attn', label: '⚠️ تدخل' },
 ] as const;
 
 function fmtTime(d: any) {
@@ -123,6 +124,7 @@ export default function WhatsAppInboxPage() {
   const [sending, setSending] = useState(false);
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
+  const [mainTab, setMainTab] = useState<'chat' | 'bot'>('chat');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -418,7 +420,14 @@ export default function WhatsAppInboxPage() {
           )}
         </h1>
         <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 text-sm">
-          <span className="px-3 py-1 rounded-lg bg-amber-500/10 text-amber-400 font-bold">المحادثات</span>
+          <button
+            onClick={() => setMainTab('chat')}
+            className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'chat' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+          >المحادثات</button>
+          <button
+            onClick={() => setMainTab('bot')}
+            className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'bot' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+          >🤖 البوت</button>
           <span className="px-3 py-1 text-gray-600 cursor-not-allowed" title="تُفعَّل مع مرحلة الحملات">الحملات <span className="text-[10px] border border-gray-700 rounded px-1">قريباً</span></span>
         </div>
         <button
@@ -430,8 +439,11 @@ export default function WhatsAppInboxPage() {
         </button>
       </div>
 
+      {/* ═══ تبويب البوت ═══ */}
+      {mainTab === 'bot' && <BotSettingsView />}
+
       {/* ═══ اللوحات الثلاث ═══ */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden">
+      <div className={`${mainTab === 'chat' ? 'grid' : 'hidden'} flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden`}>
 
         {/* ─── لوحة المحادثات ─── */}
         <div className={`${paneHidden('list')} flex-col min-h-0 border-l border-gray-800`}>
@@ -491,6 +503,9 @@ export default function WhatsAppInboxPage() {
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cWin ? 'bg-emerald-400' : 'bg-gray-600'}`} title={cWin ? 'نافذة الرد مفتوحة' : 'النافذة منتهية'} />
                       <span className="text-xs text-gray-400 truncate flex-1">{c.lastMessagePreview || '—'}</span>
+                      {c.needsAttention && (
+                        <span className="text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 bg-rose-500/15 text-rose-400 animate-pulse">⚠️</span>
+                      )}
                       <span className={`text-[9px] font-bold rounded-full px-1.5 py-px shrink-0 ${
                         cBot ? 'bg-sky-500/10 text-sky-400' : 'bg-amber-500/10 text-amber-400'
                       }`}>{cBot ? '🤖' : '👤'}</span>
@@ -791,7 +806,7 @@ export default function WhatsAppInboxPage() {
       </div>
 
       {/* ═══ تبويبات الموبايل ═══ */}
-      <div className="md:hidden flex border-t border-gray-800 bg-gray-900 rounded-b-2xl -mt-px">
+      <div className={`md:hidden ${mainTab === 'chat' ? 'flex' : 'hidden'} border-t border-gray-800 bg-gray-900 rounded-b-2xl -mt-px`}>
         {([['list', '💬 المحادثات'], ['chat', '📨 المحادثة'], ['info', '👤 العميل']] as const).map(([k, l]) => (
           <button
             key={k}
@@ -804,7 +819,7 @@ export default function WhatsAppInboxPage() {
       </div>
 
       {/* ═══ نموذج الحجز ═══ */}
-      {showBookingForm && bkData && conv && (
+      {mainTab === 'chat' && showBookingForm && bkData && conv && (
         <div className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => setShowBookingForm(false)}>
           <div onClick={e => e.stopPropagation()} className="w-full max-w-lg">
             <BookingForm
@@ -821,6 +836,334 @@ export default function WhatsAppInboxPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🤖 تبويب البوت — الإعدادات + ساحة الاختبار + النبض
+// ══════════════════════════════════════════════════════
+
+const MODEL_FALLBACK = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+
+const TOOL_LABELS: Record<string, string> = {
+  activities: 'عرض الفعاليات (قائمة تفاعلية)',
+  reservation: 'إنشاء حجز مؤكد (بأزرار تأكيد)',
+  myBookings: '«شو حجوزاتي؟»',
+  notes: 'الملاحظات الدائمة (الذاكرة)',
+  handoff: 'التحويل للإدارة',
+  playerStats: '«شو رتبتي؟» (إحصائيات اللاعب)',
+};
+
+function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {
+  return (
+    <div className={`bg-gray-900 border border-gray-800 rounded-xl p-4 ${wide ? 'md:col-span-2' : ''}`}>
+      <div className="text-[11px] font-bold text-gray-500 mb-3">{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function Row({ label, children }: { label: string; children: any }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 border-b border-dashed border-gray-800 last:border-0">
+      <span className="text-sm text-gray-300">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function NumInput({ value, onChange, min, max }: { value: number; onChange: (n: number) => void; min: number; max: number }) {
+  return (
+    <input
+      type="number" value={value} min={min} max={max}
+      onChange={e => onChange(parseInt(e.target.value) || min)}
+      className="w-20 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1 text-sm text-white text-center focus:border-amber-500 outline-none"
+    />
+  );
+}
+
+function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={`w-10 h-[22px] rounded-full relative transition-colors shrink-0 ${on ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+      <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-white transition-all ${on ? 'right-1' : 'right-5'}`} />
+    </button>
+  );
+}
+
+function BotSettingsView() {
+  const [s, setS] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [models, setModels] = useState<string[]>(MODEL_FALLBACK);
+  const [testingKey, setTestingKey] = useState(false);
+  const [stats, setStats] = useState<any | null>(null);
+  const [pg, setPg] = useState<Array<{ role: 'user' | 'model'; text: string; trace?: any[]; interactives?: any[] }>>([]);
+  const [pgInput, setPgInput] = useState('');
+  const [pgLoading, setPgLoading] = useState(false);
+  const pgRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [a, b] = await Promise.all([
+        apiFetch('/api/whatsapp/bot/settings'),
+        apiFetch('/api/whatsapp/bot/stats').catch(() => null),
+      ]);
+      setS(a.settings);
+      if (b?.stats) setStats(b.stats);
+      if (a.settings?.model && !MODEL_FALLBACK.includes(a.settings.model)) {
+        setModels(prev => (prev.includes(a.settings.model) ? prev : [a.settings.model, ...prev]));
+      }
+    } catch (e: any) {
+      swalAlert('تعذر جلب إعدادات البوت: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const patch = (k: string, v: any) => setS((prev: any) => ({ ...prev, [k]: v }));
+  const patchTool = (k: string, v: boolean) => setS((prev: any) => ({ ...prev, toolsConfig: { ...(prev.toolsConfig || {}), [k]: v } }));
+
+  const save = async (extra: Record<string, any> = {}) => {
+    if (!s) return;
+    setSaving(true);
+    try {
+      const body: any = {
+        enabled: s.enabled, model: s.model, systemPrompt: s.systemPrompt, knowledgeBase: s.knowledgeBase,
+        contextMessages: s.contextMessages, pauseMinutes: s.pauseMinutes, maxToolLoops: s.maxToolLoops,
+        failMessage: s.failMessage, failHandoff: s.failHandoff, toolsConfig: s.toolsConfig,
+        ...extra,
+      };
+      if (keyInput.trim()) body.geminiApiKey = keyInput.trim();
+      const res = await apiFetch('/api/whatsapp/bot/settings', { method: 'PUT', body: JSON.stringify(body) });
+      setS(res.settings);
+      setKeyInput('');
+      swalToast('حُفظت الإعدادات — تسري على الرسالة التالية فوراً ✅', 'success');
+    } catch (e: any) {
+      swalAlert('فشل الحفظ: ' + e.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleEnabled = async () => {
+    if (!s) return;
+    const enabling = !s.enabled;
+    if (enabling && !s.hasKey && !keyInput.trim()) {
+      swalAlert('أدخل مفتاح Gemini واحفظه قبل تفعيل البوت', 'warning');
+      return;
+    }
+    const ok = await swalConfirm(
+      enabling
+        ? 'سيبدأ البوت بالرد تلقائياً على كل رسائل العملاء الواردة (في المحادثات غير الموقوفة).'
+        : 'سيتوقف البوت عن الرد في كل المحادثات فوراً.',
+      { title: enabling ? 'تفعيل البوت للجميع؟' : 'إيقاف البوت العام؟', danger: !enabling, confirmText: enabling ? 'تفعيل' : 'إيقاف' },
+    );
+    if (!ok) return;
+    patch('enabled', enabling);
+    await save({ enabled: enabling });
+  };
+
+  const testKey = async () => {
+    setTestingKey(true);
+    try {
+      const res = await apiFetch('/api/whatsapp/bot/test-key', {
+        method: 'POST',
+        body: JSON.stringify({ apiKey: keyInput.trim() || undefined }),
+      });
+      if (res.models?.length) {
+        setModels(res.models);
+        if (s && !res.models.includes(s.model)) patch('model', res.models[0]);
+      }
+      swalToast(`المفتاح صالح ✅ — ${res.models?.length || 0} نموذج متاح`, 'success');
+    } catch (e: any) {
+      swalAlert('فشل اختبار المفتاح: ' + e.message, 'error');
+    } finally {
+      setTestingKey(false);
+    }
+  };
+
+  const pgSend = async () => {
+    const text = pgInput.trim();
+    if (!text || pgLoading) return;
+    const next = [...pg, { role: 'user' as const, text }];
+    setPg(next);
+    setPgInput('');
+    setPgLoading(true);
+    try {
+      const res = await apiFetch('/api/whatsapp/bot/playground', {
+        method: 'POST',
+        body: JSON.stringify({ history: next.map(m => ({ role: m.role, text: m.text })) }),
+      });
+      setPg(prev => [...prev, { role: 'model', text: res.text || '(بلا نص — أرسل رسالة تفاعلية)', trace: res.toolTrace, interactives: res.interactives }]);
+    } catch (e: any) {
+      setPg(prev => [...prev, { role: 'model', text: '⚠️ خطأ: ' + e.message }]);
+    } finally {
+      setPgLoading(false);
+      requestAnimationFrame(() => { if (pgRef.current) pgRef.current.scrollTop = pgRef.current.scrollHeight; });
+    }
+  };
+
+  if (loading || !s) {
+    return <div className="flex-1 flex items-center justify-center text-gray-500">جارٍ تحميل إعدادات البوت…</div>;
+  }
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* شريط الحالة والحفظ */}
+      <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border border-gray-800 rounded-2xl px-4 py-3 mb-3 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          <Toggle on={!!s.enabled} onClick={toggleEnabled} />
+          <div>
+            <div className={`text-sm font-bold ${s.enabled ? 'text-emerald-400' : 'text-gray-400'}`}>
+              {s.enabled ? '● البوت يعمل — يرد على العملاء' : '○ البوت مطفأ'}
+            </div>
+            <div className="text-[10.5px] text-gray-600">التفعيل يشمل كل المحادثات (عدا الموقوفة يدوياً)</div>
+          </div>
+        </div>
+        {stats && (
+          <div className="flex items-center gap-2 text-[11px] text-gray-400 mr-auto flex-wrap">
+            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">ردود اليوم: <b className="text-white">{stats.replies24h}</b></span>
+            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">الأسبوع: <b className="text-white">{stats.replies7d}</b></span>
+            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">حجوزات البوت: <b className="text-emerald-400">{stats.reservations7d}</b></span>
+            <span className="bg-gray-900 border border-gray-800 rounded-full px-2.5 py-1">بحاجة تدخل: <b className="text-rose-400">{stats.attentionNow}</b></span>
+          </div>
+        )}
+        <button
+          onClick={() => save()}
+          disabled={saving}
+          className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-gray-950 font-bold rounded-xl px-6 py-2 text-sm"
+        >{saving ? 'جارٍ الحفظ…' : '💾 حفظ الإعدادات'}</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-6">
+        {/* المفتاح والنموذج */}
+        <Card title="🔑 الاتصال بالنموذج">
+          <Row label="Gemini API Key">
+            <div className="flex items-center gap-1.5 flex-1 max-w-[240px]">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={keyInput}
+                onChange={e => setKeyInput(e.target.value)}
+                placeholder={s.hasKey ? s.geminiApiKey : 'AIza…'}
+                className="flex-1 min-w-0 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none"
+                dir="ltr"
+              />
+              <button onClick={() => setShowKey(v => !v)} className="text-gray-500 hover:text-white text-sm">{showKey ? '🙈' : '👁'}</button>
+            </div>
+          </Row>
+          <Row label="النموذج">
+            <select
+              value={s.model}
+              onChange={e => patch('model', e.target.value)}
+              className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-amber-500 outline-none max-w-[240px]"
+              dir="ltr"
+            >
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Row>
+          <div className="flex gap-2 mt-3">
+            <button onClick={testKey} disabled={testingKey} className="flex-1 border border-gray-700 hover:border-amber-500 hover:text-amber-400 text-gray-300 font-bold rounded-lg py-2 text-xs disabled:opacity-50">
+              {testingKey ? 'جارٍ الاختبار…' : '🔍 اختبار المفتاح وجلب النماذج'}
+            </button>
+          </div>
+          <div className="text-[10px] text-gray-600 mt-2">المفتاح من aistudio.google.com/apikey — يُخزن بالسيرفر ولا يظهر كاملاً بعد الحفظ</div>
+        </Card>
+
+        {/* سلوك التشغيل */}
+        <Card title="⚙️ سلوك التشغيل">
+          <Row label="عدد رسائل السياق (ذاكرة المحادثة)"><NumInput value={s.contextMessages} onChange={n => patch('contextMessages', n)} min={4} max={60} /></Row>
+          <Row label="إيقاف البوت بعد رد بشري (دقائق)"><NumInput value={s.pauseMinutes} onChange={n => patch('pauseMinutes', n)} min={1} max={1440} /></Row>
+          <Row label="أقصى دورات أدوات بالرد الواحد"><NumInput value={s.maxToolLoops} onChange={n => patch('maxToolLoops', n)} min={1} max={8} /></Row>
+          <Row label="تحويل للإدارة تلقائياً عند خلل تقني"><Toggle on={!!s.failHandoff} onClick={() => patch('failHandoff', !s.failHandoff)} /></Row>
+        </Card>
+
+        {/* الأدوات */}
+        <Card title="🧰 الأدوات المتاحة للبوت">
+          {Object.keys(TOOL_LABELS).map(k => (
+            <Row key={k} label={TOOL_LABELS[k]}>
+              <Toggle on={(s.toolsConfig || {})[k] !== false} onClick={() => patchTool(k, (s.toolsConfig || {})[k] === false)} />
+            </Row>
+          ))}
+        </Card>
+
+        {/* رسالة الفشل */}
+        <Card title="🛡️ رسالة الخلل التقني (تُرسل للعميل عند فشل البوت)">
+          <textarea
+            value={s.failMessage}
+            onChange={e => patch('failMessage', e.target.value)}
+            rows={5}
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:border-amber-500 outline-none resize-y leading-relaxed"
+          />
+        </Card>
+
+        {/* الشخصية */}
+        <Card title="🎭 شخصية البوت (System Prompt)" wide>
+          <textarea
+            value={s.systemPrompt}
+            onChange={e => patch('systemPrompt', e.target.value)}
+            rows={10}
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-[13px] text-white focus:border-amber-500 outline-none resize-y leading-relaxed"
+          />
+          <div className="text-[10px] text-gray-600 mt-1">{(s.systemPrompt || '').length} حرف</div>
+        </Card>
+
+        {/* قاعدة المعرفة */}
+        <Card title="📚 قاعدة المعرفة (Markdown — كل ما يعرفه البوت عن النادي)" wide>
+          <textarea
+            value={s.knowledgeBase}
+            onChange={e => patch('knowledgeBase', e.target.value)}
+            rows={18}
+            dir="rtl"
+            className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-[13px] text-white focus:border-amber-500 outline-none resize-y leading-relaxed"
+          />
+          <div className="text-[10px] text-gray-600 mt-1">{(s.knowledgeBase || '').length} حرف — التعديل يسري على الرسالة التالية فوراً بعد الحفظ</div>
+        </Card>
+
+        {/* ساحة الاختبار */}
+        <Card title="🧪 ساحة الاختبار — جرّب البوت هنا (لا يرسل شيئاً لواتساب ولا يسجل حجوزات حقيقية)" wide>
+          <div ref={pgRef} className="h-72 overflow-y-auto bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-2 mb-2">
+            {pg.length === 0 && (
+              <div className="m-auto text-center text-gray-600 text-xs">
+                <div className="text-2xl mb-1">🧪</div>
+                يستخدم الإعدادات <b>المحفوظة</b> — احفظ أولاً ثم جرّب<br />مثلاً: «شو الفعاليات القادمة؟» أو «بدي أحجز»
+              </div>
+            )}
+            {pg.map((m, i) => (
+              <div key={i} className={`max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-relaxed ${
+                m.role === 'user' ? 'self-end bg-gray-800 text-gray-100' : 'self-start bg-emerald-950/70 border border-emerald-900 text-gray-100'
+              }`}>
+                <div className="whitespace-pre-wrap">{m.text}</div>
+                {m.trace && m.trace.length > 0 && (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-800 text-[10px] text-sky-400">
+                    {m.trace.map((t: any, j: number) => <div key={j}>🔧 {t.name}({JSON.stringify(t.args)}) {t.result?.dryRun ? '· تجريبي' : '✓'}</div>)}
+                  </div>
+                )}
+                {m.interactives && m.interactives.length > 0 && (
+                  <div className="mt-1 text-[10px] text-violet-400">📋 {m.interactives.map((x: any) => x.kind === 'list' ? `قائمة (${x.preview?.length} خيار)` : 'أزرار تأكيد').join(' + ')} — ستُرسل للعميل فعلياً بالوضع الحي</div>
+                )}
+              </div>
+            ))}
+            {pgLoading && <div className="self-start text-gray-500 text-xs animate-pulse">🤖 يفكر…</div>}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={pgInput}
+              onChange={e => setPgInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') pgSend(); }}
+              placeholder="اكتب رسالة كأنك عميل…"
+              className="flex-1 bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none"
+              disabled={pgLoading}
+            />
+            <button onClick={pgSend} disabled={pgLoading || !pgInput.trim()} className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-gray-950 font-bold rounded-xl px-5 text-sm">إرسال</button>
+            <button onClick={() => setPg([])} className="border border-gray-700 text-gray-400 hover:text-white rounded-xl px-3 text-xs" title="محادثة جديدة">🗑</button>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
