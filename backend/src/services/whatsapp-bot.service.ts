@@ -161,9 +161,71 @@ async function findMyLiveRoom(conv: any): Promise<{ state: any; me: any } | null
   return null;
 }
 
-// 🎮 لعبة النادي الجارية الآن (معلومة معلنة بالصالة) — للإجابة الصادقة عندما
-// لا يكون مقعد السائل مربوطاً بحسابه: واقع النادي أن الليدر يضيف مقاعد بأسماء
-// فقط بلا ربط، فغياب التطابق لا يعني أبداً أن «اللعبة لم تبدأ»
+// 🎮 المسار المعتمد من المالك: حجز العميل ← النشاط ← غرف النشاط الحية
+// واقع النادي أن الليدر يضيف مقاعد بأسماء فقط بلا ربط بالحسابات، فهوية
+// «لعبتي» تُشتق من الحجز (reservations البوت + bookings التطبيق) عبر activityId
+async function findMyBookedRooms(conv: any): Promise<{ state: any; activityName: string | null }[]> {
+  try {
+    const db = getDB();
+    const activityIds = new Set<number>();
+    const resRows = await db
+      .select({ a: reservations.activityId })
+      .from(reservations)
+      .where(and(
+        or(eq(reservations.phone, conv.phone), conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`),
+        isNull(reservations.deletedAt),
+      ))
+      .orderBy(desc(reservations.createdAt))
+      .limit(25);
+    for (const r of resRows) if (r.a) activityIds.add(r.a);
+    const bkConds = conv.playerId
+      ? or(eq(bookings.playerId, conv.playerId), eq(bookings.phone, conv.phone))
+      : eq(bookings.phone, conv.phone);
+    const bkRows = await db
+      .select({ a: bookings.activityId })
+      .from(bookings)
+      .where(and(bkConds, isNull(bookings.deletedAt)))
+      .orderBy(desc(bookings.createdAt))
+      .limit(25);
+    for (const b of bkRows) if (b.a) activityIds.add(b.a);
+    if (!activityIds.size) return [];
+
+    const { getAllGameStates } = await import('../config/redis.js');
+    const states = (await getAllGameStates())
+      .filter((st: any) => isRealLiveState(st) && st.activityId && activityIds.has(st.activityId));
+    states.sort((a: any, b: any) =>
+      (b.rolesConfirmed ? 1 : 0) - (a.rolesConfirmed ? 1 : 0) ||
+      String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    if (!states.length) return [];
+    const actNames = new Map<number, string>();
+    try {
+      const acts = await db.select({ id: activities.id, name: activities.name })
+        .from(activities).where(inArray(activities.id, Array.from(activityIds)));
+      for (const a of acts) actNames.set(a.id, a.name);
+    } catch { /* الاسم تكميلي */ }
+    return states.map((st: any) => ({ state: st, activityName: actNames.get(st.activityId) || null }));
+  } catch (err: any) {
+    console.warn('⚠️ WA bot findMyBookedRooms:', err.message);
+    return [];
+  }
+}
+
+// 🎮 محلّل موحّد لأدوات اللعبة: مقعد مربوط بالحساب (أدق) وإلا أفضل غرفة
+// من غرف الأنشطة المحجوزة (البادئة أولاً ثم الأحدث) مع أسماء بقية الغرف
+async function resolveGameRoom(conv: any): Promise<{ state: any; me: any | null; via: 'seat' | 'booking'; otherRooms: string[] } | null> {
+  const seat = await findMyLiveRoom(conv);
+  if (seat) return { state: seat.state, me: seat.me, via: 'seat', otherRooms: [] };
+  const booked = await findMyBookedRooms(conv);
+  if (!booked.length) return null;
+  const [best, ...rest] = booked;
+  return {
+    state: best.state, me: null, via: 'booking',
+    otherRooms: rest.map((r) => r.state.config?.gameName || r.state.roomCode || 'غرفة أخرى'),
+  };
+}
+
+// 🎮 لعبة النادي الجارية الآن (معلومة معلنة بالصالة) — احتياط أخير للإجابة
+// الصادقة عندما لا نجد للسائل مقعداً ولا حجزاً: لا نقول أبداً «لم تبدأ» عن لعبة جارية
 async function clubLiveGame(): Promise<{ gameName: string; started: boolean; phase: string; round: number } | null> {
   try {
     const { getAllGameStates } = await import('../config/redis.js');
@@ -500,12 +562,12 @@ function buildToolDeclarations(toolsConfig: any) {
   if (t.liveGame) {
     decls.push({
       name: 'get_my_game_status',
-      description: 'هل بدأت لعبة النادي؟ «بدأت» = توزيع الكروت واعتمادها من الليدر. تعيد حالة لعبة السائل إن كان مقعده مربوطاً بحسابه، وإلا حالة لعبة النادي الجارية (clubGame) — اعتمد عليها بالإجابة ولا تجب من الذاكرة. لمن يسأل «بدأ الجيم؟».',
+      description: 'هل بدأت لعبة العميل؟ «بدأت» = توزيع الكروت واعتمادها من الليدر. تبحث بغرف الأنشطة التي حجز عليها العميل (أو بمقعده المربوط) وتعيد حالة كل غرفة — اعتمد على نتيجتها بالإجابة ولا تجب من الذاكرة أبداً. لمن يسأل «بدأ الجيم؟».',
       parameters: { type: 'OBJECT', properties: {}, required: [] },
     });
     decls.push({
       name: 'get_game_progress',
-      description: 'تقدم لعبة العميل الحية: الجولة الحالية، الوقت المتبقي على مؤقت اللعبة، وأعداد الأحياء لكل فريق (أرقام فقط بلا أسماء أبداً). «كم ضل وقت؟ كم مافيا باقي؟».',
+      description: 'تقدم لعبة العميل الحية (غرفة نشاطه المحجوز أو مقعده): الجولة الحالية، الوقت المتبقي على مؤقت اللعبة، وأعداد الأحياء لكل فريق (أرقام فقط بلا أسماء أبداً). «كم ضل وقت؟ كم مافيا باقي؟».',
       parameters: { type: 'OBJECT', properties: {}, required: [] },
     });
     decls.push({
@@ -940,39 +1002,43 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     // ══════ 🎮 اللعبة الحية — كل القيود مفروضة بالكود (لاعب الغرفة حصراً) ══════
 
     case 'get_my_game_status': {
-      const room = await findMyLiveRoom(conv);
-      if (!room) {
+      // المسار المعتمد: مقعد مربوط (أدق) وإلا غرف الأنشطة التي حجز عليها العميل
+      const seat = await findMyLiveRoom(conv);
+      const roomStates: any[] = seat ? [seat.state] : (await findMyBookedRooms(conv)).map((r) => r.state);
+      if (!roomStates.length) {
         const club = await clubLiveGame();
         return {
           inGame: false,
           clubGame: club, // اللعبة الجارية بالنادي الآن (إن وجدت) — معلومة معلنة بالصالة
           note: club
             ? (club.started
-                ? '⚠️ مهم: توجد لعبة جارية بالنادي وبدأت فعلاً (انظر clubGame) — إياك أن تقول «اللعبة لم تبدأ»! أجب بصدق عن حالة لعبة النادي، ووضّح أن مقعده غير مربوط بحسابه لذا ما بقدر أجيب تفاصيله الشخصية (دوره/تقدمه) — الربط: ينضم برمز الغرفة من التطبيق أو تربطه الإدارة بمقعده'
-                : 'توجد غرفة مفتوحة بالنادي لكن الكروت لم تُعتمد بعد ⇒ اللعبة لم تبدأ فعلاً — ومقعد العميل غير مربوط بحسابه')
-            : 'لا توجد أي لعبة جارية بالنادي حالياً — إن كان له حجز اليوم فربما لم تفتح الغرفة بعد',
+                ? '⚠️ لم أجد للعميل حجزاً على نشاط له غرفة حية، لكن توجد لعبة جارية بالنادي وبدأت فعلاً (انظر clubGame) — إياك أن تقول «اللعبة لم تبدأ»! أجب بصدق واسأله إن كان حاجزاً بنشاط اليوم لأتأكد من حجزه'
+                : 'لم أجد له حجزاً مرتبطاً بغرفة، وتوجد غرفة مفتوحة بالنادي لم تُعتمد كروتها بعد ⇒ لم تبدأ فعلاً')
+            : 'لا توجد أي لعبة جارية بالنادي حالياً — إن كان له حجز اليوم فربما لم تُفتح الغرف بعد',
         };
       }
-      const { state } = room;
-      const started = !!state.rolesConfirmed;
-      return {
-        inGame: true,
+      const rooms = roomStates.map((state: any) => ({
         gameName: state.config?.gameName || state.roomCode,
-        started,                       // «بدأت» = توزيع الكروت واعتمادها من الليدر (قرار المالك)
+        started: !!state.rolesConfirmed, // «بدأت» = توزيع الكروت واعتمادها من الليدر (قرار المالك)
         phase: state.phase,
         round: state.round || 0,
-        finished: state.phase === 'GAME_OVER',
-        winner: state.phase === 'GAME_OVER' ? state.winner : undefined,
         playersJoined: (state.players || []).filter((p: any) => !p.frozen).length,
-        note: started
-          ? 'اللعبة بدأت فعلياً — أخبره بالمرحلة والجولة'
-          : 'الكروت لم تُوزَّع وتُعتمد بعد ⇒ اللعبة لم تبدأ — طمّنه أنه يلحق ويحفّزه يوصل بسرعة',
+      }));
+      const anyStarted = rooms.some((r) => r.started);
+      return {
+        inGame: true,
+        via: seat ? 'مقعده المربوط بالغرفة' : 'حجزه على النشاط',
+        started: anyStarted,
+        rooms,
+        note: anyStarted
+          ? 'هذه غرف نشاطه — اللعبة بدأت فعلياً: أخبره بالمرحلة والجولة (وإن تعددت الغرف اذكر حالة كل غرفة باسمها)'
+          : 'الكروت لم تُوزَّع وتُعتمد بعد بغرف نشاطه ⇒ اللعبة لم تبدأ — طمّنه أنه يلحق ويحفّزه يوصل بسرعة',
       };
     }
 
     case 'get_game_progress': {
-      const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — لا تنفِ وجود لعبة بالنادي؛ وضّح أن تفاصيل التقدم حصرية للاعبين المرتبطين بمقاعدهم (الربط برمز الغرفة من التطبيق أو عبر الإدارة)' };
+      const room = await resolveGameRoom(conv);
+      if (!room) return { inGame: false, note: 'لا مقعد مربوطاً ولا حجز على نشاط له غرفة حية — لا تنفِ وجود لعبة بالنادي؛ اسأله إن كان حاجزاً بنشاط اليوم' };
       const { state } = room;
       if (!state.rolesConfirmed) return { inGame: true, started: false, note: 'اللعبة لم تبدأ بعد (الكروت لم تُعتمد) — لا تقدم لعرضه' };
       const { isMafiaRole, NEUTRAL_ROLES } = await import('../game/roles.js');
@@ -986,6 +1052,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       } catch { /* المؤقت غير مفعّل */ }
       return {
         started: true,
+        room: state.config?.gameName || state.roomCode,
+        otherActivityRooms: room.otherRooms.length ? room.otherRooms : undefined, // غرف أخرى بنفس نشاطه — إن قصد إحداها فليسمّها
         phase: state.phase,
         round: state.round || 1,
         remainingMinutes,             // null = المؤقت غير مفعّل بهذه اللعبة
@@ -997,8 +1065,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     }
 
     case 'get_eliminated_players': {
-      const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — لا تنفِ وجود لعبة بالنادي؛ قائمة المُقصَين حصرية للاعبين المرتبطين بمقاعدهم' };
+      const room = await resolveGameRoom(conv);
+      if (!room) return { inGame: false, note: 'لا مقعد مربوطاً ولا حجز على نشاط له غرفة حية — لا تنفِ وجود لعبة بالنادي؛ قائمة المُقصَين لغرف نشاط العميل المحجوز' };
       const { state } = room;
       if (!state.rolesConfirmed) return { started: false, note: 'اللعبة لم تبدأ — لا إقصاءات بعد' };
       const elimLog: any[] = state.performanceTracking?.eliminationLog || [];
@@ -1013,12 +1081,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
             means: log ? (ELIM_MEANS_AR[log.eliminatedBy] || log.eliminatedBy) : null,
           };
         });
-      return { eliminated: out, count: out.length, note: out.length ? 'معلومات معلنة بالصالة — اعرضها بترتيب الجولات' : 'ولا لاعب أُقصي بعد — اللعبة نظيفة لهلأ' };
+      return { room: state.config?.gameName || state.roomCode, otherActivityRooms: room.otherRooms.length ? room.otherRooms : undefined, eliminated: out, count: out.length, note: out.length ? 'معلومات معلنة بالصالة — اعرضها بترتيب الجولات' : 'ولا لاعب أُقصي بعد — اللعبة نظيفة لهلأ' };
     }
 
     case 'get_roles_in_play': {
-      const room = await findMyLiveRoom(conv);
-      if (!room) return { inGame: false, note: 'مقعده غير مربوط بحسابه بأي غرفة — لا تنفِ وجود لعبة بالنادي؛ قائمة الأدوار حصرية للاعبين المرتبطين بمقاعدهم' };
+      const room = await resolveGameRoom(conv);
+      if (!room) return { inGame: false, note: 'لا مقعد مربوطاً ولا حجز على نشاط له غرفة حية — لا تنفِ وجود لعبة بالنادي؛ قائمة الأدوار لغرف نشاط العميل المحجوز' };
       const { state } = room;
       if (!state.rolesConfirmed) return { started: false, note: 'الكروت لم توزَّع بعد' };
       const counts: Record<string, number> = {};
@@ -1028,6 +1096,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         counts[ar] = (counts[ar] || 0) + 1;
       }
       return {
+        room: state.config?.gameName || state.roomCode,
+        otherActivityRooms: room.otherRooms.length ? room.otherRooms : undefined,
         roles: Object.entries(counts).map(([role, count]) => ({ role, count })),
         note: 'قائمة الأدوار الموزعة هذه الجولة — بلا أي ربط بأشخاص، ولا تلمّح من حي ومن لا',
       };
