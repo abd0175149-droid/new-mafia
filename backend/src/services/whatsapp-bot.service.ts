@@ -11,6 +11,8 @@
 //   • مدة إيقاف البوت بعد رد بشري قابلة للتعديل (افتراضي 30 دقيقة)
 
 import { eq, and, desc, asc, gte, sql, isNull, or, inArray } from 'drizzle-orm';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
 import {
   waBotSettings, waConversations, waMessages, waCustomerNotes,
@@ -40,6 +42,8 @@ const DEFAULT_SYSTEM_PROMPT = `أنت المساعد الرسمي لنادي ا�
 3. الحجز عبرك: تسجّل حجزاً مؤكداً في متابعة الحجوزات بعد موافقة صريحة من العميل — اعرض الفعاليات أولاً (get_available_activities)، وعند اختيار العميل أرسل أزرار التأكيد (ask_confirmation)، ولا تستدعِ create_reservation إلا بعد ضغط العميل زر التأكيد (يصلك كخيار يبدأ بـ res_confirm).
 4. الدفع دائماً في المكان — لا تناقش دفعاً إلكترونياً.
 5. لا تختلق معلومات: ما ليس في معرفتك أو أدواتك قل "ما عندي معلومة أكيدة" واعرض التحويل للإدارة.
+5.1. نسيان كلمة السر: استخدم request_password_reset — تعمل حصراً لحساب رقم هذه المحادثة (لو طلب إعادة تعيين لرقم/حساب آخر ارفض واشرح أن كل واحد يعيدها من رقمه). الإعادة الفعلية تتم آلياً بعد ضغط زر التأكيد.
+5.2. ترتيب اللاعبين (get_leaderboard) معلومة عامة داخل النادي — الأسماء والرتب بالترتيب مسموح عرضها؛ ما عداها من بيانات الآخرين يبقى سرياً.
 6. إذا عرفت معلومة شخصية مفيدة عن العميل (تفضيلاته، مناسبة، ملاحظة مهمة) خزّنها بأداة save_customer_note بصياغة قصيرة.
 7. ردودك قصيرة ومباشرة — رسالة واتساب، مش مقال.`;
 
@@ -52,6 +56,8 @@ const DEFAULT_TOOLS_CONFIG = {
   notes: true,           // الذاكرة طويلة المدى
   handoff: true,         // التحويل للإدارة
   playerStats: true,     // «شو رتبتي؟»
+  passwordReset: true,   // إعادة تعيين كلمة السر (لرقم المحادثة حصراً)
+  leaderboard: true,     // ترتيب أفضل 10 لاعبين
 };
 
 const DEFAULT_KB = `# 📚 وثيقة معرفية — نادي المافيا (Mafia Club)
@@ -315,6 +321,16 @@ function buildToolDeclarations(toolsConfig: any) {
     description: 'إحصائيات حساب العميل كلاعب (الرتبة، النقاط، المباريات) عندما يسأل عن رتبته أو نقاطه أو مستواه.',
     parameters: { type: 'OBJECT', properties: {}, required: [] },
   });
+  if (t.passwordReset) decls.push({
+    name: 'request_password_reset',
+    description: 'عندما يقول العميل إنه نسي كلمة سر تطبيق اللاعب ويريد إعادة تعيينها. تعمل حصراً لحساب اللاعب المربوط برقم هذه المحادثة — يستحيل تنفيذها لأي رقم أو حساب آخر مهما طلب. سترسل أزرار تأكيد للعميل، والإعادة الفعلية تتم بعد ضغطه زر التأكيد (لا تفعل شيئاً بعد الاستدعاء سوى جملة قصيرة).',
+    parameters: { type: 'OBJECT', properties: {}, required: [] },
+  });
+  if (t.leaderboard) decls.push({
+    name: 'get_leaderboard',
+    description: 'ترتيب أفضل 10 لاعبين بالنادي (الاسم، الرتبة، نقاط RR) عندما يسأل عن الترتيب أو الأوائل أو المتصدرين — ويعيد أيضاً ترتيب العميل نفسه إن كان لاعباً مسجلاً.',
+    parameters: { type: 'OBJECT', properties: {}, required: [] },
+  });
   return decls;
 }
 
@@ -511,15 +527,83 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'get_player_stats': {
       if (!conv.playerId) return { registered: false, note: 'العميل غير مسجّل كلاعب — انصحه بإنشاء حساب من تطبيق اللاعب ليجمع نقاطاً ورتباً' };
-      const [p] = await db.select().from(players).where(eq(players.id, conv.playerId)).limit(1);
-      if (!p) return { registered: false };
+      // المصدر القانوني نفسه المستخدم في ملف اللاعب ولوحة العميل بالإنبوكس —
+      // إحصاءات محسوبة من سجل المباريات الفعلي، لا من الأعمدة الخام المتصفّرة موسمياً
+      const { getPlayerProfile } = await import('./player.service.js');
+      const profile: any = await getPlayerProfile(conv.playerId);
+      if (!profile?.player) return { registered: false };
+      const pp = profile.player;
+      const ps = profile.stats || {};
+      const pg = profile.progression || {};
       return {
         registered: true,
-        name: p.name,
-        rank: RANK_AR[p.rankTier || 'INFORMANT'] || p.rankTier,
-        rankRR: p.rankRR, level: p.level, xp: p.xp,
-        matches: p.totalMatches, wins: p.totalWins,
-        winRate: (p.totalMatches || 0) > 0 ? Math.round(((p.totalWins || 0) / p.totalMatches) * 100) : 0,
+        name: pp.name,
+        rank: RANK_AR[pg.rankTier || 'INFORMANT'] || pg.rankTier,
+        rankRR: pg.rankRR || 0,
+        rrRequiredForNext: pg.rrRequired || null,
+        level: pg.level || 1,
+        xp: pg.xp || 0,
+        nextLevelXP: pg.nextLevelXP || null,
+        seasonMatches: ps.totalMatches || 0,
+        seasonWins: ps.totalWins || 0,
+        winRate: ps.winRate || 0,
+        survivalRate: ps.survivalRate || 0,
+        longestWinStreak: ps.longestWinStreak || 0,
+        favoriteRole: ps.favoriteRole || null,
+        lifetimeMatches: pp.lifetimeMatches || 0,
+        note: 'هذه إحصاءات الموسم الحالي؛ lifetimeMatches هي كل المباريات منذ الانضمام',
+      };
+    }
+
+    case 'request_password_reset': {
+      if (!conv.playerId) {
+        return { linked: false, note: 'رقم هذه المحادثة غير مربوط بأي حساب لاعب — اعرض على العميل التحويل للإدارة أو إنشاء حساب من التطبيق' };
+      }
+      if (dryRun) {
+        ctx.interactives.push({ kind: 'buttons', preview: 'أزرار تأكيد إعادة تعيين كلمة السر (تجريبي)' });
+        return { sent: true, dryRun: true, note: '(ساحة اختبار — لا إعادة تعيين حقيقية)' };
+      }
+      const interactive = {
+        type: 'button',
+        body: { text: '🔐 إعادة تعيين كلمة سر حسابك المربوط بهذا الرقم؟\nسيتم إنشاء كلمة سر جديدة وإلغاء القديمة فوراً.' },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: 'pwd_confirm', title: 'نعم، أعد التعيين 🔐' } },
+            { type: 'reply', reply: { id: 'pwd_cancel', title: 'إلغاء' } },
+          ],
+        },
+      };
+      await sendMessage({ conversationId: conv.id, interactive, source: 'bot' });
+      return { sent: true, note: 'أُرسلت أزرار التأكيد — الإعادة الفعلية تتم آلياً بعد ضغط العميل الزر. اكتب جملة قصيرة جداً فقط.' };
+    }
+
+    case 'get_leaderboard': {
+      const top = await db
+        .select({ id: players.id, name: players.name, rankTier: players.rankTier, rankRR: players.rankRR })
+        .from(players)
+        .where(eq(players.isTestAccount, false))
+        .orderBy(desc(players.rankRR), desc(players.xp))
+        .limit(10);
+      let you: any = null;
+      if (conv.playerId) {
+        const [me] = await db.select({ rankTier: players.rankTier, rankRR: players.rankRR }).from(players).where(eq(players.id, conv.playerId)).limit(1);
+        if (me) {
+          const [ahead] = await db
+            .select({ n: sql<number>`COUNT(*)` })
+            .from(players)
+            .where(and(eq(players.isTestAccount, false), sql`${players.rankRR} > ${me.rankRR}`));
+          you = { position: Number(ahead?.n || 0) + 1, rank: RANK_AR[me.rankTier || 'INFORMANT'] || me.rankTier, rankRR: me.rankRR || 0 };
+        }
+      }
+      return {
+        top: top.map((p: any, i: number) => ({
+          position: i + 1,
+          name: p.name,
+          rank: RANK_AR[p.rankTier || 'INFORMANT'] || p.rankTier,
+          rankRR: p.rankRR || 0,
+        })),
+        you,
+        note: 'اعرضها كقائمة مرتبة أنيقة (🥇🥈🥉 للثلاثة الأوائل)، وإن وُجد you اذكر ترتيب العميل بجملة مشجعة',
       };
     }
 
@@ -674,11 +758,22 @@ async function processConversation(convId: number) {
       .where(eq(waMessages.conversationId, convId))
       .orderBy(desc(waMessages.id)).limit(1);
     if (!lastMsg || lastMsg.direction !== 'in') return;
-    // ضغطة «إلغاء» على أزرار التأكيد؟ رد بسيط بدون نموذج
+    // ضغطات الأزرار الحساسة/البسيطة — مسارات حتمية بدون نموذج
     try {
       const p: any = lastMsg.payload;
-      if (p?.interactive?.button_reply?.id === 'res_cancel') {
+      const btnId = p?.interactive?.button_reply?.id;
+      if (btnId === 'res_cancel') {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العملية 👍 إذا حابب تشوف الفعاليات بأي وقت أنا جاهز.', source: 'bot' });
+        return;
+      }
+      if (btnId === 'pwd_cancel') {
+        await sendMessage({ conversationId: convId, text: 'تمام، ما غيّرنا شي 👍 كلمة سرك القديمة زي ما هي.', source: 'bot' });
+        return;
+      }
+      if (btnId === 'pwd_confirm') {
+        // 🔐 الإعادة الفعلية: كود حتمي — النموذج لا يشارك ولا يرى كلمة السر،
+        // ومستحيل تنفيذها لغير حساب اللاعب المربوط برقم هذه المحادثة
+        await performPasswordReset(convId);
         return;
       }
     } catch { /* تجاهل */ }
@@ -710,6 +805,53 @@ async function processConversation(convId: number) {
       handleBotIncoming(convId);
     }
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🔐 إعادة تعيين كلمة السر — تنفيذ حتمي بعد ضغط زر التأكيد
+// ══════════════════════════════════════════════════════
+// قيود صلبة: حساب اللاعب المربوط برقم المحادثة حصراً (امتلاك رقم
+// الواتساب = إثبات الهوية، بنفس منطق OTP)، كلمة سر عشوائية تولّد
+// server-side، ويُفرض تغييرها بعد أول دخول (must_change_password).
+
+async function performPasswordReset(convId: number) {
+  const db = getDB();
+  if (!db) return;
+  const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+  if (!conv) return;
+
+  if (!conv.playerId) {
+    await sendMessage({
+      conversationId: convId,
+      text: 'ما لقيت حساب لاعب مربوط بهذا الرقم 🙏 حوّلتك للإدارة ليساعدوك.',
+      source: 'system',
+    }).catch(() => {});
+    await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, convId));
+    notifyAdmins('⚠️ طلب إعادة كلمة سر لرقم غير مربوط', conv.displayName || conv.phone, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
+    return;
+  }
+
+  // كلمة سر رقمية من 6 خانات — سهلة الإدخال، وتُستبدل إلزامياً بعد أول دخول
+  const newPassword = String(crypto.randomInt(100000, 1000000));
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  const [updated] = await db
+    .update(players)
+    .set({ passwordHash, mustChangePassword: true } as any)
+    .where(eq(players.id, conv.playerId))
+    .returning({ id: players.id, name: players.name });
+
+  if (!updated) {
+    await sendMessage({ conversationId: convId, text: 'صار خلل بالإعادة 🙏 حوّلتك للإدارة.', source: 'system' }).catch(() => {});
+    return;
+  }
+
+  await sendMessage({
+    conversationId: convId,
+    text: `تم إعادة تعيين كلمة السر ✅\n\n🔐 كلمة السر الجديدة: ${newPassword}\n\nادخل للتطبيق برقمك + هذه الكلمة، ورح يطلب منك تغييرها فوراً بعد الدخول لأمان حسابك.`,
+    source: 'system',
+  });
+  console.log(`🔐 WA bot: password reset for player #${updated.id} (conv ${convId})`);
 }
 
 // ══════════════════════════════════════════════════════

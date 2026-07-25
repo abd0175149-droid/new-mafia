@@ -919,6 +919,8 @@ const TOOL_LABELS: Record<string, string> = {
   notes: 'الملاحظات الدائمة (الذاكرة)',
   handoff: 'التحويل للإدارة',
   playerStats: '«شو رتبتي؟» (إحصائيات اللاعب)',
+  passwordReset: '🔐 إعادة تعيين كلمة السر (لرقم المحادثة فقط)',
+  leaderboard: '🏆 ترتيب أفضل 10 لاعبين',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {
