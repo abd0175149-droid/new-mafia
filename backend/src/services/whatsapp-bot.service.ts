@@ -249,6 +249,24 @@ async function clubLiveGame(): Promise<{ gameName: string; started: boolean; pha
 // حد الإلغاء الذاتي: 3 ساعات قبل موعد الفعالية (قرار المالك)
 const CANCEL_CUTOFF_MS = 3 * 3600e3;
 
+// 🇯🇴 توقيت الأردن ثابت UTC+3 (أُلغي التوقيت الصيفي نهاية 2022) — التخزين UTC
+// كل تاريخ يُعرض للعميل أو للنموذج يمر من هنا حصراً؛ حسابات المهل تبقى epoch-based
+const JO_OFFSET_MS = 3 * 3600e3;
+const JO_DAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const JO_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+function fmtJo(input: any, withTime = true): string {
+  const t = new Date(input).getTime();
+  if (isNaN(t)) return '';
+  const d = new Date(t + JO_OFFSET_MS);
+  const base = `${JO_DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${JO_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  if (!withTime) return base;
+  let h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const ap = h < 12 ? 'صباحاً' : 'مساءً';
+  h = h % 12 || 12;
+  return `${base} — ${h}:${String(m).padStart(2, '0')} ${ap}`;
+}
+
 // مدى الحياة الحقيقي: الأكبر من (عمود lifetime، عدّاد الموسم، عدد سجلات المباريات)
 // — العمود أُضيف بعد وجود مباريات تاريخية فقد يكون أقل من الواقع
 async function computeLifetimeMatches(db: any, playerId: number, seasonMatches: number, colValue: number): Promise<number> {
@@ -643,7 +661,7 @@ async function fetchUpcomingActivities(db: any) {
       id: a.id,
       name: a.name,
       date: a.date,
-      dateText: new Date(a.date).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }),
+      dateText: fmtJo(a.date),
       price: a.basePrice,
       location: a.locationName || '',
       seatsLeft: a.maxCapacity ? Math.max(0, a.maxCapacity - booked) : null,
@@ -736,7 +754,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-res-${conv.id}` }).catch(() => {});
       return {
         success: true,
-        reservation: { id: saved.id, activity: act.name, dateText: new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }), people },
+        reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people },
         note: 'الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل وذكّره أن الدفع في المكان.',
       };
     }
@@ -766,8 +784,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         .orderBy(desc(bookings.createdAt))
         .limit(5);
       return {
-        reservations: resList.map((r: any) => ({ activity: r.activityName, date: r.activityDate, people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : 'قيد المتابعة' })),
-        appBookings: bkList.map((b: any) => ({ activity: b.activityName, date: b.activityDate, people: b.count, paid: b.isFree ? 'مجاني' : b.isPaid ? 'مدفوع' : 'غير مدفوع' })),
+        reservations: resList.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : 'قيد المتابعة' })),
+        appBookings: bkList.map((b: any) => ({ activity: b.activityName, dateText: fmtJo(b.activityDate), people: b.count, paid: b.isFree ? 'مجاني' : b.isPaid ? 'مدفوع' : 'غير مدفوع' })),
       };
     }
 
@@ -965,7 +983,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       // حجز واحد → أزرار تأكيد مباشرة؛ أكثر → قائمة اختيار
       if (upcoming.length === 1) {
         const r = upcoming[0];
-        const when = new Date(r.activityDate).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+        const when = fmtJo(r.activityDate);
         await sendMessage({
           conversationId: conv.id,
           interactive: {
@@ -989,7 +1007,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
               sections: [{ title: 'حجوزاتك القادمة', rows: upcoming.map((r: any) => ({
                 id: `cancelc:${r.id}`,
                 title: r.activityName.slice(0, 24),
-                description: `${new Date(r.activityDate).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} · ${r.peopleCount} أشخاص`.slice(0, 72),
+                description: `${fmtJo(r.activityDate)} · ${r.peopleCount} أشخاص`.slice(0, 72),
               })) }],
             },
           },
@@ -1133,7 +1151,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           .limit(5);
         if (mine.length === 0) return { myMatches: [], note: 'لا مباريات مسجلة له بعد' };
         return {
-          myMatches: mine.map((m: any) => ({ match_id: m.id, name: m.gameName, when: new Date(m.createdAt).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' }), winner: m.winner })),
+          myMatches: mine.map((m: any) => ({ match_id: m.id, name: m.gameName, when: fmtJo(m.createdAt, false), winner: m.winner })),
           note: mine.length === 1 ? 'مباراة واحدة — استدعِ الأداة فوراً بمعرّفها' : 'اعرضها مرقمة واسأله أيها يريد، ثم استدعِ الأداة بالمعرّف',
         };
       }
@@ -1158,7 +1176,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return {
         match: {
           name: match?.gameName,
-          when: match ? new Date(match.createdAt).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' }) : null,
+          when: match ? fmtJo(match.createdAt, false) : null,
           winner: match?.winner,
           players: match?.playerCount,
           durationMinutes: match?.durationSeconds ? Math.round(match.durationSeconds / 60) : null,
@@ -1288,6 +1306,8 @@ export async function runAgent(opts: {
   const toolDecls = buildToolDeclarations(settings.toolsConfig);
   const systemText = [
     settings.systemPrompt,
+    // الآن بتوقيت الأردن — كل التواريخ من الأدوات تصلك منسّقة بنفس التوقيت
+    '\n───── الآن بتوقيت الأردن ─────\n' + fmtJo(new Date()),
     '\n───── بطاقة العميل الحالي ─────\n' + opts.customerCard,
     '\n───── قاعدة معرفة النادي ─────\n' + settings.knowledgeBase,
   ].join('\n');
@@ -1506,7 +1526,7 @@ async function performCancellation(convId: number, reservationId: number) {
   }
 
   const who = conv.displayName || conv.phone;
-  const when = new Date(r.activityDate).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' });
+  const when = fmtJo(r.activityDate);
   const msLeft = new Date(r.activityDate).getTime() - Date.now();
 
   if (msLeft < CANCEL_CUTOFF_MS) {
