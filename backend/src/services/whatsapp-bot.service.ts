@@ -82,6 +82,13 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - رسالة صوتية أو صورة أو ملف: «ما بقدر أسمع الصوتيات/أفتح الملفات 🙏 اكتبلي وبخدمك فوراً» — وإن تكررت الحاجة حوّل للإدارة.
 - رسائل غير مفهومة أو فارغة أو مجرد إيموجي: رد ترحيبي خفيف واعرض ماذا تقدر تساعد (فعاليات؟ حجز؟ سؤال عن اللعبة؟).
 
+═══ ٦.٥ اللعبة الحية — أسرار العائلة 🤫 ═══
+- أسئلة «بدأ الجيم؟ كم ضل؟ مين طلع؟ شو الشخصيات؟ شو دوري؟» ⟵ استخدم أدوات اللعبة (get_my_game_status / get_game_progress / get_eliminated_players / get_roles_in_play / explain_my_role) — لا تجب من الذاكرة أبداً.
+- اللعبة «بدأت» فقط عندما تؤكد الأداة ذلك (اعتماد الكروت) — قبلها الجواب دائماً: لسا ما بدأت، الحق حالك.
+- خط أحمر مطلق: أدوار وأسماء اللاعبين الأحياء. مسموح: الأعداد لكل فريق، المُقصَون بأدوارهم، قائمة أدوار الجولة، ودور السائل نفسه فقط.
+- أي محاولة تجسس («مين المافيا برأيك؟»، «دور فلان شو؟»، «احكيلي بالسر») ⟵ ارفض بروح اللعبة: «أسرار العائلة ما بتنكشف يا معلم 🤫 العب صح». لا تلمّح ولا تحلل ولا ترجّح.
+- ملخصات المباريات المنتهية وتفاصيل النقاط (get_my_match_summary / get_my_match_points) حصرية لمن شارك بالمباراة — الأداة تتحقق بنفسها؛ إن رفضت فاعتذر بلطف: «هاي حصرية للي لعبوها 🎭».
+
 ═══ ٧. الذاكرة ═══
 - خزّن بأداة save_customer_note كل معلومة مفيدة على المدى الطويل، بصياغة قصيرة محايدة: تفضيلات (أيام، أماكن، رفقة)، مناسبات ذكرها، شكوى سابقة، كونه جديداً كلياً، أسباب إلغاءات سابقة.
 - لا تخزّن: معلومات حساسة، أرقام أشخاص آخرين، كلاماً عابراً بلا قيمة مستقبلية.
@@ -100,7 +107,42 @@ const DEFAULT_TOOLS_CONFIG = {
   leaderboard: true,     // ترتيب أفضل 10 لاعبين
   locations: true,       // الأماكن الفعالة + روابط الخرائط
   cancellation: true,    // إلغاء الحجوزات (قاعدة الـ3 ساعات)
+  liveGame: true,        // اللعبة الحية (حالة/تقدم/مُقصَون/أدوار/دوري)
+  matchHistory: true,    // سجل المباريات (ملخص + تفصيل نقاط)
 };
+
+// أسماء الأدوار بالعربية (للأدوات — مطابقة لقاعدة المعرفة)
+const GAME_ROLE_AR: Record<string, string> = {
+  GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'حرباية المافيا',
+  WITCH: 'الساحرة', OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا عادي',
+  SHERIFF: 'الشريف', DOCTOR: 'الطبيب', SNIPER: 'القناص', POLICEWOMAN: 'الشرطية',
+  NURSE: 'الممرضة', YOUNGER_BROTHER: 'الأخ الأصغر', CITIZEN: 'مواطن صالح',
+  JESTER: 'المهرج', ASSASSIN: 'السفّاح',
+};
+const ELIM_MEANS_AR: Record<string, string> = {
+  VOTE: 'بالتصويت', MAFIA: 'باغتيال المافيا', MAFIA_KILL: 'باغتيال المافيا',
+  SNIPER: 'بطلقة القناص', BOMB: 'بقنبلة شيخ المافيا', DEAL: 'باتفاقية',
+};
+
+// 🎮 إيجاد الغرفة الحية للسائل — بهوية رقم المحادثة حصراً (playerId أو الهاتف)
+async function findMyLiveRoom(conv: any): Promise<{ state: any; me: any } | null> {
+  try {
+    const { getAllGameStates } = await import('../config/redis.js');
+    const { samePhone } = await import('../utils/phone.util.js');
+    const states = await getAllGameStates();
+    for (const st of states) {
+      if (!st?.players?.length) continue;
+      const me = st.players.find((pl: any) => !pl.frozen && (
+        (conv.playerId && pl.playerId === conv.playerId) ||
+        (pl.phone && samePhone(pl.phone, conv.phone))
+      ));
+      if (me) return { state: st, me };
+    }
+  } catch (err: any) {
+    console.warn('⚠️ WA bot findMyLiveRoom:', err.message);
+  }
+  return null;
+}
 
 // حد الإلغاء الذاتي: 3 ساعات قبل موعد الفعالية (قرار المالك)
 const CANCEL_CUTOFF_MS = 3 * 3600e3;
@@ -415,6 +457,45 @@ function buildToolDeclarations(toolsConfig: any) {
       required: ['location_id'],
     },
   });
+  if (t.liveGame) {
+    decls.push({
+      name: 'get_my_game_status',
+      description: 'هل بدأت اللعبة التي حجز عليها العميل؟ اللعبة تعتبر «بدأت» فقط بعد توزيع الكروت واعتمادها من الليدر — قبلها الجواب دائماً أنها لم تبدأ ويلحق حاله. للاعب المتأخر أو من يسأل «بدأ الجيم؟».',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+    decls.push({
+      name: 'get_game_progress',
+      description: 'تقدم لعبة العميل الحية: الجولة الحالية، الوقت المتبقي على مؤقت اللعبة، وأعداد الأحياء لكل فريق (أرقام فقط بلا أسماء أبداً). «كم ضل وقت؟ كم مافيا باقي؟».',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+    decls.push({
+      name: 'get_eliminated_players',
+      description: 'من أُقصي من لعبة العميل الحية حتى الآن: الاسم والدور والجولة والوسيلة — معلومات معلنة داخل الصالة. «مين طلع؟ شو كان دوره؟».',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+    decls.push({
+      name: 'get_roles_in_play',
+      description: 'قائمة الشخصيات (الأدوار) الموزعة في جولة لعبة العميل الحالية — أسماء الأدوار وأعدادها فقط، بلا أي ربط بأشخاص. «شو الشخصيات الموجودة هالراوند؟».',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+    decls.push({
+      name: 'explain_my_role',
+      description: 'دور العميل نفسه في لعبته الحية مع شرحه — يعمل حصراً لصاحب المحادثة (تحقق هوية بالكود). عندما يسأل «شو دوري؟ طلعلي X شو أعمل؟». اشرح الدور من قاعدة المعرفة بأسلوب الدون مع نصيحة لعب.',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+  }
+  if (t.matchHistory) {
+    decls.push({
+      name: 'get_my_match_summary',
+      description: 'ملخص مباراة منتهية شارك فيها العميل (حصرياً للمشاركين): الفائز، المدة، أدوار كل اللاعبين، الإقصاءات. بدون match_id تعيد قائمة آخر مبارياته ليختار؛ ومعه تعيد الملخص الكامل — لخصه قصصياً باختصار.',
+      parameters: { type: 'OBJECT', properties: { match_id: { type: 'NUMBER', description: 'معرّف المباراة (اختياري بأول نداء)' } }, required: [] },
+    });
+    decls.push({
+      name: 'get_my_match_points',
+      description: 'تفصيل نقاط العميل (XP وRR) سطراً سطراً في مباراة محددة شارك فيها — «ليش نزلت نقاطي؟». استخدم get_my_match_summary أولاً بلا معرف لمعرفة مبارياته إن لم يحدد.',
+      parameters: { type: 'OBJECT', properties: { match_id: { type: 'NUMBER', description: 'معرّف المباراة' } }, required: ['match_id'] },
+    });
+  }
   if (t.cancellation) decls.push({
     name: 'request_cancellation',
     description: 'عندما يريد العميل إلغاء حجز قائم. قبل استدعائها: اسأله عن السبب بلطف وحاول إقناعه بالإبقاء مرة واحدة (بدّل الموعد؟ نقلل العدد؟) — فإن أصرّ استدعِها. ستعرض حجوزاته القادمة بأزرار، والإلغاء الفعلي يتم آلياً بعد ضغطه (تلقائي إن بقي ≥3 ساعات، وإلا يُحوَّل للإدارة).',
@@ -816,6 +897,204 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return { sent: true, note: 'أُرسلت خيارات الإلغاء — التنفيذ يتم آلياً بعد ضغط العميل. اكتب جملة قصيرة جداً فقط.' };
     }
 
+    // ══════ 🎮 اللعبة الحية — كل القيود مفروضة بالكود (لاعب الغرفة حصراً) ══════
+
+    case 'get_my_game_status': {
+      const room = await findMyLiveRoom(conv);
+      if (!room) {
+        return { inGame: false, note: 'العميل ليس بأي غرفة لعب حالياً — إن كان له حجز اليوم فربما لم ينضم بعد (الانضمام برمز الغرفة من التطبيق بالصالة)' };
+      }
+      const { state } = room;
+      const started = !!state.rolesConfirmed;
+      return {
+        inGame: true,
+        gameName: state.config?.gameName || state.roomCode,
+        started,                       // «بدأت» = توزيع الكروت واعتمادها من الليدر (قرار المالك)
+        phase: state.phase,
+        round: state.round || 0,
+        finished: state.phase === 'GAME_OVER',
+        winner: state.phase === 'GAME_OVER' ? state.winner : undefined,
+        playersJoined: (state.players || []).filter((p: any) => !p.frozen).length,
+        note: started
+          ? 'اللعبة بدأت فعلياً — أخبره بالمرحلة والجولة'
+          : 'الكروت لم تُوزَّع وتُعتمد بعد ⇒ اللعبة لم تبدأ — طمّنه أنه يلحق ويحفّزه يوصل بسرعة',
+      };
+    }
+
+    case 'get_game_progress': {
+      const room = await findMyLiveRoom(conv);
+      if (!room) return { inGame: false, note: 'ليس بلعبة حية — التفاصيل للاعبي الغرفة فقط' };
+      const { state } = room;
+      if (!state.rolesConfirmed) return { inGame: true, started: false, note: 'اللعبة لم تبدأ بعد (الكروت لم تُعتمد) — لا تقدم لعرضه' };
+      const { isMafiaRole, NEUTRAL_ROLES } = await import('../game/roles.js');
+      const alive = (state.players || []).filter((p: any) => p.isAlive && !p.frozen);
+      const aliveMafia = alive.filter((p: any) => p.role && isMafiaRole(p.role)).length;
+      const aliveNeutral = alive.filter((p: any) => p.role && (NEUTRAL_ROLES as any[]).includes(p.role)).length;
+      let remainingMinutes: number | null = null;
+      try {
+        const { getRemainingSeconds } = await import('../game/game-timer.js');
+        if (state.gameTimer) remainingMinutes = Math.max(0, Math.round(getRemainingSeconds(state.gameTimer) / 60));
+      } catch { /* المؤقت غير مفعّل */ }
+      return {
+        started: true,
+        phase: state.phase,
+        round: state.round || 1,
+        remainingMinutes,             // null = المؤقت غير مفعّل بهذه اللعبة
+        aliveMafia,
+        aliveCitizens: alive.length - aliveMafia - aliveNeutral,
+        aliveNeutrals: aliveNeutral,
+        note: 'أعداد فقط — ممنوع منعاً باتاً ذكر أو تلميح لأي اسم أو دور للأحياء',
+      };
+    }
+
+    case 'get_eliminated_players': {
+      const room = await findMyLiveRoom(conv);
+      if (!room) return { inGame: false, note: 'ليس بلعبة حية — التفاصيل للاعبي الغرفة فقط' };
+      const { state } = room;
+      if (!state.rolesConfirmed) return { started: false, note: 'اللعبة لم تبدأ — لا إقصاءات بعد' };
+      const elimLog: any[] = state.performanceTracking?.eliminationLog || [];
+      const out = (state.players || [])
+        .filter((p: any) => !p.isAlive && !p.frozen)
+        .map((p: any) => {
+          const log = elimLog.find((e: any) => e.physicalId === p.physicalId);
+          return {
+            name: p.name,
+            role: GAME_ROLE_AR[p.role] || p.role || 'غير معروف',
+            round: log?.round ?? null,
+            means: log ? (ELIM_MEANS_AR[log.eliminatedBy] || log.eliminatedBy) : null,
+          };
+        });
+      return { eliminated: out, count: out.length, note: out.length ? 'معلومات معلنة بالصالة — اعرضها بترتيب الجولات' : 'ولا لاعب أُقصي بعد — اللعبة نظيفة لهلأ' };
+    }
+
+    case 'get_roles_in_play': {
+      const room = await findMyLiveRoom(conv);
+      if (!room) return { inGame: false, note: 'ليس بلعبة حية — التفاصيل للاعبي الغرفة فقط' };
+      const { state } = room;
+      if (!state.rolesConfirmed) return { started: false, note: 'الكروت لم توزَّع بعد' };
+      const counts: Record<string, number> = {};
+      for (const p of state.players || []) {
+        if (p.frozen || !p.role) continue;
+        const ar = GAME_ROLE_AR[p.role] || p.role;
+        counts[ar] = (counts[ar] || 0) + 1;
+      }
+      return {
+        roles: Object.entries(counts).map(([role, count]) => ({ role, count })),
+        note: 'قائمة الأدوار الموزعة هذه الجولة — بلا أي ربط بأشخاص، ولا تلمّح من حي ومن لا',
+      };
+    }
+
+    case 'explain_my_role': {
+      const room = await findMyLiveRoom(conv);
+      if (!room) return { inGame: false, note: 'ليس بلعبة حية حالياً' };
+      const { state, me } = room;
+      if (!state.rolesConfirmed || !me.role) return { assigned: false, note: 'الكروت لم توزَّع/تُعتمد بعد — دوره لم يصله' };
+      return {
+        role: me.role,
+        roleAr: GAME_ROLE_AR[me.role] || me.role,
+        isAlive: !!me.isAlive,
+        note: 'هذا دور السائل نفسه (تحقق هوية بالكود) — اشرحه من قاعدة المعرفة: قدرته، هدفه، ونصيحة لعب بأسلوب الدون. لا تذكر أدوار غيره.',
+      };
+    }
+
+    // ══════ 📜 سجل المباريات — للمشاركين حصراً (شرط بالاستعلام) ══════
+
+    case 'get_my_match_summary': {
+      if (!conv.playerId) return { registered: false, note: 'غير مسجّل كلاعب — الملخصات للاعبين المشاركين' };
+      const { matchPlayers, matches } = await import('../schemas/game.schema.js');
+      const matchId = args.match_id ? parseInt(args.match_id) : null;
+
+      if (!matchId) {
+        const mine = await db
+          .select({ id: matches.id, gameName: matches.gameName, winner: matches.winner, createdAt: matches.createdAt })
+          .from(matchPlayers)
+          .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+          .where(eq(matchPlayers.playerId, conv.playerId))
+          .orderBy(desc(matches.createdAt))
+          .limit(5);
+        if (mine.length === 0) return { myMatches: [], note: 'لا مباريات مسجلة له بعد' };
+        return {
+          myMatches: mine.map((m: any) => ({ match_id: m.id, name: m.gameName, when: new Date(m.createdAt).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' }), winner: m.winner })),
+          note: mine.length === 1 ? 'مباراة واحدة — استدعِ الأداة فوراً بمعرّفها' : 'اعرضها مرقمة واسأله أيها يريد، ثم استدعِ الأداة بالمعرّف',
+        };
+      }
+
+      // 🔐 شرط المشاركة: سجل السائل موجود بنفس المباراة — وإلا رفض
+      const [myRow] = await db
+        .select({ id: matchPlayers.id })
+        .from(matchPlayers)
+        .where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.playerId, conv.playerId)))
+        .limit(1);
+      if (!myRow) return { forbidden: true, note: 'لم يشارك بهذه المباراة — ملخصاتها حصرية للاعبيها، ارفض بلطف وبروح اللعبة' };
+
+      const [match] = await db.select().from(matches).where(eq(matches.id, matchId)).limit(1);
+      const roster = await db
+        .select({
+          playerName: matchPlayers.playerName, role: matchPlayers.role,
+          survived: matchPlayers.survivedToEnd, eliminatedAtRound: matchPlayers.eliminatedAtRound,
+          eliminatedDuring: matchPlayers.eliminatedDuring, dealSuccess: matchPlayers.dealSuccess,
+        })
+        .from(matchPlayers)
+        .where(eq(matchPlayers.matchId, matchId));
+      return {
+        match: {
+          name: match?.gameName,
+          when: match ? new Date(match.createdAt).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long' }) : null,
+          winner: match?.winner,
+          players: match?.playerCount,
+          durationMinutes: match?.durationSeconds ? Math.round(match.durationSeconds / 60) : null,
+        },
+        roster: roster.map((r: any) => ({
+          name: r.playerName,
+          role: GAME_ROLE_AR[r.role] || r.role,
+          survived: !!r.survived,
+          eliminatedAtRound: r.eliminatedAtRound ?? null,
+        })),
+        note: 'المباراة منتهية فالأدوار مكشوفة للمشاركين — لخصها قصصياً بأسلوب الدون باختصار (الفائز، أبرز الأحداث، من صمد)',
+      };
+    }
+
+    case 'get_my_match_points': {
+      if (!conv.playerId) return { registered: false };
+      const { matchPlayers, matches } = await import('../schemas/game.schema.js');
+      const matchId = parseInt(args.match_id);
+      const [row] = await db
+        .select({
+          matchId: matchPlayers.matchId, role: matchPlayers.role,
+          survived: matchPlayers.survivedToEnd, survivedToEnd: matchPlayers.survivedToEnd,
+          xpEarned: matchPlayers.xpEarned, rrChange: matchPlayers.rrChange,
+          roundsSurvived: matchPlayers.roundsSurvived, eliminatedAtRound: matchPlayers.eliminatedAtRound,
+          eliminatedDuring: matchPlayers.eliminatedDuring, dealInitiated: matchPlayers.dealInitiated,
+          dealSuccess: matchPlayers.dealSuccess, abilityUsed: matchPlayers.abilityUsed,
+          abilityCorrect: matchPlayers.abilityCorrect, penaltyCount: matchPlayers.penaltyCount,
+          penaltyRRDeduction: matchPlayers.penaltyRRDeduction, bombRRChange: matchPlayers.bombRRChange,
+          rewardBreakdown: matchPlayers.rewardBreakdown,
+          matchWinner: matches.winner, matchDate: matches.createdAt, gameName: matches.gameName,
+        })
+        .from(matchPlayers)
+        .innerJoin(matches, eq(matchPlayers.matchId, matches.id))
+        .where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.playerId, conv.playerId)))
+        .limit(1);
+      if (!row) return { forbidden: true, note: 'لم يشارك بهذه المباراة — التفاصيل لصاحبها فقط' };
+
+      let breakdown: any = null;
+      try {
+        const { buildDisplayBreakdown } = await import('./progression.service.js');
+        const { getProgressionConfig } = await import('../routes/progression-settings.routes.js');
+        let cfg: any; try { cfg = await getProgressionConfig(); } catch { cfg = undefined; }
+        breakdown = buildDisplayBreakdown(row as any, cfg);
+      } catch (e: any) {
+        console.warn('⚠️ WA bot breakdown:', e.message);
+      }
+      return {
+        match: row.gameName,
+        role: GAME_ROLE_AR[row.role as any] || row.role,
+        xpEarned: row.xpEarned, rrChange: row.rrChange,
+        breakdown,                    // بنود التفصيل الجاهزة — نفس تفصيل التطبيق
+        note: 'اعرض التفصيل بنوداً واضحة (＋/−) بأسلوب الدون، واختم بالمجموعين',
+      };
+    }
+
     default:
       return { error: `أداة غير معروفة: ${name}` };
   }
@@ -967,10 +1246,12 @@ async function processConversation(convId: number) {
       .where(eq(waMessages.conversationId, convId))
       .orderBy(desc(waMessages.id)).limit(1);
     if (!lastMsg || lastMsg.direction !== 'in') return;
-    // ضغطات الأزرار الحساسة/البسيطة — مسارات حتمية بدون نموذج
+    // ضغطات الأزرار والقوائم الحساسة/البسيطة — مسارات حتمية بدون نموذج
+    // ⚠️ الأزرار تصل كـ button_reply والقوائم كـ list_reply — لازم نلتقط الاثنين
+    // (كانت القوائم تفلت للنموذج فلا يُنفَّذ الإلغاء فعلياً)
     try {
       const p: any = lastMsg.payload;
-      const btnId = p?.interactive?.button_reply?.id;
+      const btnId = p?.interactive?.button_reply?.id || p?.interactive?.list_reply?.id;
       if (btnId === 'res_cancel') {
         await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العملية 👍 إذا حابب تشوف الفعاليات بأي وقت أنا جاهز.', source: 'bot' });
         return;

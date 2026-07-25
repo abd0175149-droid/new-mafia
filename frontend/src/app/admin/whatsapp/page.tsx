@@ -915,6 +915,8 @@ const TOOL_LABELS: Record<string, string> = {
   leaderboard: '🏆 ترتيب أفضل 10 لاعبين',
   locations: '📍 الأماكن وروابط الخرائط',
   cancellation: '❌ إلغاء الحجوزات (قاعدة 3 ساعات)',
+  liveGame: '🎮 اللعبة الحية (حالة/وقت/مُقصَون/دوري)',
+  matchHistory: '📜 سجل المباريات (ملخص + تفصيل نقاط)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {
