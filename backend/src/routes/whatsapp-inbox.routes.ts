@@ -9,10 +9,12 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
-import { eq, desc, and, lt, sql, or, ilike } from 'drizzle-orm';
+import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waCustomerNotes, waOptouts, bookings } from '../schemas/admin.schema.js';
+import { players } from '../schemas/player.schema.js';
+import { normalizeLocalPhone } from '../utils/phone.util.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
 import {
   processWebhookPayload,
@@ -261,6 +263,167 @@ router.post('/conversations/:id/bot-toggle', authenticate, adminOnly, async (req
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
     res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/unread-count — مجموع غير المقروء (لشارة القائمة الجانبية)
+// ══════════════════════════════════════════════════════
+
+router.get('/unread-count', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const [row] = await db
+      .select({ total: sql<number>`COALESCE(SUM(${waConversations.unreadCount}), 0)` })
+      .from(waConversations);
+    res.json({ success: true, total: Number(row?.total || 0) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/conversations/:id/context — لوحة العميل
+// اللاعب المربوط + آخر الحجوزات + الملاحظات + حالة إيقاف التسويق
+// ══════════════════════════════════════════════════════
+
+router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+
+    const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+    if (!conv) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    // ── اللاعب المربوط ──
+    let player: any = null;
+    if (conv.playerId) {
+      const [p] = await db
+        .select({
+          id: players.id, name: players.name, phone: players.phone,
+          rankTier: players.rankTier, rankRR: players.rankRR, level: players.level,
+          xp: players.xp, totalMatches: players.totalMatches,
+          totalWins: players.totalWins, totalSurvived: players.totalSurvived,
+          avatarUrl: players.avatarUrl,
+        })
+        .from(players).where(eq(players.id, conv.playerId)).limit(1);
+      player = p || null;
+    }
+
+    // ── آخر الحجوزات (بمعرّف اللاعب أو بالهاتف) ──
+    const bkConds = conv.playerId
+      ? or(eq(bookings.playerId, conv.playerId), eq(bookings.phone, conv.phone))
+      : eq(bookings.phone, conv.phone);
+    const lastBookings = await db
+      .select({
+        id: bookings.id, name: bookings.name, count: bookings.count,
+        isPaid: bookings.isPaid, isFree: bookings.isFree,
+        activityId: bookings.activityId, createdAt: bookings.createdAt,
+      })
+      .from(bookings)
+      .where(and(bkConds, isNull(bookings.deletedAt)))
+      .orderBy(desc(bookings.createdAt))
+      .limit(3);
+
+    // ── الملاحظات الدائمة ──
+    const notes = await db
+      .select().from(waCustomerNotes)
+      .where(eq(waCustomerNotes.phone, conv.phone))
+      .orderBy(desc(waCustomerNotes.createdAt))
+      .limit(10);
+
+    // ── إيقاف التسويق؟ ──
+    const [opt] = await db.select({ id: waOptouts.id }).from(waOptouts).where(eq(waOptouts.phone, conv.phone)).limit(1);
+
+    res.json({ success: true, player, bookings: lastBookings, notes, optedOut: !!opt });
+  } catch (err: any) {
+    console.error('❌ whatsapp/context:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/conversations/:id/note — ملاحظة يدوية من الإدارة
+// ══════════════════════════════════════════════════════
+
+router.post('/conversations/:id/note', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+    const note = String(req.body?.note || '').trim();
+    if (!note) return res.status(400).json({ error: 'الملاحظة فارغة' });
+
+    const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
+    if (!conv) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    const [saved] = await db
+      .insert(waCustomerNotes)
+      .values({ phone: conv.phone, playerId: conv.playerId, note, source: 'staff' } as any)
+      .returning();
+    res.json({ success: true, note: saved });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// POST /api/whatsapp/conversations/:id/link-player — ربط/فك ربط يدوي
+// Body: { playerId: number | null }
+// ══════════════════════════════════════════════════════
+
+router.post('/conversations/:id/link-player', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const convId = parseInt(req.params.id);
+    const playerId = req.body?.playerId === null ? null : parseInt(req.body?.playerId);
+    if (playerId !== null && isNaN(playerId)) return res.status(400).json({ error: 'playerId غير صالح' });
+
+    const patch: any = { playerId, updatedAt: new Date() };
+    if (playerId !== null) {
+      const [p] = await db.select({ name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
+      if (!p) return res.status(404).json({ error: 'اللاعب غير موجود' });
+      patch.displayName = p.name;
+    }
+
+    const [updated] = await db
+      .update(waConversations).set(patch)
+      .where(eq(waConversations.id, convId)).returning();
+    if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
+
+    res.json({ success: true, conversation: { ...updated, botActive: isBotActive(updated), windowOpen: isFreeWindowOpen(updated) } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// GET /api/whatsapp/player-search?q= — بحث لاعبين للربط اليدوي
+// ══════════════════════════════════════════════════════
+
+router.get('/player-search', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ success: true, players: [] });
+
+    const conds: any[] = [ilike(players.name, `%${q}%`)];
+    const localPhone = normalizeLocalPhone(q);
+    if (localPhone) conds.push(eq(players.phone, localPhone));
+    else if (/^\d{3,}$/.test(q.replace(/\D/g, ''))) conds.push(ilike(players.phone, `%${q.replace(/\D/g, '')}%`));
+
+    const results = await db
+      .select({ id: players.id, name: players.name, phone: players.phone, rankTier: players.rankTier, rankRR: players.rankRR })
+      .from(players)
+      .where(or(...conds))
+      .limit(10);
+    res.json({ success: true, players: results });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

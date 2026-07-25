@@ -11,14 +11,17 @@ interface BookingFormProps {
   onCancel: () => void;
   userRole?: string;
   username?: string;
+  // 💬 تعبئة مسبقة (يُستخدم من مركز محادثات واتساب)
+  initialName?: string;
+  initialPhone?: string;
 }
 
 const CURRENCY = 'د.أ';
 
-export default function BookingForm({ activities, locations, staffList, onSubmit, onCancel, userRole, username }: BookingFormProps) {
+export default function BookingForm({ activities, locations, staffList, onSubmit, onCancel, userRole, username, initialName, initialPhone }: BookingFormProps) {
   const [activityId, setActivityId] = useState<string>('');
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [name, setName] = useState(initialName || '');
+  const [phone, setPhone] = useState(initialPhone || '');
   const [count, setCount] = useState(1);
   const [isFree, setIsFree] = useState(false);
   const [isPaid, setIsPaid] = useState(false);

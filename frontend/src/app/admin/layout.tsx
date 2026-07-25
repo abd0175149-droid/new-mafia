@@ -4,6 +4,7 @@ import { useEffect, useState, ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getSocket } from '@/lib/socket';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -40,6 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/activities', icon: '🎯', label: 'الأنشطة' },
       { href: '/admin/bookings', icon: '📅', label: 'الحجوزات' },
       { href: '/admin/reservations', icon: '📋', label: 'متابعة الحجوزات' },
+      { href: '/admin/whatsapp', icon: '💬', label: 'واتساب', roles: ['admin'] },
       { href: '/admin/tickets', icon: '🎫', label: 'التذاكر', roles: ['admin', 'accountant'] },
     ],
   },
@@ -167,6 +169,31 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
+  // 💬 عدّاد واتساب غير المقروء (أدمن فقط) — لحظي عبر السوكيت + تحديث دوري
+  const [waUnread, setWaUnread] = useState(0);
+  useEffect(() => {
+    if (user?.role !== 'admin') return;
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/api/whatsapp/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (alive) setWaUnread(data.total || 0);
+      } catch { /* غير حرج */ }
+    };
+    refresh();
+    const iv = setInterval(refresh, 60_000);
+    const s = getSocket();
+    const onWa = () => refresh();
+    s.on('wa:message:new', onWa);
+    s.on('wa:conversation:update', onWa);
+    return () => { alive = false; clearInterval(iv); s.off('wa:message:new', onWa); s.off('wa:conversation:update', onWa); };
+  }, [user?.role]);
+
   // إغلاق الـ sidebar عند التنقل (موبايل)
   useEffect(() => {
     if (isMobile) setSidebarOpen(false);
@@ -280,11 +307,21 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                       : 'text-gray-400 hover:text-white hover:bg-gray-800/50'
                   }`}
                 >
-                  <span className={`shrink-0 w-6 text-center ${indented && showLabel ? 'text-base' : 'text-lg'}`}>{item.icon}</span>
+                  <span className={`shrink-0 w-6 text-center relative ${indented && showLabel ? 'text-base' : 'text-lg'}`}>
+                    {item.icon}
+                    {item.href === '/admin/whatsapp' && waUnread > 0 && !showLabel && (
+                      <span className="absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full bg-rose-500" />
+                    )}
+                  </span>
                   <AnimatePresence>
                     {showLabel && (
-                      <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`font-medium whitespace-nowrap ${indented ? 'text-[13px]' : 'text-sm'}`}>
+                      <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`font-medium whitespace-nowrap flex items-center gap-2 ${indented ? 'text-[13px]' : 'text-sm'}`}>
                         {item.label}
+                        {item.href === '/admin/whatsapp' && waUnread > 0 && (
+                          <span className="bg-rose-500 text-white text-[10px] font-bold rounded-full px-1.5 min-w-[18px] h-[18px] flex items-center justify-center">
+                            {waUnread > 99 ? '99+' : waUnread}
+                          </span>
+                        )}
                       </motion.span>
                     )}
                   </AnimatePresence>
