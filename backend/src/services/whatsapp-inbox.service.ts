@@ -322,8 +322,19 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
   emitInbox('wa:message:new', { conversation: updatedConv, message: saved });
 
   // ── push للأدمنية على تطبيق اللاعب — لكل رسالة واردة (قرار المالك) ──
+  // تجميع لكل محادثة: tag ثابت يستبدل الإشعار السابق، والعنوان يحمل عدد غير المقروء،
+  // والنقر يفتح المحادثة مباشرة عبر url (يدعمها sw.js وبنية FCM الحالية)
   const who = updatedConv.displayName || updatedConv.phone;
-  notifyAdmins(`💬 ${who}`, body.slice(0, 140) || `رسالة ${msgType}`, { conversationId: conv.id });
+  const unread = updatedConv.unreadCount || 1;
+  notifyAdmins(
+    unread > 1 ? `💬 ${who} (${unread} رسائل)` : `💬 ${who}`,
+    body.slice(0, 140) || `رسالة ${msgType}`,
+    {
+      conversationId: conv.id,
+      url: `/admin/whatsapp?conv=${conv.id}`,
+      tag: `wa-conv-${conv.id}`,
+    },
+  );
 
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv)) {

@@ -36,7 +36,13 @@ async function apiFetch(path: string, opts?: RequestInit) {
 
 // ── ثوابت العرض ──
 const RANK_AR: Record<string, string> = {
-  INFORMANT: 'مخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي',
+  INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'ساعد الزعيم', GODFATHER: 'العرّاب',
+};
+const ROLE_AR: Record<string, string> = {
+  GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'الحرباية', WITCH: 'الساحرة',
+  OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
+  SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', YOUNGER_BROTHER: 'الأخ الأصغر',
+  CITIZEN: 'مواطن', JESTER: 'المهرج', ASSASSIN: 'السفّاح',
 };
 const FILTERS = [
   { key: 'all', label: 'الكل' },
@@ -247,6 +253,20 @@ export default function WhatsAppInboxPage() {
     const r = setInterval(() => { loadConvs({ silent: true }); }, 60_000);
     return () => { clearInterval(t); clearInterval(r); };
   }, [loadConvs]);
+
+  // ── فتح مباشر من إشعار push: /admin/whatsapp?conv=ID ──
+  useEffect(() => {
+    try {
+      const id = parseInt(new URLSearchParams(window.location.search).get('conv') || '');
+      if (id) {
+        setMainTab('chat');
+        openConv(id);
+        // تنظيف الرابط حتى لا يُعاد الفتح عند refresh
+        window.history.replaceState({}, '', '/admin/whatsapp');
+      }
+    } catch { /* تجاهل */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── كتم الصوت (محفوظ محلياً) ──
   useEffect(() => {
@@ -677,22 +697,51 @@ export default function WhatsAppInboxPage() {
                   <div className="text-center text-gray-600 text-xs py-3">جارٍ التحميل…</div>
                 ) : ctx.player ? (
                   <>
+                    {/* الهوية: صورة حقيقية + اسم + وسوم */}
                     <div className="flex items-center gap-2.5">
-                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 text-gray-950 flex items-center justify-center font-bold">
-                        {ctx.player.name.charAt(0)}
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-amber-500 to-amber-700 text-gray-950 flex items-center justify-center font-bold shrink-0 border border-amber-500/40">
+                        {ctx.player.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={`${API_URL}${ctx.player.avatarUrl}`} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          ctx.player.name.charAt(0)
+                        )}
                       </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-sm text-white truncate">{ctx.player.name}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-sm text-white truncate flex items-center gap-1.5">
+                          {ctx.player.name}
+                          {ctx.player.isFree && <span className="text-[9px] font-bold bg-sky-500/10 text-sky-400 rounded px-1.5">🎁 مجاني</span>}
+                        </div>
                         <div className="text-[10.5px] text-gray-500">
-                          لاعب #{ctx.player.id} · مستوى {ctx.player.level} · <span className="text-amber-400 font-bold">{RANK_AR[ctx.player.rankTier] || ctx.player.rankTier} {ctx.player.rankRR}RR</span>
+                          لاعب #{ctx.player.id}
+                          {ctx.player.lastActiveAt && <> · آخر نشاط {fmtWhen(ctx.player.lastActiveAt)}</>}
                         </div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5 mt-3 text-center">
+
+                    {/* التقدم: الرتبة + شريط XP */}
+                    <div className="mt-2.5 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-bold text-amber-400">🎖️ {RANK_AR[ctx.player.rankTier] || ctx.player.rankTier}</span>
+                        <span className="text-gray-400 tabular-nums">{ctx.player.rankRR} RR{ctx.player.rrRequired ? ` / ${ctx.player.rrRequired}` : ''}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-gray-500 mt-1.5">
+                        <span>مستوى {ctx.player.level}</span>
+                        <span className="tabular-nums">{ctx.player.xp}{ctx.player.nextLevelXP ? ` / ${ctx.player.nextLevelXP} XP` : ' XP'}</span>
+                      </div>
+                      {typeof ctx.player.xpProgress === 'number' && (
+                        <div className="h-1 bg-gray-800 rounded-full mt-1 overflow-hidden">
+                          <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(100, ctx.player.xpProgress)}%` }} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* أداء الموسم (من سجل المباريات الحقيقي) */}
+                    <div className="grid grid-cols-3 gap-1.5 mt-2 text-center">
                       {[
-                        { v: ctx.player.totalMatches, l: 'مباراة' },
-                        { v: ctx.player.totalWins, l: 'فوز' },
-                        { v: ctx.player.totalMatches > 0 ? Math.round((ctx.player.totalWins / ctx.player.totalMatches) * 100) + '%' : '—', l: 'نسبة الفوز' },
+                        { v: ctx.player.totalMatches ?? 0, l: 'مباراة' },
+                        { v: ctx.player.totalWins ?? 0, l: 'فوز' },
+                        { v: (ctx.player.winRate ?? 0) + '%', l: 'نسبة الفوز' },
                       ].map((s, i) => (
                         <div key={i} className="bg-gray-950 border border-gray-800 rounded-lg py-1.5">
                           <div className="font-bold text-sm text-white tabular-nums">{s.v}</div>
@@ -700,6 +749,23 @@ export default function WhatsAppInboxPage() {
                         </div>
                       ))}
                     </div>
+                    <div className="grid grid-cols-3 gap-1.5 mt-1.5 text-center">
+                      {[
+                        { v: (ctx.player.survivalRate ?? 0) + '%', l: 'نسبة النجاة' },
+                        { v: ctx.player.longestWinStreak ?? 0, l: 'أطول سلسلة' },
+                        { v: ctx.player.lifetimeMatches ?? 0, l: 'مدى الحياة' },
+                      ].map((s, i) => (
+                        <div key={i} className="bg-gray-950 border border-gray-800 rounded-lg py-1.5">
+                          <div className="font-bold text-sm text-white tabular-nums">{s.v}</div>
+                          <div className="text-[9px] text-gray-600">{s.l}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {ctx.player.favoriteRole && (
+                      <div className="mt-2 text-center text-[10.5px] text-gray-400 bg-gray-950 border border-gray-800 rounded-lg py-1.5">
+                        🎭 الدور المفضل: <b className="text-violet-400">{ROLE_AR[ctx.player.favoriteRole] || ctx.player.favoriteRole}</b>
+                      </div>
+                    )}
                     <button onClick={() => linkPlayer(null)} className="w-full mt-2.5 text-[10.5px] text-gray-600 hover:text-rose-400">فك الربط</button>
                   </>
                 ) : (

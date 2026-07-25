@@ -445,7 +445,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         'reservation',
         { route: '/admin/reservations' },
       ).catch(() => {});
-      notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id }).catch(() => {});
+      notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-res-${conv.id}` }).catch(() => {});
       return {
         success: true,
         reservation: { id: saved.id, activity: act.name, dateText: new Date(act.date).toLocaleDateString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }), people },
@@ -500,7 +500,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       } as any).where(eq(waConversations.id, conv.id));
       const who = conv.displayName || conv.phone;
       const reason = String(args.reason || '').slice(0, 200);
-      notifyAdmins('⚠️ عميل بحاجة تدخل بشري', `${who}: ${reason}`, { conversationId: conv.id }).catch(() => {});
+      notifyAdmins('⚠️ عميل بحاجة تدخل بشري', `${who}: ${reason}`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
       sendPushToStaffByPermission('bookings', '⚠️ واتساب: تحويل من البوت', `${who} — ${reason}`, 'whatsapp', { route: '/admin/whatsapp' }).catch(() => {});
       try {
         const io = (global as any).io;
@@ -692,7 +692,7 @@ async function processConversation(convId: number) {
       if (settings.failHandoff) {
         await db.update(waConversations).set({ needsAttention: true, botPausedUntil: new Date(Date.now() + 3600e3), updatedAt: new Date() } as any)
           .where(eq(waConversations.id, convId));
-        notifyAdmins('⚠️ خلل بالبوت — عميل بانتظار رد', conv.displayName || conv.phone, { conversationId: convId }).catch(() => {});
+        notifyAdmins('⚠️ خلل بالبوت — عميل بانتظار رد', conv.displayName || conv.phone, { conversationId: convId, url: `/admin/whatsapp?conv=${convId}`, tag: `wa-conv-${convId}` }).catch(() => {});
       }
     }
   } finally {

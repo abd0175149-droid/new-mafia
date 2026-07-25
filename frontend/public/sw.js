@@ -218,6 +218,8 @@ self.addEventListener('push', (event) => {
         badge: '/mafia_logo.png',
         ...(fcmData.imageUrl ? { image: fcmData.imageUrl } : {}), // 🖼️ صورة كبيرة (المتصفحات الداعمة)
         tag,
+        // 💬 tag مخصص (مثل محادثات واتساب) = إشعار مجمّع يستبدل السابق — renotify يعيد التنبيه
+        ...(fcmData.tag ? { renotify: true } : {}),
         data: { url, type, ...fcmData },
         vibrate: [200, 100, 200],
       });

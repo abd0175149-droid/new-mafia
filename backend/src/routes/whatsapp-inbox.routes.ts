@@ -360,19 +360,52 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
     const [conv] = await db.select().from(waConversations).where(eq(waConversations.id, convId)).limit(1);
     if (!conv) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
-    // ── اللاعب المربوط ──
+    // ── اللاعب المربوط — من المصدر القانوني getPlayerProfile ──
+    // (يبني الإحصاءات من سجل المباريات الفعلي مع fallback بالاسم، لا من الأعمدة الخام
+    //  التي تتصفّر مع المواسم — نفس مصدر صفحة ملف اللاعب بالضبط)
     let player: any = null;
     if (conv.playerId) {
-      const [p] = await db
-        .select({
-          id: players.id, name: players.name, phone: players.phone,
-          rankTier: players.rankTier, rankRR: players.rankRR, level: players.level,
-          xp: players.xp, totalMatches: players.totalMatches,
-          totalWins: players.totalWins, totalSurvived: players.totalSurvived,
-          avatarUrl: players.avatarUrl,
-        })
-        .from(players).where(eq(players.id, conv.playerId)).limit(1);
-      player = p || null;
+      try {
+        const { getPlayerProfile } = await import('../services/player.service.js');
+        const profile: any = await getPlayerProfile(conv.playerId);
+        if (profile?.player) {
+          const p = profile.player;
+          const s = profile.stats || {};
+          const prog = profile.progression || {};
+          player = {
+            id: p.id,
+            name: p.name,
+            phone: p.phone,
+            avatarUrl: p.avatarUrl || '',
+            gender: p.gender || null,
+            createdAt: p.createdAt,
+            lastActiveAt: p.lastActiveAt || null,
+            isFree: !!p.isFreeAccount,
+            // التقدم
+            rankTier: p.rankTier || 'INFORMANT',
+            rankRR: p.rankRR || 0,
+            level: p.level || 1,
+            xp: p.xp || 0,
+            nextLevelXP: prog.nextLevelXP || null,
+            xpProgress: prog.xpProgress ?? null,
+            rrRequired: prog.rrRequired || null,
+            // أداء الموسم (محسوب من المباريات الحقيقية)
+            totalMatches: s.totalMatches || 0,
+            totalWins: s.totalWins || 0,
+            winRate: s.winRate || 0,
+            survivalRate: s.survivalRate || 0,
+            favoriteRole: s.favoriteRole || null,
+            longestWinStreak: s.longestWinStreak || 0,
+            // مدى الحياة (لا يتصفّر مع المواسم)
+            lifetimeMatches: p.lifetimeMatches || 0,
+          };
+        }
+      } catch (e: any) {
+        console.warn('⚠️ WA context getPlayerProfile:', e.message);
+        // fallback خفيف على الأعمدة الخام إن فشل البروفايل
+        const [p] = await db.select().from(players).where(eq(players.id, conv.playerId)).limit(1);
+        if (p) player = { id: p.id, name: p.name, phone: p.phone, avatarUrl: p.avatarUrl || '', rankTier: p.rankTier, rankRR: p.rankRR, level: p.level, xp: p.xp, totalMatches: p.totalMatches, totalWins: p.totalWins, winRate: p.totalMatches ? Math.round((p.totalWins / p.totalMatches) * 100) : 0, lifetimeMatches: (p as any).lifetimeMatches || 0 };
+      }
     }
 
     // ── آخر الحجوزات (بمعرّف اللاعب أو بالهاتف) ──
