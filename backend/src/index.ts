@@ -983,6 +983,35 @@ async function main() {
           updated_at TIMESTAMP DEFAULT NOW() NOT NULL
         )
       `);
+      // 🗑️ حذف ناعم للرسائل + 📢 البث الجماعي وقوالبه المحلية
+      await db.execute(sql`ALTER TABLE wa_messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE wa_messages ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(100)`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_message_templates (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          body TEXT NOT NULL,
+          used_count INTEGER DEFAULT 0,
+          created_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_broadcasts (
+          id SERIAL PRIMARY KEY,
+          body TEXT NOT NULL,
+          template_id INTEGER,
+          total_targets INTEGER DEFAULT 0,
+          sent_count INTEGER DEFAULT 0,
+          skipped_count INTEGER DEFAULT 0,
+          failed_count INTEGER DEFAULT 0,
+          status VARCHAR(20) DEFAULT 'running',
+          created_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          finished_at TIMESTAMP
+        )
+      `);
       console.log('✅ WhatsApp inbox tables ensured');
     }
   } catch (err: any) {

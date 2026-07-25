@@ -212,6 +212,9 @@ function extractInbound(msg: any): { msgType: string; body: string } {
     case 'sticker': return { msgType: 'sticker', body: '🩵 ملصق' };
     case 'location': return { msgType: 'location', body: '📍 موقع' };
     case 'contacts': return { msgType: 'contacts', body: '👤 جهة اتصال' };
+    // تفاعل (إيموجي) على رسالة — يُعالج بمسار خاص: لا يفتح نافذة ولا يُمرر للبوت
+    case 'reaction': return { msgType: 'reaction', body: msg.reaction?.emoji || '' };
+    case 'unsupported': return { msgType: 'unsupported', body: '⚠️ رسالة غير مدعومة من واتساب' };
     default: return { msgType: t, body: '' };
   }
 }
@@ -290,6 +293,14 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     .returning();
   if (!saved) return; // سباق dedupe
 
+  // ── التفاعلات (رياكشن): تُلصق بالرسالة الهدف ولا تدخل مسار الرسائل ──
+  // لا تفتح نافذة الـ24 ساعة، لا unread، لا push، ولا تمرير للبوت — كانت
+  // تصل كرسالة فارغة فتُشغّل البوت بلا دور user جديد ويفشل نداء Gemini
+  if (msgType === 'reaction') {
+    await handleReactionMessage(db, conv, msg, saved);
+    return;
+  }
+
   const now = new Date();
   const [updatedConv] = await db
     .update(waConversations)
@@ -342,6 +353,36 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
   }
 }
 
+// تفاعل العميل على رسالة: يُخزَّن على الرسالة الهدف (payload.customerReaction)
+// ويحدَّث شريط المحادثة — بدون فتح نافذة ولا إشعارات ولا بوت
+async function handleReactionMessage(db: any, conv: any, msg: any, saved: any) {
+  const targetWamid: string | undefined = msg.reaction?.message_id;
+  const emoji: string = msg.reaction?.emoji || '';
+  let target: any = null;
+  if (targetWamid) {
+    const [t] = await db.select().from(waMessages).where(eq(waMessages.wamid, targetWamid)).limit(1);
+    if (t) {
+      const payload: any = { ...(t.payload || {}) };
+      if (emoji) payload.customerReaction = { emoji, at: new Date().toISOString() };
+      else delete payload.customerReaction; // أزال تفاعله
+      await db.update(waMessages).set({ payload } as any).where(eq(waMessages.id, t.id));
+      target = { ...t, payload };
+    }
+  }
+  const now = new Date();
+  const [updatedConv] = await db
+    .update(waConversations)
+    .set({
+      lastMessageAt: now,
+      lastMessagePreview: emoji ? `تفاعل ${emoji} برسالتك` : 'أزال تفاعله عن رسالتك',
+      updatedAt: now,
+    } as any)
+    .where(eq(waConversations.id, conv.id))
+    .returning();
+  emitInbox('wa:reaction', { conversationId: conv.id, message: target, emoji, reactionRowId: saved?.id });
+  if (updatedConv) emitInbox('wa:conversation:update', { conversation: updatedConv });
+}
+
 async function handleStatusUpdate(db: any, st: any) {
   const wamid: string = st.id;
   if (!wamid) return;
@@ -351,6 +392,17 @@ async function handleStatusUpdate(db: any, st: any) {
     const firstErr = Array.isArray(st.errors) && st.errors[0];
     patch.errorMessage = firstErr ? `${firstErr.code || ''} ${firstErr.title || ''} ${firstErr.message || ''}`.trim() : 'فشل غير معروف';
   }
+
+  // سجل زمني للحالات (وصلت/قُرئت متى) — لعرضه في «معلومات الرسالة»
+  try {
+    const [row] = await db.select({ payload: waMessages.payload }).from(waMessages).where(eq(waMessages.wamid, wamid)).limit(1);
+    if (row) {
+      const payload: any = { ...(row.payload || {}) };
+      const at = st.timestamp ? new Date(parseInt(st.timestamp) * 1000).toISOString() : new Date().toISOString();
+      payload.statusHistory = [...(payload.statusHistory || []), { status: st.status || '', at }];
+      patch.payload = payload;
+    }
+  } catch { /* السجل الزمني تكميلي */ }
 
   const [updated] = await db
     .update(waMessages)
@@ -372,7 +424,7 @@ export interface SendMessageInput {
   phone?: string;                       // بديل عن conversationId (أي صيغة)
   text?: string;                        // رسالة نصية
   interactive?: any;                    // كائن interactive جاهز (قوائم/أزرار — للبوت)
-  source: 'staff' | 'bot' | 'system';
+  source: 'staff' | 'bot' | 'system' | 'broadcast'; // broadcast: بث جماعي — لا يوقف البوت
   staffId?: number;
   staffName?: string;
 }

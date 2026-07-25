@@ -12,7 +12,7 @@ import crypto from 'crypto';
 import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages, waCustomerNotes, waOptouts, bookings, locations } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, waBroadcasts, bookings, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
@@ -555,6 +555,143 @@ router.get('/player-search', authenticate, adminOnly, async (req: Request, res: 
       .where(or(...conds))
       .limit(10);
     res.json({ success: true, players: results });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 🗑️ حذف رسالة (ناعم — من سجلنا فقط؛ واتساب لا يدعم السحب عبر API)
+// ══════════════════════════════════════════════════════
+
+router.delete('/messages/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const id = parseInt(req.params.id);
+    const [updated] = await db
+      .update(waMessages)
+      .set({ deletedAt: new Date(), deletedBy: (req as any).user?.displayName || 'أدمن' } as any)
+      .where(eq(waMessages.id, id))
+      .returning({ id: waMessages.id, conversationId: waMessages.conversationId, deletedAt: waMessages.deletedAt, deletedBy: waMessages.deletedBy });
+    if (!updated) return res.status(404).json({ error: 'الرسالة غير موجودة' });
+    try {
+      const io = (global as any).io;
+      if (io) io.to('wa:inbox').emit('wa:message:deleted', updated);
+    } catch { /* السوكيت تكميلي */ }
+    res.json({ success: true, message: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 📋 قوالب الرسائل المحلية (للبث — ليست قوالب ميتا)
+// ══════════════════════════════════════════════════════
+
+router.get('/templates', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const rows = await db.select().from(waMessageTemplates).orderBy(desc(waMessageTemplates.updatedAt));
+    res.json({ success: true, templates: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/templates', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const { name, body } = req.body || {};
+    if (!name?.trim() || !body?.trim()) return res.status(400).json({ error: 'الاسم والنص مطلوبان' });
+    const [row] = await db.insert(waMessageTemplates).values({
+      name: name.trim().slice(0, 100), body: body.trim(),
+      createdBy: (req as any).user?.displayName || '',
+    } as any).returning();
+    res.json({ success: true, template: row });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/templates/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const { name, body } = req.body || {};
+    const [row] = await db.update(waMessageTemplates)
+      .set({ ...(name?.trim() ? { name: name.trim().slice(0, 100) } : {}), ...(body?.trim() ? { body: body.trim() } : {}), updatedAt: new Date() } as any)
+      .where(eq(waMessageTemplates.id, parseInt(req.params.id)))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'القالب غير موجود' });
+    res.json({ success: true, template: row });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/templates/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    await db.delete(waMessageTemplates).where(eq(waMessageTemplates.id, parseInt(req.params.id)));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
+// 📢 البث الجماعي — النوافذ المفتوحة (القرارات المعتمدة 2026-07-26)
+// ══════════════════════════════════════════════════════
+
+router.get('/broadcast/recipients', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { getOpenWindowRecipients, nearestUpcomingActivityName } = await import('../services/whatsapp-broadcast.service.js');
+    const recipients = await getOpenWindowRecipients({
+      linked: String(req.query.linked || 'all'),
+      excludeAttention: req.query.excludeAttention === '1',
+    });
+    const activityName = await nearestUpcomingActivityName();
+    res.json({ success: true, recipients, activityName });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/broadcast', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { launchBroadcast } = await import('../services/whatsapp-broadcast.service.js');
+    const { body, templateId, conversationIds } = req.body || {};
+    const result = await launchBroadcast({
+      body: String(body || ''),
+      templateId: templateId ? parseInt(templateId) : null,
+      conversationIds: Array.isArray(conversationIds) ? conversationIds.map((n: any) => parseInt(n)).filter(Boolean) : [],
+      createdBy: (req as any).user?.displayName || '',
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/broadcast/:id/stop', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { stopBroadcast } = await import('../services/whatsapp-broadcast.service.js');
+    stopBroadcast(parseInt(req.params.id));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/broadcast/history', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const { getBroadcastHistory } = await import('../services/whatsapp-broadcast.service.js');
+    const broadcasts = await getBroadcastHistory(20);
+    res.json({ success: true, broadcasts });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

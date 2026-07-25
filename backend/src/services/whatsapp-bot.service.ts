@@ -1285,6 +1285,12 @@ async function buildHistory(db: any, conv: any, limit: number) {
   return contents;
 }
 
+// هل بالسجل دور user جديد بالنهاية؟ (تفاعل/حدث بلا نص جديد ⟵ لا داعي ولا يصح
+// استدعاء النموذج — Gemini يرفض سجلاً ينتهي بدور model وكان يسبب «خلل تقني»)
+function endsWithUserTurn(contents: any[]): boolean {
+  return contents.length > 0 && contents[contents.length - 1].role === 'user';
+}
+
 // ══════════════════════════════════════════════════════
 // نواة الوكيل (تُستخدم للحي ولساحة الاختبار)
 // ══════════════════════════════════════════════════════
@@ -1413,6 +1419,7 @@ async function processConversation(convId: number) {
 
     const history = await buildHistory(db, conv, settings.contextMessages || 20);
     if (history.length === 0) return;
+    if (!endsWithUserTurn(history)) return; // لا نص جديد من العميل — لا استدعاء للنموذج
     const customerCard = await buildCustomerCard(db, conv);
 
     try {

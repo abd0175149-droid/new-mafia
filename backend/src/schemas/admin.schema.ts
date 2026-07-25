@@ -359,6 +359,34 @@ export const waMessages = pgTable('wa_messages', {
   errorMessage: text('error_message').default(''),
   staffId: integer('staff_id'),                                        // من ردّ (إن كان موظفاً)
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),                                  // حذف ناعم من سجلنا (واتساب لا يدعم السحب عبر API)
+  deletedBy: varchar('deleted_by', { length: 100 }),
+});
+
+// ── قوالب الرسائل المحلية (للبث داخل النافذة المفتوحة — ليست قوالب ميتا) ──
+export const waMessageTemplates = pgTable('wa_message_templates', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  body: text('body').notNull(),                                        // يدعم {الاسم} {اسم_اللاعب} {الرتبة} {الفعالية}
+  usedCount: integer('used_count').default(0),
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ── سجل الإرسالات الجماعية (بث النوافذ المفتوحة) ──
+export const waBroadcasts = pgTable('wa_broadcasts', {
+  id: serial('id').primaryKey(),
+  body: text('body').notNull(),
+  templateId: integer('template_id'),
+  totalTargets: integer('total_targets').default(0),
+  sentCount: integer('sent_count').default(0),
+  skippedCount: integer('skipped_count').default(0),                   // نافذة أُغلقت/معتذر لحظة الإرسال
+  failedCount: integer('failed_count').default(0),
+  status: varchar('status', { length: 20 }).default('running'),        // running | done | stopped
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  finishedAt: timestamp('finished_at'),
 });
 
 // ── ملاحظات العميل: الذاكرة طويلة المدى للبوت والإدارة ──
