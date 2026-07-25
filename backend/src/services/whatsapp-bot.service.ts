@@ -608,17 +608,25 @@ export async function runAgent(opts: {
 
   for (let loop = 0; loop <= (settings.maxToolLoops || 4); loop++) {
     const parts = await geminiGenerate(settings, systemText, contents, toolDecls);
-    const fnCall = parts.find((p: any) => p.functionCall);
+    const fnCalls = parts.filter((p: any) => p.functionCall);
     const textPart = parts.filter((p: any) => typeof p.text === 'string').map((p: any) => p.text).join('\n').trim();
 
-    if (!fnCall) { finalText = textPart; break; }
+    if (fnCalls.length === 0) { finalText = textPart; break; }
 
-    // نفّذ الأداة وأرجع النتيجة للنموذج
-    const { name, args } = fnCall.functionCall;
-    const result = await execTool(name, args || {}, ctx);
-    toolTrace.push({ name, args: args || {}, result });
-    contents.push({ role: 'model', parts: [{ functionCall: fnCall.functionCall }] });
-    contents.push({ role: 'user', parts: [{ functionResponse: { name, response: { result } } }] });
+    // ⚠️ Gemini 3.x: أجزاء رد النموذج تُعاد للسجل كما وصلت حرفياً —
+    // تجريد functionCall من thoughtSignature المرافق له يرفضه الـ API.
+    contents.push({ role: 'model', parts });
+
+    // تنفيذ كل الأدوات المطلوبة بهذه الدورة (يدعم الاستدعاءات المتوازية)
+    // وإرجاع نتائجها كلها في رسالة واحدة بنفس ترتيبها
+    const responseParts: any[] = [];
+    for (const fc of fnCalls) {
+      const { name, args } = fc.functionCall;
+      const result = await execTool(name, args || {}, ctx);
+      toolTrace.push({ name, args: args || {}, result });
+      responseParts.push({ functionResponse: { name, response: { result } } });
+    }
+    contents.push({ role: 'user', parts: responseParts });
 
     if (loop === (settings.maxToolLoops || 4)) {
       finalText = textPart || 'تمام ✅';
