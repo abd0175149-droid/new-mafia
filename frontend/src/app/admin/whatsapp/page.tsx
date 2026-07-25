@@ -42,7 +42,7 @@ const ROLE_AR: Record<string, string> = {
   GODFATHER: 'شيخ المافيا', SILENCER: 'قص المافيا', CHAMELEON: 'الحرباية', WITCH: 'الساحرة',
   OLDER_BROTHER: 'الأخ الأكبر', MAFIA_REGULAR: 'مافيا', SHERIFF: 'الشريف', DOCTOR: 'الطبيب',
   SNIPER: 'القناص', POLICEWOMAN: 'الشرطية', NURSE: 'الممرضة', YOUNGER_BROTHER: 'الأخ الأصغر',
-  CITIZEN: 'مواطن', JESTER: 'المهرج', ASSASSIN: 'السفّاح',
+  CITIZEN: 'مواطن', JESTER: 'المهرج', ASSASSIN: 'السفّاح', MAYOR: 'العمدة',
 };
 const FILTERS = [
   { key: 'all', label: 'الكل' },
@@ -109,7 +109,31 @@ function SourceTag({ m }: { m: any }) {
   if (m.source === 'staff') return <span className="text-amber-400 font-bold">👤 موظف</span>;
   if (m.source === 'system') return <span className="text-violet-400 font-bold">⚙️ النظام</span>;
   if (m.source === 'template') return <span className="text-violet-400 font-bold">📋 قالب</span>;
+  if (m.source === 'broadcast') return <span className="text-teal-400 font-bold">📢 بث</span>;
   return null;
+}
+
+const STATUS_AR: Record<string, string> = { sent: 'أُرسلت', delivered: 'وصلت', read: 'قُرئت', failed: 'فشلت', received: 'استُلمت' };
+const SOURCE_AR: Record<string, string> = { customer: 'العميل', bot: 'البوت 🤖', staff: 'موظف 👤', system: 'النظام ⚙️', template: 'قالب 📋', broadcast: 'بث جماعي 📢' };
+
+// «معلومات الرسالة»: النوع والمصدر والحالة بسجلها الزمني والتفاعل
+function messageInfoText(m: any): string {
+  const lines: string[] = [];
+  lines.push(`الاتجاه: ${m.direction === 'in' ? 'واردة من العميل' : 'صادرة'}`);
+  lines.push(`المصدر: ${SOURCE_AR[m.source] || m.source}`);
+  lines.push(`النوع: ${m.msgType}`);
+  lines.push(`التوقيت: ${fmtWhen(m.createdAt)}`);
+  if (m.direction === 'out') lines.push(`الحالة: ${STATUS_AR[m.status] || m.status || '—'}`);
+  const hist = m.payload?.statusHistory;
+  if (Array.isArray(hist) && hist.length) {
+    lines.push('سجل الحالة:');
+    for (const h of hist) lines.push(`  • ${STATUS_AR[h.status] || h.status} — ${fmtTime(h.at)}`);
+  }
+  if (m.payload?.customerReaction?.emoji) lines.push(`تفاعل العميل: ${m.payload.customerReaction.emoji} (${fmtTime(m.payload.customerReaction.at)})`);
+  if (m.errorMessage) lines.push(`الخطأ: ${m.errorMessage}`);
+  if (m.deletedAt) lines.push(`محذوفة من السجل: بواسطة ${m.deletedBy || 'أدمن'} — ${fmtWhen(m.deletedAt)}`);
+  if (m.wamid) lines.push(`WAMID: ${m.wamid}`);
+  return lines.join('\n');
 }
 
 export default function WhatsAppInboxPage() {
@@ -130,7 +154,7 @@ export default function WhatsAppInboxPage() {
   const [sending, setSending] = useState(false);
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
-  const [mainTab, setMainTab] = useState<'chat' | 'bot'>('chat');
+  const [mainTab, setMainTab] = useState<'chat' | 'bot' | 'broadcast'>('chat');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -239,13 +263,60 @@ export default function WhatsAppInboxPage() {
       setMessages(prev => prev.map(m => (m.id === upd.id ? { ...m, status: upd.status, errorMessage: upd.errorMessage } : m)));
     };
 
+    // رياكشن: تحديث الرسالة الهدف (الشارة) + معاينة القائمة
+    const onReaction = (p: any) => {
+      if (p?.message && selIdRef.current === p.conversationId) {
+        setMessages(prev => prev.map(m => (m.id === p.message.id ? { ...m, payload: p.message.payload } : m)));
+      }
+      if (p?.conversationId) {
+        setConvs(prev => prev.map(c => (c.id === p.conversationId
+          ? { ...c, lastMessagePreview: p.emoji ? `تفاعل ${p.emoji} برسالتك` : 'أزال تفاعله عن رسالتك' }
+          : c)));
+      }
+    };
+
+    const onConvUpdate = (p: any) => {
+      const c = p?.conversation;
+      if (!c) return;
+      setConvs(prev => prev.map(x => (x.id === c.id ? { ...x, ...c } : x)));
+      if (selIdRef.current === c.id) setConv((prev: any) => ({ ...prev, ...c }));
+    };
+
+    const onDeleted = (d: any) => {
+      if (!d?.id) return;
+      setMessages(prev => prev.map(m => (m.id === d.id ? { ...m, deletedAt: d.deletedAt, deletedBy: d.deletedBy } : m)));
+    };
+
     s.on('wa:message:new', onNew);
     s.on('wa:status:update', onStatus);
+    s.on('wa:reaction', onReaction);
+    s.on('wa:conversation:update', onConvUpdate);
+    s.on('wa:message:deleted', onDeleted);
     return () => {
       s.off('wa:message:new', onNew);
       s.off('wa:status:update', onStatus);
+      s.off('wa:reaction', onReaction);
+      s.off('wa:conversation:update', onConvUpdate);
+      s.off('wa:message:deleted', onDeleted);
     };
   }, [scrollBottom]);
+
+  // ── حذف رسالة (ناعم — من سجلنا فقط) ──
+  const deleteMessage = useCallback(async (m: any) => {
+    const ok = await swalConfirm('حذف هذه الرسالة من سجل المحادثة؟', {
+      title: 'حذف رسالة',
+      danger: true,
+      confirmText: 'حذف',
+    });
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/whatsapp/messages/${m.id}`, { method: 'DELETE' });
+      setMessages(prev => prev.map(x => (x.id === m.id ? { ...x, deletedAt: new Date().toISOString(), deletedBy: getUser()?.displayName || 'أدمن' } : x)));
+      swalToast('حُذفت من السجل (تبقى على هاتف العميل — واتساب لا يدعم السحب)', 'success');
+    } catch (e: any) {
+      swalAlert('تعذر الحذف: ' + e.message, 'error');
+    }
+  }, []);
 
   // ── مؤقّت دوري: عدّادات النافذة والإيقاف المؤقت + تحديث صامت للقائمة ──
   useEffect(() => {
@@ -405,11 +476,12 @@ export default function WhatsAppInboxPage() {
   const winH = conv ? windowHoursLeft(conv.lastInboundAt) : 0;
   const totalUnread = convs.reduce((s, c) => s + (c.unreadCount || 0), 0);
 
-  // تجميع الرسائل بفواصل الأيام
+  // تجميع الرسائل بفواصل الأيام — صفوف الرياكشن لا تُعرض كفقاعات (تظهر شارةً على رسالتها)
   const grouped = useMemo(() => {
     const out: Array<{ type: 'day'; label: string } | { type: 'msg'; m: any }> = [];
     let lastDay = '';
     for (const m of messages) {
+      if (m.msgType === 'reaction') continue;
       const day = new Date(m.createdAt).toDateString();
       if (day !== lastDay) { out.push({ type: 'day', label: fmtDay(m.createdAt) }); lastDay = day; }
       out.push({ type: 'msg', m });
@@ -448,6 +520,10 @@ export default function WhatsAppInboxPage() {
             onClick={() => setMainTab('bot')}
             className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'bot' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
           >🤖 البوت</button>
+          <button
+            onClick={() => setMainTab('broadcast')}
+            className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'broadcast' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+          >📢 بث</button>
           <span className="px-3 py-1 text-gray-600 cursor-not-allowed" title="تُفعَّل مع مرحلة الحملات">الحملات <span className="text-[10px] border border-gray-700 rounded px-1">قريباً</span></span>
         </div>
         <button
@@ -461,6 +537,9 @@ export default function WhatsAppInboxPage() {
 
       {/* ═══ تبويب البوت ═══ */}
       {mainTab === 'bot' && <BotSettingsView />}
+
+      {/* ═══ تبويب البث الجماعي ═══ */}
+      {mainTab === 'broadcast' && <BroadcastView />}
 
       {/* ═══ اللوحات الثلاث ═══ */}
       <div className={`${mainTab === 'chat' ? 'grid' : 'hidden'} flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden`}>
@@ -617,20 +696,46 @@ export default function WhatsAppInboxPage() {
                   ) : (
                     <div
                       key={g.m.id}
-                      className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed ${
+                      className={`group relative max-w-[78%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed ${
                         g.m.direction === 'in'
                           ? 'self-start bg-gray-800/80 border border-gray-700/60 rounded-tr-md text-gray-100'
                           : 'self-end bg-emerald-950/70 border border-emerald-900 rounded-tl-md text-gray-100'
-                      }`}
+                      } ${g.m.payload?.customerReaction?.emoji ? 'mb-2.5' : ''}`}
                     >
-                      <div className="whitespace-pre-wrap break-words">{g.m.body || <span className="text-gray-500 italic">[{g.m.msgType}]</span>}</div>
+                      {g.m.deletedAt ? (
+                        <div className="italic text-gray-500 text-[12.5px]">🗑️ حُذفت من السجل بواسطة {g.m.deletedBy || 'أدمن'}</div>
+                      ) : (
+                        <div className="whitespace-pre-wrap break-words">{g.m.body || <span className="text-gray-500 italic">[{g.m.msgType}]</span>}</div>
+                      )}
                       <div className="flex items-center gap-1.5 justify-end mt-0.5 text-[10px] text-gray-500">
+                        {/* أدوات الرسالة: معلومات + حذف (تظهر عند المرور) */}
+                        <span className="hidden group-hover:flex items-center gap-1 ml-auto">
+                          <button
+                            onClick={() => swalAlert(messageInfoText(g.m), 'info')}
+                            className="text-gray-500 hover:text-sky-400 px-0.5"
+                            title="معلومات الرسالة"
+                          >ⓘ</button>
+                          {!g.m.deletedAt && (
+                            <button
+                              onClick={() => deleteMessage(g.m)}
+                              className="text-gray-500 hover:text-rose-400 px-0.5"
+                              title="حذف من سجلنا (لا يمكن سحبها من هاتف العميل)"
+                            >🗑</button>
+                          )}
+                        </span>
                         {g.m.direction === 'out' && <SourceTag m={g.m} />}
                         <span>{fmtTime(g.m.createdAt)}</span>
                         {g.m.direction === 'out' && <Ticks status={g.m.status} />}
                       </div>
                       {g.m.status === 'failed' && g.m.errorMessage && (
                         <div className="text-[10px] text-rose-400 mt-1">⚠️ {g.m.errorMessage}</div>
+                      )}
+                      {/* شارة تفاعل العميل (رياكشن) */}
+                      {g.m.payload?.customerReaction?.emoji && !g.m.deletedAt && (
+                        <span
+                          className={`absolute -bottom-3 ${g.m.direction === 'in' ? 'left-2' : 'right-2'} bg-gray-900 border border-gray-700 rounded-full px-1.5 py-0 text-[13px] shadow`}
+                          title={`تفاعل العميل ${fmtTime(g.m.payload.customerReaction.at)}`}
+                        >{g.m.payload.customerReaction.emoji}</span>
                       )}
                     </div>
                   )
@@ -1252,6 +1357,321 @@ function BotSettingsView() {
             <button onClick={() => setPg([])} className="border border-gray-700 text-gray-400 hover:text-white rounded-xl px-3 text-xs" title="محادثة جديدة">🗑</button>
           </div>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📢 البث الجماعي — النوافذ المفتوحة (القرارات المعتمدة 2026-07-26)
+// المستلمون: كل النوافذ + فلاتر (مربوط/غير مربوط/استبعاد ⚠️) + استبعاد يدوي
+// المتغيرات: {الاسم} {اسم_اللاعب} {الرتبة} {الفعالية} · البث لا يوقف البوت
+// ══════════════════════════════════════════════════════
+
+const BC_VARS = ['{الاسم}', '{اسم_اللاعب}', '{الرتبة}', '{الفعالية}'] as const;
+
+function renderBcPreview(body: string, r: any, activityName: string | null): string {
+  const name = (r?.displayName || r?.playerName || '').trim().split(/\s+/)[0] || 'يا غالي';
+  return body
+    .replaceAll('{الاسم}', name)
+    .replaceAll('{اسم_اللاعب}', r?.playerName || name)
+    .replaceAll('{الرتبة}', r?.rankAr || 'عضو العائلة')
+    .replaceAll('{الفعالية}', activityName || 'فعاليتنا القادمة');
+}
+
+function BroadcastView() {
+  const [recipients, setRecipients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [linkedFilter, setLinkedFilter] = useState<'all' | 'linked' | 'unlinked'>('all');
+  const [excludeAttn, setExcludeAttn] = useState(false);
+  const [search, setSearch] = useState('');
+  const [activityName, setActivityName] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [tplId, setTplId] = useState<number | null>(null);
+  const [body, setBody] = useState('');
+  const [previewId, setPreviewId] = useState<number | null>(null);
+  const [showSaveTpl, setShowSaveTpl] = useState(false);
+  const [tplName, setTplName] = useState('');
+  const [run, setRun] = useState<{ id: number; total: number; sent: number; skipped: number; failed: number; done: number; finished?: boolean; status?: string } | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  const loadRecipients = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch(`/api/whatsapp/broadcast/recipients?linked=${linkedFilter}&excludeAttention=${excludeAttn ? '1' : '0'}`);
+      const list = data.recipients || [];
+      setRecipients(list);
+      setActivityName(data.activityName || null);
+      setSelected(new Set(list.map((r: any) => r.id)));
+      setPreviewId(list[0]?.id ?? null);
+    } catch (e: any) {
+      swalAlert('تعذر جلب المستلمين: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [linkedFilter, excludeAttn]);
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/whatsapp/templates');
+      setTemplates(data.templates || []);
+    } catch { /* تكميلي */ }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/whatsapp/broadcast/history');
+      setHistory(data.broadcasts || []);
+    } catch { /* تكميلي */ }
+  }, []);
+
+  useEffect(() => { loadRecipients(); }, [loadRecipients]);
+  useEffect(() => { loadTemplates(); loadHistory(); }, [loadTemplates, loadHistory]);
+
+  // تقدم البث لحظياً
+  useEffect(() => {
+    const s = getSocket();
+    const onProgress = (p: any) => {
+      setRun(prev => (prev && prev.id === p.broadcastId
+        ? { ...prev, sent: p.sent, skipped: p.skipped, failed: p.failed, done: p.done, finished: p.finished, status: p.status }
+        : prev));
+      if (p.finished) loadHistory();
+    };
+    s.on('wa:broadcast:progress', onProgress);
+    return () => { s.off('wa:broadcast:progress', onProgress); };
+  }, [loadHistory]);
+
+  const visible = useMemo(() => {
+    const q = search.trim();
+    if (!q) return recipients;
+    return recipients.filter((r: any) =>
+      (r.displayName || '').includes(q) || (r.playerName || '').includes(q) || (r.phone || '').includes(q));
+  }, [recipients, search]);
+
+  const toggleOne = (id: number) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const insertVar = (v: string) => {
+    const el = bodyRef.current;
+    if (el && typeof el.selectionStart === 'number') {
+      const s = el.selectionStart, e = el.selectionEnd;
+      setBody(prev => prev.slice(0, s) + v + prev.slice(e));
+      requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = s + v.length; });
+    } else {
+      setBody(prev => prev + v);
+    }
+  };
+
+  const pickTemplate = (id: string) => {
+    const t = templates.find((x: any) => String(x.id) === id);
+    setTplId(t ? t.id : null);
+    if (t) setBody(t.body);
+  };
+
+  const saveTemplate = async () => {
+    if (!tplName.trim() || !body.trim()) return;
+    try {
+      await apiFetch('/api/whatsapp/templates', { method: 'POST', body: JSON.stringify({ name: tplName.trim(), body: body.trim() }) });
+      swalToast('حُفظ القالب ✅', 'success');
+      setShowSaveTpl(false); setTplName('');
+      loadTemplates();
+    } catch (e: any) {
+      swalAlert('تعذر حفظ القالب: ' + e.message, 'error');
+    }
+  };
+
+  const deleteTemplate = async (t: any) => {
+    if (!t) return;
+    const ok = await swalConfirm(`حذف قالب «${t.name}»؟`, { title: 'حذف قالب', danger: true, confirmText: 'حذف' });
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/whatsapp/templates/${t.id}`, { method: 'DELETE' });
+      if (tplId === t.id) setTplId(null);
+      loadTemplates();
+    } catch (e: any) {
+      swalAlert('تعذر الحذف: ' + e.message, 'error');
+    }
+  };
+
+  const launch = async () => {
+    const ids = Array.from(selected);
+    if (!ids.length || !body.trim()) return;
+    const prev = renderBcPreview(body, recipients.find((r: any) => r.id === (previewId ?? ids[0])) || recipients[0], activityName);
+    const ok = await swalConfirm(
+      `إرسال لـ${ids.length} مستلم؟ (رسالة كل ~ثانية — البوت سيرد على ردودهم طبيعياً)\n\nمعاينة:\n${prev.slice(0, 300)}`,
+      { title: '📢 تأكيد البث', confirmText: `إرسال (${ids.length})` },
+    );
+    if (!ok) return;
+    try {
+      const res = await apiFetch('/api/whatsapp/broadcast', {
+        method: 'POST',
+        body: JSON.stringify({ body: body.trim(), templateId: tplId, conversationIds: ids }),
+      });
+      setRun({ id: res.broadcastId, total: res.totalTargets, sent: 0, skipped: 0, failed: 0, done: 0 });
+    } catch (e: any) {
+      swalAlert('تعذر إطلاق البث: ' + e.message, 'error');
+    }
+  };
+
+  const stopRun = async () => {
+    if (!run) return;
+    try { await apiFetch(`/api/whatsapp/broadcast/${run.id}/stop`, { method: 'POST' }); } catch { /* تجاهل */ }
+  };
+
+  const previewRecipient = recipients.find((r: any) => r.id === previewId) || recipients[0] || null;
+  const fmtLeft = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} س ${min % 60} د` : `${min} د`);
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-4 pb-6">
+      {/* ── المستلمون ── */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4 flex flex-col min-h-0 max-h-[80vh]">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="font-bold text-white">المستلمون — نوافذ مفتوحة</h2>
+          <span className="text-xs font-bold bg-emerald-500/10 text-emerald-400 rounded-full px-2.5 py-1">{selected.size} / {recipients.length}</span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap mb-2 text-[11.5px]">
+          {([['all', 'الكل'], ['linked', '🎖️ مربوط بلاعب'], ['unlinked', 'غير مربوط']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setLinkedFilter(k)}
+              className={`rounded-full px-2.5 py-1 font-bold border ${linkedFilter === k ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'text-gray-400 border-gray-800 hover:text-white'}`}>{l}</button>
+          ))}
+          <label className="flex items-center gap-1 text-gray-400 font-bold cursor-pointer mr-auto">
+            <input type="checkbox" checked={excludeAttn} onChange={e => setExcludeAttn(e.target.checked)} className="accent-amber-500" />
+            استبعاد ⚠️
+          </label>
+        </div>
+        <div className="flex gap-1.5 mb-2">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم…"
+            className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+          <button onClick={() => setSelected(new Set(visible.map((r: any) => r.id)))} className="text-[11px] font-bold text-gray-400 hover:text-white border border-gray-800 rounded-lg px-2">الكل</button>
+          <button onClick={() => setSelected(new Set())} className="text-[11px] font-bold text-gray-400 hover:text-white border border-gray-800 rounded-lg px-2">لا أحد</button>
+        </div>
+        <div className="flex-1 overflow-y-auto flex flex-col gap-1 min-h-0">
+          {loading ? (
+            <div className="text-gray-600 text-sm text-center py-6">جارٍ التحميل…</div>
+          ) : visible.length === 0 ? (
+            <div className="text-gray-600 text-sm text-center py-6">لا نوافذ مفتوحة الآن — النافذة تفتح لما يراسلك العميل (24 ساعة)</div>
+          ) : visible.map((r: any) => (
+            <label key={r.id} className={`flex items-center gap-2 rounded-xl border px-2.5 py-1.5 cursor-pointer ${selected.has(r.id) ? 'border-gray-700 bg-gray-800/50' : 'border-gray-800 opacity-55'}`}>
+              <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleOne(r.id)} className="accent-emerald-500" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[12.5px] font-bold text-white truncate flex items-center gap-1.5">
+                  {r.displayName}
+                  {r.rankAr && <span className="text-[9.5px] text-amber-400 border border-amber-500/40 rounded px-1">{r.rankAr}</span>}
+                  {r.needsAttention && <span className="text-[9.5px]">⚠️</span>}
+                </div>
+                <div className="text-[10.5px] text-gray-500" dir="ltr">{r.phone}</div>
+              </div>
+              <span className={`text-[10px] font-bold rounded-full px-2 py-0.5 ${r.minutesLeft < 120 ? 'bg-rose-500/10 text-rose-400' : 'bg-emerald-500/10 text-emerald-400'}`}>⏳ {fmtLeft(r.minutesLeft)}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* ── الرسالة + الإرسال + السجل ── */}
+      <div className="flex flex-col gap-4 min-h-0">
+        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <h2 className="font-bold text-white">✍️ الرسالة</h2>
+            <select value={tplId ?? ''} onChange={e => pickTemplate(e.target.value)}
+              className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-amber-500">
+              <option value="">— بلا قالب —</option>
+              {templates.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            {tplId && (
+              <button onClick={() => deleteTemplate(templates.find((t: any) => t.id === tplId))} className="text-[11px] text-gray-500 hover:text-rose-400" title="حذف القالب المحدد">🗑 حذف القالب</button>
+            )}
+            <button onClick={() => setShowSaveTpl(v => !v)} className="mr-auto text-[11.5px] font-bold text-gray-300 hover:text-amber-400 border border-gray-800 rounded-lg px-2.5 py-1">💾 حفظ كقالب</button>
+          </div>
+          {showSaveTpl && (
+            <div className="flex gap-1.5 mb-2">
+              <input value={tplName} onChange={e => setTplName(e.target.value)} placeholder="اسم القالب (مثلاً: شكر بعد السهرة)"
+                className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+              <button onClick={saveTemplate} disabled={!tplName.trim() || !body.trim()} className="bg-amber-500 disabled:opacity-40 text-gray-950 text-xs font-bold rounded-lg px-3">حفظ</button>
+            </div>
+          )}
+          <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={4}
+            placeholder={'مساء الخير {الاسم} 🎭 بكرا عندنا «{الفعالية}» — بتحب أحجزلك مكانك؟'}
+            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none resize-y" />
+          <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+            <span className="text-[10.5px] text-gray-500 font-bold">متغيرات:</span>
+            {BC_VARS.map(v => (
+              <button key={v} onClick={() => insertVar(v)} className="text-[11px] font-mono text-sky-400 hover:text-sky-300 bg-sky-500/10 rounded px-1.5 py-0.5">{v}</button>
+            ))}
+            {activityName && <span className="text-[10.5px] text-gray-500">· {'{الفعالية}'} = «{activityName}»</span>}
+          </div>
+          {/* المعاينة الحية */}
+          {body.trim() && (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 text-[10.5px] text-gray-500 mb-1">
+                معاينة على:
+                <select value={previewId ?? ''} onChange={e => setPreviewId(parseInt(e.target.value) || null)}
+                  className="bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 text-[11px] text-gray-300 outline-none">
+                  {recipients.slice(0, 40).map((r: any) => <option key={r.id} value={r.id}>{r.displayName}</option>)}
+                </select>
+              </div>
+              <div className="bg-emerald-950/60 border border-emerald-900 rounded-xl rounded-tl-md px-3.5 py-2.5 text-[13px] text-gray-100 whitespace-pre-wrap max-w-[520px]">
+                {renderBcPreview(body, previewRecipient, activityName)}
+              </div>
+            </div>
+          )}
+          {/* الإطلاق / التقدم */}
+          {run && !run.finished ? (
+            <div className="mt-3 bg-gray-950 border border-gray-800 rounded-xl p-3">
+              <div className="flex items-center justify-between text-xs font-bold text-gray-300 mb-1.5">
+                <span>🚀 جارٍ الإرسال… {run.done} / {run.total}</span>
+                <button onClick={stopRun} className="text-rose-400 hover:text-rose-300 border border-rose-500/40 rounded-lg px-2.5 py-1">⏹️ إيقاف</button>
+              </div>
+              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.round((run.done / Math.max(1, run.total)) * 100)}%` }} />
+              </div>
+              <div className="flex gap-3 text-[10.5px] text-gray-500 mt-1.5">
+                <span className="text-emerald-400">✅ {run.sent}</span>
+                <span>⏭️ {run.skipped}</span>
+                <span className="text-rose-400">❌ {run.failed}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 mt-3 flex-wrap">
+              <button onClick={launch} disabled={!body.trim() || selected.size === 0}
+                className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-6 py-2.5 text-sm">
+                📢 إرسال لـ{selected.size} مستلم
+              </button>
+              {run?.finished && (
+                <span className="text-xs text-gray-400">
+                  {run.status === 'stopped' ? '⏹️ أُوقف' : '✅ اكتمل'} — أُرسلت {run.sent} · تخطّي {run.skipped} · فشل {run.failed}
+                </span>
+              )}
+              <span className="text-[10.5px] text-gray-600 mr-auto">مجاني (نافذة خدمة) · البوت يرد على الردود طبيعياً</span>
+            </div>
+          )}
+        </div>
+
+        {/* السجل */}
+        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+          <h2 className="font-bold text-white mb-2">🗂️ إرسالات سابقة</h2>
+          {history.length === 0 ? (
+            <div className="text-gray-600 text-sm">لا إرسالات بعد.</div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {history.map((b: any) => (
+                <div key={b.id} className="flex items-center gap-3 border border-gray-800 rounded-xl px-3 py-2 text-[12px]">
+                  <span className={`font-bold ${b.status === 'done' ? 'text-emerald-400' : b.status === 'stopped' ? 'text-amber-400' : 'text-sky-400'}`}>
+                    {b.status === 'done' ? '✅' : b.status === 'stopped' ? '⏹️' : '🔄'}
+                  </span>
+                  <span className="text-gray-300 truncate flex-1">{b.body}</span>
+                  <span className="text-gray-500 shrink-0">✅ {b.sentCount} · ⏭️ {b.skippedCount} · ❌ {b.failedCount}</span>
+                  <span className="text-gray-600 shrink-0">{fmtWhen(b.createdAt)}</span>
+                  <span className="text-gray-600 shrink-0 hidden sm:inline">{b.createdBy}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
