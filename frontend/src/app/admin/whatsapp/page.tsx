@@ -736,8 +736,12 @@ export default function WhatsAppInboxPage() {
                       )}
                     </div>
 
-                    {/* أداء الموسم (من سجل المباريات الحقيقي) */}
-                    <div className="grid grid-cols-3 gap-1.5 mt-2 text-center">
+                    {/* أداء الموسم الحالي — مطابق لصفحة التصنيف بواجهة اللاعب */}
+                    <div className="text-[9px] text-gray-600 mt-2 mb-1 flex justify-between">
+                      <span>الموسم الحالي</span>
+                      <span>مدى الحياة: <b className="text-gray-400 tabular-nums">{ctx.player.lifetimeMatches ?? 0}</b> مباراة</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5 text-center">
                       {[
                         { v: ctx.player.totalMatches ?? 0, l: 'مباراة' },
                         { v: ctx.player.totalWins ?? 0, l: 'فوز' },
@@ -749,21 +753,9 @@ export default function WhatsAppInboxPage() {
                         </div>
                       ))}
                     </div>
-                    <div className="grid grid-cols-3 gap-1.5 mt-1.5 text-center">
-                      {[
-                        { v: (ctx.player.survivalRate ?? 0) + '%', l: 'نسبة النجاة' },
-                        { v: ctx.player.longestWinStreak ?? 0, l: 'أطول سلسلة' },
-                        { v: ctx.player.lifetimeMatches ?? 0, l: 'مدى الحياة' },
-                      ].map((s, i) => (
-                        <div key={i} className="bg-gray-950 border border-gray-800 rounded-lg py-1.5">
-                          <div className="font-bold text-sm text-white tabular-nums">{s.v}</div>
-                          <div className="text-[9px] text-gray-600">{s.l}</div>
-                        </div>
-                      ))}
-                    </div>
                     {ctx.player.favoriteRole && (
                       <div className="mt-2 text-center text-[10.5px] text-gray-400 bg-gray-950 border border-gray-800 rounded-lg py-1.5">
-                        🎭 الدور المفضل: <b className="text-violet-400">{ROLE_AR[ctx.player.favoriteRole] || ctx.player.favoriteRole}</b>
+                        🎭 الأكثر لعباً (كل المواسم): <b className="text-violet-400">{ROLE_AR[ctx.player.favoriteRole] || ctx.player.favoriteRole}</b>
                       </div>
                     )}
                     <button onClick={() => linkPlayer(null)} className="w-full mt-2.5 text-[10.5px] text-gray-600 hover:text-rose-400">فك الربط</button>

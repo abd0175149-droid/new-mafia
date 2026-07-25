@@ -372,6 +372,12 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
           const p = profile.player;
           const s = profile.stats || {};
           const prog = profile.progression || {};
+          // ⚠️ أرقام الموسم = أعمدة players الخام حصراً — نفس مصدر صفحة التصنيف
+          // بواجهة اللاعب بالضبط (تُصفَّر مع كل موسم ويحدّثها محرك التقدم).
+          // نسبة الفوز تُحسب من نفس العمودين لتبقى متسقة ذاتياً.
+          // لا نستخدم نسب profile.stats المحسوبة من سجل المباريات لأنها عابرة للمواسم.
+          const seasonMatches = p.totalMatches || 0;
+          const seasonWins = p.totalWins || 0;
           player = {
             id: p.id,
             name: p.name,
@@ -381,7 +387,7 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
             createdAt: p.createdAt,
             lastActiveAt: p.lastActiveAt || null,
             isFree: !!p.isFreeAccount,
-            // التقدم
+            // التقدم (أعمدة الموسم الحالي)
             rankTier: p.rankTier || 'INFORMANT',
             rankRR: p.rankRR || 0,
             level: p.level || 1,
@@ -389,14 +395,12 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
             nextLevelXP: prog.nextLevelXP || null,
             xpProgress: prog.xpProgress ?? null,
             rrRequired: prog.rrRequired || null,
-            // أداء الموسم (محسوب من المباريات الحقيقية)
-            totalMatches: s.totalMatches || 0,
-            totalWins: s.totalWins || 0,
-            winRate: s.winRate || 0,
-            survivalRate: s.survivalRate || 0,
+            // أداء الموسم الحالي (مطابق لصفحة التصنيف)
+            totalMatches: seasonMatches,
+            totalWins: seasonWins,
+            winRate: seasonMatches > 0 ? Math.round((seasonWins / seasonMatches) * 100) : 0,
+            // معلومات تاريخية (كل المواسم) — موسومة كذلك بالواجهة
             favoriteRole: s.favoriteRole || null,
-            longestWinStreak: s.longestWinStreak || 0,
-            // مدى الحياة (لا يتصفّر مع المواسم)
             lifetimeMatches: p.lifetimeMatches || 0,
           };
         }

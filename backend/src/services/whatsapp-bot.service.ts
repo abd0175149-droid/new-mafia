@@ -527,14 +527,16 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 
     case 'get_player_stats': {
       if (!conv.playerId) return { registered: false, note: 'العميل غير مسجّل كلاعب — انصحه بإنشاء حساب من تطبيق اللاعب ليجمع نقاطاً ورتباً' };
-      // المصدر القانوني نفسه المستخدم في ملف اللاعب ولوحة العميل بالإنبوكس —
-      // إحصاءات محسوبة من سجل المباريات الفعلي، لا من الأعمدة الخام المتصفّرة موسمياً
+      // أرقام الموسم = أعمدة players الخام — نفس مصدر صفحة التصنيف بواجهة اللاعب
+      // بالضبط، ونسبة الفوز تُحسب منهما لتبقى متسقة. (نسب سجل المباريات عابرة
+      // للمواسم فلا تُستخدم — فقط الدور الأكثر لعباً يؤخذ منها كمعلومة تاريخية)
       const { getPlayerProfile } = await import('./player.service.js');
       const profile: any = await getPlayerProfile(conv.playerId);
       if (!profile?.player) return { registered: false };
       const pp = profile.player;
-      const ps = profile.stats || {};
       const pg = profile.progression || {};
+      const seasonMatches = pp.totalMatches || 0;
+      const seasonWins = pp.totalWins || 0;
       return {
         registered: true,
         name: pp.name,
@@ -544,14 +546,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         level: pg.level || 1,
         xp: pg.xp || 0,
         nextLevelXP: pg.nextLevelXP || null,
-        seasonMatches: ps.totalMatches || 0,
-        seasonWins: ps.totalWins || 0,
-        winRate: ps.winRate || 0,
-        survivalRate: ps.survivalRate || 0,
-        longestWinStreak: ps.longestWinStreak || 0,
-        favoriteRole: ps.favoriteRole || null,
+        seasonMatches,
+        seasonWins,
+        seasonWinRate: seasonMatches > 0 ? Math.round((seasonWins / seasonMatches) * 100) : 0,
+        favoriteRoleAllTime: profile.stats?.favoriteRole || null,
         lifetimeMatches: pp.lifetimeMatches || 0,
-        note: 'هذه إحصاءات الموسم الحالي؛ lifetimeMatches هي كل المباريات منذ الانضمام',
+        note: 'الأرقام الموسمية مطابقة لصفحة التصنيف بالتطبيق؛ lifetimeMatches كل المباريات منذ الانضمام؛ favoriteRoleAllTime تاريخي عبر المواسم',
       };
     }
 
@@ -578,21 +578,45 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     }
 
     case 'get_leaderboard': {
+      // مطابقة حرفية لترتيب صفحة التصنيف بواجهة اللاعب (/api/player-app/leaderboard):
+      // الرتبة أولاً (CASE) ثم نقاط RR ثم المستوى — ونفس الحقول المعروضة هناك
+      const tierOrder = sql`CASE ${players.rankTier}
+        WHEN 'GODFATHER' THEN 5
+        WHEN 'UNDERBOSS' THEN 4
+        WHEN 'CAPO' THEN 3
+        WHEN 'SOLDIER' THEN 2
+        ELSE 1 END`;
       const top = await db
-        .select({ id: players.id, name: players.name, rankTier: players.rankTier, rankRR: players.rankRR })
+        .select({
+          id: players.id, name: players.name, rankTier: players.rankTier,
+          rankRR: players.rankRR, level: players.level,
+          totalMatches: players.totalMatches, totalWins: players.totalWins,
+        })
         .from(players)
-        .where(eq(players.isTestAccount, false))
-        .orderBy(desc(players.rankRR), desc(players.xp))
+        .orderBy(sql`${tierOrder} DESC`, desc(players.rankRR), desc(players.level))
         .limit(10);
       let you: any = null;
       if (conv.playerId) {
-        const [me] = await db.select({ rankTier: players.rankTier, rankRR: players.rankRR }).from(players).where(eq(players.id, conv.playerId)).limit(1);
+        const [me] = await db
+          .select({ rankTier: players.rankTier, rankRR: players.rankRR, level: players.level, totalMatches: players.totalMatches, totalWins: players.totalWins })
+          .from(players).where(eq(players.id, conv.playerId)).limit(1);
         if (me) {
+          const myTier = sql`CASE ${me.rankTier || 'INFORMANT'}
+            WHEN 'GODFATHER' THEN 5 WHEN 'UNDERBOSS' THEN 4
+            WHEN 'CAPO' THEN 3 WHEN 'SOLDIER' THEN 2 ELSE 1 END`;
           const [ahead] = await db
             .select({ n: sql<number>`COUNT(*)` })
             .from(players)
-            .where(and(eq(players.isTestAccount, false), sql`${players.rankRR} > ${me.rankRR}`));
-          you = { position: Number(ahead?.n || 0) + 1, rank: RANK_AR[me.rankTier || 'INFORMANT'] || me.rankTier, rankRR: me.rankRR || 0 };
+            .where(sql`(${tierOrder} > ${myTier})
+              OR (${tierOrder} = ${myTier} AND ${players.rankRR} > ${me.rankRR || 0})
+              OR (${tierOrder} = ${myTier} AND ${players.rankRR} = ${me.rankRR || 0} AND ${players.level} > ${me.level || 1})`);
+          you = {
+            position: Number(ahead?.n || 0) + 1,
+            rank: RANK_AR[me.rankTier || 'INFORMANT'] || me.rankTier,
+            rankRR: me.rankRR || 0,
+            seasonMatches: me.totalMatches || 0,
+            seasonWins: me.totalWins || 0,
+          };
         }
       }
       return {
@@ -601,9 +625,12 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           name: p.name,
           rank: RANK_AR[p.rankTier || 'INFORMANT'] || p.rankTier,
           rankRR: p.rankRR || 0,
+          level: p.level || 1,
+          seasonMatches: p.totalMatches || 0,
+          seasonWins: p.totalWins || 0,
         })),
         you,
-        note: 'اعرضها كقائمة مرتبة أنيقة (🥇🥈🥉 للثلاثة الأوائل)، وإن وُجد you اذكر ترتيب العميل بجملة مشجعة',
+        note: 'الترتيب مطابق لصفحة التصنيف بالتطبيق (الرتبة ثم RR ثم المستوى). اعرضها كقائمة أنيقة (🥇🥈🥉 للأوائل) بصيغة: الاسم — الرتبة · RR، وإن وُجد you اذكر ترتيب العميل بجملة مشجعة',
       };
     }
 
