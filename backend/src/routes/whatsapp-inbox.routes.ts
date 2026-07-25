@@ -12,7 +12,7 @@ import crypto from 'crypto';
 import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages, waCustomerNotes, waOptouts, bookings } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waCustomerNotes, waOptouts, bookings, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
@@ -319,6 +319,36 @@ router.post('/bot/playground', authenticate, adminOnly, async (req: Request, res
   }
 });
 
+// 📍 أماكن النادي — تفعيل/تعطيل لإجابات البوت
+router.get('/bot/locations', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const rows = await db
+      .select({ id: locations.id, name: locations.name, mapUrl: locations.mapUrl, isActive: locations.isActive, isTestLocation: locations.isTestLocation })
+      .from(locations)
+      .where(isNull(locations.deletedAt))
+      .orderBy(locations.id);
+    res.json({ success: true, locations: rows.filter((l: any) => !l.isTestLocation) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/bot/locations/:id/toggle', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'DB unavailable' });
+    const id = parseInt(req.params.id);
+    const isActive = !!req.body?.isActive;
+    const [updated] = await db.update(locations).set({ isActive } as any).where(eq(locations.id, id)).returning({ id: locations.id, isActive: locations.isActive });
+    if (!updated) return res.status(404).json({ error: 'المكان غير موجود' });
+    res.json({ success: true, location: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // نبض البوت — إحصاءات سريعة
 router.get('/bot/stats', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
@@ -401,7 +431,10 @@ router.get('/conversations/:id/context', authenticate, adminOnly, async (req: Re
             winRate: seasonMatches > 0 ? Math.round((seasonWins / seasonMatches) * 100) : 0,
             // معلومات تاريخية (كل المواسم) — موسومة كذلك بالواجهة
             favoriteRole: s.favoriteRole || null,
-            lifetimeMatches: p.lifetimeMatches || 0,
+            // مدى الحياة الحقيقي: الأكبر من (العمود، الموسم، عدد سجلات المباريات)
+            // — العمود أُضيف لاحقاً فقد يكون أقل من عدد الموسم نفسه
+            lifetimeMatches: await (await import('../services/whatsapp-bot.service.js'))
+              .computeLifetimeMatches(db, conv.playerId, seasonMatches, p.lifetimeMatches || 0),
           };
         }
       } catch (e: any) {

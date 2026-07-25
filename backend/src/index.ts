@@ -963,6 +963,8 @@ async function main() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_notes_phone ON wa_customer_notes(phone)`);
       // 🤖 البوت الذكي: عمود «بحاجة تدخل» + جدول الإعدادات (صف واحد)
       await db.execute(sql`ALTER TABLE wa_conversations ADD COLUMN IF NOT EXISTS needs_attention BOOLEAN DEFAULT FALSE NOT NULL`);
+      // 💬 تفعيل/تعطيل الأماكن لإجابات البوت
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE NOT NULL`);
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS wa_bot_settings (
           id SERIAL PRIMARY KEY,

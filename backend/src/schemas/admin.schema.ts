@@ -30,6 +30,7 @@ export const locations = pgTable('locations', {
   mapUrl: text('map_url').default(''),
   offers: jsonb('offers').default([]),
   isTestLocation: boolean('is_test_location').default(false),
+  isActive: boolean('is_active').default(true).notNull(), // 💬 يجيب بوت واتساب عن الأماكن الفعالة فقط
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });

@@ -913,6 +913,8 @@ const TOOL_LABELS: Record<string, string> = {
   playerStats: '«شو رتبتي؟» (إحصائيات اللاعب)',
   passwordReset: '🔐 إعادة تعيين كلمة السر (لرقم المحادثة فقط)',
   leaderboard: '🏆 ترتيب أفضل 10 لاعبين',
+  locations: '📍 الأماكن وروابط الخرائط',
+  cancellation: '❌ إلغاء الحجوزات (قاعدة 3 ساعات)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {
@@ -963,17 +965,20 @@ function BotSettingsView() {
   const [pg, setPg] = useState<Array<{ role: 'user' | 'model'; text: string; trace?: any[]; interactives?: any[] }>>([]);
   const [pgInput, setPgInput] = useState('');
   const [pgLoading, setPgLoading] = useState(false);
+  const [locs, setLocs] = useState<any[]>([]);
   const pgRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [a, b] = await Promise.all([
+      const [a, b, c] = await Promise.all([
         apiFetch('/api/whatsapp/bot/settings'),
         apiFetch('/api/whatsapp/bot/stats').catch(() => null),
+        apiFetch('/api/whatsapp/bot/locations').catch(() => null),
       ]);
       setS(a.settings);
       if (b?.stats) setStats(b.stats);
+      if (c?.locations) setLocs(c.locations);
       if (a.settings?.model && !MODEL_FALLBACK.includes(a.settings.model)) {
         setModels(prev => (prev.includes(a.settings.model) ? prev : [a.settings.model, ...prev]));
       }
@@ -1149,6 +1154,28 @@ function BotSettingsView() {
               <Toggle on={(s.toolsConfig || {})[k] !== false} onClick={() => patchTool(k, (s.toolsConfig || {})[k] === false)} />
             </Row>
           ))}
+        </Card>
+
+        {/* الأماكن الفعالة */}
+        <Card title="📍 الأماكن — البوت يجيب عن الفعالة فقط (بروابط خرائطها)">
+          {locs.length === 0 ? (
+            <div className="text-center text-gray-600 text-xs py-2">لا أماكن</div>
+          ) : locs.map(l => (
+            <Row key={l.id} label={`${l.name}${l.mapUrl ? '' : ' — ⚠️ بلا رابط خريطة'}`}>
+              <Toggle
+                on={!!l.isActive}
+                onClick={async () => {
+                  try {
+                    const res = await apiFetch(`/api/whatsapp/bot/locations/${l.id}/toggle`, {
+                      method: 'POST', body: JSON.stringify({ isActive: !l.isActive }),
+                    });
+                    setLocs(prev => prev.map(x => (x.id === l.id ? { ...x, isActive: res.location.isActive } : x)));
+                  } catch (e: any) { swalAlert(e.message, 'error'); }
+                }}
+              />
+            </Row>
+          ))}
+          <div className="text-[10px] text-gray-600 mt-2">رابط الخريطة يُدار من صفحة المواقع — التفعيل هنا يسري على إجابات البوت فوراً</div>
         </Card>
 
         {/* رسالة الفشل */}
