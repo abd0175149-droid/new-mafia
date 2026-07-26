@@ -154,7 +154,7 @@ export default function WhatsAppInboxPage() {
   const [sending, setSending] = useState(false);
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
-  const [mainTab, setMainTab] = useState<'chat' | 'bot' | 'broadcast'>('chat');
+  const [mainTab, setMainTab] = useState<'chat' | 'bot' | 'broadcast' | 'campaigns'>('chat');
   const [noteDraft, setNoteDraft] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkQ, setLinkQ] = useState('');
@@ -524,7 +524,10 @@ export default function WhatsAppInboxPage() {
             onClick={() => setMainTab('broadcast')}
             className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'broadcast' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
           >📢 بث</button>
-          <span className="px-3 py-1 text-gray-600 cursor-not-allowed" title="تُفعَّل مع مرحلة الحملات">الحملات <span className="text-[10px] border border-gray-700 rounded px-1">قريباً</span></span>
+          <button
+            onClick={() => setMainTab('campaigns')}
+            className={`px-3 py-1 rounded-lg font-bold ${mainTab === 'campaigns' ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}
+          >📣 الحملات</button>
         </div>
         <button
           onClick={toggleMute}
@@ -540,6 +543,9 @@ export default function WhatsAppInboxPage() {
 
       {/* ═══ تبويب البث الجماعي ═══ */}
       {mainTab === 'broadcast' && <BroadcastView />}
+
+      {/* ═══ تبويب الحملات (دفعة 1: استوديو القوالب) ═══ */}
+      {mainTab === 'campaigns' && <CampaignsView />}
 
       {/* ═══ اللوحات الثلاث ═══ */}
       <div className={`${mainTab === 'chat' ? 'grid' : 'hidden'} flex-1 min-h-0 grid-cols-1 md:grid-cols-[300px_1fr_280px] gap-0 bg-gray-900/60 border border-gray-800 rounded-2xl overflow-hidden`}>
@@ -1674,6 +1680,279 @@ function BroadcastView() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📣 الحملات — دفعة 1: استوديو قوالب ميتا
+// إنشاء/حذف/مزامنة القوالب + متابعة الموافقة لحظياً (ويبهوك + push)
+// القرارات المعتمدة: سقف 7 أيام · عزو 24 ساعة · الدون يرد على الردود
+// ══════════════════════════════════════════════════════
+
+const TPL_STATUS: Record<string, { label: string; cls: string }> = {
+  APPROVED: { label: '✅ معتمد', cls: 'bg-emerald-500/10 text-emerald-400' },
+  PENDING: { label: '⏳ قيد المراجعة', cls: 'bg-sky-500/10 text-sky-400' },
+  REJECTED: { label: '❌ مرفوض', cls: 'bg-rose-500/10 text-rose-400' },
+  PAUSED: { label: '⏸️ موقوف', cls: 'bg-amber-500/10 text-amber-400' },
+  DISABLED: { label: '🚫 معطّل', cls: 'bg-rose-500/10 text-rose-400' },
+  IN_APPEAL: { label: '⚖️ قيد التظلم', cls: 'bg-amber-500/10 text-amber-400' },
+};
+
+function tplBodyText(t: any): string {
+  const comp = (t.components || []).find((c: any) => c.type === 'BODY');
+  return comp?.text || '';
+}
+
+function CampaignsView() {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState<'MARKETING' | 'UTILITY'>('MARKETING');
+  const [bodyText, setBodyText] = useState('');
+  const [examples, setExamples] = useState<string[]>([]);
+  const [footer, setFooter] = useState('');
+  const [quickReplies, setQuickReplies] = useState<string[]>(['']);
+  const [urlBtnText, setUrlBtnText] = useState('');
+  const [urlBtnUrl, setUrlBtnUrl] = useState('');
+  const bodyTplRef = useRef<HTMLTextAreaElement>(null);
+
+  const load = useCallback(async (sync = true) => {
+    try {
+      setLoading(true);
+      const data = await apiFetch(`/api/whatsapp/meta-templates${sync ? '' : '?sync=0'}`);
+      setTemplates(data.templates || []);
+    } catch (e: any) {
+      swalAlert('تعذر جلب القوالب: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // موافقات القوالب لحظياً
+  useEffect(() => {
+    const s = getSocket();
+    const onTpl = (p: any) => {
+      setTemplates(prev => prev.map(t =>
+        (t.metaId === p.metaId || t.name === p.name)
+          ? { ...t, status: p.status, rejectedReason: p.reason || t.rejectedReason }
+          : t));
+      const st = TPL_STATUS[p.status]?.label || p.status;
+      swalToast(`قالب «${p.name}»: ${st}`, p.status === 'APPROVED' ? 'success' : p.status === 'REJECTED' ? 'error' : 'info');
+    };
+    s.on('wa:template:update', onTpl);
+    return () => { s.off('wa:template:update', onTpl); };
+  }, []);
+
+  // عدد المتغيرات بالنص ⇒ حقول الأمثلة
+  const varCount = useMemo(() => {
+    const ms = (bodyText.match(/\{\{\d+\}\}/g) || []).map(s => parseInt(s.replace(/\D/g, '')));
+    return ms.length ? Math.max(...ms) : 0;
+  }, [bodyText]);
+
+  const insertVarTpl = () => {
+    const v = `{{${varCount + 1}}}`;
+    const el = bodyTplRef.current;
+    if (el && typeof el.selectionStart === 'number') {
+      const s = el.selectionStart, e = el.selectionEnd;
+      setBodyText(prev => prev.slice(0, s) + v + prev.slice(e));
+      requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = s + v.length; });
+    } else setBodyText(prev => prev + v);
+  };
+
+  const previewText = useMemo(() => {
+    let t = bodyText;
+    for (let i = 1; i <= varCount; i++) t = t.replaceAll(`{{${i}}}`, examples[i - 1]?.trim() || `{{${i}}}`);
+    return t;
+  }, [bodyText, examples, varCount]);
+
+  const resetForm = () => {
+    setName(''); setBodyText(''); setExamples([]); setFooter('');
+    setQuickReplies(['']); setUrlBtnText(''); setUrlBtnUrl(''); setCategory('MARKETING');
+  };
+
+  const submit = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      await apiFetch('/api/whatsapp/meta-templates', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: name.trim(), category, bodyText, examples: examples.slice(0, varCount),
+          footer: footer.trim(),
+          quickReplies: quickReplies.map(q => q.trim()).filter(Boolean),
+          urlButton: urlBtnText.trim() && urlBtnUrl.trim() ? { text: urlBtnText.trim(), url: urlBtnUrl.trim() } : null,
+        }),
+      });
+      swalToast('أُرسل القالب لمراجعة ميتا ⏳ — ستصلك الموافقة إشعاراً', 'success');
+      setShowCreate(false); resetForm();
+      load(false); setTimeout(() => load(), 1200);
+    } catch (e: any) {
+      swalAlert('لم يُقبل القالب: ' + e.message, 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const removeTpl = async (t: any) => {
+    const ok = await swalConfirm(`حذف قالب «${t.name}» نهائياً من ميتا ومن النظام؟`, { title: 'حذف قالب', danger: true, confirmText: 'حذف' });
+    if (!ok) return;
+    try {
+      await apiFetch(`/api/whatsapp/meta-templates/${encodeURIComponent(t.name)}`, { method: 'DELETE' });
+      setTemplates(prev => prev.filter(x => x.name !== t.name));
+      swalToast('حُذف القالب', 'success');
+    } catch (e: any) {
+      swalAlert('تعذر الحذف: ' + e.message, 'error');
+    }
+  };
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 pb-6">
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="font-bold text-white">📋 استوديو القوالب</h2>
+          <span className="text-[11px] text-gray-500">قوالب ميتا المعتمدة هي مفتاح مراسلة من نافذته مغلقة — تُدار كاملة من هنا</span>
+          <div className="mr-auto flex gap-2">
+            <button onClick={() => load()} className="text-[11.5px] font-bold text-gray-300 hover:text-white border border-gray-800 rounded-lg px-3 py-1.5">🔄 مزامنة من ميتا</button>
+            <button onClick={() => setShowCreate(v => !v)} className="bg-amber-500 hover:bg-amber-400 text-gray-950 text-[12px] font-bold rounded-lg px-3.5 py-1.5">+ قالب جديد</button>
+          </div>
+        </div>
+
+        {showCreate && (
+          <div className="mt-3 border border-gray-800 rounded-xl p-3.5 grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
+            <div className="flex flex-col gap-2.5">
+              <div className="flex gap-2 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-[10.5px] text-gray-500 font-bold">اسم القالب (لاتيني: حروف صغيرة وأرقام و_)</label>
+                  <input value={name} onChange={e => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))} placeholder="event_invite"
+                    dir="ltr" className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none font-mono" />
+                </div>
+                <div>
+                  <label className="text-[10.5px] text-gray-500 font-bold">التصنيف</label>
+                  <select value={category} onChange={e => setCategory(e.target.value as any)}
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2 py-2 text-sm text-white outline-none focus:border-amber-500">
+                    <option value="MARKETING">تسويقي (عروض ودعوات)</option>
+                    <option value="UTILITY">خدمي (تأكيدات وتذكيرات)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10.5px] text-gray-500 font-bold">نص الرسالة</label>
+                  <button onClick={insertVarTpl} className="text-[10.5px] font-mono text-sky-400 bg-sky-500/10 rounded px-1.5">+ متغير {'{{' + (varCount + 1) + '}}'}</button>
+                </div>
+                <textarea ref={bodyTplRef} value={bodyText} onChange={e => setBodyText(e.target.value)} rows={4}
+                  placeholder={'مساء الخير {{1}} 🎭\nالأسبوع الجاي عندنا «{{2}}» — نحجزلك مكانك؟'}
+                  className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none resize-y" />
+              </div>
+              {varCount > 0 && (
+                <div className="grid grid-cols-2 gap-2">
+                  {Array.from({ length: varCount }, (_, i) => (
+                    <div key={i}>
+                      <label className="text-[10.5px] text-gray-500 font-bold">مثال للمتغير {'{{' + (i + 1) + '}}'} (شرط المراجعة)</label>
+                      <input value={examples[i] || ''} onChange={e => setExamples(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white focus:border-amber-500 outline-none" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 flex-wrap">
+                <div className="flex-1 min-w-[180px]">
+                  <label className="text-[10.5px] text-gray-500 font-bold">تذييل (اختياري ≤60)</label>
+                  <input value={footer} onChange={e => setFooter(e.target.value)} placeholder="نادي المافيا — الأردن 🎭"
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10.5px] text-gray-500 font-bold">أزرار رد سريع (حتى 3 — ننصح بإبقاء «إيقاف الرسائل» للاعتذار)</label>
+                {quickReplies.map((q, i) => (
+                  <div key={i} className="flex gap-1.5 mt-1">
+                    <input value={q} onChange={e => setQuickReplies(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                      placeholder={i === 0 ? 'احجزلي 🎭' : 'إيقاف الرسائل'}
+                      className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+                    {i === quickReplies.length - 1 && quickReplies.length < 3 && (
+                      <button onClick={() => setQuickReplies(prev => [...prev, ''])} className="text-gray-400 hover:text-white border border-gray-800 rounded-lg px-2.5 text-xs">+</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <div className="flex-1 min-w-[140px]">
+                  <label className="text-[10.5px] text-gray-500 font-bold">زر رابط — النص (اختياري)</label>
+                  <input value={urlBtnText} onChange={e => setUrlBtnText(e.target.value)} placeholder="🌐 موقعنا"
+                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+                </div>
+                <div className="flex-[2] min-w-[200px]">
+                  <label className="text-[10.5px] text-gray-500 font-bold">زر رابط — URL</label>
+                  <input value={urlBtnUrl} onChange={e => setUrlBtnUrl(e.target.value)} placeholder="https://club-mafia.grade.sbs/player/home"
+                    dir="ltr" className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none font-mono" />
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <button onClick={submit} disabled={creating || !name.trim() || !bodyText.trim()}
+                  className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-gray-950 font-bold rounded-xl px-5 py-2 text-sm">
+                  {creating ? '…' : '🚀 إرسال لمراجعة ميتا'}
+                </button>
+                <span className="text-[10.5px] text-gray-600">المراجعة عادة دقائق حتى ساعات — الحالة توصلك إشعاراً ولحظياً هنا</span>
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] text-gray-500 font-bold mb-1">معاينة حيّة:</div>
+              <div className="bg-emerald-950/60 border border-emerald-900 rounded-xl rounded-tl-md px-3.5 py-2.5 text-[13px] text-gray-100 whitespace-pre-wrap">
+                {previewText || <span className="text-gray-600 italic">اكتب النص لتظهر المعاينة…</span>}
+                {footer.trim() && <div className="text-[10.5px] text-gray-500 mt-1.5">{footer}</div>}
+                {(quickReplies.some(q => q.trim()) || urlBtnText.trim()) && (
+                  <div className="border-t border-dashed border-emerald-800 mt-2 pt-1.5 flex flex-col gap-1">
+                    {quickReplies.filter(q => q.trim()).map((q, i) => (
+                      <div key={i} className="text-center text-sky-400 text-[12px] font-bold">{q}</div>
+                    ))}
+                    {urlBtnText.trim() && <div className="text-center text-sky-400 text-[12px] font-bold">🔗 {urlBtnText}</div>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* قائمة القوالب */}
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+        {loading ? (
+          <div className="text-gray-600 text-sm text-center py-6">جارٍ المزامنة مع ميتا…</div>
+        ) : templates.length === 0 ? (
+          <div className="text-gray-600 text-sm text-center py-6">لا قوالب بعد — أنشئ أول قالب من الأعلى.</div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {templates.map((t: any) => {
+              const st = TPL_STATUS[t.status] || { label: t.status || '—', cls: 'bg-gray-800 text-gray-400' };
+              return (
+                <div key={t.id} className="border border-gray-800 rounded-xl px-3.5 py-2.5">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="font-mono text-[12.5px] font-bold text-white" dir="ltr">{t.name}</span>
+                    <span className={`text-[10.5px] font-bold rounded-full px-2 py-0.5 ${st.cls}`}>{st.label}</span>
+                    <span className="text-[10.5px] text-gray-500">{t.category === 'MARKETING' ? '📣 تسويقي' : t.category === 'UTILITY' ? '🔔 خدمي' : t.category}</span>
+                    <span className="text-[10.5px] text-gray-600" dir="ltr">{t.language}</span>
+                    {t.qualityScore && <span className="text-[10.5px] text-gray-500">جودة: {t.qualityScore}</span>}
+                    <button onClick={() => removeTpl(t)} className="mr-auto text-gray-600 hover:text-rose-400 text-sm" title="حذف القالب">🗑</button>
+                  </div>
+                  <div className="text-[12px] text-gray-400 whitespace-pre-wrap mt-1 line-clamp-3">{tplBodyText(t)}</div>
+                  {t.status === 'REJECTED' && t.rejectedReason && (
+                    <div className="text-[11px] text-rose-400 mt-1">سبب الرفض: {t.rejectedReason}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-gray-900/40 border border-dashed border-gray-800 rounded-2xl p-4 text-[12.5px] text-gray-500">
+        🛠️ <b className="text-gray-400">الدفعة القادمة — منشئ الحملات:</b> اختيار قالب معتمد → تعبئة المتغيرات من بياناتنا ({'{'}الاسم{'}'} {'{'}الرتبة{'}'} {'{'}الفعالية{'}'}) → شرائح الجمهور (الغائبون، الرتب، الجدد…) → الموزّع الذكي ضمن سقف ميتا اليومي → مراقبة حية مع عزو الحجوزات (24 ساعة) — القرارات معتمدة والبنية جاهزة.
       </div>
     </div>
   );

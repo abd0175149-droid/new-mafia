@@ -1012,6 +1012,24 @@ async function main() {
           finished_at TIMESTAMP
         )
       `);
+      // 📋 مرآة قوالب ميتا (استوديو القوالب)
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_templates (
+          id SERIAL PRIMARY KEY,
+          meta_id VARCHAR(40) UNIQUE,
+          name VARCHAR(512) NOT NULL,
+          language VARCHAR(10) DEFAULT 'ar' NOT NULL,
+          category VARCHAR(20) DEFAULT '',
+          status VARCHAR(24) DEFAULT '',
+          components JSONB DEFAULT '[]',
+          rejected_reason TEXT DEFAULT '',
+          quality_score VARCHAR(20) DEFAULT '',
+          created_by VARCHAR(100) DEFAULT '',
+          last_sync_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
       console.log('✅ WhatsApp inbox tables ensured');
     }
   } catch (err: any) {

@@ -644,6 +644,51 @@ router.delete('/templates/:id', authenticate, adminOnly, async (req: Request, re
 });
 
 // ══════════════════════════════════════════════════════
+// 📋 استوديو قوالب ميتا (الحملات — دفعة 1)
+// ══════════════════════════════════════════════════════
+
+router.get('/meta-templates', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const svc = await import('../services/whatsapp-templates.service.js');
+    const templates = req.query.sync === '0'
+      ? await svc.listTemplatesLocal()
+      : await svc.syncTemplates();
+    res.json({ success: true, templates });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/meta-templates', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { createTemplate } = await import('../services/whatsapp-templates.service.js');
+    const template = await createTemplate({
+      name: String(req.body?.name || ''),
+      category: req.body?.category === 'UTILITY' ? 'UTILITY' : 'MARKETING',
+      bodyText: String(req.body?.bodyText || ''),
+      examples: Array.isArray(req.body?.examples) ? req.body.examples.map(String) : [],
+      footer: String(req.body?.footer || ''),
+      quickReplies: Array.isArray(req.body?.quickReplies) ? req.body.quickReplies.map(String) : [],
+      urlButton: req.body?.urlButton?.text ? { text: String(req.body.urlButton.text), url: String(req.body.urlButton.url || '') } : null,
+      createdBy: (req as any).user?.displayName || '',
+    });
+    res.json({ success: true, template });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/meta-templates/:name', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { deleteTemplate } = await import('../services/whatsapp-templates.service.js');
+    await deleteTemplate(String(req.params.name));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // 📢 البث الجماعي — النوافذ المفتوحة (القرارات المعتمدة 2026-07-26)
 // ══════════════════════════════════════════════════════
 

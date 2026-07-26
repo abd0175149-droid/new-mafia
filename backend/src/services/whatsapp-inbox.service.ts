@@ -241,6 +241,17 @@ export async function processWebhookPayload(payload: any): Promise<void> {
       const value = change?.value;
       if (!value) continue;
 
+      // ── موافقات القوالب (استوديو القوالب) ──────────
+      if (change.field === 'message_template_status_update') {
+        try {
+          const { handleTemplateStatusUpdate } = await import('./whatsapp-templates.service.js');
+          await handleTemplateStatusUpdate(value);
+        } catch (err: any) {
+          console.warn('⚠️ WA template status webhook:', err.message);
+        }
+        continue;
+      }
+
       // ── 1) الرسائل الواردة ──────────────────────────
       const contacts = value.contacts || [];
       for (const msg of value.messages || []) {

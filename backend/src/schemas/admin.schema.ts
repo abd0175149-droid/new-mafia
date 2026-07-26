@@ -374,6 +374,23 @@ export const waMessageTemplates = pgTable('wa_message_templates', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ── مرآة قوالب ميتا (استوديو القوالب — الحملات) ──
+export const waTemplates = pgTable('wa_templates', {
+  id: serial('id').primaryKey(),
+  metaId: varchar('meta_id', { length: 40 }).unique(),                 // معرّف القالب عند ميتا
+  name: varchar('name', { length: 512 }).notNull(),
+  language: varchar('language', { length: 10 }).default('ar').notNull(),
+  category: varchar('category', { length: 20 }).default(''),           // MARKETING | UTILITY
+  status: varchar('status', { length: 24 }).default(''),               // APPROVED | PENDING | REJECTED | PAUSED …
+  components: jsonb('components').default([]),
+  rejectedReason: text('rejected_reason').default(''),
+  qualityScore: varchar('quality_score', { length: 20 }).default(''),
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  lastSyncAt: timestamp('last_sync_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ── سجل الإرسالات الجماعية (بث النوافذ المفتوحة) ──
 export const waBroadcasts = pgTable('wa_broadcasts', {
   id: serial('id').primaryKey(),
