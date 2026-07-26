@@ -689,6 +689,69 @@ router.delete('/meta-templates/:name', authenticate, adminOnly, async (req: Requ
 });
 
 // ══════════════════════════════════════════════════════
+// 📣 الحملات (دفعة 2): شرائح + إنشاء + مراقبة + تحكم
+// ══════════════════════════════════════════════════════
+
+router.get('/campaigns/segment-preview', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { previewSegment } = await import('../services/whatsapp-campaigns.service.js');
+    const preview = await previewSegment({
+      type: String(req.query.type || 'all') as any,
+      rankMin: req.query.rankMin ? String(req.query.rankMin) : undefined,
+      days: req.query.days ? parseInt(String(req.query.days)) : undefined,
+    });
+    res.json({ success: true, ...preview });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/campaigns', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { createCampaign } = await import('../services/whatsapp-campaigns.service.js');
+    const campaign = await createCampaign({
+      name: String(req.body?.name || ''),
+      templateName: String(req.body?.templateName || ''),
+      varMapping: Array.isArray(req.body?.varMapping) ? req.body.varMapping : [],
+      segment: req.body?.segment || { type: 'all' },
+      createdBy: (req as any).user?.displayName || '',
+    });
+    res.json({ success: true, campaign });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/campaigns', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const { listCampaigns } = await import('../services/whatsapp-campaigns.service.js');
+    res.json({ success: true, campaigns: await listCampaigns() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/campaigns/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { campaignDetails } = await import('../services/whatsapp-campaigns.service.js');
+    res.json({ success: true, ...(await campaignDetails(parseInt(req.params.id))) });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/campaigns/:id/:action(pause|resume|stop)', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { setCampaignStatus } = await import('../services/whatsapp-campaigns.service.js');
+    const map: any = { pause: 'paused', resume: 'running', stop: 'stopped' };
+    await setCampaignStatus(parseInt(req.params.id), map[req.params.action]);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════
 // 📢 البث الجماعي — النوافذ المفتوحة (القرارات المعتمدة 2026-07-26)
 // ══════════════════════════════════════════════════════
 

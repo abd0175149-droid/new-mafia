@@ -1706,6 +1706,7 @@ function tplBodyText(t: any): string {
 }
 
 function CampaignsView() {
+  const [subTab, setSubTab] = useState<'templates' | 'new' | 'list'>('templates');
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -1813,6 +1814,23 @@ function CampaignsView() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 pb-6">
+      {/* شاشات الحملات الفرعية */}
+      <div className="flex items-center gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 text-[13px] self-start">
+        {([['templates', '📋 القوالب'], ['new', '🚀 حملة جديدة'], ['list', '📈 الحملات']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setSubTab(k)}
+            className={`px-3 py-1 rounded-lg font-bold ${subTab === k ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:text-white'}`}>{l}</button>
+        ))}
+      </div>
+
+      {subTab === 'new' && (
+        <CampaignWizard
+          templates={templates.filter((t: any) => t.status === 'APPROVED')}
+          onLaunched={() => setSubTab('list')}
+        />
+      )}
+      {subTab === 'list' && <CampaignMonitor />}
+
+      {subTab !== 'templates' ? null : (<>
       <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
         <div className="flex items-center gap-3 flex-wrap">
           <h2 className="font-bold text-white">📋 استوديو القوالب</h2>
@@ -1951,9 +1969,329 @@ function CampaignsView() {
         )}
       </div>
 
-      <div className="bg-gray-900/40 border border-dashed border-gray-800 rounded-2xl p-4 text-[12.5px] text-gray-500">
-        🛠️ <b className="text-gray-400">الدفعة القادمة — منشئ الحملات:</b> اختيار قالب معتمد → تعبئة المتغيرات من بياناتنا ({'{'}الاسم{'}'} {'{'}الرتبة{'}'} {'{'}الفعالية{'}'}) → شرائح الجمهور (الغائبون، الرتب، الجدد…) → الموزّع الذكي ضمن سقف ميتا اليومي → مراقبة حية مع عزو الحجوزات (24 ساعة) — القرارات معتمدة والبنية جاهزة.
+      </>)}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🚀 معالج الحملة — قالب معتمد → متغيرات → شريحة → إطلاق
+// ══════════════════════════════════════════════════════
+
+const VAR_FIELDS = [
+  { key: 'firstName', label: 'الاسم الأول' },
+  { key: 'fullName', label: 'الاسم الكامل' },
+  { key: 'rank', label: 'الرتبة' },
+  { key: 'nextActivity', label: 'الفعالية القادمة' },
+] as const;
+
+const SEGMENTS = [
+  { key: 'all', label: '👥 كل اللاعبين' },
+  { key: 'rank_min', label: '🎖️ رتبة فأعلى' },
+  { key: 'new_players', label: '🆕 الجدد (آخر N يوم)' },
+  { key: 'lapsed', label: '😴 الغائبون (منذ N يوم)' },
+] as const;
+
+const RANKS_LIST = [
+  { key: 'SOLDIER', label: 'جندي فأعلى' },
+  { key: 'CAPO', label: 'كابو فأعلى' },
+  { key: 'UNDERBOSS', label: 'ساعد الزعيم فأعلى' },
+  { key: 'GODFATHER', label: 'العرّاب فقط' },
+] as const;
+
+function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunched: () => void }) {
+  const [tplName, setTplName] = useState('');
+  const [campName, setCampName] = useState('');
+  const [mapping, setMapping] = useState<Array<{ type: 'field' | 'static'; value: string }>>([]);
+  const [segType, setSegType] = useState<'all' | 'rank_min' | 'new_players' | 'lapsed'>('all');
+  const [rankMin, setRankMin] = useState('CAPO');
+  const [days, setDays] = useState(30);
+  const [preview, setPreview] = useState<any | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [launching, setLaunching] = useState(false);
+
+  const tpl = templates.find((t: any) => t.name === tplName) || null;
+  const bodyText = useMemo(() => tpl ? tplBodyText(tpl) : '', [tpl]);
+  const varCount = useMemo(() => {
+    const ms = (bodyText.match(/\{\{\d+\}\}/g) || []).map(s => parseInt(s.replace(/\D/g, '')));
+    return ms.length ? Math.max(...ms) : 0;
+  }, [bodyText]);
+
+  useEffect(() => {
+    setMapping(prev => Array.from({ length: varCount }, (_, i) => prev[i] || { type: 'field', value: 'firstName' }));
+  }, [varCount]);
+
+  useEffect(() => { setPreview(null); }, [segType, rankMin, days]);
+
+  const fetchPreview = async () => {
+    try {
+      setPreviewing(true);
+      const params = new URLSearchParams({ type: segType });
+      if (segType === 'rank_min') params.set('rankMin', rankMin);
+      if (segType === 'new_players' || segType === 'lapsed') params.set('days', String(days));
+      const data = await apiFetch(`/api/whatsapp/campaigns/segment-preview?${params}`);
+      setPreview(data);
+    } catch (e: any) {
+      swalAlert('تعذرت المعاينة: ' + e.message, 'error');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const sampleRender = useMemo(() => {
+    if (!bodyText) return '';
+    let t = bodyText;
+    mapping.forEach((m, i) => {
+      const v = m.type === 'static' ? (m.value || `{{${i + 1}}}`)
+        : m.value === 'firstName' ? 'أحمد'
+        : m.value === 'fullName' ? 'أحمد خالد'
+        : m.value === 'rank' ? 'كابو'
+        : 'مزاج افندينا';
+      t = t.replaceAll(`{{${i + 1}}}`, v);
+    });
+    return t;
+  }, [bodyText, mapping]);
+
+  const launch = async () => {
+    if (!tpl || !campName.trim()) return;
+    if (!preview) { swalAlert('اعرض حجم الشريحة أولاً (زر المعاينة)', 'info'); return; }
+    const ok = await swalConfirm(
+      `إطلاق حملة «${campName.trim()}»؟\n\nالمستلمون: ${preview.total} (بعد استبعاد ${preview.excludedOptout} معتذر و${preview.excludedFreq} ضمن سقف الإزعاج)\nالتوزيع: ~${preview.days} ${preview.days > 1 ? 'أيام' : 'يوم'} ضمن سقف ${preview.dailyCap}/يوم\n\nعينة الرسالة:\n${sampleRender.slice(0, 250)}`,
+      { title: '📣 تأكيد الإطلاق', confirmText: `إطلاق (${preview.total})` },
+    );
+    if (!ok) return;
+    try {
+      setLaunching(true);
+      await apiFetch('/api/whatsapp/campaigns', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: campName.trim(),
+          templateName: tpl.name,
+          varMapping: mapping,
+          segment: { type: segType, ...(segType === 'rank_min' ? { rankMin } : {}), ...(segType === 'new_players' || segType === 'lapsed' ? { days } : {}) },
+        }),
+      });
+      swalToast('🚀 انطلقت الحملة — تابعها من «📈 الحملات»', 'success');
+      onLaunched();
+    } catch (e: any) {
+      swalAlert('تعذر الإطلاق: ' + e.message, 'error');
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  if (!templates.length) {
+    return (
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 text-center text-gray-500 text-sm">
+        لا يوجد قوالب <b className="text-emerald-400">معتمدة</b> بعد — أنشئ قالباً من «📋 القوالب» وانتظر موافقة ميتا، ثم عد إلى هنا.
       </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
+      <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4 flex flex-col gap-3.5">
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex-1 min-w-[200px]">
+            <label className="text-[10.5px] text-gray-500 font-bold">اسم الحملة (داخلي)</label>
+            <input value={campName} onChange={e => setCampName(e.target.value)} placeholder="استرجاع الغائبين — أغسطس"
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+          </div>
+          <div className="flex-1 min-w-[200px]">
+            <label className="text-[10.5px] text-gray-500 font-bold">القالب المعتمد ✅</label>
+            <select value={tplName} onChange={e => setTplName(e.target.value)}
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-2 py-2 text-sm text-white outline-none focus:border-amber-500">
+              <option value="">— اختر قالباً —</option>
+              {templates.map((t: any) => <option key={t.id} value={t.name}>{t.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {tpl && varCount > 0 && (
+          <div>
+            <label className="text-[10.5px] text-gray-500 font-bold">ربط المتغيرات — لكل {'{{n}}'} قيمة من بياناتنا أو نص ثابت</label>
+            <div className="flex flex-col gap-1.5 mt-1">
+              {mapping.map((m, i) => (
+                <div key={i} className="flex gap-1.5 items-center">
+                  <span className="font-mono text-[11px] text-sky-400 shrink-0" dir="ltr">{'{{' + (i + 1) + '}}'}</span>
+                  <select value={m.type === 'static' ? 'static' : m.value}
+                    onChange={e => setMapping(prev => prev.map((x, j) => j === i
+                      ? (e.target.value === 'static' ? { type: 'static', value: '' } : { type: 'field', value: e.target.value })
+                      : x))}
+                    className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-amber-500">
+                    {VAR_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                    <option value="static">نص ثابت…</option>
+                  </select>
+                  {m.type === 'static' && (
+                    <input value={m.value} onChange={e => setMapping(prev => prev.map((x, j) => j === i ? { ...x, value: e.target.value } : x))}
+                      placeholder="النص الثابت"
+                      className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="text-[10.5px] text-gray-500 font-bold">الجمهور</label>
+          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            {SEGMENTS.map(s => (
+              <button key={s.key} onClick={() => setSegType(s.key)}
+                className={`rounded-full px-3 py-1 text-[12px] font-bold border ${segType === s.key ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'text-gray-400 border-gray-800 hover:text-white'}`}>{s.label}</button>
+            ))}
+            {segType === 'rank_min' && (
+              <select value={rankMin} onChange={e => setRankMin(e.target.value)}
+                className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1 text-xs text-white outline-none">
+                {RANKS_LIST.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+              </select>
+            )}
+            {(segType === 'new_players' || segType === 'lapsed') && (
+              <span className="flex items-center gap-1 text-xs text-gray-400">
+                <input type="number" min={1} max={365} value={days} onChange={e => setDays(parseInt(e.target.value) || 30)}
+                  className="w-16 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1 text-xs text-white outline-none text-center" /> يوم
+              </span>
+            )}
+            <button onClick={fetchPreview} disabled={previewing}
+              className="text-[11.5px] font-bold text-gray-300 hover:text-white border border-gray-800 rounded-lg px-3 py-1">
+              {previewing ? '…' : '👁️ معاينة الحجم'}
+            </button>
+          </div>
+          {preview && (
+            <div className="mt-2 bg-gray-950 border border-gray-800 rounded-xl p-3 text-[12px] text-gray-300 flex flex-wrap gap-x-4 gap-y-1">
+              <span>المستلمون: <b className="text-emerald-400">{preview.total}</b></span>
+              <span className="text-gray-500">🚫 معتذرون: {preview.excludedOptout}</span>
+              <span className="text-gray-500">😴 ضمن سقف 7 أيام: {preview.excludedFreq}</span>
+              <span className="text-amber-400">⏱️ التوزيع: ~{preview.days} {preview.days > 1 ? 'أيام' : 'يوم'} (سقف {preview.dailyCap}/يوم)</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button onClick={launch} disabled={launching || !tpl || !campName.trim() || !preview?.total}
+            className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-6 py-2.5 text-sm">
+            {launching ? '…' : '📣 إطلاق الحملة'}
+          </button>
+          <span className="text-[10.5px] text-gray-600">مدفوعة لكل رسالة (خارج النافذة) · الردود يستقبلها الدون · الحجوزات خلال 24 ساعة تُنسب للحملة</span>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-[11px] text-gray-500 font-bold mb-1">معاينة (على «أحمد» كابو):</div>
+        <div className="bg-emerald-950/60 border border-emerald-900 rounded-xl rounded-tl-md px-3.5 py-2.5 text-[13px] text-gray-100 whitespace-pre-wrap">
+          {sampleRender || <span className="text-gray-600 italic">اختر قالباً لتظهر المعاينة…</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📈 مراقبة الحملات — تقدم حي + عزو الحجوزات + تحكم
+// ══════════════════════════════════════════════════════
+
+const CAMP_STATUS: Record<string, { label: string; cls: string }> = {
+  running: { label: '🔄 جارية', cls: 'bg-sky-500/10 text-sky-400' },
+  paused: { label: '⏸️ موقوفة مؤقتاً', cls: 'bg-amber-500/10 text-amber-400' },
+  stopped: { label: '⏹️ أُنهيت', cls: 'bg-rose-500/10 text-rose-400' },
+  done: { label: '✅ اكتملت', cls: 'bg-emerald-500/10 text-emerald-400' },
+};
+
+function CampaignMonitor() {
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [capWait, setCapWait] = useState<Record<number, boolean>>({});
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch('/api/whatsapp/campaigns');
+      setCampaigns(data.campaigns || []);
+    } catch (e: any) {
+      swalAlert('تعذر جلب الحملات: ' + e.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  useEffect(() => {
+    const s = getSocket();
+    const onProgress = (p: any) => {
+      if (p.waitingCap) { setCapWait(prev => ({ ...prev, [p.campaignId]: true })); return; }
+      setCapWait(prev => ({ ...prev, [p.campaignId]: false }));
+      setCampaigns(prev => prev.map(c => c.id === p.campaignId
+        ? { ...c, sentCount: p.sent ?? c.sentCount, failedCount: p.failed ?? c.failedCount, skippedCount: p.skipped ?? c.skippedCount, status: p.finished ? 'done' : c.status }
+        : c));
+    };
+    s.on('wa:campaign:progress', onProgress);
+    return () => { s.off('wa:campaign:progress', onProgress); };
+  }, []);
+
+  const act = async (c: any, action: 'pause' | 'resume' | 'stop') => {
+    if (action === 'stop') {
+      const ok = await swalConfirm(`إنهاء حملة «${c.name}» نهائياً؟ (المتبقون لن يُراسَلوا)`, { title: 'إنهاء الحملة', danger: true, confirmText: 'إنهاء' });
+      if (!ok) return;
+    }
+    try {
+      await apiFetch(`/api/whatsapp/campaigns/${c.id}/${action}`, { method: 'POST' });
+      load();
+    } catch (e: any) {
+      swalAlert('تعذر التنفيذ: ' + e.message, 'error');
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      {loading ? (
+        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 text-center text-gray-600 text-sm">جارٍ التحميل…</div>
+      ) : campaigns.length === 0 ? (
+        <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-6 text-center text-gray-600 text-sm">لا حملات بعد — أطلق أول حملة من «🚀 حملة جديدة».</div>
+      ) : campaigns.map((c: any) => {
+        const st = CAMP_STATUS[c.status] || { label: c.status, cls: 'bg-gray-800 text-gray-400' };
+        const doneN = (c.sentCount || 0) + (c.failedCount || 0) + (c.skippedCount || 0);
+        const pct = Math.round((doneN / Math.max(1, c.totalTargets)) * 100);
+        return (
+          <div key={c.id} className="bg-gray-900/60 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <b className="text-white text-[14px]">{c.name}</b>
+              <span className={`text-[10.5px] font-bold rounded-full px-2 py-0.5 ${st.cls}`}>{st.label}</span>
+              <span className="text-[10.5px] text-gray-500 font-mono" dir="ltr">{c.templateName}</span>
+              {capWait[c.id] && <span className="text-[10.5px] text-amber-400 font-bold">⏳ بانتظار نافذة سقف ميتا اليومي — يُكمل تلقائياً</span>}
+              <span className="mr-auto flex gap-1.5">
+                {c.status === 'running' && <button onClick={() => act(c, 'pause')} className="text-[11px] font-bold text-amber-400 border border-amber-500/40 rounded-lg px-2.5 py-1">⏸️ إيقاف مؤقت</button>}
+                {c.status === 'paused' && <button onClick={() => act(c, 'resume')} className="text-[11px] font-bold text-emerald-400 border border-emerald-500/40 rounded-lg px-2.5 py-1">▶️ استئناف</button>}
+                {['running', 'paused'].includes(c.status) && <button onClick={() => act(c, 'stop')} className="text-[11px] font-bold text-rose-400 border border-rose-500/40 rounded-lg px-2.5 py-1">⏹️ إنهاء</button>}
+              </span>
+            </div>
+            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-2.5">
+              <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-7 gap-2 mt-2.5 text-center">
+              {[
+                ['المستهدفون', c.totalTargets, 'text-gray-300'],
+                ['أُرسلت', c.sentCount, 'text-gray-300'],
+                ['وصلت', c.deliveredCount, 'text-gray-300'],
+                ['قُرئت', c.readCount, 'text-sky-400'],
+                ['ردّوا 💬', c.repliedCount, 'text-amber-400'],
+                ['حجزوا 🎯', c.convertedCount, 'text-emerald-400'],
+                ['فشل/تخطٍّ', (c.failedCount || 0) + (c.skippedCount || 0), 'text-rose-400'],
+              ].map(([l, v, cls], i) => (
+                <div key={i} className="bg-gray-950 border border-gray-800 rounded-lg py-1.5">
+                  <div className={`text-[15px] font-bold ${cls}`}>{v || 0}</div>
+                  <div className="text-[9.5px] text-gray-600 font-bold">{l}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-[10px] text-gray-600 mt-1.5">{fmtWhen(c.createdAt)} · {c.createdBy} · العزو: حجز خلال 24 ساعة من الإرسال</div>
+          </div>
+        );
+      })}
     </div>
   );
 }

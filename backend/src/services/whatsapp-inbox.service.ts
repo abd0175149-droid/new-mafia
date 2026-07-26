@@ -358,6 +358,12 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     },
   );
 
+  // 📣 عدّاد ردود الحملات: أول رد بعد رسالة حملة حديثة يُحتسب
+  try {
+    const { onCampaignReply } = await import('./whatsapp-campaigns.service.js');
+    await onCampaignReply(conv.phone);
+  } catch { /* تكميلي */ }
+
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv)) {
     forwardToBot(updatedConv);
@@ -423,6 +429,11 @@ async function handleStatusUpdate(db: any, st: any) {
 
   if (updated) {
     emitInbox('wa:status:update', updated);
+    // 📣 مزامنة حالة مستلم الحملة (وصلت/قُرئت/فشلت) بنفس الـwamid
+    try {
+      const { onCampaignStatusUpdate } = await import('./whatsapp-campaigns.service.js');
+      await onCampaignStatusUpdate(wamid, st.status || '', patch.errorMessage || '');
+    } catch { /* الحملات تكميلية هنا */ }
   }
 }
 
@@ -521,4 +532,61 @@ export async function sendMessage(input: SendMessageInput) {
   emitInbox('wa:message:new', { conversation: updatedConv, message: saved });
 
   return { message: saved, conversation: updatedConv };
+}
+
+// ══════════════════════════════════════════════════════
+// 📣 إرسال قالب معتمد (للحملات) — يتجاوز حارس النافذة عمداً:
+// القوالب هي الطريقة الشرعية الوحيدة لمراسلة نافذة مغلقة.
+// تُسجَّل بالمحادثة (تُنشأ إن لم توجد) بمصدر template ولا توقف البوت.
+// ══════════════════════════════════════════════════════
+
+export async function sendTemplateMessage(input: {
+  phone: string;
+  templateName: string;
+  language?: string;
+  bodyParams?: string[];          // قيم {{1}}.. بالترتيب
+  previewText?: string;           // النص المعبّأ للعرض بسجل المحادثة
+}): Promise<{ wamid: string | null; conversationId: number }> {
+  const db = getDB();
+  if (!db) throw new Error('DB unavailable');
+  if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل');
+
+  const conv = await getOrCreateConversation(input.phone);
+  if (!conv) throw new Error('رقم غير صالح');
+
+  const template: any = {
+    name: input.templateName,
+    language: { code: input.language || 'ar' },
+  };
+  if (input.bodyParams?.length) {
+    template.components = [{
+      type: 'body',
+      parameters: input.bodyParams.map((t) => ({ type: 'text', text: String(t).slice(0, 500) })),
+    }];
+  }
+  const apiBody = { messaging_product: 'whatsapp', to: conv.waPhone, type: 'template', template };
+  const apiRes = await callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`, apiBody);
+  const wamid = apiRes?.messages?.[0]?.id || null;
+
+  const preview = input.previewText || `📋 قالب: ${input.templateName}`;
+  const [saved] = await db.insert(waMessages).values({
+    conversationId: conv.id,
+    wamid,
+    direction: 'out',
+    source: 'template',
+    msgType: 'template',
+    body: preview,
+    payload: apiBody,
+    status: 'sent',
+  } as any).returning();
+
+  const now = new Date();
+  const [updatedConv] = await db.update(waConversations).set({
+    lastMessageAt: now,
+    lastMessagePreview: preview.slice(0, 120),
+    updatedAt: now,
+  } as any).where(eq(waConversations.id, conv.id)).returning();
+
+  emitInbox('wa:message:new', { conversation: updatedConv, message: saved });
+  return { wamid, conversationId: conv.id };
 }

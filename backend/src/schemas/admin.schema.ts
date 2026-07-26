@@ -391,6 +391,43 @@ export const waTemplates = pgTable('wa_templates', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ── الحملات (قوالب معتمدة → شرائح من بياناتنا) ──
+export const waCampaigns = pgTable('wa_campaigns', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 150 }).notNull(),
+  templateName: varchar('template_name', { length: 512 }).notNull(),
+  templateLanguage: varchar('template_language', { length: 10 }).default('ar'),
+  varMapping: jsonb('var_mapping').default([]),            // لكل {{n}}: {type:'static'|'field', value}
+  segment: jsonb('segment').default({}),                   // تعريف الشريحة وقت الإنشاء
+  totalTargets: integer('total_targets').default(0),
+  sentCount: integer('sent_count').default(0),
+  deliveredCount: integer('delivered_count').default(0),
+  readCount: integer('read_count').default(0),
+  failedCount: integer('failed_count').default(0),
+  skippedCount: integer('skipped_count').default(0),
+  repliedCount: integer('replied_count').default(0),
+  convertedCount: integer('converted_count').default(0),   // حجوزات خلال 24 ساعة (قرار المالك)
+  status: varchar('status', { length: 20 }).default('running'), // running | paused | stopped | done
+  createdBy: varchar('created_by', { length: 100 }).default(''),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  finishedAt: timestamp('finished_at'),
+});
+
+export const waCampaignRecipients = pgTable('wa_campaign_recipients', {
+  id: serial('id').primaryKey(),
+  campaignId: integer('campaign_id').references(() => waCampaigns.id, { onDelete: 'cascade' }).notNull(),
+  phone: varchar('phone', { length: 20 }).notNull(),
+  name: varchar('name', { length: 150 }).default(''),
+  playerId: integer('player_id'),
+  vars: jsonb('vars').default([]),                         // قيم المتغيرات محلولة وقت الإنشاء
+  status: varchar('status', { length: 16 }).default('pending'), // pending | sent | delivered | read | failed | skipped
+  wamid: varchar('wamid', { length: 255 }),
+  error: text('error').default(''),
+  sentAt: timestamp('sent_at'),
+  repliedAt: timestamp('replied_at'),
+  convertedAt: timestamp('converted_at'),
+});
+
 // ── سجل الإرسالات الجماعية (بث النوافذ المفتوحة) ──
 export const waBroadcasts = pgTable('wa_broadcasts', {
   id: serial('id').primaryKey(),

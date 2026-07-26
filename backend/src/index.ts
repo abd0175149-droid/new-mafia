@@ -1030,6 +1030,48 @@ async function main() {
           updated_at TIMESTAMP DEFAULT NOW() NOT NULL
         )
       `);
+      // 📣 الحملات: القوالب المعتمدة ← شرائح ← موزّع ذكي
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_campaigns (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(150) NOT NULL,
+          template_name VARCHAR(512) NOT NULL,
+          template_language VARCHAR(10) DEFAULT 'ar',
+          var_mapping JSONB DEFAULT '[]',
+          segment JSONB DEFAULT '{}',
+          total_targets INTEGER DEFAULT 0,
+          sent_count INTEGER DEFAULT 0,
+          delivered_count INTEGER DEFAULT 0,
+          read_count INTEGER DEFAULT 0,
+          failed_count INTEGER DEFAULT 0,
+          skipped_count INTEGER DEFAULT 0,
+          replied_count INTEGER DEFAULT 0,
+          converted_count INTEGER DEFAULT 0,
+          status VARCHAR(20) DEFAULT 'running',
+          created_by VARCHAR(100) DEFAULT '',
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          finished_at TIMESTAMP
+        )
+      `);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_campaign_recipients (
+          id SERIAL PRIMARY KEY,
+          campaign_id INTEGER REFERENCES wa_campaigns(id) ON DELETE CASCADE NOT NULL,
+          phone VARCHAR(20) NOT NULL,
+          name VARCHAR(150) DEFAULT '',
+          player_id INTEGER,
+          vars JSONB DEFAULT '[]',
+          status VARCHAR(16) DEFAULT 'pending',
+          wamid VARCHAR(255),
+          error TEXT DEFAULT '',
+          sent_at TIMESTAMP,
+          replied_at TIMESTAMP,
+          converted_at TIMESTAMP
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_camp_rcpt ON wa_campaign_recipients(campaign_id, status)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_camp_rcpt_phone ON wa_campaign_recipients(phone, sent_at)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_camp_rcpt_wamid ON wa_campaign_recipients(wamid)`);
       console.log('✅ WhatsApp inbox tables ensured');
     }
   } catch (err: any) {
@@ -1222,6 +1264,12 @@ async function main() {
 ╚══════════════════════════════════════════════════╝
     `);
   });
+
+  // ── 📣 استئناف الحملات الجارية (الموزّع الذكي يكمل بعد أي إعادة تشغيل) ──
+  try {
+    const { resumeRunningCampaigns } = await import('./services/whatsapp-campaigns.service.js');
+    resumeRunningCampaigns().catch(() => {});
+  } catch { /* الحملات تكميلية */ }
 
   // ── 📊 تحديث كاش التحليلات: عند الإقلاع إن كان قديماً + ليليّاً الساعة ٤ فجراً ──
   try {
