@@ -276,7 +276,7 @@ export default function WhatsAppInboxPage() {
     };
 
     const onConvUpdate = (p: any) => {
-      const c = p?.conversation;
+      const c = p?.conversation || (p?.id ? p : null); // يدعم الشكلين: {conversation} أو مسطّحاً
       if (!c) return;
       setConvs(prev => prev.map(x => (x.id === c.id ? { ...x, ...c } : x)));
       if (selIdRef.current === c.id) setConv((prev: any) => ({ ...prev, ...c }));
@@ -1020,6 +1020,7 @@ const TOOL_LABELS: Record<string, string> = {
   leaderboard: '🏆 ترتيب أفضل 10 لاعبين',
   locations: '📍 الأماكن وروابط الخرائط',
   social: '🔗 صفحات التواصل (إنستجرام/الموقع)',
+  accountLink: '🔐 ربط الحساب برمز تحقق (للأرقام الجديدة)',
   cancellation: '❌ إلغاء الحجوزات (قاعدة 3 ساعات)',
   liveGame: '🎮 اللعبة الحية (حالة/وقت/مُقصَون/دوري)',
   matchHistory: '📜 سجل المباريات (ملخص + تفصيل نقاط)',
