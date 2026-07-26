@@ -56,6 +56,9 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - بعد نجاح الحجز: أكّد له التفاصيل (الفعالية، الموعد، العدد) وذكّره أن الدفع بالمكان، وأن الحجز وصل للإدارة.
 - الإلغاء: أولاً اسأل عن السبب بلطف وحاول الإبقاء مرة واحدة فقط (اقترح تغيير الموعد أو تقليل العدد) — فإن أصرّ استدعِ request_cancellation. ستُعرض حجوزاته القادمة بأزرار، والإلغاء الفعلي يتم آلياً بعد ضغطه: تلقائي إن بقي 3 ساعات أو أكثر على الفعالية، وإلا يُحوَّل للإدارة تلقائياً. لا تجادله بعد قراره الثاني.
 - لا تعد بمقاعد ولا تؤكد توفراً إلا من نتيجة الأداة الحالية — المقاعد تتغير كل لحظة.
+- سؤال «في مقاعد فاضية؟»: لا تجب أبداً من الذاكرة ولا تكشف أي أعداد ابتداءً — اسأله أولاً: «كم شخص أنتو؟» ثم استدعِ check_seat_availability. كافية ⟵ «أكيد، في متسع إلكم 👌» بلا أي أرقام. غير كافية ⟵ اذكر المتبقي بصراحة («ظل مقاعد لكذا أشخاص بس») واعرض الخيارات: يقلل العدد، أو أسجله بقائمة الانتظار، أو أحوّله للإدارة ليتابعوا.
+- قبل ask_confirmation استدعِ check_seat_availability دائماً بعدد الأشخاص — وإن كانت غير كافية أخبره قبل التأكيد أن حجزه سيدخل قائمة الانتظار.
+- إذا أعادت create_reservation نتيجة «قائمة انتظار»: أخبره بوضوح أن حجزه مسجّل بقائمة الانتظار وأن الإدارة ستتواصل معه لتأكيده — لا تقل أبداً إنه مؤكد.
 
 ═══ ٤. حدود الصلاحيات المالية والوعود ═══
 - الدفع في المكان حصراً. لا تناقش تحويلات ولا دفع إلكتروني ولا «احجزلي وبحوّلك».
@@ -317,6 +320,7 @@ const DEFAULT_KB = `# 📚 قاعدة معرفة الدون — نادي الم�
 - بعد الحجز: يكفي الحضور بالموعد وإعطاء الاسم/الرقم عند الباب.
 - الإلغاء عبرك أيضاً: قبل الفعالية بـ3 ساعات أو أكثر يتم تلقائياً بعد تأكيد العميل بالزر (مع إشعار للإدارة)؛ أقل من 3 ساعات يُحوَّل للإدارة. اسأل عن السبب بلطف وحاول الإبقاء مرة واحدة قبل التنفيذ.
 - الفعاليات لها سعة قصوى — العرض بالقائمة هو المتاح لحظياً وقد يمتلئ.
+- **قائمة الانتظار**: إذا طلب العميل حجزاً والعدد المتبقي لا يكفيه، يُسجَّل حجزه «قائمة انتظار» (لا يُحسب من المقاعد) وتصل الإدارة إشعاراً فورياً لتتواصل معه وتؤكده أو تدبّر البديل — أخبره دائماً أن التأكيد النهائي من الإدارة.
 
 ## 3. الحجز — عبر تطبيق اللاعب 📱
 - اللاعب المسجّل يحجز لنفسه بضغطة من التطبيق (حجز فردي — شخص واحد لكل حجز).
@@ -399,6 +403,7 @@ const DEFAULT_KB = `# 📚 قاعدة معرفة الدون — نادي الم�
 - **مين الأوائل؟ / شو ترتيبي؟** اسألني — بعرضلك أفضل ١٠ لاعبين بأسمائهم ورتبهم، وترتيبك أنت بينهم.
 - **نسيت كلمة السر؟** بعيد تعيينها لك هون فوراً بعد تأكيدك بكبسة زر (لحساب رقمك أنت فقط).
 - **عندكم إنستا/موقع؟** أكيد — بأرسل لك بطاقة صفحاتنا الرسمية فوراً (عبر الأداة، بلا كتابة روابط يدوياً).
+- **في مقاعد فاضية؟** «كم شخص أنتو؟» ← فحص بالأداة ← كافية: «في متسع إلكم 👌» بلا أرقام · غير كافية: «ظل مقاعد لN بس — بقلل العدد؟ بسجلك قائمة انتظار؟ ولا بحوّلك للإدارة؟».
 
 ## 9. تعليمات للدون حول هذه الوثيقة
 - هذه الوثيقة مصدرك الوحيد لمعلومات النادي الثابتة؛ الفعاليات والأسعار والأماكن الحية من أدواتك حصراً.
@@ -510,8 +515,20 @@ function buildToolDeclarations(toolsConfig: any) {
   const decls: any[] = [];
   if (t.activities) decls.push({
     name: 'get_available_activities',
-    description: 'جلب الفعاليات القادمة المتاحة للحجز (الاسم، التاريخ، الموقع، السعر، المقاعد). استدعها عندما يسأل العميل عن الفعاليات أو يريد الحجز — سترسل تلقائياً قائمة تفاعلية للعميل يختار منها.',
+    description: 'جلب الفعاليات القادمة المتاحة للحجز (الاسم، التاريخ، الموقع، السعر، حالة التوفر). استدعها عندما يسأل العميل عن الفعاليات أو يريد الحجز — سترسل تلقائياً قائمة تفاعلية للعميل يختار منها.',
     parameters: { type: 'OBJECT', properties: {}, required: [] },
+  });
+  if (t.activities) decls.push({
+    name: 'check_seat_availability',
+    description: 'فحص توفر المقاعد لفعالية لعدد أشخاص محدد (مقارنة السعة الرسمية بالمحجوز فعلياً). قبل استدعائها اسأل العميل: كم شخصاً أنتم؟ — ثم اتبع تعليمات النتيجة حرفياً: كافية = بلا أرقام، غير كافية = اذكر المتبقي بصراحة مع الخيارات. استدعها أيضاً قبل ask_confirmation دائماً.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        activity_id: { type: 'NUMBER', description: 'معرّف الفعالية' },
+        people_count: { type: 'NUMBER', description: 'عدد الأشخاص المطلوب' },
+      },
+      required: ['activity_id', 'people_count'],
+    },
   });
   if (t.reservation) {
     decls.push({
@@ -680,6 +697,27 @@ interface ToolCtx {
   settings: any;
 }
 
+// 🪑 التوفر الحقيقي لفعالية: السعة الرسمية (قالب المقاعد ← سعة الفعالية ← 27)
+// مقابل المحجوز فعلياً = حجوزات التطبيق + حجوزات المتابعة (قائمة الانتظار لا تُحسب)
+async function seatAvailability(db: any, activityId: number): Promise<{ total: number; booked: number; remaining: number }> {
+  const { resolveRoomCapacity } = await import('./capacity.service.js');
+  const total = await resolveRoomCapacity(activityId);
+  const [bk] = await db
+    .select({ total: sql<number>`COALESCE(SUM(${bookings.count}), 0)` })
+    .from(bookings)
+    .where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
+  const [rv] = await db
+    .select({ total: sql<number>`COALESCE(SUM(${reservations.peopleCount}), 0)` })
+    .from(reservations)
+    .where(and(
+      eq(reservations.activityId, activityId),
+      isNull(reservations.deletedAt),
+      sql`${reservations.status} != 'waitlist'`,
+    ));
+  const booked = Number(bk?.total || 0) + Number(rv?.total || 0);
+  return { total, booked, remaining: Math.max(0, total - booked) };
+}
+
 async function fetchUpcomingActivities(db: any) {
   const now = new Date(Date.now() - 6 * 3600e3);
   const rows = await db
@@ -694,14 +732,10 @@ async function fetchUpcomingActivities(db: any) {
     .where(and(inArray(activities.status, ['planned', 'active'] as any), gte(activities.date, now as any)))
     .orderBy(asc(activities.date))
     .limit(8);
-  // المقاعد المحجوزة لكل فعالية
+  // حالة التوفر بلا أرقام صريحة (قرار المالك: الأعداد تُكشف فقط عند النقص وعبر أداة الفحص)
   const out: any[] = [];
   for (const a of rows) {
-    const [bk] = await db
-      .select({ total: sql<number>`COALESCE(SUM(${bookings.count}), 0)` })
-      .from(bookings)
-      .where(and(eq(bookings.activityId, a.id), isNull(bookings.deletedAt)));
-    const booked = Number(bk?.total || 0);
+    const av = await seatAvailability(db, a.id);
     out.push({
       id: a.id,
       name: a.name,
@@ -709,7 +743,7 @@ async function fetchUpcomingActivities(db: any) {
       dateText: fmtJo(a.date),
       price: a.basePrice,
       location: a.locationName || '',
-      seatsLeft: a.maxCapacity ? Math.max(0, a.maxCapacity - booked) : null,
+      availability: av.remaining === 0 ? 'مكتملة' : av.remaining <= 5 ? 'شارفت تكتمل' : 'متاحة',
     });
   }
   return out;
@@ -728,7 +762,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const rows = acts.slice(0, 10).map(a => ({
         id: `act:${a.id}`,
         title: a.name.slice(0, 24),
-        description: `${a.dateText}${a.location ? ' · ' + a.location : ''}${a.seatsLeft !== null ? ` · ${a.seatsLeft} مقعد` : ''}`.slice(0, 72),
+        description: `${a.dateText}${a.location ? ' · ' + a.location : ''}${a.availability === 'مكتملة' ? ' · ⛔ مكتملة' : a.availability === 'شارفت تكتمل' ? ' · ⏳ شارفت تكتمل' : ''}`.slice(0, 72),
       }));
       const interactive = {
         type: 'list',
@@ -743,7 +777,39 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       }
       return {
         activities: acts,
-        note: 'أُرسلت قائمة تفاعلية للعميل — اكتب جملة قصيرة واحدة تدعوه للاختيار من القائمة، بدون تكرار تفاصيل الفعاليات.',
+        note: 'أُرسلت قائمة تفاعلية للعميل — اكتب جملة قصيرة واحدة تدعوه للاختيار من القائمة، بدون تكرار تفاصيل الفعاليات. لأسئلة توفر المقاعد: لا تجب من هنا — اسأل عن عدد الأشخاص ثم استخدم check_seat_availability.',
+      };
+    }
+
+    case 'check_seat_availability': {
+      // 🪑 فحص التوفر الحقيقي (سعة رسمية − محجوز فعلياً) — قرار المالك:
+      // كافٍ ⟵ بلا أرقام · غير كافٍ ⟵ يُكشف المتبقي بصراحة + خيارات
+      const activityId = parseInt(args.activity_id);
+      const people = Math.max(1, parseInt(args.people_count) || 1);
+      const [act] = await db.select({ id: activities.id, name: activities.name })
+        .from(activities).where(eq(activities.id, activityId)).limit(1);
+      if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
+      const av = await seatAvailability(db, activityId);
+      if (av.remaining >= people) {
+        return {
+          enough: true,
+          activity: act.name,
+          note: 'المقاعد كافية لعددهم ✅ — أخبره أن في متسعاً لهم بدون ذكر أي أرقام إطلاقاً، وادعُه لإتمام الحجز.',
+        };
+      }
+      if (av.remaining > 0) {
+        return {
+          enough: false,
+          remaining: av.remaining,
+          activity: act.name,
+          note: `العدد المطلوب (${people}) أكبر من المتبقي — أخبره بصراحة أن المتبقي ${av.remaining} فقط، واعرض عليه الخيارات: يقلل العدد، أو أسجل حجزه بقائمة الانتظار والإدارة تتواصل معه للتأكيد، أو أحوّله للإدارة ليتابعوا الموضوع.`,
+        };
+      }
+      return {
+        enough: false,
+        remaining: 0,
+        activity: act.name,
+        note: 'الفعالية مكتملة — أخبره بلطف واعرض: قائمة الانتظار (الإدارة تتواصل للتأكيد)، أو فعالية أخرى قادمة، أو التحويل للإدارة.',
       };
     }
 
@@ -777,6 +843,10 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (dryRun) {
         return { success: true, dryRun: true, reservation: { activity: act.name, people }, note: '(ساحة اختبار — لم يُسجّل حجز حقيقي)' };
       }
+      // 🪑 فحص إلزامي لحظة الإنشاء (يغطي سباق امتلاء المقاعد بين السؤال والتأكيد):
+      // كافية ⟵ مؤكد كالمعتاد · غير كافية ⟵ يُسجَّل قائمة انتظار والإدارة تتواصل للتأكيد
+      const av = await seatAvailability(db, activityId);
+      const isWaitlist = av.remaining < people;
       const [saved] = await db.insert(reservations).values({
         activityId,
         contactName: conv.displayName || conv.phone,
@@ -784,10 +854,29 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         phone: conv.phone,
         peopleCount: people,
         playerId: conv.playerId || null,
-        status: 'confirmed',              // قرار المالك: حجز البوت مؤكد مباشرة
-        notes: args.note ? `🤖 ${args.note}` : '',
+        status: isWaitlist ? 'waitlist' : 'confirmed', // قرار المالك: مؤكد مباشرة، وعند النقص قائمة انتظار
+        notes: `${isWaitlist ? `⏳ قائمة انتظار (المتبقي ${av.remaining} من ${av.total}) — بانتظار تأكيد الإدارة. ` : ''}${args.note ? `🤖 ${args.note}` : ''}`.trim(),
         createdBy: `🤖 ${BOT_RESERVATION_TAG}`,
       } as any).returning();
+      if (isWaitlist) {
+        // قائمة الانتظار تحتاج متابعة بشرية — علامة ⚠️ على المحادثة + إشعارات
+        await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
+        try { const io = (global as any).io; if (io) io.to('wa:inbox').emit('wa:conversation:update', { id: conv.id, needsAttention: true }); } catch { /* غير حرج */ }
+        sendPushToStaffByPermission(
+          'bookings',
+          '⏳ قائمة انتظار — يحتاج تأكيد الإدارة',
+          `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining})`,
+          'reservation',
+          { route: '/admin/reservations' },
+        ).catch(() => {});
+        notifyAdmins('⏳ حجز قائمة انتظار من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining} من ${av.total})`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-res-${conv.id}` }).catch(() => {});
+        return {
+          success: true,
+          waitlist: true,
+          reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people },
+          note: 'سُجّل الحجز في «قائمة الانتظار» لأن المقاعد المتبقية لا تكفي العدد — أخبر العميل بوضوح: حجزك مسجّل بقائمة الانتظار والإدارة ستتواصل معك لتأكيده. لا تقل إنه مؤكد.',
+        };
+      }
       // إشعار الإدارة فوراً
       sendPushToStaffByPermission(
         'bookings',
@@ -829,7 +918,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         .orderBy(desc(bookings.createdAt))
         .limit(5);
       return {
-        reservations: resList.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : 'قيد المتابعة' })),
+        reservations: resList.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : r.status === 'waitlist' ? 'قائمة انتظار ⏳ — الإدارة ستتواصل للتأكيد' : 'قيد المتابعة' })),
         appBookings: bkList.map((b: any) => ({ activity: b.activityName, dateText: fmtJo(b.activityDate), people: b.count, paid: b.isFree ? 'مجاني' : b.isPaid ? 'مدفوع' : 'غير مدفوع' })),
       };
     }

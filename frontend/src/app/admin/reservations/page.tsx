@@ -26,7 +26,11 @@ async function apiFetch(path: string, opts?: RequestInit) {
 function isConfirmed(r: any): boolean {
   return r?.status === 'confirmed' || r?.status === 'paid_all';
 }
-function confirmMeta(confirmed: boolean) {
+function confirmMeta(confirmed: boolean, waitlist = false) {
+  if (waitlist) {
+    // حجز من البوت والمقاعد لم تكفِ — بانتظار تأكيد الإدارة (لا يُحسب من المقاعد)
+    return { label: 'قائمة انتظار', emoji: '📋', bg: 'bg-violet-500/10', text: 'text-violet-400', border: 'border-violet-500/25', glow: 'shadow-[0_0_12px_rgba(139,92,246,0.15)]' };
+  }
   return confirmed
     ? { label: 'مثبّت', emoji: '✅', bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/25', glow: 'shadow-[0_0_12px_rgba(16,185,129,0.15)]' }
     : { label: 'غير مثبّت', emoji: '⏳', bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/25', glow: 'shadow-[0_0_12px_rgba(245,158,11,0.15)]' };
@@ -782,7 +786,7 @@ export default function ReservationsPage() {
             ) : (
               filtered.map(r => {
                 const confirmed = isConfirmed(r);
-                const cfg = confirmMeta(confirmed);
+                const cfg = confirmMeta(confirmed, r.status === 'waitlist');
                 const isAttended = r.attended === true;
                 const isNoShow = r.attended === false;
                 const isUnmarked = r.attended === null || r.attended === undefined;
