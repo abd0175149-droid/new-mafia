@@ -12,7 +12,7 @@ import crypto from 'crypto';
 import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, waBroadcasts, bookings, locations } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, waBroadcasts, bookings, locations, activities } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
@@ -758,12 +758,32 @@ router.post('/campaigns/:id/:action(pause|resume|stop)', authenticate, adminOnly
 router.get('/broadcast/recipients', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const { getOpenWindowRecipients, nearestUpcomingActivityName } = await import('../services/whatsapp-broadcast.service.js');
+    const q = req.query;
     const recipients = await getOpenWindowRecipients({
-      linked: String(req.query.linked || 'all'),
-      excludeAttention: req.query.excludeAttention === '1',
+      linked: String(q.linked || 'all'),
+      excludeAttention: q.excludeAttention === '1',
+      // 🎮 فلترة اللعب (الدفعتان)
+      game: {
+        activityId: q.gActivity ? parseInt(String(q.gActivity)) : undefined,
+        withinHours: q.gHours ? parseInt(String(q.gHours)) : undefined,
+        team: q.gTeam ? String(q.gTeam) as any : undefined,
+        role: q.gRole ? String(q.gRole) : undefined,
+        result: q.gResult ? String(q.gResult) as any : undefined,
+        firstTimer: q.gFirst === '1',
+        noShow: q.gNoShow === '1',
+        earlyOut: q.gEarly === '1',
+        topScorer: q.gTop === '1',
+      },
     });
     const activityName = await nearestUpcomingActivityName();
-    res.json({ success: true, recipients, activityName });
+    // آخر الفعاليات (للمنسدلة) — الماضية أولاً لأن الفلترة عن سهرات جرت
+    const db = getDB();
+    const recentActivities = db ? await db
+      .select({ id: activities.id, name: activities.name, date: activities.date })
+      .from(activities)
+      .orderBy(desc(activities.date))
+      .limit(14) : [];
+    res.json({ success: true, recipients, activityName, recentActivities });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -772,12 +792,13 @@ router.get('/broadcast/recipients', authenticate, adminOnly, async (req: Request
 router.post('/broadcast', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const { launchBroadcast } = await import('../services/whatsapp-broadcast.service.js');
-    const { body, templateId, conversationIds } = req.body || {};
+    const { body, templateId, conversationIds, recipientMeta } = req.body || {};
     const result = await launchBroadcast({
       body: String(body || ''),
       templateId: templateId ? parseInt(templateId) : null,
       conversationIds: Array.isArray(conversationIds) ? conversationIds.map((n: any) => parseInt(n)).filter(Boolean) : [],
       createdBy: (req as any).user?.displayName || '',
+      recipientMeta: recipientMeta && typeof recipientMeta === 'object' ? recipientMeta : {},
     });
     res.json({ success: true, ...result });
   } catch (err: any) {

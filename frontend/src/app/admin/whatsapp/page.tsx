@@ -1376,7 +1376,7 @@ function BotSettingsView() {
 // المتغيرات: {الاسم} {اسم_اللاعب} {الرتبة} {الفعالية} · البث لا يوقف البوت
 // ══════════════════════════════════════════════════════
 
-const BC_VARS = ['{الاسم}', '{اسم_اللاعب}', '{الرتبة}', '{الفعالية}'] as const;
+const BC_VARS = ['{الاسم}', '{اسم_اللاعب}', '{الرتبة}', '{آخر_دور}', '{الفعالية}'] as const;
 
 function renderBcPreview(body: string, r: any, activityName: string | null): string {
   const name = (r?.displayName || r?.playerName || '').trim().split(/\s+/)[0] || 'يا غالي';
@@ -1384,6 +1384,7 @@ function renderBcPreview(body: string, r: any, activityName: string | null): str
     .replaceAll('{الاسم}', name)
     .replaceAll('{اسم_اللاعب}', r?.playerName || name)
     .replaceAll('{الرتبة}', r?.rankAr || 'عضو العائلة')
+    .replaceAll('{آخر_دور}', r?.lastRoleAr || 'لاعب')
     .replaceAll('{الفعالية}', activityName || 'فعاليتنا القادمة');
 }
 
@@ -1395,6 +1396,18 @@ function BroadcastView() {
   const [excludeAttn, setExcludeAttn] = useState(false);
   const [search, setSearch] = useState('');
   const [activityName, setActivityName] = useState<string | null>(null);
+  // 🎮 فلترة باللعب (الدفعتان — قرار المالك)
+  const [gameOn, setGameOn] = useState(false);
+  const [recentActs, setRecentActs] = useState<any[]>([]);
+  const [gActivity, setGActivity] = useState('');       // '' = نطاق زمني بدلاً من فعالية
+  const [gHours, setGHours] = useState(24);
+  const [gTeam, setGTeam] = useState('');
+  const [gRole, setGRole] = useState('');
+  const [gResult, setGResult] = useState('');
+  const [gFirst, setGFirst] = useState(false);
+  const [gNoShow, setGNoShow] = useState(false);
+  const [gEarly, setGEarly] = useState(false);
+  const [gTop, setGTop] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
   const [tplId, setTplId] = useState<number | null>(null);
   const [body, setBody] = useState('');
@@ -1408,10 +1421,25 @@ function BroadcastView() {
   const loadRecipients = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiFetch(`/api/whatsapp/broadcast/recipients?linked=${linkedFilter}&excludeAttention=${excludeAttn ? '1' : '0'}`);
+      const p = new URLSearchParams({ linked: linkedFilter, excludeAttention: excludeAttn ? '1' : '0' });
+      if (gameOn) {
+        if (gActivity) p.set('gActivity', gActivity);
+        else p.set('gHours', String(gHours || 24));
+        if (gNoShow) p.set('gNoShow', '1');
+        else {
+          if (gTeam) p.set('gTeam', gTeam);
+          if (gRole) p.set('gRole', gRole);
+          if (gResult) p.set('gResult', gResult);
+          if (gFirst) p.set('gFirst', '1');
+          if (gEarly) p.set('gEarly', '1');
+          if (gTop) p.set('gTop', '1');
+        }
+      }
+      const data = await apiFetch(`/api/whatsapp/broadcast/recipients?${p}`);
       const list = data.recipients || [];
       setRecipients(list);
       setActivityName(data.activityName || null);
+      setRecentActs(data.recentActivities || []);
       setSelected(new Set(list.map((r: any) => r.id)));
       setPreviewId(list[0]?.id ?? null);
     } catch (e: any) {
@@ -1419,7 +1447,7 @@ function BroadcastView() {
     } finally {
       setLoading(false);
     }
-  }, [linkedFilter, excludeAttn]);
+  }, [linkedFilter, excludeAttn, gameOn, gActivity, gHours, gTeam, gRole, gResult, gFirst, gNoShow, gEarly, gTop]);
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -1516,9 +1544,11 @@ function BroadcastView() {
     );
     if (!ok) return;
     try {
+      const recipientMeta: Record<number, { lastRoleAr?: string }> = {};
+      for (const r of recipients) if (ids.includes(r.id) && r.lastRoleAr) recipientMeta[r.id] = { lastRoleAr: r.lastRoleAr };
       const res = await apiFetch('/api/whatsapp/broadcast', {
         method: 'POST',
-        body: JSON.stringify({ body: body.trim(), templateId: tplId, conversationIds: ids }),
+        body: JSON.stringify({ body: body.trim(), templateId: tplId, conversationIds: ids, recipientMeta }),
       });
       setRun({ id: res.broadcastId, total: res.totalTargets, sent: 0, skipped: 0, failed: 0, done: 0 });
     } catch (e: any) {
@@ -1552,6 +1582,59 @@ function BroadcastView() {
             استبعاد ⚠️
           </label>
         </div>
+
+        {/* 🎮 فلترة باللعب */}
+        <div className="border border-gray-800 rounded-xl p-2.5 mb-2">
+          <label className="flex items-center gap-1.5 text-[12px] font-bold text-gray-300 cursor-pointer">
+            <input type="checkbox" checked={gameOn} onChange={e => setGameOn(e.target.checked)} className="accent-amber-500" />
+            🎮 فلترة باللعب
+          </label>
+          {gameOn && (
+            <div className="mt-2 flex flex-col gap-1.5">
+              <div className="flex gap-1.5 items-center flex-wrap">
+                <select value={gActivity} onChange={e => setGActivity(e.target.value)}
+                  className="flex-1 min-w-[150px] bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-[11.5px] text-white outline-none focus:border-amber-500">
+                  <option value="">⏱️ حسب الزمن (بلا فعالية)</option>
+                  {recentActs.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                {!gActivity && (
+                  <span className="flex items-center gap-1 text-[11px] text-gray-400">
+                    آخر <input type="number" min={1} max={720} value={gHours} onChange={e => setGHours(parseInt(e.target.value) || 24)}
+                      className="w-14 bg-gray-950 border border-gray-800 rounded px-1.5 py-1 text-[11px] text-white outline-none text-center" /> ساعة
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 flex-wrap text-[10.5px]">
+                {([['', 'الكل'], ['MAFIA', '🕵️ مافيا'], ['CITIZEN', '🛡️ مواطنين'], ['NEUTRAL', '🃏 محايد']] as const).map(([k, l]) => (
+                  <button key={k} disabled={gNoShow} onClick={() => setGTeam(k)}
+                    className={`rounded-full px-2 py-0.5 font-bold border disabled:opacity-30 ${gTeam === k ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'text-gray-400 border-gray-800'}`}>{l}</button>
+                ))}
+                <select value={gRole} disabled={gNoShow} onChange={e => setGRole(e.target.value)}
+                  className="bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 text-[10.5px] text-gray-300 outline-none disabled:opacity-30">
+                  <option value="">دور محدد…</option>
+                  {Object.entries(ROLE_AR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1 flex-wrap text-[10.5px]">
+                {([['', '—'], ['won', '🏆 فازوا'], ['lost', '💔 خسروا']] as const).map(([k, l]) => (
+                  <button key={k} disabled={gNoShow} onClick={() => setGResult(k)}
+                    className={`rounded-full px-2 py-0.5 font-bold border disabled:opacity-30 ${gResult === k ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'text-gray-400 border-gray-800'}`}>{l}</button>
+                ))}
+                <button disabled={gNoShow} onClick={() => setGFirst(v => !v)}
+                  className={`rounded-full px-2 py-0.5 font-bold border disabled:opacity-30 ${gFirst ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40' : 'text-gray-400 border-gray-800'}`}>🆕 أول مرة</button>
+                <button disabled={gNoShow} onClick={() => setGEarly(v => !v)}
+                  className={`rounded-full px-2 py-0.5 font-bold border disabled:opacity-30 ${gEarly ? 'bg-rose-500/10 text-rose-400 border-rose-500/40' : 'text-gray-400 border-gray-800'}`}>💀 أُقصوا جولة 1</button>
+                <button disabled={gNoShow} onClick={() => setGTop(v => !v)}
+                  className={`rounded-full px-2 py-0.5 font-bold border disabled:opacity-30 ${gTop ? 'bg-sky-500/10 text-sky-400 border-sky-500/40' : 'text-gray-400 border-gray-800'}`}>⭐ توب 3</button>
+                <button disabled={!gActivity} onClick={() => setGNoShow(v => !v)}
+                  title={!gActivity ? 'يتطلب اختيار فعالية' : ''}
+                  className={`rounded-full px-2 py-0.5 font-bold border disabled:opacity-30 ${gNoShow ? 'bg-violet-500/10 text-violet-400 border-violet-500/40' : 'text-gray-400 border-gray-800'}`}>👻 حجزوا وما حضروا</button>
+              </div>
+              <div className="text-[9.5px] text-gray-600">الدور/النتيجة تُقيَّم على آخر مباراة له بالنطاق · «ما حضروا» يستبعد بقية شروط اللعب · متغير {'{آخر_دور}'} متاح بالرسالة</div>
+            </div>
+          )}
+        </div>
+
         <div className="flex gap-1.5 mb-2">
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="بحث بالاسم أو الرقم…"
             className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:border-amber-500 outline-none" />
@@ -1570,6 +1653,7 @@ function BroadcastView() {
                 <div className="text-[12.5px] font-bold text-white truncate flex items-center gap-1.5">
                   {r.displayName}
                   {r.rankAr && <span className="text-[9.5px] text-amber-400 border border-amber-500/40 rounded px-1">{r.rankAr}</span>}
+                  {r.lastRoleAr && <span className="text-[9.5px] text-sky-400 border border-sky-500/40 rounded px-1">🎭 {r.lastRoleAr}</span>}
                   {r.needsAttention && <span className="text-[9.5px]">⚠️</span>}
                 </div>
                 <div className="text-[10.5px] text-gray-500" dir="ltr">{r.phone}</div>
