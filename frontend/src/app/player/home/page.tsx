@@ -10,7 +10,7 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
-const WHATSAPP_NUMBER = '962793390966';
+const WHATSAPP_NUMBER = '962789842240'; // رقم بوت الواتساب «الدون» (كان رقم الإدارة)
 const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
 const INSTAGRAM_URL = 'https://www.instagram.com/mafia_club_jo/';
 const SNAPCHAT_URL = 'https://www.snapchat.com/add/mafia_club26';
