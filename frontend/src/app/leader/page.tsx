@@ -1707,6 +1707,13 @@ export default function LeaderPage() {
     if (gameState) { try { await emit('room:lucky-draw:clear', { roomId: gameState.roomId }); } catch { /* ignore */ } }
     setLuckyWinners(null); setLuckyRevealed(false); setShowLuckyDraw(false);
   };
+  // إغلاق المودال (خلفية/بعد الكشف): إن كان الفائز معروضاً على الشاشة ⟵ تنظيفها
+  // فوراً وإعادتها للحالة السابقة — وإلا إغلاق صامت (السحب غير المكشوف يبقى سرياً)
+  const closeLuckyModal = () => {
+    if (luckyBusy) return;
+    if (luckyRevealed) { doLuckyClear(); return; }
+    setShowLuckyDraw(false);
+  };
 
   // 🎁 زر السحب المشترك (يظهر في عرض السشن وعرض اللعبة — كلّ المراحل)
   const luckyDrawBtn = gameState && gameState.players.filter((p: any) => !p.seatHeld).length > 0 ? (
@@ -1720,7 +1727,7 @@ export default function LeaderPage() {
 
   // 🎁 مودال السحب المشترك
   const luckyDrawModal = showLuckyDraw && gameState ? (
-    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => { if (!luckyBusy) setShowLuckyDraw(false); }}>
+    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeLuckyModal}>
       <div className="bg-[#0d0d0d] border border-[#C5A059]/40 rounded-2xl p-6 w-full max-w-md shadow-[0_0_40px_rgba(197,160,89,0.2)]" onClick={(e) => e.stopPropagation()} dir="rtl">
         <h3 className="text-xl font-black text-[#C5A059] mb-1 text-center" style={{ fontFamily: 'Amiri, serif' }}>🎁 اختيار رابح</h3>
         <p className="text-[#808080] text-xs text-center mb-5">سحب عشوائي لتوزيع الهدايا — يظهر على شاشة العرض</p>

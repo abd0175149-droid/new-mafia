@@ -1081,6 +1081,94 @@ function DisplayPageContent() {
             </motion.div>
           )}
 
+        {/* ══════════════════════════════════════════ */}
+        {/* 🎁 طبقات سحب «اختيار رابح» — مستوى الصفحة  */}
+        {/* تعمل فوق أي عرض وبكل المراحل (كانت حبيسة    */}
+        {/* فرع اللوبي فلا تظهر أثناء اللعبة)، وعند      */}
+        {/* الإغلاق تُزال فوراً والعرض تحتها لم يُمسّ    */}
+        {/* ══════════════════════════════════════════ */}
+        {step === 'lobby' && lucky?.phase === 'spinning' && phase !== Phase.LOBBY && (
+          <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(197,160,89,0.2),transparent_60%)] pointer-events-none" />
+            <h2 className="text-4xl font-black text-[#C5A059] mb-3 drop-shadow-[0_0_25px_rgba(197,160,89,0.5)]" style={{ fontFamily: 'Amiri, serif' }}>
+              🎁 اختيار رابح 🎁
+            </h2>
+            <p className="text-[#808080] text-sm tracking-[0.3em] uppercase mb-10">على من ستقع القرعة؟</p>
+            {(() => {
+              const ap = players.find((pp) => pp.physicalId === lucky.activeId);
+              if (!ap) return null;
+              return (
+                <motion.div
+                  key={ap.physicalId}
+                  initial={{ scale: 0.9, opacity: 0.6 }}
+                  animate={{ scale: 1.05, opacity: 1 }}
+                  transition={{ duration: 0.1, ease: 'easeOut' }}
+                  className="relative"
+                >
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[280px] h-[400px] bg-[#C5A059]/35 blur-[60px] rounded-full pointer-events-none -z-10" />
+                  <MafiaCard
+                    playerNumber={ap.physicalId}
+                    playerName={ap.name}
+                    role={null}
+                    gender={ap.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                    isFlipped={false}
+                    flippable={false}
+                    isAlive={true}
+                    size="lg"
+                    avatarUrl={ap.avatarUrl}
+                    rankTier={ap.rankTier}
+                    className="shadow-[0_0_60px_rgba(197,160,89,0.6)] border-2 border-[#C5A059] rounded-2xl"
+                  />
+                </motion.div>
+              );
+            })()}
+          </div>
+        )}
+        {step === 'lobby' && lucky?.phase === 'revealed' && (
+          <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(197,160,89,0.25),transparent_60%)] pointer-events-none" />
+            <motion.h2
+              initial={{ opacity: 0, y: -30, scale: 0.8 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: 'spring', damping: 12, stiffness: 120 }}
+              className="text-5xl font-black text-[#C5A059] mb-10 drop-shadow-[0_0_30px_rgba(197,160,89,0.6)]"
+              style={{ fontFamily: 'Amiri, serif' }}
+            >
+              🎁 {lucky.winners.length > 1 ? 'الفائزون' : 'الفائز'} 🎁
+            </motion.h2>
+            <div className="flex flex-wrap items-center justify-center gap-10 px-8">
+              {lucky.winners.map((id, idx) => {
+                const wp = players.find((pp) => pp.physicalId === id);
+                if (!wp) return null;
+                return (
+                  <motion.div
+                    key={id}
+                    initial={{ opacity: 0, scale: 0.3, rotateY: 90 }}
+                    animate={{ opacity: 1, scale: 1, rotateY: 0 }}
+                    transition={{ type: 'spring', damping: 14, stiffness: 120, delay: idx * 0.25 }}
+                    className="relative"
+                  >
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[440px] bg-[#C5A059]/40 blur-[70px] rounded-full pointer-events-none -z-10" />
+                    <MafiaCard
+                      playerNumber={wp.physicalId}
+                      playerName={wp.name}
+                      role={null}
+                      gender={wp.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                      isFlipped={false}
+                      flippable={false}
+                      isAlive={true}
+                      size="lg"
+                      avatarUrl={wp.avatarUrl}
+                      rankTier={wp.rankTier}
+                      className="shadow-[0_0_70px_rgba(197,160,89,0.7)] border-2 border-[#C5A059] rounded-2xl"
+                    />
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
           {/* ══════════════════════════════════════════ */}
         {/* شاشة اللوبي                             */}
         {/* ══════════════════════════════════════════ */}
@@ -1130,52 +1218,6 @@ function DisplayPageContent() {
                   </div>
                 </div>
               </div>
-
-              {/* 🎁 طبقة كشف الفائزين (سحب اختيار رابح) — تُكبّر الكارد(ات) في المنتصف */}
-              {lucky?.phase === 'revealed' && (
-                <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(197,160,89,0.25),transparent_60%)] pointer-events-none" />
-                  <motion.h2
-                    initial={{ opacity: 0, y: -30, scale: 0.8 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ type: 'spring', damping: 12, stiffness: 120 }}
-                    className="text-5xl font-black text-[#C5A059] mb-10 drop-shadow-[0_0_30px_rgba(197,160,89,0.6)]"
-                    style={{ fontFamily: 'Amiri, serif' }}
-                  >
-                    🎁 {lucky.winners.length > 1 ? 'الفائزون' : 'الفائز'} 🎁
-                  </motion.h2>
-                  <div className="flex flex-wrap items-center justify-center gap-10 px-8">
-                    {lucky.winners.map((id, idx) => {
-                      const wp = players.find((pp) => pp.physicalId === id);
-                      if (!wp) return null;
-                      return (
-                        <motion.div
-                          key={id}
-                          initial={{ opacity: 0, scale: 0.3, rotateY: 90 }}
-                          animate={{ opacity: 1, scale: 1, rotateY: 0 }}
-                          transition={{ type: 'spring', damping: 14, stiffness: 120, delay: idx * 0.25 }}
-                          className="relative"
-                        >
-                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[440px] bg-[#C5A059]/40 blur-[70px] rounded-full pointer-events-none -z-10" />
-                          <MafiaCard
-                            playerNumber={wp.physicalId}
-                            playerName={wp.name}
-                            role={null}
-                            gender={wp.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
-                            isFlipped={false}
-                            flippable={false}
-                            isAlive={true}
-                            size="lg"
-                            avatarUrl={wp.avatarUrl}
-                            rankTier={wp.rankTier}
-                            className="shadow-[0_0_70px_rgba(197,160,89,0.7)] border-2 border-[#C5A059] rounded-2xl"
-                          />
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* القسم الأيسر: شبكة اللاعبين المرنة باستخدام MafiaCard */}
               <div className="w-full flex-1">
