@@ -60,6 +60,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - سؤال «في مقاعد فاضية؟»: لا تجب أبداً من الذاكرة ولا تكشف أي أعداد ابتداءً — اسأله أولاً: «كم شخص أنتو؟» ثم استدعِ check_seat_availability. كافية ⟵ «أكيد، في متسع إلكم 👌» بلا أي أرقام. غير كافية ⟵ اذكر المتبقي بصراحة («ظل مقاعد لكذا أشخاص بس») واعرض الخيارات: يقلل العدد، أو أسجله بقائمة الانتظار، أو أحوّله للإدارة ليتابعوا.
 - قبل ask_confirmation استدعِ check_seat_availability دائماً بعدد الأشخاص — وإن كانت غير كافية أخبره قبل التأكيد أن حجزه سيدخل قائمة الانتظار.
 - إذا أعادت create_reservation نتيجة «قائمة انتظار»: أخبره بوضوح أن حجزه مسجّل بقائمة الانتظار وأن الإدارة ستتواصل معه لتأكيده — لا تقل أبداً إنه مؤكد.
+- 🚫 حجز واحد فقط لكل عميل بالفعالية الواحدة (بأي قناة: تطبيق/بوت/إدارة): إن أعادت الأداة alreadyBooked فأخبره بتفاصيل حجزه القائم ولا تحاول إنشاء ثانٍ أبداً — لتغيير العدد: ألغِ الحالي (request_cancellation) ثم احجز من جديد، أو حوّله للإدارة.
 
 ═══ ٤. حدود الصلاحيات المالية والوعود ═══
 - الدفع في المكان حصراً. لا تناقش تحويلات ولا دفع إلكتروني ولا «احجزلي وبحوّلك».
@@ -322,6 +323,7 @@ const DEFAULT_KB = `# 📚 قاعدة معرفة الدون — نادي الم�
 - الإلغاء عبرك أيضاً: قبل الفعالية بـ3 ساعات أو أكثر يتم تلقائياً بعد تأكيد العميل بالزر (مع إشعار للإدارة)؛ أقل من 3 ساعات يُحوَّل للإدارة. اسأل عن السبب بلطف وحاول الإبقاء مرة واحدة قبل التنفيذ.
 - الفعاليات لها سعة قصوى — العرض بالقائمة هو المتاح لحظياً وقد يمتلئ.
 - **قائمة الانتظار**: إذا طلب العميل حجزاً والعدد المتبقي لا يكفيه، يُسجَّل حجزه «قائمة انتظار» (لا يُحسب من المقاعد) وتصل الإدارة إشعاراً فورياً لتتواصل معه وتؤكده أو تدبّر البديل — أخبره دائماً أن التأكيد النهائي من الإدارة.
+- **حجز واحد لكل عميل بالفعالية**: النظام يمنع التكرار عبر كل القنوات (تطبيق/بوت/إدارة) — المحجوز أصلاً يُخبَر بحجزه القائم، ولتغيير العدد: إلغاء ثم حجز جديد أو الإدارة. وإلغاء حجزٍ محجوز عبر التطبيق يُلغيه من التطبيق أيضاً (إلغاء فعلي شامل).
 
 ## 3. الحجز — عبر تطبيق اللاعب 📱
 - اللاعب المسجّل يحجز لنفسه بضغطة من التطبيق (حجز فردي — شخص واحد لكل حجز).
@@ -698,8 +700,12 @@ interface ToolCtx {
   settings: any;
 }
 
-// 🪑 التوفر الحقيقي لفعالية: السعة الرسمية (قالب المقاعد ← سعة الفعالية ← 27)
-// مقابل المحجوز فعلياً = حجوزات التطبيق + حجوزات المتابعة (قائمة الانتظار لا تُحسب)
+// 🪑 التوفر الحقيقي لفعالية — العدّ الموحّد بلا أي تكرار (قرار المالك):
+// حجوزات التطبيق تنعكس تلقائياً لصفحة المتابعة (مرايا player-app)، وحجوزات
+// المتابعة تترقّى بـapp_confirmed عندما يحجز صاحبها من التطبيق — لذا:
+//   المحجوز = مقاعد التطبيق + مقاعد المتابعة غير المؤكدة تطبيقياً
+//            + «الضيوف الزائدون» بالمؤكدة تطبيقياً (صاحبها محسوب بالتطبيق count=1)
+// قائمة الانتظار لا تُحسب من المقاعد إطلاقاً.
 async function seatAvailability(db: any, activityId: number): Promise<{ total: number; booked: number; remaining: number }> {
   const { resolveRoomCapacity } = await import('./capacity.service.js');
   const total = await resolveRoomCapacity(activityId);
@@ -707,16 +713,53 @@ async function seatAvailability(db: any, activityId: number): Promise<{ total: n
     .select({ total: sql<number>`COALESCE(SUM(${bookings.count}), 0)` })
     .from(bookings)
     .where(and(eq(bookings.activityId, activityId), isNull(bookings.deletedAt)));
-  const [rv] = await db
-    .select({ total: sql<number>`COALESCE(SUM(${reservations.peopleCount}), 0)` })
+  const resRows = await db
+    .select({ people: reservations.peopleCount, appConfirmed: reservations.appConfirmed })
     .from(reservations)
     .where(and(
       eq(reservations.activityId, activityId),
       isNull(reservations.deletedAt),
       sql`${reservations.status} != 'waitlist'`,
     ));
-  const booked = Number(bk?.total || 0) + Number(rv?.total || 0);
+  let resSeats = 0;
+  for (const r of resRows) {
+    const ppl = Number(r.people || 1);
+    resSeats += r.appConfirmed ? Math.max(0, ppl - 1) : ppl;
+  }
+  const booked = Number(bk?.total || 0) + resSeats;
   return { total, booked, remaining: Math.max(0, total - booked) };
+}
+
+// 🚫 مانع تكرار الحجوزات: حجز واحد لكل عميل بالفعالية عبر كل القنوات
+// (تطبيق / بوت / يدوي / قائمة انتظار) — بمطابقة الهاتف أو حساب اللاعب
+async function existingBookingFor(db: any, conv: any, activityId: number): Promise<{ source: string; people: number; status: string } | null> {
+  const [resRow] = await db
+    .select({ people: reservations.peopleCount, status: reservations.status, createdBy: reservations.createdBy })
+    .from(reservations)
+    .where(and(
+      eq(reservations.activityId, activityId),
+      isNull(reservations.deletedAt),
+      or(eq(reservations.phone, conv.phone), conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`),
+    ))
+    .limit(1);
+  if (resRow) {
+    return {
+      source: resRow.createdBy === 'player-app' ? 'تطبيق اللاعب' : String(resRow.createdBy || '').includes(BOT_RESERVATION_TAG) ? 'بوت واتساب' : 'الإدارة',
+      people: Number(resRow.people || 1),
+      status: resRow.status === 'waitlist' ? 'قائمة انتظار ⏳' : resRow.status === 'confirmed' ? 'مؤكد ✅' : 'قيد المتابعة',
+    };
+  }
+  const [bkRow] = await db
+    .select({ count: bookings.count })
+    .from(bookings)
+    .where(and(
+      eq(bookings.activityId, activityId),
+      isNull(bookings.deletedAt),
+      or(eq(bookings.phone, conv.phone), conv.playerId ? eq(bookings.playerId, conv.playerId) : sql`false`),
+    ))
+    .limit(1);
+  if (bkRow) return { source: 'تطبيق اللاعب', people: Number(bkRow.count || 1), status: 'مؤكد ✅' };
+  return null;
 }
 
 async function fetchUpcomingActivities(db: any) {
@@ -817,6 +860,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'ask_confirmation': {
       const activityId = parseInt(args.activity_id);
       const people = Math.max(1, parseInt(args.people_count) || 1);
+      // 🚫 مانع التكرار: محجوز أصلاً بأي قناة ⟵ لا أزرار ولا حجز جديد
+      const dup = await existingBookingFor(db, conv, activityId);
+      if (dup) {
+        return {
+          alreadyBooked: true,
+          existing: dup,
+          note: `العميل محجوز أصلاً لهذه الفعالية (${dup.source} — ${dup.people} أشخاص — ${dup.status}) — لا ترسل تأكيداً ولا تنشئ حجزاً ثانياً أبداً. أخبره بحجزه القائم، وإن أراد تعديل العدد: الطريق إلغاء الحجز الحالي (request_cancellation) ثم حجز جديد، أو التحويل للإدارة.`,
+        };
+      }
       const interactive = {
         type: 'button',
         body: { text: `📋 تأكيد الحجز:\n${args.summary || ''}\n\nهل أثبّت الحجز؟` },
@@ -843,6 +895,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
       if (dryRun) {
         return { success: true, dryRun: true, reservation: { activity: act.name, people }, note: '(ساحة اختبار — لم يُسجّل حجز حقيقي)' };
+      }
+      // 🚫 مانع التكرار لحظة الإنشاء (حتى لو تجاوز النموذج ask_confirmation)
+      const dupRes = await existingBookingFor(db, conv, activityId);
+      if (dupRes) {
+        return {
+          alreadyBooked: true,
+          existing: dupRes,
+          note: `لم يُنشأ حجز — العميل محجوز أصلاً لهذه الفعالية (${dupRes.source} — ${dupRes.people} أشخاص — ${dupRes.status}). أخبره بذلك، ولتعديل العدد: إلغاء الحالي ثم حجز جديد أو التحويل للإدارة.`,
+        };
       }
       // 🪑 فحص إلزامي لحظة الإنشاء (يغطي سباق امتلاء المقاعد بين السؤال والتأكيد):
       // كافية ⟵ مؤكد كالمعتاد · غير كافية ⟵ يُسجَّل قائمة انتظار والإدارة تتواصل للتأكيد
@@ -898,6 +959,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       const resList = await db
         .select({
           id: reservations.id, peopleCount: reservations.peopleCount, status: reservations.status,
+          createdBy: reservations.createdBy, appConfirmed: reservations.appConfirmed,
           createdAt: reservations.createdAt, activityName: activities.name, activityDate: activities.date,
         })
         .from(reservations)
@@ -918,9 +980,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         .where(and(bkConds, isNull(bookings.deletedAt)))
         .orderBy(desc(bookings.createdAt))
         .limit(5);
+      // عرض موحّد بلا تكرار: المرايا (player-app) تُعرض من جهة التطبيق فقط،
+      // والمترقّية (app_confirmed) تُعرض من جهة المتابعة ويُخفى صفّها التطبيقي
+      const shownRes = resList.filter((r: any) => r.createdBy !== 'player-app');
+      const appConfirmedActs = new Set(shownRes.filter((r: any) => r.appConfirmed).map((r: any) => r.activityName));
+      const shownBk = bkList.filter((b: any) => !appConfirmedActs.has(b.activityName));
       return {
-        reservations: resList.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : r.status === 'waitlist' ? 'قائمة انتظار ⏳ — الإدارة ستتواصل للتأكيد' : 'قيد المتابعة' })),
-        appBookings: bkList.map((b: any) => ({ activity: b.activityName, dateText: fmtJo(b.activityDate), people: b.count, paid: b.isFree ? 'مجاني' : b.isPaid ? 'مدفوع' : 'غير مدفوع' })),
+        reservations: shownRes.map((r: any) => ({ activity: r.activityName, dateText: fmtJo(r.activityDate), people: r.peopleCount, status: r.status === 'confirmed' ? 'مؤكد' : r.status === 'waitlist' ? 'قائمة انتظار ⏳ — الإدارة ستتواصل للتأكيد' : 'قيد المتابعة' })),
+        appBookings: shownBk.map((b: any) => ({ activity: b.activityName, dateText: fmtJo(b.activityDate), people: b.count, paid: b.isFree ? 'مجاني' : b.isPaid ? 'مدفوع' : 'غير مدفوع' })),
+        note: 'القائمتان بلا تكرار — الحجز الواحد يظهر مرة واحدة فقط أياً كانت قناته.',
       };
     }
 
@@ -1824,6 +1892,7 @@ async function performCancellation(convId: number, reservationId: number) {
   const [r] = await db
     .select({
       id: reservations.id, peopleCount: reservations.peopleCount,
+      activityId: reservations.activityId, appConfirmed: reservations.appConfirmed, createdBy: reservations.createdBy,
       activityName: activities.name, activityDate: activities.date,
     })
     .from(reservations)
@@ -1859,6 +1928,15 @@ async function performCancellation(convId: number, reservationId: number) {
 
   // ≥3 ساعات — إلغاء تلقائي (حذف ناعم كما يفعل النظام)
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, r.id));
+  // إلغاء فعلي من كل القنوات: إن كان الحجز مربوطاً بحجز تطبيق (مرآة أو مترقٍّ)
+  // يُلغى حجز التطبيق أيضاً — وإلا بقي العميل محسوباً بالمقاعد وحاجزاً بالتطبيق
+  if (r.appConfirmed || r.createdBy === 'player-app') {
+    await db.update(bookings).set({ deletedAt: new Date() } as any).where(and(
+      eq(bookings.activityId, r.activityId),
+      isNull(bookings.deletedAt),
+      or(eq(bookings.phone, conv.phone), conv.playerId ? eq(bookings.playerId, conv.playerId) : sql`false`),
+    ));
+  }
   await sendMessage({
     conversationId: convId,
     text: `تم إلغاء حجزك ✅\n${r.activityName} — ${when}\nنتمنى نشوفك بفعالية جاية قريباً 🎭`,
