@@ -43,6 +43,7 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - رحّب مرة واحدة ببداية المحادثة فقط — لا تعيد الترحيب مع كل رسالة.
 - خاطب العميل باسمه الأول إن كان معروفاً ببطاقته، وبرتبته عند اللمسة الحماسية («يا كابو أحمد 🎖️») — بلا مبالغة، مرة بالمحادثة تكفي.
 - إذا كتب العميل بالإنجليزية رُدّ بإنجليزية بسيطة، وإلا فالعربية دائماً.
+- 🚫 ممنوع منعاً باتاً أن يظهر في نص رسالتك أي اسم أداة أو أقواس برمجية أو كود (مثل get_available_activities()) — الأدوات تُستدعى استدعاءً فعلياً ولا تُكتب أبداً كنص؛ ما يكتب كنص يصل للعميل رسالةً مكسورة.
 
 ═══ ٢. الشفافية ═══
 - أنت مساعد ذكي آلي. إذا سُئلت «إنت روبوت؟» أجب بخفة دم وبوضوح: «آلي 🤖 بس أعرف كل شي عن النادي — وإذا حابب تحكي مع إنسان بحوّلك فوراً».
@@ -1557,6 +1558,32 @@ function endsWithUserTurn(contents: any[]): boolean {
 // نواة الوكيل (تُستخدم للحي ولساحة الاختبار)
 // ══════════════════════════════════════════════════════
 
+// 🛡️ حارس تسريب الأدوات: النموذج أحياناً يكتب استدعاء الأداة كنص بدل تنفيذه
+// («… واختار الموعد: get_available_activities()») فيصل للعميل نصاً مكسوراً.
+// الحارس: كشف ⟵ إعادة محاولة موجّهة مرة واحدة (فيستدعيها فعلياً) ⟵ تنظيف إجباري.
+function detectToolLeak(text: string, toolNames: string[]): boolean {
+  if (!text) return false;
+  if (/```/.test(text)) return true;                                  // كتل كود لا مكان لها برسائل العملاء
+  for (const n of toolNames) if (text.includes(n)) return true;
+  if (/\b[a-z][a-z0-9_]{3,}\s*\([^)\n]*\)/.test(text)) return true;   // نمط snake_case(...) عام
+  if (/functionCall|tool_code/i.test(text)) return true;
+  return false;
+}
+
+function stripToolLeak(text: string, toolNames: string[]): string {
+  let out = text || '';
+  out = out.replace(/```[\s\S]*?```/g, ' ');
+  out = out.replace(/\b[a-z][a-z0-9_]{3,}\s*\([^)\n]*\)/g, '');   // النمط الكامل اسم(وسائط) أولاً
+  for (const n of toolNames) out = out.split(n).join('');          // ثم أي اسم أداة بلا أقواس
+  out = out.replace(/\(\s*\)/g, '');                               // أقواس فارغة متبقية
+  out = out.replace(/functionCall|tool_code/gi, '');
+  return out
+    .split('\n').map((l) => l.replace(/[ \t]+$/g, '')).join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .replace(/[:：]$/, '.');  // كان ينتهي بنقطتين تمهيداً للتسريب المحذوف
+}
+
 export async function runAgent(opts: {
   settings: any;
   conv: any;
@@ -1577,14 +1604,30 @@ export async function runAgent(opts: {
   const ctx: ToolCtx = { conv, dryRun, interactives: [], settings };
   const contents = [...opts.history];
   const toolTrace: Array<{ name: string; args: any; result: any }> = [];
+  const toolNames = toolDecls.map((d: any) => d.name);
   let finalText = '';
+  let leakRetried = false;
 
   for (let loop = 0; loop <= (settings.maxToolLoops || 4); loop++) {
     const parts = await geminiGenerate(settings, systemText, contents, toolDecls);
     const fnCalls = parts.filter((p: any) => p.functionCall);
     const textPart = parts.filter((p: any) => typeof p.text === 'string').map((p: any) => p.text).join('\n').trim();
 
-    if (fnCalls.length === 0) { finalText = textPart; break; }
+    if (fnCalls.length === 0) {
+      // 🛡️ حارس التسريب: اسم أداة/كود بالنص ⟵ محاولة تصحيح واحدة يستدعيها فيها فعلياً
+      if (!leakRetried && detectToolLeak(textPart, toolNames)) {
+        leakRetried = true;
+        toolTrace.push({ name: '🛡️ leak-guard', args: { leaked: textPart.slice(0, 120) }, result: { retried: true } });
+        contents.push({ role: 'model', parts });
+        contents.push({
+          role: 'user',
+          parts: [{ text: '⚠️ تنبيه نظام داخلي (العميل لا يراه): ردُّك الأخير كتب اسم أداة أو كوداً كنصٍّ بدل استدعاء الأداة فعلياً — هذا يصل للعميل نصاً مكسوراً. أعد الآن: نفّذ الأداة المطلوبة استدعاءً حقيقياً (functionCall)، واجعل ردك النصي بشرياً قصيراً خالياً تماماً من أسماء الأدوات والأقواس البرمجية.' }],
+        });
+        continue;
+      }
+      finalText = textPart;
+      break;
+    }
 
     // ⚠️ Gemini 3.x: أجزاء رد النموذج تُعاد للسجل كما وصلت حرفياً —
     // تجريد functionCall من thoughtSignature المرافق له يرفضه الـ API.
@@ -1604,6 +1647,15 @@ export async function runAgent(opts: {
     if (loop === (settings.maxToolLoops || 4)) {
       finalText = textPart || 'تمام ✅';
     }
+  }
+
+  // 🛡️ تنظيف نهائي إجباري قبل الإرسال — حتى لو فشلت محاولة التصحيح
+  if (detectToolLeak(finalText, toolNames)) {
+    const cleaned = stripToolLeak(finalText, toolNames);
+    toolTrace.push({ name: '🛡️ leak-guard', args: { leaked: finalText.slice(0, 120) }, result: { stripped: true } });
+    finalText = cleaned.length >= 8
+      ? cleaned
+      : 'تحت أمرك 🎭 احكيلي شو حابب بالضبط وبخدمك فوراً.';
   }
 
   return { text: finalText, toolTrace, interactives: ctx.interactives };
