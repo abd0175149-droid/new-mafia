@@ -234,6 +234,15 @@ router.post('/conversations/:id/read', authenticate, adminOnly, async (req: Requ
       .returning();
     if (!updated) return res.status(404).json({ error: 'المحادثة غير موجودة' });
 
+    // 📌 فتح المحادثة = انتهاء دورة إشعارها (قرار المالك): يُحذف إشعارها المجمّع
+    // من صناديق كل الأدمن تلقائياً — والرسائل التالية تبدأ دورة بإشعار جديد
+    try {
+      const { playerNotifications } = await import('../schemas/notification.schema.js');
+      await db.delete(playerNotifications).where(sql`${playerNotifications.data}->>'tag' = ${`wa-conv-${convId}`}`);
+    } catch (err: any) {
+      console.warn('⚠️ WA read notif cleanup:', err.message);
+    }
+
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -931,7 +931,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           'reservation',
           { route: '/admin/reservations' },
         ).catch(() => {});
-        notifyAdmins('⏳ حجز قائمة انتظار من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining} من ${av.total})`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-res-${conv.id}` }).catch(() => {});
+        notifyAdmins('⏳ حجز قائمة انتظار من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name} (المتبقي ${av.remaining} من ${av.total})`, { conversationId: conv.id, url: `/admin/whatsapp?conv=${conv.id}`, tag: `wa-conv-${conv.id}` }).catch(() => {});
         return {
           success: true,
           waitlist: true,
@@ -947,7 +947,7 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         'reservation',
         { route: '/admin/reservations' },
       ).catch(() => {});
-      notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-res-${conv.id}` }).catch(() => {});
+      notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-conv-${conv.id}` }).catch(() => {});
       return {
         success: true,
         reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people },
@@ -1942,7 +1942,7 @@ async function performCancellation(convId: number, reservationId: number) {
     text: `تم إلغاء حجزك ✅\n${r.activityName} — ${when}\nنتمنى نشوفك بفعالية جاية قريباً 🎭`,
     source: 'system',
   });
-  notifyAdmins('❌ إلغاء حجز عبر البوت', `${who} — ${r.activityName} (${when}) — ${r.peopleCount} أشخاص`, { conversationId: convId, url: '/admin/reservations', tag: `wa-res-${convId}` }).catch(() => {});
+  notifyAdmins('❌ إلغاء حجز عبر البوت', `${who} — ${r.activityName} (${when}) — ${r.peopleCount} أشخاص`, { conversationId: convId, url: '/admin/reservations', tag: `wa-conv-${convId}` }).catch(() => {});
   sendPushToStaffByPermission('bookings', '❌ إلغاء حجز من بوت واتساب', `${who} — ${r.activityName} — ${r.peopleCount} أشخاص`, 'reservation', { route: '/admin/reservations' }).catch(() => {});
   console.log(`❌ WA bot: reservation #${r.id} cancelled (conv ${convId})`);
 }

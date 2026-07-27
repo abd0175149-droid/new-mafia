@@ -3,7 +3,7 @@
 // إرسال Push Notifications للاعبين والموظفين
 // ══════════════════════════════════════════════════════
 
-import { eq, and, inArray, sql, like, isNull } from 'drizzle-orm';
+import { eq, and, inArray, sql, like, isNull, desc } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { getMessaging } from '../config/firebase.js';
 import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas/notification.schema.js';
@@ -269,10 +269,43 @@ export async function sendPushToPlayers(
   const db = getDB();
   if (!db || playerIds.length === 0) return;
 
-  // حفظ إشعار لكل لاعب والتقاط المعرفات
-  const insertedRows = await db.insert(playerNotifications).values(
-    playerIds.map(pid => ({ playerId: pid, title, body, type, data, isPushSent: false }))
-  ).returning({ id: playerNotifications.id, playerId: playerNotifications.playerId });
+  // حفظ إشعار لكل لاعب والتقاط المعرفات.
+  // 📌 دمج بالوسم (قرار المالك — إشعارات محادثات الواتساب): وجود data.tag يعني
+  // «إشعار واحد حي لكل وسم»: إن وُجد صف غير مقروء بنفس الوسم يُحدَّث بمكانه
+  // (آخر رسالة + العدد بالعنوان + يصعد لأعلى القائمة) بدل إغراق الصندوق بصف
+  // لكل رسالة — وبعد فتحه (يُحذف عند القراءة) تبدأ الرسائل الجديدة دورة بصف جديد.
+  const collapseTag = data && typeof (data as any).tag === 'string' && (data as any).tag ? String((data as any).tag) : '';
+  let insertedRows: Array<{ id: number; playerId: number | null }>;
+  if (collapseTag) {
+    insertedRows = [];
+    for (const pid of playerIds) {
+      const [existing] = await db
+        .select({ id: playerNotifications.id })
+        .from(playerNotifications)
+        .where(and(
+          eq(playerNotifications.playerId, pid),
+          eq(playerNotifications.isRead, false),
+          sql`${playerNotifications.data}->>'tag' = ${collapseTag}`,
+        ))
+        .orderBy(desc(playerNotifications.id))
+        .limit(1);
+      if (existing) {
+        await db.update(playerNotifications)
+          .set({ title, body, type, data, isPushSent: false, createdAt: new Date() } as any)
+          .where(eq(playerNotifications.id, existing.id));
+        insertedRows.push({ id: existing.id, playerId: pid });
+      } else {
+        const [row] = await db.insert(playerNotifications)
+          .values({ playerId: pid, title, body, type, data, isPushSent: false } as any)
+          .returning({ id: playerNotifications.id, playerId: playerNotifications.playerId });
+        insertedRows.push(row);
+      }
+    }
+  } else {
+    insertedRows = await db.insert(playerNotifications).values(
+      playerIds.map(pid => ({ playerId: pid, title, body, type, data, isPushSent: false }))
+    ).returning({ id: playerNotifications.id, playerId: playerNotifications.playerId });
+  }
 
   // ملاحظة: أُزيل بثّ io.emit('notification:new') العام (غير مُستهلَك في الواجهة + يسرّب
   // محتوى الإشعار لكل المتصلين). التحديث اللحظي يتم عبر SW (PUSH_RECEIVED) + onMessage + polling.

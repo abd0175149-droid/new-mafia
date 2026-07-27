@@ -55,6 +55,8 @@ try {
       badge: '/mafia_logo.png',
       ...(d.imageUrl ? { image: d.imageUrl } : {}), // 🖼️ صورة كبيرة (أندرويد/سطح المكتب)
       tag,
+      // 💬 tag مخصص (محادثات واتساب): يستبدل الإشعار السابق ويعيد التنبيه بكل تحديث
+      ...(d.tag ? { renotify: true } : {}),
       data: { url, type, ...d },
       vibrate: [200, 100, 200],
     });
