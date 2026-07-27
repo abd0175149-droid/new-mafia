@@ -440,6 +440,16 @@ export function maskApiKey(key: string): string {
   return key.slice(0, 4) + '••••••••' + key.slice(-4);
 }
 
+// 💵 أسعار جوجل الرسمية المعروفة ($/مليون توكن، الطبقة المدفوعة) — المرجع الوحيد
+// للتحقق والتحديث: ai.google.dev/gemini-api/docs/pricing (لا يوجد API للأسعار)
+const KNOWN_MODEL_PRICES: Record<string, { in: number; out: number }> = {
+  'gemini-3.1-flash-lite': { in: 0.10, out: 0.40 },
+  'gemini-2.5-flash-lite': { in: 0.10, out: 0.40 },
+  'gemini-2.0-flash': { in: 0.10, out: 0.40 },
+  'gemini-2.5-flash': { in: 0.30, out: 2.50 },
+  'gemini-2.5-pro': { in: 1.25, out: 10.00 },
+};
+
 export async function updateBotSettings(patch: Record<string, any>, updatedBy: string) {
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
@@ -463,9 +473,32 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
       clean[pk] = v.toFixed(4);
     }
   }
+  const current = await getBotSettings();
+
+  // 💵 خريطة سعر لكل نموذج — حتى لا يكسر تبديل النماذج حسابات التاريخ:
+  // حفظ سعرين = يُخزَّنان تحت النموذج المستهدف؛ وتبديل النموذج = تحميل سعره
+  // من الخريطة أو من القائمة الرسمية المعروفة تلقائياً (وإلا يبقى للتحديث اليدوي)
+  const priceMap: Record<string, { in: number; out: number }> = { ...((current as any).modelPrices || {}) };
+  const targetModel = clean.model || current.model;
+  if (clean.priceInputPer1M !== undefined || clean.priceOutputPer1M !== undefined) {
+    priceMap[targetModel] = {
+      in: parseFloat(clean.priceInputPer1M ?? (current as any).priceInputPer1M ?? '0.10') || 0,
+      out: parseFloat(clean.priceOutputPer1M ?? (current as any).priceOutputPer1M ?? '0.40') || 0,
+    };
+  }
+  if (clean.model && clean.model !== current.model) {
+    const known = priceMap[clean.model] || KNOWN_MODEL_PRICES[clean.model];
+    if (known) {
+      clean.priceInputPer1M = known.in.toFixed(4);
+      clean.priceOutputPer1M = known.out.toFixed(4);
+      priceMap[clean.model] = known;
+    }
+    // نموذج غير معروف: تبقى الحقول كما هي والواجهة تنبّه للتحديث اليدوي
+  }
+  clean.modelPrices = priceMap;
+
   clean.updatedBy = updatedBy;
   clean.updatedAt = new Date();
-  const current = await getBotSettings();
   const [updated] = await db.update(waBotSettings).set(clean).where(eq(waBotSettings.id, current.id)).returning();
   return updated;
 }
@@ -2114,17 +2147,27 @@ export async function getBotUsage() {
   const settings = await getBotSettings();
   const priceIn = Number((settings as any).priceInputPer1M ?? 0.10);
   const priceOut = Number((settings as any).priceOutputPer1M ?? 0.40);
-  const costOf = (p: number, o: number) => (p / 1e6) * priceIn + (o / 1e6) * priceOut;
+  // كل صف استهلاك يُسعَّر بنموذجه هو (الخريطة ← القائمة المعروفة ← أسعار النموذج الحالي)
+  const priceMap: Record<string, { in: number; out: number }> = {
+    ...KNOWN_MODEL_PRICES,
+    ...(((settings as any).modelPrices || {}) as Record<string, { in: number; out: number }>),
+  };
+  const priceFor = (model: string) => priceMap[model] || { in: priceIn, out: priceOut };
+  const costOf = (p: number, o: number, model = '') => {
+    const pr = priceFor(model);
+    return (p / 1e6) * pr.in + (o / 1e6) * pr.out;
+  };
 
   const { waBotUsage } = await import('../schemas/admin.schema.js');
 
-  // إجمالي كل الفترات (SQL) + صفوف آخر 30 يوماً (للتفصيل والمتوسطات)
-  const [allAgg] = await db.select({
+  // إجمالي كل الفترات مجمَّعاً بالنموذج (كل نموذج بسعره) + صفوف آخر 30 يوماً
+  const allByModel: any[] = await db.select({
+    model: waBotUsage.model,
     rows: sql<number>`COUNT(*)`,
     prompt: sql<number>`COALESCE(SUM(${waBotUsage.promptTokens}), 0)`,
     output: sql<number>`COALESCE(SUM(${waBotUsage.outputTokens}), 0)`,
     total: sql<number>`COALESCE(SUM(${waBotUsage.totalTokens}), 0)`,
-  }).from(waBotUsage);
+  }).from(waBotUsage).groupBy(waBotUsage.model);
 
   const since30 = new Date(Date.now() - 30 * 86400e3);
   const rows30: any[] = await db.select().from(waBotUsage).where(gte(waBotUsage.createdAt, since30));
@@ -2140,7 +2183,7 @@ export async function getBotUsage() {
 
   for (const r of rows30) {
     const p = Number(r.promptTokens || 0), o = Number(r.outputTokens || 0), t = Number(r.totalTokens || 0);
-    const c = costOf(p, o);
+    const c = costOf(p, o, r.model || '');
     const key = ammanDayKey(r.createdAt);
     const add = (b: any) => { b.replies++; b.prompt += p; b.output += o; b.total += t; b.cost += c; };
     add(sums.d30);
@@ -2173,16 +2216,24 @@ export async function getBotUsage() {
     last7.push({ day: key, replies: d?.replies || 0, total: d?.total || 0, cost: +(d?.cost || 0).toFixed(6) });
   }
 
-  const allPrompt = Number(allAgg?.prompt || 0), allOutput = Number(allAgg?.output || 0);
   const round6 = (x: number) => +x.toFixed(6);
   const pack = (b: ReturnType<typeof mk>) => ({ replies: b.replies, prompt: b.prompt, output: b.output, total: b.total, cost: round6(b.cost) });
 
+  // الإجمالي الكلي: كل نموذج بسعره ثم الجمع (لا يختلط سعران أبداً)
+  const allTime = { replies: 0, prompt: 0, output: 0, total: 0, cost: 0 };
+  for (const g of allByModel) {
+    const p = Number(g.prompt || 0), o = Number(g.output || 0);
+    allTime.replies += Number(g.rows || 0);
+    allTime.prompt += p; allTime.output += o; allTime.total += Number(g.total || 0);
+    allTime.cost += costOf(p, o, g.model || '');
+  }
+
   return {
-    prices: { inputPer1M: priceIn, outputPer1M: priceOut, model: settings.model },
+    prices: { inputPer1M: priceIn, outputPer1M: priceOut, model: settings.model, knownModel: !!priceMap[settings.model] },
     today: pack(sums.today),
     d7: pack(sums.d7),
     d30: pack(sums.d30),
-    allTime: { replies: Number(allAgg?.rows || 0), prompt: allPrompt, output: allOutput, total: Number(allAgg?.total || 0), cost: round6(costOf(allPrompt, allOutput)) },
+    allTime: { ...allTime, cost: round6(allTime.cost) },
     avgDaily: { tokens: Math.round(sums.d30.total / activeDays), cost: round6(sums.d30.cost / activeDays), activeDays },
     avgPerReply: { cost: round6(liveReplies30 ? liveCost30 / liveReplies30 : 0), replies: liveReplies30 },
     routineChat: { medianCost: round6(medianConv), avgCost: round6(convCosts.length ? convCosts.reduce((a, b) => a + b, 0) / convCosts.length : 0), conversations: convCosts.length },

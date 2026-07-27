@@ -2484,7 +2484,7 @@ function UsageCard({ s, patch }: { s: any; patch: (k: string, v: any) => void })
             </div>
             <button onClick={loadUsage} className="text-[11px] font-bold text-gray-300 hover:text-white border border-gray-800 rounded-lg px-3 py-1.5">🔄 تحديث</button>
             <span className="text-[9.5px] text-gray-600 flex-1 min-w-[220px]">
-              التوكنز أعداد فعلية من Gemini لكل نداء، والتكلفة = التوكنز × أسعار جوجل الرسمية لـ<b className="text-gray-400" dir="ltr">{u.prices.model}</b> — حدّث السعرين من صفحة أسعار Google عند تغيير النموذج (احفظ الإعدادات بعد التعديل). تشمل الأرقام ساحة الاختبار ({fmtUSD(u.playgroundCost30)} آخر 30 يوماً)؛ متوسطا الرسالة والدردشة على الردود الحية فقط.
+              التوكنز أعداد فعلية من Gemini لكل نداء، والتكلفة = توكنز كل صف × سعر <b>نموذجه هو</b> (تبديل النماذج لا يخلط الحسابات). أسعار <b className="text-gray-400" dir="ltr">{u.prices.model}</b> تُحمَّل تلقائياً للنماذج المعروفة{!u.prices.knownModel && <b className="text-amber-400"> — ⚠️ هذا النموذج غير معروف الأسعار: أدخل سعريه من صفحة أسعار Google واحفظ</b>}. المرجع الوحيد للتحقق: <span dir="ltr">ai.google.dev/gemini-api/docs/pricing</span>. تشمل الأرقام ساحة الاختبار ({fmtUSD(u.playgroundCost30)} آخر 30 يوماً)؛ متوسطا الرسالة والدردشة على الردود الحية فقط.
             </span>
           </div>
         </div>

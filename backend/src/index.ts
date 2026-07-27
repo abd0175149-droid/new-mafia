@@ -1075,6 +1075,7 @@ async function main() {
       // 📊 استهلاك Gemini الحقيقي + أسعار الفوترة الرسمية
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS price_input_per_1m NUMERIC(10,4) DEFAULT 0.10`);
       await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS price_output_per_1m NUMERIC(10,4) DEFAULT 0.40`);
+      await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS model_prices JSONB DEFAULT '{}'`);
       await db.execute(sql`
         CREATE TABLE IF NOT EXISTS wa_bot_usage (
           id SERIAL PRIMARY KEY,

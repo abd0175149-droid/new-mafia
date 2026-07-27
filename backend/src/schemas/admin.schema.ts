@@ -475,9 +475,12 @@ export const waBotSettings = pgTable('wa_bot_settings', {
   failMessage: text('fail_message').default('').notNull(),             // رسالة الاعتذار عند الخلل
   failHandoff: boolean('fail_handoff').default(true).notNull(),        // تحويل للإدارة عند الفشل
   toolsConfig: jsonb('tools_config').default({}),                      // مفاتيح تفعيل الأدوات
-  // 💵 أسعار جوجل الرسمية للنموذج ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
+  // 💵 أسعار جوجل الرسمية للنموذج الحالي ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
   priceInputPer1M: decimal('price_input_per_1m', { precision: 10, scale: 4 }).default('0.10'),
   priceOutputPer1M: decimal('price_output_per_1m', { precision: 10, scale: 4 }).default('0.40'),
+  // خريطة سعر لكل نموذج {model: {in, out}} — تبديل النماذج لا يكسر حساب التاريخ:
+  // كل صف استهلاك يُسعَّر بنموذجه هو، والتبديل يحمّل سعر النموذج الجديد تلقائياً
+  modelPrices: jsonb('model_prices').default({}),
   updatedBy: varchar('updated_by', { length: 100 }).default(''),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
