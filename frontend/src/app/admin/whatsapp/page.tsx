@@ -1118,6 +1118,8 @@ function BotSettingsView() {
         failMessage: s.failMessage, failHandoff: s.failHandoff, toolsConfig: s.toolsConfig,
         ...extra,
       };
+      if (s.priceInputPer1M !== undefined) body.priceInputPer1M = s.priceInputPer1M;
+      if (s.priceOutputPer1M !== undefined) body.priceOutputPer1M = s.priceOutputPer1M;
       if (keyInput.trim()) body.geminiApiKey = keyInput.trim();
       const res = await apiFetch('/api/whatsapp/bot/settings', { method: 'PUT', body: JSON.stringify(body) });
       setS(res.settings);
@@ -1221,6 +1223,8 @@ function BotSettingsView() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-6">
+        {/* 📊 الاستهلاك والتكلفة الحقيقية */}
+        <UsageCard s={s} patch={patch} />
         {/* المفتاح والنموذج */}
         <Card title="🔑 الاتصال بالنموذج">
           <Row label="Gemini API Key">
@@ -2377,5 +2381,114 @@ function CampaignMonitor() {
         );
       })}
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📊 استهلاك Gemini والتكلفة الحقيقية — توكنز فعلية × أسعار جوجل الرسمية
+// ══════════════════════════════════════════════════════
+
+function fmtTok(n: number): string {
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n || 0);
+}
+function fmtUSD(n: number): string {
+  if (!n) return '$0';
+  if (n < 0.01) return '$' + n.toFixed(4);
+  return '$' + n.toFixed(2);
+}
+
+function UsageCard({ s, patch }: { s: any; patch: (k: string, v: any) => void }) {
+  const [u, setU] = useState<any | null>(null);
+  const [loadingU, setLoadingU] = useState(true);
+
+  const loadUsage = useCallback(async () => {
+    try {
+      setLoadingU(true);
+      const data = await apiFetch('/api/whatsapp/bot/usage');
+      setU(data.usage);
+    } catch { /* تكميلي */ } finally {
+      setLoadingU(false);
+    }
+  }, []);
+  useEffect(() => { loadUsage(); }, [loadUsage]);
+
+  return (
+    <Card title="📊 استهلاك Gemini والتكلفة (حقيقي)" wide>
+      {loadingU || !u ? (
+        <div className="text-gray-600 text-sm text-center py-4">{loadingU ? 'جارٍ الحساب…' : 'لا بيانات بعد — تبدأ مع أول رد للبوت'}</div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {/* الفترات */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+            {([['اليوم', u.today], ['7 أيام', u.d7], ['30 يوماً', u.d30], ['منذ البداية', u.allTime]] as const).map(([l, b]: any, i) => (
+              <div key={i} className="bg-gray-950 border border-gray-800 rounded-xl py-2.5 px-2">
+                <div className="text-[10px] text-gray-600 font-bold">{l}</div>
+                <div className="text-[15px] font-bold text-white mt-0.5">{fmtTok(b.total)} <span className="text-[9px] text-gray-600">توكن</span></div>
+                <div className="text-[12.5px] font-bold text-emerald-400">{fmtUSD(b.cost)}</div>
+                <div className="text-[9px] text-gray-600">{b.replies} رد</div>
+              </div>
+            ))}
+          </div>
+
+          {/* المتوسطات المطلوبة */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
+            <div className="bg-gray-950 border border-amber-500/30 rounded-xl py-2.5 px-2">
+              <div className="text-[10px] text-amber-400 font-bold">📅 المتوسط اليومي (30 يوماً)</div>
+              <div className="text-[13px] font-bold text-white mt-0.5">{fmtTok(u.avgDaily.tokens)} توكن · <span className="text-emerald-400">{fmtUSD(u.avgDaily.cost)}</span></div>
+              <div className="text-[9px] text-gray-600">على {u.avgDaily.activeDays} يوم نشط</div>
+            </div>
+            <div className="bg-gray-950 border border-amber-500/30 rounded-xl py-2.5 px-2">
+              <div className="text-[10px] text-amber-400 font-bold">💬 متوسط الرسالة الواحدة</div>
+              <div className="text-[13px] font-bold text-emerald-400 mt-0.5">{fmtUSD(u.avgPerReply.cost)}</div>
+              <div className="text-[9px] text-gray-600">على {u.avgPerReply.replies} رد حي (30 يوماً)</div>
+            </div>
+            <div className="bg-gray-950 border border-amber-500/30 rounded-xl py-2.5 px-2">
+              <div className="text-[10px] text-amber-400 font-bold">🗨️ الدردشة الروتينية الواحدة</div>
+              <div className="text-[13px] font-bold text-emerald-400 mt-0.5">{fmtUSD(u.routineChat.medianCost)} <span className="text-[9px] text-gray-500">(وسيط)</span></div>
+              <div className="text-[9px] text-gray-600">المتوسط الحسابي {fmtUSD(u.routineChat.avgCost)} · {u.routineChat.conversations} محادثة</div>
+            </div>
+          </div>
+
+          {/* آخر 7 أيام */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10.5px] text-gray-400">
+              <thead><tr className="text-gray-600">
+                {u.last7.map((d: any) => <th key={d.day} className="font-bold pb-1">{d.day.slice(5)}</th>)}
+              </tr></thead>
+              <tbody>
+                <tr className="text-center">
+                  {u.last7.map((d: any) => (
+                    <td key={d.day} className="py-1 border-t border-gray-800">
+                      <div className="text-white font-bold">{fmtTok(d.total)}</div>
+                      <div className="text-emerald-400">{fmtUSD(d.cost)}</div>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* الأسعار الرسمية */}
+          <div className="flex items-end gap-2 flex-wrap border-t border-gray-800 pt-2.5">
+            <div>
+              <label className="text-[10px] text-gray-500 font-bold">سعر الإدخال $/مليون توكن</label>
+              <input type="number" step="0.01" min="0" value={s.priceInputPer1M ?? ''} onChange={e => patch('priceInputPer1M', e.target.value)}
+                className="w-28 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500" dir="ltr" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 font-bold">سعر الإخراج $/مليون توكن</label>
+              <input type="number" step="0.01" min="0" value={s.priceOutputPer1M ?? ''} onChange={e => patch('priceOutputPer1M', e.target.value)}
+                className="w-28 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500" dir="ltr" />
+            </div>
+            <button onClick={loadUsage} className="text-[11px] font-bold text-gray-300 hover:text-white border border-gray-800 rounded-lg px-3 py-1.5">🔄 تحديث</button>
+            <span className="text-[9.5px] text-gray-600 flex-1 min-w-[220px]">
+              التوكنز أعداد فعلية من Gemini لكل نداء، والتكلفة = التوكنز × أسعار جوجل الرسمية لـ<b className="text-gray-400" dir="ltr">{u.prices.model}</b> — حدّث السعرين من صفحة أسعار Google عند تغيير النموذج (احفظ الإعدادات بعد التعديل). تشمل الأرقام ساحة الاختبار ({fmtUSD(u.playgroundCost30)} آخر 30 يوماً)؛ متوسطا الرسالة والدردشة على الردود الحية فقط.
+            </span>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }

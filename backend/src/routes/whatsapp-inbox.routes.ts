@@ -359,6 +359,15 @@ router.post('/bot/locations/:id/toggle', authenticate, adminOnly, async (req: Re
 });
 
 // نبض البوت — إحصاءات سريعة
+router.get('/bot/usage', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const { getBotUsage } = await import('../services/whatsapp-bot.service.js');
+    res.json({ success: true, usage: await getBotUsage() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/bot/stats', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
     const { getBotStats } = await import('../services/whatsapp-bot.service.js');

@@ -475,8 +475,25 @@ export const waBotSettings = pgTable('wa_bot_settings', {
   failMessage: text('fail_message').default('').notNull(),             // رسالة الاعتذار عند الخلل
   failHandoff: boolean('fail_handoff').default(true).notNull(),        // تحويل للإدارة عند الفشل
   toolsConfig: jsonb('tools_config').default({}),                      // مفاتيح تفعيل الأدوات
+  // 💵 أسعار جوجل الرسمية للنموذج ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
+  priceInputPer1M: decimal('price_input_per_1m', { precision: 10, scale: 4 }).default('0.10'),
+  priceOutputPer1M: decimal('price_output_per_1m', { precision: 10, scale: 4 }).default('0.40'),
   updatedBy: varchar('updated_by', { length: 100 }).default(''),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ── استهلاك Gemini الفعلي — صف لكل ردّ بوت (مجموع نداءات جولة الأدوات) ──
+export const waBotUsage = pgTable('wa_bot_usage', {
+  id: serial('id').primaryKey(),
+  conversationId: integer('conversation_id'),                          // null = ساحة الاختبار
+  source: varchar('source', { length: 12 }).default('live').notNull(), // live | playground
+  model: varchar('model', { length: 60 }).default(''),
+  calls: integer('calls').default(0),                                  // نداءات Gemini بهذا الرد
+  promptTokens: integer('prompt_tokens').default(0),
+  outputTokens: integer('output_tokens').default(0),                   // candidates + thoughts (ما يُفوتر كإخراج)
+  thoughtsTokens: integer('thoughts_tokens').default(0),
+  totalTokens: integer('total_tokens').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // ══════════════════════════════════════════════════════

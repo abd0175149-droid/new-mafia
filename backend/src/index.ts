@@ -1072,6 +1072,24 @@ async function main() {
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_camp_rcpt ON wa_campaign_recipients(campaign_id, status)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_camp_rcpt_phone ON wa_campaign_recipients(phone, sent_at)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_camp_rcpt_wamid ON wa_campaign_recipients(wamid)`);
+      // 📊 استهلاك Gemini الحقيقي + أسعار الفوترة الرسمية
+      await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS price_input_per_1m NUMERIC(10,4) DEFAULT 0.10`);
+      await db.execute(sql`ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS price_output_per_1m NUMERIC(10,4) DEFAULT 0.40`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS wa_bot_usage (
+          id SERIAL PRIMARY KEY,
+          conversation_id INTEGER,
+          source VARCHAR(12) DEFAULT 'live' NOT NULL,
+          model VARCHAR(60) DEFAULT '',
+          calls INTEGER DEFAULT 0,
+          prompt_tokens INTEGER DEFAULT 0,
+          output_tokens INTEGER DEFAULT 0,
+          thoughts_tokens INTEGER DEFAULT 0,
+          total_tokens INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_bot_usage_at ON wa_bot_usage(created_at DESC)`);
       console.log('✅ WhatsApp inbox tables ensured');
     }
   } catch (err: any) {

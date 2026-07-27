@@ -445,7 +445,8 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   if (!db) throw new Error('DB unavailable');
   await getBotSettings(); // ضمان وجود الصف
   const allowed = ['enabled', 'geminiApiKey', 'model', 'systemPrompt', 'knowledgeBase',
-    'contextMessages', 'pauseMinutes', 'maxToolLoops', 'failMessage', 'failHandoff', 'toolsConfig'];
+    'contextMessages', 'pauseMinutes', 'maxToolLoops', 'failMessage', 'failHandoff', 'toolsConfig',
+    'priceInputPer1M', 'priceOutputPer1M'];
   const clean: any = {};
   for (const k of allowed) if (patch[k] !== undefined) clean[k] = patch[k];
   // مفتاح فارغ أو مقنّع = لا تغيير عليه
@@ -455,6 +456,13 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   if (clean.contextMessages !== undefined) clean.contextMessages = Math.min(Math.max(parseInt(clean.contextMessages) || 20, 4), 60);
   if (clean.pauseMinutes !== undefined) clean.pauseMinutes = Math.min(Math.max(parseInt(clean.pauseMinutes) || 30, 1), 24 * 60);
   if (clean.maxToolLoops !== undefined) clean.maxToolLoops = Math.min(Math.max(parseInt(clean.maxToolLoops) || 4, 1), 8);
+  // أسعار الفوترة الرسمية ($ لكل مليون) — أرقام موجبة بدقة 4 منازل
+  for (const pk of ['priceInputPer1M', 'priceOutputPer1M'] as const) {
+    if (clean[pk] !== undefined) {
+      const v = Math.min(Math.max(parseFloat(clean[pk]) || 0, 0), 10000);
+      clean[pk] = v.toFixed(4);
+    }
+  }
   clean.updatedBy = updatedBy;
   clean.updatedAt = new Date();
   const current = await getBotSettings();
@@ -505,9 +513,32 @@ async function geminiGenerate(settings: any, systemText: string, contents: any[]
     const data: any = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error?.message || `Gemini HTTP ${res.status}`);
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    return parts;
+    // 📊 usageMetadata: أعداد التوكنز الفعلية لهذا النداء (أساس التكلفة الحقيقية)
+    return { parts, usage: data?.usageMetadata || {} };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// 📊 تسجيل استهلاك ردّ كامل (مجموع نداءات جولة الأدوات) — fire & forget
+async function recordBotUsage(conversationId: number | null, source: 'live' | 'playground', model: string, acc: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number }) {
+  if (!acc.calls) return;
+  try {
+    const db = getDB();
+    if (!db) return;
+    const { waBotUsage } = await import('../schemas/admin.schema.js');
+    await db.insert(waBotUsage).values({
+      conversationId,
+      source,
+      model,
+      calls: acc.calls,
+      promptTokens: acc.promptTokens,
+      outputTokens: acc.candidatesTokens + acc.thoughtsTokens, // ما يُفوتره جوجل كإخراج
+      thoughtsTokens: acc.thoughtsTokens,
+      totalTokens: acc.totalTokens,
+    } as any);
+  } catch (err: any) {
+    console.warn('⚠️ WA bot usage record:', err.message);
   }
 }
 
@@ -1722,7 +1753,7 @@ export async function runAgent(opts: {
   history: any[];            // contents بصيغة Gemini
   customerCard: string;
   dryRun: boolean;
-}): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[] }> {
+}): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number } }> {
   const { settings, conv, dryRun } = opts;
   const toolDecls = buildToolDeclarations(settings.toolsConfig);
   const systemText = [
@@ -1739,9 +1770,16 @@ export async function runAgent(opts: {
   const toolNames = toolDecls.map((d: any) => d.name);
   let finalText = '';
   let leakRetried = false;
+  // 📊 تجميع التوكنز الفعلية عبر كل نداءات هذا الرد (كل نداء يُفوتر سياقه كاملاً)
+  const usageAcc = { calls: 0, promptTokens: 0, candidatesTokens: 0, thoughtsTokens: 0, totalTokens: 0 };
 
   for (let loop = 0; loop <= (settings.maxToolLoops || 4); loop++) {
-    const parts = await geminiGenerate(settings, systemText, contents, toolDecls);
+    const { parts, usage } = await geminiGenerate(settings, systemText, contents, toolDecls);
+    usageAcc.calls++;
+    usageAcc.promptTokens += Number(usage?.promptTokenCount || 0);
+    usageAcc.candidatesTokens += Number(usage?.candidatesTokenCount || 0);
+    usageAcc.thoughtsTokens += Number(usage?.thoughtsTokenCount || 0);
+    usageAcc.totalTokens += Number(usage?.totalTokenCount || 0);
     const fnCalls = parts.filter((p: any) => p.functionCall);
     const textPart = parts.filter((p: any) => typeof p.text === 'string').map((p: any) => p.text).join('\n').trim();
 
@@ -1790,7 +1828,7 @@ export async function runAgent(opts: {
       : 'تحت أمرك 🎭 احكيلي شو حابب بالضبط وبخدمك فوراً.';
   }
 
-  return { text: finalText, toolTrace, interactives: ctx.interactives };
+  return { text: finalText, toolTrace, interactives: ctx.interactives, usage: usageAcc };
 }
 
 // ══════════════════════════════════════════════════════
@@ -1869,7 +1907,8 @@ async function processConversation(convId: number) {
     const customerCard = await buildCustomerCard(db, conv);
 
     try {
-      const { text } = await runAgent({ settings, conv, history, customerCard, dryRun: false });
+      const { text, usage } = await runAgent({ settings, conv, history, customerCard, dryRun: false });
+      recordBotUsage(convId, 'live', settings.model || '', usage).catch(() => {});
       if (text && text.trim()) {
         await sendMessage({ conversationId: convId, text: text.trim(), source: 'bot' });
       }
@@ -2026,7 +2065,10 @@ export async function runPlayground(history: Array<{ role: 'user' | 'model'; tex
 
   const fakeConv = { id: 0, phone: '0790000000', waPhone: '962790000000', playerId: null, displayName: 'عميل تجريبي' };
   const customerCard = 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل';
-  return runAgent({ settings, conv: fakeConv, history: contents, customerCard, dryRun: true });
+  const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, dryRun: true });
+  // ساحة الاختبار تستهلك توكنز حقيقية أيضاً — تُسجَّل بمصدرها الخاص
+  recordBotUsage(null, 'playground', settings.model || '', result.usage).catch(() => {});
+  return result;
 }
 
 // ══════════════════════════════════════════════════════
@@ -2053,5 +2095,98 @@ export async function getBotStats() {
     replies7d: Number(r7?.n || 0),
     reservations7d: Number(res7?.n || 0),
     attentionNow: Number(attn?.n || 0),
+  };
+}
+
+// ══════════════════════════════════════════════════════
+// 📊 استهلاك Gemini الحقيقي — توكنز فعلية × أسعار جوجل الرسمية
+// ══════════════════════════════════════════════════════
+
+const JO_TZ_MS = 3 * 3600e3;
+function ammanDayKey(d: Date | string): string {
+  const t = new Date(new Date(d).getTime() + JO_TZ_MS);
+  return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
+}
+
+export async function getBotUsage() {
+  const db = getDB();
+  if (!db) throw new Error('DB unavailable');
+  const settings = await getBotSettings();
+  const priceIn = Number((settings as any).priceInputPer1M ?? 0.10);
+  const priceOut = Number((settings as any).priceOutputPer1M ?? 0.40);
+  const costOf = (p: number, o: number) => (p / 1e6) * priceIn + (o / 1e6) * priceOut;
+
+  const { waBotUsage } = await import('../schemas/admin.schema.js');
+
+  // إجمالي كل الفترات (SQL) + صفوف آخر 30 يوماً (للتفصيل والمتوسطات)
+  const [allAgg] = await db.select({
+    rows: sql<number>`COUNT(*)`,
+    prompt: sql<number>`COALESCE(SUM(${waBotUsage.promptTokens}), 0)`,
+    output: sql<number>`COALESCE(SUM(${waBotUsage.outputTokens}), 0)`,
+    total: sql<number>`COALESCE(SUM(${waBotUsage.totalTokens}), 0)`,
+  }).from(waBotUsage);
+
+  const since30 = new Date(Date.now() - 30 * 86400e3);
+  const rows30: any[] = await db.select().from(waBotUsage).where(gte(waBotUsage.createdAt, since30));
+
+  const todayKey = ammanDayKey(new Date());
+  const since7 = Date.now() - 7 * 86400e3;
+
+  const mk = () => ({ replies: 0, prompt: 0, output: 0, total: 0, cost: 0 });
+  const sums = { today: mk(), d7: mk(), d30: mk() };
+  const dayMap = new Map<string, { prompt: number; output: number; total: number; cost: number; replies: number }>();
+  const convCost = new Map<number, number>();
+  let liveReplies30 = 0, liveCost30 = 0, playgroundCost30 = 0;
+
+  for (const r of rows30) {
+    const p = Number(r.promptTokens || 0), o = Number(r.outputTokens || 0), t = Number(r.totalTokens || 0);
+    const c = costOf(p, o);
+    const key = ammanDayKey(r.createdAt);
+    const add = (b: any) => { b.replies++; b.prompt += p; b.output += o; b.total += t; b.cost += c; };
+    add(sums.d30);
+    if (new Date(r.createdAt).getTime() >= since7) add(sums.d7);
+    if (key === todayKey) add(sums.today);
+    const dk = dayMap.get(key) || { prompt: 0, output: 0, total: 0, cost: 0, replies: 0 };
+    dk.prompt += p; dk.output += o; dk.total += t; dk.cost += c; dk.replies++;
+    dayMap.set(key, dk);
+    if (r.source === 'live') {
+      liveReplies30++; liveCost30 += c;
+      if (r.conversationId) convCost.set(r.conversationId, (convCost.get(r.conversationId) || 0) + c);
+    } else {
+      playgroundCost30 += c;
+    }
+  }
+
+  // المتوسط اليومي = إجمالي 30 يوماً ÷ الأيام التي فيها نشاط
+  const activeDays = Math.max(1, dayMap.size);
+  // «الدردشة الروتينية» = الوسيط (median) لتكلفة المحادثة — يمثل الطلب المعتاد ويقاوم الشواذ
+  const convCosts = Array.from(convCost.values()).sort((a, b) => a - b);
+  const medianConv = convCosts.length
+    ? (convCosts.length % 2 ? convCosts[(convCosts.length - 1) / 2] : (convCosts[convCosts.length / 2 - 1] + convCosts[convCosts.length / 2]) / 2)
+    : 0;
+
+  // آخر 7 أيام (بتوقيت الأردن) — جدول يومي
+  const last7: Array<{ day: string; replies: number; total: number; cost: number }> = [];
+  for (let i = 6; i >= 0; i--) {
+    const key = ammanDayKey(new Date(Date.now() - i * 86400e3));
+    const d = dayMap.get(key);
+    last7.push({ day: key, replies: d?.replies || 0, total: d?.total || 0, cost: +(d?.cost || 0).toFixed(6) });
+  }
+
+  const allPrompt = Number(allAgg?.prompt || 0), allOutput = Number(allAgg?.output || 0);
+  const round6 = (x: number) => +x.toFixed(6);
+  const pack = (b: ReturnType<typeof mk>) => ({ replies: b.replies, prompt: b.prompt, output: b.output, total: b.total, cost: round6(b.cost) });
+
+  return {
+    prices: { inputPer1M: priceIn, outputPer1M: priceOut, model: settings.model },
+    today: pack(sums.today),
+    d7: pack(sums.d7),
+    d30: pack(sums.d30),
+    allTime: { replies: Number(allAgg?.rows || 0), prompt: allPrompt, output: allOutput, total: Number(allAgg?.total || 0), cost: round6(costOf(allPrompt, allOutput)) },
+    avgDaily: { tokens: Math.round(sums.d30.total / activeDays), cost: round6(sums.d30.cost / activeDays), activeDays },
+    avgPerReply: { cost: round6(liveReplies30 ? liveCost30 / liveReplies30 : 0), replies: liveReplies30 },
+    routineChat: { medianCost: round6(medianConv), avgCost: round6(convCosts.length ? convCosts.reduce((a, b) => a + b, 0) / convCosts.length : 0), conversations: convCosts.length },
+    playgroundCost30: round6(playgroundCost30),
+    last7,
   };
 }
