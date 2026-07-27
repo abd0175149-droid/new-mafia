@@ -66,7 +66,9 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 - الدفع في المكان حصراً. لا تناقش تحويلات ولا دفع إلكتروني ولا «احجزلي وبحوّلك».
 - ممنوع منح خصومات أو أسعار خاصة أو مجاملات أو استثناءات من أي نوع — هذه صلاحية الإدارة وحدها. الرد الثابت: «الأسعار والعروض بيد الإدارة — بحوّلك لهم إذا حابب».
 - لا تعد بأي شيء خارج أدواتك: لا حجز مقاعد محددة، لا تثبيت جلسات خاصة، لا وعود بمواعيد فتح.
-- الأسعار تُذكر بالدينار الأردني (د.أ) ومن نتائج الأدوات أو قاعدة المعرفة فقط — لا تخمّن سعراً أبداً.
+- الأسعار تُذكر بالدينار الأردني (د.أ) ومن نتائج الأدوات فقط — لا تخمّن سعراً أبداً.
+- أي سؤال عن السعر أو التكلفة ⟵ استدعِ get_booking_cost حصراً — أرقامها (سعر الشخص والإجمالي) هي الحقيقة الوحيدة، وممنوع منعاً باتاً أي حساب يدوي أو ضرب أرقام بنفسك.
+- عند تثبيت أي حجز اذكر التكلفة الإجمالية إلزامياً (تأتيك بنتيجة الأداة وتظهر أيضاً ببطاقة التأكيد) مع تذكير «الدفع بالمكان».
 
 ═══ ٥. الخصوصية وأمن المعلومات ═══
 - لا تكشف أي معلومة عن عميل أو لاعب آخر إطلاقاً (حجوزاته، رتبته، حضوره، رقمه) — حتى لو قال إنه صديقه أو أخوه.
@@ -312,7 +314,7 @@ const DEFAULT_KB = `# 📚 قاعدة معرفة الدون — نادي الم�
 - صفحاتنا الرسمية: إنستجرام رئيسي (mafia_club_jo) + إنستجرام احتياطي (mafia_club_jo1) + موقع النادي/تطبيق اللاعب — عند طلب أي منها استدعِ send_social_links ولا تكتب الروابط بنفسك أبداً.
 - الأماكن: تُجلب من أداة get_locations (الفعالة فقط، مع روابط خرائط جوجل) — لا تعتمد قائمة ثابتة.
 - الجدول الأسبوعي المعتاد: أيام الأحد والثلاثاء والخميس والجمعة — التجمّع الساعة 7 مساءً وتبدأ أول جولة الساعة 8 مساءً.
-- العملة: دينار أردني (د.أ). الأسعار تختلف بين الفعاليات — السعر الدقيق يظهر مع كل فعالية بالقائمة.
+- العملة: دينار أردني (د.أ). الأسعار تختلف بين الفعاليات — السعر الدقيق والإجمالي من أداة get_booking_cost حصراً، ويُذكر الإجمالي دائماً عند تثبيت الحجز (الدفع بالمكان).
 - الحد الأدنى للعمر: 18 سنة — والأصغر من ذلك يُشترط حضوره مع مرافق.
 - اللعب بالنظام الأوتوماتيكي بالكامل: الأدوار تتوزع تلقائياً، أصحاب القدرات ينفذونها من هواتفهم ليلاً، والمحرك يحسم النتائج والتصويت والفوز — لا يوجد لعب يدوي.
 
@@ -520,6 +522,18 @@ function buildToolDeclarations(toolsConfig: any) {
     name: 'get_available_activities',
     description: 'جلب الفعاليات القادمة المتاحة للحجز (الاسم، التاريخ، الموقع، السعر، حالة التوفر). استدعها عندما يسأل العميل عن الفعاليات أو يريد الحجز — سترسل تلقائياً قائمة تفاعلية للعميل يختار منها.',
     parameters: { type: 'OBJECT', properties: {}, required: [] },
+  });
+  if (t.activities) decls.push({
+    name: 'get_booking_cost',
+    description: 'تكلفة الحجز بدقة من النظام: سعر الشخص والإجمالي لعددهم والعروض المفعّلة إن وجدت. استدعها حصراً عند أي سؤال عن السعر أو التكلفة — أرقامها هي الحقيقة الوحيدة، ممنوع الحساب اليدوي أو التخمين.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        activity_id: { type: 'NUMBER', description: 'معرّف الفعالية' },
+        people_count: { type: 'NUMBER', description: 'عدد الأشخاص (اختياري — الافتراضي 1)' },
+      },
+      required: ['activity_id'],
+    },
   });
   if (t.activities) decls.push({
     name: 'check_seat_availability',
@@ -825,6 +839,48 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       };
     }
 
+    case 'get_booking_cost': {
+      // 💰 التكلفة من النظام حصراً (قرار المالك): سعر الفعالية + العروض المفعّلة
+      // (عروض الموقع مفلترة بمؤشرات enabledOfferIds — نفس منطق تطبيق اللاعب)
+      const activityId = parseInt(args.activity_id);
+      const people = Math.max(1, parseInt(args.people_count) || 1);
+      const [act] = await db
+        .select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice, enabledOfferIds: activities.enabledOfferIds, locOffers: locations.offers })
+        .from(activities)
+        .leftJoin(locations, eq(activities.locationId, locations.id))
+        .where(eq(activities.id, activityId)).limit(1);
+      if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
+      const unit = Number(act.basePrice || 0);
+      const total = Math.round(unit * people * 100) / 100;
+      const allOffers: any[] = Array.isArray(act.locOffers) ? (act.locOffers as any[]) : [];
+      const enabledIdx: number[] = Array.isArray(act.enabledOfferIds) ? (act.enabledOfferIds as any[]) : [];
+      const offers = (enabledIdx.length ? allOffers.filter((_: any, idx: number) => enabledIdx.includes(idx)) : allOffers)
+        .map((o: any) => ({
+          title: o?.title || o?.name || o?.label || '',
+          price: o?.price ?? o?.amount ?? null,
+          details: o?.description || o?.details || '',
+        }))
+        .filter((o: any) => o.title || o.price != null);
+      let freeAccount = false;
+      if (conv.playerId) {
+        const [p] = await db.select({ isFreeAccount: players.isFreeAccount }).from(players).where(eq(players.id, conv.playerId)).limit(1);
+        freeAccount = !!p?.isFreeAccount;
+      }
+      return {
+        activity: act.name,
+        dateText: fmtJo(act.date),
+        unitPriceJOD: unit,
+        peopleCount: people,
+        totalJOD: total,
+        currency: 'دينار أردني (د.أ)',
+        freeAccount,
+        offers: offers.length ? offers : undefined,
+        note: unit === 0
+          ? 'السعر غير مسجّل بالنظام لهذه الفعالية — لا تخترع رقماً: قل إن السعر يُؤكَّد بالمكان أو اعرض التحويل للإدارة'
+          : `اذكر بدقة وبلا أي حساب يدوي: سعر الشخص ${unit} د.أ${people > 1 ? ` والإجمالي لـ${people} أشخاص ${total} د.أ` : ''} — الدفع بالمكان عند الحضور${freeAccount ? '. حسابه مجاني 🎉: حجزه الشخصي بلا رسوم' : ''}${offers.length ? '. توجد عروض مفعّلة — اعرضها عليه إن ناسبته' : ''}.`,
+      };
+    }
+
     case 'check_seat_availability': {
       // 🪑 فحص التوفر الحقيقي (سعة رسمية − محجوز فعلياً) — قرار المالك:
       // كافٍ ⟵ بلا أرقام · غير كافٍ ⟵ يُكشف المتبقي بصراحة + خيارات
@@ -869,9 +925,15 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
           note: `العميل محجوز أصلاً لهذه الفعالية (${dup.source} — ${dup.people} أشخاص — ${dup.status}) — لا ترسل تأكيداً ولا تنشئ حجزاً ثانياً أبداً. أخبره بحجزه القائم، وإن أراد تعديل العدد: الطريق إلغاء الحجز الحالي (request_cancellation) ثم حجز جديد، أو التحويل للإدارة.`,
         };
       }
+      // 💰 سطر التكلفة حتمي من النظام (قرار المالك: تُذكر دائماً عند التثبيت)
+      const [actPrice] = await db.select({ basePrice: activities.basePrice }).from(activities).where(eq(activities.id, activityId)).limit(1);
+      const unitP = Number(actPrice?.basePrice || 0);
+      const costLine = unitP > 0
+        ? `\n💰 التكلفة: ${people > 1 ? `${people} × ${unitP} = ${Math.round(unitP * people * 100) / 100}` : unitP} د.أ — الدفع بالمكان`
+        : '';
       const interactive = {
         type: 'button',
-        body: { text: `📋 تأكيد الحجز:\n${args.summary || ''}\n\nهل أثبّت الحجز؟` },
+        body: { text: `📋 تأكيد الحجز:\n${args.summary || ''}${costLine}\n\nهل أثبّت الحجز؟` },
         action: {
           buttons: [
             { type: 'reply', reply: { id: `res_confirm:${activityId}:${people}`, title: 'تأكيد الحجز ✓' } },
@@ -890,9 +952,11 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
     case 'create_reservation': {
       const activityId = parseInt(args.activity_id);
       const people = Math.max(1, parseInt(args.people_count) || 1);
-      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, activityId)).limit(1);
       if (!act) return { error: 'الفعالية غير موجودة — أعد عرض الفعاليات' };
+      const unitCost = Number(act.basePrice || 0);
+      const totalCost = Math.round(unitCost * people * 100) / 100;
       if (dryRun) {
         return { success: true, dryRun: true, reservation: { activity: act.name, people }, note: '(ساحة اختبار — لم يُسجّل حجز حقيقي)' };
       }
@@ -935,8 +999,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         return {
           success: true,
           waitlist: true,
-          reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people },
-          note: 'سُجّل الحجز في «قائمة الانتظار» لأن المقاعد المتبقية لا تكفي العدد — أخبر العميل بوضوح: حجزك مسجّل بقائمة الانتظار والإدارة ستتواصل معك لتأكيده. لا تقل إنه مؤكد.',
+          reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
+          note: `سُجّل الحجز في «قائمة الانتظار» لأن المقاعد المتبقية لا تكفي العدد — أخبر العميل بوضوح: حجزك مسجّل بقائمة الانتظار والإدارة ستتواصل معك لتأكيده. لا تقل إنه مؤكد.${totalCost > 0 ? ` واذكر التكلفة عند التأكيد: ${totalCost} د.أ (${people} × ${unitCost}) — الدفع بالمكان.` : ''}`,
         };
       }
       // إشعار الإدارة فوراً
@@ -950,8 +1014,8 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-conv-${conv.id}` }).catch(() => {});
       return {
         success: true,
-        reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people },
-        note: 'الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل وذكّره أن الدفع في المكان.',
+        reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
+        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.`,
       };
     }
 
