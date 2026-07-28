@@ -475,6 +475,7 @@ export const waBotSettings = pgTable('wa_bot_settings', {
   failMessage: text('fail_message').default('').notNull(),             // رسالة الاعتذار عند الخلل
   failHandoff: boolean('fail_handoff').default(true).notNull(),        // تحويل للإدارة عند الفشل
   toolsConfig: jsonb('tools_config').default({}),                      // مفاتيح تفعيل الأدوات
+  adminOnlyTools: jsonb('admin_only_tools').default([]),               // 🔒 مفاتيح أدوات متاحة للمحادثات المرتبطة بحساب أدمن فقط
   // 💵 أسعار جوجل الرسمية للنموذج الحالي ($ لكل مليون توكن) — التكلفة الحقيقية = توكنز فعلية × هذه الأسعار
   priceInputPer1M: decimal('price_input_per_1m', { precision: 10, scale: 4 }).default('0.10'),
   priceOutputPer1M: decimal('price_output_per_1m', { precision: 10, scale: 4 }).default('0.40'),

@@ -61,6 +61,7 @@ docker compose exec -T database psql -U mafia_user -d mafia_db -c \
    ALTER TABLE activities ADD COLUMN IF NOT EXISTS seat_assignments JSONB DEFAULT '[]';
    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_opt_in BOOLEAN NOT NULL DEFAULT true;
    ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_sent_at TIMESTAMP;
+   ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
    UPDATE sessions SET status = 'closed' WHERE is_active = false AND status IS NULL;
    UPDATE sessions SET status = 'closed' WHERE is_active = false AND status = 'active';
    UPDATE sessions SET status = 'active' WHERE is_active = true AND (status IS NULL OR status = '');

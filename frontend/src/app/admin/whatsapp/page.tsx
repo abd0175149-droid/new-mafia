@@ -1109,6 +1109,10 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
 
   const patch = (k: string, v: any) => setS((prev: any) => ({ ...prev, [k]: v }));
   const patchTool = (k: string, v: boolean) => setS((prev: any) => ({ ...prev, toolsConfig: { ...(prev.toolsConfig || {}), [k]: v } }));
+  const patchAdminOnly = (k: string, v: boolean) => setS((prev: any) => {
+    const cur: string[] = Array.isArray(prev.adminOnlyTools) ? prev.adminOnlyTools : [];
+    return { ...prev, adminOnlyTools: v ? Array.from(new Set([...cur, k])) : cur.filter((x) => x !== k) };
+  });
 
   const save = async (extra: Record<string, any> = {}) => {
     if (!s) return;
@@ -1118,6 +1122,7 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
         enabled: s.enabled, model: s.model, systemPrompt: s.systemPrompt, knowledgeBase: s.knowledgeBase,
         contextMessages: s.contextMessages, pauseMinutes: s.pauseMinutes, maxToolLoops: s.maxToolLoops,
         failMessage: s.failMessage, failHandoff: s.failHandoff, toolsConfig: s.toolsConfig,
+        adminOnlyTools: s.adminOnlyTools || [],
         ...extra,
       };
       if (s.priceInputPer1M !== undefined) body.priceInputPer1M = s.priceInputPer1M;
@@ -1270,11 +1275,27 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
 
         {/* الأدوات */}
         <Card title="🧰 الأدوات المتاحة للبوت">
-          {Object.keys(TOOL_LABELS).map(k => (
-            <Row key={k} label={TOOL_LABELS[k]}>
-              <Toggle on={(s.toolsConfig || {})[k] !== false} onClick={() => patchTool(k, (s.toolsConfig || {})[k] === false)} />
-            </Row>
-          ))}
+          <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">🔒 «أدمن فقط» = الأداة تظهر للأرقام المربوطة بحساب أدمن فقط، وتُحجب عن باقي المحادثات (تُستبعد من قائمة أدوات البوت لهم).</p>
+          {Object.keys(TOOL_LABELS).map(k => {
+            const on = (s.toolsConfig || {})[k] !== false;
+            const adminOnly = Array.isArray(s.adminOnlyTools) && s.adminOnlyTools.includes(k);
+            return (
+              <Row key={k} label={TOOL_LABELS[k]}>
+                <div className="flex items-center gap-2.5">
+                  {on && (
+                    <button
+                      onClick={() => patchAdminOnly(k, !adminOnly)}
+                      title="إتاحة هذه الأداة للأرقام المربوطة بحساب أدمن فقط"
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition ${adminOnly ? 'bg-amber-500/15 text-amber-400 border-amber-500/40' : 'text-gray-500 border-gray-700 hover:border-gray-500'}`}
+                    >
+                      🔒 أدمن فقط
+                    </button>
+                  )}
+                  <Toggle on={on} onClick={() => patchTool(k, (s.toolsConfig || {})[k] === false)} />
+                </div>
+              </Row>
+            );
+          })}
         </Card>
 
         {/* الأماكن الفعالة */}

@@ -16,7 +16,7 @@ import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
 import {
   waBotSettings, waConversations, waMessages, waCustomerNotes,
-  reservations, bookings, activities, locations,
+  reservations, bookings, activities, locations, staff,
 } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
@@ -429,6 +429,7 @@ export async function getBotSettings() {
       knowledgeBase: DEFAULT_KB,
       failMessage: DEFAULT_FAIL_MESSAGE,
       toolsConfig: DEFAULT_TOOLS_CONFIG,
+      adminOnlyTools: [],
     } as any).returning();
   }
   return row;
@@ -456,7 +457,7 @@ export async function updateBotSettings(patch: Record<string, any>, updatedBy: s
   await getBotSettings(); // ضمان وجود الصف
   const allowed = ['enabled', 'geminiApiKey', 'model', 'systemPrompt', 'knowledgeBase',
     'contextMessages', 'pauseMinutes', 'maxToolLoops', 'failMessage', 'failHandoff', 'toolsConfig',
-    'priceInputPer1M', 'priceOutputPer1M'];
+    'adminOnlyTools', 'priceInputPer1M', 'priceOutputPer1M'];
   const clean: any = {};
   for (const k of allowed) if (patch[k] !== undefined) clean[k] = patch[k];
   // مفتاح فارغ أو مقنّع = لا تغيير عليه
@@ -579,8 +580,31 @@ async function recordBotUsage(conversationId: number | null, source: 'live' | 'p
 // تعريفات الأدوات (function declarations)
 // ══════════════════════════════════════════════════════
 
-function buildToolDeclarations(toolsConfig: any) {
-  const t = { ...DEFAULT_TOOLS_CONFIG, ...(toolsConfig || {}) };
+// 🔒 هل المحادثة مرتبطة بحساب أدمن؟ (رقمها مربوط بحساب لاعب مرتبط بموظّف role=admin)
+// نفس سلسلة الربط المعتمدة في notifyAdmins — بوّابة أدوات «الأدمن فقط».
+async function isAdminConversation(conv: any): Promise<boolean> {
+  try {
+    if (!conv?.playerId) return false;
+    const db = getDB();
+    if (!db) return false;
+    const [row] = await db
+      .select({ role: staff.role })
+      .from(players)
+      .innerJoin(staff, eq(players.linkedStaffId, staff.id))
+      .where(eq(players.id, conv.playerId))
+      .limit(1);
+    return row?.role === 'admin';
+  } catch { return false; }
+}
+
+// 🔒 الأدوات المقيّدة بـ«الأدمن فقط» تُستبعد فعليّاً لغير الأدمن قبل إرسال القائمة لـGemini
+// (حجب من الخادم، لا مجرّد تعليمات) — التعديل الوحيد: t[k] = مفعّلة ومسموحة لهذا المتّصل.
+function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: string[]; isAdmin?: boolean }) {
+  const adminOnly = new Set(Array.isArray(opts?.adminOnlyTools) ? opts!.adminOnlyTools! : []);
+  const isAdmin = !!opts?.isAdmin;
+  const raw = { ...DEFAULT_TOOLS_CONFIG, ...(toolsConfig || {}) } as Record<string, any>;
+  const t: Record<string, any> = {};
+  for (const k of Object.keys(raw)) t[k] = raw[k] && (isAdmin || !adminOnly.has(k));
   const decls: any[] = [];
   if (t.activities) decls.push({
     name: 'get_available_activities',
@@ -1807,7 +1831,9 @@ export async function runAgent(opts: {
   dryRun: boolean;
 }): Promise<{ text: string; toolTrace: Array<{ name: string; args: any; result: any }>; interactives: any[]; usage: { calls: number; promptTokens: number; candidatesTokens: number; thoughtsTokens: number; totalTokens: number } }> {
   const { settings, conv, dryRun } = opts;
-  const toolDecls = buildToolDeclarations(settings.toolsConfig);
+  // 🔒 بوّابة أدوات «الأدمن فقط»: الساحة (dryRun) تُعامَل كأدمن لتُظهر كل الأدوات للاختبار.
+  const isAdminConv = dryRun ? true : await isAdminConversation(conv);
+  const toolDecls = buildToolDeclarations(settings.toolsConfig, { adminOnlyTools: settings.adminOnlyTools, isAdmin: isAdminConv });
   const systemText = [
     settings.systemPrompt,
     // الآن بتوقيت الأردن — كل التواريخ من الأدوات تصلك منسّقة بنفس التوقيت
