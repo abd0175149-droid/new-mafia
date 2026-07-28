@@ -132,10 +132,11 @@ const DEFAULT_TOOLS_CONFIG = {
   matchHistory: true,    // سجل المباريات (ملخص + تفصيل نقاط)
   adminFinance: true,    // 🔒 تقارير ماليّة للفعاليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)
   adminGame: true,       // 🔒 حالة اللعبة الكاملة بالأدوار + تعديل حدث ليل قبل الكشف (أدمن فقط)
+  adminPassword: true,   // 🔒 إعادة تعيين كلمة سرّ لاعب عبر رقم هاتفه (أدمن فقط)
 };
 
 // 🔒 أدوات مقيّدة بـ«الأدمن فقط» دائماً (مهما كان إعداد adminOnlyTools) — لا تُعرض لغير الأدمن أبداً
-const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame'];
+const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword'];
 
 // 🌙 أنواع أحداث الليل القابلة لإعادة التوجيه بأمان + تسمياتها العربية
 const NIGHT_EVENT_AR: Record<string, string> = {
@@ -855,6 +856,15 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
         new_target_phone: { type: 'STRING', description: 'رقم هاتف الهدف الجديد بأي صيغة (أو استخدم المعرّف الفيزيائي)' },
         new_target_physical_id: { type: 'NUMBER', description: 'المعرّف الفيزيائي للهدف الجديد (بديل عن الهاتف)' },
       }, required: ['event_index'] },
+    });
+  }
+  if (t.adminPassword) {
+    decls.push({
+      name: 'admin_reset_password',
+      description: 'إعادة تعيين كلمة سرّ حساب لاعب عبر رقم هاتفه (أدمن فقط) — للاعب الذي نسي كلمته ولا يقدر يستعيدها بنفسه. تعرض اسم اللاعب وأزرار تأكيد؛ بعد ضغط الأدمن تُولَّد كلمة جديدة تُرسَل للأدمن هنا وتُدفَع إشعاراً للاعب، ويُفرَض عليه تغييرها بعد أول دخول.',
+      parameters: { type: 'OBJECT', properties: {
+        phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة (07XXXXXXXX أو 9627XXXXXXXX)' },
+      }, required: ['phone'] },
     });
   }
   return decls;
@@ -1957,6 +1967,28 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return { pendingConfirm: true, from: ev.targetName, to: newT.name, kind: isDeath ? 'death' : 'silence', note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن. لا يُنفَّذ التغيير إلا بعد ضغطه.' };
     }
 
+    // ══════ 🔐 إعادة تعيين كلمة سرّ لاعب عبر رقمه (أدمن فقط) ══════
+    case 'admin_reset_password': {
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const local = normalizeLocalPhone(String(args.phone || ''));
+      if (!local) return { error: 'رقم الهاتف غير صالح — أعطني رقم موبايل أردنيّ صحيح (07XXXXXXXX).' };
+      const [pl] = await db.select({ id: players.id, name: players.name, phone: players.phone })
+        .from(players).where(eq(players.phone, local)).limit(1);
+      if (!pl) return { notFound: true, note: `ما في حساب لاعب مسجّل بالرقم ${local}. تأكّد من الرقم.` };
+      if (!dryRun) {
+        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `إعادة تعيين كلمة سرّ «${pl.name}» (${local})؟\nرح تتولّد كلمة جديدة تُرسَل لك هنا وتُدفَع للاعب، ويُطلَب منه تغييرها بعد أول دخول.` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `admpwd:${pl.id}`, title: 'نعم، أعِد التعيين ✅'.slice(0, 20) } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد إعادة تعيين كلمة سرّ لاعب' });
+      }
+      return { pendingConfirm: true, playerName: pl.name, phone: local, note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن. لا تُعاد الكلمة إلا بعد ضغطه.' };
+    }
+
     default:
       return { error: `أداة غير معروفة: ${name}` };
   }
@@ -2286,6 +2318,31 @@ async function processConversation(convId: number) {
           ? `صار «${newT.name}» هو الضحيّة${oldT ? ` بدل «${oldT.name}»` : ''}`
           : `صار «${newT.name}» هو المُسكَت${oldT ? ` بدل «${oldT.name}»` : ''}`;
         await sendMessage({ conversationId: convId, text: `تمّ ✅ ${kindMsg}. سيظهر التصحيح عند كشف الحدث.`, source: 'system' });
+        return;
+      }
+      // 🔐 إعادة تعيين كلمة سرّ لاعب (أدمن) — حتميّ: إعادة فحص الأدمن + توليد كلمة server-side
+      const admpwdMatch = /^admpwd:(\d+)$/.exec(btnId || '');
+      if (admpwdMatch) {
+        if (!(await isAdminConversation(conv))) {
+          await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
+          return;
+        }
+        const targetPlayerId = parseInt(admpwdMatch[1]);
+        const newPassword = String(crypto.randomInt(100000, 1000000));
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+        const [updated] = await db.update(players)
+          .set({ passwordHash, mustChangePassword: true } as any)
+          .where(eq(players.id, targetPlayerId))
+          .returning({ id: players.id, name: players.name, phone: players.phone });
+        if (!updated) { await sendMessage({ conversationId: convId, text: 'ما لقيت الحساب — يمكن انحذف 🙏', source: 'system' }); return; }
+        // للأدمن هنا: الكلمة الجديدة
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ أُعيد تعيين كلمة سرّ «${updated.name}» (${updated.phone}).\n\n🔐 الكلمة الجديدة: ${newPassword}\n\nانبعتتله كمان إشعار داخل التطبيق فيها، ورح يتطلّب منه يغيّرها بعد أول دخول.`, source: 'system' });
+        // للاعب: دفع إشعار (يُحفَظ داخل التطبيق أيضاً)
+        try {
+          const { sendPushToPlayer } = await import('./fcm.service.js');
+          await sendPushToPlayer(updated.id, 'تم إعادة تعيين كلمة السر 🔐', `كلمة سرّك الجديدة: ${newPassword} — ادخل فيها وغيّرها فوراً لأمان حسابك.`, 'password_reset', {});
+        } catch (e: any) { console.warn('⚠️ admin pwd push:', e?.message); }
+        console.log(`🔐 WA bot ADMIN password reset for player #${updated.id} by conv ${convId}`);
         return;
       }
     } catch { /* تجاهل */ }

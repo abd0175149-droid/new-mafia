@@ -42,6 +42,14 @@ export const players = pgTable('players', {
   isFreeAccount: boolean('is_free_account').default(false),
   welcomeBonusApplied: boolean('welcome_bonus_applied').default(false),
   genderConstraint: varchar('gender_constraint', { length: 20 }).default('NONE'),
+  // ── 🪙 اقتصاد التشبس Chips ──
+  // ⚠️ كاش مشتق فقط — الحقيقة في chips_ledger. لا يُعدَّل إلا عبر applyChipsTx().
+  // ⚠️ لا يُصفَّر مع الموسم (تصفير الموسم قائمة بيضاء صريحة — season.service.ts).
+  chipsBalance: integer('chips_balance').default(0).notNull(),
+  // خانات التجهيز (خاملة حتى المرحلة 1 — الكتالوج والإيجارات)
+  chipsFrameItemId: integer('chips_frame_item_id'),
+  chipsTitleItemId: integer('chips_title_item_id'),
+  chipsNameFxItemId: integer('chips_name_fx_item_id'),
   // ── ربط بحساب موظف (Staff) ──
   linkedStaffId: integer('linked_staff_id'),
   // ── 🌐 صلاحيّات اللعب عن بُعد ──

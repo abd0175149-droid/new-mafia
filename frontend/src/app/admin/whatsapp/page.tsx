@@ -1034,6 +1034,7 @@ const TOOL_LABELS: Record<string, string> = {
   matchHistory: '📜 سجل المباريات (ملخص + تفصيل نقاط)',
   adminFinance: '🔒 تقارير ماليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)',
   adminGame: '🔒 حالة اللعبة بالأدوار + إعادة توجيه حدث ليل (أدمن فقط)',
+  adminPassword: '🔒 إعادة تعيين كلمة سرّ لاعب عبر رقمه (أدمن فقط)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {

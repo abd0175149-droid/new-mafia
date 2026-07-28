@@ -70,6 +70,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/finance', icon: '💰', label: 'المالية' },
       { href: '/admin/reports', icon: '📋', label: 'التقارير', roles: ['admin', 'manager', 'accountant'] },
       { href: '/admin/reports/layout', icon: '🖨️', label: 'تخطيط الطباعة', roles: ['admin', 'manager'] },
+      { href: '/admin/chips', icon: '🪙', label: 'اقتصاد التشبس', roles: ['admin'] },
     ],
   },
   {

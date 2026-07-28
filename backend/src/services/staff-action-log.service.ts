@@ -101,6 +101,10 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'rest:progression-adjust': { category: 'PROGRESSION_EDIT', labelAr: 'تعديل نقاط لاعب يدوياً' },
   'rest:seat-template-edit': { category: 'TEMPLATE_EDIT', labelAr: 'تعديل قالب مقاعد' },
   'rest:leader-force-add': { category: 'PLAYER', labelAr: 'إضافة لاعب يدوياً (REST)' },
+  // ── 🪙 اقتصاد التشبس (حركات مالية — تُسجَّل دائماً) ──
+  'chips:topup': { category: 'CHIPS', labelAr: 'شحن رصيد تشبس' },
+  'chips:adjust': { category: 'CHIPS', labelAr: 'تصحيح رصيد تشبس' },
+  'chips:audit-fix': { category: 'CHIPS', labelAr: 'إعادة اشتقاق أرصدة التشبس' },
 };
 
 // ── أسماء الفئات بالعربية (للعرض والفلترة) ─────────────────────────────
@@ -121,6 +125,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   PROGRESSION_EDIT: 'تعديل النقاط',
   TEMPLATE_EDIT: 'قوالب المقاعد',
   ACTIVITY: 'الفعاليات',
+  CHIPS: 'التشبس 🪙',
   OTHER: 'أخرى',
 };
 

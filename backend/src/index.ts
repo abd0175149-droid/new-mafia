@@ -50,6 +50,7 @@ import seasonsRoutes from './routes/seasons.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
+import chipsRoutes from './routes/chips.routes.js';
 import { registerVenueEvents } from './sockets/venue.socket.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
@@ -179,6 +180,7 @@ app.use('/api/seat-templates', seatTemplatesRoutes);
 app.use('/api/reservations', reservationsRoutes);
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
+app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 // مصدر واحد ثابت (config/vapid.ts) — نفس المفتاح الذي يوقّع به السيرفر الإرسال
@@ -512,6 +514,13 @@ io.on('connection', (socket) => {
   // ينضم تلقائياً فيستقبل wa:message:new / wa:status:update لحظياً
   if (socket.data?.authStaff?.role === 'admin') {
     socket.join('wa:inbox');
+  }
+
+  // 🪙 غرفة اللاعب الخاصة — قناة لحظية شخصية (الرصيد/المشتريات/الإشعارات).
+  // تُشتق من توكن اللاعب الموثّق في io.use أعلاه، فلا يمكن لأحد الانضمام لغرفة غيره.
+  const authPlayerId = socket.data?.authPlayer?.playerId;
+  if (authPlayerId) {
+    socket.join(`player:${authPlayerId}`);
   }
 
   // 🔒 حصر اللاعب-المُضيف بغرفته فقط: أي حدثٍ يحمل roomId مختلفاً عن غرفة استضافته يُرفض.
@@ -1217,6 +1226,47 @@ async function main() {
     console.log('✅ Staff action log + creator columns + expense categories/scope ensured');
   } catch (err: any) {
     console.warn('⚠️ Staff action log migration:', err.message);
+  }
+
+  // ══════════════════════════════════════════════════
+  // 🪙 اقتصاد التشبس Chips — المرحلة 0 (الأساس المالي)
+  // الدفتر append-only + كاش الرصيد + خانات التجهيز.
+  // ⚠️ chips_balance مستثنى من تصفير الموسم (season.service.ts
+  //    يستخدم قائمة بيضاء صريحة — لا wildcard — فالاستثناء مضمون).
+  // ══════════════════════════════════════════════════
+  try {
+    const { getDB } = await import('./config/db.js');
+    const { sql } = await import('drizzle-orm');
+    const db = getDB();
+    if (db) {
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS chips_ledger (
+          id SERIAL PRIMARY KEY,
+          player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+          amount INTEGER NOT NULL,
+          balance_after INTEGER NOT NULL,
+          reason VARCHAR(40) NOT NULL,
+          ref_type VARCHAR(20),
+          ref_id VARCHAR(60),
+          idempotency_key VARCHAR(120) NOT NULL,
+          staff_id INTEGER,
+          note TEXT,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      // 🔑 حجر الزاوية: التكرار يفشل هنا لا في المنطق التطبيقي
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_chips_ledger_idem ON chips_ledger(idempotency_key)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_ledger_player ON chips_ledger(player_id, id DESC)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_ledger_at ON chips_ledger(created_at DESC)`);
+      // كاش الرصيد + خانات التجهيز (خاملة حتى المرحلة 1)
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_balance INTEGER DEFAULT 0 NOT NULL`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_frame_item_id INTEGER`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_title_item_id INTEGER`);
+      await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_name_fx_item_id INTEGER`);
+      console.log('✅ Chips economy tables ensured (ledger + balance cache)');
+    }
+  } catch (err: any) {
+    console.warn('⚠️ Chips migration:', err.message);
   }
 
   // ── تهيئة Firebase ──

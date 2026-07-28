@@ -250,6 +250,9 @@ export async function startRegularSeason(name: string, createdBy?: number): Prom
   } as any).returning();
 
   // 3) تصفير players.* (التقدّم فقط — لا تُلمس الهوية ولا lifetime_matches)
+  // 🪙 قائمة بيضاء صريحة عمداً: أي عمود غير مذكور هنا لا يُمَس — وهذا ما يضمن
+  //    بقاء chips_balance وخانات التجهيز بين المواسم (رصيد التشبس لا ينتهي أبداً).
+  //    ⛔ لا تحوّل هذا إلى تصفير شامل ولا تضف أي عمود chips_* هنا.
   await db.update(players).set({
     xp: 0, level: 1, rankTier: 'INFORMANT', rankRR: 0,
     totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0,
