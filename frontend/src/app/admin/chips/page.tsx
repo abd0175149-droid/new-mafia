@@ -69,7 +69,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function ChipsAdminPage() {
-  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog'>('topup');
+  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards'>('topup');
   const [stats, setStats] = useState<any>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -113,7 +113,7 @@ export default function ChipsAdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5 border-b border-gray-700/40">
-        {([['topup', '💵 الشحن والأرصدة'], ['catalog', '🏦 كتالوج الخزنة'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
+        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-bold transition-all border-b-2 -mb-px ${
               tab === k ? 'text-amber-400 border-amber-400' : 'text-gray-500 border-transparent hover:text-gray-300'
@@ -124,6 +124,7 @@ export default function ChipsAdminPage() {
       </div>
 
       {tab === 'topup' && <TopupView packs={packs} onChanged={loadStats} toast={showToast} />}
+      {tab === 'rewards' && <RewardsView toast={showToast} onChanged={loadStats} />}
       {tab === 'catalog' && <CatalogView toast={showToast} />}
       {tab === 'ledger' && <LedgerView />}
 
@@ -388,6 +389,228 @@ function TopupView({ packs, onChanged, toast }: { packs: Pack[]; onChanged: () =
 }
 
 // ══════════════════════════════════════════════════════
+// 🎁 المكافآت — أفضل ثلاثة + عيديّة الميلاد
+// ══════════════════════════════════════════════════════
+function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string) => void; onChanged: () => void }) {
+  const [data, setData] = useState<any>(null);
+  const [seasonId, setSeasonId] = useState<string>('');
+  const [amounts, setAmounts] = useState<string[]>(['100', '100', '100']);
+  const [busy, setBusy] = useState(false);
+  const [requestId, setRequestId] = useState(newRequestId());
+  const [bdays, setBdays] = useState<any>(null);
+  const [cfg, setCfg] = useState<any>(null);
+
+  const loadTop = useCallback(async (sid?: string) => {
+    try {
+      const d = await apiGet(`/api/chips/admin/rewards/top3${sid ? `?seasonId=${sid}` : ''}`);
+      setData(d);
+      if (!sid && d.season) setSeasonId(String(d.season.id));
+      if (d.config) {
+        setCfg(d.config);
+        setAmounts((d.config.top3?.amounts || [100, 100, 100]).map((n: any) => String(n)));
+      }
+    } catch (e: any) { toast('err', e.message || 'تعذّر جلب الترتيب'); }
+  }, [toast]);
+
+  const loadBdays = useCallback(async () => {
+    try { setBdays(await apiGet('/api/chips/admin/rewards/birthdays')); } catch { /* تجاهل */ }
+  }, []);
+
+  useEffect(() => { loadTop(); loadBdays(); }, [loadTop, loadBdays]);
+
+  const grant = async () => {
+    if (!data?.season) return;
+    const names = (data.top || []).map((p: any, i: number) => `${p.name} (${amounts[i] || 0} 🪙)`).join('، ');
+    if (!confirm(`منح مكافأة «${data.season.name}»؟\n\n${names}\n\nسيصل إشعار لكل واحد منهم.`)) return;
+    setBusy(true);
+    try {
+      const d = await apiPost('/api/chips/admin/rewards/top3', {
+        seasonId: data.season.id,
+        amounts: amounts.map(a => Number(a) || 0),
+        requestId,
+      });
+      setRequestId(newRequestId());
+      const fresh = (d.results || []).filter((r: any) => r.ok && !r.duplicate);
+      toast('ok', fresh.length ? `✅ مُنحت ${d.totalGranted} 🪙 لـ ${fresh.length} لاعبين` : '↩️ هذه العملية مُنفَّذة سابقاً');
+      loadTop(seasonId); onChanged();
+    } catch (e: any) { toast('err', e.message || 'فشل المنح'); }
+    finally { setBusy(false); }
+  };
+
+  const saveCfg = async (patch: any) => {
+    try {
+      const d = await apiPut('/api/chips/admin/rewards/config', patch);
+      setCfg(d.config);
+      toast('ok', '✅ حُفظت الإعدادات');
+      loadBdays();
+    } catch (e: any) { toast('err', e.message || 'فشل الحفظ'); }
+  };
+
+  const runBdays = async (playerId?: number) => {
+    setBusy(true);
+    try {
+      const d = await apiPost('/api/chips/admin/rewards/birthdays/run', playerId ? { playerId } : {});
+      const fresh = (d.granted || []).filter((g: any) => !g.duplicate);
+      toast(fresh.length ? 'ok' : 'err', fresh.length ? `🎂 مُنحت العيديّة لـ ${fresh.length}` : 'لا أحد يستحق الآن (أو مُنحت مسبقاً)');
+      loadBdays(); onChanged();
+    } catch (e: any) { toast('err', e.message || 'فشل المنح'); }
+    finally { setBusy(false); }
+  };
+
+  const medal = (r: number) => (r === 1 ? '🥇' : r === 2 ? '🥈' : '🥉');
+
+  return (
+    <div className="space-y-5">
+      {/* ── أفضل ثلاثة ── */}
+      <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-sm font-bold text-gray-300">🏆 مكافأة أفضل ثلاثة في الموسم</h2>
+          <select
+            value={seasonId}
+            onChange={e => { setSeasonId(e.target.value); loadTop(e.target.value); }}
+            className="bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+          >
+            {(data?.seasons || []).map((s: any) => (
+              <option key={s.id} value={s.id}>
+                {s.type === 'ONLINE' ? '🌐 أونلاين' : s.type === 'TOURNAMENT' ? '🏆 بطولة' : '⭐ عادي'} — {s.name}{s.status === 'ACTIVE' ? ' (نشط)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <p className="text-[11px] text-gray-500 mb-3">
+          الترتيب محسوب <b>بنفس معادلة صفحة التصنيف</b> (وزن الرتبة ← الرانك ← المستوى) لهذا الموسم تحديداً.
+        </p>
+
+        {!data?.season && <p className="text-center text-gray-600 text-xs py-6">اختر موسماً</p>}
+
+        {data?.top?.length === 0 && data?.season && (
+          <p className="text-center text-gray-600 text-xs py-6">لا لاعبين في هذا الموسم بعد</p>
+        )}
+
+        <div className="space-y-2">
+          {(data?.top || []).map((p: any, i: number) => (
+            <div key={p.playerId} className="flex items-center gap-3 bg-gray-900/50 border border-gray-700/40 rounded-xl p-3">
+              <span className="text-2xl">{medal(p.rank)}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-200 font-bold text-sm">
+                  {p.name}
+                  {p.isTestAccount && <span className="text-[9px] text-amber-400 mr-2 px-1.5 py-0.5 rounded border border-amber-600/40">حساب اختبار</span>}
+                </p>
+                <p className="text-[10px] text-gray-500">
+                  {p.rankTier} · {p.rankRR} RR · مستوى {p.level} · {p.totalMatches} مباراة
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <input
+                  value={amounts[i] ?? ''}
+                  onChange={e => setAmounts(a => { const n = [...a]; n[i] = e.target.value; return n; })}
+                  className="w-20 bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-1.5 text-sm text-white tabular-nums text-center focus:outline-none focus:border-amber-500"
+                />
+                <span className="text-amber-400 text-sm">🪙</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {(data?.top?.length || 0) > 0 && (
+          <div className="flex items-center gap-2 mt-4">
+            <button onClick={grant} disabled={busy}
+              className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40">
+              {busy ? 'جارٍ المنح…' : '🎁 امنح المكافأة الآن'}
+            </button>
+            <button onClick={() => saveCfg({ top3: { amounts: amounts.map(a => Number(a) || 0) } })}
+              className="px-4 py-2.5 rounded-xl font-bold text-xs bg-gray-800/60 border border-gray-700/40 text-gray-300">
+              💾 احفظ كافتراضي
+            </button>
+          </div>
+        )}
+        <p className="text-[10px] text-gray-600 mt-2">🔒 كل ضغطة تحمل مفتاحاً فريداً — النقر المزدوج لا يمنح مرتين، والمنح المتعمّد مرة أخرى مسموح.</p>
+      </div>
+
+      {/* ── عيديّة الميلاد ── */}
+      <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-sm font-bold text-gray-300">🎂 عيديّة الميلاد</h2>
+          <span className="text-[11px] text-gray-500">اليوم: {bdays?.today || '—'}</span>
+        </div>
+
+        {cfg && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">مبلغ العيديّة 🪙</label>
+              <input
+                defaultValue={cfg.birthday?.amount}
+                onBlur={e => saveCfg({ birthday: { amount: Number(e.target.value) || 0 } })}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">التشغيل التلقائي</label>
+              <button
+                onClick={() => saveCfg({ birthday: { enabled: !cfg.birthday?.enabled } })}
+                className={`w-full py-2 rounded-lg text-xs font-bold border transition-all ${
+                  cfg.birthday?.enabled
+                    ? 'bg-emerald-900/30 border-emerald-600/40 text-emerald-300'
+                    : 'bg-gray-800/60 border-gray-700/40 text-gray-400'
+                }`}>
+                {cfg.birthday?.enabled ? '✅ يعمل تلقائياً' : '⏸ متوقف'}
+              </button>
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">نص الإشعار (متغيّر {'{العدد}'})</label>
+              <input
+                defaultValue={cfg.birthday?.messageBody}
+                onBlur={e => saveCfg({ birthday: { messageBody: e.target.value } })}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          {(bdays?.birthdays || []).length === 0 && (
+            <p className="text-center text-gray-600 text-xs py-4">لا أعياد ميلاد اليوم</p>
+          )}
+          {(bdays?.birthdays || []).map((b: any) => (
+            <div key={b.playerId} className="flex items-center gap-3 bg-gray-900/50 border border-gray-700/40 rounded-xl p-3">
+              <span className="text-xl">🎂</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-gray-200 font-bold text-sm">
+                  {b.name}
+                  {b.isTestAccount && <span className="text-[9px] text-amber-400 mr-2">اختبار</span>}
+                </p>
+                <p className="text-[10px] text-gray-500">{b.dob} · الرصيد {b.balance} 🪙</p>
+              </div>
+              {b.alreadyGranted ? (
+                <span className="text-[11px] text-emerald-400 font-bold">✅ استلمها</span>
+              ) : (
+                <button onClick={() => runBdays(b.playerId)} disabled={busy}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-900/30 border border-amber-600/40 text-amber-300 disabled:opacity-40">
+                  امنح الآن
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {(bdays?.birthdays || []).some((b: any) => !b.alreadyGranted) && (
+          <button onClick={() => runBdays()} disabled={busy}
+            className="w-full mt-3 py-2.5 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40">
+            🎁 امنح الجميع
+          </button>
+        )}
+
+        <p className="text-[10px] text-gray-600 mt-3 leading-relaxed">
+          الفحص التلقائي يعمل كل 30 دقيقة بتوقيت الأردن، ومفتاح الحركة السنوي يضمن <b>عيديّة واحدة لكل لاعب في السنة</b>
+          مهما تكرّر الفحص أو أُعيد تشغيل الخادم.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
 // 🏦 كتالوج الخزنة — السعر والمدة والعرض والإغلاق النهائي
 // ══════════════════════════════════════════════════════
 function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
@@ -430,6 +653,9 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
 
   return (
     <div className="space-y-5">
+      {/* ➕ إضافة عنصر جديد */}
+      <AddItemPanel onCreated={() => { load(); toast('ok', '✅ أُضيف العنصر للخزنة'); }} toast={toast} />
+
       <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl p-3">
         <p className="text-xs text-amber-300/90 leading-relaxed">
           ⏳ كل عنصر <b>يُستأجر</b> لمدته المعلنة — لا تملّك أبدي. تغيير السعر يسري على العمليات الجديدة فقط،
@@ -509,6 +735,247 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// ➕ إضافة عنصر للخزنة (لقب / تشريفة دخول / تأثير اسم) — مع معاينة قبل الاعتماد
+// ══════════════════════════════════════════════════════
+const ENTRANCE_DESIGNS = [
+  { id: 'don', label: '👑 موكب العرّاب', desc: 'شريط ذهبي يعمّ الشاشة + تاج يهبط + اسم بخط سلطاني' },
+  { id: 'seal', label: '🩸 ختم العائلة', desc: 'ختم شمع قرمزي يُصفع على الشاشة بدوران وارتداد' },
+  { id: 'neon', label: '⚡ لافتة النيون', desc: 'الاسم يشتعل لافتة نيون برفّات كهرباء قبل أن يثبت' },
+  { id: 'file', label: '🗂️ الملف السري', desc: 'ملف مخابرات ينزلق بالصورة + ختم «وصل للتوّ»' },
+];
+
+const TITLE_STYLES = [
+  { id: 'gold', label: 'ذهبي', cls: 'bg-[rgba(69,26,3,0.8)] text-[#fcd34d] border-[rgba(245,158,11,0.6)]' },
+  { id: 'blood', label: 'دموي (نابض)', cls: 'bg-[rgba(69,10,10,0.8)] text-[#fca5a5] border-[rgba(220,38,38,0.6)]' },
+  { id: 'ghost', label: 'شبحي (متلاشٍ)', cls: 'bg-[rgba(24,24,27,0.7)] text-[#d4d4d8] border-[rgba(161,161,170,0.5)]' },
+];
+
+function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 'ok' | 'err', t: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<'title' | 'entrance' | 'name_fx'>('title');
+  const [nameAr, setNameAr] = useState('');
+  const [hookAr, setHookAr] = useState('');
+  const [price, setPrice] = useState('25');
+  const [days, setDays] = useState('30');
+  const [rarity, setRarity] = useState('rare');
+  const [busy, setBusy] = useState(false);
+
+  // لقب
+  const [titleText, setTitleText] = useState('');
+  const [titleStyle, setTitleStyle] = useState('gold');
+  // دخول
+  const [design, setDesign] = useState('don');
+  // تأثير اسم
+  const [fxColor, setFxColor] = useState('#fcd34d');
+  const [fxGlow, setFxGlow] = useState('#f59e0b');
+
+  const reset = () => {
+    setNameAr(''); setHookAr(''); setTitleText(''); setPrice('25'); setDays('30');
+  };
+
+  const create = async () => {
+    setBusy(true);
+    try {
+      const config = kind === 'title' ? { text: titleText, style: titleStyle }
+        : kind === 'entrance' ? { design }
+        : { nameEffect: { color: fxColor, glowColor: fxGlow, glowSize: 10 } };
+
+      await apiPost('/api/chips/items', {
+        kind, nameAr, hookAr, rarity,
+        priceChips: Number(price) || 0,
+        durationDays: Number(days) || 30,
+        config,
+      });
+      reset(); setOpen(false); onCreated();
+    } catch (e: any) {
+      toast('err', e.message || 'تعذّرت الإضافة');
+    } finally { setBusy(false); }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="w-full py-3 rounded-2xl font-bold text-sm bg-gray-800/40 border border-dashed border-gray-600/50 text-gray-300 hover:border-amber-500/50 hover:text-amber-400 transition-all">
+        ➕ أضف عنصراً جديداً للخزنة (لقب · تشريفة دخول · تأثير اسم)
+      </button>
+    );
+  }
+
+  const valid = nameAr.trim().length >= 2 && (kind !== 'title' || titleText.trim().length >= 1);
+
+  return (
+    <div className="bg-gray-800/40 border border-amber-600/30 rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-bold text-amber-400">➕ عنصر جديد</h2>
+        <button onClick={() => setOpen(false)} className="text-gray-500 text-xs">✕ إغلاق</button>
+      </div>
+
+      {/* النوع */}
+      <div className="flex gap-2 mb-4">
+        {([['title', '🏷️ لقب'], ['entrance', '🚪 تشريفة دخول'], ['name_fx', '✨ تأثير اسم']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setKind(k)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+              kind === k ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'
+            }`}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* النموذج */}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">اسم العنصر بالمتجر</label>
+            <input value={nameAr} onChange={e => setNameAr(e.target.value)} placeholder="مثال: سيّد الطاولة"
+              className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+          </div>
+
+          {kind === 'title' && (
+            <>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">نص اللقب كما يظهر على البطاقة</label>
+                <input value={titleText} onChange={e => setTitleText(e.target.value)} placeholder="☠️ سفّاح الليل"
+                  className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">النمط</label>
+                <div className="flex gap-2">
+                  {TITLE_STYLES.map(s => (
+                    <button key={s.id} onClick={() => setTitleStyle(s.id)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
+                        titleStyle === s.id ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'
+                      }`}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {kind === 'entrance' && (
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">شكل الدخول والأنيميشن</label>
+              <div className="space-y-2">
+                {ENTRANCE_DESIGNS.map(d => (
+                  <button key={d.id} onClick={() => setDesign(d.id)}
+                    className={`w-full text-right px-3 py-2 rounded-xl border transition-all ${
+                      design === d.id ? 'bg-amber-500/10 border-amber-500/50' : 'bg-gray-900/50 border-gray-700/40'
+                    }`}>
+                    <p className={`text-xs font-bold ${design === d.id ? 'text-amber-300' : 'text-gray-300'}`}>{d.label}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">{d.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {kind === 'name_fx' && (
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="block text-[11px] text-gray-500 mb-1">لون الاسم</label>
+                <input type="color" value={fxColor} onChange={e => setFxColor(e.target.value)}
+                  className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[11px] text-gray-500 mb-1">لون التوهّج</label>
+                <input type="color" value={fxGlow} onChange={e => setFxGlow(e.target.value)}
+                  className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">جملة البيع (تظهر تحت الاسم بالمتجر)</label>
+            <input value={hookAr} onChange={e => setHookAr(e.target.value)} placeholder="لماذا يشتريه اللاعب؟"
+              className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">السعر 🪙</label>
+              <input value={price} onChange={e => setPrice(e.target.value)}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">المدة (يوم)</label>
+              <input value={days} onChange={e => setDays(e.target.value)}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">الندرة</label>
+              <select value={rarity} onChange={e => setRarity(e.target.value)}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                <option value="common">شائع</option>
+                <option value="rare">نادر</option>
+                <option value="epic">ملحمي</option>
+                <option value="myth">أسطوري</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* المعاينة */}
+        <div className="bg-black/40 border border-gray-700/40 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[240px]">
+          <p className="text-[11px] text-gray-500 mb-3">👁️ المعاينة قبل الاعتماد</p>
+
+          {kind === 'title' && (
+            <div className="text-center">
+              <div className="w-40 h-24 rounded-xl bg-gradient-to-b from-zinc-800 to-black border border-amber-600/30 flex flex-col items-center justify-center gap-1.5">
+                <span className="text-white font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>اسم اللاعب</span>
+                {titleText && (
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${TITLE_STYLES.find(s => s.id === titleStyle)?.cls}`}>
+                    {titleText}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-2">كما يظهر تحت الاسم على البطاقة</p>
+            </div>
+          )}
+
+          {kind === 'entrance' && (
+            <div className="text-center">
+              <div className="text-4xl mb-2">{ENTRANCE_DESIGNS.find(d => d.id === design)?.label.split(' ')[0]}</div>
+              <p className="text-amber-300 font-bold text-sm">{ENTRANCE_DESIGNS.find(d => d.id === design)?.label}</p>
+              <p className="text-[11px] text-gray-500 mt-1 max-w-[220px]">{ENTRANCE_DESIGNS.find(d => d.id === design)?.desc}</p>
+              <a href="/card-demo/chips" target="_blank" rel="noreferrer"
+                className="inline-block mt-3 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-900/30 border border-amber-600/40 text-amber-300">
+                ▶️ شاهد الأنيميشن كاملاً
+              </a>
+            </div>
+          )}
+
+          {kind === 'name_fx' && (
+            <div className="text-center">
+              <div className="w-40 h-24 rounded-xl bg-gradient-to-b from-zinc-800 to-black border border-amber-600/30 flex items-center justify-center">
+                <span className="font-black text-xl" style={{
+                  fontFamily: 'Amiri, serif', color: fxColor,
+                  textShadow: `0 0 10px ${fxGlow}88, 0 0 25px ${fxGlow}44`,
+                }}>
+                  اسم اللاعب
+                </span>
+              </div>
+              <p className="text-[10px] text-gray-600 mt-2">يظهر في كل واجهة يظهر فيها اسمه</p>
+            </div>
+          )}
+
+          <div className="mt-4 text-center">
+            <p className="text-amber-400 font-bold text-sm tabular-nums">🪙 {price || 0} / {days || 30} يوماً</p>
+            {hookAr && <p className="text-[11px] text-gray-500 mt-1 max-w-[240px]">{hookAr}</p>}
+          </div>
+        </div>
+      </div>
+
+      <button onClick={create} disabled={!valid || busy}
+        className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40">
+        {busy ? 'جارٍ الإضافة…' : '✅ اعتمد وأضف للخزنة'}
+      </button>
     </div>
   );
 }

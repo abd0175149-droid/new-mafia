@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { PlayerProvider, usePlayer } from '@/context/PlayerContext';
 import BottomNav from '@/components/BottomNav';
+import BirthdayGate from '@/components/BirthdayGate';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
@@ -402,6 +403,8 @@ function PlayerLayoutInner({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {children}
+      {/* 🎂 بوابة تاريخ الميلاد — تظهر لمن لا تاريخ ميلاد له (مرة واحدة) */}
+      <BirthdayGate />
       <BottomNav />
     </div>
   );

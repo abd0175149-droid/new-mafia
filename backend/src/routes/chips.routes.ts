@@ -16,6 +16,10 @@ import {
   getAdminLedger, getPlayerBalances, getChipsStats, auditChipsBalances,
 } from '../services/chips.service.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
+import {
+  getRewardsConfig, saveRewardsConfig, previewTop3, grantTop3,
+  getTodaysBirthdays, runBirthdayGifts, jordanToday,
+} from '../services/chips-rewards.service.js';
 
 const router = Router();
 
@@ -187,6 +191,120 @@ router.get('/admin/stats', async (_req: Request, res: Response) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ══════════════════════════════════════════════════════
+// 🎁 المكافآت: أفضل ثلاثة + عيديّة الميلاد
+// ══════════════════════════════════════════════════════
+
+// ── إعدادات المكافآت ──
+router.get('/admin/rewards/config', async (_req: Request, res: Response) => {
+  try {
+    const config = await getRewardsConfig();
+    res.json({ success: true, config });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/admin/rewards/config', async (req: Request, res: Response) => {
+  try {
+    const config = await saveRewardsConfig(req.body || {});
+    logStaffAction({
+      staffId: (req as any).user?.id,
+      staffUsername: (req as any).user?.username,
+      staffRole: (req as any).user?.role,
+      source: 'http',
+      action: 'chips:rewards-config',
+      outcome: 'success',
+      details: config,
+    });
+    res.json({ success: true, config });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── معاينة أفضل ثلاثة (من يستلم قبل الضغط) ──
+router.get('/admin/rewards/top3', async (req: Request, res: Response) => {
+  try {
+    const seasonId = req.query.seasonId ? parseInt(req.query.seasonId as string) : null;
+    const data = await previewTop3(seasonId);
+    res.json({ success: true, ...data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── منح أفضل ثلاثة ──
+router.post('/admin/rewards/top3',
+  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-top3' }),
+  async (req: Request, res: Response) => {
+    try {
+      const amounts = Array.isArray(req.body.amounts) ? req.body.amounts.map((n: any) => Number(n)) : undefined;
+      const result = await grantTop3({
+        seasonId: req.body.seasonId ? parseInt(req.body.seasonId) : null,
+        amounts,
+        note: req.body.note ? String(req.body.note).slice(0, 300) : null,
+        requestId: req.body.requestId ? String(req.body.requestId) : null,
+        staffId: (req as any).user?.id ?? null,
+      });
+      if (!result.ok) return res.status(400).json({ error: result.error });
+
+      logStaffAction({
+        staffId: (req as any).user?.id,
+        staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role,
+        source: 'http',
+        action: 'chips:grant-top3',
+        outcome: 'success',
+        details: { season: result.season?.name, results: result.results, totalGranted: result.totalGranted },
+      });
+
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      console.error('❌ grant top3:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// ── أعياد ميلاد اليوم ──
+router.get('/admin/rewards/birthdays', async (_req: Request, res: Response) => {
+  try {
+    const [list, config] = await Promise.all([getTodaysBirthdays(true), getRewardsConfig()]);
+    res.json({ success: true, today: jordanToday().iso, birthdays: list, config });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── تشغيل عيديّات اليوم يدوياً (أو للاعب محدّد) ──
+router.post('/admin/rewards/birthdays/run',
+  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-bday' }),
+  async (req: Request, res: Response) => {
+    try {
+      const onlyPlayerId = req.body.playerId ? parseInt(req.body.playerId) : undefined;
+      const result = await runBirthdayGifts({
+        force: true,
+        onlyPlayerId,
+        staffId: (req as any).user?.id ?? null,
+      });
+      const fresh = (result.granted || []).filter((g: any) => !g.duplicate);
+      if (fresh.length) {
+        logStaffAction({
+          staffId: (req as any).user?.id,
+          staffUsername: (req as any).user?.username,
+          staffRole: (req as any).user?.role,
+          source: 'http',
+          action: 'chips:grant-birthday',
+          outcome: 'success',
+          details: { granted: fresh },
+        });
+      }
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
 // ── تدقيق: الكاش مقابل الدفتر (fix=1 لإعادة الاشتقاق) ──
 router.get('/admin/audit', async (req: Request, res: Response) => {

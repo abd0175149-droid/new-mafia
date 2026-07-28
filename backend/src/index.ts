@@ -1304,6 +1304,16 @@ async function main() {
       // الملكية = إيجار نشط → الفهرس على (اللاعب، الانتهاء) هو مسار القراءة الساخن
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_rentals_player ON chips_rentals(player_id, expires_at DESC)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_rentals_item ON chips_rentals(item_id)`);
+      // إعدادات الاقتصاد القابلة للتعديل من اللوحة (مكافآت التوب-3 والعيديّة)
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS chips_config (
+          id SERIAL PRIMARY KEY,
+          key VARCHAR(40) NOT NULL,
+          value JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_chips_config_key ON chips_config(key)`);
       console.log('✅ Chips economy tables ensured (ledger + balance cache + store catalog + rentals)');
 
       // بذر الكتالوج المعتمد (آمن التكرار — لا يلمس تعديلات الأدمن)
@@ -1415,6 +1425,13 @@ async function main() {
     const { startReminderScheduler } = await import('./services/whatsapp-reminder.service.js');
     startReminderScheduler();
   } catch (e: any) { console.warn('⚠️ reminder scheduler init:', e.message); }
+
+  // ── 🎂 مجدول عيديّة الميلاد — ماسح كل 30 دقيقة بتوقيت الأردن ──
+  // المنح محروس بمفتاح دفتر سنوي، فتكرار الفحص لا يمنح مرتين أبداً.
+  try {
+    const { startBirthdayScheduler } = await import('./services/chips-rewards.service.js');
+    startBirthdayScheduler();
+  } catch (e: any) { console.warn('⚠️ birthday scheduler init:', e.message); }
 
   // ── 📊 تحديث كاش التحليلات: عند الإقلاع إن كان قديماً + ليليّاً الساعة ٤ فجراً ──
   try {

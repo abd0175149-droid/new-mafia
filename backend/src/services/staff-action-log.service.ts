@@ -107,6 +107,10 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'chips:audit-fix': { category: 'CHIPS', labelAr: 'إعادة اشتقاق أرصدة التشبس' },
   'chips:item-edit': { category: 'CHIPS', labelAr: 'تعديل عنصر بالخزنة' },
   'chips:item-grant': { category: 'CHIPS', labelAr: 'منح عنصر للاعب' },
+  'chips:rewards-config': { category: 'CHIPS', labelAr: 'تعديل إعدادات مكافآت التشبس' },
+  'chips:grant-top3': { category: 'CHIPS', labelAr: 'منح مكافأة أفضل ثلاثة' },
+  'chips:grant-birthday': { category: 'CHIPS', labelAr: 'منح عيديّة ميلاد' },
+  'chips:item-create': { category: 'CHIPS', labelAr: 'إضافة عنصر للخزنة' },
 };
 
 // ── أسماء الفئات بالعربية (للعرض والفلترة) ─────────────────────────────

@@ -433,9 +433,26 @@ router.put('/:id/profile', staffOrSelf('id'), async (req: Request, res: Response
     const db = getDB();
     if (!db) return res.status(503).json({ success: false, error: 'قاعدة البيانات غير متوفرة' });
 
-    const { name, email, gender, phone, genderConstraint } = req.body;
+    const { name, email, gender, phone, genderConstraint, dob } = req.body;
     const updates: any = {};
     if (name && name.trim()) updates.name = name.trim();
+    // 🎂 تاريخ الميلاد — يُقبل بصيغة YYYY-MM-DD حصراً (كل السجلات الحالية بهذه الصيغة،
+    //    ومنطق عيديّة الميلاد يقارن الشهر واليوم منها مباشرةً فأي صيغة أخرى تكسره).
+    if (dob !== undefined) {
+      const v = String(dob || '').trim();
+      if (v === '') {
+        updates.dob = null;
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        return res.status(400).json({ success: false, error: 'صيغة تاريخ الميلاد يجب أن تكون YYYY-MM-DD' });
+      } else {
+        const t = new Date(v).getTime();
+        const year = Number(v.slice(0, 4));
+        if (isNaN(t) || t > Date.now() || year < 1940) {
+          return res.status(400).json({ success: false, error: 'تاريخ ميلاد غير منطقي' });
+        }
+        updates.dob = v;
+      }
+    }
     if (email !== undefined) updates.email = email?.trim() || null;
     if (gender && ['MALE', 'FEMALE'].includes(gender)) updates.gender = gender;
     if (phone && phone.trim()) updates.phone = phone.trim();
@@ -481,7 +498,9 @@ router.put('/:id/profile', staffOrSelf('id'), async (req: Request, res: Response
     }
 
     console.log(`✏️ Player #${playerId} profile updated:`, updates);
-    return res.json({ success: true, player: result[0] });
+    // 🔒 لا تخرج الأسرار ولا البيانات المالية من الخادم مع ردّ التعديل
+    const { passwordHash: _p, chipsBalance: _b, chipsFrameItemId: _f, chipsTitleItemId: _t, chipsNameFxItemId: _n, ...safe } = result[0] as any;
+    return res.json({ success: true, player: safe });
   } catch (err: any) {
     console.error('❌ Profile update error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في تعديل البروفايل' });

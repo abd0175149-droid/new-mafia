@@ -279,6 +279,42 @@ async function main() {
     }
   }
 
+  // ── 2.10 المكافآت: التوب-3 والعيديّة ──
+  console.log('\n٢.١٠) المكافآت:');
+  {
+    const { previewTop3, getTodaysBirthdays, jordanToday, getRewardsConfig } = await import('../services/chips-rewards.service.js');
+
+    const cfgR = await getRewardsConfig();
+    check(Array.isArray(cfgR.top3.amounts) && cfgR.top3.amounts.length === 3, 'إعدادات التوب-3 محمَّلة', JSON.stringify(cfgR.top3.amounts));
+
+    const pv = await previewTop3();
+    check(!!pv.season, `الموسم الافتراضي محدَّد: ${pv.season?.name || '—'}`);
+    check((pv.seasons || []).length > 0, `قائمة المواسم متاحة للاختيار (${(pv.seasons || []).length})`);
+    check(pv.top.length <= 3, `المعاينة تُرجع 3 كحدّ أقصى (${pv.top.length})`);
+
+    // المطابقة مع صفحة التصنيف: نفس الترتيب لنفس الموسم
+    if (pv.season) {
+      const { getSeasonLeaderboard } = await import('../services/season.service.js');
+      const lb = await getSeasonLeaderboard(pv.season.id, 3);
+      const sameOrder = pv.top.every((p, i) => !lb[i] || lb[i].playerId === p.playerId);
+      check(sameOrder, 'ترتيب المكافأة يطابق صفحة التصنيف لنفس الموسم',
+        sameOrder ? '' : `مكافأة=${pv.top.map(p => p.playerId)} · تصنيف=${lb.map((l: any) => l.playerId)}`);
+    }
+
+    const today = jordanToday();
+    check(/^\d{4}-\d{2}-\d{2}$/.test(today.iso), `تاريخ اليوم بتوقيت الأردن: ${today.iso}`);
+
+    const bd = await getTodaysBirthdays(true);
+    check(Array.isArray(bd), `أعياد ميلاد اليوم: ${bd.length}`);
+
+    // كل تواريخ الميلاد المخزّنة بالصيغة القياسية (شرط عمل المطابقة)
+    const badDob = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM players
+       WHERE dob IS NOT NULL AND dob <> '' AND dob !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    `));
+    check(Number(badDob[0]?.c) === 0, 'كل تواريخ الميلاد بصيغة YYYY-MM-DD', `شاذة: ${badDob[0]?.c}`);
+  }
+
   // ── 3. التطابق العام ──
   console.log('\n٣) تطابق الكاش مع الدفتر:');
   const audit = await auditChipsBalances(false);

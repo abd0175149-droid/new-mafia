@@ -177,6 +177,77 @@ router.get('/items', async (_req: Request, res: Response) => {
   }
 });
 
+// ── ➕ إنشاء عنصر جديد (لقب / تشريفة دخول / تأثير اسم) ──
+// المفتاح يُولَّد من نوع العنصر + لاحقة فريدة، فلا يتعارض مع المبذور.
+router.post('/items', async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+    const b = req.body || {};
+    const kind = String(b.kind || '');
+    if (!['title', 'entrance', 'name_fx'].includes(kind)) {
+      return res.status(400).json({ error: 'النوع المدعوم للإضافة: لقب أو تشريفة دخول أو تأثير اسم' });
+    }
+
+    const nameAr = String(b.nameAr || '').trim();
+    if (nameAr.length < 2) return res.status(400).json({ error: 'اسم العنصر مطلوب' });
+
+    const rarity = CHIPS_RARITIES.includes(b.rarity) ? b.rarity : 'rare';
+    const priceChips = Math.max(0, Math.min(100000, Math.trunc(Number(b.priceChips) || 0)));
+    const durationDays = Math.min(365, Math.max(1, Math.trunc(Number(b.durationDays) || 30)));
+    const hookAr = String(b.hookAr || '').slice(0, 500);
+
+    // ── التحقق من محتوى كل نوع ──
+    let config: any = {};
+    if (kind === 'title') {
+      const text = String(b.config?.text || '').trim();
+      if (!text) return res.status(400).json({ error: 'نص اللقب مطلوب' });
+      const style = ['gold', 'blood', 'ghost'].includes(b.config?.style) ? b.config.style : 'gold';
+      config = { text: text.slice(0, 40), style };
+    } else if (kind === 'entrance') {
+      const design = String(b.config?.design || '');
+      if (!['don', 'seal', 'neon', 'file'].includes(design)) {
+        return res.status(400).json({ error: 'اختر شكل الدخول: موكب العرّاب أو ختم العائلة أو لافتة النيون أو الملف السري' });
+      }
+      config = { design, durationMs: 3500 };
+    } else {
+      const color = String(b.config?.nameEffect?.color || '#fcd34d');
+      const glowColor = String(b.config?.nameEffect?.glowColor || '#f59e0b');
+      const glowSize = Math.min(30, Math.max(2, Math.trunc(Number(b.config?.nameEffect?.glowSize) || 10)));
+      config = { nameEffect: { enabled: true, color, glowColor, glowSize } };
+    }
+
+    // مفتاح فريد مقروء
+    const base = kind === 'title' ? 'title_' : kind === 'entrance' ? 'entrance_' : 'namefx_';
+    const itemKey = `${base}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
+    const [item] = await db.insert(chipsItems).values({
+      kind, itemKey, nameAr, hookAr, rarity, priceChips, durationDays,
+      emblemId: b.emblemId || null,
+      config,
+      isActive: b.isActive !== false,
+      isPurchasable: b.isPurchasable !== false,
+      sortOrder: Math.trunc(Number(b.sortOrder) || 900),
+    } as any).returning();
+
+    logStaffAction({
+      staffId: (req as any).user?.id,
+      staffUsername: (req as any).user?.username,
+      staffRole: (req as any).user?.role,
+      source: 'http',
+      action: 'chips:item-create',
+      outcome: 'success',
+      details: { kind, itemKey, nameAr, priceChips, durationDays, config },
+    });
+
+    res.json({ success: true, item });
+  } catch (err: any) {
+    console.error('❌ create chips item:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── تعديل عنصر (السعر/المدة/العرض/الإغلاق النهائي/كائن التأثيرات) ──
 router.put('/items/:id', async (req: Request, res: Response) => {
   try {

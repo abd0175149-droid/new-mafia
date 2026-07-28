@@ -11,9 +11,19 @@
 // ══════════════════════════════════════════════════════
 
 import {
-  pgTable, serial, text, timestamp, integer, varchar,
+  pgTable, serial, text, timestamp, integer, varchar, jsonb,
 } from 'drizzle-orm/pg-core';
 import { players } from './player.schema.js';
+
+// ── إعدادات الاقتصاد القابلة للتعديل من لوحة الإدارة ──
+// (منفصلة عن progression_config كي لا تختلط إعدادات المال بإعدادات اللعب)
+
+export const chipsConfig = pgTable('chips_config', {
+  id: serial('id').primaryKey(),
+  key: varchar('key', { length: 40 }).unique().notNull(),   // 'rewards'
+  value: jsonb('value').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
 
 // ── دفتر الحركات (append-only — لا UPDATE ولا DELETE إطلاقاً) ──
 
