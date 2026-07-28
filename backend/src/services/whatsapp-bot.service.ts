@@ -2179,6 +2179,7 @@ export async function getBotUsage() {
   const sums = { today: mk(), d7: mk(), d30: mk() };
   const dayMap = new Map<string, { prompt: number; output: number; total: number; cost: number; replies: number }>();
   const convCost = new Map<number, number>();
+  const convReplies = new Map<number, number>();
   let liveReplies30 = 0, liveCost30 = 0, playgroundCost30 = 0;
 
   for (const r of rows30) {
@@ -2194,7 +2195,10 @@ export async function getBotUsage() {
     dayMap.set(key, dk);
     if (r.source === 'live') {
       liveReplies30++; liveCost30 += c;
-      if (r.conversationId) convCost.set(r.conversationId, (convCost.get(r.conversationId) || 0) + c);
+      if (r.conversationId) {
+        convCost.set(r.conversationId, (convCost.get(r.conversationId) || 0) + c);
+        convReplies.set(r.conversationId, (convReplies.get(r.conversationId) || 0) + 1);
+      }
     } else {
       playgroundCost30 += c;
     }
@@ -2208,12 +2212,38 @@ export async function getBotUsage() {
     ? (convCosts.length % 2 ? convCosts[(convCosts.length - 1) / 2] : (convCosts[convCosts.length / 2 - 1] + convCosts[convCosts.length / 2]) / 2)
     : 0;
 
-  // آخر 7 أيام (بتوقيت الأردن) — جدول يومي
-  const last7: Array<{ day: string; replies: number; total: number; cost: number }> = [];
-  for (let i = 6; i >= 0; i--) {
+  // السلسلة اليومية لآخر 30 يوماً (بتوقيت الأردن) — أساس الرسوم
+  const daily: Array<{ day: string; label: string; replies: number; prompt: number; output: number; total: number; cost: number }> = [];
+  for (let i = 29; i >= 0; i--) {
     const key = ammanDayKey(new Date(Date.now() - i * 86400e3));
     const d = dayMap.get(key);
-    last7.push({ day: key, replies: d?.replies || 0, total: d?.total || 0, cost: +(d?.cost || 0).toFixed(6) });
+    daily.push({
+      day: key,
+      label: key.slice(5).replace('-', '/'),
+      replies: d?.replies || 0,
+      prompt: d?.prompt || 0,
+      output: d?.output || 0,
+      total: d?.total || 0,
+      cost: +(d?.cost || 0).toFixed(6),
+    });
+  }
+
+  // 🔥 أغلى 5 محادثات (30 يوماً) — بأسمائها لفتحها مباشرة من اللوحة
+  const topPairs = Array.from(convCost.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  let topConversations: Array<{ id: number; name: string; phone: string; cost: number; replies: number }> = [];
+  if (topPairs.length) {
+    const rows = await db
+      .select({ id: waConversations.id, displayName: waConversations.displayName, phone: waConversations.phone })
+      .from(waConversations)
+      .where(inArray(waConversations.id, topPairs.map(([id]) => id)));
+    const byId = new Map(rows.map((r: any) => [r.id, r]));
+    topConversations = topPairs.map(([id, cost]) => ({
+      id,
+      name: byId.get(id)?.displayName || byId.get(id)?.phone || `#${id}`,
+      phone: byId.get(id)?.phone || '',
+      cost: +cost.toFixed(6),
+      replies: convReplies.get(id) || 0,
+    }));
   }
 
   const round6 = (x: number) => +x.toFixed(6);
@@ -2238,6 +2268,7 @@ export async function getBotUsage() {
     avgPerReply: { cost: round6(liveReplies30 ? liveCost30 / liveReplies30 : 0), replies: liveReplies30 },
     routineChat: { medianCost: round6(medianConv), avgCost: round6(convCosts.length ? convCosts.reduce((a, b) => a + b, 0) / convCosts.length : 0), conversations: convCosts.length },
     playgroundCost30: round6(playgroundCost30),
-    last7,
+    daily,
+    topConversations,
   };
 }

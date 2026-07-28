@@ -539,7 +539,9 @@ export default function WhatsAppInboxPage() {
       </div>
 
       {/* ═══ تبويب البوت ═══ */}
-      {mainTab === 'bot' && <BotSettingsView />}
+      {mainTab === 'bot' && (
+        <BotSettingsView onOpenConv={(id: number) => { setMainTab('chat'); openConv(id); }} />
+      )}
 
       {/* ═══ تبويب البث الجماعي ═══ */}
       {mainTab === 'broadcast' && <BroadcastView />}
@@ -1068,7 +1070,7 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   );
 }
 
-function BotSettingsView() {
+function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) {
   const [s, setS] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1224,7 +1226,7 @@ function BotSettingsView() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-6">
         {/* 📊 الاستهلاك والتكلفة الحقيقية */}
-        <UsageCard s={s} patch={patch} />
+        <UsageCard s={s} patch={patch} onOpenConv={onOpenConv} />
         {/* المفتاح والنموذج */}
         <Card title="🔑 الاتصال بالنموذج">
           <Row label="Gemini API Key">
@@ -2384,14 +2386,23 @@ function CampaignMonitor() {
   );
 }
 
+
 // ══════════════════════════════════════════════════════
-// 📊 استهلاك Gemini والتكلفة الحقيقية — توكنز فعلية × أسعار جوجل الرسمية
+// 📊 استهلاك Gemini والتكلفة الحقيقية — لوحة بلاطات تفاعلية (تصميم B)
+// توكنز فعلية من usageMetadata × أسعار جوجل الرسمية لكل نموذج.
+// ألوان السلاسل مفحوصة لعمى الألوان والتباين على السطح الداكن:
+//   إدخال أزرق · إخراج برتقالي · التكلفة أخضر (سلسلة مفردة يسمّيها العنوان)
 // ══════════════════════════════════════════════════════
 
+const S_IN = '#3987e5';
+const S_OUT = '#d95926';
+const S_COST = '#199e70';
+
 function fmtTok(n: number): string {
+  if (!n) return '0';
   if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
   if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-  return String(n || 0);
+  return String(Math.round(n));
 }
 function fmtUSD(n: number): string {
   if (!n) return '$0';
@@ -2399,92 +2410,294 @@ function fmtUSD(n: number): string {
   return '$' + n.toFixed(2);
 }
 
-function UsageCard({ s, patch }: { s: any; patch: (k: string, v: any) => void }) {
+// عرض الحاوية الحقيقي — لرسم إحداثيات بالبكسل بلا تشوّه
+function useBoxWidth<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    setW(node.getBoundingClientRect().width);
+    const ro = new ResizeObserver((entries) => setW(entries[0].contentRect.width));
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, []);
+  return { ref, w };
+}
+
+// ── منحنى التكلفة (30 يوماً) مع كروس-هير وتولتيب، والمدى المحدد مُبرَز ──
+function CostSpark({ daily, from }: { daily: any[]; from: number }) {
+  const { ref, w } = useBoxWidth<HTMLDivElement>();
+  const [hi, setHi] = useState<number | null>(null);
+  const H = 72, PAD = 5;
+  const max = Math.max(...daily.map((d) => d.cost), 0.000001) * 1.18;
+  const X = (i: number) => PAD + (Math.max(w, 60) - PAD * 2) * (i / Math.max(1, daily.length - 1));
+  const Y = (v: number) => H - PAD - (H - PAD * 3) * (v / max);
+  const pts = daily.map((d, i) => `${X(i)},${Y(d.cost)}`).join(' ');
+  const hiPts = daily.slice(from).map((d, i) => `${X(i + from)},${Y(d.cost)}`).join(' ');
+  const last = daily.length - 1;
+  const hovered = hi !== null ? daily[hi] : null;
+
+  return (
+    <div ref={ref} className="relative" dir="ltr">
+      <svg width="100%" height={H} role="img" aria-label="منحنى التكلفة اليومية لآخر 30 يوماً"
+        onMouseMove={(e) => {
+          const r = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
+          const step = (Math.max(w, 60) - PAD * 2) / Math.max(1, daily.length - 1);
+          setHi(Math.max(0, Math.min(daily.length - 1, Math.round((e.clientX - r.left - PAD) / step))));
+        }}
+        onMouseLeave={() => setHi(null)}
+      >
+        {w > 0 && (<>
+          <polygon points={`${PAD},${H - PAD} ${pts} ${X(last)},${H - PAD}`} fill={S_COST} opacity={0.12} />
+          <polyline points={pts} fill="none" stroke={S_COST} strokeWidth={2} strokeLinejoin="round" opacity={0.35} />
+          <polyline points={hiPts} fill="none" stroke={S_COST} strokeWidth={2} strokeLinejoin="round" />
+          <circle cx={X(last)} cy={Y(daily[last].cost)} r={3.5} fill={S_COST} stroke="#0b0f16" strokeWidth={2} />
+          {hovered && (<>
+            <line x1={X(hi!)} y1={4} x2={X(hi!)} y2={H - PAD} stroke="#374151" strokeWidth={1} />
+            <circle cx={X(hi!)} cy={Y(hovered.cost)} r={4} fill={S_COST} stroke="#0b0f16" strokeWidth={2} />
+          </>)}
+        </>)}
+      </svg>
+      {hovered && (
+        <div dir="rtl" className="absolute top-0 pointer-events-none bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed shadow-xl whitespace-nowrap z-20"
+          style={{ left: Math.min(X(hi!) + 10, Math.max(0, w - 130)) }}>
+          <b className="text-white">{hovered.label}</b><br />
+          <span className="text-emerald-400 font-bold">{fmtUSD(hovered.cost)}</span>
+          <span className="text-gray-500"> · {fmtTok(hovered.total)} توكن · {hovered.replies} رد</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── أعمدة التوكنز المكدّسة (14 يوماً) — قابلة للنقر لفتح تفصيل اليوم ──
+function TokenBars({ days, picked, onPick }: { days: any[]; picked: number | null; onPick: (i: number | null) => void }) {
+  const { ref, w } = useBoxWidth<HTMLDivElement>();
+  const [hi, setHi] = useState<number | null>(null);
+  const H = 88, PAD = 5;
+  const max = Math.max(...days.map((d) => d.total), 1) * 1.12;
+  const slot = (Math.max(w, 60) - PAD * 2) / Math.max(1, days.length);
+  const bw = Math.max(6, Math.min(24, slot - 5));
+  const hovered = hi !== null ? days[hi] : null;
+
+  return (
+    <div ref={ref} className="relative" dir="ltr">
+      <svg width="100%" height={H} role="img" aria-label="توكنز الإدخال والإخراج يومياً">
+        {w > 0 && days.map((d, i) => {
+          const x = PAD + slot * i + (slot - bw) / 2;
+          const hIn = (H - PAD * 3) * (d.inT / max);
+          const hOut = (H - PAD * 3) * (d.outT / max);
+          const dim = picked !== null && picked !== i;
+          return (
+            <g key={d.day} opacity={dim ? 0.3 : 1} style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)}
+              onClick={() => onPick(picked === i ? null : i)}>
+              <rect x={x} y={H - PAD - hIn} width={bw} height={Math.max(hIn, d.inT ? 1.5 : 0)} rx={3} fill={S_IN} />
+              <rect x={x} y={H - PAD - hIn - 2 - hOut} width={bw} height={Math.max(hOut, d.outT ? 1.5 : 0)} rx={3} fill={S_OUT} />
+              <rect x={x - 2.5} y={2} width={bw + 5} height={H - 4} fill="transparent" />
+              {picked === i && <rect x={x - 2.5} y={2} width={bw + 5} height={H - 4} rx={4} fill="none" stroke="#f59e0b" strokeWidth={1} opacity={0.7} />}
+            </g>
+          );
+        })}
+      </svg>
+      {hovered && (
+        <div dir="rtl" className="absolute top-0 pointer-events-none bg-gray-900 border border-gray-700 rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed shadow-xl whitespace-nowrap z-20"
+          style={{ left: Math.min(PAD + slot * hi! + bw + 8, Math.max(0, w - 165)) }}>
+          <b className="text-white">{hovered.label}</b><br />
+          <span style={{ color: S_IN }}>●</span> إدخال <b className="text-gray-200">{fmtTok(hovered.inT)}</b>
+          <span className="mx-1" style={{ color: S_OUT }}>●</span> إخراج <b className="text-gray-200">{fmtTok(hovered.outT)}</b><br />
+          <span className="text-emerald-400 font-bold">{fmtUSD(hovered.cost)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── دونات تقسيم التوكنز (إدخال/إخراج) ──
+function SplitDonut({ inT, outT }: { inT: number; outT: number }) {
+  const tot = Math.max(1, inT + outT);
+  const R = 31, CX = 40, CY = 40, CF = 2 * Math.PI * R;
+  const fIn = inT / tot;
+  return (
+    <svg width="80" height="80" role="img" aria-label={`إدخال ${Math.round(fIn * 100)}% وإخراج ${Math.round((1 - fIn) * 100)}%`}>
+      <circle cx={CX} cy={CY} r={R} fill="none" stroke="#1f2430" strokeWidth={10} />
+      <circle cx={CX} cy={CY} r={R} fill="none" stroke={S_IN} strokeWidth={10} strokeLinecap="round"
+        strokeDasharray={`${Math.max(0, fIn * CF - 3)} ${CF - fIn * CF + 3}`} strokeDashoffset={CF / 4} />
+      <circle cx={CX} cy={CY} r={R} fill="none" stroke={S_OUT} strokeWidth={10} strokeLinecap="round"
+        strokeDasharray={`${Math.max(0, (1 - fIn) * CF - 3)} ${fIn * CF + 3}`} strokeDashoffset={CF / 4 - fIn * CF} />
+      <text x={CX} y={CY + 4} textAnchor="middle" fill="#e5e7eb" fontSize="12" fontWeight="800">{fmtTok(inT + outT)}</text>
+    </svg>
+  );
+}
+
+const PERIODS = [
+  { key: 'today', label: 'اليوم', from: 29 },
+  { key: 'd7', label: '7 أيام', from: 23 },
+  { key: 'd30', label: '30 يوماً', from: 0 },
+  { key: 'all', label: 'الكل', from: 0 },
+] as const;
+
+function UsageCard({ s, patch, onOpenConv }: { s: any; patch: (k: string, v: any) => void; onOpenConv?: (id: number) => void }) {
   const [u, setU] = useState<any | null>(null);
   const [loadingU, setLoadingU] = useState(true);
+  const [period, setPeriod] = useState<'today' | 'd7' | 'd30' | 'all'>('d30');
+  const [pickedDay, setPickedDay] = useState<number | null>(null);
 
   const loadUsage = useCallback(async () => {
     try {
       setLoadingU(true);
       const data = await apiFetch('/api/whatsapp/bot/usage');
       setU(data.usage);
+      setPickedDay(null);
     } catch { /* تكميلي */ } finally {
       setLoadingU(false);
     }
   }, []);
   useEffect(() => { loadUsage(); }, [loadUsage]);
 
+  const daily = useMemo(() => (u?.daily || []).map((d: any) => ({ ...d, inT: d.prompt, outT: d.output })), [u]);
+  const bars = useMemo(() => daily.slice(-14), [daily]);
+  const bucket = u ? (u[period] || u.d30) : null;
+  const picked = pickedDay !== null ? bars[pickedDay] : null;
+  const hasData = !!u && (u.allTime?.replies || 0) > 0;
+
   return (
     <Card title="📊 استهلاك Gemini والتكلفة (حقيقي)" wide>
-      {loadingU || !u ? (
-        <div className="text-gray-600 text-sm text-center py-4">{loadingU ? 'جارٍ الحساب…' : 'لا بيانات بعد — تبدأ مع أول رد للبوت'}</div>
+      {loadingU && !u ? (
+        <div className="text-gray-600 text-sm text-center py-6">جارٍ الحساب…</div>
+      ) : !hasData ? (
+        <div className="text-gray-600 text-sm text-center py-6">لا استهلاك مسجّل بعد — يبدأ العدّ مع أول رد للبوت 🤖</div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {/* الفترات */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-            {([['اليوم', u.today], ['7 أيام', u.d7], ['30 يوماً', u.d30], ['منذ البداية', u.allTime]] as const).map(([l, b]: any, i) => (
-              <div key={i} className="bg-gray-950 border border-gray-800 rounded-xl py-2.5 px-2">
-                <div className="text-[10px] text-gray-600 font-bold">{l}</div>
-                <div className="text-[15px] font-bold text-white mt-0.5">{fmtTok(b.total)} <span className="text-[9px] text-gray-600">توكن</span></div>
-                <div className="text-[12.5px] font-bold text-emerald-400">{fmtUSD(b.cost)}</div>
-                <div className="text-[9px] text-gray-600">{b.replies} رد</div>
-              </div>
-            ))}
-          </div>
-
-          {/* المتوسطات المطلوبة */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-center">
-            <div className="bg-gray-950 border border-amber-500/30 rounded-xl py-2.5 px-2">
-              <div className="text-[10px] text-amber-400 font-bold">📅 المتوسط اليومي (30 يوماً)</div>
-              <div className="text-[13px] font-bold text-white mt-0.5">{fmtTok(u.avgDaily.tokens)} توكن · <span className="text-emerald-400">{fmtUSD(u.avgDaily.cost)}</span></div>
-              <div className="text-[9px] text-gray-600">على {u.avgDaily.activeDays} يوم نشط</div>
-            </div>
-            <div className="bg-gray-950 border border-amber-500/30 rounded-xl py-2.5 px-2">
-              <div className="text-[10px] text-amber-400 font-bold">💬 متوسط الرسالة الواحدة</div>
-              <div className="text-[13px] font-bold text-emerald-400 mt-0.5">{fmtUSD(u.avgPerReply.cost)}</div>
-              <div className="text-[9px] text-gray-600">على {u.avgPerReply.replies} رد حي (30 يوماً)</div>
-            </div>
-            <div className="bg-gray-950 border border-amber-500/30 rounded-xl py-2.5 px-2">
-              <div className="text-[10px] text-amber-400 font-bold">🗨️ الدردشة الروتينية الواحدة</div>
-              <div className="text-[13px] font-bold text-emerald-400 mt-0.5">{fmtUSD(u.routineChat.medianCost)} <span className="text-[9px] text-gray-500">(وسيط)</span></div>
-              <div className="text-[9px] text-gray-600">المتوسط الحسابي {fmtUSD(u.routineChat.avgCost)} · {u.routineChat.conversations} محادثة</div>
-            </div>
-          </div>
-
-          {/* آخر 7 أيام */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-[10.5px] text-gray-400">
-              <thead><tr className="text-gray-600">
-                {u.last7.map((d: any) => <th key={d.day} className="font-bold pb-1">{d.day.slice(5)}</th>)}
-              </tr></thead>
-              <tbody>
-                <tr className="text-center">
-                  {u.last7.map((d: any) => (
-                    <td key={d.day} className="py-1 border-t border-gray-800">
-                      <div className="text-white font-bold">{fmtTok(d.total)}</div>
-                      <div className="text-emerald-400">{fmtUSD(d.cost)}</div>
-                    </td>
+        <div className="flex flex-col gap-2.5">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-2.5">
+            {/* 💵 التكلفة + المنحنى */}
+            <div className="col-span-2 lg:col-span-3 bg-gray-950 border border-gray-800 rounded-xl p-3">
+              <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div>
+                  <div className="text-[10px] text-gray-600 font-bold tracking-wider">💵 التكلفة الفعلية</div>
+                  <div className="text-[26px] leading-tight font-bold text-white">{fmtUSD(bucket.cost)}</div>
+                  <div className="text-[10.5px] text-gray-500">{fmtTok(bucket.total)} توكن · {bucket.replies} رد</div>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  {PERIODS.map((p) => (
+                    <button key={p.key} onClick={() => setPeriod(p.key)}
+                      className={`text-[10.5px] font-bold rounded-full px-2.5 py-0.5 border transition-colors ${period === p.key ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'text-gray-500 border-gray-800 hover:text-gray-300'}`}>
+                      {p.label}
+                    </button>
                   ))}
-                </tr>
-              </tbody>
-            </table>
+                </div>
+              </div>
+              <CostSpark daily={daily} from={PERIODS.find((p) => p.key === period)!.from} />
+              <div className="text-[9.5px] text-gray-600 -mt-1">آخر 30 يوماً — المدى المحدد مُبرَز</div>
+            </div>
+
+            {/* 🔢 التوكنز — أعمدة قابلة للنقر */}
+            <div className="col-span-2 lg:col-span-3 bg-gray-950 border border-gray-800 rounded-xl p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="text-[10px] text-gray-600 font-bold tracking-wider">🔢 التوكنز يومياً — 14 يوماً</div>
+                <div className="flex items-center gap-2.5 text-[10px] text-gray-500">
+                  <span className="flex items-center gap-1"><i className="w-2 h-2 rounded-sm inline-block" style={{ background: S_IN }} />إدخال</span>
+                  <span className="flex items-center gap-1"><i className="w-2 h-2 rounded-sm inline-block" style={{ background: S_OUT }} />إخراج</span>
+                </div>
+              </div>
+              <TokenBars days={bars} picked={pickedDay} onPick={setPickedDay} />
+              <div className="text-[10.5px] border-t border-dashed border-gray-800 pt-1.5 mt-1">
+                {picked ? (
+                  <span className="text-gray-400">
+                    <b className="text-white">{picked.label}</b> · {picked.replies} رد · إدخال <b className="text-gray-200">{fmtTok(picked.inT)}</b> · إخراج <b className="text-gray-200">{fmtTok(picked.outT)}</b> · <b className="text-emerald-400">{fmtUSD(picked.cost)}</b>
+                  </span>
+                ) : (
+                  <span className="text-gray-600">اضغط أي عمود لتفصيل يومه ↑</span>
+                )}
+              </div>
+            </div>
+
+            {/* 🍩 تقسيم التوكنز */}
+            <div className="col-span-2 bg-gray-950 border border-gray-800 rounded-xl p-3 flex items-center gap-3">
+              <SplitDonut inT={u.d30.prompt} outT={u.d30.output} />
+              <div className="text-[11px] min-w-0">
+                <div className="text-[10px] text-gray-600 font-bold tracking-wider">تقسيم التوكنز (30ي)</div>
+                <div className="mt-1 text-gray-300"><i className="w-2 h-2 rounded-sm inline-block ml-1" style={{ background: S_IN }} />إدخال <b className="text-white">{Math.round(u.d30.prompt / Math.max(1, u.d30.prompt + u.d30.output) * 100)}%</b></div>
+                <div className="text-gray-300"><i className="w-2 h-2 rounded-sm inline-block ml-1" style={{ background: S_OUT }} />إخراج <b className="text-white">{Math.round(u.d30.output / Math.max(1, u.d30.prompt + u.d30.output) * 100)}%</b></div>
+                <div className="text-[9.5px] text-gray-600 mt-0.5">الإخراج أغلى — راقب نسبته</div>
+              </div>
+            </div>
+
+            {/* 📅 المتوسط اليومي */}
+            <div className="col-span-2 bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-1.5">
+              <div className="text-[10px] text-gray-600 font-bold tracking-wider">📅 المتوسط اليومي</div>
+              <div className="text-[18px] font-bold text-white leading-tight">{fmtUSD(u.avgDaily.cost)} <span className="text-[11px] text-gray-500 font-normal">/ يوم</span></div>
+              <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{ background: S_COST, width: `${Math.min(100, (u.avgDaily.cost / Math.max(0.0001, Math.max(...daily.map((d: any) => d.cost)))) * 100)}%` }} />
+              </div>
+              <div className="text-[9.5px] text-gray-600">{fmtTok(u.avgDaily.tokens)} توكن يومياً · {u.avgDaily.activeDays} يوم نشط</div>
+            </div>
+
+            {/* 💬 المتوسطات */}
+            <div className="col-span-2 bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-1">
+              <div className="text-[10px] text-gray-600 font-bold tracking-wider">متوسط التكلفة</div>
+              <div className="text-[15px] font-bold text-white leading-tight">{fmtUSD(u.avgPerReply.cost)} <span className="text-[10.5px] text-gray-500 font-normal">💬 / رسالة</span></div>
+              <div className="text-[15px] font-bold text-white leading-tight">{fmtUSD(u.routineChat.medianCost)} <span className="text-[10.5px] text-gray-500 font-normal">🗨️ / دردشة روتينية</span></div>
+              <div className="text-[9.5px] text-gray-600">وسيط {u.routineChat.conversations} محادثة · المتوسط {fmtUSD(u.routineChat.avgCost)}</div>
+            </div>
+
+            {/* 🔥 أغلى 5 محادثات — بلاطة كاملة العرض وقابلة للنقر */}
+            <div className="col-span-2 lg:col-span-6 bg-gray-950 border border-gray-800 rounded-xl p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                <div className="text-[10px] text-gray-600 font-bold tracking-wider">🔥 أغلى 5 محادثات (30 يوماً)</div>
+                <div className="text-[9.5px] text-gray-600">اضغط أي صف لفتح المحادثة ↗</div>
+              </div>
+              {(u.topConversations || []).length === 0 ? (
+                <div className="text-[11px] text-gray-600 py-1">لا محادثات حية بعد.</div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {u.topConversations.map((c: any, i: number) => {
+                    const max = u.topConversations[0].cost || 1;
+                    const rankCls = i === 0 ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
+                      : i === 1 ? 'bg-gray-500/15 text-gray-300 border-gray-600'
+                      : i === 2 ? 'bg-orange-900/25 text-orange-300 border-orange-800'
+                      : 'bg-gray-800/40 text-gray-500 border-gray-800';
+                    return (
+                      <button key={c.id} onClick={() => onOpenConv?.(c.id)}
+                        className="group flex items-center gap-2.5 text-right rounded-lg px-2 py-1.5 hover:bg-gray-900 transition-colors">
+                        <span className={`shrink-0 w-5 h-5 rounded-md border text-[10px] font-bold flex items-center justify-center ${rankCls}`}>{i + 1}</span>
+                        <span className="min-w-0 w-[34%] sm:w-[26%]">
+                          <span className="block text-[12px] font-bold text-gray-200 truncate group-hover:text-white">{c.name}</span>
+                          <span className="block text-[9.5px] text-gray-600 truncate" dir="ltr">{c.phone} · {c.replies} رد</span>
+                        </span>
+                        <span className="flex-1 h-2.5 bg-gray-800/70 rounded-full overflow-hidden" dir="ltr">
+                          <span className="block h-full rounded-full transition-all" style={{ background: S_COST, width: `${Math.max(4, (c.cost / max) * 100)}%` }} />
+                        </span>
+                        <b className="shrink-0 w-[62px] text-[11.5px] text-emerald-400 text-left" dir="ltr">{fmtUSD(c.cost)}</b>
+                        <span className="shrink-0 text-gray-700 group-hover:text-amber-400 text-[11px]">↗</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* الأسعار الرسمية */}
+          {/* الأسعار الرسمية + التحديث */}
           <div className="flex items-end gap-2 flex-wrap border-t border-gray-800 pt-2.5">
             <div>
-              <label className="text-[10px] text-gray-500 font-bold">سعر الإدخال $/مليون توكن</label>
-              <input type="number" step="0.01" min="0" value={s.priceInputPer1M ?? ''} onChange={e => patch('priceInputPer1M', e.target.value)}
-                className="w-28 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500" dir="ltr" />
+              <label className="text-[10px] text-gray-500 font-bold block">سعر الإدخال $/مليون</label>
+              <input type="number" step="0.01" min="0" value={s.priceInputPer1M ?? ''} onChange={(e) => patch('priceInputPer1M', e.target.value)}
+                className="w-24 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500" dir="ltr" />
             </div>
             <div>
-              <label className="text-[10px] text-gray-500 font-bold">سعر الإخراج $/مليون توكن</label>
-              <input type="number" step="0.01" min="0" value={s.priceOutputPer1M ?? ''} onChange={e => patch('priceOutputPer1M', e.target.value)}
-                className="w-28 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500" dir="ltr" />
+              <label className="text-[10px] text-gray-500 font-bold block">سعر الإخراج $/مليون</label>
+              <input type="number" step="0.01" min="0" value={s.priceOutputPer1M ?? ''} onChange={(e) => patch('priceOutputPer1M', e.target.value)}
+                className="w-24 bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500" dir="ltr" />
             </div>
-            <button onClick={loadUsage} className="text-[11px] font-bold text-gray-300 hover:text-white border border-gray-800 rounded-lg px-3 py-1.5">🔄 تحديث</button>
-            <span className="text-[9.5px] text-gray-600 flex-1 min-w-[220px]">
-              التوكنز أعداد فعلية من Gemini لكل نداء، والتكلفة = توكنز كل صف × سعر <b>نموذجه هو</b> (تبديل النماذج لا يخلط الحسابات). أسعار <b className="text-gray-400" dir="ltr">{u.prices.model}</b> تُحمَّل تلقائياً للنماذج المعروفة{!u.prices.knownModel && <b className="text-amber-400"> — ⚠️ هذا النموذج غير معروف الأسعار: أدخل سعريه من صفحة أسعار Google واحفظ</b>}. المرجع الوحيد للتحقق: <span dir="ltr">ai.google.dev/gemini-api/docs/pricing</span>. تشمل الأرقام ساحة الاختبار ({fmtUSD(u.playgroundCost30)} آخر 30 يوماً)؛ متوسطا الرسالة والدردشة على الردود الحية فقط.
+            <button onClick={loadUsage} disabled={loadingU}
+              className="text-[11px] font-bold text-gray-300 hover:text-white border border-gray-800 rounded-lg px-3 py-1.5 disabled:opacity-50">
+              {loadingU ? '…' : '🔄 تحديث'}
+            </button>
+            <span className="text-[9.5px] text-gray-600 flex-1 min-w-[220px] leading-relaxed">
+              التكلفة = توكنز كل ردّ × سعر <b>نموذجه هو</b> (تبديل النماذج لا يخلط الحسابات). أسعار <b className="text-gray-400" dir="ltr">{u.prices.model}</b> تُحمَّل تلقائياً للنماذج المعروفة
+              {!u.prices.knownModel && <b className="text-amber-400"> — ⚠️ نموذج غير معروف الأسعار: أدخل سعريه واحفظ</b>}. المرجع: <span dir="ltr">ai.google.dev/gemini-api/docs/pricing</span> · تشمل الأرقام ساحة الاختبار ({fmtUSD(u.playgroundCost30)} / 30ي)؛ المتوسطات على الردود الحية فقط.
             </span>
           </div>
         </div>
