@@ -1312,22 +1312,24 @@ async function main() {
         const n = await seedChipsCatalog();
         if (n > 0) console.log(`🌱 Chips catalog seeded: ${n} new item(s)`);
 
-        // 🚧 لا نبيع ما لا نُنفّذه: نغمة النصر تنتظر ملف صوت معتمداً من المالك
-        //    (مكتبة المؤثرات فارغة حالياً) — تبقى مخفية ما لم يلمسها الأدمن
-        //    يدوياً (updated_at = created_at)، فإن فعّلها لا نعود نتدخّل.
-        await db.execute(sql`
-          UPDATE chips_items SET is_active = false
-           WHERE kind = 'victory_sting'
-             AND is_active = true
-             AND updated_at = created_at
-        `);
-        // ⚡ معزّز الخبرة صار منفَّذاً (مضاعِف XP في محرك المكافآت) → يُعاد عرضه.
-        //    نفس الحارس: لا نلمسه إن كان الأدمن قد عدّله بنفسه.
+        // ⚡🔊 العنصران صارا منفَّذين: معزّز الخبرة (مضاعِف XP في محرك المكافآت)
+        //    ونغمة النصر (تُبثّ من finalizeMatch وتُعزف من جهاز القائد).
+        //    نعيد عرضهما مرة واحدة، ولا نلمس ما عدّله الأدمن بنفسه.
+        //    ملاحظة: نغمة النصر تبقى محجوبة عن المتجر ديناميكياً ما لم يُربط
+        //    ملف صوت بمفتاحها — الفحص لحظي في مسار المتجر لا هنا.
         await db.execute(sql`
           UPDATE chips_items SET is_active = true
-           WHERE kind = 'xp_boost'
+           WHERE kind IN ('xp_boost', 'victory_sting')
              AND is_active = false
              AND updated_at = created_at
+        `);
+        // ربط مفتاح الصوت للنغمة المبذورة قديماً بقيمة غير مستخدمة
+        await db.execute(sql`
+          UPDATE chips_items
+             SET config = jsonb_build_object('soundKey', 'chips_victory_sting')
+           WHERE item_key = 'sting_classic'
+             AND updated_at = created_at
+             AND NOT (config ? 'soundKey')
         `);
       } catch (e: any) {
         console.warn('⚠️ Chips catalog seed:', e.message);

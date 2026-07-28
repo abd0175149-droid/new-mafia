@@ -318,6 +318,34 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       console.warn('⚠️ Chips drops skipped:', dropErr?.message);
     }
 
+    // ── 🔊 نغمة النصر المشتراة ──
+    // تُبثّ من هنا لأن finalizeMatch هو نقطة النهاية الوحيدة المحروسة ضد التكرار
+    // (game:over يُبثّ من أربعة مسارات). جهاز القائد يعزفها والشاشة تتبعه بالمرآة.
+    try {
+      if (!isTestGame) {
+        const { resolveVictorySting } = await import('./chips-store.service.js');
+        const winnersList = playerRows
+          .filter(row => {
+            if (!row.playerId) return false;
+            const pIsMafia = isMafiaRole(row.role as any);
+            return row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
+              : row.role === 'JESTER' ? state.winner === 'JESTER'
+              : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
+              : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
+          })
+          .map(row => ({ playerId: row.playerId as number, name: row.playerName, physicalId: row.physicalId }));
+
+        const sting = await resolveVictorySting(winnersList);
+        if (sting) {
+          const io = (global as any).io;
+          if (io) io.to(state.roomId).emit('chips:victory-sting', sting);
+          console.log(`🔊 Victory sting «${sting.itemNameAr}» for ${sting.playerName} (key: ${sting.soundKey})`);
+        }
+      }
+    } catch (stingErr: any) {
+      console.warn('⚠️ Victory sting skipped:', stingErr?.message);
+    }
+
     // 🔔 Push للاعبين المشاركين (نتيجة المباراة)
     try {
       const { sendPushToPlayers } = await import('../services/fcm.service.js');

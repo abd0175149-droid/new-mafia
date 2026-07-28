@@ -241,6 +241,8 @@ export default function LeaderPage() {
 
   // ── ⏱️ صوت مؤقّت جولة النقاش: تكّة بآخر 10 ثوانٍ + جرس عند الانتهاء (نُقل من شاشة العرض) ──
   const discussionPrevTimeRef = useRef<number>(-1);
+  // 🔊 مؤقّت نغمة النصر المشتراة (تُعزف بعد صوت الفوز بقليل)
+  const stingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     const ds: any = (gameState as any)?.discussionState;
     if (!ds || ds.status !== 'SPEAKING' || ds.startTime == null) { discussionPrevTimeRef.current = -1; return; }
@@ -1059,12 +1061,26 @@ export default function LeaderPage() {
       });
     });
 
+    // 🔊 نغمة النصر المشتراة — يبثّها الخادم من finalizeMatch (نقطة النهاية المحروسة)
+    const offVictorySting = on('chips:victory-sting', (d: any) => {
+      if (!d?.soundKey) return;
+      if (stingTimerRef.current) clearTimeout(stingTimerRef.current);
+      // تأخير قصير كي لا تتراكب مع صوت فوز الفريق
+      stingTimerRef.current = setTimeout(() => {
+        localSound(() => playGameSound(String(d.soundKey)));
+      }, 1400);
+    });
+
     const offGameOver = on('game:over', (data: any) => {
       // 🔊 صوت الفوز حسب الفريق الفائز (محلياً إن لم تكن شاشة عرض تبثّ)
       const w = String(data.winner || '').toUpperCase();
       const winKey = w.includes('JESTER') ? 'win_jester' : w.includes('ASSASSIN') ? 'win_assassin'
         : w.includes('MAFIA') ? 'win_mafia' : 'win_citizen';
       localSound(() => playGameSound(winKey));
+      // 🔊 نغمة نصر مشتراة (تشبس) — تُعزف بعد صوت الفوز بقليل كي لا تتراكب معه.
+      // الخادم يختار نغمة واحدة فقط، والمرآة تنقلها لشاشة العرض تلقائياً.
+      if (stingTimerRef.current) clearTimeout(stingTimerRef.current);
+      stingTimerRef.current = null;
       setGameTimerData(null);
       setGameTimerRemaining(0);
       setGameState(prev => {
@@ -1362,6 +1378,8 @@ export default function LeaderPage() {
       offAutoStepStarted();
       offAutoStepApproval();
       offPolicewomanAvailable();
+      offVictorySting();
+      if (stingTimerRef.current) clearTimeout(stingTimerRef.current);
       offGameOver();
       offGameRestarted();
       offConfigUpdated();

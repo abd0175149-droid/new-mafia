@@ -204,8 +204,10 @@ export const CHIPS_CATALOG_SEED: SeedItem[] = [
   // ── 🔊 نغمة النصر ───────────────────────────────
   {
     kind: 'victory_sting', itemKey: 'sting_classic', nameAr: 'نغمة النصر', rarity: 'rare', price: 15, sort: 510,
-    hookAr: 'نغمتك الخاصة تُعزف في الصالة لحظة فوزك.',
-    config: { sound: 'victory_classic' },
+    hookAr: 'نغمتك الخاصة تُعزف في الصالة لحظة فوزك — يسمعها الجميع.',
+    // 🔊 مفتاح الحدث: يربطه المالك بأي ملف صوت من لوحة المؤثرات.
+    //    ما لم يُربط ملف بهذا المفتاح لا يُعرض العنصر للبيع إطلاقاً.
+    config: { soundKey: 'chips_victory_sting' },
   },
 
   // ── ⚡ معزّز الخبرة (٧ أيام — الاستثناء الوحيد) ───

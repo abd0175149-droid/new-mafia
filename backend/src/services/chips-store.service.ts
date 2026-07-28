@@ -389,6 +389,65 @@ export async function notifyExpiringSoon(playerId: number) {
 export function equipSlots() { return EQUIP_SLOTS.filter(k => !!SLOT_COLUMN[k]); }
 
 // ══════════════════════════════════════════════════════
+// 🔊 نغمة النصر — أي مفتاح صوت مرفوع من لوحة المؤثرات
+// ══════════════════════════════════════════════════════
+
+/** هل مفتاح الصوت مرفوع ومفعّل فعلاً؟ (نغمة تُباع بلا ملف = وعد فارغ) */
+export async function isSoundKeyAvailable(soundKey: string): Promise<boolean> {
+  const db = getDB();
+  if (!db || !soundKey) return false;
+  try {
+    const res: any = await db.execute(sql`
+      SELECT 1 FROM sound_effects
+       WHERE is_active = true AND event_keys @> ${JSON.stringify([soundKey])}::jsonb
+       LIMIT 1
+    `);
+    return rowsOf(res).length > 0;
+  } catch { return false; }
+}
+
+/**
+ * نغمة النصر التي ستُعزف لهذه المباراة.
+ * قاعدة الاختيار: **نغمة واحدة فقط** مهما تعدّد المالكون بين الفائزين
+ * (نغمتان معاً = ضجيج لا احتفال) — ونختار الأدنى مقعداً لثبات النتيجة.
+ * تُتجاهل النغمة إن لم يكن ملفها مرفوعاً.
+ */
+export async function resolveVictorySting(winners: Array<{ playerId: number; name?: string | null; physicalId?: number }>) {
+  const db = getDB();
+  if (!db || winners.length === 0) return null;
+  try {
+    const ids = winners.map(w => w.playerId).filter(Boolean);
+    if (ids.length === 0) return null;
+
+    const rows = await db.select({
+      playerId: chipsRentals.playerId,
+      config: chipsItems.config,
+      nameAr: chipsItems.nameAr,
+    }).from(chipsRentals)
+      .innerJoin(chipsItems, eq(chipsItems.id, chipsRentals.itemId))
+      .where(and(
+        inArray(chipsRentals.playerId, ids),
+        eq(chipsItems.kind, 'victory_sting'),
+        gt(chipsRentals.expiresAt, new Date()),
+      ));
+    if (rows.length === 0) return null;
+
+    const owners = new Map(rows.map(r => [r.playerId, r]));
+    const ordered = [...winners]
+      .filter(w => owners.has(w.playerId))
+      .sort((a, b) => (a.physicalId ?? 0) - (b.physicalId ?? 0));
+    if (ordered.length === 0) return null;
+
+    const pick = ordered[0];
+    const item = owners.get(pick.playerId)!;
+    const soundKey = String((item.config as any)?.soundKey || '');
+    if (!soundKey || !(await isSoundKeyAvailable(soundKey))) return null;
+
+    return { soundKey, playerId: pick.playerId, playerName: pick.name || '', itemNameAr: item.nameAr };
+  } catch { return null; }
+}
+
+// ══════════════════════════════════════════════════════
 // ⚡ المعزّزات النشطة (xp_boost) — تُقرأ لحظة احتساب المباراة
 //
 // ⚠️ حدود صارمة بحكم الدستور (لا كسر توازن):

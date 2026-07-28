@@ -14,7 +14,7 @@ import { chipsItems, CHIPS_ITEM_KINDS, CHIPS_RARITIES } from '../schemas/chips-s
 import { players } from '../schemas/player.schema.js';
 import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
-  grantRental, notifyExpiringSoon,
+  grantRental, notifyExpiringSoon, isSoundKeyAvailable,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
@@ -36,8 +36,21 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
       getPlayerCosmetics(playerId),
     ]);
 
+    // 🔊 نغمة النصر لا تُعرض ما لم يكن ملفها الصوتي مربوطاً فعلاً بلوحة المؤثرات
+    // (بيع نغمة بلا صوت = وعد فارغ). الفحص لحظي فلا يحتاج إعادة تشغيل.
+    const stingKeys = new Set<string>();
+    for (const it of catalog as any[]) {
+      if (it.kind === 'victory_sting' && it.config?.soundKey) stingKeys.add(String(it.config.soundKey));
+    }
+    const availableSounds = new Set<string>();
+    for (const key of stingKeys) {
+      if (await isSoundKeyAvailable(key)) availableSounds.add(key);
+    }
+
     const ownedByItem = new Map(rentals.map(r => [r.itemId, r]));
-    const items = catalog.map((it: any) => {
+    const items = catalog
+      .filter((it: any) => it.kind !== 'victory_sting' || availableSounds.has(String(it.config?.soundKey || '')))
+      .map((it: any) => {
       const owned = ownedByItem.get(it.id);
       return {
         id: it.id,

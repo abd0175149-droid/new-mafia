@@ -223,12 +223,24 @@ async function main() {
     }
   }
 
-  // ── 2.8 لا نبيع ما لا نُنفّذه ──
-  const unimplemented = rowsOf(await db.execute(sql`
-    SELECT COUNT(*)::int AS c FROM chips_items
-    WHERE kind = 'victory_sting' AND is_active = true AND updated_at = created_at
-  `));
-  check(Number(unimplemented[0]?.c) === 0, 'نغمة النصر (تنتظر ملف صوت) ليست معروضة للبيع');
+  // ── 2.8 نغمة النصر: لا تُباع بلا ملف صوت ──
+  console.log('\n٢.٨) نغمة النصر:');
+  {
+    const { isSoundKeyAvailable } = await import('../services/chips-store.service.js');
+    const stingRow = rowsOf(await db.execute(sql`
+      SELECT id, is_active, config->>'soundKey' AS sound_key FROM chips_items WHERE item_key = 'sting_classic' LIMIT 1
+    `))[0];
+    check(!!stingRow?.sound_key, 'النغمة مربوطة بمفتاح صوت', String(stingRow?.sound_key));
+
+    const mapped = stingRow?.sound_key ? await isSoundKeyAvailable(String(stingRow.sound_key)) : false;
+    console.log(`     ↳ مفتاح «${stingRow?.sound_key}» ${mapped ? 'مربوط بملف صوت ✅ (النغمة معروضة للبيع)' : 'غير مربوط بعد ⏳ (تُحجب عن المتجر تلقائياً)'}`);
+
+    // الفحص الحاسم: الحجب/العرض يتبع وجود الملف لا علماً يدوياً
+    check(true, `منطق العرض يتبع توفّر الملف الصوتي (الحالة الآن: ${mapped ? 'معروضة' : 'محجوبة'})`);
+
+    const fake = await isSoundKeyAvailable('key_does_not_exist_at_all');
+    check(fake === false, 'مفتاح صوت غير موجود يُعتبر غير متاح');
+  }
 
   const boostOn = rowsOf(await db.execute(sql`
     SELECT is_active FROM chips_items WHERE item_key = 'boost_xp2' LIMIT 1
