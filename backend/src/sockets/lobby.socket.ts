@@ -1519,6 +1519,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         maxPlayers: addedState.config.maxPlayers,
         gender: data.gender || 'MALE',
         avatarUrl: finalPlayer?.avatarUrl || null,
+        // 🪙 المظهر المشترى — تحتاجه الشاشة لرسم البطاقة ولتشغيل تشريفة الدخول
+        playerId: finalPlayer?.playerId || data.playerId || null,
+        rankTier: finalPlayer?.rankTier || null,
+        cosmetics: (finalPlayer as any)?.cosmetics || null,
       });
 
       callback({

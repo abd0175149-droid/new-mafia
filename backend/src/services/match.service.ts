@@ -3,7 +3,7 @@
 // حفظ واسترجاع بيانات المباريات من PostgreSQL
 // ══════════════════════════════════════════════════════
 
-import { eq, desc, and, sql } from 'drizzle-orm';
+import { eq, desc, and, sql, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { matches, matchPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -185,6 +185,20 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     if (seasonId) {
       await db.update(matches).set({ seasonId } as any).where(eq(matches.id, state.matchId));
     }
+    // 🪙 لقطة عدّاد المباريات **قبل** زيادته — هي معيار «أول مباراة» لقطرة الترحيب.
+    // تُقرأ هنا حصراً لأن السطور التالية تزيد العدّاد فيضيع المعيار.
+    const lifetimeBefore = new Map<number, number>();
+    if (!isTestGame && isRegular) {
+      try {
+        const ids = state.players.map(p => p.playerId).filter(Boolean) as number[];
+        if (ids.length > 0) {
+          const rows = await db.select({ id: players.id, lm: players.lifetimeMatches })
+            .from(players).where(inArray(players.id, ids));
+          for (const r of rows) lifetimeBefore.set(r.id, Number(r.lm ?? 0));
+        }
+      } catch { /* القطرات مكافأة — لا تُفشل إنهاء المباراة */ }
+    }
+
     // عدّاد مباريات مدى الحياة (لا يُصفَّر عند بدء موسم) — لكل لاعب مسجّل، حتى للبطولات
     if (!isTestGame) {
       for (const p of state.players) {
@@ -256,6 +270,34 @@ export async function finalizeMatch(state: GameState): Promise<void> {
       } catch (tErr: any) {
         console.error('⚠️ Failed to apply tournament season stats:', tErr.message);
       }
+    }
+
+    // ── 💧 قطرات التشبس (فوز +2 · توب-3 +3 · أول مباراة +10) ──
+    // بعد ثبات كل شيء، وبالمواسم العادية فقط. مفاتيح منع التكرار داخل الخدمة
+    // تجعل أي استدعاء ثانٍ لنفس المباراة بلا أثر — والفشل هنا لا يمسّ المباراة.
+    try {
+      const { grantMatchDrops } = await import('./chips-drops.service.js');
+      await grantMatchDrops({
+        matchId: state.matchId!,
+        isRegularSeason: !!isRegular,
+        isTestMatch: isTestGame,
+        players: playerRows.map(row => {
+          const pIsMafia = isMafiaRole(row.role as any);
+          const won = row.role === 'ASSASSIN' ? state.winner === 'ASSASSIN'
+            : row.role === 'JESTER' ? state.winner === 'JESTER'
+            : (state.winner === 'ASSASSIN' || state.winner === 'JESTER') ? false
+            : (state.winner === 'MAFIA' && pIsMafia) || (state.winner === 'CITIZEN' && !pIsMafia);
+          return {
+            playerId: row.playerId,
+            rrChange: row.rrChange || 0,
+            won,
+            lifetimeMatchesBefore: row.playerId != null ? lifetimeBefore.get(row.playerId) ?? null : null,
+            name: row.playerName,
+          };
+        }),
+      });
+    } catch (dropErr: any) {
+      console.warn('⚠️ Chips drops skipped:', dropErr?.message);
     }
 
     // 🔔 Push للاعبين المشاركين (نتيجة المباراة)

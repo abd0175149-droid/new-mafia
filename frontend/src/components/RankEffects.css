@@ -374,6 +374,65 @@
   animation: chips-title-fade 3s ease-in-out infinite;
 }
 
+/* ── 🔥 أنيميشن الإقصاء المشترى: «موت بالنار» ────── */
+
+@keyframes elim-flame-kf {
+  0%, 100% { transform: scaleY(0.75) scaleX(0.95); }
+  50% { transform: scaleY(1.15) scaleX(1.05); }
+}
+
+.elim-burn-flame {
+  position: absolute;
+  bottom: 0;
+  width: 15%;
+  transform-origin: bottom;
+  border-radius: 50% 50% 20% 20%;
+  background: radial-gradient(ellipse at 50% 100%, rgba(254,240,138,0.95) 0%, rgba(249,115,22,0.85) 35%, rgba(220,38,38,0.5) 65%, transparent 82%);
+  filter: blur(3px);
+  animation: elim-flame-kf 0.55s ease-in-out infinite;
+}
+
+@keyframes elim-ember-kf {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateY(-330px) scale(0.3); opacity: 0; }
+}
+
+.elim-burn-ember {
+  position: absolute;
+  bottom: 12%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #fb923c;
+  box-shadow: 0 0 6px #f97316;
+  animation: elim-ember-kf 1.6s ease-out infinite;
+}
+
+@keyframes elim-char-kf {
+  0% { opacity: 0; }
+  100% { opacity: 0.85; }
+}
+
+.elim-burn-char {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.95), rgba(20,10,5,0.55) 55%, transparent);
+  animation: elim-char-kf 1.8s ease-in forwards;
+}
+
+/* ── ⚡ رفّة النيون (تشريفة الدخول) ──────────────── */
+
+@keyframes entrance-neon-flick {
+  0%, 100% { opacity: 1; }
+  7% { opacity: 0.35; } 8% { opacity: 1; }
+  9.5% { opacity: 0.5; } 10.5% { opacity: 1; }
+  48% { opacity: 1; } 49% { opacity: 0.3; } 50% { opacity: 1; }
+  84% { opacity: 1; } 85% { opacity: 0.45; } 86.5% { opacity: 1; }
+}
+
+.entrance-flick { animation: entrance-neon-flick 4.2s steps(1, end) infinite; }
+
 /* ── Rank Badge (shared) ─────────────────────────── */
 
 .rank-badge {

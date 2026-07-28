@@ -179,6 +179,57 @@ async function main() {
     }
   }
 
+  // ── 2.7 القطرات (المرحلة 2) ──
+  console.log('\n٢.٧) قطرات نهاية المباراة:');
+  {
+    const { grantMatchDrops } = await import('../services/chips-drops.service.js');
+
+    // المباراة الاختبارية والمواسم غير العادية لا تمنح شيئاً
+    const skipTest = await grantMatchDrops({ matchId: 999999001, players: [{ playerId: 1, won: true }], isRegularSeason: true, isTestMatch: true });
+    check(skipTest.skipped === 'test-match' && skipTest.granted.length === 0, 'المباراة الاختبارية لا تمنح قطرات');
+
+    const skipSeason = await grantMatchDrops({ matchId: 999999002, players: [{ playerId: 1, won: true }], isRegularSeason: false });
+    check(skipSeason.skipped === 'not-regular-season' && skipSeason.granted.length === 0, 'البطولات/الأونلاين لا تمنح قطرات (المواسم العادية فقط)');
+
+    if (testRows.length > 0) {
+      const pid = Number(testRows[0].id);
+      const fakeMatch = 999999000 + (Date.now() % 900);
+
+      // فائز + توب-3 + أول مباراة = 2+3+10
+      const g1 = await grantMatchDrops({
+        matchId: fakeMatch,
+        isRegularSeason: true,
+        players: [
+          { playerId: pid, won: true, rrChange: 30, lifetimeMatchesBefore: 0 },
+          { playerId: -1, won: false, rrChange: 5 },
+        ],
+      });
+      const total1 = g1.granted.reduce((s, x) => s + x.amount, 0);
+      check(total1 === 15, 'فوز + توب-3 + أول مباراة = 15 🪙', `المُمنَح ${total1}`);
+
+      // إعادة نفس المباراة → لا شيء (مفاتيح منع التكرار)
+      const g2 = await grantMatchDrops({
+        matchId: fakeMatch,
+        isRegularSeason: true,
+        players: [{ playerId: pid, won: true, rrChange: 30, lifetimeMatchesBefore: 0 }],
+      });
+      check(g2.granted.length === 0, 'إعادة احتساب نفس المباراة لا تمنح شيئاً (منع التكرار)');
+
+      // تنظيف
+      await db.execute(sql`DELETE FROM chips_ledger WHERE ref_type = 'match' AND ref_id = ${String(fakeMatch)}`);
+      await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
+      const b = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      check(Number(b?.b) === 0, 'نُظّفت آثار اختبار القطرات');
+    }
+  }
+
+  // ── 2.8 لا نبيع ما لا نُنفّذه ──
+  const unimplemented = rowsOf(await db.execute(sql`
+    SELECT COUNT(*)::int AS c FROM chips_items
+    WHERE kind IN ('victory_sting','xp_boost') AND is_active = true AND updated_at = created_at
+  `));
+  check(Number(unimplemented[0]?.c) === 0, 'العناصر غير المنفَّذة بعد (نغمة النصر/المعزّز) ليست معروضة للبيع');
+
   // ── 3. التطابق العام ──
   console.log('\n٣) تطابق الكاش مع الدفتر:');
   const audit = await auditChipsBalances(false);

@@ -10,6 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
+import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
@@ -50,6 +51,8 @@ interface PlayerInfo {
   gender?: string;
   avatarUrl?: string | null;
   rankTier?: string;
+  /** 🪙 المظهر المشترى من خزنة الدون (إطار/لقب/تأثير اسم/تشريفة دخول) */
+  cosmetics?: any;
   penalties?: number;
 }
 
@@ -84,6 +87,11 @@ function DisplayPageContent() {
   const winnerRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [animation, setAnimation] = useState<any>(null);
   const animTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 🚪 تشريفة الدخول (طبقة بمستوى الصفحة) + مرجع الطور الحيّ لمعالجات السوكيت
+  // (المعالجات تُسجَّل مرة واحدة فتلتقط قيمة phase القديمة — المرجع يحلّ ذلك)
+  const [entrance, setEntrance] = useState<EntrancePayload | null>(null);
+  const entranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const phaseRef = useRef<Phase>(Phase.LOBBY);
   const [discussionState, setDiscussionState] = useState<any>(null);
   const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number}>({citizenAlive: 0, mafiaAlive: 0});
   const [replayData, setReplayData] = useState<any>(null);
@@ -218,6 +226,12 @@ function DisplayPageContent() {
     };
   }, []);
 
+  // مزامنة مرجع الطور — تقرأه معالجات السوكيت المسجَّلة مرة واحدة
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
+  // تنظيف مؤقّت التشريفة عند التفكيك
+  useEffect(() => () => { if (entranceTimerRef.current) clearTimeout(entranceTimerRef.current); }, []);
+
   // ── Socket Events (بعد الدخول للوبي) ──
   useEffect(() => {
     if (step !== 'lobby' || !currentRoomId) return;
@@ -315,6 +329,8 @@ function DisplayPageContent() {
             name: data.name || updated[existingIdx].name,
             gender: data.gender || updated[existingIdx].gender,
             avatarUrl: data.avatarUrl || updated[existingIdx].avatarUrl,
+            rankTier: data.rankTier || updated[existingIdx].rankTier,
+            cosmetics: data.cosmetics ?? updated[existingIdx].cosmetics,
           };
           return updated;
         }
@@ -324,8 +340,32 @@ function DisplayPageContent() {
           isAlive: true,
           gender: data.gender || 'MALE',
           avatarUrl: data.avatarUrl || null,
+          rankTier: data.rankTier || 'INFORMANT',
+          cosmetics: data.cosmetics || null,
         }];
       });
+
+      // 🚪 تشريفة الدخول — يملكها اللاعب؟ اعرضها بمستوى الصفحة (نمط «اختيار رابح»).
+      // أثناء مباراة جارية: نسخة مختصرة صامتة كي لا تقطع النقاش.
+      const entranceCfg = data?.cosmetics?.entrance?.config;
+      if (entranceCfg?.design) {
+        const inMatch = phaseRef.current !== Phase.LOBBY && phaseRef.current !== Phase.ROLE_GENERATION && phaseRef.current !== Phase.ROLE_BINDING;
+        setEntrance({
+          design: entranceCfg.design,
+          name: data.name,
+          physicalId: data.physicalId,
+          gender: data.gender === 'FEMALE' ? 'FEMALE' : 'MALE',
+          avatarUrl: data.avatarUrl || null,
+          rankTier: data.rankTier || null,
+          cosmetics: data.cosmetics,
+          compact: inMatch,
+        });
+        if (entranceTimerRef.current) clearTimeout(entranceTimerRef.current);
+        entranceTimerRef.current = setTimeout(
+          () => setEntrance(null),
+          inMatch ? ENTRANCE_COMPACT_MS : ENTRANCE_FULL_MS,
+        );
+      }
     };
 
     const onPlayerKicked = (data: any) => {
@@ -1091,6 +1131,15 @@ function DisplayPageContent() {
               </button>
             </motion.div>
           )}
+
+        {/* ══════════════════════════════════════════ */}
+        {/* 🚪 تشريفة الدخول — مستوى الصفحة (نفس درس    */}
+        {/* «اختيار رابح»: خارج فروع الأطوار كي تظهر     */}
+        {/* في اللوبي وأثناء اللعبة على السواء)          */}
+        {/* ══════════════════════════════════════════ */}
+        <AnimatePresence>
+          {step === 'lobby' && entrance && <EntranceOverlay key="entrance" data={entrance} />}
+        </AnimatePresence>
 
         {/* ══════════════════════════════════════════ */}
         {/* 🎁 طبقات سحب «اختيار رابح» — مستوى الصفحة  */}

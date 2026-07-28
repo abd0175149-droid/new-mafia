@@ -1361,6 +1361,18 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
                     rankTier={p?.rankTier}
                     cosmetics={(p as any)?.cosmetics}
                   />
+                  {/* 🔥 أنيميشن الإقصاء المشترى — يحلّ محل «التعتيم الرمادي» المجاني وحده */}
+                  {isGrayed && (p as any)?.cosmetics?.elimination?.config?.design === 'burn' && (
+                    <div className="absolute inset-0 z-20 rounded-2xl overflow-hidden pointer-events-none">
+                      <div className="elim-burn-char" />
+                      {Array.from({ length: 7 }).map((_, i) => (
+                        <div key={i} className="elim-burn-flame" style={{ left: `${4 + i * 13}%`, animationDelay: `${i * 0.18}s`, height: `${34 + (i % 3) * 14}%` }} />
+                      ))}
+                      {Array.from({ length: 10 }).map((_, i) => (
+                        <div key={`e${i}`} className="elim-burn-ember" style={{ left: `${8 + i * 9}%`, animationDelay: `${i * 0.3}s` }} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

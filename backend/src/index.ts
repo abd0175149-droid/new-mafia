@@ -1311,6 +1311,17 @@ async function main() {
         const { seedChipsCatalog } = await import('./services/chips-catalog.seed.js');
         const n = await seedChipsCatalog();
         if (n > 0) console.log(`🌱 Chips catalog seeded: ${n} new item(s)`);
+
+        // 🚧 لا نبيع ما لا نُنفّذه بعد: نغمة النصر تحتاج ملف صوت معتمداً،
+        //    ومعزّز الخبرة يحتاج ضرب XP في محرك المكافآت (مرحلة لاحقة).
+        //    نُخفيهما ما لم يلمسهما الأدمن يدوياً (updated_at = created_at)،
+        //    فإن فعّلهما لاحقاً لا نعود نتدخّل. يُحذف هذا البند عند تنفيذهما.
+        await db.execute(sql`
+          UPDATE chips_items SET is_active = false
+           WHERE kind IN ('victory_sting', 'xp_boost')
+             AND is_active = true
+             AND updated_at = created_at
+        `);
       } catch (e: any) {
         console.warn('⚠️ Chips catalog seed:', e.message);
       }
