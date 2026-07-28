@@ -11,6 +11,7 @@ import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
+import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
 import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
@@ -92,6 +93,9 @@ function DisplayPageContent() {
   const [entrance, setEntrance] = useState<EntrancePayload | null>(null);
   const entranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phaseRef = useRef<Phase>(Phase.LOBBY);
+  // 🎂 احتفالية عيد الميلاد (يطلقها القائد) — طبقة بمستوى الصفحة
+  const [birthday, setBirthday] = useState<Celebrant[] | null>(null);
+  const birthdayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [discussionState, setDiscussionState] = useState<any>(null);
   const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number}>({citizenAlive: 0, mafiaAlive: 0});
   const [replayData, setReplayData] = useState<any>(null);
@@ -480,6 +484,19 @@ function DisplayPageContent() {
       }
     };
 
+    // 🎂 احتفالية عيد الميلاد — يطلقها القائد، والأغنية تصل عبر مرآة الصوت
+    const onBirthdayCelebration = (data: any) => {
+      const list: Celebrant[] = data?.celebrants || [];
+      if (!list.length) return;
+      setBirthday(list);
+      if (birthdayTimerRef.current) clearTimeout(birthdayTimerRef.current);
+      birthdayTimerRef.current = setTimeout(() => setBirthday(null), Number(data?.durationMs) || 12000);
+    };
+    const onBirthdayClear = () => {
+      if (birthdayTimerRef.current) clearTimeout(birthdayTimerRef.current);
+      setBirthday(null);
+    };
+
     // 🪙 تغيير المظهر أثناء الجلسة — يظهر على الشاشة فوراً بلا إعادة انضمام
     const onCosmeticsUpdated = (data: any) => {
       if (!data?.physicalId) return;
@@ -526,6 +543,8 @@ function DisplayPageContent() {
     socket.on('room:player-kicked', onPlayerKicked);
     socket.on('room:player-updated', onPlayerUpdated);
     socket.on('player:cosmetics-updated', onCosmeticsUpdated);
+    socket.on('display:birthday-celebration', onBirthdayCelebration);
+    socket.on('display:birthday-celebration-clear', onBirthdayClear);
     socket.on('game:phase-changed', onPhaseChanged);
     socket.on('night:animation', onNightAnimation);
     socket.on('night:step-info', onNightStepInfo);
@@ -649,6 +668,9 @@ function DisplayPageContent() {
       socket.off('room:player-kicked', onPlayerKicked);
       socket.off('room:player-updated', onPlayerUpdated);
       socket.off('player:cosmetics-updated', onCosmeticsUpdated);
+      socket.off('display:birthday-celebration', onBirthdayCelebration);
+      socket.off('display:birthday-celebration-clear', onBirthdayClear);
+      if (birthdayTimerRef.current) clearTimeout(birthdayTimerRef.current);
       socket.off('display:sound-play');
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
@@ -1139,6 +1161,11 @@ function DisplayPageContent() {
         {/* ══════════════════════════════════════════ */}
         <AnimatePresence>
           {step === 'lobby' && entrance && <EntranceOverlay key="entrance" data={entrance} />}
+        </AnimatePresence>
+
+        {/* 🎂 احتفالية عيد الميلاد — مستوى الصفحة أيضاً (تعمل بكل المراحل) */}
+        <AnimatePresence>
+          {step === 'lobby' && birthday && <BirthdayCelebration key="bday" celebrants={birthday} />}
         </AnimatePresence>
 
         {/* ══════════════════════════════════════════ */}

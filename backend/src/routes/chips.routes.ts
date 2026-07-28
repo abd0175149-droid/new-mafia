@@ -7,7 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { authenticate, adminOnly } from '../middleware/auth.js';
+import { authenticate, adminOnly, leaderOrAbove } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 import { CHIPS_PACKS } from '../schemas/chips.schema.js';
@@ -19,7 +19,9 @@ import { logStaffAction } from '../services/staff-action-log.service.js';
 import {
   getRewardsConfig, saveRewardsConfig, previewTop3, grantTop3,
   getTodaysBirthdays, runBirthdayGifts, jordanToday,
+  getBirthdaysForRoom, emitBirthdayCelebration, clearBirthdayCelebration, BIRTHDAY_SONG_KEY,
 } from '../services/chips-rewards.service.js';
+import { isSoundKeyAvailable } from '../services/chips-store.service.js';
 
 const router = Router();
 
@@ -305,6 +307,98 @@ router.post('/admin/rewards/birthdays/run',
       res.status(500).json({ error: err.message });
     }
   });
+
+// ══════════════════════════════════════════════════════
+// 🎂 واجهة القائد — أعياد ميلاد اليوم + المنح + الاحتفالية
+// (خارج حارس /admin — القائد يحتاجها في الصالة)
+// ══════════════════════════════════════════════════════
+
+// ── من عيد ميلاده اليوم؟ (الحاضرون في الغرفة أولاً) ──
+router.get('/leader/birthdays', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  try {
+    const roomId = (req.query.roomId as string) || null;
+    const [list, config, songReady] = await Promise.all([
+      getBirthdaysForRoom(roomId),
+      getRewardsConfig(),
+      isSoundKeyAvailable(BIRTHDAY_SONG_KEY),
+    ]);
+    res.json({
+      success: true,
+      today: jordanToday().iso,
+      birthdays: list,
+      amount: config.birthday.amount,
+      songReady,          // هل أغنية عيد الميلاد مرفوعة فعلاً؟
+      songKey: BIRTHDAY_SONG_KEY,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── منح العيديّة + إطلاق الاحتفالية على الشاشة ──
+router.post('/leader/birthdays/celebrate', authenticate, leaderOrAbove,
+  rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'chips-bday-leader' }),
+  async (req: Request, res: Response) => {
+    try {
+      const roomId = String(req.body.roomId || '');
+      const grant = req.body.grant !== false;              // المنح افتراضي
+      const playerIds: number[] = Array.isArray(req.body.playerIds)
+        ? req.body.playerIds.map((n: any) => parseInt(n)).filter(Boolean) : [];
+
+      const all = await getBirthdaysForRoom(roomId || null);
+      const chosen = playerIds.length ? all.filter(b => playerIds.includes(b.playerId)) : all;
+      if (chosen.length === 0) return res.status(400).json({ error: 'لا أحد لعيد ميلاده اليوم' });
+
+      // 1) المنح (محروس بمفتاح سنوي — لا يمنح مرتين ولو ضغط القائد مراراً)
+      let granted: any[] = [];
+      if (grant) {
+        const r = await runBirthdayGifts({
+          force: true,
+          staffId: (req as any).user?.id ?? null,
+          ...(chosen.length === 1 ? { onlyPlayerId: chosen[0].playerId } : {}),
+        });
+        granted = r.granted || [];
+      }
+
+      // 2) الاحتفالية على شاشة الغرفة
+      let celebrated = false;
+      if (roomId) {
+        celebrated = emitBirthdayCelebration(roomId, chosen.map(b => ({
+          playerId: b.playerId,
+          name: b.name,
+          avatarUrl: b.avatarUrl,
+          physicalId: (b as any).physicalId ?? null,
+        })));
+      }
+
+      logStaffAction({
+        staffId: (req as any).user?.id,
+        staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role,
+        source: 'http',
+        roomId: roomId || null,
+        action: 'chips:birthday-celebrate',
+        outcome: 'success',
+        details: { names: chosen.map(c => c.name), granted: granted.filter((g: any) => !g.duplicate).length, celebrated },
+      });
+
+      res.json({ success: true, celebrated, granted, celebrants: chosen });
+    } catch (err: any) {
+      console.error('❌ birthday celebrate:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// ── إنهاء الاحتفالية ──
+router.post('/leader/birthdays/clear', authenticate, leaderOrAbove, async (req: Request, res: Response) => {
+  try {
+    const roomId = String(req.body.roomId || '');
+    if (roomId) clearBirthdayCelebration(roomId);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── تدقيق: الكاش مقابل الدفتر (fix=1 لإعادة الاشتقاق) ──
 router.get('/admin/audit', async (req: Request, res: Response) => {

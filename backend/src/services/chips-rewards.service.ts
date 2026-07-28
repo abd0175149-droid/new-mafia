@@ -353,6 +353,67 @@ export async function runBirthdayGifts(opts?: { force?: boolean; staffId?: numbe
   return { skipped: null, granted, date: jordanToday().iso };
 }
 
+// ══════════════════════════════════════════════════════
+// 🎉 احتفالية عيد الميلاد على شاشة العرض (يطلقها القائد)
+// ══════════════════════════════════════════════════════
+
+/** مفتاح صوت أغنية عيد الميلاد — يربطه المالك بملف من لوحة المؤثرات */
+export const BIRTHDAY_SONG_KEY = 'birthday_song';
+
+export interface BirthdayCelebrant {
+  playerId: number;
+  name: string;
+  avatarUrl: string | null;
+  /** مقعده في الغرفة إن كان حاضراً الآن */
+  physicalId?: number | null;
+  rankTier?: string | null;
+}
+
+/**
+ * بثّ احتفالية عيد الميلاد لغرفة عرض.
+ * الصوت مسؤولية جهاز القائد (المصدر الحصري) — هنا نبثّ الصورة فقط،
+ * والقائد يعزف الأغنية فتصل الشاشة عبر مرآة الصوت القائمة.
+ */
+export function emitBirthdayCelebration(roomId: string, celebrants: BirthdayCelebrant[], durationMs = 12000) {
+  try {
+    const io = (global as any).io;
+    if (!io || !roomId || celebrants.length === 0) return false;
+    io.to(roomId).emit('display:birthday-celebration', { celebrants, durationMs });
+    return true;
+  } catch { return false; }
+}
+
+/** إيقاف الاحتفالية فوراً (زر الإغلاق عند القائد) */
+export function clearBirthdayCelebration(roomId: string) {
+  try {
+    const io = (global as any).io;
+    if (io && roomId) io.to(roomId).emit('display:birthday-celebration-clear', {});
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * أصحاب عيد الميلاد اليوم مُثرَون بحضورهم في غرفة القائد.
+ * الترتيب: الحاضرون في الغرفة أولاً (هم من سنحتفل بهم أمام الجميع).
+ */
+export async function getBirthdaysForRoom(roomId?: string | null) {
+  const list = await getTodaysBirthdays(true);
+  if (!roomId) return list.map(b => ({ ...b, physicalId: null as number | null, inRoom: false }));
+
+  let seatByPlayer = new Map<number, number>();
+  try {
+    const { getGameState } = await import('../config/redis.js');
+    const st: any = await getGameState(roomId);
+    for (const p of (st?.players || [])) {
+      if (p?.playerId) seatByPlayer.set(Number(p.playerId), Number(p.physicalId));
+    }
+  } catch { /* الغرفة قد لا تكون موجودة */ }
+
+  return list
+    .map(b => ({ ...b, physicalId: seatByPlayer.get(b.playerId) ?? null, inRoom: seatByPlayer.has(b.playerId) }))
+    .sort((a, b) => Number(b.inRoom) - Number(a.inRoom) || a.playerId - b.playerId);
+}
+
 // ── الماسح اليومي (بنمط ماسح تذكيرات الواتساب: يقرأ من القاعدة، يصمد عبر إعادة التشغيل) ──
 let birthdayStarted = false;
 

@@ -243,6 +243,15 @@ export default function LeaderPage() {
   const discussionPrevTimeRef = useRef<number>(-1);
   // 🔊 مؤقّت نغمة النصر المشتراة (تُعزف بعد صوت الفوز بقليل)
   const stingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 🎂 حالة عيد الميلاد (زر القائد)
+  const [showBirthday, setShowBirthday] = useState(false);
+  const [bdayList, setBdayList] = useState<any[]>([]);
+  const [bdaySelected, setBdaySelected] = useState<number[]>([]);
+  const [bdayAmount, setBdayAmount] = useState(0);
+  const [bdaySongReady, setBdaySongReady] = useState(false);
+  const [bdayLoading, setBdayLoading] = useState(false);
+  const [bdayBusy, setBdayBusy] = useState(false);
+  const [bdayCelebrating, setBdayCelebrating] = useState(false);
   useEffect(() => {
     const ds: any = (gameState as any)?.discussionState;
     if (!ds || ds.status !== 'SPEAKING' || ds.startTime == null) { discussionPrevTimeRef.current = -1; return; }
@@ -1743,6 +1752,139 @@ export default function LeaderPage() {
     </button>
   ) : null;
 
+  // ══════════════════════════════════════════════════
+  // 🎂 عيد الميلاد — زر القائد + المودال + الاحتفالية
+  // ══════════════════════════════════════════════════
+  const openBirthday = async () => {
+    setShowBirthday(true);
+    setBdayLoading(true);
+    try {
+      const rid = gameState?.roomId || '';
+      const res = await fetch(`/api/chips/leader/birthdays${rid ? `?roomId=${encodeURIComponent(rid)}` : ''}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` },
+      });
+      const d = await res.json();
+      if (d.success) {
+        setBdayList(d.birthdays || []);
+        setBdayAmount(Number(d.amount || 0));
+        setBdaySongReady(!!d.songReady);
+        setBdaySelected((d.birthdays || []).map((b: any) => b.playerId));
+      } else setError(d.error || 'تعذّر جلب أعياد الميلاد');
+    } catch (e: any) { setError(e.message); }
+    finally { setBdayLoading(false); }
+  };
+
+  const celebrateBirthday = async () => {
+    if (!gameState?.roomId || bdaySelected.length === 0) return;
+    setBdayBusy(true);
+    try {
+      const res = await fetch('/api/chips/leader/birthdays/celebrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` },
+        body: JSON.stringify({ roomId: gameState.roomId, playerIds: bdaySelected, grant: true }),
+      });
+      const d = await res.json();
+      if (!d.success) { setError(d.error || 'فشل إطلاق الاحتفالية'); return; }
+      // 🔊 الأغنية تُعزف من جهاز القائد (المصدر الحصري) وتصل الشاشة بالمرآة
+      if (bdaySongReady) localSound(() => playGameSound('birthday_song'));
+      setBdayCelebrating(true);
+      setTimeout(() => setBdayCelebrating(false), 12000);
+    } catch (e: any) { setError(e.message); }
+    finally { setBdayBusy(false); }
+  };
+
+  const stopBirthday = async () => {
+    try {
+      await fetch('/api/chips/leader/birthdays/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('leader_token') || ''}` },
+        body: JSON.stringify({ roomId: gameState?.roomId || '' }),
+      });
+    } catch { /* تجاهل */ }
+    stopOneShotSounds();
+    setBdayCelebrating(false);
+  };
+
+  const birthdayBtn = gameState ? (
+    <button
+      onClick={openBirthday}
+      className="text-[#ec4899] text-[10px] font-mono uppercase tracking-[0.15em] hover:text-pink-300 transition-colors border border-[#ec4899]/50 px-3 py-1.5 hover:border-[#ec4899] bg-[#ec4899]/5"
+    >
+      🎂 عيد ميلاد
+    </button>
+  ) : null;
+
+  const birthdayModal = showBirthday && gameState ? (
+    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowBirthday(false)}>
+      <div className="bg-[#0d0d0d] border border-[#ec4899]/40 rounded-2xl p-6 w-full max-w-md shadow-[0_0_40px_rgba(236,72,153,0.2)]" onClick={(e) => e.stopPropagation()} dir="rtl">
+        <h3 className="text-xl font-black text-[#ec4899] mb-1 text-center" style={{ fontFamily: 'Amiri, serif' }}>🎂 أعياد ميلاد اليوم</h3>
+        <p className="text-[#808080] text-xs text-center mb-5">منح العيديّة + احتفالية على شاشة العرض</p>
+
+        {bdayLoading && <p className="text-center text-[#666] text-sm py-8">جارٍ التحميل…</p>}
+
+        {!bdayLoading && bdayList.length === 0 && (
+          <p className="text-center text-[#666] text-sm py-8">لا أحد لعيد ميلاده اليوم 🎈</p>
+        )}
+
+        {!bdayLoading && bdayList.length > 0 && (
+          <>
+            <div className="space-y-2 mb-4 max-h-[40vh] overflow-y-auto">
+              {bdayList.map((b: any) => {
+                const on = bdaySelected.includes(b.playerId);
+                return (
+                  <button
+                    key={b.playerId}
+                    onClick={() => setBdaySelected((s) => (on ? s.filter((x) => x !== b.playerId) : [...s, b.playerId]))}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition text-right ${
+                      on ? 'bg-[#ec4899]/10 border-[#ec4899]/50' : 'bg-black/40 border-[#333]'
+                    }`}
+                  >
+                    <span className="text-xl">{on ? '🎉' : '⚪'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-bold ${on ? 'text-[#f9a8d4]' : 'text-[#888]'}`}>
+                        {b.name}
+                        {b.inRoom && <span className="text-[9px] text-[#C5A059] mr-2">في الغرفة · مقعد #{b.physicalId}</span>}
+                      </p>
+                      <p className="text-[10px] text-[#666]">
+                        {b.alreadyGranted ? '✅ استلم عيديّته اليوم' : `سيستلم ${bdayAmount} 🪙`}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {!bdaySongReady && (
+              <p className="text-[10px] text-amber-400/90 text-center mb-3">
+                ⚠️ أغنية عيد الميلاد غير مرفوعة — الاحتفالية ستعمل بلا صوت
+              </p>
+            )}
+
+            {!bdayCelebrating ? (
+              <button
+                onClick={celebrateBirthday}
+                disabled={bdayBusy || bdaySelected.length === 0}
+                className="w-full py-3 rounded-xl font-black text-sm bg-[#ec4899] text-white disabled:opacity-40 transition"
+              >
+                {bdayBusy ? '…' : `🎉 احتفل وامنح العيديّة (${bdaySelected.length})`}
+              </button>
+            ) : (
+              <button onClick={stopBirthday} className="w-full py-3 rounded-xl font-black text-sm bg-[#8A0303] text-white transition">
+                ⏹ إنهاء الاحتفالية
+              </button>
+            )}
+
+            <p className="text-[10px] text-[#555] text-center mt-3">
+              العيديّة محروسة: من استلمها اليوم لن يستلمها مرتين مهما ضغطت.
+            </p>
+          </>
+        )}
+
+        <button onClick={() => setShowBirthday(false)} className="w-full mt-3 py-2 text-[#666] text-xs">إغلاق</button>
+      </div>
+    </div>
+  ) : null;
+
   // 🎁 مودال السحب المشترك
   const luckyDrawModal = showLuckyDraw && gameState ? (
     <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={closeLuckyModal}>
@@ -1869,6 +2011,8 @@ export default function LeaderPage() {
             <div className="flex items-center gap-4">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
               {luckyDrawBtn}
+              {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
+              {birthdayBtn}
               {/* زر تعديل الأسماء — Session View */}
               {gameState.players.length > 0 && (
                 <button
@@ -1889,6 +2033,7 @@ export default function LeaderPage() {
 
           {/* 🎁 مودال اختيار رابح — مشترك */}
           {luckyDrawModal}
+          {birthdayModal}
 
           {/* Session Content */}
           <div className="flex-1 overflow-y-auto p-6">
@@ -3126,6 +3271,7 @@ export default function LeaderPage() {
           {mafiaChatModal}
           {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}
           {luckyDrawModal}
+          {birthdayModal}
           {/* ═══ Unified Global Header ═══ */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
             {/* Left: Logo + MAFIA CLUB */}
@@ -3145,6 +3291,8 @@ export default function LeaderPage() {
             <div className="flex items-center gap-4">
               {/* 🎁 زر اختيار رابح — مشترك (كلّ المراحل) */}
               {luckyDrawBtn}
+              {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
+              {birthdayBtn}
               {/* زر تعديل الأسماء — يظهر فقط قبل توزيع الأدوار */}
               {(gameState.phase === 'LOBBY' || gameState.phase === 'ROLE_GENERATION') && gameState.players.length > 0 && (
                 <button
