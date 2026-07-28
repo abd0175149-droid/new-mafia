@@ -14,6 +14,7 @@ import { CHIPS_PACKS } from '../schemas/chips.schema.js';
 import {
   adminTopup, adminAdjust, getChipsBalance, getPlayerLedger,
   getAdminLedger, getPlayerBalances, getChipsStats, auditChipsBalances,
+  getPlayerWalletSummary,
 } from '../services/chips.service.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
 import {
@@ -47,6 +48,21 @@ router.get('/me/ledger', authenticatePlayer, async (req: Request, res: Response)
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
     const rows = await getPlayerLedger(playerId, limit);
     res.json({ success: true, ledger: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── محفظتي: الرصيد + الملخّص + آخر الحركات في نداء واحد ──
+router.get('/me/wallet', authenticatePlayer, async (req: Request, res: Response) => {
+  try {
+    const playerId = req.playerAccount!.playerId;
+    const limit = Math.min(parseInt(req.query.limit as string) || 60, 200);
+    const [summary, ledger] = await Promise.all([
+      getPlayerWalletSummary(playerId),
+      getPlayerLedger(playerId, limit),
+    ]);
+    res.json({ success: true, ...summary, ledger });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

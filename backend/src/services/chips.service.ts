@@ -213,6 +213,29 @@ export async function getChipsBalance(playerId: number): Promise<number> {
   return Number(row?.bal ?? 0);
 }
 
+/** ملخّص محفظة اللاعب: كم كسب مجاناً · كم شُحن له · كم صرف */
+export async function getPlayerWalletSummary(playerId: number) {
+  const db = getDB();
+  if (!db) return { balance: 0, earnedFree: 0, toppedUp: 0, spent: 0, moves: 0 };
+  const res: any = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND reason LIKE 'drop_%'), 0)::int AS earned_free,
+      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND reason NOT LIKE 'drop_%'), 0)::int AS topped_up,
+      COALESCE(SUM(-amount) FILTER (WHERE amount < 0), 0)::int AS spent,
+      COUNT(*)::int AS moves
+    FROM chips_ledger WHERE player_id = ${playerId}
+  `);
+  const r = rowsOf(res)[0] || {};
+  const balance = await getChipsBalance(playerId);
+  return {
+    balance,
+    earnedFree: Number(r.earned_free ?? 0),
+    toppedUp: Number(r.topped_up ?? 0),
+    spent: Number(r.spent ?? 0),
+    moves: Number(r.moves ?? 0),
+  };
+}
+
 /** حركات لاعب (الأحدث أولاً) */
 export async function getPlayerLedger(playerId: number, limit = 50) {
   const db = getDB();

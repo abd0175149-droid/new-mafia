@@ -155,10 +155,12 @@ export default function StorePage() {
         <div className="flex items-center justify-between gap-3">
           <button onClick={() => router.back()} className="text-gray-500 text-sm px-2 py-1">← رجوع</button>
           <h1 className="text-lg font-black text-amber-400" style={{ fontFamily: 'Amiri, serif' }}>🏦 خزنة الدون</h1>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-black tabular-nums"
+          {/* الرصيد يفتح المحفظة: من أين جاء وعلى ماذا صُرف */}
+          <button onClick={() => router.push('/player/wallet')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-black tabular-nums"
             style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.16), rgba(245,158,11,0.05))', border: '1px solid rgba(245,158,11,0.32)', color: '#fbbf24' }}>
             🪙 {balance.toLocaleString('en-US')}
-          </div>
+          </button>
         </div>
         <p className="text-[10px] text-gray-500 mt-1.5 text-center">
           رصيدك لا ينتهي أبداً — والمزايا اشتراكات لمدة معلنة تُجدَّد متى شئت
