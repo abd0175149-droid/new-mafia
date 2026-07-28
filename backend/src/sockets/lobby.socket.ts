@@ -14,6 +14,7 @@ import { createMatch, finalizeIfDecided } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats, updateSessionMaxPlayers } from '../services/session.service.js';
 import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
 import { mergeActivityPins } from '../game/seat-merge.js';
+import { dealLockedList } from '../game/deal-engine.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
 import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer } from '../game/game-timer.js';
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
@@ -3062,7 +3063,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // حالة سحب الأصوات
         withdrawalState: state.phase === 'DAY_JUSTIFICATION' ? (state.withdrawalState || null) : null,
         // حالة النقاش
-        discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [] } : null,
+        discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [], dealLockedPlayers: dealLockedList(state) } : null,
         // ── بيانات مرحلة الليل (لاستعادة شاشة الإجراء عند refresh) ──
         nightState: state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? (() => {
           const isReqPerformer = state.autoNightPerformerId === player.physicalId;
@@ -3770,6 +3771,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     // اللعبة السابقة (مقاعد/أعلام قديمة) فلا يُعاد التهيئة ولا يتحوّل التوأم ولا تظهر بطاقة التعارف.
     state.twinState = null;
     state.luckyDraw = null;   // 🎁 تصفير سحب الهدايا عند لعبة جديدة
+    state.dealRegisteredRound = {};  // 🤝 تصفير قفل الاتفاقيات عند لعبة جديدة
 
     // ── تصفير مؤقت اللعبة ──
     clearGameTimer(state.roomId);

@@ -39,10 +39,14 @@ export async function createDeal(
     throw new Error('تم الوصول للحد الأقصى للاتفاقيات في هذه الجولة (3 اتفاقيات كحد أقصى)');
   }
 
-  // 2. لا يمكن لنفس اللاعب بدء أكثر من اتفاقية واحدة
-  const hasAlreadyInitiated = state.votingState.deals.some(d => d.initiatorPhysicalId === initiatorPhysicalId);
-  if (hasAlreadyInitiated) {
-    throw new Error('لا يمكنك إنشاء أكثر من اتفاقية واحدة في هذه الجولة');
+  // 2. القفل عبر الجولات (قرار المالك): لا تسجيل ديل في جولتين متتاليتين، ولا إعادة تسجيل بعد
+  //    الحذف خلال نفس الجولة ولا التي تليها. المصدر dealRegisteredRound يُضبط عند الإنشاء ولا
+  //    يُمسح عند الحذف؛ فالمنع عندما آخر جولة سجّل فيها اللاعب ديلاً ≥ (الجولة الحالية − 1).
+  const reg = state.dealRegisteredRound?.[initiatorPhysicalId];
+  if (reg != null && reg >= state.round - 1) {
+    throw new Error(reg === state.round
+      ? 'ما بتقدر تسجّل ديل جديد بعد ديل هالجولة (حتى لو حذفته)'
+      : 'ما بتقدر تسجّل ديل في جولتين متتاليتين — استنّى الجولة الجاية');
   }
 
   // 3. التحقق: المستهدف ليس مستهدفاً في اتفاقية أخرى (القبول للأسرع)
@@ -59,6 +63,8 @@ export async function createDeal(
   };
 
   state.votingState.deals.push(deal);
+  // 🔒 سجّل جولة التسجيل — يبقى محفوظاً حتى لو حُذف الديل (لتطبيق القفل عبر الجولات)
+  state.dealRegisteredRound = { ...(state.dealRegisteredRound || {}), [initiatorPhysicalId]: state.round };
 
   await setGameState(roomId, state);
   return state;
@@ -86,4 +92,14 @@ export async function removeDeal(
  */
 export function getActiveDeals(state: GameState): Deal[] {
   return state.votingState.deals;
+}
+
+/**
+ * 🔒 اللاعبون الممنوعون من تسجيل ديل جديد هذه الجولة (physicalIds) — لعرض الواجهة.
+ * = من سجّل ديلاً في هذه الجولة (حتى لو حذفه) أو في الجولة السابقة.
+ */
+export function dealLockedList(state: GameState): number[] {
+  const R = state.round || 0;
+  const reg = state.dealRegisteredRound || {};
+  return Object.keys(reg).map(Number).filter((pid) => reg[pid] != null && reg[pid] >= R - 1);
 }

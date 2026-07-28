@@ -41,6 +41,7 @@ export default function PlayerPhaseView({
   const [dealSubmitting, setDealSubmitting] = useState(false);
   const [dealRemoving, setDealRemoving] = useState(false);
   const [dealsSheetOpen, setDealsSheetOpen] = useState(false); // 🤝 الاتفاقيات كطبقة منزلقة
+  const [dealLockedPlayers, setDealLockedPlayers] = useState<number[]>([]); // 🔒 ممنوعون من تسجيل ديل هذه الجولة
   // ── حالة التبرير ──
   const [justificationData, setJustificationData] = useState<any>(pollData?.justificationData || null);
   const [justTimer, setJustTimer] = useState<number | null>(null);
@@ -192,6 +193,7 @@ export default function PlayerPhaseView({
           if (res.discussionState.deals) {
             setDeals(res.discussionState.deals);
           }
+          if (res.discussionState.dealLockedPlayers) setDealLockedPlayers(res.discussionState.dealLockedPlayers);
         }
       }
     } catch (err) {
@@ -271,6 +273,7 @@ export default function PlayerPhaseView({
     } else if (pollData.discussionState && pollData.discussionState.deals) {
       setDeals(pollData.discussionState.deals);
     }
+    if (pollData.discussionState?.dealLockedPlayers) setDealLockedPlayers(pollData.discussionState.dealLockedPlayers);
     if (pollData.deals) {
       setDeals(pollData.deals);
     }
@@ -489,12 +492,14 @@ export default function PlayerPhaseView({
     });
 
     // ── أحداث الاتفاقيات (Deals) ──
-    const cDealsCreated = on('day:deal-created', (data: { deals: any[] }) => {
+    const cDealsCreated = on('day:deal-created', (data: { deals: any[]; dealLockedPlayers?: number[] }) => {
       setDeals(data.deals || []);
+      if (data.dealLockedPlayers) setDealLockedPlayers(data.dealLockedPlayers);
     });
 
-    const cDealsRemoved = on('day:deal-removed', (data: { deals: any[] }) => {
+    const cDealsRemoved = on('day:deal-removed', (data: { deals: any[]; dealLockedPlayers?: number[] }) => {
       setDeals(data.deals || []);
+      if (data.dealLockedPlayers) setDealLockedPlayers(data.dealLockedPlayers);
     });
 
     // ── مسح عند تغيير المرحلة ──
@@ -787,6 +792,16 @@ export default function PlayerPhaseView({
                     <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-center text-red-400 text-[11px] font-bold leading-relaxed">
                       ⚠️ مخاطرة: في حال تم إقصاء شريكك في الاتفاقية وكان مواطناً، فسيتم إقصاؤك معه تلقائياً!
                     </div>
+                  </div>
+                );
+              }
+
+              // 🔒 مقفول: سجّل ديل مؤخّراً (هذه الجولة بعد حذف، أو الجولة السابقة)
+              if (dealLockedPlayers.includes(myId)) {
+                return (
+                  <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/20 text-center">
+                    <p className="text-red-300 text-xs font-bold">🔒 ما بتقدر تسجّل ديل بهالجولة</p>
+                    <p className="text-[#9a9a9a] text-[10px] mt-1 leading-relaxed">سجّلت ديل مؤخّراً — ما بينفع ديل بجولتين متتاليتين، ولا إعادة تسجيل بنفس جولة الحذف والتي تليها.</p>
                   </div>
                 );
               }

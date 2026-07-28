@@ -5,7 +5,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { getRoom, setPhase, Phase, SpeakerStatus } from '../game/state.js';
-import { createDeal, removeDeal } from '../game/deal-engine.js';
+import { createDeal, removeDeal, dealLockedList } from '../game/deal-engine.js';
 import {
   initVoting,
   castVote,
@@ -278,9 +278,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       io.to(data.roomId).emit('day:deal-created', {
         deals: state.votingState.deals,
+        dealLockedPlayers: dealLockedList(state),
       });
 
-      callback({ success: true, deals: state.votingState.deals });
+      callback({ success: true, deals: state.votingState.deals, dealLockedPlayers: dealLockedList(state) });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }
@@ -321,9 +322,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
       io.to(data.roomId).emit('day:deal-removed', {
         deals: stateAfter.votingState.deals,
+        dealLockedPlayers: dealLockedList(stateAfter),
       });
 
-      callback({ success: true, deals: stateAfter.votingState.deals });
+      callback({ success: true, deals: stateAfter.votingState.deals, dealLockedPlayers: dealLockedList(stateAfter) });
     } catch (err: any) {
       callback({ success: false, error: err.message });
     }

@@ -1720,6 +1720,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
       state.rolesPool = [];
       state.morningEvents = [];
       state.discussionState = null;
+      state.dealRegisteredRound = {};  // 🤝 تصفير قفل الاتفاقيات عند تنظيف اللعبة
       state.rolesConfirmed = false;
       state.matchId = undefined;
       state.startedAt = undefined;
