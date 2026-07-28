@@ -89,8 +89,8 @@ export async function getPlayerCosmetics(playerId: number) {
   if (!p) return null;
 
   const equippedIds = [p.frameId, p.titleId, p.nameFxId].filter(Boolean) as number[];
-  if (equippedIds.length === 0) return { frame: null, title: null, nameFx: null };
-
+  // ⛔ لا خروج مبكر هنا: التشريفة والإقصاء يُفعَّلان بالإيجار لا بالتجهيز،
+  //    فاللاعب بلا خانة مُجهَّزة قد يملك تشريفة نشطة — والخروج المبكر يخفيها.
   const active = await getActiveRentals(playerId);
   const activeIds = new Set(active.map(r => r.itemId));
   const byId = new Map(active.map(r => [r.itemId, r]));
