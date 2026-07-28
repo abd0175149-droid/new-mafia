@@ -518,6 +518,9 @@ export const reservations = pgTable('reservations', {
   attended: boolean('attended'),  // null = لم يُحدد بعد | true = حضر | false = لم يحضر
   notes: text('notes').default(''),
   createdBy: varchar('created_by', { length: 100 }).default(''),
+  // 🔔 تذكير واتساب قبل اللعبة بساعة — موافقة ضمنيّة افتراضيّة (يُرسَل لمن نافذته مفتوحة وقت الإرسال)
+  remindOptIn: boolean('remind_opt_in').default(true).notNull(),
+  remindSentAt: timestamp('remind_sent_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

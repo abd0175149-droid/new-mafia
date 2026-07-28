@@ -14,9 +14,9 @@
 import { eq, sql, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages, waOptouts, staff } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waOptouts, staff, reservations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { normalizeLocalPhone, toWaPhone } from '../utils/phone.util.js';
+import { normalizeLocalPhone, toWaPhone, samePhone } from '../utils/phone.util.js';
 import { sendPushToPlayers } from './fcm.service.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com/v20.0';
@@ -364,10 +364,39 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     await onCampaignReply(conv.phone);
   } catch { /* تكميلي */ }
 
+  // ── 🔔 ردّ زرّ التذكير — معالجة حتميّة (بلا بوت/LLM) ──
+  const remindBtnId: string | undefined = msg?.interactive?.button_reply?.id;
+  if (remindBtnId && remindBtnId.startsWith('wa_remind:')) {
+    try { await handleReminderButton(db, updatedConv, remindBtnId); }
+    catch (err: any) { console.warn('⚠️ WA reminder button:', err.message); }
+    return; // لا نمرّر ضغطة زرّ التذكير للبوت
+  }
+
   // ── تمرير للبوت إن كان نشطاً ──
   if (isBotActive(updatedConv)) {
     forwardToBot(updatedConv);
   }
+}
+
+// 🔔 تفعيل/إلغاء تذكير الحجز عبر زرّ العميل (wa_remind:on|off:<reservationId>)
+async function handleReminderButton(db: any, conv: any, id: string): Promise<void> {
+  const parts = id.split(':');           // ['wa_remind','on'|'off','<resId>']
+  const optIn = parts[1] === 'on';
+  const resId = parseInt(parts[2]);
+  if (!resId) return;
+  const [res] = await db.select({ id: reservations.id, phone: reservations.phone })
+    .from(reservations).where(eq(reservations.id, resId)).limit(1);
+  if (!res || !samePhone(res.phone, conv.phone)) return; // أمان: الحجز يخصّ رقم هذه المحادثة
+  await db.update(reservations)
+    .set({ remindOptIn: optIn, updatedAt: new Date() } as any)
+    .where(eq(reservations.id, resId));
+  await sendMessage({
+    conversationId: conv.id,
+    source: 'system',
+    text: optIn
+      ? 'تمام يا غالي 👌🔔 رح أذكّرك قبل موعد اللعبة بساعة.'
+      : 'تمام، ما رح أزعجك بتذكير 🙏 نستنّاك على الموعد!',
+  }).catch(() => {});
 }
 
 // تفاعل العميل على رسالة: يُخزَّن على الرسالة الهدف (payload.customerReaction)

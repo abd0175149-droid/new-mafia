@@ -1076,10 +1076,29 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         { route: '/admin/reservations' },
       ).catch(() => {});
       notifyAdmins('🤖 حجز مؤكد من البوت', `${conv.displayName || conv.phone} — ${people} أشخاص — ${act.name}`, { conversationId: conv.id, url: '/admin/reservations', tag: `wa-conv-${conv.id}` }).catch(() => {});
+
+      // 🔔 عرض «تذكير قبل اللعبة بساعة» — فقط إذا كانت اللعبة خلال ≤24 ساعة (عندها نضمن أن
+      // نافذة الإرسال ستبقى مفتوحة وقت التذكير). الموافقة ضمنيّة افتراضاً؛ زرّ «لا شكراً» للاستبعاد.
+      const msToGame = new Date(act.date).getTime() - Date.now();
+      const within24 = msToGame > 0 && msToGame <= 24 * 3600e3;
+      if (within24) {
+        try {
+          await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+            type: 'button',
+            body: { text: '🔔 وبما إنّ لعبتك قريبة — بتحب أذكّرك قبل موعدها بساعة؟' },
+            action: { buttons: [
+              { type: 'reply', reply: { id: `wa_remind:on:${saved.id}`, title: '🔔 ذكّرني' } },
+              { type: 'reply', reply: { id: `wa_remind:off:${saved.id}`, title: 'لا، شكراً' } },
+            ] },
+          } });
+          ctx.interactives.push({ kind: 'buttons', preview: 'عرض تذكير قبل اللعبة بساعة' });
+        } catch (e: any) { console.warn('⚠️ WA reminder offer:', e.message); }
+      }
+
       return {
         success: true,
         reservation: { id: saved.id, activity: act.name, dateText: fmtJo(act.date), people, unitPriceJOD: unitCost, totalJOD: totalCost },
-        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.`,
+        note: `الحجز مؤكد ومسجّل — أبلغ العميل بالتفاصيل${totalCost > 0 ? ` واذكر التكلفة إلزامياً: ${totalCost} د.أ${people > 1 ? ` (${people} × ${unitCost})` : ''}` : ''} وذكّره أن الدفع في المكان.${within24 ? ' (أُرسل للعميل عرض تذكير قبل اللعبة بساعة عبر أزرار — لا داعي لذكره نصّاً).' : ''}`,
       };
     }
 

@@ -1290,6 +1290,12 @@ async function main() {
     resumeRunningCampaigns().catch(() => {});
   } catch { /* الحملات تكميلية */ }
 
+  // ── 🔔 مجدول تذكير الحجوزات (قبل اللعبة بساعة) — ماسح كل 60 ثانية ──
+  try {
+    const { startReminderScheduler } = await import('./services/whatsapp-reminder.service.js');
+    startReminderScheduler();
+  } catch (e: any) { console.warn('⚠️ reminder scheduler init:', e.message); }
+
   // ── 📊 تحديث كاش التحليلات: عند الإقلاع إن كان قديماً + ليليّاً الساعة ٤ فجراً ──
   try {
     const { refreshCache, isCacheStale } = await import('./services/analytics.service.js');
