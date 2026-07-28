@@ -17,6 +17,9 @@ import { applyChipsTx } from '../services/chips.service.js';
 
 const AMOUNT = 10;
 const APPLY = process.argv.includes('--apply');
+// ⚠️ الإشعار صامت افتراضياً: منحة جماعية = إعلان جماعي.
+//    الرصيد يُودَع بهدوء الآن، والإعلان يبقى بيد المالك (--notify).
+const NOTIFY = process.argv.includes('--notify');
 
 function rowsOf(res: any): any[] { return res?.rows ?? (Array.isArray(res) ? res : []); }
 
@@ -26,7 +29,8 @@ async function main() {
   if (!db) throw new Error('DB unavailable');
 
   console.log(`\n🎉 منحة أول لعبة — ${AMOUNT} 🪙 لكل من لعب مرة على الأقل`);
-  console.log(APPLY ? '⚙️  وضع التنفيذ\n' : '👀 وضع العرض فقط (أضف --apply للتنفيذ)\n');
+  console.log(APPLY ? '⚙️  وضع التنفيذ' : '👀 وضع العرض فقط (أضف --apply للتنفيذ)');
+  console.log(NOTIFY ? '🔔 مع إشعار لكل لاعب\n' : '🔕 بلا إشعارات — الإيداع صامت (أضف --notify للإعلان)\n');
 
   // المؤهَّلون: لعب مباراة واحدة على الأقل (بأي مصدر: عدّاد مدى الحياة أو سجل المباريات)
   // ولم ينل منحة أول لعبة من قبل — لا التلقائية ولا هذه.
@@ -74,10 +78,10 @@ async function main() {
       refType: 'manual',
       refId: 'launch_grant',
       note: 'مكافأة أول لعبة — منحة إطلاق النظام',
-      notify: {
+      notify: NOTIFY ? {
         title: `🎉 +${AMOUNT} 🪙 مكافأة أول لعبة`,
         body: 'وصل نظام التشبس! هديّة النادي لك لأنك لعبت معنا — افتح الخزنة واختر شكلك',
-      },
+      } : null,
     });
     if (res2.ok && !res2.duplicate) ok++;
     else if (res2.ok && res2.duplicate) dup++;
