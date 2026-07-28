@@ -21,6 +21,7 @@ import {
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
 import { sendMessage, isBotActive, isFreeWindowOpen, notifyAdmins } from './whatsapp-inbox.service.js';
+import { emitStateSanitized } from '../sockets/broadcast.util.js';
 import { sendPushToStaffByPermission, sendPushToPlayers } from './fcm.service.js';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -130,10 +131,21 @@ const DEFAULT_TOOLS_CONFIG = {
   liveGame: true,        // اللعبة الحية (حالة/تقدم/مُقصَون/أدوار/دوري)
   matchHistory: true,    // سجل المباريات (ملخص + تفصيل نقاط)
   adminFinance: true,    // 🔒 تقارير ماليّة للفعاليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)
+  adminGame: true,       // 🔒 حالة اللعبة الكاملة بالأدوار + تعديل حدث ليل قبل الكشف (أدمن فقط)
 };
 
 // 🔒 أدوات مقيّدة بـ«الأدمن فقط» دائماً (مهما كان إعداد adminOnlyTools) — لا تُعرض لغير الأدمن أبداً
-const ALWAYS_ADMIN_ONLY = ['adminFinance'];
+const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame'];
+
+// 🌙 أنواع أحداث الليل القابلة لإعادة التوجيه بأمان + تسمياتها العربية
+const NIGHT_EVENT_AR: Record<string, string> = {
+  ASSASSINATION: 'اغتيال المافيا', ASSASSINATION_BLOCKED: 'اغتيال محبَط (حماية)', PROTECTION_FAILED: 'حماية فاشلة',
+  SNIPE_MAFIA: 'قنص مافيا', SNIPE_CITIZEN: 'قنص مواطن (القناص مات معه)', SILENCED: 'إسكات',
+  SHERIFF_RESULT: 'نتيجة تحقيق الشريف', ASSASSIN_KILL: 'اغتيال السفّاح', ASSASSIN_BLOCKED: 'اغتيال سفّاح محبَط',
+  ABILITY_DISABLED: 'قدرة معطّلة (الساحرة)', TWIN_SUICIDE: 'انتحار التوأم', TWIN_TRANSFORM: 'تحوّل التوأم',
+};
+const RETARGET_DEATH_TYPES = new Set(['ASSASSINATION', 'ASSASSIN_KILL']); // قتلٌ مباشر — إعادة توجيه آمنة
+const RETARGET_SILENCE_TYPES = new Set(['SILENCED']);                     // إسكات — نقل العلم
 
 // أسماء الأدوار بالعربية — من المحرك مباشرة (كانت نسخة يدوية ونقصت «العمدة»)
 const GAME_ROLE_AR: Record<string, string> = { ...ROLE_NAMES_AR };
@@ -262,6 +274,17 @@ async function clubLiveGame(): Promise<{ gameName: string; started: boolean; pha
   } catch {
     return null;
   }
+}
+
+// 🎮 اللعبة الحيّة للأدمن — أحدث غرفة حقيقيّة (البادئة كروتها أولاً ثم الأحدث). للأدوات الإداريّة (قراءة/تعديل).
+async function findAdminLiveGame(): Promise<any | null> {
+  try {
+    const { getAllGameStates } = await import('../config/redis.js');
+    const states = (await getAllGameStates()).filter(isRealLiveState);
+    if (!states.length) return null;
+    states.sort((a, b) => (b.rolesConfirmed ? 1 : 0) - (a.rolesConfirmed ? 1 : 0) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return states[0];
+  } catch { return null; }
 }
 
 // 🔗 صفحات التواصل الرسمية — تُرسل حصراً عبر أداة send_social_links (حتمياً من
@@ -816,6 +839,22 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
       parameters: { type: 'OBJECT', properties: {
         activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' },
       }, required: ['activity_id'] },
+    });
+  }
+  if (t.adminGame) {
+    decls.push({
+      name: 'admin_game_state',
+      description: 'حالة اللعبة الحيّة الكاملة بالأدوار (أدمن فقط): الاسم والمرحلة والجولة، وكل اللاعبين (المعرّف الفيزيائي، الاسم، الدور، حيّ/مقصى، مُسكَت)، وأحداث الليل لهذه الجولة (النوع، المنفّذ، الهدف، هل كُشِف). للأدمن ليطّلع على كامل الوضع أو ليجهّز إعادة توجيه حدث ليل. يعمل على أحدث غرفة حيّة بالنادي.',
+      parameters: { type: 'OBJECT', properties: {}, required: [] },
+    });
+    decls.push({
+      name: 'admin_retarget_night_event',
+      description: 'إعادة توجيه حدث ليل ليصيب لاعباً آخر (أدمن فقط) — للتصحيح إن استهدف قرار الليل الشخص الخطأ. مقيّد بأنواع القتل (اغتيال المافيا/السفّاح) والإسكات فقط، وحصراً خلال مرحلة MORNING_RECAP وقبل كشف الحدث. حدّد event_index (من admin_game_state) ورقم هاتف الهدف الجديد أو معرّفه الفيزيائي. يعرض أزرار تأكيد — لا يُنفَّذ إلا بضغط الأدمن.',
+      parameters: { type: 'OBJECT', properties: {
+        event_index: { type: 'NUMBER', description: 'ترتيب الحدث في morningEvents (من admin_game_state)' },
+        new_target_phone: { type: 'STRING', description: 'رقم هاتف الهدف الجديد بأي صيغة (أو استخدم المعرّف الفيزيائي)' },
+        new_target_physical_id: { type: 'NUMBER', description: 'المعرّف الفيزيائي للهدف الجديد (بديل عن الهاتف)' },
+      }, required: ['event_index'] },
     });
   }
   return decls;
@@ -1844,6 +1883,80 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return { pendingConfirm: true, count: unpaid, note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن.' };
     }
 
+    // ══════ 🎮 حالة اللعبة الكاملة بالأدوار (أدمن فقط) ══════
+    case 'admin_game_state': {
+      const state = await findAdminLiveGame();
+      if (!state) return { liveGame: false, note: 'لا لعبة حيّة الآن في النادي — لا توجد غرفة نشطة.' };
+      const players = (state.players || []).filter((p: any) => !p.frozen).map((p: any) => ({
+        physicalId: p.physicalId,
+        name: p.name,
+        role: state.rolesConfirmed ? (GAME_ROLE_AR[p.role] || p.role || 'غير معروف') : 'لم تُوزَّع بعد',
+        alive: !!p.isAlive,
+        silenced: !!p.isSilenced,
+      }));
+      const events = (state.morningEvents || []).map((e: any, i: number) => ({
+        index: i,
+        type: e.type,
+        typeAr: NIGHT_EVENT_AR[e.type] || e.type,
+        performer: e.performerName || null,
+        target: e.targetName || null,
+        targetPhysicalId: e.targetPhysicalId,
+        revealed: !!e.revealed,
+        retargetable: (RETARGET_DEATH_TYPES.has(e.type) || RETARGET_SILENCE_TYPES.has(e.type)) && state.phase === 'MORNING_RECAP' && !e.revealed,
+      }));
+      return {
+        liveGame: true,
+        gameName: state.config?.gameName || state.roomCode || 'لعبة النادي',
+        phase: state.phase,
+        round: state.round || 0,
+        started: !!state.rolesConfirmed,
+        playerCount: players.length,
+        players,
+        morningEvents: events,
+        note: 'معلومات سريّة كاملة للأدمن فقط — ممنوع مشاركتها مع أي أحد. الأحداث القابلة لإعادة التوجيه معلَّمة retargetable=true (قتل مافيا/سفّاح أو إسكات، خلال MORNING_RECAP وقبل الكشف). استخدم admin_retarget_night_event مع event_index لتصحيح الهدف.',
+      };
+    }
+
+    // ══════ 🌙 إعادة توجيه حدث ليل (أدمن فقط) — تصحيح قبل الكشف ══════
+    case 'admin_retarget_night_event': {
+      const state = await findAdminLiveGame();
+      if (!state) return { error: 'لا لعبة حيّة الآن — لا شيء لإعادة توجيهه.' };
+      if (state.phase !== 'MORNING_RECAP') return { error: `إعادة التوجيه متاحة فقط خلال مرحلة كشف الصباح (MORNING_RECAP) — المرحلة الحاليّة: ${state.phase}. انتظر انتهاء الليل.` };
+      const idx = Number(args.event_index);
+      const ev = (state.morningEvents || [])[idx];
+      if (!ev) return { error: `لا حدث بالترتيب ${idx}. استخدم admin_game_state لرؤية الأحداث وأرقامها.` };
+      if (ev.revealed) return { error: 'هذا الحدث كُشِف بالفعل للاعبين — لا يمكن تغييره بعد الكشف.' };
+      const isDeath = RETARGET_DEATH_TYPES.has(ev.type);
+      const isSilence = RETARGET_SILENCE_TYPES.has(ev.type);
+      if (!isDeath && !isSilence) return { error: `النوع «${NIGHT_EVENT_AR[ev.type] || ev.type}» لا يُعاد توجيهه بأمان — المسموح: اغتيال المافيا/السفّاح أو الإسكات فقط.` };
+      const roster: any[] = (state.players || []).filter((p: any) => !p.frozen);
+      let newT: any = null;
+      if (args.new_target_physical_id != null) {
+        newT = roster.find((p) => p.physicalId === Number(args.new_target_physical_id));
+      } else if (args.new_target_phone) {
+        const { samePhone } = await import('../utils/phone.util.js');
+        newT = roster.find((p) => p.phone && samePhone(p.phone, String(args.new_target_phone)));
+      } else {
+        return { error: 'حدّد الهدف الجديد: new_target_phone أو new_target_physical_id.' };
+      }
+      if (!newT) return { error: 'الهدف الجديد غير موجود بين لاعبي هذه الغرفة. تأكّد من الرقم/المعرّف عبر admin_game_state.' };
+      if (newT.physicalId === ev.targetPhysicalId) return { error: 'الهدف الجديد هو نفسه الهدف الحاليّ — لا تغيير.' };
+      if (isDeath && !newT.isAlive) return { error: `«${newT.name}» مقصى أصلاً — لا يصحّ توجيه قتل إليه.` };
+      if (!dryRun) {
+        const kindAr = isDeath ? 'قتل' : 'إسكات';
+        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `إعادة توجيه «${NIGHT_EVENT_AR[ev.type] || ev.type}» من «${ev.targetName}» إلى «${newT.name}» (${kindAr})؟\nسيُحدَّث الوضع فوراً قبل الكشف.` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `admrt:${state.roomId}:${idx}:${newT.physicalId}`, title: 'نعم، غيّر الهدف ✅'.slice(0, 20) } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد إعادة توجيه حدث ليل' });
+      }
+      return { pendingConfirm: true, from: ev.targetName, to: newT.name, kind: isDeath ? 'death' : 'silence', note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن. لا يُنفَّذ التغيير إلا بعد ضغطه.' };
+    }
+
     default:
       return { error: `أداة غير معروفة: ${name}` };
   }
@@ -2125,6 +2238,54 @@ async function processConversation(convId: number) {
           }
           await sendMessage({ conversationId: convId, text: `تمّ ✅ سُجّل الدفع لـ${bks.length} حجزاً في الفعاليّة (المستلم: ${rcv}).`, source: 'system' });
         }
+        return;
+      }
+      // 🌙 إعادة توجيه حدث ليل — حتميّ: إعادة فحص الأدمن + إعادة تحقّق من الحالة لحظة التنفيذ
+      const admrtMatch = /^admrt:([^:]+):(\d+):(\d+)$/.exec(btnId || '');
+      if (admrtMatch) {
+        if (!(await isAdminConversation(conv))) {
+          await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
+          return;
+        }
+        const roomId = admrtMatch[1];
+        const evIdx = parseInt(admrtMatch[2]);
+        const newPid = parseInt(admrtMatch[3]);
+        const { getGameState, setGameState } = await import('../config/redis.js');
+        const state: any = await getGameState(roomId);
+        if (!state) { await sendMessage({ conversationId: convId, text: 'ما لقيت اللعبة — يمكن انتهت 🙏', source: 'system' }); return; }
+        if (state.phase !== 'MORNING_RECAP') { await sendMessage({ conversationId: convId, text: `فات الأوان — المرحلة صارت ${state.phase}، ما عاد ممكن التعديل 🙏`, source: 'system' }); return; }
+        const ev: any = (state.morningEvents || [])[evIdx];
+        if (!ev || ev.revealed) { await sendMessage({ conversationId: convId, text: 'الحدث تغيّر أو انكشف — ألغيت التعديل 🙏', source: 'system' }); return; }
+        const isDeath = RETARGET_DEATH_TYPES.has(ev.type);
+        const isSilence = RETARGET_SILENCE_TYPES.has(ev.type);
+        if (!isDeath && !isSilence) { await sendMessage({ conversationId: convId, text: 'نوع الحدث ما عاد قابلاً لإعادة التوجيه 🙏', source: 'system' }); return; }
+        const roster: any[] = state.players || [];
+        const newT = roster.find((p: any) => p.physicalId === newPid && !p.frozen);
+        if (!newT) { await sendMessage({ conversationId: convId, text: 'الهدف الجديد ما عاد موجوداً 🙏', source: 'system' }); return; }
+        const oldPid = ev.targetPhysicalId;
+        const oldT = roster.find((p: any) => p.physicalId === oldPid);
+        if (isDeath) {
+          // أعِد الهدف القديم للحياة ما لم يقتله حدث موتٍ آخر في نفس الليلة
+          const killedElsewhere = (state.morningEvents || []).some((e: any, i: number) =>
+            i !== evIdx && RETARGET_DEATH_TYPES.has(e.type) && e.targetPhysicalId === oldPid);
+          if (oldT && !killedElsewhere) oldT.isAlive = true;
+          newT.isAlive = false;
+        } else {
+          if (oldT) oldT.isSilenced = false;
+          newT.isSilenced = true;
+        }
+        ev.targetPhysicalId = newPid;
+        ev.targetName = newT.name;
+        await setGameState(roomId, state);
+        // بثّ الحالة المصحّحة (يحترم تعقيم الغرف البعيدة) — ثانويّ، الحالة محفوظة أصلاً
+        try {
+          const io = (global as any).io;
+          if (io) await emitStateSanitized(io, roomId, 'game:state-updated', state);
+        } catch { /* البثّ ثانويّ */ }
+        const kindMsg = isDeath
+          ? `صار «${newT.name}» هو الضحيّة${oldT ? ` بدل «${oldT.name}»` : ''}`
+          : `صار «${newT.name}» هو المُسكَت${oldT ? ` بدل «${oldT.name}»` : ''}`;
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ ${kindMsg}. سيظهر التصحيح عند كشف الحدث.`, source: 'system' });
         return;
       }
     } catch { /* تجاهل */ }
