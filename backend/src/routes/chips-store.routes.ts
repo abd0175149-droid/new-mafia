@@ -29,12 +29,26 @@ const router = Router();
 router.get('/store', authenticatePlayer, async (req: Request, res: Response) => {
   try {
     const playerId = req.playerAccount!.playerId;
+    const db = getDB();
     const [catalog, rentals, balance, cosmetics] = await Promise.all([
       listCatalog(),
       getActiveRentals(playerId),
       getChipsBalance(playerId),
       getPlayerCosmetics(playerId),
     ]);
+
+    // 🖼️ بيانات بطاقة اللاعب نفسه — لازمة لمعاينة «جرّب قبل الشراء» على صورته
+    // الحقيقية (سياق اللاعب في الواجهة لا يحمل الصورة ولا الرتبة).
+    let me: any = null;
+    if (db) {
+      const [row] = await db.select({
+        name: players.name,
+        avatarUrl: players.avatarUrl,
+        rankTier: players.rankTier,
+        gender: players.gender,
+      }).from(players).where(eq(players.id, playerId)).limit(1);
+      if (row) me = row;
+    }
 
     // 🔊 نغمة النصر لا تُعرض ما لم يكن ملفها الصوتي مربوطاً فعلاً بلوحة المؤثرات
     // (بيع نغمة بلا صوت = وعد فارغ). الفحص لحظي فلا يحتاج إعادة تشغيل.
@@ -73,7 +87,7 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     // تنبيه قرب الانتهاء يُفحص كسولاً عند فتح المتجر
     notifyExpiringSoon(playerId);
 
-    res.json({ success: true, balance, items, cosmetics });
+    res.json({ success: true, balance, items, cosmetics, me });
   } catch (err: any) {
     console.error('❌ chips store:', err.message);
     res.status(500).json({ error: err.message });

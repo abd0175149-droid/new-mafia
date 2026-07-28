@@ -66,6 +66,8 @@ export default function StorePage() {
   const [items, setItems] = useState<StoreItem[]>([]);
   const [balance, setBalance] = useState(0);
   const [cosmetics, setCosmetics] = useState<any>(null);
+  // بطاقة اللاعب الحقيقية (صورته ورتبته) — لا تتوفر في سياق اللاعب
+  const [me, setMe] = useState<{ name?: string; avatarUrl?: string | null; rankTier?: string; gender?: string } | null>(null);
   const [tab, setTab] = useState('frame');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
@@ -81,6 +83,7 @@ export default function StorePage() {
       setItems(d.items || []);
       setBalance(Number(d.balance || 0));
       setCosmetics(d.cosmetics || null);
+      setMe(d.me || null);
     } catch (e: any) {
       say(false, e.message || 'تعذّر تحميل الخزنة');
     } finally { setLoading(false); }
@@ -168,13 +171,13 @@ export default function StorePage() {
           <div style={{ paddingTop: 30 }} className="relative">
             <DynamicMafiaCard
               playerNumber={player?.playerId ?? 1}
-              playerName={player?.name || 'أنت'}
+              playerName={me?.name || player?.name || 'أنت'}
               role={null}
-              gender="MALE"
+              gender={me?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
               size="md"
               flippable={false}
-              rankTier={(player as any)?.rankTier || 'INFORMANT'}
-              avatarUrl={(player as any)?.avatarUrl || null}
+              rankTier={me?.rankTier || 'INFORMANT'}
+              avatarUrl={me?.avatarUrl || null}
               cosmetics={previewCosmetics}
             />
             {tryOn?.kind === 'frame' && tryOn.emblemId && (

@@ -582,8 +582,34 @@ function TitleShowcase({ cardSize }: { cardSize: 'sm' | 'md' | 'lg' }) {
 
 // ── الصفحة ────────────────────────────────────────────
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+
+/** لاعب حقيقي للمعاينة — تُختبر التأثيرات على صورة فعلية لا على أفاتار افتراضي */
+interface RealPlayer { id: number; name: string; avatarUrl: string | null; gender?: string; rankTier?: string }
+
 export default function ChipsFramesPreviewPage() {
   const [cardSize, setCardSize] = useState<'sm' | 'md' | 'lg'>('md');
+  const [realPlayer, setRealPlayer] = useState<RealPlayer | null>(null);
+  const [pidInput, setPidInput] = useState('');
+  const [pidBusy, setPidBusy] = useState(false);
+  const [pidError, setPidError] = useState('');
+
+  const loadRealPlayer = async (raw: string) => {
+    const id = parseInt(raw);
+    if (!id || isNaN(id)) { setPidError('أدخل رقم لاعب صحيح'); return; }
+    setPidBusy(true); setPidError('');
+    try {
+      const res = await fetch(`${API_URL}/api/player/${id}/profile`);
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d?.player) throw new Error(d?.error || 'لم يُعثر على اللاعب');
+      const p = d.player;
+      setRealPlayer({ id: p.id, name: p.name, avatarUrl: p.avatarUrl || null, gender: p.gender, rankTier: p.rankTier });
+      if (!p.avatarUrl) setPidError('هذا اللاعب بلا صورة مرفوعة — سيظهر الأفاتار الافتراضي');
+    } catch (e: any) {
+      setRealPlayer(null);
+      setPidError(e.message || 'تعذّر الجلب');
+    } finally { setPidBusy(false); }
+  };
   const [flipped, setFlipped] = useState<Record<string, boolean>>({});
   const [showVoting, setShowVoting] = useState(false);
   const [votes, setVotes] = useState<Record<string, number>>({});
@@ -782,7 +808,36 @@ export default function ChipsFramesPreviewPage() {
             ))}
           </div>
         </div>
-        <p className="text-zinc-600 text-xs mt-3">اضغط أي كارد لقلبه — لاحظ أن التأثيرات على الوجه الأمامي فقط (سلوك المحرك الحالي).</p>
+        {/* 🖼️ اختبار على صورة لاعب حقيقي */}
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+          <span className="text-zinc-500 text-xs">جرّب على صورة لاعب حقيقي:</span>
+          <input
+            value={pidInput}
+            onChange={e => setPidInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') loadRealPlayer(pidInput); }}
+            placeholder="رقم اللاعب (id)"
+            inputMode="numeric"
+            className="w-36 bg-[#111] border border-zinc-700 rounded px-3 py-1.5 text-xs text-white tabular-nums focus:outline-none focus:border-[#C5A059]"
+          />
+          <button onClick={() => loadRealPlayer(pidInput)} disabled={pidBusy}
+            className="px-4 py-1.5 bg-[#111] border border-[#C5A059]/40 text-[#C5A059] font-mono text-xs tracking-wider uppercase hover:bg-[#C5A059]/10 transition-all disabled:opacity-40">
+            {pidBusy ? '…' : '🖼️ اجلب الصورة'}
+          </button>
+          {realPlayer && (
+            <button onClick={() => { setRealPlayer(null); setPidError(''); }}
+              className="px-3 py-1.5 bg-[#111] border border-zinc-700 text-zinc-400 font-mono text-xs uppercase hover:bg-zinc-800 transition-all">
+              ↩︎ رجوع للنماذج
+            </button>
+          )}
+        </div>
+        {realPlayer && (
+          <p className="text-emerald-400 text-xs mt-2">
+            ✅ كل الكروت تعرض الآن «{realPlayer.name}» — التأثيرات تُختبر على صورته الفعلية
+          </p>
+        )}
+        {pidError && <p className="text-amber-400 text-xs mt-2">{pidError}</p>}
+
+        <p className="text-zinc-600 text-xs mt-3">اضغط أي كارد لقلبه — الإطار المدفوع يظهر على الوجهين (قرار مقفل).</p>
       </div>
 
       {/* شبكة الإطارات */}
@@ -794,10 +849,11 @@ export default function ChipsFramesPreviewPage() {
               {/* الكارد الحقيقي + الشعار + طبقة الامتداد */}
               <div className="relative" style={{ paddingTop: 44 }}>
                 <DynamicMafiaCard
-                  playerNumber={f.player.number}
-                  playerName={f.player.name}
+                  playerNumber={realPlayer ? realPlayer.id : f.player.number}
+                  playerName={realPlayer ? realPlayer.name : f.player.name}
                   role={f.player.role}
-                  gender={f.player.gender}
+                  gender={realPlayer ? (realPlayer.gender === 'FEMALE' ? 'FEMALE' : 'MALE') : f.player.gender}
+                  avatarUrl={realPlayer?.avatarUrl || null}
                   size={cardSize}
                   rankTier="INFORMANT"
                   rankEffectsOverride={f.fx}
@@ -866,10 +922,11 @@ export default function ChipsFramesPreviewPage() {
             <div key={c.tier} className="flex flex-col items-center gap-3">
               <div style={{ paddingTop: 44 }}>
                 <DynamicMafiaCard
-                  playerNumber={c.num}
-                  playerName={c.name}
+                  playerNumber={realPlayer ? realPlayer.id : c.num}
+                  playerName={realPlayer ? realPlayer.name : c.name}
                   role="CITIZEN"
-                  gender="MALE"
+                  gender={realPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                  avatarUrl={realPlayer?.avatarUrl || null}
                   size={cardSize}
                   rankTier={c.tier}
                 />
@@ -880,10 +937,11 @@ export default function ChipsFramesPreviewPage() {
           <div className="flex flex-col items-center gap-3">
             <div className="relative" style={{ paddingTop: 44 }}>
               <DynamicMafiaCard
-                playerNumber={22}
-                playerName="مشتري الإطار"
+                playerNumber={realPlayer ? realPlayer.id : 22}
+                playerName={realPlayer ? realPlayer.name : 'مشتري الإطار'}
                 role="CITIZEN"
-                gender="MALE"
+                gender={realPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
+                avatarUrl={realPlayer?.avatarUrl || null}
                 size={cardSize}
                 rankTier="INFORMANT"
                 rankEffectsOverride={FRAMES[0].fx}
