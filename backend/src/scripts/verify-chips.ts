@@ -409,14 +409,24 @@ async function main() {
   // ── 2.13 عيديّات الميلاد: لمن يستحقّها فقط ──
   console.log('\n٢.١٣) العيديّات:');
   {
+    // ⚠️ المقارنة مع تاريخ **المنح** لا تاريخ اليوم: عيديّة الأمس صحيحة رغم تغيّر اليوم.
     const bad = rowsOf(await db.execute(sql`
       SELECT COUNT(*)::int AS c FROM chips_ledger l
        JOIN players p ON p.id = l.player_id
        WHERE l.idempotency_key LIKE 'birthday:%'
-         AND substring(COALESCE(p.dob,'') from 6 for 5) <> substring(
-              to_char((NOW() + interval '3 hours'), 'YYYY-MM-DD') from 6 for 5)
+         AND substring(COALESCE(p.dob,'') from 6 for 5)
+             <> to_char(l.created_at + interval '3 hours', 'MM-DD')
     `))[0];
-    check(Number(bad?.c) === 0, 'كل من نال عيديّة عيد ميلاده اليوم فعلاً');
+    check(Number(bad?.c) === 0, 'كل عيديّة مُنحت في يوم ميلاد صاحبها فعلاً');
+
+    // ولا عيديّتان لنفس اللاعب في السنة نفسها
+    const twice = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM (
+        SELECT idempotency_key FROM chips_ledger WHERE idempotency_key LIKE 'birthday:%'
+        GROUP BY idempotency_key HAVING COUNT(*) > 1
+      ) t
+    `))[0];
+    check(Number(twice?.c) === 0, 'لا لاعب نال عيديّتين في سنة واحدة');
 
     const cnt = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS c FROM chips_ledger WHERE idempotency_key LIKE 'birthday:%'`))[0];
     console.log(`     ↳ إجمالي العيديّات الممنوحة: ${cnt?.c}`);
