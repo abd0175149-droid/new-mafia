@@ -136,7 +136,7 @@ async function main() {
 
       // نشحن ثم نستأجر
       const stamp2 = `verify2-${Date.now().toString(36)}`;
-      await applyChipsTx({ playerId: pid, amount: price * 2, reason: 'admin_adjust', idempotencyKey: `${stamp2}:fund`, note: 'اختبار تحقق — تمويل' });
+      await applyChipsTx({ playerId: pid, amount: price * 3, reason: 'admin_adjust', idempotencyKey: `${stamp2}:fund`, note: 'اختبار تحقق — تمويل' });
 
       const rentKey = `verify-rent-${Date.now()}`;
       const r1 = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: rentKey });
@@ -145,9 +145,13 @@ async function main() {
       const exp1 = r1.expiresAt ? new Date(r1.expiresAt as any).getTime() : 0;
 
       // نفس المفتاح مرة ثانية → لا يمدّد ولا يخصم
+      const balBeforeDup = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0]?.b;
       const r2 = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: rentKey });
       const exp2 = r2.expiresAt ? new Date(r2.expiresAt as any).getTime() : 0;
-      check(r2.ok === true && Math.abs(exp2 - exp1) < 2000, 'إعادة نفس طلب الاستئجار لا تمدّد ولا تخصم مرتين');
+      const balAfterDup = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0]?.b;
+      check(r2.ok === true && Math.abs(exp2 - exp1) < 2000 && Number(balAfterDup) === Number(balBeforeDup),
+        'إعادة نفس طلب الاستئجار لا تمدّد ولا تخصم مرتين',
+        `exp∆=${exp2 - exp1}ms · رصيد ${balBeforeDup}→${balAfterDup}`);
 
       // تجهيز تلقائي للخانة الفارغة
       const cos = await getPlayerCosmetics(pid);

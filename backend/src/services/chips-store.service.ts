@@ -202,11 +202,14 @@ export async function rentItem(opts: {
     || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
   // 1) الخصم أولاً — لا إيجار بلا حركة دفتر مثبتة
+  // ⚠️ المفتاح ثابت للطلب الواحد ولا يتبع حالة (استئجار/تجديد):
+  //    لو غيّرناه حسب renewing، فإعادة إرسال نفس الطلب بعد نجاحه ستُرى
+  //    كطلب جديد (لأن الإيجار صار موجوداً) فتُخصم مرتين وتُمدَّد مرتين.
   const tx = await applyChipsTx({
     playerId,
     amount: -Math.abs(item.priceChips),
     reason: renewing ? 'renew_item' : 'rent_item',
-    idempotencyKey: `${renewing ? 'renew' : 'rent'}:${rid}`,
+    idempotencyKey: `store:${rid}`,
     refType: 'item',
     refId: String(item.id),
     note: `${renewing ? 'تجديد' : 'استئجار'} ${item.nameAr} — ${item.durationDays} يوماً`,
