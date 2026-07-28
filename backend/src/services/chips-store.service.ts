@@ -107,16 +107,33 @@ export async function getPlayerCosmetics(playerId: number) {
     }
   }
 
+  const shape = (r: any) => ({
+    itemId: r.itemId, itemKey: r.itemKey, nameAr: r.nameAr, rarity: r.rarity,
+    emblemId: r.emblemId, config: r.config, expiresAt: r.expiresAt,
+  });
+
   const pick = (id: number | null) => {
     if (!id || !activeIds.has(id)) return null;
-    const r = byId.get(id)!;
-    return {
-      itemId: r.itemId, itemKey: r.itemKey, nameAr: r.nameAr, rarity: r.rarity,
-      emblemId: r.emblemId, config: r.config, expiresAt: r.expiresAt,
-    };
+    return shape(byId.get(id)!);
   };
 
-  return { frame: pick(p.frameId), title: pick(p.titleId), nameFx: pick(p.nameFxId) };
+  // ⚠️ أنواع بلا خانة تجهيز (تشريفة الدخول · أنيميشن الإقصاء):
+  //    امتلاك إيجار نشط = تفعيل. لولا هذا لما ظهرت التشريفة أبداً مهما اشتراها اللاعب،
+  //    لأن الخانات المُجهَّزة تُقرأ من أعمدة players وهذه الأنواع بلا أعمدة.
+  const byKind = (kind: string) => {
+    const rows = active.filter(r => r.kind === kind);
+    if (!rows.length) return null;
+    rows.sort((a, b) => new Date(b.expiresAt as any).getTime() - new Date(a.expiresAt as any).getTime());
+    return shape(rows[0]);
+  };
+
+  return {
+    frame: pick(p.frameId),
+    title: pick(p.titleId),
+    nameFx: pick(p.nameFxId),
+    entrance: byKind('entrance'),
+    elimination: byKind('elimination'),
+  };
 }
 
 /** مظهر مجموعة لاعبين دفعة واحدة — لخط شاشة العرض (استعلام واحد) */
@@ -146,12 +163,15 @@ export async function getCosmeticsForPlayers(playerIds: number[]) {
     .where(inArray(players.id, playerIds));
 
   for (const r of rows) {
+    // خانات مُجهَّزة بأعمدة + أنواع تُفعَّل بمجرّد امتلاك إيجار نشط
     const slotMatch =
       (r.itemId === r.frameId && 'frame') ||
       (r.itemId === r.titleId && 'title') ||
-      (r.itemId === r.nameFxId && 'nameFx') || null;
+      (r.itemId === r.nameFxId && 'nameFx') ||
+      (r.kind === 'entrance' && 'entrance') ||
+      (r.kind === 'elimination' && 'elimination') || null;
     if (!slotMatch) continue;
-    if (!out[r.playerId]) out[r.playerId] = { frame: null, title: null, nameFx: null };
+    if (!out[r.playerId]) out[r.playerId] = { frame: null, title: null, nameFx: null, entrance: null, elimination: null };
     out[r.playerId][slotMatch] = {
       itemId: r.itemId, itemKey: r.itemKey, nameAr: r.nameAr,
       rarity: r.rarity, emblemId: r.emblemId, config: r.config,
