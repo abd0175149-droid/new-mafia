@@ -315,6 +315,113 @@ async function main() {
     check(Number(badDob[0]?.c) === 0, 'كل تواريخ الميلاد بصيغة YYYY-MM-DD', `شاذة: ${badDob[0]?.c}`);
   }
 
+  // ── 2.11 تفعيل الأنواع بلا خانة تجهيز (العطل المُصلَح) ──
+  console.log('\n٢.١١) تشريفة الدخول وأنيميشن الإقصاء:');
+  {
+    const { getPlayerCosmetics, getCosmeticsForPlayers } = await import('../services/chips-store.service.js');
+
+    // أ) على بيانات حقيقية: كل من يملك إيجار تشريفة نشطاً يجب أن تظهر بمظهره
+    const owners = rowsOf(await db.execute(sql`
+      SELECT DISTINCT r.player_id, p.name
+        FROM chips_rentals r
+        JOIN chips_items i ON i.id = r.item_id
+        JOIN players p ON p.id = r.player_id
+       WHERE i.kind = 'entrance' AND r.expires_at > NOW()
+    `));
+
+    if (owners.length === 0) {
+      console.log('     ↳ لا مالك تشريفة نشطة الآن — يُكتفى بالاختبار الاصطناعي');
+    } else {
+      let allOk = true, detail = '';
+      for (const o of owners) {
+        const cos: any = await getPlayerCosmetics(Number(o.player_id));
+        const batch: any = await getCosmeticsForPlayers([Number(o.player_id)]);
+        const okOne = !!cos?.entrance?.config?.design;
+        const okBatch = !!batch[Number(o.player_id)]?.entrance;
+        if (!okOne || !okBatch) { allOk = false; detail += `${o.name}(فردي:${okOne} جماعي:${okBatch}) `; }
+      }
+      check(allOk, `مالكو التشريفة (${owners.length}) تظهر تشريفتهم بالمسارين — الفردي وخط الشاشة`, detail);
+    }
+
+    // ب) اختبار اصطناعي على حساب الاختبار: منح إيجار → يجب أن يُفعَّل فوراً بلا تجهيز
+    if (testRows.length > 0) {
+      const pid = Number(testRows[0].id);
+      const ent = rowsOf(await db.execute(sql`SELECT id FROM chips_items WHERE kind='entrance' ORDER BY id LIMIT 1`))[0];
+      const elim = rowsOf(await db.execute(sql`SELECT id FROM chips_items WHERE kind='elimination' ORDER BY id LIMIT 1`))[0];
+
+      if (ent && elim) {
+        await db.execute(sql`
+          INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
+          VALUES (${pid}, ${Number(ent.id)}, NOW(), NOW() + interval '1 day', 'admin_grant'),
+                 (${pid}, ${Number(elim.id)}, NOW(), NOW() + interval '1 day', 'admin_grant')
+        `);
+        const cos: any = await getPlayerCosmetics(pid);
+        check(!!cos?.entrance, 'إيجار تشريفة نشط ⇒ تُفعَّل بلا حاجة لتجهيز');
+        check(!!cos?.elimination, 'إيجار أنيميشن إقصاء نشط ⇒ يُفعَّل بلا حاجة لتجهيز');
+
+        // انتهاء الإيجار ⇒ تختفي
+        await db.execute(sql`
+          UPDATE chips_rentals SET expires_at = NOW() - interval '1 hour'
+           WHERE player_id = ${pid} AND item_id IN (${Number(ent.id)}, ${Number(elim.id)})
+        `);
+        const after: any = await getPlayerCosmetics(pid);
+        check(!after?.entrance && !after?.elimination, 'انتهاء الإيجار ⇒ تختفي التشريفة والإقصاء تلقائياً');
+
+        await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id IN (${Number(ent.id)}, ${Number(elim.id)})`);
+      }
+    }
+  }
+
+  // ── 2.12 منحة الإطلاق ──
+  console.log('\n٢.١٢) منحة أول لعبة:');
+  {
+    const g = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS n, COALESCE(SUM(amount),0)::int AS total
+        FROM chips_ledger WHERE idempotency_key LIKE 'first_game_bonus:%'
+    `))[0];
+    check(Number(g?.n) > 0, `مُنحت لـ${g?.n} لاعباً (${g?.total} 🪙)`);
+
+    const dupKeys = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM (
+        SELECT idempotency_key FROM chips_ledger WHERE idempotency_key LIKE 'first_game_bonus:%'
+        GROUP BY idempotency_key HAVING COUNT(*) > 1
+      ) t
+    `))[0];
+    check(Number(dupKeys?.c) === 0, 'لا لاعب نال المنحة مرتين');
+
+    const both = rowsOf(await db.execute(sql`
+      SELECT COUNT(DISTINCT player_id)::int AS c FROM chips_ledger
+       WHERE player_id IN (SELECT player_id FROM chips_ledger WHERE idempotency_key LIKE 'first_game_bonus:%')
+         AND reason = 'drop_first_match' AND idempotency_key NOT LIKE 'first_game_bonus:%'
+    `))[0];
+    check(Number(both?.c) === 0, 'لا ازدواج مع قطرة أول مباراة التلقائية');
+
+    const noPlay = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM chips_ledger l
+       JOIN players p ON p.id = l.player_id
+       WHERE l.idempotency_key LIKE 'first_game_bonus:%'
+         AND COALESCE(p.lifetime_matches,0) = 0
+         AND NOT EXISTS (SELECT 1 FROM match_players mp WHERE mp.player_id = p.id)
+    `))[0];
+    check(Number(noPlay?.c) === 0, 'لم تُمنح لمن لم يلعب ولا مباراة');
+  }
+
+  // ── 2.13 عيديّات الميلاد: لمن يستحقّها فقط ──
+  console.log('\n٢.١٣) العيديّات:');
+  {
+    const bad = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM chips_ledger l
+       JOIN players p ON p.id = l.player_id
+       WHERE l.idempotency_key LIKE 'birthday:%'
+         AND substring(COALESCE(p.dob,'') from 6 for 5) <> substring(
+              to_char((NOW() + interval '3 hours'), 'YYYY-MM-DD') from 6 for 5)
+    `))[0];
+    check(Number(bad?.c) === 0, 'كل من نال عيديّة عيد ميلاده اليوم فعلاً');
+
+    const cnt = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS c FROM chips_ledger WHERE idempotency_key LIKE 'birthday:%'`))[0];
+    console.log(`     ↳ إجمالي العيديّات الممنوحة: ${cnt?.c}`);
+  }
+
   // ── 3. التطابق العام ──
   console.log('\n٣) تطابق الكاش مع الدفتر:');
   const audit = await auditChipsBalances(false);
