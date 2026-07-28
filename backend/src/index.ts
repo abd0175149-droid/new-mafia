@@ -51,6 +51,7 @@ import analyticsRoutes from './routes/analytics.routes.js';
 import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
+import chipsStoreRoutes from './routes/chips-store.routes.js';
 import { registerVenueEvents } from './sockets/venue.socket.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
@@ -181,6 +182,7 @@ app.use('/api/reservations', reservationsRoutes);
 app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المكان (منيو/طلبات/فواتير)
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
+app.use('/api/chips', chipsStoreRoutes); // 🏦 خزنة الدون (كتالوج + إيجار + تجهيز)
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 // مصدر واحد ثابت (config/vapid.ts) — نفس المفتاح الذي يوقّع به السيرفر الإرسال
@@ -1263,7 +1265,55 @@ async function main() {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_frame_item_id INTEGER`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_title_item_id INTEGER`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS chips_name_fx_item_id INTEGER`);
-      console.log('✅ Chips economy tables ensured (ledger + balance cache)');
+      // ── 🏦 المرحلة 1: كتالوج الخزنة + الإيجارات (نموذج الإيجار الزمني) ──
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS chips_items (
+          id SERIAL PRIMARY KEY,
+          kind VARCHAR(20) NOT NULL,
+          item_key VARCHAR(40) NOT NULL,
+          name_ar VARCHAR(80) NOT NULL,
+          description_ar TEXT DEFAULT '',
+          hook_ar TEXT DEFAULT '',
+          rarity VARCHAR(20) DEFAULT 'common' NOT NULL,
+          price_chips INTEGER DEFAULT 0 NOT NULL,
+          duration_days INTEGER DEFAULT 30 NOT NULL,
+          emblem_id VARCHAR(30),
+          config JSONB DEFAULT '{}'::jsonb,
+          is_active BOOLEAN DEFAULT true NOT NULL,
+          is_purchasable BOOLEAN DEFAULT true NOT NULL,
+          closed_at TIMESTAMP,
+          sort_order INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_chips_items_key ON chips_items(item_key)`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS chips_rentals (
+          id SERIAL PRIMARY KEY,
+          player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+          item_id INTEGER NOT NULL REFERENCES chips_items(id) ON DELETE CASCADE,
+          starts_at TIMESTAMP DEFAULT NOW() NOT NULL,
+          expires_at TIMESTAMP NOT NULL,
+          source VARCHAR(20) DEFAULT 'rent' NOT NULL,
+          ledger_id INTEGER,
+          warned_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      // الملكية = إيجار نشط → الفهرس على (اللاعب، الانتهاء) هو مسار القراءة الساخن
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_rentals_player ON chips_rentals(player_id, expires_at DESC)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_rentals_item ON chips_rentals(item_id)`);
+      console.log('✅ Chips economy tables ensured (ledger + balance cache + store catalog + rentals)');
+
+      // بذر الكتالوج المعتمد (آمن التكرار — لا يلمس تعديلات الأدمن)
+      try {
+        const { seedChipsCatalog } = await import('./services/chips-catalog.seed.js');
+        const n = await seedChipsCatalog();
+        if (n > 0) console.log(`🌱 Chips catalog seeded: ${n} new item(s)`);
+      } catch (e: any) {
+        console.warn('⚠️ Chips catalog seed:', e.message);
+      }
     }
   } catch (err: any) {
     console.warn('⚠️ Chips migration:', err.message);

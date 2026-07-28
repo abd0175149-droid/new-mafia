@@ -105,6 +105,8 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'chips:topup': { category: 'CHIPS', labelAr: 'شحن رصيد تشبس' },
   'chips:adjust': { category: 'CHIPS', labelAr: 'تصحيح رصيد تشبس' },
   'chips:audit-fix': { category: 'CHIPS', labelAr: 'إعادة اشتقاق أرصدة التشبس' },
+  'chips:item-edit': { category: 'CHIPS', labelAr: 'تعديل عنصر بالخزنة' },
+  'chips:item-grant': { category: 'CHIPS', labelAr: 'منح عنصر للاعب' },
 };
 
 // ── أسماء الفئات بالعربية (للعرض والفلترة) ─────────────────────────────

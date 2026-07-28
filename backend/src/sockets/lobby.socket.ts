@@ -1461,10 +1461,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           if (db) {
             const [dbPlayer] = await db.select({ avatarUrl: players.avatarUrl, rankTier: players.rankTier })
               .from(players).where(eq(players.id, data.playerId)).limit(1);
-            if (dbPlayer?.avatarUrl || dbPlayer?.rankTier) {
+            // 🪙 المظهر المشترى (الإيجارات النشطة فقط — الفحص كسول داخل الخدمة)
+            let cosmetics: any = null;
+            try {
+              const { getPlayerCosmetics } = await import('../services/chips-store.service.js');
+              cosmetics = await getPlayerCosmetics(data.playerId);
+            } catch { /* المظهر تحسين بصري — لا يعطّل الانضمام */ }
+            if (dbPlayer?.avatarUrl || dbPlayer?.rankTier || cosmetics) {
               await updatePlayer(data.roomId, actualPhysicalId, {
                 ...(dbPlayer.avatarUrl ? { avatarUrl: dbPlayer.avatarUrl } : {}),
                 ...(dbPlayer.rankTier ? { rankTier: dbPlayer.rankTier } : {}),
+                ...(cosmetics ? { cosmetics } : {}),
               });
             }
           }

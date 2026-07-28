@@ -238,6 +238,7 @@ function DisplayPageContent() {
           role: effectivePhase === 'LOBBY' ? null : (p.role || null),
           avatarUrl: p.avatarUrl || null,
           rankTier: p.rankTier || 'INFORMANT',
+          cosmetics: p.cosmetics || null,   // 🪙 المظهر المشترى (إطار/لقب/تأثير اسم)
           penalties: p.penalties || 0,
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
@@ -439,6 +440,14 @@ function DisplayPageContent() {
       }
     };
 
+    // 🪙 تغيير المظهر أثناء الجلسة — يظهر على الشاشة فوراً بلا إعادة انضمام
+    const onCosmeticsUpdated = (data: any) => {
+      if (!data?.physicalId) return;
+      setPlayers(prev => prev.map(p =>
+        p.physicalId === data.physicalId ? { ...p, cosmetics: data.cosmetics || null } : p
+      ));
+    };
+
     const onMorningEvent = (data: any) => {
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
       setAnimation(data);
@@ -476,6 +485,7 @@ function DisplayPageContent() {
     socket.on('room:player-joined', onPlayerJoined);
     socket.on('room:player-kicked', onPlayerKicked);
     socket.on('room:player-updated', onPlayerUpdated);
+    socket.on('player:cosmetics-updated', onCosmeticsUpdated);
     socket.on('game:phase-changed', onPhaseChanged);
     socket.on('night:animation', onNightAnimation);
     socket.on('night:step-info', onNightStepInfo);
@@ -598,6 +608,7 @@ function DisplayPageContent() {
       socket.off('room:player-joined', onPlayerJoined);
       socket.off('room:player-kicked', onPlayerKicked);
       socket.off('room:player-updated', onPlayerUpdated);
+      socket.off('player:cosmetics-updated', onCosmeticsUpdated);
       socket.off('display:sound-play');
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
@@ -1117,6 +1128,7 @@ function DisplayPageContent() {
                     size="lg"
                     avatarUrl={ap.avatarUrl}
                     rankTier={ap.rankTier}
+                    cosmetics={(ap as any).cosmetics}
                     className="shadow-[0_0_60px_rgba(197,160,89,0.6)] border-2 border-[#C5A059] rounded-2xl"
                   />
                 </motion.div>
@@ -1160,6 +1172,7 @@ function DisplayPageContent() {
                       size="lg"
                       avatarUrl={wp.avatarUrl}
                       rankTier={wp.rankTier}
+                      cosmetics={(wp as any).cosmetics}
                       className="shadow-[0_0_70px_rgba(197,160,89,0.7)] border-2 border-[#C5A059] rounded-2xl"
                     />
                   </motion.div>
@@ -1263,6 +1276,7 @@ function DisplayPageContent() {
                             size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
                             avatarUrl={p.avatarUrl}
                             rankTier={p.rankTier}
+                            cosmetics={(p as any).cosmetics}
                             className={luckyActive ? 'shadow-[0_0_50px_rgba(197,160,89,0.6)] border-2 border-[#C5A059] rounded-2xl' : ''}
                           />
                           {/* نقاط العقوبات */}
@@ -1342,6 +1356,7 @@ function DisplayPageContent() {
                           size={players.length <= 8 ? 'lg' : players.length <= 14 ? 'md' : 'sm'}
                           avatarUrl={p.avatarUrl}
                           rankTier={p.rankTier}
+                          cosmetics={(p as any).cosmetics}
                         />
                         {/* نقاط العقوبات */}
                         {(p.penalties || 0) > 0 && (
@@ -1587,6 +1602,7 @@ function DisplayPageContent() {
                         className="w-40 h-[14rem] md:w-52 md:h-[18rem] lg:w-60 lg:h-[20rem]"
                         avatarUrl={p.avatarUrl}
                         rankTier={p.rankTier}
+                        cosmetics={(p as any).cosmetics}
                       />
                     </motion.div>
                   ))}
@@ -1708,6 +1724,7 @@ function DisplayPageContent() {
                 className="w-52 h-[18rem] md:w-72 md:h-[24rem] lg:w-80 lg:h-[28rem]"
                 avatarUrl={players.find(p => p.physicalId === adminReveal.physicalId)?.avatarUrl}
                 rankTier={players.find(p => p.physicalId === adminReveal.physicalId)?.rankTier}
+                cosmetics={(players.find(p => p.physicalId === adminReveal.physicalId) as any)?.cosmetics}
               />
             </motion.div>
 

@@ -39,6 +39,9 @@ export interface Player {
   frozen?: boolean; // مجمد — انتقل لغرفة أخرى مؤقتاً (بياناته محفوظة)
   avatarUrl?: string | null; // رابط صورة اللاعب الشخصية
   rankTier?: string | null; // رتبة اللاعب (INFORMANT→SOLDIER→CAPO→UNDERBOSS→GODFATHER)
+  // 🪙 المظهر المشترى من خزنة الدون (إطار/لقب/تأثير اسم) — بصريّ بحت،
+  // لا يؤثر على أي منطق لعب. يُرطَّب عند الانضمام ويُحدَّث لحظياً عند التجهيز.
+  cosmetics?: { frame?: any; title?: any; nameFx?: any } | null;
   seatHeld?: boolean; // المقعد محجوز (اللاعب خرج لكن مقعده محفوظ لمدة 10 دقائق)
   heldUntil?: number; // timestamp لانتهاء الحجز
   isConnected?: boolean; // هل اللاعب متصل حالياً
@@ -530,7 +533,7 @@ export async function addPlayer(
 export async function updatePlayer(
   roomId: string,
   physicalId: number,
-  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier'>>
+  updates: Partial<Pick<Player, 'name' | 'physicalId' | 'dob' | 'gender' | 'avatarUrl' | 'rankTier' | 'cosmetics'>>
 ): Promise<GameState> {
   console.log(`[State] updatePlayer ➡️ Start for physicalId ${physicalId} with updates:`, updates);
   const state = await getGameState(roomId);

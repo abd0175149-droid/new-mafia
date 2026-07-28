@@ -52,8 +52,24 @@ function fmtDT(ts: string) {
 interface PlayerRow { id: number; name: string; phone: string; avatarUrl?: string | null; rankTier?: string; balance: number }
 interface Pack { id: string; jod: number; chips: number; labelAr: string }
 
+async function apiPut(path: string, body: any) {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `API ${res.status}`);
+  return data;
+}
+
+const KIND_LABEL: Record<string, string> = {
+  frame: '🃏 إطار', title: '🏷️ لقب', name_fx: '✨ تأثير اسم', entrance: '🚪 تشريفة دخول',
+  elimination: '🔥 إقصاء', victory_sting: '🔊 نغمة نصر', xp_boost: '⚡ معزّز',
+};
+
 export default function ChipsAdminPage() {
-  const [tab, setTab] = useState<'topup' | 'ledger'>('topup');
+  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog'>('topup');
   const [stats, setStats] = useState<any>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -97,7 +113,7 @@ export default function ChipsAdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5 border-b border-gray-700/40">
-        {([['topup', '💵 الشحن والأرصدة'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
+        {([['topup', '💵 الشحن والأرصدة'], ['catalog', '🏦 كتالوج الخزنة'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-bold transition-all border-b-2 -mb-px ${
               tab === k ? 'text-amber-400 border-amber-400' : 'text-gray-500 border-transparent hover:text-gray-300'
@@ -107,9 +123,9 @@ export default function ChipsAdminPage() {
         ))}
       </div>
 
-      {tab === 'topup'
-        ? <TopupView packs={packs} onChanged={loadStats} toast={showToast} />
-        : <LedgerView />}
+      {tab === 'topup' && <TopupView packs={packs} onChanged={loadStats} toast={showToast} />}
+      {tab === 'catalog' && <CatalogView toast={showToast} />}
+      {tab === 'ledger' && <LedgerView />}
 
       {/* Toast */}
       {toast && (
@@ -367,6 +383,132 @@ function TopupView({ packs, onChanged, toast }: { packs: Pack[]; onChanged: () =
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 🏦 كتالوج الخزنة — السعر والمدة والعرض والإغلاق النهائي
+// ══════════════════════════════════════════════════════
+function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [edit, setEdit] = useState<Record<number, { priceChips: string; durationDays: string }>>({});
+  const [busy, setBusy] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const d = await apiGet('/api/chips/items');
+      setItems(d.items || []);
+    } catch { setItems([]); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (item: any, patch: any, label: string) => {
+    setBusy(item.id);
+    try {
+      await apiPut(`/api/chips/items/${item.id}`, patch);
+      toast('ok', `✅ ${label} — ${item.nameAr}`);
+      load();
+    } catch (e: any) {
+      toast('err', e.message || 'فشل الحفظ');
+    } finally { setBusy(null); }
+  };
+
+  const closeForever = async (item: any) => {
+    if (!confirm(`إغلاق «${item.nameAr}» نهائياً؟\n\nلن يعود للمتجر أبداً — والإيجارات الجارية تُكمل مدتها. هذا القرار لا رجعة فيه.`)) return;
+    await save(item, { close: true, isActive: false }, '🔒 أُغلق نهائياً');
+  };
+
+  const grouped = items.reduce((acc: Record<string, any[]>, it: any) => {
+    (acc[it.kind] = acc[it.kind] || []).push(it);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-amber-950/20 border border-amber-700/30 rounded-2xl p-3">
+        <p className="text-xs text-amber-300/90 leading-relaxed">
+          ⏳ كل عنصر <b>يُستأجر</b> لمدته المعلنة — لا تملّك أبدي. تغيير السعر يسري على العمليات الجديدة فقط،
+          والإيجارات الجارية تُكمل مدتها. «الإغلاق النهائي» يخدم ندرة العناصر الموسمية ولا رجعة فيه.
+        </p>
+      </div>
+
+      {loading && <p className="text-center text-gray-600 text-xs py-10">جارٍ التحميل…</p>}
+
+      {Object.entries(grouped).map(([kind, list]) => (
+        <div key={kind} className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-gray-300 mb-3">{KIND_LABEL[kind] || kind}</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] text-gray-500 border-b border-gray-700/40">
+                  <th className="text-right py-2 px-2 font-medium">العنصر</th>
+                  <th className="text-right py-2 px-2 font-medium">الندرة</th>
+                  <th className="text-right py-2 px-2 font-medium">السعر 🪙</th>
+                  <th className="text-right py-2 px-2 font-medium">المدة (يوم)</th>
+                  <th className="text-right py-2 px-2 font-medium">الحالة</th>
+                  <th className="py-2 px-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {(list as any[]).map(it => {
+                  const e = edit[it.id] || { priceChips: String(it.priceChips), durationDays: String(it.durationDays) };
+                  const dirty = Number(e.priceChips) !== it.priceChips || Number(e.durationDays) !== it.durationDays;
+                  return (
+                    <tr key={it.id} className="border-b border-gray-800/50">
+                      <td className="py-2 px-2 text-gray-200">
+                        {it.nameAr}
+                        <span className="block text-[10px] text-gray-600" dir="ltr">{it.itemKey}</span>
+                      </td>
+                      <td className="py-2 px-2 text-gray-500 text-xs">{it.rarity}</td>
+                      <td className="py-2 px-2">
+                        <input value={e.priceChips} disabled={!it.isPurchasable}
+                          onChange={ev => setEdit(p => ({ ...p, [it.id]: { ...e, priceChips: ev.target.value } }))}
+                          className="w-20 bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-1 text-xs text-white tabular-nums disabled:opacity-40" />
+                      </td>
+                      <td className="py-2 px-2">
+                        <input value={e.durationDays}
+                          onChange={ev => setEdit(p => ({ ...p, [it.id]: { ...e, durationDays: ev.target.value } }))}
+                          className="w-16 bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-1 text-xs text-white tabular-nums" />
+                      </td>
+                      <td className="py-2 px-2 text-xs">
+                        {it.closedAt ? <span className="text-rose-400">🔒 مُغلق نهائياً</span>
+                          : it.isActive ? <span className="text-emerald-400">معروض</span>
+                          : <span className="text-gray-500">مخفي</span>}
+                        {!it.isPurchasable && <span className="block text-[10px] text-slate-400">إنجاز فقط</span>}
+                      </td>
+                      <td className="py-2 px-2 text-left whitespace-nowrap">
+                        {dirty && (
+                          <button disabled={busy === it.id}
+                            onClick={() => save(it, { priceChips: Number(e.priceChips), durationDays: Number(e.durationDays) }, '💾 حُفظ')}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-600 text-black ml-1">حفظ</button>
+                        )}
+                        {!it.closedAt && (
+                          <>
+                            <button disabled={busy === it.id}
+                              onClick={() => save(it, { isActive: !it.isActive }, it.isActive ? '👁️ أُخفي' : '👁️ عُرض')}
+                              className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-gray-800/60 border border-gray-700/40 text-gray-300 ml-1">
+                              {it.isActive ? 'إخفاء' : 'عرض'}
+                            </button>
+                            <button disabled={busy === it.id} onClick={() => closeForever(it)}
+                              className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-rose-900/30 border border-rose-700/40 text-rose-300">
+                              إغلاق نهائي
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

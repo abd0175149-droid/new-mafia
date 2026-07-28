@@ -7,11 +7,13 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import { getSocket } from '@/lib/socket';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export function ChipsBalancePill({ onClick }: { onClick?: () => void }) {
+  const router = useRouter();
   const [balance, setBalance] = useState<number | null>(null);
   const [delta, setDelta] = useState<number | null>(null);
   const deltaTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,7 +59,7 @@ export function ChipsBalancePill({ onClick }: { onClick?: () => void }) {
 
   return (
     <motion.button
-      onClick={onClick}
+      onClick={onClick || (() => router.push('/player/store'))}
       whileTap={{ scale: 0.94 }}
       className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
       style={{
@@ -65,7 +67,7 @@ export function ChipsBalancePill({ onClick }: { onClick?: () => void }) {
         border: '1px solid rgba(245,158,11,0.32)',
         color: '#fbbf24',
       }}
-      title="رصيد التشبس"
+      title="رصيد التشبس — افتح خزنة الدون"
     >
       <span className="text-sm leading-none">🪙</span>
       <motion.span key={balance} initial={{ scale: 1.35 }} animate={{ scale: 1 }} className="tabular-nums">

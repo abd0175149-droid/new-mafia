@@ -29,6 +29,8 @@ interface SmartMafiaCardProps extends Omit<MafiaCardProps, 'role'> {
   rankTier?: string;
   /** مدّة حركة القلب بالمللي ثانية (افتراضي 700) */
   flipDurationMs?: number;
+  /** 🪙 المظهر المشترى من خزنة الدون (يُمرَّر كما هو للمحرك الديناميكي) */
+  cosmetics?: any;
 }
 
 export default function MafiaCard({
@@ -39,6 +41,7 @@ export default function MafiaCard({
     return <DynamicMafiaCard {...props} />;
   }
 
-  // المحرك القديم
-  return <MafiaCardLegacy {...(props as MafiaCardProps)} />;
+  // المحرك القديم — لا يعرف المظهر المشترى، نُسقطه كي لا يصل للـ DOM
+  const { cosmetics: _cos, ...legacyProps } = props as any;
+  return <MafiaCardLegacy {...(legacyProps as MafiaCardProps)} />;
 }

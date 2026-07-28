@@ -60,6 +60,16 @@ export interface DynamicMafiaCardProps {
   rankTier?: string;
   /** تمرير تأثيرات الرتبة مباشرة (للمعاينة الحية في المحرر) */
   rankEffectsOverride?: any;
+  /**
+   * 🪙 مظهر مشترى من خزنة الدون (إطار/لقب/تأثير اسم).
+   * الأولوية: معاينة المحرر ← الإطار المشترى ← تأثيرات الرتبة.
+   * الإطار المدفوع يظهر على **وجهي البطاقة** (قرار مقفل).
+   */
+  cosmetics?: {
+    frame?: { config?: any } | null;
+    title?: { config?: { text?: string; style?: string } } | null;
+    nameFx?: { config?: { nameEffect?: any } } | null;
+  } | null;
   /** وضع السحب — يسمح بتحريك العناصر */
   rankEditable?: boolean;
   /** تجاوز: استخدم القالب القديم (MafiaCard) بدلاً من DB */
@@ -92,11 +102,16 @@ export default function DynamicMafiaCard({
   rankEditable = false,
   forceClassic = false,
   hideIdentity = false,
+  cosmetics = null,
 }: DynamicMafiaCardProps) {
   const tier = (rankTier || 'INFORMANT');
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
   const rankDef = getRankEffectsForTier(tier);
-  const fx = rankEffectsOverride || rankDef?.effects;
+  // 🪙 الإطار المشترى يستبدل تأثير الرتبة (معاينة المحرر تعلو الجميع)
+  const fx = rankEffectsOverride || cosmetics?.frame?.config || rankDef?.effects;
+  // تأثير الاسم المشترى يعلو تأثير الإطار/الرتبة
+  const nameFx = cosmetics?.nameFx?.config?.nameEffect || fx?.nameEffect;
+  const titleCfg = cosmetics?.title?.config || null;
   const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.frame?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -240,14 +255,18 @@ export default function DynamicMafiaCard({
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
-                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font, ...(fx?.nameEffect?.enabled ? { color: fx.nameEffect.color, textShadow: `0 0 ${fx.nameEffect.glowSize}px ${hexToRgba(fx.nameEffect.glowColor, 0.4)}, 0 0 ${fx.nameEffect.glowSize * 2.5}px ${hexToRgba(fx.nameEffect.glowColor, 0.15)}` } : {}) }}>{truncatedName}</h2>
+                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font, ...(nameFx?.enabled ? { color: nameFx.color, textShadow: `0 0 ${nameFx.glowSize}px ${hexToRgba(nameFx.glowColor, 0.4)}, 0 0 ${nameFx.glowSize * 2.5}px ${hexToRgba(nameFx.glowColor, 0.15)}` } : {}) }}>{truncatedName}</h2>
                   <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
-                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
+                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' && !nameFx?.enabled ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...(nameFx?.enabled ? { color: nameFx.color, textShadow: `0 0 ${nameFx.glowSize}px ${hexToRgba(nameFx.glowColor, 0.45)}, 0 0 ${nameFx.glowSize * 2.5}px ${hexToRgba(nameFx.glowColor, 0.18)}` } : {}), ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
+                {/* 🪙 لوحة اللقب المشترى — تحت الاسم مباشرة */}
+                {titleCfg?.text && (
+                  <div className={`chips-title-plaque chips-title-${titleCfg.style || 'gold'}`}>{titleCfg.text}</div>
+                )}
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
                 {flippable && (
                   <span className="text-[10px] text-zinc-500 mt-1" style={cardTemplate?.elements?.positions?.coverFooter ? { transform: `translate(${cardTemplate.elements.positions.coverFooter.x}px, ${cardTemplate.elements.positions.coverFooter.y}px) scale(${cardTemplate.elements.positions.coverFooter.s || 1})` } : {}}>اضغط للكشف</span>
@@ -299,13 +318,15 @@ export default function DynamicMafiaCard({
         </div>
 
         {/* ── 🎖️ Rank Effects Overlay — طبقة منفصلة فوق الكارد ── */}
-        {hasRankEffects && fx && (
+        {/* 🪙 تُرسم مرتين: للوجه الأمامي وللوجه الخلفي (الإطار المدفوع على الوجهين — قرار مقفل) */}
+        {hasRankEffects && fx && [false, true].map((isBack) => (
           <div
-            className={`absolute inset-0 rounded-2xl overflow-visible ${rankEditable ? '' : 'pointer-events-none'}`}
+            key={isBack ? 'fx-back' : 'fx-front'}
+            className={`absolute inset-0 rounded-2xl overflow-visible ${rankEditable && !isBack ? '' : 'pointer-events-none'}`}
             style={{
               backfaceVisibility: 'hidden',
               WebkitBackfaceVisibility: 'hidden' as any,
-              transform: 'translateZ(1px)',
+              transform: isBack ? 'rotateY(180deg) translateZ(1px)' : 'translateZ(1px)',
               zIndex: 60,
             }}
           >
@@ -406,7 +427,7 @@ export default function DynamicMafiaCard({
               }}>{fx.floating.content}</div>
             )}
           </div>
-        )}
+        ))}
 
         {/* ══════════════════════════════════ */}
         {/* 🂡 الوجه الخلفي — الكشف (ديناميكي) */}

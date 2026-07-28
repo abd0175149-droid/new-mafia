@@ -665,6 +665,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             isAlive={p.isAlive}
                             avatarUrl={p.avatarUrl}
                           rankTier={p.rankTier}
+                          cosmetics={(p as any).cosmetics}
                             className={isSpeaker ? 'shadow-[0_0_50px_rgba(197,160,89,0.4)] border-2 border-[#C5A059]' : ''}
                           />
                           {/* نقاط العقوبات */}
@@ -820,6 +821,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         isAlive={true}
                         avatarUrl={targetPlayer?.avatarUrl}
                         rankTier={targetPlayer?.rankTier}
+                        cosmetics={(targetPlayer as any)?.cosmetics}
                       />
                     </div>
 
@@ -913,6 +915,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         isAlive={true}
                         avatarUrl={p?.avatarUrl}
                         rankTier={p?.rankTier}
+                        cosmetics={(p as any)?.cosmetics}
                       />
                       {acc.type === 'DEAL' && (
                         <div className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#8A0303] text-white text-[8px] font-mono px-4 py-0.5 tracking-widest rounded-full z-30">DEAL</div>
@@ -1356,6 +1359,7 @@ function RevealCeremony({ players, revealedRoles, revealType }: {
                     className="w-56 h-[19rem] md:w-64 md:h-[22rem]"
                     avatarUrl={p?.avatarUrl}
                     rankTier={p?.rankTier}
+                    cosmetics={(p as any)?.cosmetics}
                   />
                 </div>
               </div>
@@ -1623,6 +1627,7 @@ function BombCeremony({ players, bombData }: {
                           className="w-56 h-[19rem] md:w-64 md:h-[22rem]"
                           avatarUrl={p?.avatarUrl}
                           rankTier={p?.rankTier}
+                          cosmetics={(p as any)?.cosmetics}
                         />
                       </div>
                     </div>

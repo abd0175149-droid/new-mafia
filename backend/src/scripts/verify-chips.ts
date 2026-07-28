@@ -105,6 +105,76 @@ async function main() {
     check(r4.ok === true && r4.balance === before, 'عُكست حركة الاختبار — الرصيد عاد كما كان', JSON.stringify(r4));
   }
 
+  // ── 2.5 نموذج الإيجار (المرحلة 1) ──
+  console.log('\n٢.٥) خزنة الدون ونموذج الإيجار:');
+  const cat = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS c FROM chips_items`));
+  check(Number(cat[0]?.c) > 0, `الكتالوج مبذور (${cat[0]?.c} عنصراً)`);
+
+  const noDur = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS c FROM chips_items WHERE duration_days <= 0`));
+  check(Number(noDur[0]?.c) === 0, 'لا عنصر بمدة صفرية — لا تملّك أبدي');
+
+  const champ = rowsOf(await db.execute(sql`
+    SELECT is_purchasable FROM chips_items WHERE item_key = 'frame_champ' LIMIT 1
+  `));
+  check(champ.length > 0 && champ[0].is_purchasable === false, 'إكليل البطل غير قابل للشراء (إنجاز فقط)');
+
+  if (testRows.length > 0) {
+    const pid = Number(testRows[0].id);
+    const { rentItem, getPlayerCosmetics, getActiveRentals } = await import('../services/chips-store.service.js');
+
+    const cheap = rowsOf(await db.execute(sql`
+      SELECT id, name_ar, price_chips FROM chips_items
+      WHERE is_purchasable = true AND is_active = true AND kind = 'frame'
+      ORDER BY price_chips ASC LIMIT 1
+    `))[0];
+
+    if (cheap) {
+      const price = Number(cheap.price_chips);
+      // استئجار بلا رصيد كافٍ → مرفوض
+      const poor = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: `verify-poor-${Date.now()}` });
+      check(poor.ok === false && poor.code === 'INSUFFICIENT', 'الاستئجار بلا رصيد كافٍ مرفوض', JSON.stringify(poor));
+
+      // نشحن ثم نستأجر
+      const stamp2 = `verify2-${Date.now().toString(36)}`;
+      await applyChipsTx({ playerId: pid, amount: price * 2, reason: 'admin_adjust', idempotencyKey: `${stamp2}:fund`, note: 'اختبار تحقق — تمويل' });
+
+      const rentKey = `verify-rent-${Date.now()}`;
+      const r1 = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: rentKey });
+      check(r1.ok === true && !!r1.expiresAt, `استئجار «${cheap.name_ar}» نجح`, JSON.stringify(r1));
+
+      const exp1 = r1.expiresAt ? new Date(r1.expiresAt as any).getTime() : 0;
+
+      // نفس المفتاح مرة ثانية → لا يمدّد ولا يخصم
+      const r2 = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: rentKey });
+      const exp2 = r2.expiresAt ? new Date(r2.expiresAt as any).getTime() : 0;
+      check(r2.ok === true && Math.abs(exp2 - exp1) < 2000, 'إعادة نفس طلب الاستئجار لا تمدّد ولا تخصم مرتين');
+
+      // تجهيز تلقائي للخانة الفارغة
+      const cos = await getPlayerCosmetics(pid);
+      check(!!cos?.frame && cos.frame.itemId === Number(cheap.id), 'أول شراء يُجهَّز تلقائياً ويظهر بالمظهر');
+
+      // التجديد يمدّد فوق المتبقّي
+      const r3 = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: `verify-renew-${Date.now()}` });
+      const exp3 = r3.expiresAt ? new Date(r3.expiresAt as any).getTime() : 0;
+      check(r3.ok === true && r3.renewed === true && exp3 > exp1 + 86000000, 'التجديد يمدّد فوق المتبقّي (لا يبدأ من الصفر)');
+
+      // تنظيف: إنهاء الإيجار + فكّ التجهيز + عكس الرصيد
+      const active = await getActiveRentals(pid);
+      const mine = active.find(a => a.itemId === Number(cheap.id));
+      if (mine) await db.execute(sql`DELETE FROM chips_rentals WHERE id = ${mine.rentalId}`);
+      const afterCos = await getPlayerCosmetics(pid);
+      check(!afterCos?.frame, 'انتهاء الإيجار يفكّ التجهيز تلقائياً عند القراءة');
+
+      const bal = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      const back = Number(bal?.b || 0);
+      if (back > 0) {
+        await applyChipsTx({ playerId: pid, amount: -back, reason: 'admin_adjust', idempotencyKey: `${stamp2}:unfund`, note: 'اختبار تحقق — تصفية' });
+      }
+      const bal2 = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      check(Number(bal2?.b) === 0, 'أُعيد حساب الاختبار لرصيد صفر');
+    }
+  }
+
   // ── 3. التطابق العام ──
   console.log('\n٣) تطابق الكاش مع الدفتر:');
   const audit = await auditChipsBalances(false);
