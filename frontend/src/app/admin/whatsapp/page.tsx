@@ -1032,6 +1032,7 @@ const TOOL_LABELS: Record<string, string> = {
   cancellation: '❌ إلغاء الحجوزات (قاعدة 3 ساعات)',
   liveGame: '🎮 اللعبة الحية (حالة/وقت/مُقصَون/دوري)',
   matchHistory: '📜 سجل المباريات (ملخص + تفصيل نقاط)',
+  adminFinance: '🔒 تقارير ماليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {

@@ -129,7 +129,11 @@ const DEFAULT_TOOLS_CONFIG = {
   cancellation: true,    // إلغاء الحجوزات (قاعدة الـ3 ساعات)
   liveGame: true,        // اللعبة الحية (حالة/تقدم/مُقصَون/أدوار/دوري)
   matchHistory: true,    // سجل المباريات (ملخص + تفصيل نقاط)
+  adminFinance: true,    // 🔒 تقارير ماليّة للفعاليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)
 };
+
+// 🔒 أدوات مقيّدة بـ«الأدمن فقط» دائماً (مهما كان إعداد adminOnlyTools) — لا تُعرض لغير الأدمن أبداً
+const ALWAYS_ADMIN_ONLY = ['adminFinance'];
 
 // أسماء الأدوار بالعربية — من المحرك مباشرة (كانت نسخة يدوية ونقصت «العمدة»)
 const GAME_ROLE_AR: Record<string, string> = { ...ROLE_NAMES_AR };
@@ -600,7 +604,7 @@ async function isAdminConversation(conv: any): Promise<boolean> {
 // 🔒 الأدوات المقيّدة بـ«الأدمن فقط» تُستبعد فعليّاً لغير الأدمن قبل إرسال القائمة لـGemini
 // (حجب من الخادم، لا مجرّد تعليمات) — التعديل الوحيد: t[k] = مفعّلة ومسموحة لهذا المتّصل.
 function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: string[]; isAdmin?: boolean }) {
-  const adminOnly = new Set(Array.isArray(opts?.adminOnlyTools) ? opts!.adminOnlyTools! : []);
+  const adminOnly = new Set<string>([...ALWAYS_ADMIN_ONLY, ...(Array.isArray(opts?.adminOnlyTools) ? opts!.adminOnlyTools! : [])]);
   const isAdmin = !!opts?.isAdmin;
   const raw = { ...DEFAULT_TOOLS_CONFIG, ...(toolsConfig || {}) } as Record<string, any>;
   const t: Record<string, any> = {};
@@ -788,6 +792,32 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
     description: 'عندما يريد العميل إلغاء حجز قائم. قبل استدعائها: اسأله عن السبب بلطف وحاول إقناعه بالإبقاء مرة واحدة (بدّل الموعد؟ نقلل العدد؟) — فإن أصرّ استدعِها. ستعرض حجوزاته القادمة بأزرار، والإلغاء الفعلي يتم آلياً بعد ضغطه (تلقائي إن بقي ≥3 ساعات، وإلا يُحوَّل للإدارة).',
     parameters: { type: 'OBJECT', properties: {}, required: [] },
   });
+  if (t.adminFinance) {
+    decls.push({
+      name: 'admin_activity_finance',
+      description: 'تقرير ماليّ لفعاليّة (أدمن فقط): عدد اللاعبين والمجانيّين والمدفوع/غير المدفوع والإيراد — العدّ حصراً من سجل حجوزات الفعاليّة (bookings). بلا معرّف: مرّر activity_query باسم الفعاليّة لإيجادها؛ إن تعدّدت أو لم تُذكر تُعاد قائمة الفعاليّات الأخيرة للاختيار. include_names=true لإرفاق أسماء اللاعبين وحالتهم.',
+      parameters: { type: 'OBJECT', properties: {
+        activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة إن عُرف' },
+        activity_query: { type: 'STRING', description: 'اسم الفعاليّة أو جزء منه (بديل عن المعرّف)' },
+        include_names: { type: 'BOOLEAN', description: 'إرفاق قائمة أسماء اللاعبين (افتراضي false)' },
+      }, required: [] },
+    });
+    decls.push({
+      name: 'admin_set_player_free',
+      description: 'تحويل لاعب معيّن إلى «مجانيّ» في فعاليّة (أدمن فقط) عبر رقم هاتفه. يعرض أزرار تأكيد قبل التنفيذ — لا يُنفَّذ إلا بعد ضغط الأدمن التأكيد.',
+      parameters: { type: 'OBJECT', properties: {
+        activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' },
+        phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة' },
+      }, required: ['activity_id', 'phone'] },
+    });
+    decls.push({
+      name: 'admin_mark_activity_paid',
+      description: 'تسجيل الدفع لكل اللاعبين غير المجانيّين وغير المدفوعين في فعاليّة (أدمن فقط). يعرض أزرار تأكيد قبل التنفيذ.',
+      parameters: { type: 'OBJECT', properties: {
+        activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' },
+      }, required: ['activity_id'] },
+    });
+  }
   return decls;
 }
 
@@ -1727,6 +1757,88 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       };
     }
 
+    // ══ 🔒 أدوات الأدمن الماليّة (تظهر لغير الأدمن أبداً — مقيّدة بـALWAYS_ADMIN_ONLY) ══
+    case 'admin_activity_finance': {
+      let actId = Number(args.activity_id) || 0;
+      if (!actId && String(args.activity_query || '').trim()) {
+        const q = String(args.activity_query).trim().replace(/[%_]/g, '');
+        const { ilike } = await import('drizzle-orm');
+        const found = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+          .from(activities).where(and(ilike(activities.name, `%${q}%`), isNull(activities.deletedAt)))
+          .orderBy(desc(activities.date)).limit(6);
+        if (found.length === 1) actId = found[0].id;
+        else return { needActivity: true, activities: found.map(a => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: found.length ? 'عدّة فعاليّات مطابقة — اطلب من الأدمن اختيار المعرّف.' : 'ما في مطابقة — اعرض الفعاليّات الأخيرة أو اطلب اسماً أدقّ.' };
+      }
+      if (!actId) {
+        const recent = await db.select({ id: activities.id, name: activities.name, date: activities.date })
+          .from(activities).where(isNull(activities.deletedAt)).orderBy(desc(activities.date)).limit(8);
+        return { needActivity: true, activities: recent.map(a => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'اطلب من الأدمن يحدّد الفعاليّة (بالمعرّف أو الاسم).' };
+      }
+      const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
+        .from(activities).where(eq(activities.id, actId)).limit(1);
+      if (!act) return { error: 'الفعاليّة غير موجودة' };
+      const bks = await db.select({ name: bookings.name, phone: bookings.phone, count: bookings.count, isFree: bookings.isFree, isPaid: bookings.isPaid, paidAmount: bookings.paidAmount })
+        .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt)));
+      const ppl = (b: any) => Number(b.count || 1);
+      const freeB = bks.filter((b) => b.isFree), paidB = bks.filter((b) => !b.isFree && b.isPaid), unpaidB = bks.filter((b) => !b.isFree && !b.isPaid);
+      const revenue = Math.round(bks.reduce((s, b) => s + Number(b.paidAmount || 0), 0) * 100) / 100;
+      const out: any = {
+        activity: act.name, dateText: fmtJo(act.date),
+        players: bks.length, people: bks.reduce((s, b) => s + ppl(b), 0),
+        free: freeB.length, freePeople: freeB.reduce((s, b) => s + ppl(b), 0),
+        paid: paidB.length, unpaid: unpaidB.length, revenueJOD: revenue,
+        note: `تقرير «${act.name}»: ${bks.length} حجز (${bks.reduce((s, b) => s + ppl(b), 0)} شخص) — مجانيّون ${freeB.length}، مدفوع ${paidB.length}، غير مدفوع ${unpaidB.length}، الإيراد ${revenue} د.أ. اعرضها منظّمة بنقاط قصيرة.`,
+      };
+      if (args.include_names) out.names = bks.map((b) => ({ name: b.name, phone: b.phone, count: ppl(b), status: b.isFree ? 'مجانيّ' : b.isPaid ? 'مدفوع' : 'غير مدفوع' }));
+      return out;
+    }
+
+    case 'admin_set_player_free': {
+      const actId = Number(args.activity_id);
+      const [act] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, actId)).limit(1);
+      if (!act) return { error: 'الفعاليّة غير موجودة' };
+      const { samePhone } = await import('../utils/phone.util.js');
+      const bks = await db.select({ id: bookings.id, name: bookings.name, phone: bookings.phone, isFree: bookings.isFree })
+        .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt)));
+      const match = bks.find((b) => samePhone(b.phone, args.phone));
+      if (!match) return { error: 'ما لقيت حجزاً بهذا الرقم في هذه الفعاليّة' };
+      if (match.isFree) return { note: `«${match.name}» مجانيّ أصلاً في «${act.name}».` };
+      if (!dryRun) {
+        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `تحويل «${match.name}» (${match.phone}) إلى مجانيّ في «${act.name}»؟` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `adminfree:${match.id}`, title: 'نعم، مجانيّ ✅' } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد تحويل لاعب لمجانيّ' });
+      }
+      return { pendingConfirm: true, note: 'أُرسلت أزرار التأكيد — لا تؤكّد نصّاً، ينتظر ضغط الأدمن.' };
+    }
+
+    case 'admin_mark_activity_paid': {
+      const actId = Number(args.activity_id);
+      const [act] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, actId)).limit(1);
+      if (!act) return { error: 'الفعاليّة غير موجودة' };
+      const bks = await db.select({ id: bookings.id, isFree: bookings.isFree, isPaid: bookings.isPaid })
+        .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt)));
+      const unpaid = bks.filter((b) => !b.isFree && !b.isPaid).length;
+      if (unpaid === 0) return { note: `ما في حجوزات غير مدفوعة في «${act.name}» — الكل مدفوع أو مجانيّ.` };
+      if (!dryRun) {
+        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `تسجيل الدفع لـ${unpaid} حجزاً غير مدفوع في «${act.name}»؟` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `adminpaid:${actId}`, title: `نعم، ادفع ${unpaid} ✅`.slice(0, 20) } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد تسجيل الدفع الجماعيّ' });
+      }
+      return { pendingConfirm: true, count: unpaid, note: 'أُرسلت أزرار التأكيد — ينتظر ضغط الأدمن.' };
+    }
+
     default:
       return { error: `أداة غير معروفة: ${name}` };
   }
@@ -1975,6 +2087,39 @@ async function processConversation(convId: number) {
       if (cancelMatch) {
         // ❌ إلغاء حتمي بقاعدة الـ3 ساعات — يُفحص وقت الضغط لا وقت العرض
         await performCancellation(convId, parseInt(cancelMatch[1]));
+        return;
+      }
+      // 🔒 إجراءات الأدمن الماليّة — حتميّة مع إعادة فحص صلاحيّة الأدمن لحظة التنفيذ
+      if (btnId === 'admincancel') {
+        await sendMessage({ conversationId: convId, text: 'تمام، ألغيت العمليّة 👍', source: 'system' });
+        return;
+      }
+      const adminFreeMatch = /^adminfree:(\d+)$/.exec(btnId || '');
+      const adminPaidMatch = /^adminpaid:(\d+)$/.exec(btnId || '');
+      if (adminFreeMatch || adminPaidMatch) {
+        if (!(await isAdminConversation(conv))) {
+          await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
+          return;
+        }
+        if (adminFreeMatch) {
+          const [b] = await db.update(bookings)
+            .set({ isFree: true, isPaid: true, paidAmount: '0' } as any)
+            .where(eq(bookings.id, parseInt(adminFreeMatch[1]))).returning({ name: bookings.name });
+          await sendMessage({ conversationId: convId, text: b ? `تمّ ✅ «${b.name}» صار مجانيّاً في الفعاليّة.` : 'ما لقيت الحجز 🙏', source: 'system' });
+        } else {
+          const actId = parseInt(adminPaidMatch![1]);
+          const rcv = conv.displayName || 'أدمن واتساب';
+          const [act] = await db.select({ basePrice: activities.basePrice }).from(activities).where(eq(activities.id, actId)).limit(1);
+          const unit = Number(act?.basePrice || 0);
+          const bks = await db.select({ id: bookings.id, count: bookings.count })
+            .from(bookings).where(and(eq(bookings.activityId, actId), isNull(bookings.deletedAt), eq(bookings.isFree, false), eq(bookings.isPaid, false)));
+          for (const b of bks) {
+            await db.update(bookings)
+              .set({ isPaid: true, paidAmount: String(Math.round(unit * Number(b.count || 1) * 100) / 100), receivedBy: rcv } as any)
+              .where(eq(bookings.id, b.id));
+          }
+          await sendMessage({ conversationId: convId, text: `تمّ ✅ سُجّل الدفع لـ${bks.length} حجزاً في الفعاليّة (المستلم: ${rcv}).`, source: 'system' });
+        }
         return;
       }
     } catch { /* تجاهل */ }
