@@ -1763,16 +1763,21 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       if (!actId && String(args.activity_query || '').trim()) {
         const q = String(args.activity_query).trim().replace(/[%_]/g, '');
         const { ilike } = await import('drizzle-orm');
+        // مطابقة بالكلمات (AND): الاسم يحتوي كل كلمة — فـ«مزاج 23 يوليو» يطابق «مزاج افندينا 23 يوليو»
+        // (تشمل الفعاليّات المنتهية — لا فلترة بالحالة، فقط غير المحذوفة).
+        const words = q.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6);
+        const conds = words.length ? words.map((w) => ilike(activities.name, `%${w}%`)) : [ilike(activities.name, `%${q}%`)];
         const found = await db.select({ id: activities.id, name: activities.name, date: activities.date })
-          .from(activities).where(and(ilike(activities.name, `%${q}%`), isNull(activities.deletedAt)))
+          .from(activities).where(and(...conds, isNull(activities.deletedAt)))
           .orderBy(desc(activities.date)).limit(6);
         if (found.length === 1) actId = found[0].id;
-        else return { needActivity: true, activities: found.map(a => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: found.length ? 'عدّة فعاليّات مطابقة — اطلب من الأدمن اختيار المعرّف.' : 'ما في مطابقة — اعرض الفعاليّات الأخيرة أو اطلب اسماً أدقّ.' };
+        else if (found.length > 1) return { needActivity: true, activities: found.map((a) => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'عدّة فعاليّات مطابقة — اطلب من الأدمن اختيار المعرّف.' };
+        // 0 مطابقة → نكمل لعرض الأخيرة (fallback) بالأسفل بدل «ما لقيت»
       }
       if (!actId) {
         const recent = await db.select({ id: activities.id, name: activities.name, date: activities.date })
           .from(activities).where(isNull(activities.deletedAt)).orderBy(desc(activities.date)).limit(8);
-        return { needActivity: true, activities: recent.map(a => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'اطلب من الأدمن يحدّد الفعاليّة (بالمعرّف أو الاسم).' };
+        return { needActivity: true, activities: recent.map((a) => ({ id: a.id, name: a.name, dateText: fmtJo(a.date, false) })), note: 'ما لقيت مطابقة دقيقة بالاسم — حدّد الفعاليّة بالمعرّف أو اختر من الأخيرة.' };
       }
       const [act] = await db.select({ id: activities.id, name: activities.name, date: activities.date, basePrice: activities.basePrice })
         .from(activities).where(eq(activities.id, actId)).limit(1);
