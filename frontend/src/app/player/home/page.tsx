@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { RANK_NAMES_AR, RANK_BADGES } from '@/lib/ranks';
 import { NotificationBell } from '@/components/NotificationBell';
+import { ChipsBalancePill } from '@/components/ChipsBalancePill';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
@@ -180,7 +181,11 @@ export default function HomePage() {
             </motion.a>
           </div>
         ) : <div />}
-        <NotificationBell />
+        {/* 🪙 رصيد التشبس + الجرس — مدخل «الخزنة» لاحقاً من هنا (قرار مقفل) */}
+        <div className="flex items-center gap-2">
+          <ChipsBalancePill />
+          <NotificationBell />
+        </div>
       </div>
 
       {/* ── بانر تفعيل الإشعارات ── */}

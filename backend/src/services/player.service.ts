@@ -282,8 +282,21 @@ export async function getPlayerProfile(playerId: number) {
   const nextLevelXP = xpForNextLevel(currentLevel);
   const xpProgress = nextLevelXP > 0 ? Math.round((currentXP / nextLevelXP) * 100) : 0;
 
+  // 🔒 تعقيم مخرجات البروفايل — هذا المصدر يخدم مساراً عاماً غير مصادق
+  //    (GET /api/player/:id/profile) فيجب ألا يحمل أسراراً ولا بيانات مالية:
+  //    • passwordHash: لا يخرج من الخادم أبداً.
+  //    • chips_*: الرصيد والتجهيز يُقرآن من /api/chips/me خلف مصادقة اللاعب.
+  const {
+    passwordHash: _pwd,
+    chipsBalance: _cb,
+    chipsFrameItemId: _cf,
+    chipsTitleItemId: _ct,
+    chipsNameFxItemId: _cn,
+    ...safePlayer
+  } = playerData as any;
+
   return {
-    player: playerData,
+    player: safePlayer,
     stats: {
       totalMatches: playerData.totalMatches || matchHistory.length,
       totalWins: playerData.totalWins || (mafiaWins + citizenWins),
