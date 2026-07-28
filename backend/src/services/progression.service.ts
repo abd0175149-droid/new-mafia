@@ -276,6 +276,7 @@ const BREAKDOWN_META: Record<string, { label: string; icon: string }> = {
   contracts: { label: 'عقود منجزة', icon: '🎯' },
   penalty: { label: 'عقوبات', icon: '⚠️' },
   bomb: { label: 'قدرة القنبلة', icon: '💣' },
+  chipsBoost: { label: 'معزّز الخبرة ×2', icon: '⚡' },
   reconcile: { label: 'تسوية/أخرى', icon: '🧮' },
 };
 
@@ -441,6 +442,15 @@ export async function processMatchRewards(state: GameState): Promise<void> {
   const totalRounds = state.round || 1;
   const elimBonus = cfg?.xp?.teamEliminationBonus || 15;
 
+  // ⚡ معزّزات الخبرة المشتراة (تشبس) — الخبرة فقط، لا RR ولا رتبة ولا نتيجة.
+  // تُقرأ مرة واحدة هنا لتطابق ما يُخزَّن في match_players بنفس اللحظة.
+  let xpBoost: Record<number, number> = {};
+  try {
+    const { getXpMultipliers } = await import('./chips-store.service.js');
+    xpBoost = await getXpMultipliers(state.players.map(p => p.playerId).filter(Boolean) as number[]);
+  } catch { /* المعزّز ميزة — لا يعطّل التقدّم */ }
+  const boosted = (playerId: number, xp: number) => Math.round(xp * (xpBoost[playerId] || 1));
+
   // ── حساب مكافأة إقصاء الخصم لكل لاعب ──
   const teamElimBonusMap: Record<number, number> = {};
   for (const p of state.players) {
@@ -479,7 +489,7 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       );
 
       try {
-        const xpResult = await applyXPAndLevel(p.playerId, Math.max(0, jesterXP));
+        const xpResult = await applyXPAndLevel(p.playerId, boosted(p.playerId, Math.max(0, jesterXP)));
         const rrResult = await applyRR(p.playerId, jesterRR);
 
         console.log(`🤡 Jester #${p.physicalId} (${p.name}): ${jesterWon ? 'WON' : 'LOST'} → +${jesterXP} XP, ${jesterRR >= 0 ? '+' : ''}${jesterRR} RR`);
@@ -517,7 +527,7 @@ export async function processMatchRewards(state: GameState): Promise<void> {
       );
 
       try {
-        const xpResult = await applyXPAndLevel(p.playerId, totalXP);
+        const xpResult = await applyXPAndLevel(p.playerId, boosted(p.playerId, totalXP));
         const rrResult = await applyRR(p.playerId, totalRR);
 
         console.log(`🔪 Assassin #${p.physicalId} (${p.name}): ${assassinWon ? 'WON' : 'LOST'} — contracts: ${contractsCompleted}/${state.assassinState?.totalRequired || 4} → +${totalXP} XP, ${totalRR >= 0 ? '+' : ''}${totalRR} RR`);
@@ -579,7 +589,7 @@ export async function processMatchRewards(state: GameState): Promise<void> {
 
     // تطبيق التقدم
     try {
-      const xpResult = await applyXPAndLevel(p.playerId, xpEarned);
+      const xpResult = await applyXPAndLevel(p.playerId, boosted(p.playerId, xpEarned));
       const rrResult = await applyRR(p.playerId, rrChange);
 
       // تحديث إحصائيات الاتفاقيات

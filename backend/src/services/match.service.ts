@@ -113,6 +113,16 @@ export async function finalizeMatch(state: GameState): Promise<void> {
     applyProgressionConfig(cfg); // ضمان أن إعدادات الرتب/المستوى/التنزيل فعّالة في هذه المباراة
     const elimBonusPerKill = cfg?.xp?.teamEliminationBonus || 15;
 
+    // ⚡ معزّزات الخبرة المشتراة — تُقرأ هنا ليطابق المحفوظ في match_players
+    // ما يُطبَّق فعلياً في processMatchRewards (نفس المصدر ونفس اللحظة تقريباً).
+    let xpBoost: Record<number, number> = {};
+    if (!isTestGame) {
+      try {
+        const { getXpMultipliers } = await import('./chips-store.service.js');
+        xpBoost = await getXpMultipliers(state.players.map(p => p.playerId).filter(Boolean) as number[]);
+      } catch { /* المعزّز ميزة — لا يعطّل الاحتساب */ }
+    }
+
     const playerRows = state.players.map(p => {
       const elimEntry = tracking.eliminationLog.find(e => e.physicalId === p.physicalId);
       const roundsSurvived = elimEntry ? Math.max(0, elimEntry.round - 1) : totalRounds;
@@ -149,9 +159,17 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         teamEliminationBonus: teamElimBonus,
         assassinContractsCompleted: state.assassinState?.completedCount || 0,
       };
-      const { xpEarned, rrChange } = computeMatchReward(rewardOpts, cfg);
+      const { xpEarned: baseXp, rrChange } = computeMatchReward(rewardOpts, cfg);
       // 🧮 تفصيل النقاط المُجمّد (مكوّنات مُسمّاة تطابق المجموع) — للعرض الدقيق لاحقاً
       const breakdown = computeMatchBreakdown(rewardOpts, cfg);
+
+      // ⚡ معزّز الخبرة: يُضاعف الخبرة فقط ويُسجَّل كمكوّن مُسمّى
+      // فيبقى مجموع مكوّنات التفصيل مطابقاً للإجمالي المعروض.
+      const mult = (p.playerId && xpBoost[p.playerId]) || 1;
+      const xpEarned = mult > 1 ? Math.round(baseXp * mult) : baseXp;
+      if (mult > 1 && breakdown?.xp) {
+        (breakdown.xp as any).chipsBoost = xpEarned - baseXp;
+      }
 
       return {
         matchId: state.matchId!,

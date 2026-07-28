@@ -226,9 +226,46 @@ async function main() {
   // ── 2.8 لا نبيع ما لا نُنفّذه ──
   const unimplemented = rowsOf(await db.execute(sql`
     SELECT COUNT(*)::int AS c FROM chips_items
-    WHERE kind IN ('victory_sting','xp_boost') AND is_active = true AND updated_at = created_at
+    WHERE kind = 'victory_sting' AND is_active = true AND updated_at = created_at
   `));
-  check(Number(unimplemented[0]?.c) === 0, 'العناصر غير المنفَّذة بعد (نغمة النصر/المعزّز) ليست معروضة للبيع');
+  check(Number(unimplemented[0]?.c) === 0, 'نغمة النصر (تنتظر ملف صوت) ليست معروضة للبيع');
+
+  const boostOn = rowsOf(await db.execute(sql`
+    SELECT is_active FROM chips_items WHERE item_key = 'boost_xp2' LIMIT 1
+  `));
+  check(boostOn.length > 0 && boostOn[0].is_active === true, 'معزّز الخبرة معروض بعد تنفيذ مضاعِف XP');
+
+  // ── 2.9 المعزّز يضاعف الخبرة فقط ──
+  console.log('\n٢.٩) معزّز الخبرة:');
+  if (testRows.length > 0) {
+    const pid = Number(testRows[0].id);
+    const { getXpMultipliers } = await import('../services/chips-store.service.js');
+
+    const before = await getXpMultipliers([pid]);
+    check((before[pid] || 1) === 1, 'بلا إيجار معزّز → المضاعِف 1 (بلا أثر)');
+
+    const boostItem = rowsOf(await db.execute(sql`SELECT id, duration_days FROM chips_items WHERE item_key = 'boost_xp2' LIMIT 1`))[0];
+    if (boostItem) {
+      check(Number(boostItem.duration_days) === 7, 'مدّة المعزّز 7 أيام (الاستثناء المعتمد)');
+
+      await db.execute(sql`
+        INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
+        VALUES (${pid}, ${Number(boostItem.id)}, NOW(), NOW() + interval '1 day', 'admin_grant')
+      `);
+      const after = await getXpMultipliers([pid]);
+      check(after[pid] === 2, 'مع إيجار نشط → المضاعِف 2', JSON.stringify(after));
+
+      // إيجار منتهٍ لا يُفعّل شيئاً
+      await db.execute(sql`
+        UPDATE chips_rentals SET expires_at = NOW() - interval '1 hour'
+         WHERE player_id = ${pid} AND item_id = ${Number(boostItem.id)}
+      `);
+      const expired = await getXpMultipliers([pid]);
+      check((expired[pid] || 1) === 1, 'إيجار المعزّز المنتهي لا يضاعف شيئاً');
+
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${Number(boostItem.id)}`);
+    }
+  }
 
   // ── 3. التطابق العام ──
   console.log('\n٣) تطابق الكاش مع الدفتر:');

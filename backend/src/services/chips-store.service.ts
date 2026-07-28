@@ -387,3 +387,37 @@ export async function notifyExpiringSoon(playerId: number) {
 
 // ── مساعد: الخانات المدعومة حالياً ──
 export function equipSlots() { return EQUIP_SLOTS.filter(k => !!SLOT_COLUMN[k]); }
+
+// ══════════════════════════════════════════════════════
+// ⚡ المعزّزات النشطة (xp_boost) — تُقرأ لحظة احتساب المباراة
+//
+// ⚠️ حدود صارمة بحكم الدستور (لا كسر توازن):
+//    المعزّز يضاعف **الخبرة فقط**. لا يمسّ RR ولا الرانك ولا نتيجة
+//    المباراة ولا أي معلومة داخل اللعبة. وهذه الدالة قراءة محضة.
+// ══════════════════════════════════════════════════════
+
+/** مضاعِف الخبرة لكل لاعب (1 = بلا معزّز) — استعلام واحد للمجموعة كلها */
+export async function getXpMultipliers(playerIds: number[]): Promise<Record<number, number>> {
+  const out: Record<number, number> = {};
+  const db = getDB();
+  if (!db || playerIds.length === 0) return out;
+  try {
+    const rows = await db.select({
+      playerId: chipsRentals.playerId,
+      config: chipsItems.config,
+    }).from(chipsRentals)
+      .innerJoin(chipsItems, eq(chipsItems.id, chipsRentals.itemId))
+      .where(and(
+        inArray(chipsRentals.playerId, playerIds),
+        eq(chipsItems.kind, 'xp_boost'),
+        gt(chipsRentals.expiresAt, new Date()),
+      ));
+    for (const r of rows) {
+      const m = Number((r.config as any)?.multiplier || 1);
+      // نأخذ الأعلى إن تصادف أكثر من معزّز، وبسقف أمان
+      const safe = Math.min(Math.max(m, 1), 3);
+      out[r.playerId] = Math.max(out[r.playerId] || 1, safe);
+    }
+  } catch { /* المعزّز ميزة — لا يعطّل احتساب المباراة */ }
+  return out;
+}

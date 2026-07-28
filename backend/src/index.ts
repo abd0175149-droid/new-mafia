@@ -1312,14 +1312,21 @@ async function main() {
         const n = await seedChipsCatalog();
         if (n > 0) console.log(`🌱 Chips catalog seeded: ${n} new item(s)`);
 
-        // 🚧 لا نبيع ما لا نُنفّذه بعد: نغمة النصر تحتاج ملف صوت معتمداً،
-        //    ومعزّز الخبرة يحتاج ضرب XP في محرك المكافآت (مرحلة لاحقة).
-        //    نُخفيهما ما لم يلمسهما الأدمن يدوياً (updated_at = created_at)،
-        //    فإن فعّلهما لاحقاً لا نعود نتدخّل. يُحذف هذا البند عند تنفيذهما.
+        // 🚧 لا نبيع ما لا نُنفّذه: نغمة النصر تنتظر ملف صوت معتمداً من المالك
+        //    (مكتبة المؤثرات فارغة حالياً) — تبقى مخفية ما لم يلمسها الأدمن
+        //    يدوياً (updated_at = created_at)، فإن فعّلها لا نعود نتدخّل.
         await db.execute(sql`
           UPDATE chips_items SET is_active = false
-           WHERE kind IN ('victory_sting', 'xp_boost')
+           WHERE kind = 'victory_sting'
              AND is_active = true
+             AND updated_at = created_at
+        `);
+        // ⚡ معزّز الخبرة صار منفَّذاً (مضاعِف XP في محرك المكافآت) → يُعاد عرضه.
+        //    نفس الحارس: لا نلمسه إن كان الأدمن قد عدّله بنفسه.
+        await db.execute(sql`
+          UPDATE chips_items SET is_active = true
+           WHERE kind = 'xp_boost'
+             AND is_active = false
              AND updated_at = created_at
         `);
       } catch (e: any) {
