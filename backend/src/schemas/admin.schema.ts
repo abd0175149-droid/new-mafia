@@ -340,6 +340,10 @@ export const waConversations = pgTable('wa_conversations', {
   lastMessagePreview: text('last_message_preview').default(''),
   unreadCount: integer('unread_count').default(0).notNull(),
   needsAttention: boolean('needs_attention').default(false).notNull(), // ⚠️ handoff من البوت — تختفي عند رد الموظف
+  // 🎯 مصدر الحملة: تُختم عند إرسال قالب حملة، ليعرف البوت أن المحادثة بدأت من تسويق
+  //    (بحث O(1) بلا join مع كل رسالة — تُقرأ في بطاقة العميل)
+  campaignId: integer('campaign_id'),
+  campaignAt: timestamp('campaign_at'),
   status: varchar('status', { length: 20 }).default('open').notNull(), // open | closed
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

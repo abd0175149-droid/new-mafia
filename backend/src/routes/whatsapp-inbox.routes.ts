@@ -9,6 +9,7 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
+import multer from 'multer';
 import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
@@ -719,6 +720,53 @@ router.get('/campaigns/segment-preview', authenticate, adminOnly, async (req: Re
       days: req.query.days ? parseInt(String(req.query.days)) : undefined,
     });
     res.json({ success: true, ...preview });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 📄 رفع ملف أرقام (إكسل/CSV) لحملة تعريف بأرقام خارجية.
+//    يعيد الأرقام المطبَّعة + معاينة كاملة للاستبعادات — الملف نفسه لا يُخزَّن.
+const numbersUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },   // 5MB يكفي عشرات الآلاف من الأرقام
+});
+
+router.post(
+  '/campaigns/upload-numbers',
+  authenticate, adminOnly, numbersUpload.single('file'),
+  async (req: Request, res: Response) => {
+    try {
+      const file = (req as any).file;
+      if (!file?.buffer) return res.status(400).json({ error: 'لم يصل ملف — أرسله بالحقل file' });
+      if (!/\.(xlsx|xlsm|csv|txt)$/i.test(file.originalname || '')) {
+        return res.status(400).json({ error: 'الصيغ المدعومة: xlsx · csv · txt (ملفات xls القديمة غير مدعومة — احفظه كـ xlsx)' });
+      }
+      const { parseNumbersFile, previewUploaded } = await import('../services/whatsapp-campaigns.service.js');
+      const parsed = await parseNumbersFile(file.buffer, file.originalname || '');
+      if (!parsed.phones.length) {
+        return res.status(400).json({
+          error: 'لم يُعثر على أي رقم أردني صالح في الملف',
+          ...parsed,
+        });
+      }
+      const excludePlayers = String(req.query.excludePlayers ?? 'true') !== 'false';
+      const preview = await previewUploaded(parsed.phones, excludePlayers);
+      res.json({ success: true, parsed, preview, excludePlayers });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+// إعادة معاينة قائمة مرفوعة بعد تغيير خيار استبعاد اللاعبين (بلا رفع الملف ثانية)
+router.post('/campaigns/preview-uploaded', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const phones: string[] = Array.isArray(req.body?.phones) ? req.body.phones : [];
+    if (!phones.length) return res.status(400).json({ error: 'لا توجد أرقام' });
+    const { previewUploaded } = await import('../services/whatsapp-campaigns.service.js');
+    const preview = await previewUploaded(phones, req.body?.excludePlayers !== false);
+    res.json({ success: true, preview });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

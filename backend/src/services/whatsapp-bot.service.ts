@@ -16,7 +16,7 @@ import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
 import {
   waBotSettings, waConversations, waMessages, waCustomerNotes,
-  reservations, bookings, activities, locations, staff,
+  reservations, bookings, activities, locations, staff, waCampaigns,
 } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
@@ -111,7 +111,22 @@ const DEFAULT_SYSTEM_PROMPT = `أنت «الدون» — المساعد الرس
 ═══ ٧. الذاكرة ═══
 - خزّن بأداة save_customer_note كل معلومة مفيدة على المدى الطويل، بصياغة قصيرة محايدة: تفضيلات (أيام، أماكن، رفقة)، مناسبات ذكرها، شكوى سابقة، كونه جديداً كلياً، أسباب إلغاءات سابقة.
 - لا تخزّن: معلومات حساسة، أرقام أشخاص آخرين، كلاماً عابراً بلا قيمة مستقبلية.
-- استخدم بطاقة العميل والملاحظات المحقونة بذكاء وبلا استعراض — «زي كل مرة، جلسة الجمعة؟» أفضل من سرد ما تعرفه عنه.`;
+- استخدم بطاقة العميل والملاحظات المحقونة بذكاء وبلا استعراض — «زي كل مرة، جلسة الجمعة؟» أفضل من سرد ما تعرفه عنه.
+
+═══ ٨. القادمون من حملة تسويقية 🎯 ═══
+تنشط هذه القواعد **حصراً** حين تقول بطاقة العميل إن مصدر المحادثة حملة. غير ذلك تجاهل الباب كلياً.
+- هو غريب تماماً: **نحن** راسلناه أولاً، ما طلب شي، وغالباً ما بيعرف إن المافيا تنلعب على أرض الواقع. عامله كضيف واقف على الباب، لا كعضو عائلة.
+- ابدأ بالردّ على الزر الذي ضغطه أو سؤاله تحديداً — لا ترحيب طويل، ولا سرد لكل ما عندك دفعة واحدة.
+- ممنوع منعاً باتاً المصطلحات الداخلية: الرتب، RR، المستويات، أسماء الأدوار المتقدمة، لوحة الترتيب، «موسم». هذه تربك الغريب وتشعره أنه متأخر عن ركب لا يعرفه.
+- اشرح بلغة بسيطة وجمل قصيرة. الأساسيات التي تهمه بهذا الترتيب: شو اللعبة (جلسة استنتاج جماعي وجهاً لوجه، كل واحد بدور سري) · كيف بتمشي · قديش بتاخد وقت · وين · متى · قديش بتكلف · الأعمار.
+- **سؤال واحد فقط بكل رسالة.** الاستجواب ينفّر الغريب أسرع من أي شي.
+- استخدم **send_quick_options** في كل ردّ يكون فيه الخيار التالي محصوراً (شرح أكثر / مكان / موعد / حجز). الغريب يضغط زراً ولا يكتب — وكل زر يضغطه يبقيه في المحادثة. اكتب نصّك داخل الأداة ولا تكرره بعدها.
+- لا تفترض معرفة سابقة: ممنوع «زي كل مرة؟» أو الإشارة لحجوزات أو حساب أو مباريات — ما عنده ولا واحدة.
+- هدفك: فضول ⟵ سؤال ⟵ حجز. بلا إلحاح: عرض واحد واضح بكل رسالة، وإن تردد اترك الباب مفتوحاً بلطف («الدعوة قائمة وقت ما تحب 🎭»).
+- ما بدا مهتماً أو طلب يوقف؟ أغلق باحترام بجملة واحدة، وذكّره بزر «إيقاف الرسائل». لا تحاول إقناعه مرة ثانية أبداً.
+- سأل عن السعر؟ استخدم أداة التكلفة ولا تخترع رقماً — الغريب أكثر الناس حساسية لرقم خاطئ.
+- ما إن يبدي اهتماماً حقيقياً أو يطلب الحجز: انتقل لمسار الحجز المعتاد، **وعندها فقط** اذكر التسجيل أو الحساب.
+- بعد أي تفاعل جدي خزّن ملاحظة بـ save_customer_note: «وصل من حملة تعريفية — [اهتمامه أو اعتراضه]».`;
 
 const DEFAULT_FAIL_MESSAGE = 'عذراً، صار خلل تقني عندي 🙏 حوّلت محادثتك للإدارة وسيردّون عليك بأقرب وقت.\nللاستعجال: +962793390966';
 
@@ -128,6 +143,7 @@ const DEFAULT_TOOLS_CONFIG = {
   social: true,          // صفحات التواصل (إنستجرام/الموقع) — بطاقة حتمية
   accountLink: true,     // الربط الآمن للرقم بحساب لاعب (رمز تحقق عبر التطبيق)
   cancellation: true,    // إلغاء الحجوزات (قاعدة الـ3 ساعات)
+  quickOptions: true,    // أزرار خيارات سريعة في أي رد (تخفض حاجز الكتابة — مهمة للقادمين من حملة)
   liveGame: true,        // اللعبة الحية (حالة/تقدم/مُقصَون/أدوار/دوري)
   matchHistory: true,    // سجل المباريات (ملخص + تفصيل نقاط)
   adminFinance: true,    // 🔒 تقارير ماليّة للفعاليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)
@@ -705,6 +721,24 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
       required: ['activity_id', 'people_count'],
     },
   });
+  if (t.quickOptions) {
+    decls.push({
+      name: 'send_quick_options',
+      description: 'إرسال ردّك مع أزرار خيارات جاهزة يضغطها العميل بدل أن يكتب. استخدمها كلما كان الردّ المنطقي التالي محصوراً في خيارين أو ثلاثة — خاصة مع القادمين من حملة تسويقية (الغريب ينفر من الكتابة). نصّ الرسالة يُرسل داخل هذه الأداة نفسها، فلا تكرره في ردّك بعدها.',
+      parameters: {
+        type: 'OBJECT',
+        properties: {
+          message: { type: 'STRING', description: 'نصّ ردّك الذي يظهر فوق الأزرار — جملتان أو ثلاث بحد أقصى' },
+          options: {
+            type: 'ARRAY',
+            items: { type: 'STRING' },
+            description: 'خياران أو ثلاثة، كل خيار 20 حرفاً بحد أقصى وبصيغة ما سيقوله العميل («بدي أحجز»، «وين مكانكم؟»)',
+          },
+        },
+        required: ['message', 'options'],
+      },
+    });
+  }
   if (t.reservation) {
     decls.push({
       name: 'ask_confirmation',
@@ -1119,6 +1153,42 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         remaining: 0,
         activity: act.name,
         note: 'الفعالية مكتملة — أخبره بلطف واعرض: قائمة الانتظار (الإدارة تتواصل للتأكيد)، أو فعالية أخرى قادمة، أو التحويل للإدارة.',
+      };
+    }
+
+    // 🎯 أزرار خيارات سريعة — تخفض حاجز الكتابة، أهم أداة تحويل للقادمين من حملة.
+    //    قيود واتساب للأزرار التفاعلية: 3 أزرار كحد أقصى، وعنوان الزر 20 حرفاً (لا 25 كقوالب ميتا).
+    case 'send_quick_options': {
+      const message = String(args.message || '').trim().slice(0, 1024);
+      const raw: string[] = Array.isArray(args.options) ? args.options : [];
+      const seen = new Set<string>();
+      const options = raw
+        .map((o: any) => String(o || '').replace(/[\r\n]+/g, ' ').trim())
+        .filter((o) => o && !seen.has(o) && seen.add(o))
+        .slice(0, 3)
+        .map((o) => ([...o].length > 20 ? [...o].slice(0, 20).join('') : o));
+
+      if (!message) return { error: 'نص الرسالة مطلوب — اكتب ردّك داخل الأداة.' };
+      if (options.length < 2) {
+        return { error: 'الأداة تحتاج خيارين على الأقل. إن كان الردّ مفتوحاً فاكتبه نصاً عادياً بلا أزرار.' };
+      }
+
+      const interactive = {
+        type: 'button',
+        body: { text: message },
+        action: {
+          buttons: options.map((title, i) => ({ type: 'reply', reply: { id: `opt:${i}`, title } })),
+        },
+      };
+      if (dryRun) {
+        ctx.interactives.push({ kind: 'buttons', preview: `${message}\n[${options.join('] [')}]` });
+      } else {
+        await sendMessage({ conversationId: conv.id, interactive, source: 'bot' });
+      }
+      return {
+        sent: true,
+        options,
+        note: 'أُرسلت الرسالة مع الأزرار للعميل. لا تكتب أي نص إضافي بعدها — انتظر ضغطته.',
       };
     }
 
@@ -2040,8 +2110,47 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 // بناء السياق
 // ══════════════════════════════════════════════════════
 
+// 🎯 سياق الحملة: المحادثة التي بدأت من رسالة تسويقية تحتاج أسلوباً مختلفاً كلياً.
+//    السبب التقني: buildHistory يحذف أدوار model الأولى (شرط Gemini أن يبدأ السجل بـ user)
+//    فرسالة الحملة تختفي من السجل — نحقنها هنا بدل العبث بمنطق السجل.
+const CAMPAIGN_CONTEXT_DAYS = 14;
+
+async function buildCampaignBlock(db: any, conv: any): Promise<string[]> {
+  if (!conv.campaignId || !conv.campaignAt) return [];
+  const ageMs = Date.now() - new Date(conv.campaignAt).getTime();
+  if (ageMs > CAMPAIGN_CONTEXT_DAYS * 24 * 3600e3) return [];
+
+  const [camp] = await db.select({ name: waCampaigns.name })
+    .from(waCampaigns).where(eq(waCampaigns.id, conv.campaignId)).limit(1);
+
+  // النص الفعلي الذي وصل العميل (previewText المعبّأ محفوظ في body)
+  const [tplMsg] = await db.select({ body: waMessages.body })
+    .from(waMessages)
+    .where(and(eq(waMessages.conversationId, conv.id), eq(waMessages.msgType, 'template')))
+    .orderBy(desc(waMessages.id)).limit(1);
+
+  const days = Math.floor(ageMs / 86400e3);
+  const when = days === 0 ? 'اليوم' : days === 1 ? 'أمس' : `قبل ${days} يوماً`;
+
+  const out = [
+    '───── 🎯 مصدر هذه المحادثة: حملة تسويقية ─────',
+    `وصلك من حملة «${camp?.name || 'تعريفية'}» — أُرسلت ${when} (${fmtJo(new Date(conv.campaignAt))}).`,
+  ];
+  if (tplMsg?.body) out.push(`النص الذي وصله حرفياً:\n«${String(tplMsg.body).slice(0, 600)}»`);
+  out.push(
+    conv.playerId
+      ? 'ملاحظة: رغم أنه وصل من حملة، هو لاعب مسجّل — لا تعامله كغريب تماماً.'
+      : '⚠️ هذا شخص غريب تماماً: لم يزر النادي، لا يعرف اللعبة، ولم يطلب التواصل — نحن بدأنا. طبّق «باب الحملات» في تعليماتك حرفياً.',
+  );
+  out.push('─────────────────────────────────────────────');
+  return out;
+}
+
 async function buildCustomerCard(db: any, conv: any): Promise<string> {
   const lines: string[] = [];
+  const campaignBlock = await buildCampaignBlock(db, conv);
+  const fromCampaign = campaignBlock.length > 0;
+  lines.push(...campaignBlock);
   lines.push(`رقم العميل: ${conv.phone}`);
   if (conv.playerId) {
     const [p] = await db.select().from(players).where(eq(players.id, conv.playerId)).limit(1);
@@ -2052,7 +2161,12 @@ async function buildCustomerCard(db: any, conv: any): Promise<string> {
     }
   } else {
     lines.push(`الاسم: ${conv.displayName || 'غير معروف'} — زائر غير مسجّل كلاعب`);
-    lines.push('⚠️ المحادثة غير مربوطة بحساب لاعب — طبّق باب «ربط الحساب» إلزامياً: اسأله أولاً إن كان جديداً (وجّهه للتسجيل) أم لديه حساب برقم آخر (اربطه برمز التحقق عبر request_account_link).');
+    if (fromCampaign) {
+      // قادم من حملة: السؤال عن الحساب كأول شيء يقتل التحويل — نؤجّله لما يبدي اهتماماً
+      lines.push('🚫 لا تفتح باب «ربط الحساب» الآن: هو وصل من رسالة تسويقية ولم يطلب شيئاً بعد. عرّفه بالنادي أولاً، ولا تذكر التسجيل إلا بعد أن يبدي اهتماماً فعلياً أو يطلب الحجز.');
+    } else {
+      lines.push('⚠️ المحادثة غير مربوطة بحساب لاعب — طبّق باب «ربط الحساب» إلزامياً: اسأله أولاً إن كان جديداً (وجّهه للتسجيل) أم لديه حساب برقم آخر (اربطه برمز التحقق عبر request_account_link).');
+    }
   }
   const notes = await db.select().from(waCustomerNotes)
     .where(eq(waCustomerNotes.phone, conv.phone))

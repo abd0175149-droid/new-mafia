@@ -21,9 +21,15 @@ function getUser() { try { return JSON.parse(localStorage.getItem('user') || '{}
 
 async function apiFetch(path: string, opts?: RequestInit) {
   const token = getToken();
+  // رفع الملفات: يجب ترك المتصفح يضبط Content-Type بنفسه (يحمل boundary الـ multipart)
+  const isForm = typeof FormData !== 'undefined' && opts?.body instanceof FormData;
   const res = await fetch(`${API_URL}${path}`, {
     ...opts,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts?.headers },
+    headers: {
+      ...(isForm ? {} : { 'Content-Type': 'application/json' }),
+      Authorization: `Bearer ${token}`,
+      ...opts?.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -1030,6 +1036,7 @@ const TOOL_LABELS: Record<string, string> = {
   social: '🔗 صفحات التواصل (إنستجرام/الموقع)',
   accountLink: '🔐 ربط الحساب برمز تحقق (للأرقام الجديدة)',
   cancellation: '❌ إلغاء الحجوزات (قاعدة 3 ساعات)',
+  quickOptions: '🎯 أزرار خيارات سريعة في الردود (مهمة لحملات التعريف)',
   liveGame: '🎮 اللعبة الحية (حالة/وقت/مُقصَون/دوري)',
   matchHistory: '📜 سجل المباريات (ملخص + تفصيل نقاط)',
   adminFinance: '🔒 تقارير ماليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)',
@@ -2104,6 +2111,7 @@ const SEGMENTS = [
   { key: 'rank_min', label: '🎖️ رتبة فأعلى' },
   { key: 'new_players', label: '🆕 الجدد (آخر N يوم)' },
   { key: 'lapsed', label: '😴 الغائبون (منذ N يوم)' },
+  { key: 'uploaded', label: '📄 ملف أرقام (إكسل/CSV)' },
 ] as const;
 
 const RANKS_LIST = [
@@ -2117,12 +2125,17 @@ function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunche
   const [tplName, setTplName] = useState('');
   const [campName, setCampName] = useState('');
   const [mapping, setMapping] = useState<Array<{ type: 'field' | 'static'; value: string }>>([]);
-  const [segType, setSegType] = useState<'all' | 'rank_min' | 'new_players' | 'lapsed'>('all');
+  const [segType, setSegType] = useState<typeof SEGMENTS[number]['key']>('all');
   const [rankMin, setRankMin] = useState('CAPO');
   const [days, setDays] = useState(30);
   const [preview, setPreview] = useState<any | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [launching, setLaunching] = useState(false);
+  // 📄 شريحة الملف المرفوع
+  const [uploaded, setUploaded] = useState<any>(null);   // { parsed, preview }
+  const [uploading, setUploading] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [excludePlayers, setExcludePlayers] = useState(true);
 
   const tpl = templates.find((t: any) => t.name === tplName) || null;
   const bodyText = useMemo(() => tpl ? tplBodyText(tpl) : '', [tpl]);
@@ -2135,9 +2148,46 @@ function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunche
     setMapping(prev => Array.from({ length: varCount }, (_, i) => prev[i] || { type: 'field', value: 'firstName' }));
   }, [varCount]);
 
-  useEffect(() => { setPreview(null); }, [segType, rankMin, days]);
+  useEffect(() => { setPreview(null); }, [segType, rankMin, days, excludePlayers]);
+  useEffect(() => { if (segType !== 'uploaded') { setUploaded(null); setFileName(''); } }, [segType]);
+
+  // 📄 رفع ملف الأرقام: الخادم يطبّع ويزيل المكرر ويعاين الاستبعادات — الملف نفسه لا يُخزَّن
+  const onPickFile = async (file: File | null) => {
+    if (!file) return;
+    try {
+      setUploading(true);
+      setFileName(file.name);
+      const fd = new FormData();
+      fd.append('file', file);
+      const data = await apiFetch(
+        `/api/whatsapp/campaigns/upload-numbers?excludePlayers=${excludePlayers}`,
+        { method: 'POST', body: fd },
+      );
+      setUploaded(data);
+      setPreview(data.preview);
+    } catch (e: any) {
+      setUploaded(null); setPreview(null);
+      swalAlert('تعذّرت قراءة الملف: ' + e.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const fetchPreview = async () => {
+    if (segType === 'uploaded') {
+      if (!uploaded?.parsed?.phones?.length) { swalAlert('ارفع ملف الأرقام أولاً', 'info'); return; }
+      try {
+        setPreviewing(true);
+        const data = await apiFetch('/api/whatsapp/campaigns/preview-uploaded', {
+          method: 'POST',
+          body: JSON.stringify({ phones: uploaded.parsed.phones, excludePlayers }),
+        });
+        setPreview(data.preview);
+      } catch (e: any) {
+        swalAlert('تعذرت المعاينة: ' + e.message, 'error');
+      } finally { setPreviewing(false); }
+      return;
+    }
     try {
       setPreviewing(true);
       const params = new URLSearchParams({ type: segType });
@@ -2182,7 +2232,12 @@ function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunche
           name: campName.trim(),
           templateName: tpl.name,
           varMapping: mapping,
-          segment: { type: segType, ...(segType === 'rank_min' ? { rankMin } : {}), ...(segType === 'new_players' || segType === 'lapsed' ? { days } : {}) },
+          segment: {
+            type: segType,
+            ...(segType === 'rank_min' ? { rankMin } : {}),
+            ...(segType === 'new_players' || segType === 'lapsed' ? { days } : {}),
+            ...(segType === 'uploaded' ? { phones: uploaded?.parsed?.phones || [], excludePlayers } : {}),
+          },
         }),
       });
       swalToast('🚀 انطلقت الحملة — تابعها من «📈 الحملات»', 'success');
@@ -2271,6 +2326,48 @@ function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunche
               {previewing ? '…' : '👁️ معاينة الحجم'}
             </button>
           </div>
+
+          {segType === 'uploaded' && (
+            <div className="mt-2 bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-2.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="cursor-pointer bg-sky-500/10 text-sky-400 border border-sky-500/40 hover:bg-sky-500/20 rounded-lg px-3 py-1.5 text-[12px] font-bold">
+                  {uploading ? '⏳ جارٍ القراءة…' : '📎 اختر ملف الأرقام'}
+                  <input type="file" accept=".xlsx,.xlsm,.csv,.txt" className="hidden" disabled={uploading}
+                    onChange={e => { onPickFile(e.target.files?.[0] || null); e.target.value = ''; }} />
+                </label>
+                {fileName && <span className="text-[11.5px] text-gray-400 truncate max-w-[220px]" dir="ltr">{fileName}</span>}
+                <label className="flex items-center gap-1.5 text-[11.5px] text-gray-400 cursor-pointer mr-auto">
+                  <input type="checkbox" checked={excludePlayers} onChange={e => setExcludePlayers(e.target.checked)}
+                    className="accent-amber-500" />
+                  استبعد المسجّلين كلاعبين (حملة تعريف)
+                </label>
+              </div>
+
+              {!uploaded && !uploading && (
+                <p className="text-[11px] text-gray-600 leading-relaxed">
+                  أي عمود وأي ترتيب — نقرأ كل الخلايا ونلتقط الأرقام الأردنية وحدها. يقبل <b className="text-gray-500">07XXXXXXXX</b> و<b className="text-gray-500">+962…</b> و<b className="text-gray-500">00962…</b> والأرقام العربية (٠٧…)، ويصلّح الصفر البادئ المفقود من إكسل. الصيغ: xlsx · csv · txt (حد 5 ميجا).
+                </p>
+              )}
+
+              {uploaded?.parsed && (
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-gray-300">
+                  <span>✅ أرقام صالحة: <b className="text-emerald-400">{uploaded.parsed.validCount}</b></span>
+                  {uploaded.parsed.duplicateCount > 0 && <span className="text-gray-500">🔁 مكرر مُزال: {uploaded.parsed.duplicateCount}</span>}
+                  {uploaded.parsed.invalidCount > 0 && (
+                    <span className="text-rose-400" title={uploaded.parsed.invalidSamples?.join(' · ')}>
+                      ⚠️ مرفوض: {uploaded.parsed.invalidCount}
+                    </span>
+                  )}
+                  {preview?.excludedPlayers > 0 && <span className="text-gray-500">👤 لاعبون مستبعدون: {preview.excludedPlayers}</span>}
+                </div>
+              )}
+              {uploaded?.parsed?.invalidSamples?.length > 0 && (
+                <div className="text-[10.5px] text-gray-600" dir="ltr">
+                  عيّنة مرفوضة: {uploaded.parsed.invalidSamples.join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
           {preview && (
             <div className="mt-2 bg-gray-950 border border-gray-800 rounded-xl p-3 text-[12px] text-gray-300 flex flex-wrap gap-x-4 gap-y-1">
               <span>المستلمون: <b className="text-emerald-400">{preview.total}</b></span>

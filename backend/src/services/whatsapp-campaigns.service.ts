@@ -12,7 +12,7 @@
 import { eq, and, desc, gte, lt, sql, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import {
-  waCampaigns, waCampaignRecipients, waOptouts, waTemplates, activities, bookings,
+  waCampaigns, waCampaignRecipients, waOptouts, waTemplates, activities, bookings, waConversations,
 } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { sendTemplateMessage, notifyAdmins } from './whatsapp-inbox.service.js';
@@ -40,9 +40,11 @@ function emitInbox(event: string, payload: any) {
 // ══════════════════════════════════════════════════════
 
 export interface SegmentDef {
-  type: 'all' | 'rank_min' | 'new_players' | 'lapsed';
+  type: 'all' | 'rank_min' | 'new_players' | 'lapsed' | 'uploaded';
   rankMin?: string;        // rank_min: الرتبة فأعلى
   days?: number;           // new_players: سُجّل خلال N يوم · lapsed: لم يلعب منذ N يوم
+  phones?: string[];       // uploaded: أرقام محلية (07XXXXXXXX) مطبَّعة مسبقاً من ملف
+  excludePlayers?: boolean; // uploaded: استبعد الأرقام المسجّلة أصلاً كلاعبين (حملات التعريف)
 }
 
 async function buildSegment(seg: SegmentDef): Promise<Array<{ phone: string; name: string; playerId: number; rankTier: string }>> {
@@ -55,6 +57,28 @@ async function buildSegment(seg: SegmentDef): Promise<Array<{ phone: string; nam
   let list = rows
     .map((p: any) => ({ ...p, phone: normalizeLocalPhone(p.phone) }))
     .filter((p: any) => p.phone); // أرقام صالحة فقط
+
+  // 📄 قائمة مرفوعة من ملف: الأرقام هي المصدر، لا جدول اللاعبين.
+  //    نطابقها بجدول اللاعبين فقط لالتقاط الاسم إن وُجد (وللاستبعاد الاختياري).
+  if (seg.type === 'uploaded') {
+    const byPhone = new Map<string, any>(list.map((p: any) => [p.phone, p]));
+    const seenUp = new Set<string>();
+    const out: Array<{ phone: string; name: string; playerId: number; rankTier: string }> = [];
+    for (const raw of seg.phones || []) {
+      const phone = normalizeLocalPhone(raw);
+      if (!phone || seenUp.has(phone)) continue;
+      seenUp.add(phone);
+      const p = byPhone.get(phone);
+      if (p && seg.excludePlayers) continue;   // حملة تعريف: تجاوز الأعضاء الحاليين
+      out.push({
+        phone,
+        name: p?.name || '',
+        playerId: p?.id ?? null as any,
+        rankTier: p?.rankTier || 'INFORMANT',
+      });
+    }
+    return out;
+  }
 
   if (seg.type === 'rank_min' && seg.rankMin) {
     const minIdx = RANK_ORDER.indexOf(seg.rankMin);
@@ -104,6 +128,112 @@ async function applyExclusions(list: Array<{ phone: string; name: string; player
     return true;
   });
   return { kept, excludedOptout, excludedFreq };
+}
+
+// ══════════════════════════════════════════════════════
+// 📄 رفع ملف أرقام (إكسل / CSV) — لحملات التعريف بأرقام خارجية
+// ══════════════════════════════════════════════════════
+// لا نفترض عموداً بعينه ولا صفَّ عناوين: نمسح كل خلايا كل الأوراق ونلتقط
+// ما يُطبَّع إلى رقم أردني صالح. هذا يتحمّل ملفات المستخدمين الفوضوية
+// (عمود واحد، عدة أعمدة، عناوين عربية، أرقام مخزّنة كأرقام فقدت الصفر البادئ).
+
+const MAX_UPLOAD_ROWS = 20000;   // حارس ذاكرة
+
+function cellToText(v: any): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string' || typeof v === 'number') return String(v);
+  if (typeof v === 'object') {
+    if (typeof v.text === 'string') return v.text;
+    if (Array.isArray(v.richText)) return v.richText.map((r: any) => r?.text || '').join('');
+    if (v.result !== undefined) return String(v.result);
+    if (v.hyperlink) return String(v.hyperlink);
+  }
+  return '';
+}
+
+export interface ParsedNumbers {
+  phones: string[];        // أرقام محلية فريدة صالحة
+  totalCells: number;      // خلايا فُحصت
+  validCount: number;
+  duplicateCount: number;
+  invalidSamples: string[]; // عينة مما رُفض — ليصلح المستخدم ملفه
+  invalidCount: number;
+}
+
+export async function parseNumbersFile(buffer: Buffer, filename: string): Promise<ParsedNumbers> {
+  const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+  const candidates: string[] = [];
+  const isCsv = /\.(csv|txt)$/i.test(filename || '');
+
+  if (isCsv) {
+    const text = buffer.toString('utf8').replace(/^﻿/, '');
+    for (const line of text.split(/\r?\n/)) {
+      for (const cell of line.split(/[,;\t]/)) {
+        const s = cell.trim().replace(/^"|"$/g, '');
+        if (s) candidates.push(s);
+      }
+      if (candidates.length > MAX_UPLOAD_ROWS * 4) break;
+    }
+  } else {
+    const ExcelJS = (await import('exceljs')).default as any;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer);
+    for (const ws of wb.worksheets) {
+      ws.eachRow({ includeEmpty: false }, (row: any) => {
+        row.eachCell({ includeEmpty: false }, (cell: any) => {
+          const s = cellToText(cell.value).trim();
+          if (s) candidates.push(s);
+        });
+      });
+      if (candidates.length > MAX_UPLOAD_ROWS * 4) break;
+    }
+  }
+
+  const seen = new Set<string>();
+  const phones: string[] = [];
+  const invalid: string[] = [];
+  let duplicateCount = 0;
+
+  for (const c of candidates) {
+    // تجاهل ما لا يحتمل أن يكون رقماً أصلاً (عناوين أعمدة، نصوص عربية)
+    const digits = c.replace(/[^\d٠-٩۰-۹]/g, '');
+    if (digits.length < 9) continue;
+    const p = normalizeLocalPhone(c);
+    if (!p) { if (invalid.length < 200) invalid.push(c.slice(0, 30)); continue; }
+    if (seen.has(p)) { duplicateCount++; continue; }
+    seen.add(p);
+    phones.push(p);
+    if (phones.length >= MAX_UPLOAD_ROWS) break;
+  }
+
+  return {
+    phones,
+    totalCells: candidates.length,
+    validCount: phones.length,
+    duplicateCount,
+    invalidCount: invalid.length,
+    invalidSamples: invalid.slice(0, 8),
+  };
+}
+
+/** معاينة قائمة مرفوعة: كم سيصله فعلاً بعد كل الاستبعادات */
+export async function previewUploaded(phones: string[], excludePlayers: boolean) {
+  const seg: SegmentDef = { type: 'uploaded', phones, excludePlayers };
+  const base = await buildSegment(seg);
+  const knownPlayers = base.filter((p) => p.playerId).length;
+  const { kept, excludedOptout, excludedFreq } = await applyExclusions(base);
+  return {
+    uploaded: phones.length,
+    afterPlayerFilter: base.length,
+    excludedPlayers: excludePlayers ? phones.length - base.length : 0,
+    knownPlayers,
+    excludedOptout,
+    excludedFreq,
+    total: kept.length,
+    dailyCap: DAILY_CAP,
+    days: Math.max(1, Math.ceil(kept.length / DAILY_CAP)),
+    sample: kept.slice(0, 5).map((p) => ({ phone: p.phone, name: p.name || '(رقم بلا اسم)' })),
+  };
 }
 
 export async function previewSegment(seg: SegmentDef) {
@@ -257,13 +387,18 @@ export async function runCampaign(campaignId: number): Promise<void> {
           const [tpl] = await db.select().from(waTemplates).where(eq(waTemplates.name, camp.templateName)).limit(1);
           const bodyText = ((tpl?.components as any[]) || []).find((c: any) => c.type === 'BODY')?.text || '';
           const vars: string[] = (next.vars as any[]) || [];
-          const { wamid } = await sendTemplateMessage({
+          const { wamid, conversationId } = await sendTemplateMessage({
             phone: next.phone,
             templateName: camp.templateName,
             language: camp.templateLanguage || 'ar',
             bodyParams: vars,
             previewText: renderPreview(bodyText, vars) || `📋 ${camp.templateName}`,
           });
+          // 🎯 ختم مصدر الحملة على المحادثة — البوت يقرأه ليعرف أن العميل وصل من تسويق
+          //    (آخر حملة تُزيح السابقة: السياق الأحدث هو المهم عند الرد)
+          await db.update(waConversations)
+            .set({ campaignId, campaignAt: new Date() } as any)
+            .where(eq(waConversations.id, conversationId));
           await db.update(waCampaignRecipients)
             .set({ status: 'sent', wamid, sentAt: new Date() } as any)
             .where(eq(waCampaignRecipients.id, next.id));

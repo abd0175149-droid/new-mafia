@@ -105,6 +105,12 @@ export interface CreateTemplateInput {
   createdBy?: string;
 }
 
+// ⚠️ قيد ميتا غير الموثّق جيداً (اكتُشف من ردّ 400 عند إنشاء قوالب الحملة التعريفية 2026-07-29):
+//    «Buttons can't have any variables, newlines, emojis, or formatting characters»
+//    «The message footer can't have any newlines or emojis»
+//    الإيموجي مسموح في نص القالب (BODY) فقط — نمنعه مبكراً بدل رسالة خطأ مبهمة من ميتا.
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/u;
+
 export function validateTemplateInput(input: CreateTemplateInput): string | null {
   const name = String(input.name || '').trim();
   if (!/^[a-z0-9_]{3,512}$/.test(name)) return 'اسم القالب: حروف لاتينية صغيرة وأرقام و_ فقط (3 أحرف فأكثر) — مثال: event_invite';
@@ -125,6 +131,18 @@ export function validateTemplateInput(input: CreateTemplateInput): string | null
   if ((input.quickReplies || []).length > 3) return 'حد أقصى 3 أزرار رد سريع';
   if (input.urlButton && !/^https?:\/\//i.test(input.urlButton.url || '')) return 'رابط الزر يجب أن يبدأ بـ https://';
   if (input.footer && input.footer.length > 60) return 'التذييل أطول من 60 حرفاً';
+
+  // قيود ميتا على التذييل والأزرار — الإيموجي والأسطر الجديدة ممنوعة (النص وحده يقبلها)
+  const footer = String(input.footer || '');
+  if (EMOJI_RE.test(footer)) return 'التذييل لا يقبل إيموجي — ميتا ترفضه (الإيموجي مسموح في نص القالب فقط)';
+  if (/[\r\n]/.test(footer)) return 'التذييل لا يقبل سطراً جديداً';
+  for (const b of [...(input.quickReplies || []), input.urlButton?.text || '']) {
+    const t = String(b || '').trim();
+    if (!t) continue;
+    if (EMOJI_RE.test(t)) return `الزر «${t}» لا يقبل إيموجي — ميتا ترفضه (الإيموجي مسموح في نص القالب فقط)`;
+    if (/[\r\n]/.test(t)) return `الزر «${t}» لا يقبل سطراً جديداً`;
+    if (/\{\{\d+\}\}/.test(t)) return `الزر «${t}» لا يقبل متغيرات`;
+  }
   return null;
 }
 
