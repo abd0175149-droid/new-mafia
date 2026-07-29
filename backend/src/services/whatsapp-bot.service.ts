@@ -16,7 +16,7 @@ import bcrypt from 'bcryptjs';
 import { getDB } from '../config/db.js';
 import {
   waBotSettings, waConversations, waMessages, waCustomerNotes,
-  reservations, bookings, activities, locations, staff, waCampaigns,
+  reservations, bookings, activities, locations, staff, waCampaigns, waTemplates,
 } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { ROLE_NAMES_AR } from '../game/roles.js';
@@ -2115,6 +2115,29 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
 //    فرسالة الحملة تختفي من السجل — نحقنها هنا بدل العبث بمنطق السجل.
 const CAMPAIGN_CONTEXT_DAYS = 14;
 
+/** صياغة موحّدة يستعملها المسار الحي وساحة الاختبار — حتى يكون الاختبار أميناً */
+function formatCampaignBlock(o: {
+  campaignName: string; sentText: string; whenLabel: string; whenExact: string; isPlayer: boolean;
+}): string[] {
+  const out = [
+    '───── 🎯 مصدر هذه المحادثة: حملة تسويقية ─────',
+    `وصلك من حملة «${o.campaignName}» — أُرسلت ${o.whenLabel} (${o.whenExact}).`,
+  ];
+  if (o.sentText) out.push(`النص الذي وصله حرفياً:\n«${o.sentText.slice(0, 600)}»`);
+  out.push(
+    o.isPlayer
+      ? 'ملاحظة: رغم أنه وصل من حملة، هو لاعب مسجّل — لا تعامله كغريب تماماً.'
+      : '⚠️ هذا شخص غريب تماماً: لم يزر النادي، لا يعرف اللعبة، ولم يطلب التواصل — نحن بدأنا. طبّق «باب الحملات» في تعليماتك حرفياً.',
+  );
+  out.push('─────────────────────────────────────────────');
+  return out;
+}
+
+function campaignAgeLabel(ageMs: number): string {
+  const days = Math.floor(ageMs / 86400e3);
+  return days === 0 ? 'اليوم' : days === 1 ? 'أمس' : `قبل ${days} يوماً`;
+}
+
 async function buildCampaignBlock(db: any, conv: any): Promise<string[]> {
   if (!conv.campaignId || !conv.campaignAt) return [];
   const ageMs = Date.now() - new Date(conv.campaignAt).getTime();
@@ -2129,21 +2152,13 @@ async function buildCampaignBlock(db: any, conv: any): Promise<string[]> {
     .where(and(eq(waMessages.conversationId, conv.id), eq(waMessages.msgType, 'template')))
     .orderBy(desc(waMessages.id)).limit(1);
 
-  const days = Math.floor(ageMs / 86400e3);
-  const when = days === 0 ? 'اليوم' : days === 1 ? 'أمس' : `قبل ${days} يوماً`;
-
-  const out = [
-    '───── 🎯 مصدر هذه المحادثة: حملة تسويقية ─────',
-    `وصلك من حملة «${camp?.name || 'تعريفية'}» — أُرسلت ${when} (${fmtJo(new Date(conv.campaignAt))}).`,
-  ];
-  if (tplMsg?.body) out.push(`النص الذي وصله حرفياً:\n«${String(tplMsg.body).slice(0, 600)}»`);
-  out.push(
-    conv.playerId
-      ? 'ملاحظة: رغم أنه وصل من حملة، هو لاعب مسجّل — لا تعامله كغريب تماماً.'
-      : '⚠️ هذا شخص غريب تماماً: لم يزر النادي، لا يعرف اللعبة، ولم يطلب التواصل — نحن بدأنا. طبّق «باب الحملات» في تعليماتك حرفياً.',
-  );
-  out.push('─────────────────────────────────────────────');
-  return out;
+  return formatCampaignBlock({
+    campaignName: camp?.name || 'تعريفية',
+    sentText: String(tplMsg?.body || ''),
+    whenLabel: campaignAgeLabel(ageMs),
+    whenExact: fmtJo(new Date(conv.campaignAt)),
+    isPlayer: !!conv.playerId,
+  });
 }
 
 async function buildCustomerCard(db: any, conv: any): Promise<string> {
@@ -2656,7 +2671,10 @@ async function performCancellation(convId: number, reservationId: number) {
 // ساحة الاختبار (Playground) — نفس المحرك بلا إرسال ولا كتابة
 // ══════════════════════════════════════════════════════
 
-export async function runPlayground(history: Array<{ role: 'user' | 'model'; text: string }>) {
+export async function runPlayground(
+  history: Array<{ role: 'user' | 'model'; text: string }>,
+  opts?: { campaignTemplate?: string },
+) {
   const settings = await getBotSettings();
   if (!settings.geminiApiKey) throw new Error('أدخل مفتاح Gemini واحفظه أولاً');
   const contents = history
@@ -2666,7 +2684,33 @@ export async function runPlayground(history: Array<{ role: 'user' | 'model'; tex
   if (contents.length === 0) throw new Error('اكتب رسالة أولاً');
 
   const fakeConv = { id: 0, phone: '0790000000', waPhone: '962790000000', playerId: null, displayName: 'عميل تجريبي' };
-  const customerCard = 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل';
+  let customerCard = 'رقم العميل: 0790000000\nالاسم: عميل تجريبي (ساحة اختبار) — زائر غير مسجّل';
+
+  // 🎯 وضع الحملة: نحاكي بطاقة العميل تماماً كما تُبنى في المسار الحي —
+  //    بنفس الصياغة ونص القالب الحقيقي، فيكون الاختبار أميناً لا تقريبياً.
+  if (opts?.campaignTemplate) {
+    const db = getDB();
+    let sentText = '';
+    if (db) {
+      const [tpl] = await db.select({ components: waTemplates.components })
+        .from(waTemplates).where(eq(waTemplates.name, opts.campaignTemplate)).limit(1);
+      const body = ((tpl?.components as any[]) || []).find((c: any) => c.type === 'BODY')?.text || '';
+      // المتغيرات تُترك كما هي — الغرض إعطاء النموذج فكرة عمّا وصل العميل
+      sentText = body;
+    }
+    customerCard = [
+      ...formatCampaignBlock({
+        campaignName: `اختبار — ${opts.campaignTemplate}`,
+        sentText,
+        whenLabel: 'اليوم',
+        whenExact: fmtJo(new Date()),
+        isPlayer: false,
+      }),
+      'رقم العميل: 0790000000',
+      'الاسم: غير معروف — زائر غير مسجّل كلاعب',
+      '🚫 لا تفتح باب «ربط الحساب» الآن: هو وصل من رسالة تسويقية ولم يطلب شيئاً بعد. عرّفه بالنادي أولاً، ولا تذكر التسجيل إلا بعد أن يبدي اهتماماً فعلياً أو يطلب الحجز.',
+    ].join('\n');
+  }
   const result = await runAgent({ settings, conv: fakeConv, history: contents, customerCard, dryRun: true });
   // ساحة الاختبار تستهلك توكنز حقيقية أيضاً — تُسجَّل بمصدرها الخاص
   recordBotUsage(null, 'playground', settings.model || '', result.usage).catch(() => {});

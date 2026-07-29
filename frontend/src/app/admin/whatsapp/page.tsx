@@ -1092,20 +1092,24 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
   const [pg, setPg] = useState<Array<{ role: 'user' | 'model'; text: string; trace?: any[]; interactives?: any[] }>>([]);
   const [pgInput, setPgInput] = useState('');
   const [pgLoading, setPgLoading] = useState(false);
+  const [pgCampaignTpl, setPgCampaignTpl] = useState('');   // اسم قالب لمحاكاة محادثة حملة
+  const [pgTemplates, setPgTemplates] = useState<any[]>([]); // من المرآة المحلية (sync=0 — بلا استدعاء ميتا)
   const [locs, setLocs] = useState<any[]>([]);
   const pgRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [a, b, c] = await Promise.all([
+      const [a, b, c, d] = await Promise.all([
         apiFetch('/api/whatsapp/bot/settings'),
         apiFetch('/api/whatsapp/bot/stats').catch(() => null),
         apiFetch('/api/whatsapp/bot/locations').catch(() => null),
+        apiFetch('/api/whatsapp/meta-templates?sync=0').catch(() => null),
       ]);
       setS(a.settings);
       if (b?.stats) setStats(b.stats);
       if (c?.locations) setLocs(c.locations);
+      if (d?.templates) setPgTemplates(d.templates);
       if (a.settings?.model && !MODEL_FALLBACK.includes(a.settings.model)) {
         setModels(prev => (prev.includes(a.settings.model) ? prev : [a.settings.model, ...prev]));
       }
@@ -1196,7 +1200,10 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
     try {
       const res = await apiFetch('/api/whatsapp/bot/playground', {
         method: 'POST',
-        body: JSON.stringify({ history: next.map(m => ({ role: m.role, text: m.text })) }),
+        body: JSON.stringify({
+          history: next.map(m => ({ role: m.role, text: m.text })),
+          ...(pgCampaignTpl ? { campaignTemplate: pgCampaignTpl } : {}),
+        }),
       });
       setPg(prev => [...prev, { role: 'model', text: res.text || '(بلا نص — أرسل رسالة تفاعلية)', trace: res.toolTrace, interactives: res.interactives }]);
     } catch (e: any) {
@@ -1365,6 +1372,20 @@ function BotSettingsView({ onOpenConv }: { onOpenConv?: (id: number) => void }) 
 
         {/* ساحة الاختبار */}
         <Card title="🧪 ساحة الاختبار — جرّب البوت هنا (لا يرسل شيئاً لواتساب ولا يسجل حجوزات حقيقية)" wide>
+          {/* 🎯 وضع الحملة: يحقن بطاقة عميل قادم من قالب تسويقي — لاختبار باب ٨ قبل أي رقم حقيقي */}
+          <div className="mb-2 flex items-center gap-2 flex-wrap bg-gray-950 border border-gray-800 rounded-xl px-3 py-2">
+            <span className="text-[11.5px] text-gray-400 font-bold">🎯 محاكاة محادثة حملة:</span>
+            <select value={pgCampaignTpl} onChange={e => { setPgCampaignTpl(e.target.value); setPg([]); }}
+              className="bg-gray-900 border border-gray-800 rounded-lg px-2 py-1 text-[12px] text-white outline-none focus:border-amber-500">
+              <option value="">— محادثة عادية (بلا حملة) —</option>
+              {pgTemplates.filter((t: any) => t.status === 'APPROVED').map((t: any) => (
+                <option key={t.id} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+            {pgCampaignTpl
+              ? <span className="text-[11px] text-amber-400">الآن البوت يعتقد أن هذا غريب وصله قالب «{pgCampaignTpl}» اليوم — اضغط «بدي أجرّب» أو اكتب رد الزر</span>
+              : <span className="text-[11px] text-gray-600">اختر قالباً لاختبار باب ٨ (القادمون من حملة)</span>}
+          </div>
           <div ref={pgRef} className="h-72 overflow-y-auto bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-2 mb-2">
             {pg.length === 0 && (
               <div className="m-auto text-center text-gray-600 text-xs">
@@ -2216,6 +2237,17 @@ function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunche
     return t;
   }, [bodyText, mapping]);
 
+  // سبب تعطيل زر الإطلاق — يُعرض للمستخدم بدل زر ميت بلا تفسير
+  const blockReason = useMemo(() => {
+    if (!campName.trim()) return 'اكتب اسم الحملة أولاً';
+    if (!tpl) return 'اختر قالباً معتمداً';
+    if (segType === 'uploaded' && !uploaded?.parsed?.validCount) return 'ارفع ملف الأرقام';
+    if (mapping.some((m, i) => i < varCount && m.type === 'static' && !m.value.trim())) return 'أكمل قيم المتغيرات الثابتة';
+    if (!preview) return 'اضغط «👁️ معاينة الحجم» — الإطلاق يحتاج معاينة أولاً';
+    if (!preview.total) return 'الشريحة فارغة بعد الاستبعادات — لا يوجد من يُرسل له';
+    return '';
+  }, [campName, tpl, segType, uploaded, mapping, varCount, preview]);
+
   const launch = async () => {
     if (!tpl || !campName.trim()) return;
     if (!preview) { swalAlert('اعرض حجم الشريحة أولاً (زر المعاينة)', 'info'); return; }
@@ -2378,12 +2410,15 @@ function CampaignWizard({ templates, onLaunched }: { templates: any[]; onLaunche
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          <button onClick={launch} disabled={launching || !tpl || !campName.trim() || !preview?.total}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={launch} disabled={launching || !!blockReason}
             className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-6 py-2.5 text-sm">
             {launching ? '…' : '📣 إطلاق الحملة'}
           </button>
-          <span className="text-[10.5px] text-gray-600">مدفوعة لكل رسالة (خارج النافذة) · الردود يستقبلها الدون · الحجوزات خلال 24 ساعة تُنسب للحملة</span>
+          {/* الزر المعطّل بلا سبب كان يربك — نقول بالضبط ما الناقص */}
+          {blockReason
+            ? <span className="text-[12px] text-amber-400 font-bold">⬅️ {blockReason}</span>
+            : <span className="text-[10.5px] text-gray-600">مدفوعة لكل رسالة (خارج النافذة) · الردود يستقبلها الدون · الحجوزات خلال 24 ساعة تُنسب للحملة</span>}
         </div>
       </div>
 

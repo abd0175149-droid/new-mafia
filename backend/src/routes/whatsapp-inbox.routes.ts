@@ -322,7 +322,9 @@ router.post('/bot/playground', authenticate, adminOnly, async (req: Request, res
   try {
     const { runPlayground } = await import('../services/whatsapp-bot.service.js');
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
-    const result = await runPlayground(history);
+    // وضع الحملة: يحاكي محادثة بدأت من قالب تسويقي (لاختبار باب ٨ قبل أي رقم حقيقي)
+    const campaignTemplate = req.body?.campaignTemplate ? String(req.body.campaignTemplate) : undefined;
+    const result = await runPlayground(history, { campaignTemplate });
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
