@@ -222,6 +222,24 @@ router.get('/conversations/:id/messages', authenticate, adminOnly, async (req: R
 // POST /api/whatsapp/conversations/:id/read — تصفير غير المقروء
 // ══════════════════════════════════════════════════════
 
+// 🎭 حقن رسالة بلسان العميل — الدون يردّ عليها ردّاً حقيقياً يصل العميل.
+//    لا تُرسل نص الأدمن للعميل؛ تُرسل ردّ الدون عليه.
+router.post('/conversations/:id/inject', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { injectCustomerMessage } = await import('../services/whatsapp-inbox.service.js');
+    await injectCustomerMessage({
+      conversationId: parseInt(req.params.id),
+      text: String(req.body?.text || ''),
+      staffName: (req as any).user?.displayName || '',
+      force: req.body?.force === true,
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.code === 'BOT_PAUSED' ? 409 : 400)
+      .json({ error: err.message, code: err.code, pausedUntil: err.pausedUntil });
+  }
+});
+
 router.post('/conversations/:id/read', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const db = getDB();

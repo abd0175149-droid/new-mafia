@@ -120,12 +120,14 @@ function SourceTag({ m }: { m: any }) {
 }
 
 const STATUS_AR: Record<string, string> = { sent: 'أُرسلت', delivered: 'وصلت', read: 'قُرئت', failed: 'فشلت', received: 'استُلمت' };
-const SOURCE_AR: Record<string, string> = { customer: 'العميل', bot: 'البوت 🤖', staff: 'موظف 👤', system: 'النظام ⚙️', template: 'قالب 📋', broadcast: 'بث جماعي 📢' };
+const SOURCE_AR: Record<string, string> = { customer: 'العميل', bot: 'البوت 🤖', staff: 'موظف 👤', system: 'النظام ⚙️', template: 'قالب 📋', broadcast: 'بث جماعي 📢', injected: 'بلسان العميل 🎭' };
 
 // «معلومات الرسالة»: النوع والمصدر والحالة بسجلها الزمني والتفاعل
 function messageInfoText(m: any): string {
   const lines: string[] = [];
-  lines.push(`الاتجاه: ${m.direction === 'in' ? 'واردة من العميل' : 'صادرة'}`);
+  lines.push(`الاتجاه: ${m.direction === 'in'
+    ? (m.source === 'injected' ? `مُدخلة بلسان العميل من ${m.payload?.by || 'الإدارة'} — لم تصل العميل` : 'واردة من العميل')
+    : 'صادرة'}`);
   lines.push(`المصدر: ${SOURCE_AR[m.source] || m.source}`);
   lines.push(`النوع: ${m.msgType}`);
   lines.push(`التوقيت: ${fmtWhen(m.createdAt)}`);
@@ -158,6 +160,7 @@ export default function WhatsAppInboxPage() {
   const [ctx, setCtx] = useState<any | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [asCustomer, setAsCustomer] = useState(false);   // 🎭 وضع «تكلّم بلسان العميل»
   const [muted, setMuted] = useState(false);
   const [mobilePane, setMobilePane] = useState<'list' | 'chat' | 'info'>('list');
   const [mainTab, setMainTab] = useState<'chat' | 'bot' | 'broadcast' | 'campaigns'>('chat');
@@ -356,10 +359,38 @@ export default function WhatsAppInboxPage() {
     });
   };
 
+  // ── 🎭 الحقن: يُرسل بلسان العميل فيردّ الدون على العميل (نصّك لا يصل العميل) ──
+  const injectAsCustomer = useCallback(async () => {
+    const text = draft.trim();
+    if (!text || !selId || sending) return;
+    setSending(true);
+    const post = (force: boolean) => apiFetch(`/api/whatsapp/conversations/${selId}/inject`, {
+      method: 'POST', body: JSON.stringify({ text, force }),
+    });
+    try {
+      await post(false);
+      setDraft('');
+      swalToast('🎭 وصلت للدون — ردّه في طريقه للعميل', 'success');
+    } catch (e: any) {
+      if (e.code === 'BOT_PAUSED') {
+        const ok = await swalConfirm(`${e.message}\n\nتجاهل الإيقاف واجعل الدون يردّ الآن؟`, { title: '⏸️ البوت موقوف مؤقتاً', confirmText: 'تجاهل وأرسل' });
+        if (ok) {
+          try { await post(true); setDraft(''); swalToast('🎭 وصلت للدون', 'success'); }
+          catch (e2: any) { swalAlert('تعذّر: ' + e2.message, 'error'); }
+        }
+      } else {
+        swalAlert(e.message, 'warning');
+      }
+    } finally {
+      setSending(false);
+    }
+  }, [draft, selId, sending]);
+
   // ── الإرسال ──
   const send = useCallback(async () => {
     const text = draft.trim();
     if (!text || !selId || sending) return;
+    if (asCustomer) return injectAsCustomer();
     setSending(true);
     try {
       const res = await apiFetch('/api/whatsapp/send', {
@@ -379,7 +410,7 @@ export default function WhatsAppInboxPage() {
     } finally {
       setSending(false);
     }
-  }, [draft, selId, sending, scrollBottom]);
+  }, [draft, selId, sending, scrollBottom, asCustomer, injectAsCustomer]);
 
   // ── مفتاح البوت ──
   const toggleBot = useCallback(async () => {
@@ -712,10 +743,18 @@ export default function WhatsAppInboxPage() {
                       key={g.m.id}
                       className={`group relative max-w-[78%] rounded-2xl px-3.5 py-2 text-[13.5px] leading-relaxed ${
                         g.m.direction === 'in'
-                          ? 'self-start bg-gray-800/80 border border-gray-700/60 rounded-tr-md text-gray-100'
+                          ? (g.m.source === 'injected'
+                              // 🎭 ليست من العميل فعلاً — الإدارة تكلّمت بلسانه. السجل يقول الحقيقة.
+                              ? 'self-start bg-violet-950/40 border border-dashed border-violet-500/50 rounded-tr-md text-gray-100'
+                              : 'self-start bg-gray-800/80 border border-gray-700/60 rounded-tr-md text-gray-100')
                           : 'self-end bg-emerald-950/70 border border-emerald-900 rounded-tl-md text-gray-100'
                       } ${g.m.payload?.customerReaction?.emoji ? 'mb-2.5' : ''}`}
                     >
+                      {g.m.source === 'injected' && (
+                        <div className="text-[10px] font-bold text-violet-300 mb-0.5">
+                          🎭 بلسان العميل — كتبها {g.m.payload?.by || 'الإدارة'} (لم تصل العميل)
+                        </div>
+                      )}
                       {g.m.deletedAt ? (
                         <div className="italic text-gray-500 text-[12.5px]">🗑️ حُذفت من السجل بواسطة {g.m.deletedBy || 'أدمن'}</div>
                       ) : (
@@ -765,24 +804,37 @@ export default function WhatsAppInboxPage() {
                         className="text-gray-600 text-xs border border-dashed border-gray-700 rounded-xl px-3 py-2.5 cursor-not-allowed select-none"
                         title="القوالب تُفعَّل مع مرحلة الحملات"
                       >📋</span>
+                      {/* 🎭 وضع «بلسان العميل»: نصّك لا يصل العميل — يصله ردّ الدون عليه */}
+                      <button
+                        onClick={() => setAsCustomer(v => !v)}
+                        title={asCustomer
+                          ? 'وضع الحقن: ما تكتبه يصل الدون كأنه من العميل، فيردّ هو على العميل'
+                          : 'تحويل لوضع «بلسان العميل» — يجعل الدون يردّ بدلاً منك'}
+                        className={`text-xs rounded-xl px-3 py-2.5 border transition-colors shrink-0 ${
+                          asCustomer ? 'bg-violet-500/15 text-violet-300 border-violet-500/50' : 'text-gray-500 border-gray-800 hover:text-white'}`}
+                      >🎭</button>
                       <input
                         value={draft}
                         onChange={e => setDraft(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                        placeholder="اكتب رداً كموظف…"
-                        className="flex-1 bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:border-amber-500 outline-none"
+                        placeholder={asCustomer ? 'اكتب بلسان العميل — الدون هو من سيردّ عليه…' : 'اكتب رداً كموظف…'}
+                        className={`flex-1 bg-gray-950 border rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 outline-none ${
+                          asCustomer ? 'border-violet-500/50 focus:border-violet-400' : 'border-gray-800 focus:border-amber-500'}`}
                         disabled={sending}
                       />
                       <button
                         onClick={send}
                         disabled={sending || !draft.trim()}
-                        className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-5 py-2.5 text-sm transition-colors"
+                        className={`disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-5 py-2.5 text-sm transition-colors ${
+                          asCustomer ? 'bg-violet-400 hover:bg-violet-300' : 'bg-emerald-500 hover:bg-emerald-400'}`}
                       >
-                        {sending ? '…' : 'إرسال ◀'}
+                        {sending ? '…' : asCustomer ? 'للدون 🎭' : 'إرسال ◀'}
                       </button>
                     </div>
-                    <div className="text-[10.5px] text-gray-600 mt-1.5">
-                      💡 الرد اليدوي يوقف البوت 30 دقيقة لهذه المحادثة
+                    <div className={`text-[10.5px] mt-1.5 ${asCustomer ? 'text-violet-300' : 'text-gray-600'}`}>
+                      {asCustomer
+                        ? '🎭 وضع الحقن: نصّك لا يصل العميل إطلاقاً — يصل الدون كأنه كلام العميل، والعميل يستقبل ردّ الدون عليه. مفيد لمن اتصل هاتفياً أو سأل حضورياً.'
+                        : '💡 الرد اليدوي يوقف البوت 30 دقيقة لهذه المحادثة'}
                     </div>
                   </>
                 ) : (

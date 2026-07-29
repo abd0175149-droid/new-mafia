@@ -474,6 +474,91 @@ async function handleStatusUpdate(db: any, st: any) {
 // أنبوب الإرسال الموحّد — كل صادر يمر من هنا
 // ══════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════
+// 🎭 الحقن: أن تتكلّم بلسان العميل ليردّ الدون عليه فعلاً
+// ══════════════════════════════════════════════════════
+// الحالة: العميل اتصل هاتفياً أو سأل حضورياً، والموظف يريد أن يتولّى الدون
+// الجواب في الواتساب — أو يريد دفع الدون لسؤال محدّد بلا أن يكتبه بنفسه.
+//
+// نُدخل رسالة واردة اصطناعية فيراها المحرّك دور «user» (buildHistory يعتمد
+// على direction)، ثم يردّ الدون بردّ حقيقي يصل العميل.
+//
+// ثلاثة أشياء لا نلمسها عمداً:
+//   • lastInboundAt — مرساة نافذة الـ24 ساعة. تزويرها يعني ادّعاء أن العميل
+//     راسلنا؛ ميتا تفرض النافذة من طرفها فالإرسال سيفشل، ويفسد حساب الالتزام.
+//   • unreadCount — الأدمن هو من كتبها، لا شيء ليقرأه.
+//   • إشعارات الأدمن — لا داعي لتنبيه من فعلها للتوّ.
+/** الساعة بتوقيت الأردن (+3 ثابت — أُلغي التوقيت الصيفي 2022) */
+function joClock(d: Date): string {
+  const jo = new Date(d.getTime() + 3 * 3600e3);
+  const h = jo.getUTCHours(), m = jo.getUTCMinutes();
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${h < 12 ? 'صباحاً' : 'مساءً'}`;
+}
+
+export async function injectCustomerMessage(input: {
+  conversationId: number;
+  text: string;
+  staffName?: string;
+  force?: boolean;          // تجاهل إيقاف البوت المؤقت (بعد رد بشري)
+}): Promise<{ ok: true }> {
+  const db = getDB();
+  if (!db) throw new Error('DB unavailable');
+  const text = String(input.text || '').trim();
+  if (!text) throw new Error('اكتب نص الرسالة');
+
+  const [conv] = await db.select().from(waConversations)
+    .where(eq(waConversations.id, input.conversationId)).limit(1);
+  if (!conv) throw new Error('المحادثة غير موجودة');
+
+  // فحص مسبق صريح: الصمت أسوأ خيار — الأدمن يجب أن يعرف لماذا لم يردّ الدون
+  const { getBotSettings } = await import('./whatsapp-bot.service.js');
+  const settings = await getBotSettings();
+  if (!settings.enabled) throw Object.assign(new Error('البوت مطفأ من إعدادات الدون — شغّله أولاً'), { code: 'BOT_OFF' });
+  if (!settings.geminiApiKey) throw Object.assign(new Error('مفتاح Gemini غير مضبوط في إعدادات الدون'), { code: 'BOT_NO_KEY' });
+  if (!conv.botEnabled) throw Object.assign(new Error('البوت موقوف لهذه المحادثة تحديداً — فعّله من رأس المحادثة'), { code: 'BOT_OFF_CONV' });
+  if (!isFreeWindowOpen(conv)) {
+    throw Object.assign(
+      new Error('نافذة الـ24 ساعة منتهية — لا يمكن للدون إرسال رسالة حرة. انتظر أن يراسلك العميل، أو استخدم قالباً معتمداً'),
+      { code: 'WINDOW_EXPIRED' },
+    );
+  }
+
+  const pausedUntil = conv.botPausedUntil ? new Date(conv.botPausedUntil) : null;
+  if (pausedUntil && pausedUntil.getTime() > Date.now()) {
+    if (!input.force) {
+      throw Object.assign(
+        new Error(`البوت موقوف مؤقتاً حتى ${joClock(pausedUntil)} (بسبب رد بشري قبل قليل)`),
+        { code: 'BOT_PAUSED', pausedUntil: pausedUntil.toISOString() },
+      );
+    }
+    await db.update(waConversations).set({ botPausedUntil: null, updatedAt: new Date() } as any)
+      .where(eq(waConversations.id, conv.id));
+  }
+
+  // رسالة واردة اصطناعية — source='injected' يبقي السجل صادقاً:
+  // المحرّك يعاملها كدور user، والواجهة تعرضها موسومة بأنها من الإدارة
+  const [saved] = await db.insert(waMessages).values({
+    conversationId: conv.id,
+    wamid: null,
+    direction: 'in',
+    source: 'injected',
+    msgType: 'text',
+    body: text,
+    payload: { injected: true, by: input.staffName || '' },
+    status: 'received',
+  } as any).returning();
+
+  const now = new Date();
+  const [updatedConv] = await db.update(waConversations)
+    .set({ lastMessageAt: now, updatedAt: now } as any)   // بلا lastInboundAt وبلا unread
+    .where(eq(waConversations.id, conv.id)).returning();
+
+  emitInbox('wa:message:new', { conversation: updatedConv, message: saved });
+  forwardToBot(updatedConv);
+  return { ok: true };
+}
+
 export interface SendMessageInput {
   conversationId?: number;
   phone?: string;                       // بديل عن conversationId (أي صيغة)
