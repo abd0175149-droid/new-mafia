@@ -860,13 +860,15 @@ router.get('/broadcast/recipients', authenticate, adminOnly, async (req: Request
 router.post('/broadcast', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const { launchBroadcast } = await import('../services/whatsapp-broadcast.service.js');
-    const { body, templateId, conversationIds, recipientMeta } = req.body || {};
+    const { body, templateId, conversationIds, recipientMeta, buttons, skipOptoutButton } = req.body || {};
     const result = await launchBroadcast({
       body: String(body || ''),
       templateId: templateId ? parseInt(templateId) : null,
       conversationIds: Array.isArray(conversationIds) ? conversationIds.map((n: any) => parseInt(n)).filter(Boolean) : [],
       createdBy: (req as any).user?.displayName || '',
       recipientMeta: recipientMeta && typeof recipientMeta === 'object' ? recipientMeta : {},
+      buttons: Array.isArray(buttons) ? buttons.map(String) : [],
+      skipOptoutButton: skipOptoutButton === true,
     });
     res.json({ success: true, ...result });
   } catch (err: any) {

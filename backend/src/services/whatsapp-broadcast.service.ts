@@ -8,10 +8,10 @@
 //   • الوتيرة: رسالة كل ~ثانية (مع تفاوت بسيط) لحماية جودة الرقم
 // المعتذرون (waOptouts) مستبعدون إجبارياً، والنافذة تُفحص لحظة إرسال كل رسالة.
 
-import { eq, and, desc, gte, sql, isNull, inArray } from 'drizzle-orm';
+import { eq, and, or, asc, desc, gte, sql, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import {
-  waConversations, waOptouts, waBroadcasts, waMessageTemplates, activities, bookings,
+  waConversations, waOptouts, waBroadcasts, waMessageTemplates, activities, bookings, reservations,
 } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { sendMessage } from './whatsapp-inbox.service.js';
@@ -258,17 +258,103 @@ export function stopBroadcast(id: number) {
   stopFlags.add(id);
 }
 
+// ══════════════════════════════════════════════════════
+// 🔘 أزرار البث — كتالوج جاهز
+// ══════════════════════════════════════════════════════
+// البث يرسل رسائل حرة داخل نافذة الـ24 ساعة، فالأزرار التفاعلية مسموحة بلا
+// موافقة ميتا (بخلاف الحملات التي تحتاج قوالب معتمدة). حدود واتساب: 3 أزرار،
+// وعنوان الزر ≤20 حرفاً.
+//
+// قيمة الزر = ما يحدث عند ضغطه:
+//   • حتمي   — كود ينفّذ مباشرة بلا نموذج (إيقاف الرسائل، إلغاء الحجز)
+//   • نيّة    — العنوان نفسه يصل كرسالة العميل، فيستدعي الدون الأداة المناسبة
+//              (لا يحتاج معالجاً جديداً: «المواعيد القادمة» كنص = ما يكتبه العميل)
+
+export const BROADCAST_BUTTONS = {
+  book:        { title: 'احجزلي مكان',      id: 'bc:book',       kind: 'intent' as const, needsBot: true },
+  activities:  { title: 'المواعيد القادمة', id: 'bc:activities', kind: 'intent' as const, needsBot: true },
+  location:    { title: 'وين مكانكم؟',      id: 'bc:location',   kind: 'intent' as const, needsBot: true },
+  myBookings:  { title: 'شو حجوزاتي؟',      id: 'bc:mybookings', kind: 'intent' as const, needsBot: true },
+  rank:        { title: 'ترتيبي',           id: 'bc:rank',       kind: 'intent' as const, needsBot: true },
+  // حتمي + خاص بكل مستلم: المعرّف يحمل رقم حجزه هو، ويسقط الزر عمّن لا حجز له
+  cancelBooking: { title: 'ألغي حجزي',      id: '',              kind: 'perRecipient' as const, needsBot: false },
+  // حتمي: يُلتقط بمطابقة العنوان في isOptoutMessage — لا يحتاج معرّفاً
+  optout:      { title: 'إيقاف الرسائل',    id: 'bc:optout',     kind: 'deterministic' as const, needsBot: false },
+} as const;
+
+export type BroadcastButtonKey = keyof typeof BROADCAST_BUTTONS;
+const MAX_BUTTONS = 3;
+
+/** هل يحتاج هذا الاختيار بوتاً شغّالاً ليردّ؟ (تحذير الواجهة) */
+export function buttonsNeedBot(keys: string[]): boolean {
+  return keys.some((k) => (BROADCAST_BUTTONS as any)[k]?.needsBot);
+}
+
+/**
+ * حلّ أزرار مستلم بعينه: يسقط «ألغي حجزي» عمّن لا حجز قادم له،
+ * ويربطه بمعرّف حجزه هو (cancelc:{id}) — يُفحص وقت الضغط بقاعدة الـ3 ساعات.
+ * يعيد null إن لم يبقَ زر واحد صالح (فتُرسل الرسالة نصاً عادياً).
+ */
+async function resolveButtonsFor(
+  db: any,
+  conv: { id: number; phone: string; playerId: number | null },
+  keys: string[],
+): Promise<Array<{ type: 'reply'; reply: { id: string; title: string } }> | null> {
+  const out: Array<{ type: 'reply'; reply: { id: string; title: string } }> = [];
+
+  for (const key of keys) {
+    const def = (BROADCAST_BUTTONS as any)[key];
+    if (!def || out.length >= MAX_BUTTONS) continue;
+
+    if (def.kind === 'perRecipient' && key === 'cancelBooking') {
+      // أقرب حجز قادم لهذا الرقم/اللاعب — نفس محدِّد request_cancellation
+      const [res] = await db
+        .select({ id: reservations.id })
+        .from(reservations)
+        .innerJoin(activities, eq(reservations.activityId, activities.id))
+        .where(and(
+          or(eq(reservations.phone, conv.phone), conv.playerId ? eq(reservations.playerId, conv.playerId) : sql`false`),
+          isNull(reservations.deletedAt),
+          gte(activities.date, new Date() as any),
+        ))
+        .orderBy(asc(activities.date))
+        .limit(1);
+      if (!res) continue;                                    // لا حجز ⟵ الزر يسقط عنه
+      out.push({ type: 'reply', reply: { id: `cancelc:${res.id}`, title: def.title } });
+      continue;
+    }
+
+    out.push({ type: 'reply', reply: { id: def.id, title: def.title } });
+  }
+
+  return out.length ? out : null;
+}
+
 export async function launchBroadcast(opts: {
   body: string;
   templateId?: number | null;
   conversationIds: number[];
   createdBy: string;
   recipientMeta?: Record<number, { lastRoleAr?: string }>; // بيانات {آخر_دور} من الفلترة
-}): Promise<{ broadcastId: number; totalTargets: number }> {
+  buttons?: string[];          // مفاتيح من BROADCAST_BUTTONS
+  skipOptoutButton?: boolean;  // افتراضياً نضيف «إيقاف الرسائل» تلقائياً
+}): Promise<{ broadcastId: number; totalTargets: number; buttons: string[] }> {
   const db = getDB();
   const targets = Array.from(new Set(opts.conversationIds)).filter(Boolean);
   if (!targets.length) throw new Error('لا يوجد مستلمون محددون');
   if (!opts.body?.trim()) throw new Error('نص الرسالة فارغ');
+
+  // ── الأزرار: تنقية + إضافة زر الاعتذار تلقائياً ──
+  // زر «إيقاف الرسائل» ليس مجاملة: من يضغطه لا يبلّغ عن الرقم كسبام،
+  // والبلاغات هي ما يهبط تقييم جودة الرقم عند ميتا. يبقى قابلاً للإزالة صراحةً.
+  let buttons = (opts.buttons || [])
+    .filter((k, i, a) => (BROADCAST_BUTTONS as any)[k] && a.indexOf(k) === i && k !== 'optout');
+  if (!opts.skipOptoutButton) buttons.push('optout');
+  buttons = buttons.slice(0, MAX_BUTTONS);
+  // لو التنقية أسقطت الاعتذار خارج الحد، نضمن بقاءه بإزاحة آخر زر نيّة
+  if (!opts.skipOptoutButton && !buttons.includes('optout')) {
+    buttons = [...buttons.slice(0, MAX_BUTTONS - 1), 'optout'];
+  }
 
   const [row] = await db.insert(waBroadcasts).values({
     body: opts.body.trim(),
@@ -286,13 +372,13 @@ export async function launchBroadcast(opts: {
   }
 
   // تنفيذ بالخلفية — التقدم عبر السوكيت
-  runBroadcast(row.id, opts.body.trim(), targets, opts.recipientMeta || {}).catch((err) =>
+  runBroadcast(row.id, opts.body.trim(), targets, opts.recipientMeta || {}, buttons).catch((err) =>
     console.error('❌ WA broadcast runner:', err.message));
 
-  return { broadcastId: row.id, totalTargets: targets.length };
+  return { broadcastId: row.id, totalTargets: targets.length, buttons };
 }
 
-async function runBroadcast(broadcastId: number, body: string, conversationIds: number[], recipientMeta: Record<number, { lastRoleAr?: string }> = {}) {
+async function runBroadcast(broadcastId: number, body: string, conversationIds: number[], recipientMeta: Record<number, { lastRoleAr?: string }> = {}, buttonKeys: string[] = []) {
   const db = getDB();
   const activityName = await nearestUpcomingActivityName();
   const cutoffMs = WINDOW_MS;
@@ -324,8 +410,19 @@ async function runBroadcast(broadcastId: number, body: string, conversationIds: 
             rankAr = p?.tier ? (RANK_AR[p.tier] || p.tier) : null;
           }
           const text = renderBroadcastText(body, { displayName: conv.displayName, playerName, rankAr, lastRoleAr: recipientMeta[convId]?.lastRoleAr || null }, activityName);
+          // 🔘 الأزرار تُحلّ لكل مستلم على حدة: «ألغي حجزي» يحمل رقم حجزه هو،
+          //    ويسقط تماماً عمّن لا حجز قادم له بدل أن يضغط زراً ميتاً.
+          const buttons = buttonKeys.length ? await resolveButtonsFor(db, conv as any, buttonKeys) : null;
           // المصدر broadcast: يمر بالأنبوب الموحد ولا يوقف البوت (بخلاف staff)
-          await sendMessage({ conversationId: convId, text, source: 'broadcast' });
+          if (buttons) {
+            await sendMessage({
+              conversationId: convId,
+              source: 'broadcast',
+              interactive: { type: 'button', body: { text }, action: { buttons } },
+            });
+          } else {
+            await sendMessage({ conversationId: convId, text, source: 'broadcast' });
+          }
           sent++;
         }
       }

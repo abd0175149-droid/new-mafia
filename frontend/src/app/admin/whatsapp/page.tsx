@@ -1475,6 +1475,10 @@ function BroadcastView() {
   const [run, setRun] = useState<{ id: number; total: number; sent: number; skipped: number; failed: number; done: number; finished?: boolean; status?: string } | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // 🔘 أزرار الرسالة (حتى زرّين + «إيقاف الرسائل» تلقائياً)
+  const [btnKeys, setBtnKeys] = useState<string[]>([]);
+  const [skipOptout, setSkipOptout] = useState(false);
+  const [botOn, setBotOn] = useState<boolean | null>(null);   // لتحذير «أزرار بلا رد»
 
   const loadRecipients = useCallback(async () => {
     try {
@@ -1523,6 +1527,12 @@ function BroadcastView() {
 
   useEffect(() => { loadRecipients(); }, [loadRecipients]);
   useEffect(() => { loadTemplates(); loadHistory(); }, [loadTemplates, loadHistory]);
+  // حالة البوت — أزرار «النيّة» بلا بوت شغّال تصل بلا رد
+  useEffect(() => {
+    apiFetch('/api/whatsapp/bot/settings')
+      .then((d: any) => setBotOn(!!d?.settings?.enabled))
+      .catch(() => setBotOn(null));
+  }, []);
 
   // تقدم البث لحظياً
   useEffect(() => {
@@ -1596,8 +1606,10 @@ function BroadcastView() {
     const ids = Array.from(selected);
     if (!ids.length || !body.trim()) return;
     const prev = renderBcPreview(body, recipients.find((r: any) => r.id === (previewId ?? ids[0])) || recipients[0], activityName);
+    const finalBtns = [...btnKeys.map(k => BROADCAST_BTNS.find(b => b.key === k)?.title), ...(skipOptout ? [] : ['إيقاف الرسائل'])].filter(Boolean);
+    const btnLine = finalBtns.length ? `\n\nالأزرار: [${finalBtns.join('] [')}]` : '';
     const ok = await swalConfirm(
-      `إرسال لـ${ids.length} مستلم؟ (رسالة كل ~ثانية — البوت سيرد على ردودهم طبيعياً)\n\nمعاينة:\n${prev.slice(0, 300)}`,
+      `إرسال لـ${ids.length} مستلم؟ (رسالة كل ~ثانية — البوت سيرد على ردودهم طبيعياً)\n\nمعاينة:\n${prev.slice(0, 300)}${btnLine}`,
       { title: '📢 تأكيد البث', confirmText: `إرسال (${ids.length})` },
     );
     if (!ok) return;
@@ -1606,7 +1618,7 @@ function BroadcastView() {
       for (const r of recipients) if (ids.includes(r.id) && r.lastRoleAr) recipientMeta[r.id] = { lastRoleAr: r.lastRoleAr };
       const res = await apiFetch('/api/whatsapp/broadcast', {
         method: 'POST',
-        body: JSON.stringify({ body: body.trim(), templateId: tplId, conversationIds: ids, recipientMeta }),
+        body: JSON.stringify({ body: body.trim(), templateId: tplId, conversationIds: ids, recipientMeta, buttons: btnKeys, skipOptoutButton: skipOptout }),
       });
       setRun({ id: res.broadcastId, total: res.totalTargets, sent: 0, skipped: 0, failed: 0, done: 0 });
     } catch (e: any) {
@@ -1786,6 +1798,47 @@ function BroadcastView() {
               </div>
             </div>
           ) : (
+            <>
+            {/* 🔘 أزرار الرسالة — حتى زرّين + «إيقاف الرسائل» تلقائياً (حد واتساب 3) */}
+            <div className="mt-3 bg-gray-950 border border-gray-800 rounded-xl p-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11.5px] text-gray-400 font-bold">🔘 أزرار على الرسالة</span>
+                <span className="text-[10.5px] text-gray-600">اختر حتى زرّين — واتساب يسمح بـ3 والثالث محجوز للاعتذار</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {BROADCAST_BTNS.map(b => {
+                  const on = btnKeys.includes(b.key);
+                  const full = !on && btnKeys.length >= (skipOptout ? 3 : 2);
+                  return (
+                    <button key={b.key} disabled={full} title={b.hint}
+                      onClick={() => setBtnKeys(prev => on ? prev.filter(k => k !== b.key) : [...prev, b.key])}
+                      className={`rounded-full px-3 py-1 text-[12px] font-bold border transition-colors ${
+                        on ? 'bg-sky-500/15 text-sky-300 border-sky-500/50'
+                          : full ? 'text-gray-700 border-gray-900 cursor-not-allowed'
+                          : 'text-gray-400 border-gray-800 hover:text-white'}`}>
+                      {b.title}
+                      <span className={`mr-1.5 text-[9.5px] ${b.kind === 'حتمي' ? 'text-emerald-400' : 'text-gray-600'}`}>{b.kind}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="flex items-center gap-1.5 text-[11.5px] text-gray-400 cursor-pointer w-fit">
+                <input type="checkbox" checked={!skipOptout} onChange={e => setSkipOptout(!e.target.checked)} className="accent-amber-500" />
+                أضف زر «إيقاف الرسائل» تلقائياً
+                <span className="text-[10.5px] text-gray-600">— من يضغطه لا يبلّغ عنك كسبام، وهذا ما يحمي تقييم جودة الرقم</span>
+              </label>
+              {skipOptout && (
+                <div className="text-[11px] text-amber-400">⚠️ بلا زر اعتذار، من لا يريد الرسائل قد يبلّغ عن الرقم بدل إيقافها — البلاغات تهبط تقييم الجودة عند ميتا.</div>
+              )}
+              {botOn === false && btnKeys.some(k => BROADCAST_BTNS.find(b => b.key === k)?.needsBot) && (
+                <div className="text-[11px] text-rose-400 font-bold">
+                  🚫 البوت مطفأ — أزرار «النيّة» ستصل بلا رد: العميل يضغط ولا يحدث شيء. شغّل البوت أو اكتفِ بأزرار «حتمي».
+                </div>
+              )}
+              {btnKeys.includes('cancelBooking') && (
+                <div className="text-[11px] text-gray-500">ℹ️ «ألغي حجزي» يحمل رقم حجز كل مستلم على حدة، ويسقط تلقائياً عمّن لا حجز قادم له.</div>
+              )}
+            </div>
             <div className="flex items-center gap-3 mt-3 flex-wrap">
               <button onClick={launch} disabled={!body.trim() || selected.size === 0}
                 className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-gray-950 font-bold rounded-xl px-6 py-2.5 text-sm">
@@ -1798,6 +1851,7 @@ function BroadcastView() {
               )}
               <span className="text-[10.5px] text-gray-600 mr-auto">مجاني (نافذة خدمة) · البوت يرد على الردود طبيعياً</span>
             </div>
+            </>
           )}
         </div>
 
@@ -2125,6 +2179,17 @@ const VAR_FIELDS = [
   { key: 'fullName', label: 'الاسم الكامل' },
   { key: 'rank', label: 'الرتبة' },
   { key: 'nextActivity', label: 'الفعالية القادمة' },
+] as const;
+
+// 🔘 كتالوج أزرار البث — مرآة BROADCAST_BUTTONS في whatsapp-broadcast.service.ts
+// «حتمي» = كود ينفّذ مباشرة · «نيّة» = العنوان يصل كرسالة العميل فيردّ الدون بالأداة المناسبة
+const BROADCAST_BTNS = [
+  { key: 'book',          title: 'احجزلي مكان',      kind: 'نيّة',  hint: 'الدون يعرض تأكيد الحجز للفعالية القادمة', needsBot: true },
+  { key: 'cancelBooking', title: 'ألغي حجزي',        kind: 'حتمي', hint: 'إلغاء فعلي بقاعدة الـ3 ساعات · يظهر فقط لمن له حجز قادم', needsBot: false },
+  { key: 'activities',    title: 'المواعيد القادمة', kind: 'نيّة',  hint: 'يرسل قائمة الفعاليات التفاعلية', needsBot: true },
+  { key: 'location',      title: 'وين مكانكم؟',      kind: 'نيّة',  hint: 'بطاقة موقع بروابط خرائط', needsBot: true },
+  { key: 'myBookings',    title: 'شو حجوزاتي؟',      kind: 'نيّة',  hint: 'يعرض حجوزاته القادمة', needsBot: true },
+  { key: 'rank',          title: 'ترتيبي',           kind: 'نيّة',  hint: 'رتبته وإحصاءاته · للمربوطين بحساب', needsBot: true },
 ] as const;
 
 const SEGMENTS = [
