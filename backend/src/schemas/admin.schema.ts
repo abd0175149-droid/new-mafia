@@ -329,8 +329,10 @@ export const whatsappRankNotifications = pgTable('whatsapp_rank_notifications', 
 // ── المحادثات: محادثة واحدة لكل رقم ──────────────────
 export const waConversations = pgTable('wa_conversations', {
   id: serial('id').primaryKey(),
-  phone: varchar('phone', { length: 20 }).notNull().unique(),      // 07XXXXXXXX
-  waPhone: varchar('wa_phone', { length: 20 }).notNull(),          // 9627XXXXXXXX (صيغة الإرسال)
+  // الأردني: 07XXXXXXXX · غير الأردني: الصيغة الدولية كما وصلت (971…, 966…)
+  // لا تصادم: المحلي يبدأ بـ0 دائماً والدولي (E.164) لا يبدأ بـ0 أبداً
+  phone: varchar('phone', { length: 20 }).notNull().unique(),
+  waPhone: varchar('wa_phone', { length: 20 }).notNull(),          // صيغة الإرسال (962… أو الدولية كما هي)
   playerId: integer('player_id').references(() => players.id, { onDelete: 'set null' }),
   displayName: varchar('display_name', { length: 150 }).default(''),   // اسم بروفايل واتساب أو اسم اللاعب
   botEnabled: boolean('bot_enabled').default(true).notNull(),          // إيقاف دائم بزر صريح

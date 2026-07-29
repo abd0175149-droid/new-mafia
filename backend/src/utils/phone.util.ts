@@ -65,3 +65,32 @@ export function samePhone(a: string | null | undefined, b: string | null | undef
   const nb = normalizeLocalPhone(b);
   return !!na && !!nb && na === nb;
 }
+
+/**
+ * توحيد أي رقم وارد من واتساب — أردنياً كان أم أجنبياً.
+ *
+ * الأردني يُعامل تماماً كما كان (07XXXXXXXX محلياً / 962… للإرسال) حتى لا يتغيّر
+ * أي سلوك قائم أو صف مخزَّن. أما غير الأردني فيُخزَّن بصيغته الدولية كما وصلت
+ * من واتساب (أرقام فقط) بدل أن تُرمى الرسالة.
+ *
+ * لا يمكن أن يتصادم الشكلان: المحلي يبدأ بـ0 دائماً، والدولي (E.164) لا يبدأ بـ0 أبداً.
+ *
+ * السبب: getOrCreateConversation كان يرمي استثناءً لأي رقم غير أردني، ومعالج
+ * الويبهوك يبتلع الاستثناء — فتختفي رسالة كل زائر خليجي أو سائح أو مسافر
+ * بشريحة أجنبية بلا أثر. (اكتُشف 2026-07-29)
+ */
+export function normalizeAnyPhone(input: string | null | undefined):
+  { local: string; wa: string; isJordanian: boolean } | null {
+  const local = normalizeLocalPhone(input);
+  if (local) return { local, wa: '962' + local.slice(1), isJordanian: true };
+
+  const d = digitsOnly(input || '');
+  // E.164: من 8 إلى 15 خانة ولا تبدأ بصفر. أقصر من ذلك ليس رقماً دولياً حقيقياً.
+  if (d.length < 8 || d.length > 15 || d.startsWith('0')) return null;
+  return { local: d, wa: d, isJordanian: false };
+}
+
+/** هل هذا الرقم المخزَّن محلي أردني؟ (للعرض والمنطق المرتبط باللاعبين) */
+export function isJordanianPhone(stored: string | null | undefined): boolean {
+  return /^07[789]\d{7}$/.test(String(stored || ''));
+}

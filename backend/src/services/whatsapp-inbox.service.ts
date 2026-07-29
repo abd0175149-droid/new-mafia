@@ -16,7 +16,7 @@ import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { waConversations, waMessages, waOptouts, staff, reservations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
-import { normalizeLocalPhone, toWaPhone, samePhone } from '../utils/phone.util.js';
+import { normalizeLocalPhone, toWaPhone, samePhone, normalizeAnyPhone } from '../utils/phone.util.js';
 import { sendPushToPlayers } from './fcm.service.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com/v20.0';
@@ -83,9 +83,12 @@ export async function getOrCreateConversation(rawPhone: string, profileName?: st
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
 
-  const localPhone = normalizeLocalPhone(rawPhone);
-  const waPhone = toWaPhone(rawPhone);
-  if (!localPhone || !waPhone) throw new Error(`رقم غير صالح: ${rawPhone}`);
+  // الأردني يُطبَّع محلياً (07…) كما كان دائماً؛ غير الأردني يُخزَّن بصيغته الدولية.
+  // قبل هذا كان أي رقم غير أردني يرمي استثناءً يبتلعه معالج الويبهوك، فتختفي
+  // رسالة الزائر الخليجي أو السائح بلا أثر — لا تُخزَّن ولا تظهر ولا يردّ عليها أحد.
+  const norm = normalizeAnyPhone(rawPhone);
+  if (!norm) throw new Error(`رقم غير صالح: ${rawPhone}`);
+  const { local: localPhone, wa: waPhone, isJordanian } = norm;
 
   const [existing] = await db
     .select()
@@ -96,7 +99,7 @@ export async function getOrCreateConversation(rawPhone: string, profileName?: st
   if (existing) {
     // تحديثات خفيفة: ربط لاعب إن ظهر لاحقاً، أو اسم بروفايل إن كان فارغاً
     const patch: any = {};
-    if (!existing.playerId) {
+    if (!existing.playerId && isJordanian) {
       const player = await findPlayerByPhone(db, localPhone);
       if (player) {
         patch.playerId = player.id;
@@ -116,8 +119,9 @@ export async function getOrCreateConversation(rawPhone: string, profileName?: st
     return existing;
   }
 
-  // إنشاء جديد — مع مطابقة اللاعب فوراً
-  const player = await findPlayerByPhone(db, localPhone);
+  // إنشاء جديد — مع مطابقة اللاعب فوراً (اللاعبون يُخزَّنون بأرقام محلية، فلا معنى
+  // للبحث عن رقم أجنبي: يربط نفسه لاحقاً برمز تحقق عبر request_account_link)
+  const player = isJordanian ? await findPlayerByPhone(db, localPhone) : null;
   await db
     .insert(waConversations)
     .values({
