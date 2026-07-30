@@ -37,7 +37,25 @@ services:
       - PORT=${BACKEND_PORT}
       - DATABASE_URL=postgresql://mafia_user:mafia_pass@database:5432/${DB_NAME}
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET:-mafia_secret_key_123}
+      # 🔑 سرّ توقيع التوكنات — إلزامي، بلا قيمة احتياطية.
+      #
+      #    كان هنا `${JWT_SECRET:-mafia_secret_key_123}` — أي أن غياب المتغيّر
+      #    يُسقط المنصّة بصمت على سرّ محظور مكتوب في المستودع العلني. أُزيلت
+      #    القيمة الاحتياطية عمداً: الغياب يجب أن يفشل بوضوح لا أن يُستبدل.
+      #
+      #    ⚠️ إن رفض `docker compose up` العمل برسالة
+      #       "required variable JWT_SECRET is missing a value" فالمشكلة ليست
+      #       في هذا السطر — بل أن `~/mafia-prod/.env` لم يعد يحوي السطر
+      #       `JWT_SECRET=...`. الإصلاح:
+      #       1) تحقّق:      grep -c '^JWT_SECRET=' ~/mafia-prod/.env
+      #       2) استعِد من أحدث نسخة احتياطية:
+      #                      ls -t ~/mafia-prod/.env.bak.*
+      #                      cp ~/mafia-prod/.env.bak.<الأحدث> ~/mafia-prod/.env
+      #       3) شغّل:       docker compose up -d backend
+      #    ⛔ لا تُعِد القيمة الاحتياطية هنا لتتجاوز الخطأ — ذلك يوقّع كل بطاقات
+      #       الدخول بسرّ يعرفه كل من يقرأ المستودع.
+      #    السرّ الحالي بصمته `52a32f5641ed` (أول ١٢ من sha256 — للمقارنة بلا كشف).
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in .env - see the comment above, do NOT reintroduce a default}
       # مفاتيح VAPID لـ Web Push (iOS/Safari). إن لم تُمرَّر فسيولّدها الباكند ويحفظها
       # داخل volume الـ uploads ليبقى الزوج ثابتاً بين عمليات إعادة التشغيل.
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
