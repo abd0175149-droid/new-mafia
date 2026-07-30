@@ -1094,6 +1094,7 @@ const TOOL_LABELS: Record<string, string> = {
   adminFinance: '🔒 تقارير ماليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)',
   adminGame: '🔒 حالة اللعبة بالأدوار + إعادة توجيه حدث ليل (أدمن فقط)',
   adminPassword: '🔒 إعادة تعيين كلمة سرّ لاعب عبر رقمه (أدمن فقط)',
+  adminBookings: '🔒 إضافة حجز للاعب + نقل حجز بين فعاليّتين (أدمن فقط)',
 };
 
 function Card({ title, children, wide }: { title: string; children: any; wide?: boolean }) {

@@ -149,10 +149,11 @@ const DEFAULT_TOOLS_CONFIG = {
   adminFinance: true,    // 🔒 تقارير ماليّة للفعاليّة + تحويل مجانيّ + تسجيل دفع (أدمن فقط)
   adminGame: true,       // 🔒 حالة اللعبة الكاملة بالأدوار + تعديل حدث ليل قبل الكشف (أدمن فقط)
   adminPassword: true,   // 🔒 إعادة تعيين كلمة سرّ لاعب عبر رقم هاتفه (أدمن فقط)
+  adminBookings: true,   // 🔒 إضافة حجز للاعب + نقل حجز بين فعاليّتين (أدمن فقط)
 };
 
 // 🔒 أدوات مقيّدة بـ«الأدمن فقط» دائماً (مهما كان إعداد adminOnlyTools) — لا تُعرض لغير الأدمن أبداً
-const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword'];
+const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword', 'adminBookings'];
 
 // 🌙 أنواع أحداث الليل القابلة لإعادة التوجيه بأمان + تسمياتها العربية
 const NIGHT_EVENT_AR: Record<string, string> = {
@@ -916,6 +917,27 @@ function buildToolDeclarations(toolsConfig: any, opts?: { adminOnlyTools?: strin
       parameters: { type: 'OBJECT', properties: {
         activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة' },
       }, required: ['activity_id'] },
+    });
+  }
+  if (t.adminBookings) {
+    decls.push({
+      name: 'admin_add_booking',
+      description: 'إضافة حجز للاعب في فعاليّة نيابةً عنه (أدمن فقط) — لمن اتّصل هاتفياً أو حجز حضورياً. تحتاج: الفعاليّة، الاسم، رقم الهاتف، وعدد الأشخاص. تعرض ملخّصاً وحالة المقاعد وأزرار تأكيد؛ لا يُسجَّل الحجز إلا بعد ضغط الأدمن التأكيد.',
+      parameters: { type: 'OBJECT', properties: {
+        activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة (من get_available_activities)' },
+        name: { type: 'STRING', description: 'اسم اللاعب كما يُسجَّل في الحجز' },
+        phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة' },
+        people_count: { type: 'NUMBER', description: 'عدد الأشخاص (1 فأكثر)' },
+      }, required: ['activity_id', 'name', 'phone', 'people_count'] },
+    });
+    decls.push({
+      name: 'admin_move_booking',
+      description: 'نقل حجز لاعب من فعاليّة إلى أخرى (أدمن فقط) عبر رقم هاتفه — بدل الإلغاء وإعادة الحجز. إن لم تُحدَّد الفعاليّة المصدر يُبحَث عن حجوزاته القادمة وتُعرَض للاختيار. تعرض أزرار تأكيد قبل التنفيذ.',
+      parameters: { type: 'OBJECT', properties: {
+        phone: { type: 'STRING', description: 'رقم هاتف اللاعب بأي صيغة' },
+        to_activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المنقول إليها' },
+        from_activity_id: { type: 'NUMBER', description: 'معرّف الفعاليّة المصدر (اختياريّ — يُستنتج إن كان له حجز واحد)' },
+      }, required: ['phone', 'to_activity_id'] },
     });
   }
   if (t.adminGame) {
@@ -1959,6 +1981,112 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
       return out;
     }
 
+    // 🔒 إضافة حجز نيابةً عن لاعب — الحمولة في aux لأن الاسم لا يُحشر في معرّف زر
+    case 'admin_add_booking': {
+      const actId = Number(args.activity_id);
+      const people = Math.max(1, parseInt(args.people_count) || 1);
+      const name = String(args.name || '').trim();
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const phone = normalizeLocalPhone(String(args.phone || ''));
+      if (!name) return { error: 'الاسم مطلوب' };
+      if (!phone) return { error: 'رقم الهاتف غير صالح — لازم موبايل أردني (07XXXXXXXX)' };
+
+      const [act] = await db.select({ name: activities.name, date: activities.date })
+        .from(activities).where(eq(activities.id, actId)).limit(1);
+      if (!act) return { error: 'الفعاليّة غير موجودة' };
+
+      // مانع التكرار: هل له حجز أصلاً في هذه الفعاليّة؟ (بالهاتف — يغطّي الحجز غير المربوط)
+      const [dupRes] = await db.select({ people: reservations.peopleCount, status: reservations.status })
+        .from(reservations).where(and(
+          eq(reservations.activityId, actId), isNull(reservations.deletedAt), eq(reservations.phone, phone),
+        )).limit(1);
+      if (dupRes) return { error: `«${name}» (${phone}) محجوز أصلاً في «${act.name}» — ${dupRes.people} أشخاص (${dupRes.status}). للتعديل: انقل الحجز أو ألغِه ثم أعد الحجز.` };
+
+      const av = await seatAvailability(db, actId);
+      const seatNote = av.remaining >= people
+        ? `المقاعد كافية (${av.remaining} متاح من ${av.total})`
+        : `⚠️ المتبقي ${av.remaining} فقط من ${av.total} — الإضافة ستتجاوز السعة`;
+
+      if (!dryRun) {
+        const { setAux } = await import('../config/redis.js');
+        await setAux(`adm-addbk:${conv.id}`, { actId, name, phone, people, expiresAt: Date.now() + 10 * 60e3 });
+        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `📋 إضافة حجز:\n• الاسم: ${name}\n• الرقم: ${phone}\n• العدد: ${people}\n• الفعاليّة: ${act.name} (${fmtJo(act.date)})\n\n${seatNote}\n\nأثبّت الحجز؟` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `admaddbk:${conv.id}`, title: 'نعم، احجز ✅' } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد إضافة حجز' });
+      }
+      return { pendingConfirm: true, seats: av, note: 'أُرسلت أزرار التأكيد — لا تؤكّد نصّاً، ينتظر ضغط الأدمن.' };
+    }
+
+    // 🔒 نقل حجز بين فعاليّتين — ينقل معه مرآة حجز التطبيق وإلا انكسر عدّ المقاعد
+    case 'admin_move_booking': {
+      const toId = Number(args.to_activity_id);
+      const { normalizeLocalPhone } = await import('../utils/phone.util.js');
+      const phone = normalizeLocalPhone(String(args.phone || ''));
+      if (!phone) return { error: 'رقم الهاتف غير صالح — لازم موبايل أردني (07XXXXXXXX)' };
+
+      const [toAct] = await db.select({ name: activities.name, date: activities.date })
+        .from(activities).where(eq(activities.id, toId)).limit(1);
+      if (!toAct) return { error: 'الفعاليّة المنقول إليها غير موجودة' };
+
+      // حجوزاته القادمة (غير محذوفة) — المصدر يُستنتج إن كان واحداً
+      const mine = await db
+        .select({
+          id: reservations.id, activityId: reservations.activityId, people: reservations.peopleCount,
+          status: reservations.status, actName: activities.name, actDate: activities.date,
+        })
+        .from(reservations)
+        .innerJoin(activities, eq(reservations.activityId, activities.id))
+        .where(and(
+          eq(reservations.phone, phone), isNull(reservations.deletedAt),
+          gte(activities.date, new Date() as any),
+        ))
+        .orderBy(asc(activities.date));
+      if (!mine.length) return { error: `ما لقيت أي حجز قادم للرقم ${phone}` };
+
+      const fromId = args.from_activity_id ? Number(args.from_activity_id) : null;
+      const candidates = fromId ? mine.filter((r: any) => r.activityId === fromId) : mine;
+      if (!candidates.length) return { error: 'ما لقيت حجزاً لهذا الرقم في الفعاليّة المصدر المحدّدة' };
+      if (candidates.length > 1) {
+        return {
+          multiple: candidates.map((r: any) => ({ activityId: r.activityId, activity: r.actName, when: fmtJo(r.actDate), people: r.people })),
+          note: 'له أكثر من حجز قادم — اسأل الأدمن أيّها ينقل، ثم أعد الاستدعاء مع from_activity_id.',
+        };
+      }
+      const src = candidates[0];
+      if (src.activityId === toId) return { error: 'الحجز موجود في هذه الفعاليّة أصلاً' };
+
+      const [dupTo] = await db.select({ id: reservations.id }).from(reservations).where(and(
+        eq(reservations.activityId, toId), isNull(reservations.deletedAt), eq(reservations.phone, phone),
+      )).limit(1);
+      if (dupTo) return { error: `له حجز أصلاً في «${toAct.name}» — لا يصحّ حجزان لنفس الفعاليّة` };
+
+      const av = await seatAvailability(db, toId);
+      const seatNote = av.remaining >= src.people
+        ? `المقاعد كافية (${av.remaining} متاح من ${av.total})`
+        : `⚠️ المتبقي ${av.remaining} فقط من ${av.total} — النقل سيتجاوز السعة`;
+
+      if (!dryRun) {
+        const { setAux } = await import('../config/redis.js');
+        await setAux(`adm-movebk:${conv.id}`, { resId: src.id, fromId: src.activityId, toId, phone, expiresAt: Date.now() + 10 * 60e3 });
+        await sendMessage({ conversationId: conv.id, source: 'bot', interactive: {
+          type: 'button',
+          body: { text: `🔀 نقل حجز:\n• الرقم: ${phone} (${src.people} أشخاص)\n• من: ${src.actName} (${fmtJo(src.actDate)})\n• إلى: ${toAct.name} (${fmtJo(toAct.date)})\n\n${seatNote}\n\nأنقل الحجز؟` },
+          action: { buttons: [
+            { type: 'reply', reply: { id: `admmovebk:${conv.id}`, title: 'نعم، انقل ✅' } },
+            { type: 'reply', reply: { id: 'admincancel', title: 'إلغاء' } },
+          ] },
+        } });
+        ctx.interactives.push({ kind: 'buttons', preview: 'تأكيد نقل حجز' });
+      }
+      return { pendingConfirm: true, seats: av, note: 'أُرسلت أزرار التأكيد — لا تؤكّد نصّاً، ينتظر ضغط الأدمن.' };
+    }
+
     case 'admin_set_player_free': {
       const actId = Number(args.activity_id);
       const [act] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, actId)).limit(1);
@@ -2491,6 +2619,96 @@ async function processConversation(convId: number) {
         await sendMessage({ conversationId: convId, text: `تمّ ✅ ${kindMsg}. سيظهر التصحيح عند كشف الحدث.`, source: 'system' });
         return;
       }
+      // 🔒 إضافة حجز (أدمن) — حتميّ: إعادة فحص الأدمن ثم إنشاء الحجز من حمولة aux
+      if (/^admaddbk:(\d+)$/.test(btnId || '')) {
+        if (!(await isAdminConversation(conv))) {
+          await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
+          return;
+        }
+        const { getAux, deleteAux } = await import('../config/redis.js');
+        const key = `adm-addbk:${convId}`;
+        const p: any = await getAux(key);
+        if (!p || p.expiresAt < Date.now()) {
+          await sendMessage({ conversationId: convId, text: 'انتهت صلاحيّة طلب الحجز (10 دقائق) — أعد الطلب من جديد 🙏', source: 'system' });
+          await deleteAux(key).catch(() => {});
+          return;
+        }
+        await deleteAux(key).catch(() => {});
+        // إعادة فحص التكرار لحظة التنفيذ (قد يكون حُجز بين العرض والضغط)
+        const [dupNow] = await db.select({ id: reservations.id }).from(reservations).where(and(
+          eq(reservations.activityId, p.actId), isNull(reservations.deletedAt), eq(reservations.phone, p.phone),
+        )).limit(1);
+        if (dupNow) {
+          await sendMessage({ conversationId: convId, text: `صار له حجز في هذه الفعاليّة قبل ما تأكّد — ما أضفت شي 🙏`, source: 'system' });
+          return;
+        }
+        const [act] = await db.select({ name: activities.name, date: activities.date })
+          .from(activities).where(eq(activities.id, p.actId)).limit(1);
+        const [pl] = await db.select({ id: players.id }).from(players).where(eq(players.phone, p.phone)).limit(1);
+        const av = await seatAvailability(db, p.actId);
+        await db.insert(reservations).values({
+          activityId: p.actId,
+          contactName: p.name,
+          contactMethod: 'إضافة أدمن (واتساب)',
+          phone: p.phone,
+          peopleCount: p.people,
+          playerId: pl?.id || null,
+          status: 'confirmed',                        // الأدمن سلطة صريحة — لا قائمة انتظار
+          notes: av.remaining < p.people ? `⚠️ أُضيف فوق السعة بقرار الأدمن (المتبقي كان ${av.remaining})` : '',
+          createdBy: `🔒 أدمن عبر ${BOT_RESERVATION_TAG}`,
+        } as any);
+        const over = av.remaining < p.people ? `\n⚠️ الحجز تجاوز السعة (كان المتبقي ${av.remaining}).` : '';
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}`, source: 'system' });
+        console.log(`🔒 WA bot ADMIN add-booking act=${p.actId} phone=${p.phone} people=${p.people} by conv ${convId}`);
+        return;
+      }
+
+      // 🔒 نقل حجز (أدمن) — حتميّ: ينقل صف الحجز ومرآة التطبيق معاً
+      if (/^admmovebk:(\d+)$/.test(btnId || '')) {
+        if (!(await isAdminConversation(conv))) {
+          await sendMessage({ conversationId: convId, text: 'هذا الإجراء متاح للأدمن فقط 🔒', source: 'system' });
+          return;
+        }
+        const { getAux, deleteAux } = await import('../config/redis.js');
+        const key = `adm-movebk:${convId}`;
+        const p: any = await getAux(key);
+        if (!p || p.expiresAt < Date.now()) {
+          await sendMessage({ conversationId: convId, text: 'انتهت صلاحيّة طلب النقل (10 دقائق) — أعد الطلب من جديد 🙏', source: 'system' });
+          await deleteAux(key).catch(() => {});
+          return;
+        }
+        await deleteAux(key).catch(() => {});
+        const [res] = await db.select().from(reservations).where(eq(reservations.id, p.resId)).limit(1);
+        if (!res || res.deletedAt) {
+          await sendMessage({ conversationId: convId, text: 'الحجز انحذف قبل ما تأكّد — ما نقلت شي 🙏', source: 'system' });
+          return;
+        }
+        const [toAct] = await db.select({ name: activities.name, date: activities.date })
+          .from(activities).where(eq(activities.id, p.toId)).limit(1);
+        const [fromAct] = await db.select({ name: activities.name }).from(activities).where(eq(activities.id, p.fromId)).limit(1);
+
+        await db.update(reservations).set({
+          activityId: p.toId,
+          notes: `${res.notes ? res.notes + ' · ' : ''}🔀 نُقل من «${fromAct?.name || p.fromId}» بقرار الأدمن`,
+        } as any).where(eq(reservations.id, res.id));
+
+        // مرآة حجز التطبيق مربوطة بالفعاليّة القديمة — تُنقل معها وإلا بقي المقعد
+        // محسوباً على الفعاليّة القديمة وضاع من الجديدة (نفس منطق الإلغاء المتتالي)
+        let movedMirror = 0;
+        if (res.appConfirmed || res.createdBy === 'player-app') {
+          const upd = await db.update(bookings).set({ activityId: p.toId } as any).where(and(
+            eq(bookings.activityId, p.fromId),
+            isNull(bookings.deletedAt),
+            or(eq(bookings.phone, p.phone), res.playerId ? eq(bookings.playerId, res.playerId) : sql`false`),
+          )).returning({ id: bookings.id });
+          movedMirror = upd.length;
+        }
+        const mirrorNote = movedMirror ? `\n(نُقل معه ${movedMirror} حجز تطبيق)` : '';
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ نُقل حجز ${p.phone} (${res.peopleCount} أشخاص) من «${fromAct?.name || ''}» إلى «${toAct?.name || ''}» ${toAct ? `(${fmtJo(toAct.date)})` : ''}.${mirrorNote}`, source: 'system' });
+        console.log(`🔒 WA bot ADMIN move-booking res=${res.id} ${p.fromId}→${p.toId} by conv ${convId}`);
+        return;
+      }
+
       // 🔐 إعادة تعيين كلمة سرّ لاعب (أدمن) — حتميّ: إعادة فحص الأدمن + توليد كلمة server-side
       const admpwdMatch = /^admpwd:(\d+)$/.exec(btnId || '');
       if (admpwdMatch) {
