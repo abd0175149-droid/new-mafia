@@ -29,6 +29,11 @@ services:
       dockerfile: Dockerfile
     restart: always
     environment:
+      # 🌍 بيئة التشغيل — تُضبط `production` في .env على الخادم.
+      #    أثرها الكامل في الكود: تفعيل حارس السرّ الضعيف (config/env.ts) وإيقاف
+      #    بذر اللعبة التجريبية عند كل إقلاع (index.ts). الافتراضي development
+      #    كي لا ينكسر التشغيل المحلي بالسرّ الافتراضي.
+      - NODE_ENV=${NODE_ENV:-development}
       - PORT=${BACKEND_PORT}
       - DATABASE_URL=postgresql://mafia_user:mafia_pass@database:5432/${DB_NAME}
       - REDIS_URL=redis://redis:6379

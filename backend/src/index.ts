@@ -91,18 +91,26 @@ const io = new Server(server, {
 io.use((socket, next) => {
   try {
     const a: any = socket.handshake.auth || {};
-    const staffTok: string | undefined = a.token || a.leaderToken;
-    if (staffTok) {
+    // ⚠️ نجرّب كل توكن موظف مرسَل حتى ينجح واحد — لا نكتفي بالأول.
+    //    العميل يخزّن توكن الموظف في مفتاحين (`token` لدخول الأدمن/اللاعب
+    //    المرتبط بموظف، و`leader_token` لدخول الليدر)، وقد يبقى أحدهما قديماً
+    //    بعد تسجيل دخول ناجح بالآخر. الاكتفاء بالأول كان يترك الساكت غير
+    //    مصادَق بصمت، فتفشل كل أوامر الليدر بينما الواجهة تبدو متصلة.
+    const staffCandidates: string[] = [a.token, a.leaderToken]
+      .filter((t: any) => typeof t === 'string' && t.length > 0);
+    for (const staffTok of staffCandidates) {
       try {
         const dec: any = jwt.verify(staffTok, env.JWT_SECRET);
         if (dec && ['admin', 'manager', 'leader'].includes(dec.role)) {
           socket.data.authStaff = { id: dec.id, role: dec.role, username: dec.username };
           socket.data.role = 'leader';
+          break;
         } else if (dec && dec.role === 'location_owner') {
           // 🏪 حساب مكان — هويّة فقط، بلا دور leader (لا يدير ألعاباً)
           socket.data.authVenue = { id: dec.id };
+          break;
         }
-      } catch { /* توكن موظف غير صالح — نتجاهل بلا رفض الاتصال */ }
+      } catch { /* توكن موظف غير صالح — نجرّب التالي بلا رفض الاتصال */ }
     }
     const playerTok: string | undefined = a.playerToken;
     if (playerTok) {
