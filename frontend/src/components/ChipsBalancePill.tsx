@@ -55,7 +55,12 @@ export function ChipsBalancePill({ onClick }: { onClick?: () => void }) {
     };
   }, []);
 
-  if (balance === null) return null;   // لا نعرض شيئاً قبل معرفة الرصيد
+  // ⚠️ لا نُخفي القرص حين يتعذّر معرفة الرصيد.
+  //    كان يُرجع null، وهذه حالة أي فشل شبكة أو استجابة غير ناجحة — والقرص
+  //    هو **الباب الوحيد** إلى «خزنة الدون» من الصفحة الرئيسية، فكان فشل جلب
+  //    واحد يُخفي المتجر كلياً. نعرضه بشرطة مكان الرقم؛ الوجهة تعمل دائماً،
+  //    والرصيد يصل لاحقاً عبر السوكيت أو عند عودة الصفحة للواجهة.
+  const unknown = balance === null;
 
   return (
     <motion.button
@@ -70,8 +75,14 @@ export function ChipsBalancePill({ onClick }: { onClick?: () => void }) {
       title="رصيد التشبس — افتح خزنة الدون"
     >
       <span className="text-sm leading-none">🪙</span>
-      <motion.span key={balance} initial={{ scale: 1.35 }} animate={{ scale: 1 }} className="tabular-nums">
-        {balance.toLocaleString('en-US')}
+      <motion.span
+        key={unknown ? 'unknown' : balance}
+        initial={unknown ? false : { scale: 1.35 }}
+        animate={{ scale: 1 }}
+        className="tabular-nums"
+        style={unknown ? { opacity: 0.55 } : undefined}
+      >
+        {unknown ? '—' : balance.toLocaleString('en-US')}
       </motion.span>
 
       {/* وميض التغيّر */}

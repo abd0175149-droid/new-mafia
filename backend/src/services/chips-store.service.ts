@@ -270,6 +270,8 @@ export async function rentItem(opts: {
       RETURNING expires_at
     `);
     const nextExp = rowsOf(res)[0]?.expires_at;
+    // 📡 التجديد قد يُحيي خانة انتهت للتوّ — تُبثّ كي تعود للبطاقة فوراً
+    broadcastCosmetics(playerId);
     return { ok: true, balance: tx.balance, expiresAt: nextExp, itemId, renewed: true };
   }
 
@@ -287,6 +289,11 @@ export async function rentItem(opts: {
       `UPDATE players SET ${col} = ${Number(itemId)} WHERE id = ${Number(playerId)} AND ${col} IS NULL`,
     ));
   }
+
+  // 📡 بثّ المظهر بعد الشراء — كان مفقوداً هنا بينما التجهيز اليدوي يبثّ،
+  //    فكان أول شراء لا يصل الشاشة ولا بقيّة واجهات اللاعب حتى إعادة جلب يدوية.
+  //    الدالة مفصولة ولا ترمي، فلا تؤثر على نتيجة الشراء مهما حدث.
+  broadcastCosmetics(playerId);
 
   return { ok: true, balance: tx.balance, expiresAt: exp, itemId, renewed: false };
 }
@@ -309,6 +316,8 @@ export async function grantRental(opts: {
     VALUES (${Number(opts.playerId)}, ${Number(opts.itemId)}, NOW(), NOW() + (${days} || ' days')::interval, ${source})
     RETURNING expires_at
   `);
+  // 📡 المنح الإداري/بالإنجاز يجب أن يُرى فوراً كالشراء تماماً
+  broadcastCosmetics(Number(opts.playerId));
   return { ok: true, expiresAt: rowsOf(res)[0]?.expires_at, itemId: Number(opts.itemId) };
 }
 

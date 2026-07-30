@@ -449,6 +449,73 @@ async function main() {
     check(!keys.includes('passwordHash'), 'البروفايل العام لا يحمل passwordHash');
   }
 
+  // ══════════════════════════════════════════════════════
+  // ٥) حرّاس الدفع المزدوج (دفعة الإصلاح الأولى) — كلها قراءة فقط
+  // ══════════════════════════════════════════════════════
+  console.log('\n٥) حرّاس الدفع المزدوج:');
+  {
+    const { previewTop3, runBirthdayGifts } = await import('../services/chips-rewards.service.js');
+
+    // ٥.١ المعاينة تكشف من استلم — بلا هذا يبقى الزر «امنح» أبداً
+    const pv: any = await previewTop3();
+    const hasFlag = (pv.top || []).every((p: any) => typeof p.alreadyGranted === 'boolean');
+    check(hasFlag || (pv.top || []).length === 0, 'معاينة التوب-3 تحمل alreadyGranted لكل صفّ');
+    check(typeof pv.alreadyGrantedCount === 'number', 'المعاينة تُرجع عدّاد المستلمين سابقاً');
+
+    // ٥.٢ 🔒 الانحدار الحقيقي: صفوف الدفتر القديمة تحمل صيغة `top3:{موسم}:{لاعب}:{rid}`،
+    //     والمفتاح الجديد حتميّ ولا يتعارض معها. لولا فحص الصيغة القديمة لدفع أول
+    //     منح بعد النشر لموسم مدفوع أصلاً مرة ثانية. نتحقّق أن الفحص يلتقطها فعلاً.
+    const legacy = rowsOf(await db.execute(sql`
+      SELECT idempotency_key,
+             split_part(idempotency_key, ':', 2)::int AS season_id,
+             split_part(idempotency_key, ':', 3)::int AS player_id
+        FROM chips_ledger
+       WHERE idempotency_key LIKE 'top3:%'
+         AND idempotency_key NOT LIKE '%:regrant:%'
+         AND array_length(string_to_array(idempotency_key, ':'), 1) = 4
+       LIMIT 5
+    `));
+    if (legacy.length === 0) {
+      check(true, 'لا صفوف توب-3 بالصيغة القديمة في الدفتر (لا شيء يُلتقط)');
+    } else {
+      let caught = 0;
+      for (const r of legacy) {
+        const p: any = await previewTop3(Number(r.season_id));
+        const row = (p.top || []).find((x: any) => x.playerId === Number(r.player_id));
+        // إن لم يعد اللاعب ضمن الثلاثة الأوائل فلا يعنينا — الخطر فقط لمن سيُدفع له
+        if (!row || row.alreadyGranted) caught++;
+      }
+      check(caught === legacy.length,
+        `فحص «مُنح سابقاً» يلتقط الصيغة القديمة (${caught}/${legacy.length})`,
+        caught === legacy.length ? '' : 'خطر دفع مزدوج عند أول منح بعد النشر');
+    }
+
+    // ٥.٣ نطاق عيديّة الميلاد: قصر المنح على قائمة صريحة.
+    //     نستدعيها بقائمة مستحيلة (لا لاعب بهذا المعرّف) فيجب ألا تمنح شيئاً —
+    //     يثبت أن القيد يُطبَّق ولا يسقط كما كان يسقط عند اختيار أكثر من واحد.
+    const bogus = await runBirthdayGifts({ onlyPlayerIds: [-1], staffId: null });
+    check((bogus.granted || []).length === 0, 'قصر عيديّة الميلاد على قائمة صريحة يُحترم (لا منح لقائمة وهمية)');
+
+    // ٥.٤ مفتاح الإيقاف الذي يملكه الأدمن يجب أن يُحترم بلا `force`
+    const { getRewardsConfig } = await import('../services/chips-rewards.service.js');
+    const rc = await getRewardsConfig();
+    if (!rc.birthday.enabled) {
+      const off = await runBirthdayGifts({ onlyPlayerIds: [-1] });
+      check((off as any).skipped === 'disabled', 'إيقاف العيديّة من الإدارة يمنع المنح فعلاً');
+    } else {
+      check(true, 'عيديّة الميلاد مفعّلة — فحص الإيقاف غير منطبق الآن');
+    }
+
+    // ٥.٥ بثّ المظهر بعد الشراء: نتحقّق أن الدالة موصولة في مسارَي الشراء والمنح
+    const storeSrc = await import('node:fs').then(fs =>
+      fs.readFileSync(new URL('../services/chips-store.service.ts', import.meta.url), 'utf8')).catch(() => '');
+    if (storeSrc) {
+      const calls = (storeSrc.match(/broadcastCosmetics\(/g) || []).length;
+      check(calls >= 5, `broadcastCosmetics موصولة في كل مسارات تغيّر المظهر (${calls} نداءات)`,
+        'الشراء والتجديد والمنح والتجهيز والفكّ');
+    }
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);

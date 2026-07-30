@@ -259,14 +259,21 @@ router.post('/admin/rewards/top3',
   async (req: Request, res: Response) => {
     try {
       const amounts = Array.isArray(req.body.amounts) ? req.body.amounts.map((n: any) => Number(n)) : undefined;
+      // ♻️ المنح المتعمّد مرة أخرى مسموح بقرار المالك، لكن بطلب صريح من الواجهة
+      //    بعد تأكيد مكتوب — لا يمكن أن يقع بنقرة زائدة.
+      const allowRepeat = req.body.allowRepeat === true;
       const result = await grantTop3({
         seasonId: req.body.seasonId ? parseInt(req.body.seasonId) : null,
         amounts,
         note: req.body.note ? String(req.body.note).slice(0, 300) : null,
         requestId: req.body.requestId ? String(req.body.requestId) : null,
         staffId: (req as any).user?.id ?? null,
+        allowRepeat,
       });
-      if (!result.ok) return res.status(400).json({ error: result.error });
+      if (!result.ok) {
+        return res.status((result as any).code === 'ALREADY_GRANTED' ? 409 : 400)
+          .json({ error: result.error, code: (result as any).code ?? null });
+      }
 
       logStaffAction({
         staffId: (req as any).user?.id,
@@ -275,7 +282,7 @@ router.post('/admin/rewards/top3',
         source: 'http',
         action: 'chips:grant-top3',
         outcome: 'success',
-        details: { season: result.season?.name, results: result.results, totalGranted: result.totalGranted },
+        details: { season: result.season?.name, results: result.results, totalGranted: result.totalGranted, allowRepeat },
       });
 
       res.json({ success: true, ...result });
@@ -366,14 +373,23 @@ router.post('/leader/birthdays/celebrate', authenticate, leaderOrAbove,
       if (chosen.length === 0) return res.status(400).json({ error: 'لا أحد لعيد ميلاده اليوم' });
 
       // 1) المنح (محروس بمفتاح سنوي — لا يمنح مرتين ولو ضغط القائد مراراً)
+      //
+      // ⚠️ يُقصر المنح على المختارين **دائماً**، لا حين يكون واحداً فقط.
+      //    كان القيد يسقط عند اختيار اثنين أو أكثر فيُمنح كل من عيد ميلاده
+      //    اليوم في النادي كله — بمن فيهم الغائبون والحسابات الاختبارية.
+      //
+      // ⚠️ وأُزيل `force: true`: كان يتجاوز مفتاح الإيقاف الذي يملكه الأدمن،
+      //    فيبقى الإصدار جارياً بعد قرار النادي إيقافه. الآن يُحترم المفتاح،
+      //    ويُبلَّغ القائد بوضوح بدل أن يظنّ أن الهدايا وصلت.
       let granted: any[] = [];
+      let giftSkipped: string | null = null;
       if (grant) {
         const r = await runBirthdayGifts({
-          force: true,
           staffId: (req as any).user?.id ?? null,
-          ...(chosen.length === 1 ? { onlyPlayerId: chosen[0].playerId } : {}),
+          onlyPlayerIds: chosen.map(b => b.playerId),
         });
         granted = r.granted || [];
+        giftSkipped = (r as any).skipped ?? null;
       }
 
       // 2) الاحتفالية على شاشة الغرفة
@@ -395,10 +411,22 @@ router.post('/leader/birthdays/celebrate', authenticate, leaderOrAbove,
         roomId: roomId || null,
         action: 'chips:birthday-celebrate',
         outcome: 'success',
-        details: { names: chosen.map(c => c.name), granted: granted.filter((g: any) => !g.duplicate).length, celebrated },
+        details: {
+          names: chosen.map(c => c.name),
+          granted: granted.filter((g: any) => !g.duplicate).length,
+          celebrated,
+          ...(giftSkipped ? { giftSkipped } : {}),
+        },
       });
 
-      res.json({ success: true, celebrated, granted, celebrants: chosen });
+      res.json({
+        success: true, celebrated, granted, celebrants: chosen,
+        // يُخبر واجهة القائد لماذا لم تُمنح هديّة (إيقاف من الإدارة أو قيمة صفر)
+        giftSkipped,
+        giftSkippedReason: giftSkipped === 'disabled' ? 'عيديّة الميلاد موقوفة من لوحة الإدارة'
+          : giftSkipped === 'zero-amount' ? 'قيمة العيديّة مضبوطة على صفر'
+          : null,
+      });
     } catch (err: any) {
       console.error('❌ birthday celebrate:', err.message);
       res.status(500).json({ error: err.message });

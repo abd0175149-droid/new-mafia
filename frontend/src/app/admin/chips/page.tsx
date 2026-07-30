@@ -74,10 +74,14 @@ export default function ChipsAdminPage() {
   const [packs, setPacks] = useState<Pack[]>([]);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  const showToast = (kind: 'ok' | 'err', text: string) => {
+  // ⚠️ مُثبَّتة الهوية عمداً: كانت تُعاد إنشاؤها عند كل رسم، وهي تبعية لـ
+  //    useCallback داخل تبويب المكافآت — فكل تنبيه (بل واختفاؤه بعد ٤ ثوانٍ)
+  //    كان يُعيد إطلاق التحميل بلا معرّف موسم، فيرتدّ اختيار الموسم إلى
+  //    الافتراضي وتُدهس المبالغ التي كتبها المشغّل. المُثبِّت يقطع الحلقة.
+  const showToast = useCallback((kind: 'ok' | 'err', text: string) => {
     setToast({ kind, text });
     setTimeout(() => setToast(null), 4000);
-  };
+  }, []);
 
   const loadStats = useCallback(() => {
     apiGet('/api/chips/admin/stats').then(d => setStats(d.stats)).catch(() => {});
@@ -418,20 +422,40 @@ function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string)
 
   useEffect(() => { loadTop(); loadBdays(); }, [loadTop, loadBdays]);
 
-  const grant = async () => {
+  // 🎁 المنح. المفتاح حتميّ في الخادم، فالنقر المزدوج لا يدفع مرتين.
+  //    والمنح المتعمّد ثانيةً يحتاج كتابة كلمة «تأكيد» — لا نقرة زائدة.
+  const grant = async (repeat = false) => {
     if (!data?.season) return;
     const names = (data.top || []).map((p: any, i: number) => `${p.name} (${amounts[i] || 0} 🪙)`).join('، ');
-    if (!confirm(`منح مكافأة «${data.season.name}»؟\n\n${names}\n\nسيصل إشعار لكل واحد منهم.`)) return;
+    const total = amounts.reduce((s, a) => s + (Number(a) || 0), 0);
+
+    if (repeat) {
+      const typed = prompt(
+        `⚠️ منح متعمّد **مرة أخرى** لموسم «${data.season.name}».\n\n`
+        + `${names}\nالإجمالي: ${total} 🪙\n\n`
+        + `هؤلاء استلموا مكافأة هذا الموسم سابقاً. للمتابعة اكتب: تأكيد`,
+      );
+      if (String(typed || '').trim() !== 'تأكيد') return;
+    } else if (!confirm(`منح مكافأة «${data.season.name}»؟\n\n${names}\nالإجمالي: ${total} 🪙\n\nسيصل إشعار لكل واحد منهم.`)) {
+      return;
+    }
+
     setBusy(true);
     try {
       const d = await apiPost('/api/chips/admin/rewards/top3', {
         seasonId: data.season.id,
         amounts: amounts.map(a => Number(a) || 0),
         requestId,
+        ...(repeat ? { allowRepeat: true } : {}),
       });
       setRequestId(newRequestId());
       const fresh = (d.results || []).filter((r: any) => r.ok && !r.duplicate);
-      toast('ok', fresh.length ? `✅ مُنحت ${d.totalGranted} 🪙 لـ ${fresh.length} لاعبين` : '↩️ هذه العملية مُنفَّذة سابقاً');
+      const skipped = (d.results || []).filter((r: any) => r.skipped);
+      toast('ok', fresh.length
+        ? `✅ مُنحت ${d.totalGranted} 🪙 لـ ${fresh.length} لاعبين`
+        : skipped.length
+          ? `↩️ لم يُمنح شيء — ${skipped.length} استلموا هذا الموسم سابقاً`
+          : '↩️ هذه العملية مُنفَّذة سابقاً');
       loadTop(seasonId); onChanged();
     } catch (e: any) { toast('err', e.message || 'فشل المنح'); }
     finally { setBusy(false); }
@@ -496,6 +520,7 @@ function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string)
                 <p className="text-gray-200 font-bold text-sm">
                   {p.name}
                   {p.isTestAccount && <span className="text-[9px] text-amber-400 mr-2 px-1.5 py-0.5 rounded border border-amber-600/40">حساب اختبار</span>}
+                  {p.alreadyGranted && <span className="text-[9px] text-emerald-400 mr-2 px-1.5 py-0.5 rounded border border-emerald-600/40">✔︎ استلم هذا الموسم</span>}
                 </p>
                 <p className="text-[10px] text-gray-500">
                   {p.rankTier} · {p.rankRR} RR · مستوى {p.level} · {p.totalMatches} مباراة
@@ -513,19 +538,30 @@ function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string)
           ))}
         </div>
 
-        {(data?.top?.length || 0) > 0 && (
-          <div className="flex items-center gap-2 mt-4">
-            <button onClick={grant} disabled={busy}
-              className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40">
-              {busy ? 'جارٍ المنح…' : '🎁 امنح المكافأة الآن'}
-            </button>
-            <button onClick={() => saveCfg({ top3: { amounts: amounts.map(a => Number(a) || 0) } })}
-              className="px-4 py-2.5 rounded-xl font-bold text-xs bg-gray-800/60 border border-gray-700/40 text-gray-300">
-              💾 احفظ كافتراضي
-            </button>
-          </div>
-        )}
-        <p className="text-[10px] text-gray-600 mt-2">🔒 كل ضغطة تحمل مفتاحاً فريداً — النقر المزدوج لا يمنح مرتين، والمنح المتعمّد مرة أخرى مسموح.</p>
+        {(data?.top?.length || 0) > 0 && (() => {
+          const eligible = (data.top || []).filter((_: any, i: number) => (Number(amounts[i]) || 0) > 0);
+          const allPaid = eligible.length > 0 && eligible.every((p: any) => p.alreadyGranted);
+          return (
+            <div className="flex items-center gap-2 mt-4">
+              {allPaid ? (
+                <button onClick={() => grant(true)} disabled={busy}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-gray-800/60 border border-rose-700/40 text-rose-300 hover:bg-rose-950/40 transition-all disabled:opacity-40">
+                  {busy ? 'جارٍ المنح…' : '♻️ مُنحت سابقاً — امنح مرة أخرى (تأكيد مكتوب)'}
+                </button>
+              ) : (
+                <button onClick={() => grant(false)} disabled={busy}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40">
+                  {busy ? 'جارٍ المنح…' : '🎁 امنح المكافأة الآن'}
+                </button>
+              )}
+              <button onClick={() => saveCfg({ top3: { amounts: amounts.map(a => Number(a) || 0) } })}
+                className="px-4 py-2.5 rounded-xl font-bold text-xs bg-gray-800/60 border border-gray-700/40 text-gray-300">
+                💾 احفظ كافتراضي
+              </button>
+            </div>
+          );
+        })()}
+        <p className="text-[10px] text-gray-600 mt-2">🔒 المفتاح حتميّ لكل (موسم + لاعب) — الضغط مرّتين لا يدفع مرّتين. ومن استلم يظهر بعلامة ✔︎، والمنح المتعمّد ثانيةً يحتاج كتابة «تأكيد».</p>
       </div>
 
       {/* ── عيديّة الميلاد ── */}

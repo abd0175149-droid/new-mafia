@@ -191,13 +191,44 @@ export async function listSeasonsForRewards() {
 }
 
 /**
+ * 🔎 من استلم مكافأة هذا الموسم فعلاً؟
+ *
+ * ⚠️ يفحص **صيغتَي المفتاح**: الجديدة الحتميّة `top3:{موسم}:{لاعب}`
+ *    والقديمة التي كانت تحمل معرّف طلب `top3:{موسم}:{لاعب}:{rid}`.
+ *    بدون فحص الصيغة القديمة سيدفع أول منح بعد النشر لموسم مدفوع أصلاً
+ *    مرة ثانية — لأن المفتاح الجديد لا يتعارض مع القديم.
+ *    (منح متعمّد ثانٍ يحمل لاحقة `:regrant:` ولا يُحسب هنا.)
+ */
+async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Promise<Set<number>> {
+  const db = getDB();
+  const out = new Set<number>();
+  const ids = playerIds.map(n => Number(n)).filter(n => Number.isInteger(n) && n > 0);
+  if (!db || ids.length === 0) return out;
+  const sid = Number(seasonId);
+  try {
+    const res: any = await db.execute(sql.raw(`
+      SELECT DISTINCT player_id FROM chips_ledger
+       WHERE player_id IN (${ids.join(',')})
+         AND (
+              idempotency_key = 'top3:${sid}:' || player_id
+           OR (idempotency_key LIKE 'top3:${sid}:' || player_id || ':%'
+               AND idempotency_key NOT LIKE '%:regrant:%')
+         )
+    `));
+    for (const r of rowsOf(res)) out.add(Number(r.player_id));
+  } catch { /* الفحص تحسين أمان — لا يعطّل المعاينة */ }
+  return out;
+}
+
+/**
  * معاينة أفضل ثلاثة في موسم محدّد (أو الموسم العادي النشط افتراضياً).
  * المالك يختار الموسم — عادي أو أونلاين — قبل الضغط على زر المنح.
+ * كل صفّ يحمل `alreadyGranted` كي لا يُدفع الموسم مرتين بلا قصد.
  */
 export async function previewTop3(seasonId?: number | null) {
   const db = getDB();
   const config = await getRewardsConfig();
-  if (!db) return { season: null, top: [] as TopPlayerRow[], config, seasons: [] as any[] };
+  if (!db) return { season: null, top: [] as TopPlayerRow[], config, seasons: [] as any[], alreadyGrantedCount: 0 };
 
   const allSeasons = await listSeasonsForRewards();
 
@@ -209,18 +240,30 @@ export async function previewTop3(seasonId?: number | null) {
       || allSeasons.find((s: any) => s.status === 'ACTIVE') || null;
   }
 
-  if (!season) return { season: null, top: [], config, seasons: allSeasons };
-  const top = await getSeasonTopPlayers(season.id, 3);
-  return { season, top, config, seasons: allSeasons };
+  if (!season) return { season: null, top: [], config, seasons: allSeasons, alreadyGrantedCount: 0 };
+  const rows = await getSeasonTopPlayers(season.id, 3);
+  const grantedIds = await top3GrantedPlayerIds(season.id, rows.map(r => r.playerId));
+  const top = rows.map(r => ({ ...r, alreadyGranted: grantedIds.has(r.playerId) }));
+  return { season, top, config, seasons: allSeasons, alreadyGrantedCount: grantedIds.size };
 }
 
 /**
  * منح أفضل ثلاثة.
  * • المبالغ تأتي من الطلب (وإلا من الإعدادات) — المالك يقرّر عند كل منح.
- * • requestId من العميل ⇒ النقر المزدوج آمن، والمنح المتعمّد مرة أخرى مسموح.
+ *
+ * 🔑 المفتاح **حتميّ**: `top3:{موسم}:{لاعب}` بلا معرّف طلب.
+ *    كان المفتاح يحمل `rid` يتجدّد بعد كل منح ناجح، فالنقرة الثانية تُنتج
+ *    مفتاحاً جديداً وسطر دفتر حقيقياً ثانياً — أي دفع مزدوج للمنصّة بلا تحذير.
+ *    الآن التكرار يصطدم بالقيد الفريد ويُعاد كـ«مكرّر» بلا خصم.
+ *
+ * ♻️ المنح المتعمّد مرة أخرى ما زال مسموحاً (قرار المالك) لكنه يحتاج
+ *    `allowRepeat` صريحاً من الواجهة بعد تأكيد مكتوب، ويُوسم بلاحقة
+ *    `:regrant:` كي يبقى مميَّزاً في الدفتر وفي فحص «مُنح سابقاً».
  */
 export async function grantTop3(opts: {
   seasonId?: number | null; amounts?: number[]; staffId?: number | null; requestId?: string | null; note?: string | null;
+  /** منح متعمّد ثانٍ — لا يُمرَّر إلا بعد تأكيد مكتوب في الواجهة */
+  allowRepeat?: boolean;
 }) {
   const db = getDB();
   if (!db) return { ok: false, error: 'قاعدة البيانات غير متاحة' };
@@ -235,18 +278,47 @@ export async function grantTop3(opts: {
   const rid = String(opts.requestId || '').trim().slice(0, 60)
     || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-  const results: Array<{ playerId: number; name: string; rank: number; amount: number; ok: boolean; duplicate: boolean; balance?: number }> = [];
+  /** المبلغ الفعلي لهذا المركز — نفس منطق الحلقة أدناه حرفياً */
+  const amountFor = (rank: number) => amounts[rank - 1] ?? amounts[amounts.length - 1] ?? 0;
+
+  // حارس الدفع المزدوج: من استلم سابقاً (بأي من صيغتَي المفتاح) لا يُدفع له
+  // ثانيةً إلا بطلب متعمّد صريح.
+  //
+  // ⚠️ يُشترط وجود مستحقّ واحد على الأقل قبل الحكم: لو كانت كل المبالغ صفراً
+  //    لصار «لا أحد مستحقّ» مساوياً لـ«الكل استلم»، فيُرفض موسم جديد برسالة
+  //    مضلّلة تماماً.
+  const alreadyIds = await top3GrantedPlayerIds(season.id, top.map(p => p.playerId));
+  const eligible = top.filter(p => amountFor(p.rank) > 0);
+  const allAlreadyPaid = eligible.length > 0 && eligible.every(p => alreadyIds.has(p.playerId));
+  if (!opts.allowRepeat && allAlreadyPaid) {
+    return {
+      ok: false,
+      code: 'ALREADY_GRANTED',
+      error: `مكافأة «${season.name}» مُنحت سابقاً لكل الفائزين — للمنح مرة أخرى فعّل التأكيد المتعمّد`,
+      season,
+    };
+  }
+
+  const results: Array<{ playerId: number; name: string; rank: number; amount: number; ok: boolean; duplicate: boolean; skipped?: boolean; balance?: number }> = [];
 
   for (const p of top) {
-    const amount = amounts[p.rank - 1] ?? amounts[amounts.length - 1] ?? 0;
+    const amount = amountFor(p.rank);
     if (amount <= 0) continue;
+
+    // مُنح سابقاً ولا طلب متعمّد ⇒ تخطٍّ صريح (لا نداء دفتر أصلاً)
+    if (alreadyIds.has(p.playerId) && !opts.allowRepeat) {
+      results.push({ playerId: p.playerId, name: p.name, rank: p.rank, amount, ok: true, duplicate: true, skipped: true });
+      continue;
+    }
 
     const medal = p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : '🥉';
     const res = await applyChipsTx({
       playerId: p.playerId,
       amount,
       reason: 'admin_adjust',
-      idempotencyKey: `top3:${season.id}:${p.playerId}:${rid}`,
+      idempotencyKey: opts.allowRepeat
+        ? `top3:${season.id}:${p.playerId}:regrant:${rid}`
+        : `top3:${season.id}:${p.playerId}`,
       refType: 'manual',
       refId: `season:${season.id}:rank:${p.rank}`,
       staffId: opts.staffId ?? null,
@@ -316,14 +388,30 @@ export async function getTodaysBirthdays(includeTest = false) {
  * 🔑 المفتاح `birthday:{playerId}:{السنة}` يضمن هديّة واحدة في السنة
  *    مهما تكرّر الفحص أو أُعيد تشغيل الخادم — بلا جدول تتبّع إضافي.
  */
-export async function runBirthdayGifts(opts?: { force?: boolean; staffId?: number | null; onlyPlayerId?: number }) {
+export async function runBirthdayGifts(opts?: {
+  force?: boolean; staffId?: number | null;
+  /** لاعب واحد (يُبقى للتوافق مع النداءات القديمة) */
+  onlyPlayerId?: number;
+  /**
+   * ⚠️ قصر المنح على هؤلاء حصراً.
+   * كان الاقتصار مدعوماً للاعب واحد فقط، فإن اختار القائد اثنين أو أكثر
+   * سقط القيد كلياً ومُنح **كل** من عيد ميلاده اليوم في النادي — أي أن
+   * واجهة الاختيار كانت تكذب. مصفوفة فارغة = لا قيد (سلوك الجدولة التلقائية).
+   */
+  onlyPlayerIds?: number[];
+}) {
   const cfg = await getRewardsConfig();
   if (!cfg.birthday.enabled && !opts?.force) return { skipped: 'disabled', granted: [] as any[] };
   if (cfg.birthday.amount <= 0) return { skipped: 'zero-amount', granted: [] as any[] };
 
   const { year } = jordanToday();
   let list = await getTodaysBirthdays(!cfg.birthday.excludeTestAccounts);
-  if (opts?.onlyPlayerId) list = list.filter(b => b.playerId === opts.onlyPlayerId);
+
+  const only = new Set<number>([
+    ...(opts?.onlyPlayerIds || []),
+    ...(opts?.onlyPlayerId ? [opts.onlyPlayerId] : []),
+  ]);
+  if (only.size) list = list.filter(b => only.has(b.playerId));
 
   const granted: Array<{ playerId: number; name: string; amount: number; duplicate: boolean }> = [];
 

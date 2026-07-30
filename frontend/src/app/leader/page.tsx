@@ -1785,6 +1785,9 @@ export default function LeaderPage() {
       });
       const d = await res.json();
       if (!d.success) { setError(d.error || 'فشل إطلاق الاحتفالية'); return; }
+      // ⚠️ الاحتفالية قد تنطلق بلا هديّة (موقوفة من الإدارة أو قيمتها صفر).
+      //    نُبلّغ القائد صراحةً بدل أن يظنّ أن التشبس وصل للاعبين.
+      if (d.giftSkippedReason) setError(`🎉 انطلقت الاحتفالية — لكن بلا عيديّة: ${d.giftSkippedReason}`);
       // 🔊 الأغنية تُعزف من جهاز القائد (المصدر الحصري) وتصل الشاشة بالمرآة
       if (bdaySongReady) localSound(() => playGameSound('birthday_song'));
       setBdayCelebrating(true);
