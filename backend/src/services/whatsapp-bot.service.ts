@@ -979,6 +979,57 @@ interface ToolCtx {
   settings: any;
 }
 
+// ══════════════════════════════════════════════════════
+// 🪞 مرآة حجز البوت في صفحة تفاصيل النشاط (قرار المالك 2026-07-30)
+// ══════════════════════════════════════════════════════
+// كل حجز يسجّله البوت يجب أن يظهر محجوزاً فعلياً في تفاصيل النشاط (bookings)،
+// تماماً كحجز تطبيق اللاعب. القاعدة التي حدّدها المالك:
+//   • الرقم مربوط بحساب لاعب  ⟵ صفّ bookings واحد بـ count=1 (صاحب الحجز فقط)
+//     مهما كان عدد الأشخاص؛ المرافقون يبقون في صفّ المتابعة وحده.
+//   • رقم جديد غير مربوط     ⟵ لا يُسجَّل في تفاصيل النشاط إطلاقاً.
+//
+// ولماذا appConfirmed=true: صيغة العدّ الموحّدة تحسب
+//   bookings.count + (appConfirmed ? people-1 : people)
+// فبدون الوسم يُحسب صاحب الحجز مرّتين (مرّة بالمرآة ومرّة بالمتابعة).
+// نفس الوسم يجعل الإلغاء المتتالي ونقل الحجز يلتقطان المرآة تلقائياً.
+async function mirrorBotReservationToBookings(
+  db: any,
+  res: { id: number; activityId: number; playerId: number | null; phone: string; contactName?: string | null },
+  createdByTag: string,
+): Promise<boolean> {
+  if (!res.playerId) return false;                       // رقم غير مربوط ⟵ لا تسجيل
+  const [pl] = await db
+    .select({ id: players.id, name: players.name, phone: players.phone, isFree: players.isFreeAccount })
+    .from(players).where(eq(players.id, res.playerId)).limit(1);
+  if (!pl) return false;
+
+  // لا تُكرّر: قد يكون له صفّ أصلاً (حجز تطبيق سابق أو إدخال يدويّ)
+  const [dup] = await db.select({ id: bookings.id }).from(bookings).where(and(
+    eq(bookings.activityId, res.activityId),
+    isNull(bookings.deletedAt),
+    or(eq(bookings.playerId, pl.id), pl.phone ? eq(bookings.phone, pl.phone) : sql`false`),
+  )).limit(1);
+
+  if (!dup) {
+    await db.insert(bookings).values({
+      activityId: res.activityId,
+      name: pl.name || res.contactName || '',
+      phone: pl.phone || res.phone || '',
+      count: 1,                                          // صاحب الحجز فقط — المرافقون بالمتابعة
+      isPaid: !!pl.isFree,
+      paidAmount: '0',
+      isFree: !!pl.isFree,
+      playerId: pl.id,
+      createdBy: createdByTag,
+    } as any);
+  }
+  // الوسم إلزاميّ حتى لو وُجد صفّ مسبقاً — وإلا انحسب صاحب الحجز مرّتين
+  await db.update(reservations)
+    .set({ appConfirmed: true, appConfirmedAt: new Date() } as any)
+    .where(eq(reservations.id, res.id));
+  return !dup;
+}
+
 // 🪑 التوفر الحقيقي لفعالية — العدّ الموحّد بلا أي تكرار (قرار المالك):
 // حجوزات التطبيق تنعكس تلقائياً لصفحة المتابعة (مرايا player-app)، وحجوزات
 // المتابعة تترقّى بـapp_confirmed عندما يحجز صاحبها من التطبيق — لذا:
@@ -1285,6 +1336,11 @@ async function execTool(name: string, args: any, ctx: ToolCtx): Promise<any> {
         notes: `${isWaitlist ? `⏳ قائمة انتظار (المتبقي ${av.remaining} من ${av.total}) — بانتظار تأكيد الإدارة. ` : ''}${args.note ? `🤖 ${args.note}` : ''}`.trim(),
         createdBy: `🤖 ${BOT_RESERVATION_TAG}`,
       } as any).returning();
+      // 🪞 مرآة تفاصيل النشاط — للمؤكَّد فقط (قائمة الانتظار ليست مقعداً محجوزاً بعد)
+      if (!isWaitlist) {
+        await mirrorBotReservationToBookings(db, saved as any, `🤖 ${BOT_RESERVATION_TAG}`).catch((e: any) =>
+          console.warn('⚠️ bot booking mirror:', e?.message));
+      }
       if (isWaitlist) {
         // قائمة الانتظار تحتاج متابعة بشرية — علامة ⚠️ على المحادثة + إشعارات
         await db.update(waConversations).set({ needsAttention: true, updatedAt: new Date() } as any).where(eq(waConversations.id, conv.id));
@@ -2646,7 +2702,7 @@ async function processConversation(convId: number) {
           .from(activities).where(eq(activities.id, p.actId)).limit(1);
         const [pl] = await db.select({ id: players.id }).from(players).where(eq(players.phone, p.phone)).limit(1);
         const av = await seatAvailability(db, p.actId);
-        await db.insert(reservations).values({
+        const [savedRes] = await db.insert(reservations).values({
           activityId: p.actId,
           contactName: p.name,
           contactMethod: 'إضافة أدمن (واتساب)',
@@ -2656,9 +2712,15 @@ async function processConversation(convId: number) {
           status: 'confirmed',                        // الأدمن سلطة صريحة — لا قائمة انتظار
           notes: av.remaining < p.people ? `⚠️ أُضيف فوق السعة بقرار الأدمن (المتبقي كان ${av.remaining})` : '',
           createdBy: `🔒 أدمن عبر ${BOT_RESERVATION_TAG}`,
-        } as any);
+        } as any).returning();
+        // 🪞 نفس قاعدة المرآة: المربوط بحساب يظهر في تفاصيل النشاط، وغير المربوط لا
+        const mirrored = await mirrorBotReservationToBookings(db, savedRes as any, `🔒 أدمن عبر ${BOT_RESERVATION_TAG}`)
+          .catch((e: any) => { console.warn('⚠️ admin booking mirror:', e?.message); return false; });
         const over = av.remaining < p.people ? `\n⚠️ الحجز تجاوز السعة (كان المتبقي ${av.remaining}).` : '';
-        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}`, source: 'system' });
+        const mirrorLine = pl?.id
+          ? (mirrored ? '\n📄 وانسجّل بتفاصيل النشاط.' : '\n📄 له صفّ بتفاصيل النشاط أصلاً.')
+          : '\n📄 الرقم مش مربوط بحساب لاعب — ما انسجّل بتفاصيل النشاط (بيظهر بمتابعة الحجوزات فقط).';
+        await sendMessage({ conversationId: convId, text: `تمّ ✅ انحجز «${p.name}» (${p.phone}) — ${p.people} أشخاص في «${act?.name || ''}» ${act ? `(${fmtJo(act.date)})` : ''}.${over}${mirrorLine}`, source: 'system' });
         console.log(`🔒 WA bot ADMIN add-booking act=${p.actId} phone=${p.phone} people=${p.people} by conv ${convId}`);
         return;
       }
