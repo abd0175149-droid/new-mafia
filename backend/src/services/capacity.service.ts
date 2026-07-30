@@ -3,9 +3,9 @@
 //
 // شجرة القرار (من الأعلى أولوية):
 //   1. تجاوز يدوي من الليدر (state.config.maxPlayersManual) — يُحترم حتى يُلغى صراحة
-//   2. قالب المقاعد المرتبط بالفعالية (seat_templates.totalSeats)
-//   3. سعة الفعالية (activities.maxCapacity)
-//   4. الافتراضي 27
+//   2. الأعلى بين: قالب المقاعد (seat_templates.totalSeats) وسعة الفعالية (activities.maxCapacity)
+//      — القالب تخطيط افتراضي، ورفع سعة الفعالية فعل إداري صريح فلا يُبتلع
+//   3. الافتراضي 27
 // الحدود دائماً: 6..50.
 //
 // ملاحظة: الحجوزات بلا سقف نهائياً (قرار تشغيلي — اللاعبون يتناوبون)؛
@@ -41,22 +41,28 @@ export async function resolveRoomCapacity(activityId?: number | null): Promise<n
       .limit(1);
     if (!act) return DEFAULT_ROOM_CAPACITY;
 
-    // 1) قالب المقاعد المرتبط — الأولوية العليا
+    // 1) قالب المقاعد المرتبط — التخطيط الافتراضي
+    let fromTemplate = 0;
     if (act.seatTemplateId) {
       const [tpl] = await db
         .select({ totalSeats: seatTemplates.totalSeats })
         .from(seatTemplates)
         .where(eq(seatTemplates.id, act.seatTemplateId))
         .limit(1);
-      if (tpl && Number(tpl.totalSeats) >= MIN_ROOM_CAPACITY) {
-        return clampCapacity(Number(tpl.totalSeats));
-      }
+      if (tpl && Number(tpl.totalSeats) >= MIN_ROOM_CAPACITY) fromTemplate = Number(tpl.totalSeats);
     }
 
-    // 2) سعة الفعالية
-    if (act.maxCapacity && Number(act.maxCapacity) >= MIN_ROOM_CAPACITY) {
-      return clampCapacity(Number(act.maxCapacity));
-    }
+    // 2) سعة الفعالية — رفعها فعل إداري صريح
+    const fromActivity = act.maxCapacity && Number(act.maxCapacity) >= MIN_ROOM_CAPACITY
+      ? Number(act.maxCapacity) : 0;
+
+    // الأعلى يفوز. كان القالب يبتلع سعة الفعالية دائماً، فمن يرفع السقف من شاشة
+    // الفعالية لا يحدث شيء ويبقى البوت يقول «مكتملة» — حقل قابل للضبط بلا أثر.
+    // (رُصد 2026-07-30 على فعالية 171: السقف رُفع إلى 50 والقالب 37 فبقيت مكتملة)
+    // خفض السعة تحت القالب يبقى بلا أثر عمداً حتى لا تنكمش غرفة مثبّتة المقاعد؛
+    // ومقاعد ما بعد القالب تُنشأ فارغة — التثبيتات مربوطة بأرقام مقاعد فلا تتأثر.
+    const resolved = Math.max(fromTemplate, fromActivity);
+    if (resolved >= MIN_ROOM_CAPACITY) return clampCapacity(resolved);
   } catch { /* fallback للافتراضي */ }
   return DEFAULT_ROOM_CAPACITY;
 }
