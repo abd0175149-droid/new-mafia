@@ -6,12 +6,17 @@
 //   • مربوط بحساب لاعب ⟵ صفّ bookings واحد count=1 + وسم appConfirmed
 //   • غير مربوط        ⟵ لا يُسجَّل (يبقى في متابعة الحجوزات وحده)
 //
+// ⛔ الفعاليّات المنتهية لا تُمَسّ (قرار المالك 2026-07-30): حساباتها مقفلة
+//    ومراجَعة، وأي صفّ يُضاف إليها يظهر «غير مدفوع» فيشوّه تقريراً نهائيّاً.
+//    الردم يقتصر على فعاليّات اليوم فما بعد. (رُدمت 4 صفوف على الماضي ثم
+//    أُزيلت مع أوسمتها في نفس اليوم — الوسم وحده كان ينقص مقعداً لو بقي.)
+//
 // التشغيل (داخل حاوية الخادم):
 //   npx tsx src/scripts/backfill-bot-booking-mirror.ts           ← معاينة فقط
 //   npx tsx src/scripts/backfill-bot-booking-mirror.ts --apply   ← تنفيذ
 // خُذ نسخة احتياطية قبل --apply.
 
-import { and, eq, isNull, or, sql, ilike } from 'drizzle-orm';
+import { and, eq, gte, isNull, or, sql, ilike } from 'drizzle-orm';
 import { getDB, connectDB } from '../config/db.js';
 import { reservations, bookings, activities } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -22,6 +27,11 @@ async function main() {
   await connectDB();
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
+
+  // بداية اليوم — كل ما قبله فعاليّة مقفلة الحساب
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  console.log(`النطاق: فعاليّات من ${todayStart.toISOString().slice(0, 10)} فما بعد (المنتهية لا تُمَسّ)`);
 
   // حجوزات البوت المؤكَّدة غير المحذوفة (قائمة الانتظار ليست مقعداً)
   const rows = await db
@@ -36,6 +46,7 @@ async function main() {
     .where(and(
       isNull(reservations.deletedAt),
       sql`${reservations.status} <> 'waitlist'`,
+      gte(activities.date, todayStart as any),   // ⛔ لا تلمس الفعاليّات المقفلة
       or(
         ilike(reservations.createdBy, '%بوت واتساب%'),
         ilike(reservations.contactMethod, '%بوت واتساب%'),
