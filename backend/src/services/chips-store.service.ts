@@ -14,7 +14,9 @@ import {
   chipsItems, chipsRentals, EQUIP_SLOTS, DEFAULT_RENTAL_DAYS, EXPIRY_WARN_DAYS,
   type ChipsItemKind,
 } from '../schemas/chips-store.schema.js';
-import { applyChipsTx } from './chips.service.js';
+import {
+  applyChipsTx, applyChipsTxIn, emitChipsSideEffects, isLedgerDuplicateError,
+} from './chips.service.js';
 
 // ── خانات التجهيز → أعمدة players ────────────────────
 
@@ -200,102 +202,182 @@ export async function rentItem(opts: {
   const itemId = Number(opts.itemId);
   if (!playerId || !itemId) return { ok: false, code: 'INVALID', message: 'طلب غير صالح' };
 
-  const [item] = await db.select().from(chipsItems).where(eq(chipsItems.id, itemId)).limit(1);
-  if (!item) return { ok: false, code: 'NOT_FOUND', message: 'العنصر غير موجود' };
-  if (!item.isActive) return { ok: false, code: 'CLOSED', message: 'هذا العنصر لم يعد معروضاً' };
-  if (item.closedAt) return { ok: false, code: 'CLOSED', message: 'أُغلق هذا العنصر نهائياً — لا يعود' };
-  if (!item.isPurchasable) return { ok: false, code: 'NOT_PURCHASABLE', message: 'هذا العنصر يُنال بالإنجاز لا بالشراء' };
-
-  // إيجار نشط؟ (تجديد = تمديد)
-  const [existing] = await db.select({ id: chipsRentals.id, expiresAt: chipsRentals.expiresAt })
-    .from(chipsRentals)
-    .where(and(
-      eq(chipsRentals.playerId, playerId),
-      eq(chipsRentals.itemId, itemId),
-      gt(chipsRentals.expiresAt, new Date()),
-    ))
-    .orderBy(desc(chipsRentals.expiresAt))
-    .limit(1);
-
-  const renewing = !!existing;
   const rid = String(opts.requestId || '').trim().slice(0, 60)
     || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-  // 1) الخصم أولاً — لا إيجار بلا حركة دفتر مثبتة
-  // ⚠️ المفتاح ثابت للطلب الواحد ولا يتبع حالة (استئجار/تجديد):
-  //    لو غيّرناه حسب renewing، فإعادة إرسال نفس الطلب بعد نجاحه ستُرى
-  //    كطلب جديد (لأن الإيجار صار موجوداً) فتُخصم مرتين وتُمدَّد مرتين.
-  const tx = await applyChipsTx({
-    playerId,
-    amount: -Math.abs(item.priceChips),
-    reason: renewing ? 'renew_item' : 'rent_item',
-    idempotencyKey: `store:${rid}`,
-    refType: 'item',
-    refId: String(item.id),
-    note: `${renewing ? 'تجديد' : 'استئجار'} ${item.nameAr} — ${item.durationDays} يوماً`,
-    notify: {
-      title: renewing ? '🔄 تم التجديد' : '🛒 عنصر جديد في خزنتك',
-      body: `${item.nameAr} — ${item.durationDays} يوماً مقابل ${item.priceChips} 🪙`,
-    },
-  });
+  // 🔑 المفتاح مربوط بهدفه: الطلب **والعنصر** معاً.
+  //    كان `store:{rid}` وحده، ومعرّف الطلب لا يتجدّد إلا عند النجاح — فلاعب
+  //    ضاع ردّ شرائه لعنصر A ثم اشترى B كان يحصل على «✅ صار B لك» لعنصر
+  //    لا يملكه ولم يُخصم ثمنه.
+  const key = `store:${rid}:${itemId}`;
+  // 🕰️ المفتاح القديم — يُفحص ١٤ يوماً بعد النشر. بدونه تُرى إعادةُ محاولةٍ
+  //    نجحت قبل النشر كطلبٍ جديد فتُخصم ثانيةً.
+  const legacyKey = `store:${rid}`;
 
-  if (!tx.ok) {
-    return {
-      ok: false,
-      code: tx.code === 'INSUFFICIENT' ? 'INSUFFICIENT' : 'ERROR',
-      message: tx.code === 'INSUFFICIENT' ? 'رصيدك لا يكفي — اشحن من الإدارة' : (tx.message || 'تعذّر إتمام العملية'),
-      balance: tx.balance,
-    };
-  }
+  const nowIso = new Date();
 
-  // 2) الحركة مكرّرة (نقر مزدوج) → لا نمدّد مرتين
-  if (tx.duplicate) {
-    const [cur] = await db.select({ expiresAt: chipsRentals.expiresAt }).from(chipsRentals)
-      .where(and(eq(chipsRentals.playerId, playerId), eq(chipsRentals.itemId, itemId)))
-      .orderBy(desc(chipsRentals.expiresAt)).limit(1);
-    return { ok: true, balance: tx.balance, expiresAt: cur?.expiresAt, itemId, renewed: renewing };
-  }
+  try {
+    const out = await db.transaction(async (tx) => {
+      // ① العنصر — يُقرأ **داخل** المعاملة كي لا يتغيّر سعره بين الفحص والخصم
+      const itemRows = rowsOf(await tx.execute(sql`
+        SELECT id, kind, name_ar, price_chips, duration_days, is_active, is_purchasable, closed_at
+          FROM chips_items WHERE id = ${itemId} LIMIT 1
+      `));
+      if (itemRows.length === 0) throw Object.assign(new Error('NOT_FOUND'), { storeCode: 'NOT_FOUND', msg: 'العنصر غير موجود' });
+      const item = itemRows[0];
+      if (!item.is_active) throw Object.assign(new Error('CLOSED'), { storeCode: 'CLOSED', msg: 'هذا العنصر لم يعد معروضاً' });
+      if (item.closed_at) throw Object.assign(new Error('CLOSED'), { storeCode: 'CLOSED', msg: 'أُغلق هذا العنصر نهائياً — لا يعود' });
+      if (!item.is_purchasable) throw Object.assign(new Error('NOT_PURCHASABLE'), { storeCode: 'NOT_PURCHASABLE', msg: 'هذا العنصر يُنال بالإنجاز لا بالشراء' });
 
-  const days = Number(item.durationDays || DEFAULT_RENTAL_DAYS);
+      // ② المفتاح القديم مُستهلَك؟ ⇒ الطلب نفسه نجح قبل النشر
+      const legacyHit = rowsOf(await tx.execute(sql`
+        SELECT id, balance_after FROM chips_ledger WHERE idempotency_key = ${legacyKey} LIMIT 1
+      `));
+      if (legacyHit.length) {
+        throw Object.assign(new Error('DUPLICATE'), { storeCode: 'DUPLICATE', ledgerId: Number(legacyHit[0].id), balance: Number(legacyHit[0].balance_after) });
+      }
 
-  // 3) تمديد أو إنشاء — التمديد بحساب الخادم (GREATEST) فلا تُهدر أيام
-  if (existing) {
-    const res: any = await db.execute(sql`
-      UPDATE chips_rentals
-         SET expires_at = GREATEST(NOW(), expires_at) + (${days} || ' days')::interval,
-             source = 'renew',
-             ledger_id = ${tx.ledgerId ?? null},
-             warned_at = NULL
-       WHERE id = ${existing.id}
-      RETURNING expires_at
-    `);
-    const nextExp = rowsOf(res)[0]?.expires_at;
-    // 📡 التجديد قد يُحيي خانة انتهت للتوّ — تُبثّ كي تعود للبطاقة فوراً
+      // ③ إيجار نشط؟ (تجديد = تمديد) — بقفل الصفّ فلا يمدّده طلبان معاً
+      const existingRows = rowsOf(await tx.execute(sql`
+        SELECT id, expires_at FROM chips_rentals
+         WHERE player_id = ${playerId} AND item_id = ${itemId} AND expires_at > ${nowIso}
+         ORDER BY expires_at DESC LIMIT 1
+         FOR UPDATE
+      `));
+      const existing = existingRows[0] || null;
+      const renewing = !!existing;
+      const price = Math.abs(Number(item.price_chips) || 0);
+      const days = Number(item.duration_days || DEFAULT_RENTAL_DAYS);
+
+      // ④ الخصم — **داخل المعاملة نفسها**. لا يمكن بعد اليوم أن يُخصم مال
+      //    بلا إيجار: إما أن يُثبَّت الاثنان معاً أو لا شيء.
+      const ledger = await applyChipsTxIn(tx, {
+        playerId,
+        amount: -price,
+        reason: renewing ? 'renew_item' : 'rent_item',
+        idempotencyKey: key,
+        refType: 'item',
+        refId: String(itemId),
+        note: `${renewing ? 'تجديد' : 'استئجار'} ${item.name_ar} — ${days} يوماً`,
+      });
+
+      // ⑤ الإيجار — تمديد فوق المتبقّي (GREATEST) فلا تُهدر أيام
+      let expiresAt: any;
+      if (existing) {
+        const r: any = await tx.execute(sql`
+          UPDATE chips_rentals
+             SET expires_at = GREATEST(NOW(), expires_at) + (${days} || ' days')::interval,
+                 source = 'renew', ledger_id = ${ledger.ledgerId}, warned_at = NULL
+           WHERE id = ${existing.id}
+          RETURNING expires_at
+        `);
+        expiresAt = rowsOf(r)[0]?.expires_at;
+      } else {
+        const r: any = await tx.execute(sql`
+          INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id)
+          VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${ledger.ledgerId})
+          RETURNING expires_at
+        `);
+        expiresAt = rowsOf(r)[0]?.expires_at;
+
+        // ⑥ تجهيز تلقائي للخانة الفارغة — أول شراء يجب أن يُرى فوراً
+        const col = SLOT_COLUMN[item.kind as ChipsItemKind];
+        if (col) {
+          await tx.execute(sql.raw(
+            `UPDATE players SET ${col} = ${Number(itemId)} WHERE id = ${Number(playerId)} AND ${col} IS NULL`,
+          ));
+        }
+      }
+
+      return {
+        balance: ledger.balance, expiresAt, renewing, price, days,
+        nameAr: String(item.name_ar), ledgerId: ledger.ledgerId,
+      };
+    });
+
+    // ── آثار جانبية بعد التثبيت فقط ──
+    emitChipsSideEffects({
+      playerId, amount: -out.price,
+      reason: out.renewing ? 'renew_item' : 'rent_item',
+      idempotencyKey: key,
+      notify: {
+        title: out.renewing ? '🔄 تم التجديد' : '🛒 عنصر جديد في خزنتك',
+        body: `${out.nameAr} — ${out.days} يوماً مقابل ${out.price} 🪙`,
+      },
+    }, out.balance);
     broadcastCosmetics(playerId);
-    return { ok: true, balance: tx.balance, expiresAt: nextExp, itemId, renewed: true };
+
+    return { ok: true, balance: out.balance, expiresAt: out.expiresAt, itemId, renewed: out.renewing };
+  } catch (err: any) {
+    // ── تكرار: الطلب نفسه نُفِّذ سابقاً ──
+    if (err?.storeCode === 'DUPLICATE' || isLedgerDuplicateError(err)) {
+      return repairOrConfirmRental(playerId, itemId, err?.storeCode === 'DUPLICATE' ? legacyKey : key);
+    }
+    if (err?.chipsCode === 'INSUFFICIENT') {
+      return { ok: false, code: 'INSUFFICIENT', message: 'رصيدك لا يكفي — اشحن من الإدارة', balance: err.balance };
+    }
+    if (err?.chipsCode === 'NOT_FOUND') return { ok: false, code: 'NOT_FOUND', message: 'اللاعب غير موجود' };
+    if (err?.storeCode) return { ok: false, code: err.storeCode, message: err.msg || 'تعذّر إتمام العملية' };
+    console.error('❌ rentItem:', err?.message);
+    return { ok: false, code: 'ERROR', message: 'تعذّر إتمام العملية' };
   }
+}
 
-  const res: any = await db.execute(sql`
-    INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id)
-    VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${tx.ledgerId ?? null})
-    RETURNING expires_at
-  `);
-  const exp = rowsOf(res)[0]?.expires_at;
+/**
+ * 🩹 تكرار الطلب: نؤكّد الإيجار — **وننشئه إن كان مفقوداً**.
+ *
+ * الحالة المفقودة ليست نظرية: كل عملية سبقت هذا الإصلاح كان يمكن أن تنقطع
+ * بين الخصم وكتابة الإيجار، وكانت إعادة المحاولة تُعيد «نجاحاً» بلا إنشاء
+ * أي شيء — فيبقى في الدفتر خصمٌ بلا مقابل إلى الأبد. هنا نُصلحه لحظة أول
+ * إعادة محاولة، مربوطاً بسطر الدفتر الأصلي كي يبقى الأثر واضحاً.
+ */
+async function repairOrConfirmRental(playerId: number, itemId: number, idemKey: string): Promise<StoreResult> {
+  const db = getDB();
+  if (!db) return { ok: false, code: 'DB_DOWN', message: 'قاعدة البيانات غير متاحة' };
+  try {
+    const out = await db.transaction(async (tx) => {
+      const led = rowsOf(await tx.execute(sql`
+        SELECT id, balance_after FROM chips_ledger WHERE idempotency_key = ${idemKey} LIMIT 1
+      `))[0];
 
-  // تجهيز تلقائي للخانة الفارغة — أول شراء يجب أن يُرى فوراً
-  const col = SLOT_COLUMN[item.kind as ChipsItemKind];
-  if (col) {
-    await db.execute(sql.raw(
-      `UPDATE players SET ${col} = ${Number(itemId)} WHERE id = ${Number(playerId)} AND ${col} IS NULL`,
-    ));
+      const rental = rowsOf(await tx.execute(sql`
+        SELECT id, expires_at FROM chips_rentals
+         WHERE player_id = ${playerId} AND item_id = ${itemId}
+         ORDER BY expires_at DESC LIMIT 1 FOR UPDATE
+      `))[0];
+
+      if (rental) return { balance: led ? Number(led.balance_after) : undefined, expiresAt: rental.expires_at, repaired: false };
+
+      // خصمٌ بلا إيجار — نُنشئه الآن بمدّة العنصر المعلنة
+      const item = rowsOf(await tx.execute(sql`
+        SELECT kind, duration_days FROM chips_items WHERE id = ${itemId} LIMIT 1
+      `))[0];
+      if (!item) return { balance: led ? Number(led.balance_after) : undefined, expiresAt: undefined, repaired: false };
+
+      const days = Number(item.duration_days || DEFAULT_RENTAL_DAYS);
+      const r: any = await tx.execute(sql`
+        INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id)
+        VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${led ? Number(led.id) : null})
+        RETURNING expires_at
+      `);
+      const col = SLOT_COLUMN[item.kind as ChipsItemKind];
+      if (col) {
+        await tx.execute(sql.raw(
+          `UPDATE players SET ${col} = ${Number(itemId)} WHERE id = ${Number(playerId)} AND ${col} IS NULL`,
+        ));
+      }
+      return { balance: led ? Number(led.balance_after) : undefined, expiresAt: rowsOf(r)[0]?.expires_at, repaired: true };
+    });
+
+    if (out.repaired) {
+      console.warn(`🩹 chips: أُصلح إيجار مفقود بعد خصم مثبَّت — لاعب ${playerId} عنصر ${itemId}`);
+      broadcastCosmetics(playerId);
+    }
+    return { ok: true, balance: out.balance, expiresAt: out.expiresAt, itemId };
+  } catch (e: any) {
+    console.error('❌ repairOrConfirmRental:', e?.message);
+    return { ok: false, code: 'ERROR', message: 'تعذّر تأكيد العملية' };
   }
-
-  // 📡 بثّ المظهر بعد الشراء — كان مفقوداً هنا بينما التجهيز اليدوي يبثّ،
-  //    فكان أول شراء لا يصل الشاشة ولا بقيّة واجهات اللاعب حتى إعادة جلب يدوية.
-  //    الدالة مفصولة ولا ترمي، فلا تؤثر على نتيجة الشراء مهما حدث.
-  broadcastCosmetics(playerId);
-
-  return { ok: true, balance: tx.balance, expiresAt: exp, itemId, renewed: false };
 }
 
 /** منح إيجار بلا مقابل (إنجاز/إداري) — لا يمسّ الرصيد */

@@ -116,9 +116,16 @@ export default function StorePage() {
       });
       setRequestId(newRequestId());
       setBalance(Number(d.balance ?? balance));
-      say(true, d.renewed
-        ? `🔄 جُدِّد «${item.nameAr}» — متبقٍ ${daysLeft(d.expiresAt)} يوماً`
-        : `✅ صار «${item.nameAr}» لك ${item.durationDays} يوماً`);
+      // ⚠️ لا نُعلن ملكية بلا تاريخ انتهاء. الخادم صار يُنشئ الإيجار في نفس
+      //    معاملة الخصم ويُصلح أي إيجار مفقود عند إعادة المحاولة، فغياب
+      //    التاريخ حالة شاذّة — نقولها كما هي بدل تأكيدٍ كاذب.
+      if (!d.expiresAt) {
+        say(false, 'تمّت العملية لكن لم نتأكّد من تفعيل العنصر — أعد فتح الخزنة، وراجع الإدارة إن لم يظهر');
+      } else {
+        say(true, d.renewed
+          ? `🔄 جُدِّد «${item.nameAr}» — متبقٍ ${daysLeft(d.expiresAt)} يوماً`
+          : `✅ صار «${item.nameAr}» لك ${item.durationDays} يوماً`);
+      }
       setTryOn(null);
       load();
     } catch (e: any) {

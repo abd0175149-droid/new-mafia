@@ -516,6 +516,105 @@ async function main() {
     }
   }
 
+  // ══════════════════════════════════════════════════════
+  // ٦) ذرّية الشراء — أخطر ثقب في النظام قبل هذا الإصلاح
+  // ══════════════════════════════════════════════════════
+  console.log('\n٦) ذرّية الشراء:');
+  {
+    const { rentItem } = await import('../services/chips-store.service.js');
+
+    // ٦.١ 🔒 ثابت على مستوى الجدول (قراءة فقط، يشمل كل التاريخ):
+    //     كل سطر دفتر استئجار/تجديد يجب أن يقابله إيجار لنفس اللاعب والعنصر.
+    //     أي يتيم = مالٌ خُصم بلا مقابل.
+    const orphans = rowsOf(await db.execute(sql`
+      SELECT l.id, l.player_id, l.ref_id, l.created_at
+        FROM chips_ledger l
+       WHERE l.reason IN ('rent_item','renew_item')
+         AND l.ref_type = 'item'
+         AND NOT EXISTS (
+           SELECT 1 FROM chips_rentals r
+            WHERE r.player_id = l.player_id
+              AND r.item_id = NULLIF(l.ref_id,'')::int
+         )
+       ORDER BY l.id DESC LIMIT 10
+    `));
+    check(orphans.length === 0,
+      `لا خصم استئجار بلا إيجار مقابل (${orphans.length} يتيم)`,
+      orphans.length ? JSON.stringify(orphans.slice(0, 3)) : '');
+
+    // ٦.٢ شراء حقيقي على حساب اختباري — يجب أن يُنشئ الاثنين معاً
+    const tp = rowsOf(await db.execute(sql`
+      SELECT id FROM players WHERE COALESCE(is_test_account,false) = true ORDER BY id LIMIT 1
+    `))[0];
+    const cheap = rowsOf(await db.execute(sql`
+      SELECT id, price_chips FROM chips_items
+       WHERE is_active = true AND is_purchasable = true AND closed_at IS NULL
+       ORDER BY price_chips ASC LIMIT 1
+    `))[0];
+
+    if (!tp || !cheap) {
+      check(true, 'تخطّي اختبار الشراء (لا حساب اختباري أو لا عنصر معروض)');
+    } else {
+      const pid = Number(tp.id);
+      const iid = Number(cheap.id);
+      const price = Number(cheap.price_chips) || 0;
+      const rid = `verify-${Date.now().toString(36)}`;
+
+      // نموّله بما يكفي لشرائين
+      await db.execute(sql`
+        INSERT INTO chips_ledger (player_id, amount, balance_after, reason, ref_type, idempotency_key, note)
+        SELECT ${pid}, ${price * 2 + 10}, COALESCE(chips_balance,0) + ${price * 2 + 10}, 'admin_adjust', 'manual',
+               ${'verify-fund:' + rid}, 'تمويل اختبار الذرّية'
+          FROM players WHERE id = ${pid}
+      `);
+      await db.execute(sql`UPDATE players SET chips_balance = COALESCE(chips_balance,0) + ${price * 2 + 10} WHERE id = ${pid}`);
+
+      const r1 = await rentItem({ playerId: pid, itemId: iid, requestId: rid });
+      check(!!r1.ok && !!r1.expiresAt, 'الشراء ينجح ويُعيد تاريخ انتهاء', JSON.stringify(r1).slice(0, 120));
+
+      const led1 = rowsOf(await db.execute(sql`
+        SELECT id FROM chips_ledger WHERE idempotency_key = ${`store:${rid}:${iid}`}
+      `));
+      const ren1 = rowsOf(await db.execute(sql`
+        SELECT id FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}
+      `));
+      check(led1.length === 1 && ren1.length === 1, 'الخصم والإيجار وُجدا معاً (ذرّية)', `دفتر=${led1.length} إيجار=${ren1.length}`);
+
+      // ٦.٣ إعادة نفس الطلب ⇒ لا خصم ثانٍ ولا تمديد ثانٍ
+      const before = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      const r2 = await rentItem({ playerId: pid, itemId: iid, requestId: rid });
+      const after = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      check(!!r2.ok && Number(before.b) === Number(after.b), 'إعادة نفس الطلب لا تخصم ثانيةً', `قبل=${before.b} بعد=${after.b}`);
+      const ledDup = rowsOf(await db.execute(sql`
+        SELECT id FROM chips_ledger WHERE idempotency_key LIKE ${`store:${rid}:%`}
+      `));
+      check(ledDup.length === 1, 'لا سطر دفتر ثانٍ لنفس الطلب', `عدد=${ledDup.length}`);
+
+      // ٦.٤ 🔑 نفس معرّف الطلب لعنصر **آخر** يجب أن يُعامَل كطلب مستقلّ.
+      //     هذه هي العلّة التي كانت تُعيد «✅ صار X لك» لعنصر لا يملكه.
+      const other = rowsOf(await db.execute(sql`
+        SELECT id FROM chips_items
+         WHERE is_active = true AND is_purchasable = true AND closed_at IS NULL AND id <> ${iid}
+         ORDER BY price_chips ASC LIMIT 1
+      `))[0];
+      if (other) {
+        const oid = Number(other.id);
+        const r3 = await rentItem({ playerId: pid, itemId: oid, requestId: rid });
+        const ren3 = rowsOf(await db.execute(sql`SELECT id FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${oid}`));
+        check(!!r3.ok && ren3.length === 1, 'نفس المعرّف لعنصر آخر ⇒ شراء مستقلّ فعلي (لا تأكيد كاذب)');
+        await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${oid}`);
+      }
+
+      // تنظيف كامل — الرصيد يعود لما كان
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
+      await db.execute(sql`DELETE FROM chips_ledger WHERE idempotency_key LIKE ${`store:${rid}%`} OR idempotency_key = ${'verify-fund:' + rid}`);
+      await db.execute(sql`UPDATE players SET chips_frame_item_id = NULL, chips_title_item_id = NULL, chips_name_fx_item_id = NULL WHERE id = ${pid}`);
+      await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
+      const back = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      check(Number(back?.b) === 0, 'نُظّفت آثار اختبار الشراء بالكامل', `الرصيد=${back?.b}`);
+    }
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);

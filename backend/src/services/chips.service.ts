@@ -53,6 +53,28 @@ function pgCodeOf(err: any): string | undefined {
   return err?.code || err?.cause?.code || err?.originalError?.code;
 }
 
+/** اسم القيد الفريد على مفتاح منع التكرار (index.ts — بذرة الإقلاع) */
+export const LEDGER_IDEM_CONSTRAINT = 'idx_chips_ledger_idem';
+
+function constraintOf(err: any): string | undefined {
+  return err?.constraint || err?.cause?.constraint || err?.originalError?.constraint;
+}
+
+/**
+ * هل هذا الخطأ تكرارُ **مفتاح دفتر** تحديداً؟
+ *
+ * ⚠️ لا يكفي فحص الرمز 23505: بعد أن صار الخصم يشارك معاملة الاستئجار،
+ *    صار أي تعارض فريد آخر داخل المعاملة (صفّ إيجار مثلاً) يحمل الرمز نفسه —
+ *    فمعاملته كـ«حركة مكرّرة ناجحة» يعني الإبلاغ عن نجاح لعملية لم تقع.
+ *    نتحقّق من اسم القيد. وإن غاب الاسم (بعض الأغلفة لا تمرّره) نتراجع إلى
+ *    الرمز وحده حفاظاً على السلوك القديم بدل رفض حركة صحيحة.
+ */
+export function isLedgerDuplicateError(err: any): boolean {
+  if (pgCodeOf(err) !== '23505') return false;
+  const c = constraintOf(err);
+  return !c || c === LEDGER_IDEM_CONSTRAINT;
+}
+
 /** بث الرصيد الجديد لغرفة اللاعب (لا يُفشل الحركة أبداً) */
 function emitBalance(playerId: number, balance: number, delta: number, reason: string) {
   try {
@@ -75,6 +97,73 @@ function pushChips(playerId: number, title: string, body: string) {
 // 💠 الدالة الوحيدة — كل حركة تشبس تمرّ من هنا
 // ══════════════════════════════════════════════════════
 
+/** تحقّق صارم من المدخلات — يُستدعى قبل أي لمس للقاعدة */
+export function validateChipsTx(input: ChipsTxInput): ChipsTxResult | null {
+  const playerId = Number(input.playerId);
+  const amount = Math.trunc(Number(input.amount));
+  const key = String(input.idempotencyKey || '').trim();
+  if (!Number.isInteger(playerId) || playerId <= 0) return { ok: false, code: 'INVALID', message: 'معرّف لاعب غير صالح' };
+  if (!Number.isFinite(amount) || amount === 0) return { ok: false, code: 'INVALID', message: 'قيمة الحركة يجب أن تكون عدداً صحيحاً غير صفري' };
+  if (Math.abs(amount) > 100000) return { ok: false, code: 'INVALID', message: 'قيمة الحركة تتجاوز الحد المسموح' };
+  if (!CHIPS_REASONS.includes(input.reason)) return { ok: false, code: 'INVALID', message: 'سبب حركة غير معروف' };
+  if (!key || key.length > 120) return { ok: false, code: 'INVALID', message: 'مفتاح منع التكرار مطلوب' };
+  return null;
+}
+
+/**
+ * 💠 جسد الحركة **داخل معاملة قائمة** — الشكل الوحيد الذي يسمح لمُستدعٍ
+ *    بضمّ الخصم إلى عمله في ذرّة واحدة.
+ *
+ * ⚠️ لماذا استُخرج: `rentItem` كان يُثبّت الخصم في معاملته الخاصة ثم يكتب
+ *    صفّ الإيجار بجملة منفصلة. انقطاع بين الاثنتين = خُصم المال ولم يُسلَّم
+ *    شيء، وإعادة المحاولة كانت تُثبّت الخسارة (تُرى الحركة مكرّرة فيُعاد
+ *    نجاح بلا إنشاء إيجار). لا يمكن إصلاح ذلك دون معاملة واحدة تضمّهما.
+ *
+ * يرمي عند INSUFFICIENT / NOT_FOUND، ويترك تعارض المفتاح الفريد يصعد كما هو
+ * كي يقرّره المُستدعي (تكرار ناجح أم خطأ حقيقي).
+ */
+export async function applyChipsTxIn(tx: any, input: ChipsTxInput): Promise<{ balance: number; ledgerId: number }> {
+  const playerId = Number(input.playerId);
+  const amount = Math.trunc(Number(input.amount));
+  const key = String(input.idempotencyKey || '').trim();
+
+  // 1) قفل صف اللاعب — يمنع سباق حركتين متزامنتين
+  const locked = rowsOf(await tx.execute(
+    sql`SELECT id, COALESCE(chips_balance, 0)::int AS bal FROM players WHERE id = ${playerId} FOR UPDATE`,
+  ));
+  if (locked.length === 0) throw Object.assign(new Error('NOT_FOUND'), { chipsCode: 'NOT_FOUND' });
+
+  const current = Number(locked[0].bal ?? 0);
+  const next = current + amount;
+
+  // 2) لا يهبط الرصيد تحت الصفر أبداً
+  if (next < 0) throw Object.assign(new Error('INSUFFICIENT'), { chipsCode: 'INSUFFICIENT', balance: current });
+
+  // 3) الدفتر (القيد الفريد على المفتاح = أمان النقر المزدوج)
+  const [led] = await tx.insert(chipsLedger).values({
+    playerId,
+    amount,
+    balanceAfter: next,
+    reason: input.reason,
+    refType: input.refType ?? null,
+    refId: input.refId != null ? String(input.refId) : null,
+    idempotencyKey: key,
+    staffId: input.staffId ?? null,
+    note: input.note ?? null,
+  } as any).returning({ id: chipsLedger.id });
+
+  // 4) كاش الرصيد
+  await tx.update(players).set({ chipsBalance: next } as any).where(eq(players.id, playerId));
+
+  return { balance: next, ledgerId: led.id };
+}
+
+/** الآثار الجانبية بعد التثبيت — بثّ الرصيد وإشعار اللاعب */
+export function emitChipsSideEffects(input: ChipsTxInput, balance: number) {
+  emitBalance(Number(input.playerId), balance, Math.trunc(Number(input.amount)), input.reason);
+  if (input.notify) pushChips(Number(input.playerId), input.notify.title, input.notify.body);
+}
+
 export async function applyChipsTx(input: ChipsTxInput): Promise<ChipsTxResult> {
   const db = getDB();
   if (!db) return { ok: false, code: 'DB_DOWN', message: 'قاعدة البيانات غير متاحة' };
@@ -83,45 +172,11 @@ export async function applyChipsTx(input: ChipsTxInput): Promise<ChipsTxResult> 
   const amount = Math.trunc(Number(input.amount));
   const key = String(input.idempotencyKey || '').trim();
 
-  // ── تحقق صارم قبل لمس القاعدة ──
-  if (!Number.isInteger(playerId) || playerId <= 0) return { ok: false, code: 'INVALID', message: 'معرّف لاعب غير صالح' };
-  if (!Number.isFinite(amount) || amount === 0) return { ok: false, code: 'INVALID', message: 'قيمة الحركة يجب أن تكون عدداً صحيحاً غير صفري' };
-  if (Math.abs(amount) > 100000) return { ok: false, code: 'INVALID', message: 'قيمة الحركة تتجاوز الحد المسموح' };
-  if (!CHIPS_REASONS.includes(input.reason)) return { ok: false, code: 'INVALID', message: 'سبب حركة غير معروف' };
-  if (!key || key.length > 120) return { ok: false, code: 'INVALID', message: 'مفتاح منع التكرار مطلوب' };
+  const invalid = validateChipsTx(input);
+  if (invalid) return invalid;
 
   try {
-    const out = await db.transaction(async (tx) => {
-      // 1) قفل صف اللاعب — يمنع سباق حركتين متزامنتين
-      const locked = rowsOf(await tx.execute(
-        sql`SELECT id, COALESCE(chips_balance, 0)::int AS bal FROM players WHERE id = ${playerId} FOR UPDATE`,
-      ));
-      if (locked.length === 0) throw Object.assign(new Error('NOT_FOUND'), { chipsCode: 'NOT_FOUND' });
-
-      const current = Number(locked[0].bal ?? 0);
-      const next = current + amount;
-
-      // 2) لا يهبط الرصيد تحت الصفر أبداً
-      if (next < 0) throw Object.assign(new Error('INSUFFICIENT'), { chipsCode: 'INSUFFICIENT', balance: current });
-
-      // 3) الدفتر (القيد الفريد على المفتاح = أمان النقر المزدوج)
-      const [led] = await tx.insert(chipsLedger).values({
-        playerId,
-        amount,
-        balanceAfter: next,
-        reason: input.reason,
-        refType: input.refType ?? null,
-        refId: input.refId != null ? String(input.refId) : null,
-        idempotencyKey: key,
-        staffId: input.staffId ?? null,
-        note: input.note ?? null,
-      } as any).returning({ id: chipsLedger.id });
-
-      // 4) كاش الرصيد
-      await tx.update(players).set({ chipsBalance: next } as any).where(eq(players.id, playerId));
-
-      return { balance: next, ledgerId: led.id };
-    });
+    const out = await db.transaction(async (tx) => applyChipsTxIn(tx, input));
 
     // ── آثار جانبية بعد التثبيت فقط ──
     emitBalance(playerId, out.balance, amount, input.reason);
@@ -130,7 +185,7 @@ export async function applyChipsTx(input: ChipsTxInput): Promise<ChipsTxResult> 
     return { ok: true, balance: out.balance, ledgerId: out.ledgerId, duplicate: false };
   } catch (err: any) {
     // ── تكرار: نفس المفتاح مُنفَّذ سابقاً — نتيجة ناجحة لا خطأ ──
-    if (pgCodeOf(err) === '23505') {
+    if (isLedgerDuplicateError(err)) {
       const [prev] = await db.select({ id: chipsLedger.id, balanceAfter: chipsLedger.balanceAfter })
         .from(chipsLedger).where(eq(chipsLedger.idempotencyKey, key)).limit(1);
       if (prev) return { ok: true, balance: prev.balanceAfter, ledgerId: prev.id, duplicate: true };
@@ -151,6 +206,23 @@ export async function applyChipsTx(input: ChipsTxInput): Promise<ChipsTxResult> 
 // 📦 عمليات عالية المستوى
 // ══════════════════════════════════════════════════════
 
+/**
+ * 🕰️ هل استُهلك مفتاح قديم (بلا ربط بالهدف) لهذا الطلب؟
+ *
+ * المفاتيح صارت مربوطة بهدفها، والقديمة لا تتعارض مع الجديدة — فبدون هذا
+ * الفحص ستُرى إعادةُ محاولةٍ نجحت قبل النشر كطلبٍ جديد فتُنفَّذ مرة ثانية.
+ * يبقى الفحص ١٤ يوماً بعد النشر ثم يُحذف.
+ */
+async function legacyKeyUsed(legacyKey: string): Promise<{ balance: number; ledgerId: number } | null> {
+  const db = getDB();
+  if (!db) return null;
+  try {
+    const [row] = await db.select({ id: chipsLedger.id, balanceAfter: chipsLedger.balanceAfter })
+      .from(chipsLedger).where(eq(chipsLedger.idempotencyKey, legacyKey)).limit(1);
+    return row ? { balance: row.balanceAfter, ledgerId: row.id } : null;
+  } catch { return null; }
+}
+
 /** شحن إداري بباقة معتمدة حصراً */
 export async function adminTopup(opts: {
   playerId: number; packId: string; staffId?: number | null; note?: string | null; requestId?: string | null;
@@ -163,11 +235,18 @@ export async function adminTopup(opts: {
   const rid = String(opts.requestId || '').trim().slice(0, 60)
     || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+  // 🔑 مربوط بهدفه: الطلب + اللاعب + الباقة.
+  //    كان `topup:{rid}` وحده ومعرّف الطلب لا يتجدّد إلا عند النجاح — فموظّف
+  //    ضاع ردّ شحنه ثم انتقل **للزبون التالي** كان يرى «مُنفَّذة سابقاً»
+  //    ويُكتب رصيد الزبون الأول على صفّ الثاني: دفع ولم يستلم، وبلا سطر تدقيق.
+  const legacy = await legacyKeyUsed(`topup:${rid}`);
+  if (legacy) return { ok: true, balance: legacy.balance, ledgerId: legacy.ledgerId, duplicate: true, pack: { id: pack.id, jod: pack.jod, chips: pack.chips } };
+
   const res = await applyChipsTx({
     playerId: opts.playerId,
     amount: pack.chips,
     reason: 'admin_topup',
-    idempotencyKey: `topup:${rid}`,
+    idempotencyKey: `topup:${rid}:${Number(opts.playerId)}:${pack.id}`,
     refType: 'topup_pack',
     refId: pack.id,
     staffId: opts.staffId ?? null,
@@ -191,11 +270,16 @@ export async function adminAdjust(opts: {
     || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
   const amount = Math.trunc(Number(opts.amount));
+
+  // 🔑 مربوط بهدفه (الطلب + اللاعب + القيمة) — نفس علّة الشحن أعلاه
+  const legacy = await legacyKeyUsed(`adjust:${rid}`);
+  if (legacy) return { ok: true, balance: legacy.balance, ledgerId: legacy.ledgerId, duplicate: true };
+
   return applyChipsTx({
     playerId: opts.playerId,
     amount,
     reason: 'admin_adjust',
-    idempotencyKey: `adjust:${rid}`,
+    idempotencyKey: `adjust:${rid}:${Number(opts.playerId)}:${amount}`,
     refType: 'manual',
     staffId: opts.staffId ?? null,
     note: note.slice(0, 300),

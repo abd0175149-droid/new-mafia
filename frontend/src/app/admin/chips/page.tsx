@@ -222,6 +222,12 @@ function TopupView({ packs, onChanged, toast }: { packs: Pack[]; onChanged: () =
     return () => clearTimeout(t);
   }, [search, load]);
 
+  // 🔑 معرّف طلب جديد عند تبديل اللاعب.
+  //    المفتاح صار مربوطاً باللاعب والباقة في الخادم، لكن تجديده هنا يمنع
+  //    أيضاً ظهور رسالة «مُنفَّذة سابقاً» المربكة حين يعيد الموظّف المحاولة
+  //    لزبون آخر بعد ردّ ضائع.
+  useEffect(() => { setRequestId(newRequestId()); }, [selected?.id]);
+
   const doTopup = async () => {
     if (!selected || !packId) return;
     setBusy(true);
