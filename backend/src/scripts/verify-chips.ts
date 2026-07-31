@@ -569,6 +569,12 @@ async function main() {
       const price = Number(cheap.price_chips) || 0;
       const rid = `verify-${Date.now().toString(36)}`;
 
+      // 📌 الرصيد قبل الاختبار — إليه نعود، لا إلى صفر: الحساب يحمل منحة
+      //    «أول مباراة» التاريخية (+10) وهي سطر مشروع لا يجوز حذفه.
+      const balAtStart = Number(rowsOf(await db.execute(
+        sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`,
+      ))[0]?.b ?? 0);
+
       // نموّله بما يكفي لشرائين
       await db.execute(sql`
         INSERT INTO chips_ledger (player_id, amount, balance_after, reason, ref_type, idempotency_key, note)
@@ -663,7 +669,9 @@ async function main() {
       await db.execute(sql`UPDATE players SET chips_frame_item_id = NULL, chips_title_item_id = NULL, chips_name_fx_item_id = NULL WHERE id = ${pid}`);
       await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
       const back = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
-      check(Number(back?.b) === 0, 'نُظّفت آثار اختبار الشراء بالكامل', `الرصيد=${back?.b}`);
+      check(Number(back?.b) === balAtStart,
+        `نُظّفت آثار اختبار الشراء — الرصيد عاد كما كان (${balAtStart})`,
+        `قبل=${balAtStart} بعد=${back?.b}`);
     }
   }
 
