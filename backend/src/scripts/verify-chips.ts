@@ -668,10 +668,23 @@ async function main() {
       `);
       await db.execute(sql`UPDATE players SET chips_frame_item_id = NULL, chips_title_item_id = NULL, chips_name_fx_item_id = NULL WHERE id = ${pid}`);
       await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
-      const back = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
-      check(Number(back?.b) === balAtStart,
-        `نُظّفت آثار اختبار الشراء — الرصيد عاد كما كان (${balAtStart})`,
-        `قبل=${balAtStart} بعد=${back?.b}`);
+      // ✅ الثابت الصحيح ليس رقماً بعينه بل **الاتّساق**: الكاش يساوي مجموع
+      //    الدفتر. التنظيف يحذف بقايا فحوص قديمة (خصومٌ يتيمة سالبة) فيتغيّر
+      //    المجموع تغيّراً مشروعاً — ومطالبة الرصيد بالعودة لرقمه السابق تجعل
+      //    الفحص يفشل على تصحيحٍ نحن من أجريناه.
+      const back = rowsOf(await db.execute(sql`
+        SELECT COALESCE(p.chips_balance,0)::int AS cached,
+               COALESCE((SELECT SUM(amount) FROM chips_ledger l WHERE l.player_id = p.id),0)::int AS ledger
+          FROM players p WHERE p.id = ${pid}
+      `))[0];
+      check(Number(back?.cached) === Number(back?.ledger),
+        `اختبار الشراء يترك الحساب متّسقاً (كاش=دفتر=${back?.ledger})`,
+        `كاش=${back?.cached} دفتر=${back?.ledger} · قبل الاختبار=${balAtStart}`);
+      const leftover = rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_ledger
+         WHERE player_id = ${pid} AND idempotency_key LIKE ${`store:${pid}:${rid}%`}
+      `))[0];
+      check(Number(leftover?.c) === 0, 'لم يبقَ أي سطر من سطور هذا الاختبار', `متبقٍ=${leftover?.c}`);
     }
   }
 
