@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getGameState, setGameState, deleteGameState } from '../config/redis.js';
 import { Role } from './roles.js';
 import type { DynamicNightState } from './dynamic-night-resolver.js';
+import { generateDisplayPin as mintDisplayPin } from '../services/display-auth.service.js';
 
 // ── الأنواع (Types) ────────────────────────────────
 
@@ -356,8 +357,10 @@ export function generateRoomCode(): string {
 
 // ── إنشاء PIN لشاشة العرض ────────────────────────
 
+// ٢️⃣ لم يعد يُولَّد هنا: ٣ خانات، ومن Math.random غير الآمن.
+// المولّد الواحد في display-auth.service يُعطي ٦ خانات من crypto.
 function generateDisplayPin(): string {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+  return mintDisplayPin();
 }
 
 // ── إنشاء غرفة جديدة ─────────────────────────────

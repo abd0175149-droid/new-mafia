@@ -4,7 +4,10 @@
 // ══════════════════════════════════════════════════════
 
 import { Server, Socket } from 'socket.io';
-import { verifyDisplayToken, displayAuthEnforced } from '../services/display-auth.service.js';
+import {
+  verifyDisplayToken, displayAuthEnforced, pinAttemptKeyFromSocket, pinLockState, recordPinFailure, clearPinFailures, pinEquals, mintDisplayToken,
+} from '../services/display-auth.service.js';
+import { projectDisplayState } from '../services/display-state.projection.js';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
@@ -551,32 +554,65 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── التحقق من PIN شاشة العرض ──────────────────
+  //
+  // 🔒 هذا المعالج كان يتجاوز كل ما بُني في مصادقة الشاشة:
+  //    يقارن رمزاً من أرقام قليلة **بلا أي قفل**، ثم يمنح
+  //    `socket.data.role = 'display'` — وهو الحقل الذي يقرؤه `isTrusted`
+  //    ليُرسل الحالة بلا تنقية — ثم يُعيد `getRoom()` **خاماً** بدور كل لاعب.
+  //    مُسجَّل لكل اتصال، و`io.use` لا يرفض غير المصادَق. فكان الطريق
+  //    الخلفي الذي يُفرغ حراسة مسار REST من معناها.
+  //
+  //    الآن: نفس العدّاد ونفس القفل ونفس الإسقاط المنقّى الذي يبنيه REST،
+  //    ومقارنة ثابتة الزمن، ويُمنح توكن الشاشة كما في المسار الآخر.
   socket.on('room:verify-display-pin', async (data: { roomId: string; pin: string }, callback) => {
+    const reply = typeof callback === 'function' ? callback : () => {};
     try {
-      const room = activeRooms.get(data.roomId);
+      const roomId = String(data?.roomId || '');
+      const attemptKey = pinAttemptKeyFromSocket(socket, roomId);
+      const lock = pinLockState(attemptKey);
+      if (lock.locked) {
+        return reply({
+          success: false,
+          error: `محاولات كثيرة — أعد المحاولة بعد ${Math.ceil(lock.retryAfterSec / 60)} دقيقة`,
+          retryAfter: lock.retryAfterSec,
+        });
+      }
+
+      const room = activeRooms.get(roomId);
       if (!room) {
-        return callback({ success: false, error: 'اللعبة غير موجودة' });
+        // ⚠️ غرفة غير موجودة تُعدّ محاولة فاشلة أيضاً — وإلا صار مسحُ
+        //    معرّفات الغرف مجّانياً بينما الرمز وحده محمي.
+        recordPinFailure(attemptKey);
+        return reply({ success: false, error: 'اللعبة غير موجودة' });
       }
 
-      if (room.displayPin !== data.pin) {
-        return callback({ success: false, error: 'الرقم السري غير صحيح' });
+      if (!pinEquals(String(room.displayPin ?? ''), String(data?.pin ?? ''))) {
+        const after = recordPinFailure(attemptKey);
+        return reply({
+          success: false,
+          error: after.locked ? 'محاولات كثيرة — الرمز مقفل مؤقتاً' : 'الرقم السري غير صحيح',
+          ...(after.locked ? { retryAfter: after.retryAfterSec } : {}),
+        });
       }
+      clearPinFailures(attemptKey);
 
-      socket.join(data.roomId);
+      socket.join(roomId);
       socket.data.role = 'display';
-      socket.data.roomId = data.roomId;
+      socket.data.roomId = roomId;
 
-      const state = await getRoom(data.roomId);
-      callback({
+      const state = await getRoom(roomId);
+      reply({
         success: true,
+        displayToken: mintDisplayToken(roomId),
         gameName: room.gameName,
         roomCode: room.roomCode,
         playerCount: room.playerCount,
         maxPlayers: room.maxPlayers,
-        state,
+        // 🧹 نفس حقول مسار REST بالضبط — لا حالة خام، ولا حقول لا تحتاجها الشاشة
+        state: state ? projectDisplayState(state) : null,
       });
     } catch (err: any) {
-      callback({ success: false, error: err.message });
+      reply({ success: false, error: err.message });
     }
   });
 

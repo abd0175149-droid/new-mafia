@@ -109,7 +109,7 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 // ── POST /api/player-auth/login — تسجيل دخول ──
-router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 15, keyPrefix: 'player-login' }), async (req: Request, res: Response) => {
+router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 120, keyPrefix: 'player-login', identity: (req) => req.body?.phone, identityMax: 10 }), async (req: Request, res: Response) => {
   try {
     const { phone, password } = req.body;
 

@@ -17,7 +17,12 @@ import { rateLimit } from '../middleware/rate-limit.js';
 const router = Router();
 
 // كبح القوة الغاشمة على تسجيل دخول الموظفين
-const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, keyPrefix: 'staff-login' });
+// max = per-IP (wide: a whole venue can share one NAT) · identityMax = per-account (tight)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60, keyPrefix: 'staff-login',
+  identity: (req) => req.body?.username, identityMax: 8,
+});
 
 // POST /api/auth/login
 router.post('/login', loginLimiter, async (req: Request, res: Response) => {

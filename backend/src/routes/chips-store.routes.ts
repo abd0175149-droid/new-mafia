@@ -175,7 +175,13 @@ router.get('/store/cosmetics', authenticatePlayer, async (req: Request, res: Res
 
 // ── استئجار / تجديد ──
 router.post('/store/rent',
-  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-rent' }),
+  // الحدّ على الرمز لا على العنوان: قاعة كاملة خلف NAT واحد
+  // كانت تتقاسم ٢٠ عملية في الدقيقة — لاعب متحمّس يمنع البقية من الشراء.
+  rateLimit({
+    windowMs: 60_000, max: 200, keyPrefix: 'chips-rent',
+    identity: (req) => String(req.headers.authorization || '').slice(-32) || null,
+    identityMax: 12,
+  }),
   authenticatePlayer,
   async (req: Request, res: Response) => {
     try {

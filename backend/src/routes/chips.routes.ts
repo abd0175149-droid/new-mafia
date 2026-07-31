@@ -83,7 +83,7 @@ router.use('/admin', authenticate, adminOnly);
 // ↩️ الاسترجاع — قرار المالك: للأدمن، بالتناسب افتراضياً، تشبس لا نقداً
 // ══════════════════════════════════════════════════════
 router.post('/admin/refund',
-  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-refund' }),
+  rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'chips-refund', identity: (req) => String(req.headers.authorization || '').slice(-32) || null, identityMax: 20 }),
   async (req: Request, res: Response) => {
     try {
       const ledgerId = parseInt(req.body.ledgerId);
@@ -159,7 +159,7 @@ router.get('/admin/packs', (_req: Request, res: Response) => {
 
 // ── شحن بباقة معتمدة ──
 router.post('/admin/topup',
-  rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'chips-topup' }),
+  rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'chips-topup', identity: (req) => String(req.headers.authorization || '').slice(-32) || null, identityMax: 30 }),
   async (req: Request, res: Response) => {
     try {
       const playerId = parseInt(req.body.playerId);
@@ -201,7 +201,7 @@ router.post('/admin/topup',
 
 // ── تصحيح يدوي (موجب/سالب، الملاحظة إلزامية) ──
 router.post('/admin/adjust',
-  rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'chips-adjust' }),
+  rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'chips-adjust', identity: (req) => String(req.headers.authorization || '').slice(-32) || null, identityMax: 30 }),
   async (req: Request, res: Response) => {
     try {
       const playerId = parseInt(req.body.playerId);
@@ -328,7 +328,7 @@ router.get('/admin/rewards/top3', async (req: Request, res: Response) => {
 
 // ── منح أفضل ثلاثة ──
 router.post('/admin/rewards/top3',
-  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-top3' }),
+  rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'chips-top3', identity: (req) => String(req.headers.authorization || '').slice(-32) || null, identityMax: 20 }),
   async (req: Request, res: Response) => {
     try {
       const amounts = Array.isArray(req.body.amounts) ? req.body.amounts.map((n: any) => Number(n)) : undefined;
@@ -377,7 +377,7 @@ router.get('/admin/rewards/birthdays', async (_req: Request, res: Response) => {
 
 // ── تشغيل عيديّات اليوم يدوياً (أو للاعب محدّد) ──
 router.post('/admin/rewards/birthdays/run',
-  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-bday' }),
+  rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'chips-bday', identity: (req) => String(req.headers.authorization || '').slice(-32) || null, identityMax: 20 }),
   async (req: Request, res: Response) => {
     try {
       const onlyPlayerId = req.body.playerId ? parseInt(req.body.playerId) : undefined;
@@ -433,7 +433,7 @@ router.get('/leader/birthdays', authenticate, leaderOrAbove, async (req: Request
 
 // ── منح العيديّة + إطلاق الاحتفالية على الشاشة ──
 router.post('/leader/birthdays/celebrate', authenticate, leaderOrAbove,
-  rateLimit({ windowMs: 60_000, max: 30, keyPrefix: 'chips-bday-leader' }),
+  rateLimit({ windowMs: 60_000, max: 200, keyPrefix: 'chips-bday-leader', identity: (req) => String(req.headers.authorization || '').slice(-32) || null, identityMax: 30 }),
   async (req: Request, res: Response) => {
     try {
       const roomId = String(req.body.roomId || '');

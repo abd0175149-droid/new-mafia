@@ -8,9 +8,8 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { env } from './config/env.js';
-import {
-  mintDisplayToken, pinAttemptKey, pinLockState, recordPinFailure, clearPinFailures,
-} from './services/display-auth.service.js';
+import { projectDisplayState } from './services/display-state.projection.js';
+import { mintDisplayToken, pinAttemptKey, pinLockState, recordPinFailure, clearPinFailures, pinEquals } from './services/display-auth.service.js';
 import { connectDB } from './config/db.js';
 import { connectRedis } from './config/redis.js';
 import { seedDatabase } from './utils/seed.js';
@@ -409,7 +408,7 @@ app.post('/api/game/verify-pin', async (req, res) => {
       return res.json({ success: false, error: 'اللعبة غير موجودة' });
     }
 
-    if (room.displayPin !== pin) {
+    if (!pinEquals(String(room.displayPin ?? ''), String(pin ?? ''))) {
       const after = recordPinFailure(attemptKey);
       if (after.locked) res.setHeader('Retry-After', String(after.retryAfterSec));
       return res.status(after.locked ? 429 : 401).json({
@@ -431,24 +430,7 @@ app.post('/api/game/verify-pin', async (req, res) => {
       roomCode: room.roomCode,
       playerCount: room.playerCount,
       maxPlayers: room.maxPlayers,
-      state: state ? {
-        phase: state.phase,
-        players: state.players.map(p => ({
-          physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
-          gender: p.gender, role: p.role, avatarUrl: (p as any).avatarUrl || null,
-          rankTier: p.rankTier || 'INFORMANT',
-        })),
-        winner: (state as any).winner || null,
-        discussionState: (state as any).discussionState || null,
-        teamCounts: (() => {
-          const alive = state.players.filter(p => p.isAlive);
-          return {
-            mafiaAlive: alive.filter(p => p.role && isMafiaRole(p.role as any)).length,
-            citizenAlive: alive.filter(p => p.role && !isMafiaRole(p.role as any)).length,
-          };
-        })(),
-        gameTimer: (state as any).gameTimer || null,
-      } : null,
+      state: projectDisplayState(state),
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -486,7 +468,7 @@ app.post('/api/game/verify-pin-by-code', async (req, res) => {
       return res.status(429).json({ success: false, error: `محاولات كثيرة — أعد المحاولة بعد ${Math.ceil(lock2.retryAfterSec / 60)} دقيقة` });
     }
 
-    if (room.displayPin !== pin) {
+    if (!pinEquals(String(room.displayPin ?? ''), String(pin ?? ''))) {
       const after = recordPinFailure(attemptKey2);
       if (after.locked) res.setHeader('Retry-After', String(after.retryAfterSec));
       return res.status(after.locked ? 429 : 401).json({
@@ -505,24 +487,7 @@ app.post('/api/game/verify-pin-by-code', async (req, res) => {
       roomCode: room.roomCode,
       playerCount: room.playerCount,
       maxPlayers: room.maxPlayers,
-      state: state ? {
-        phase: state.phase,
-        players: state.players.map(p => ({
-          physicalId: p.physicalId, name: p.name, isAlive: p.isAlive,
-          gender: p.gender, role: p.role, avatarUrl: (p as any).avatarUrl || null,
-          rankTier: p.rankTier || 'INFORMANT',
-        })),
-        winner: state.winner || null,
-        discussionState: state.discussionState || null,
-        teamCounts: (() => {
-          const alive = state.players.filter(p => p.isAlive);
-          return {
-            mafiaAlive: alive.filter(p => p.role && isMafiaRole(p.role as any)).length,
-            citizenAlive: alive.filter(p => p.role && !isMafiaRole(p.role as any)).length,
-          };
-        })(),
-        gameTimer: state.gameTimer || null,
-      } : null,
+      state: projectDisplayState(state),
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

@@ -19,6 +19,8 @@
 
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
+import { clientIp, socketClientIp } from '../middleware/client-ip.js';
+import { randomBytes } from 'crypto';
 
 /** سرّ مشتقّ — لا يُقبل توكن شاشة مكان توكن موظف ولا العكس */
 const DISPLAY_SECRET = env.JWT_SECRET + '_DISPLAY';
@@ -104,9 +106,46 @@ export function clearPinFailures(key: string) {
   attempts.delete(key);
 }
 
-/** مفتاح العدّ: العنوان + الغرفة — فقفل غرفة لا يُعطّل غرفة أخرى */
-export function pinAttemptKey(req: any, roomId: string): string {
-  const ip = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim()
-    || req?.socket?.remoteAddress || 'unknown';
+/**
+ * مفتاح العدّ: العنوان + الغرفة — فقفل غرفة لا يُعطّل غرفة أخرى.
+ *
+ * ⚠️ كان يقرأ `x-forwarded-for[0]`، وهي القيمة التي **يُرسلها العميل** —
+ *    فترويسة جديدة مع كل محاولة تعني عدّاداً جديداً، والقفل كلّه زينة.
+ *    صار عبر `clientIpFrom` التي لا تصدّق ترويسةً إلا من نظير موثوق.
+ */
+export function pinAttemptKeyFromIp(ip: string, roomId: string): string {
   return `${ip}::${roomId}`;
+}
+
+export function pinAttemptKey(req: any, roomId: string): string {
+  return pinAttemptKeyFromIp(clientIp(req), roomId);
+}
+
+/** نفس العدّاد ونفس الخريطة، لكن من اتصال سوكِت لا من طلب HTTP */
+export function pinAttemptKeyFromSocket(socket: any, roomId: string): string {
+  return pinAttemptKeyFromIp(socketClientIp(socket), roomId);
+}
+
+/**
+ * 🔒 مقارنة لا تُسرّب الزمن. الرمز قصير، والفرق بين «خطأ من أول خانة»
+ *    و«خطأ من آخر خانة» قابل للقياس عبر الشبكة مع تكرار كافٍ.
+ */
+export function pinEquals(a: string, b: string): boolean {
+  const x = String(a ?? '');
+  const y = String(b ?? '');
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * 🎲 رمز الشاشة: ٦ خانات من مولّد آمن.
+ *    كان ٤ خانات من `Math.random` = ٩٬٠٠٠ احتمال، وهو فضاء يُمسح
+ *    في ثوانٍ متى غاب القفل — وقد كان غائباً فعلياً.
+ */
+export function generateDisplayPin(): string {
+  const buf = randomBytes(4);
+  const n = buf.readUInt32BE(0) % 1_000_000;
+  return String(n).padStart(6, '0');
 }

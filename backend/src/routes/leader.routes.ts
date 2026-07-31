@@ -48,7 +48,7 @@ export function requireLeader(req: Request, res: Response, next: NextFunction) {
 
 // ── POST /api/leader/login ──
 // يقبل نفس بيانات الإدارة ويرجع JWT
-router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 15, keyPrefix: 'leader-login' }), async (req: Request, res: Response) => {
+router.post('/login', rateLimit({ windowMs: 15 * 60 * 1000, max: 60, keyPrefix: 'staff-login', identity: (req) => req.body?.username, identityMax: 8 }), async (req: Request, res: Response) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
