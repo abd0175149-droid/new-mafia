@@ -40,6 +40,8 @@ const REASON_LABEL: Record<string, string> = {
   drop_win: '🏆 قطرة فوز',
   drop_top3: '🥉 قطرة توب-3',
   drop_first_match: '🎉 أول مباراة',
+  reward_top3: '🏅 مكافأة توب-3',
+  reward_birthday: '🎂 هديّة ميلاد',
   rent_item: '🛒 استئجار عنصر',
   renew_item: '🔄 تجديد إيجار',
   refund: '↩️ استرجاع',
@@ -78,7 +80,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function ChipsAdminPage() {
-  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards' | 'inventory'>('topup');
+  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards' | 'inventory' | 'report'>('topup');
   const [stats, setStats] = useState<any>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -126,7 +128,7 @@ export default function ChipsAdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5 border-b border-gray-700/40">
-        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['inventory', '📊 المخزون'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
+        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['inventory', '📊 المخزون'], ['ledger', '📒 الدفتر'], ['report', '📈 التقرير']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-bold transition-all border-b-2 -mb-px ${
               tab === k ? 'text-amber-400 border-amber-400' : 'text-gray-500 border-transparent hover:text-gray-300'
@@ -140,7 +142,8 @@ export default function ChipsAdminPage() {
       {tab === 'rewards' && <RewardsView toast={showToast} onChanged={loadStats} />}
       {tab === 'catalog' && <CatalogView toast={showToast} />}
       {tab === 'inventory' && <InventoryView toast={showToast} />}
-      {tab === 'ledger' && <LedgerView />}
+      {tab === 'ledger' && <LedgerView toast={showToast} />}
+      {tab === 'report' && <ReportView toast={showToast} />}
 
       {/* Toast */}
       {toast && (
@@ -1350,8 +1353,9 @@ function InventoryView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void 
 // ══════════════════════════════════════════════════════
 // 📒 الدفتر
 // ══════════════════════════════════════════════════════
-function LedgerView() {
+function LedgerView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
   const [rows, setRows] = useState<any[]>([]);
+  const [refunding, setRefunding] = useState<any>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -1425,11 +1429,12 @@ function LedgerView() {
                 <th className="text-left py-2 px-2 font-medium">الرصيد بعدها</th>
                 <th className="text-right py-2 px-2 font-medium">ملاحظة</th>
                 <th className="text-right py-2 px-2 font-medium">الوقت</th>
+                <th className="text-center py-2 px-2 font-medium">إجراء</th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={7} className="py-8 text-center text-gray-600 text-xs">جارٍ التحميل…</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-gray-600 text-xs">لا حركات بعد</td></tr>}
+              {loading && <tr><td colSpan={8} className="py-8 text-center text-gray-600 text-xs">جارٍ التحميل…</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={8} className="py-8 text-center text-gray-600 text-xs">لا حركات بعد</td></tr>}
               {!loading && rows.map(r => (
                 <tr key={r.id} className="border-b border-gray-800/50 hover:bg-gray-700/20 transition-colors">
                   <td className="py-2 px-2 text-gray-600 text-[11px] tabular-nums">{r.id}</td>
@@ -1441,6 +1446,18 @@ function LedgerView() {
                   <td className="py-2 px-2 text-left tabular-nums text-gray-400">{r.balanceAfter}</td>
                   <td className="py-2 px-2 text-gray-500 text-[11px] max-w-[220px] truncate" title={r.note || ''}>{r.note || '—'}</td>
                   <td className="py-2 px-2 text-gray-500 text-[11px] whitespace-nowrap">{fmtDT(r.createdAt)}</td>
+                  <td className="py-2 px-2 text-center whitespace-nowrap">
+                    {r.refundedById ? (
+                      <span className="text-[10px] text-gray-600" title={`الحركة المُعاكِسة #${r.refundedById}`}>مُسترجَعة</span>
+                    ) : r.reversesLedgerId ? (
+                      <span className="text-[10px] text-sky-500/70" title={`تعكس الحركة #${r.reversesLedgerId}`}>عكس #{r.reversesLedgerId}</span>
+                    ) : (r.amount < 0 && ['rent_item', 'renew_item'].includes(r.reason)) ? (
+                      <button onClick={() => setRefunding(r)}
+                        className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-800/70 border border-gray-700/40 text-amber-400 hover:border-amber-500/50 hover:text-amber-300 transition-all">
+                        ↩️ استرجاع
+                      </button>
+                    ) : <span className="text-gray-700 text-[10px]">—</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1458,6 +1475,300 @@ function LedgerView() {
           </div>
         )}
       </div>
+
+      {refunding && (
+        <RefundDialog row={refunding} onClose={() => setRefunding(null)}
+          onDone={(msg) => { setRefunding(null); toast('ok', msg); load(page); }} />
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// ↩️ نافذة الاسترجاع — التناسب افتراضياً، والكامل يحتاج تبريراً مكتوباً
+//    الاسترجاع يسحب الميزة مع المال، وإلا صار هديّة.
+// ══════════════════════════════════════════════════════
+function RefundDialog({ row, onClose, onDone }: {
+  row: any; onClose: () => void; onDone: (msg: string) => void;
+}) {
+  const [mode, setMode] = useState<'prorata' | 'full'>('prorata');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const d = await apiPost('/api/chips/admin/refund', { ledgerId: row.id, mode, note });
+      onDone(`↩️ استُرجع ${d.refunded} 🪙 — سُحبت الميزة وأُبلغ اللاعب`);
+    } catch (e: any) {
+      // 422 = إيجار بلا سعر مسجَّل: نوجّه للكامل بدل ترك الأدمن حائراً
+      setErr(e.status === 422
+        ? `${e.message}`
+        : e.message);
+      if (e.status === 422) setMode('full');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700/50 rounded-2xl p-5 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-black text-white mb-1">↩️ استرجاع حركة #{row.id}</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          {row.playerName || `#${row.playerId}`} · {REASON_LABEL[row.reason] || row.reason} · دُفع {Math.abs(row.amount)} 🪙
+        </p>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button onClick={() => setMode('prorata')}
+            className={`p-3 rounded-xl border text-right transition-all ${
+              mode === 'prorata' ? 'border-amber-500 bg-amber-900/20' : 'border-gray-700/40 bg-gray-800/40 hover:border-gray-600'
+            }`}>
+            <div className="text-sm font-bold text-white">بالتناسب</div>
+            <div className="text-[11px] text-gray-500 mt-0.5">حسب الأيام المتبقية</div>
+          </button>
+          <button onClick={() => setMode('full')}
+            className={`p-3 rounded-xl border text-right transition-all ${
+              mode === 'full' ? 'border-rose-500 bg-rose-900/20' : 'border-gray-700/40 bg-gray-800/40 hover:border-gray-600'
+            }`}>
+            <div className="text-sm font-bold text-white">كامل</div>
+            <div className="text-[11px] text-gray-500 mt-0.5">{Math.abs(row.amount)} 🪙 — بتبرير</div>
+          </button>
+        </div>
+
+        <label className="block text-[11px] text-gray-500 mb-1">
+          الملاحظة {mode === 'full' && <span className="text-rose-400">— إلزامية للكامل</span>}
+        </label>
+        <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={300}
+          placeholder="سبب الاسترجاع — يُحفظ في سجل الموظفين"
+          className="w-full bg-gray-800/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500 resize-none" />
+
+        {err && <div className="mt-3 text-xs text-rose-300 bg-rose-900/25 border border-rose-700/40 rounded-lg px-3 py-2 leading-relaxed">{err}</div>}
+
+        <div className="flex gap-2 mt-4">
+          <button onClick={submit} disabled={busy || (mode === 'full' && note.trim().length < 3)}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+            {busy ? '…' : 'تأكيد الاسترجاع'}
+          </button>
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-800 border border-gray-700/40 text-gray-400 hover:text-gray-200 transition-all">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📈 تقرير الاقتصاد — الإصدار مقابل الاستهلاك مقابل الالتزام
+//    كل رقم هنا مشتقّ من الدفتر. لا حقل مُجمَّع يُحدَّث يدوياً،
+//    لأن أي مُجمَّع يمكن أن ينحرف والدفتر لا ينحرف.
+// ══════════════════════════════════════════════════════
+
+async function downloadLedgerCsv(qs: string) {
+  const res = await fetch(`${API_URL}/api/chips/admin/ledger.csv?${qs}`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `API ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `chips-ledger-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function ReportView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
+  const [rep, setRep] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState({ from: '', to: '' });
+  const [exporting, setExporting] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (range.from) qs.set('from', range.from);
+      if (range.to) qs.set('to', `${range.to}T23:59:59`);
+      const d = await apiGet(`/api/chips/admin/report?${qs.toString()}`);
+      setRep(d.report);
+    } catch (e: any) { toast('err', e.message); setRep(null); }
+    finally { setLoading(false); }
+  }, [range.from, range.to]); // eslint-disable-line
+
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  const doExport = async () => {
+    setExporting(true);
+    try {
+      const qs = new URLSearchParams();
+      if (range.from) qs.set('from', range.from);
+      if (range.to) qs.set('to', `${range.to}T23:59:59`);
+      await downloadLedgerCsv(qs.toString());
+      toast('ok', '📤 نُزِّل ملف الدفتر — يفتح في Excel بالعربية');
+    } catch (e: any) { toast('err', e.message); }
+    finally { setExporting(false); }
+  };
+
+  if (loading) return <div className="py-16 text-center text-gray-600 text-sm">جارٍ حساب التقرير…</div>;
+  if (!rep) return <div className="py-16 text-center text-gray-600 text-sm">تعذّر تحميل التقرير</div>;
+
+  const issuedTotal = Object.values(rep.issuance || {}).reduce((s: number, v: any) => s + Number(v || 0), 0);
+  const sunkTotal = Object.values(rep.sinks || {}).reduce((s: number, v: any) => s + Number(v || 0), 0);
+  const burnRate = issuedTotal > 0 ? Math.round((sunkTotal / issuedTotal) * 100) : 0;
+
+  return (
+    <div className="space-y-4">
+      {/* المدى + التصدير */}
+      <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">من تاريخ</label>
+            <input type="date" value={range.from} onChange={e => setRange({ ...range, from: e.target.value })}
+              className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">إلى تاريخ</label>
+            <input type="date" value={range.to} onChange={e => setRange({ ...range, to: e.target.value })}
+              className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+          </div>
+          <div className="flex items-end">
+            <button onClick={load} className="w-full py-2 rounded-lg text-sm font-bold bg-amber-600 hover:bg-amber-500 text-black transition-all">تطبيق</button>
+          </div>
+          <div className="flex items-end">
+            <button onClick={doExport} disabled={exporting}
+              className="w-full py-2 rounded-lg text-sm font-bold bg-emerald-700/80 hover:bg-emerald-600 text-white transition-all disabled:opacity-50">
+              {exporting ? '…' : '📤 تصدير الدفتر CSV'}
+            </button>
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-600 mt-2">
+          المدى الافتراضي آخر ٩٠ يوماً · التصدير يتبع نفس المدى ويفتح في Excel بالعربية مباشرة
+        </p>
+      </div>
+
+      {/* الإيراد + الالتزام */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div className="bg-gradient-to-br from-emerald-900/30 to-gray-800/40 border border-emerald-700/30 rounded-2xl p-4">
+          <div className="text-[11px] text-emerald-400/70 mb-1">💰 الإيراد المُسجَّل (دينار)</div>
+          <div className="text-3xl font-black text-emerald-300 tabular-nums">{Number(rep.revenue.jodRecorded).toFixed(2)}</div>
+          <div className="text-[11px] text-gray-500 mt-2">من {rep.revenue.recordedRows} عملية شحن موثّقة القيمة</div>
+          {rep.revenue.legacyRows > 0 && (
+            <div className="mt-2 text-[11px] text-amber-500/80 bg-amber-900/20 border border-amber-700/30 rounded-lg px-2 py-1.5 leading-relaxed">
+              ⚠️ {rep.revenue.legacyRows} عملية شحن أقدم من تسجيل القيمة — غير محتسبة هنا.
+              لم نُقدّرها لأن رقماً مُقدَّراً في تقرير مالي أسوأ من رقم ناقص مُعلَن.
+            </div>
+          )}
+        </div>
+
+        <div className="bg-gradient-to-br from-rose-900/25 to-gray-800/40 border border-rose-700/30 rounded-2xl p-4">
+          <div className="text-[11px] text-rose-400/70 mb-1">📉 الالتزام — تشبس متداول</div>
+          <div className="text-3xl font-black text-rose-300 tabular-nums">{rep.liability.circulatingChips.toLocaleString()}</div>
+          <div className="text-[11px] text-gray-500 mt-2">
+            بحوزة {rep.liability.holders} لاعباً · ≈ {rep.liability.estimatedJod} د.أ بأفضل باقة
+          </div>
+          <div className="text-[10px] text-gray-600 mt-1">
+            هذا دَين خدمة على النادي: تشبس مدفوع ولم يُستهلك بعد
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-amber-900/25 to-gray-800/40 border border-amber-700/30 rounded-2xl p-4">
+          <div className="text-[11px] text-amber-400/70 mb-1">🔥 نسبة الاستهلاك</div>
+          <div className="text-3xl font-black text-amber-300 tabular-nums">{burnRate}%</div>
+          <div className="text-[11px] text-gray-500 mt-2">
+            صُرف {sunkTotal.toLocaleString()} من {issuedTotal.toLocaleString()} 🪙 صادر
+          </div>
+          <div className="text-[10px] text-gray-600 mt-1">
+            {rep.liability.activeRentals} إيجاراً فعّالاً · دُفع فيها {rep.liability.paidForActiveChips.toLocaleString()} 🪙
+          </div>
+        </div>
+      </div>
+
+      {/* الإصدار مقابل الاستهلاك */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-emerald-400 mb-3">⬆️ الإصدار — من أين دخل التشبس</h3>
+          <FlowRows rows={[
+            ['💵 شحن إداري (مدفوع)', rep.issuance.topup, 'emerald'],
+            ['🎁 مكافآت (توب-3 · ميلاد)', rep.issuance.rewards, 'sky'],
+            ['🎲 قطرات اللعب', rep.issuance.drops, 'violet'],
+            ['✏️ تصحيحات يدوية', rep.issuance.adjustments, 'gray'],
+            ['↩️ استرجاعات', rep.issuance.refunds, 'gray'],
+          ]} total={issuedTotal} />
+          <p className="text-[11px] text-gray-600 mt-3 leading-relaxed">
+            المدفوع مقابل المجّاني: {issuedTotal > 0 ? Math.round((rep.issuance.topup / issuedTotal) * 100) : 0}%
+            من التشبس الصادر جاء بمقابل نقدي. الباقي تكلفة تسويق.
+          </p>
+        </div>
+
+        <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-rose-400 mb-3">⬇️ الاستهلاك — أين صُرف</h3>
+          <FlowRows rows={[
+            ['🏦 الخزنة (استئجار وتجديد)', rep.sinks.store, 'amber'],
+            ['✏️ خصم يدوي', rep.sinks.adjustments, 'gray'],
+          ]} total={sunkTotal} />
+          {sunkTotal === 0 && (
+            <p className="text-[11px] text-amber-500/80 mt-3">
+              لا استهلاك في هذا المدى — التشبس يتراكم بلا مصرف، وهذا يُفقد الشراء معناه.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* تفصيل بحسب نوع الحركة */}
+      <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+        <h3 className="text-sm font-bold text-gray-300 mb-3">📊 تفصيل الحركات</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[11px] text-gray-500 border-b border-gray-700/40">
+                <th className="text-right py-2 px-2 font-medium">الحركة</th>
+                <th className="text-left py-2 px-2 font-medium">العدد</th>
+                <th className="text-left py-2 px-2 font-medium">وارد 🪙</th>
+                <th className="text-left py-2 px-2 font-medium">صادر 🪙</th>
+                <th className="text-left py-2 px-2 font-medium">دينار</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rep.byReason.length === 0 && (
+                <tr><td colSpan={5} className="py-8 text-center text-gray-600 text-xs">لا حركات في هذا المدى</td></tr>
+              )}
+              {rep.byReason.map((r: any) => (
+                <tr key={r.reason} className="border-b border-gray-800/50">
+                  <td className="py-2 px-2 text-gray-200 text-xs">{REASON_LABEL[r.reason] || r.reason}</td>
+                  <td className="py-2 px-2 text-left tabular-nums text-gray-400">{r.moves}</td>
+                  <td className="py-2 px-2 text-left tabular-nums text-emerald-400">{r.credited ? `+${r.credited}` : '—'}</td>
+                  <td className="py-2 px-2 text-left tabular-nums text-rose-400">{r.debited ? `−${r.debited}` : '—'}</td>
+                  <td className="py-2 px-2 text-left tabular-nums text-amber-400">{Number(r.jod) ? Number(r.jod).toFixed(2) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FlowRows({ rows, total }: { rows: [string, number, string][]; total: number }) {
+  const tone: Record<string, string> = {
+    emerald: 'bg-emerald-500', sky: 'bg-sky-500', violet: 'bg-violet-500',
+    amber: 'bg-amber-500', gray: 'bg-gray-600',
+  };
+  return (
+    <div className="space-y-2.5">
+      {rows.map(([label, value, c]) => (
+        <div key={label}>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-gray-400">{label}</span>
+            <span className="tabular-nums text-gray-200 font-bold">{Number(value || 0).toLocaleString()}</span>
+          </div>
+          <div className="h-1.5 bg-gray-900/70 rounded-full overflow-hidden">
+            <div className={`h-full ${tone[c] || 'bg-gray-600'} rounded-full transition-all`}
+              style={{ width: `${total > 0 ? Math.min(100, (Number(value || 0) / total) * 100) : 0}%` }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

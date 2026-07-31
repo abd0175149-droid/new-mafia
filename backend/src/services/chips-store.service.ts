@@ -291,15 +291,18 @@ export async function rentItem(opts: {
         const r: any = await tx.execute(sql`
           UPDATE chips_rentals
              SET expires_at = GREATEST(NOW(), expires_at) + (${days} || ' days')::interval,
-                 source = 'renew', ledger_id = ${ledger.ledgerId}, warned_at = NULL
+                 source = 'renew', ledger_id = ${ledger.ledgerId}, warned_at = NULL,
+                 price_paid_chips = ${price}, duration_days_snapshot = ${days}
            WHERE id = ${existing.id}
           RETURNING expires_at
         `);
         expiresAt = rowsOf(r)[0]?.expires_at;
       } else {
         const r: any = await tx.execute(sql`
-          INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id)
-          VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${ledger.ledgerId})
+          INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id,
+                                     price_paid_chips, duration_days_snapshot)
+          VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${ledger.ledgerId},
+                  ${price}, ${days})
           RETURNING expires_at
         `);
         expiresAt = rowsOf(r)[0]?.expires_at;
@@ -572,7 +575,7 @@ export async function equipItem(opts: {
  *    بعد ثوانٍ كان يمحو المظهر الذي دفع اللاعب ثمنه، ولا يعود إلا بانضمام جديد.
  *    الكتابة أولاً تجعل المصدر والشاشة متطابقين، فلا فرق أيّهما وصل أخيراً.
  */
-function broadcastCosmetics(playerId: number) {
+export function broadcastCosmetics(playerId: number) {
   (async () => {
     try {
       const io = (global as any).io;

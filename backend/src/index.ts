@@ -1435,6 +1435,64 @@ async function main() {
         console.warn('⚠️ Chips ledger durability migration:', e?.message);
       }
 
+      // ══════════════════════════════════════════════════
+      // 💰 المرحلة ٣ — المحاسبة (كتلة مستقلّة، إضافية بالكامل)
+      //
+      // ⚠️ العلّة: إيراد الدينار كان يُعاد اشتقاقه **وقت القراءة** من ثوابت
+      //    الباقات في الكود — فتعديل سعر باقة يُعيد كتابة كل تاريخ الإيراد،
+      //    وسحب باقة يُخفي إيرادها. ولا سعر مسجَّل على الإيجار، فاسترجاع
+      //    بالتناسب مستحيل بصدق. ولا رابط بين حركة واسترجاعها.
+      //
+      // كل ما هنا **إضافة**: أعمدة nullable وجداول جديدة. لا تعديل صفّ قائم
+      //    ولا حذف — التاريخ يبقى كما هو ويُصنَّف عند القراءة.
+      // ══════════════════════════════════════════════════
+      try {
+        // ① قيمة الدينار وقت الحركة — تُكتب للشحن فقط، وتبقى NULL لما قبلها
+        await db.execute(sql`ALTER TABLE chips_ledger ADD COLUMN IF NOT EXISTS jod_amount NUMERIC(10,3)`);
+        await db.execute(sql`ALTER TABLE chips_ledger ADD COLUMN IF NOT EXISTS pack_id VARCHAR(20)`);
+
+        // ② ربط الاسترجاع بحركته — وقيد يمنع استرجاع الحركة مرتين
+        await db.execute(sql`ALTER TABLE chips_ledger ADD COLUMN IF NOT EXISTS reverses_ledger_id INTEGER`);
+        await db.execute(sql`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_chips_ledger_reverses
+            ON chips_ledger(reverses_ledger_id) WHERE reverses_ledger_id IS NOT NULL
+        `);
+
+        // ③ السعر المدفوع فعلاً على الإيجار — بدونه الاسترجاع بالتناسب تخمين
+        await db.execute(sql`ALTER TABLE chips_rentals ADD COLUMN IF NOT EXISTS price_paid_chips INTEGER`);
+        await db.execute(sql`ALTER TABLE chips_rentals ADD COLUMN IF NOT EXISTS duration_days_snapshot INTEGER`);
+        // ⚠️ لا backfill: ملء السعر من سعر العنصر **الحالي** يخترع رقماً
+        //    ماليّاً ثم يُصرف منه استرجاع. الصفوف القديمة تبقى NULL،
+        //    ومسار الاسترجاع يرفض التناسب عليها صراحةً.
+
+        // ④ تاريخ الأسعار — تعديل السعر يُغيّر الحاضر ولا يُعيد كتابة الماضي
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS chips_item_price_history (
+            id SERIAL PRIMARY KEY,
+            item_id INTEGER NOT NULL REFERENCES chips_items(id) ON DELETE CASCADE,
+            price_chips INTEGER NOT NULL,
+            duration_days INTEGER NOT NULL,
+            changed_by INTEGER,
+            changed_at TIMESTAMP DEFAULT NOW() NOT NULL
+          )
+        `);
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_price_hist_item ON chips_item_price_history(item_id, changed_at DESC)`);
+
+        // بذر نقطة البداية لكل عنصر لا تاريخ له — فالسعر الحالي مؤرَّخ من الآن
+        await db.execute(sql`
+          INSERT INTO chips_item_price_history (item_id, price_chips, duration_days, changed_at)
+          SELECT i.id, i.price_chips, i.duration_days, i.created_at
+            FROM chips_items i
+           WHERE NOT EXISTS (SELECT 1 FROM chips_item_price_history h WHERE h.item_id = i.id)
+        `);
+
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_ledger_reason_at ON chips_ledger(reason, created_at DESC)`);
+
+        console.log('💰 Chips accounting schema ensured (jod snapshot + refund link + price history)');
+      } catch (e: any) {
+        console.warn('⚠️ Chips ledger durability migration:', e?.message);
+      }
+
       // بذر الكتالوج المعتمد (آمن التكرار — لا يلمس تعديلات الأدمن)
       try {
         const { seedChipsCatalog } = await import('./services/chips-catalog.seed.js');

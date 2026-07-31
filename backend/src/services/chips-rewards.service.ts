@@ -359,7 +359,7 @@ export async function grantTop3(opts: {
     const res = await applyChipsTx({
       playerId: p.playerId,
       amount,
-      reason: 'admin_adjust',
+      reason: 'reward_top3',
       idempotencyKey: opts.allowRepeat
         ? `top3:${season.id}:${p.playerId}:regrant:${rid}`
         : `top3:${season.id}:${p.playerId}`,
@@ -467,7 +467,7 @@ export async function runBirthdayGifts(opts?: {
     const res = await applyChipsTx({
       playerId: b.playerId,
       amount: cfg.birthday.amount,
-      reason: 'admin_adjust',
+      reason: 'reward_birthday',
       idempotencyKey: `birthday:${b.playerId}:${year}`,
       refType: 'manual',
       refId: `birthday:${year}`,

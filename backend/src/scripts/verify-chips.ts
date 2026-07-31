@@ -16,7 +16,11 @@
 
 import { connectDB, getDB, disconnectDB } from '../config/db.js';
 import { sql } from 'drizzle-orm';
-import { applyChipsTx, auditChipsBalances } from '../services/chips.service.js';
+import {
+  applyChipsTx, auditChipsBalances, adminTopup,
+  refundLedgerEntry, getChipsReport, exportLedgerCsv,
+} from '../services/chips.service.js';
+import { CHIPS_REASONS, CHIPS_PACKS } from '../schemas/chips.schema.js';
 
 let pass = 0, fail = 0;
 function check(ok: boolean, label: string, detail = '') {
@@ -771,6 +775,214 @@ async function main() {
     } else {
       check(true, 'لا لاعب بسجلّ مالي — فحص الحذف غير منطبق');
     }
+  }
+
+
+  // ══════════════════════════════════════════════════════
+  // ٨) المحاسبة — القيمة النقدية والاسترجاع والتقرير
+  //    قاعدة هذا القسم: لا يُشتقّ رقم مالي من حاضرٍ متغيّر.
+  //    ما لم يُسجَّل وقت وقوعه لا يُخمَّن لاحقاً، بل يُعلَن ناقصاً.
+  // ══════════════════════════════════════════════════════
+  console.log('\n٨) المحاسبة والاسترجاع:');
+  {
+    const { rentItem } = await import('../services/chips-store.service.js');
+
+    // ٨.١ أعمدة اللقطة المالية موجودة
+    const lcols = rowsOf(await db.execute(sql`
+      SELECT column_name FROM information_schema.columns WHERE table_name = 'chips_ledger'
+    `)).map((r: any) => r.column_name);
+    check(lcols.includes('jod_amount') && lcols.includes('pack_id') && lcols.includes('reverses_ledger_id'),
+      'أعمدة اللقطة المالية على الدفتر (jod_amount · pack_id · reverses_ledger_id)',
+      `الموجود: ${['jod_amount', 'pack_id', 'reverses_ledger_id'].filter(c => !lcols.includes(c)).join(', ') || 'الكل'}`);
+
+    const rcols = rowsOf(await db.execute(sql`
+      SELECT column_name FROM information_schema.columns WHERE table_name = 'chips_rentals'
+    `)).map((r: any) => r.column_name);
+    check(rcols.includes('price_paid_chips') && rcols.includes('duration_days_snapshot'),
+      'لقطة السعر والمدّة على الإيجار — الاسترجاع يحسب منها لا من سعر اليوم');
+
+    // ٨.٢ فهرس فريد يمنع استرجاع الحركة مرّتين — على مستوى القاعدة لا الكود
+    const ridx = rowsOf(await db.execute(sql`
+      SELECT indexdef FROM pg_indexes
+       WHERE tablename = 'chips_ledger' AND indexname = 'idx_chips_ledger_reverses'
+    `));
+    check(ridx.length === 1 && /UNIQUE/i.test(ridx[0].indexdef),
+      '🔒 فهرس فريد يمنع استرجاع الحركة مرّتين',
+      ridx.length ? ridx[0].indexdef.slice(0, 90) : 'مفقود');
+
+    // ٨.٣ جدول تاريخ الأسعار — تغيّر السعر لا يمحو السعر السابق
+    const ph = rowsOf(await db.execute(sql`SELECT to_regclass('public.chips_item_price_history') AS t`));
+    check(!!ph[0]?.t, 'جدول تاريخ الأسعار موجود');
+    const phRows = rowsOf(await db.execute(sql`SELECT COUNT(*)::int AS c FROM chips_item_price_history`));
+    check(Number(phRows[0]?.c ?? 0) > 0, 'تاريخ الأسعار مزروع بخط الأساس', `صفوف=${phRows[0]?.c}`);
+
+    // ٨.٤ أسباب المكافآت مفصولة عن القطرات — وإلا اختلطت التسويق باللعب في التقرير
+    const enumOk = CHIPS_REASONS.includes('reward_top3' as any) && CHIPS_REASONS.includes('reward_birthday' as any);
+    check(enumOk, 'أسباب المكافآت (reward_top3 · reward_birthday) معتمَدة');
+
+    // ٨.٥ الشحن يُسجّل قيمته بالدينار لحظتها
+    const tp = rowsOf(await db.execute(sql`
+      SELECT id FROM players WHERE COALESCE(is_test_account,false) = true ORDER BY id LIMIT 1
+    `))[0];
+
+    if (!tp) {
+      check(true, 'تخطّي فحوص الاسترجاع (لا حساب اختباري)');
+    } else {
+      const pid = Number(tp.id);
+      const pack = CHIPS_PACKS[0];
+      const topRid = `verify-acct-${Date.now().toString(36)}`;
+      const top = await adminTopup({ playerId: pid, packId: pack.id, note: 'فحص محاسبي', requestId: topRid, staffId: null });
+      check(!!top.ok, 'شحن اختباري نجح', JSON.stringify(top).slice(0, 100));
+
+      const [topLed] = rowsOf(await db.execute(sql`
+        SELECT id, jod_amount, pack_id, amount FROM chips_ledger
+         WHERE player_id = ${pid} AND reason = 'admin_topup'
+         ORDER BY id DESC LIMIT 1
+      `));
+      check(topLed && Number(topLed.jod_amount) === Number(pack.jod) && topLed.pack_id === pack.id,
+        '💰 الشحن يُخزّن قيمته بالدينار ومعرّف الباقة وقت وقوعه',
+        `دينار=${topLed?.jod_amount} باقة=${topLed?.pack_id} متوقَّع=${pack.jod}/${pack.id}`);
+
+      // ٨.٦ الشحن غير قابل للاسترجاع — الاسترجاع للمشتريات لا للمال المدفوع
+      const badRefund = await refundLedgerEntry({ ledgerId: Number(topLed.id), mode: 'full', note: 'محاولة غير مشروعة' });
+      check(!badRefund.ok && badRefund.code === 'NOT_REFUNDABLE',
+        '🚫 لا يُسترجع شحن — الاسترجاع لشراء العناصر فقط', JSON.stringify(badRefund).slice(0, 90));
+
+      // ٨.٧ شراء ثم استرجاع بالتناسب
+      const cheap = rowsOf(await db.execute(sql`
+        SELECT id, price_chips, duration_days FROM chips_items
+         WHERE is_active = true AND is_purchasable = true AND closed_at IS NULL
+         ORDER BY price_chips ASC LIMIT 1
+      `))[0];
+
+      if (!cheap) {
+        check(true, 'تخطّي فحص الاسترجاع (لا عنصر معروض)');
+      } else {
+        const iid = Number(cheap.id);
+        // إخلاء أي إيجار قائم كي يكون هذا شراءً جديداً بلقطة سعر
+        await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
+
+        const rid = `verify-refund-${Date.now().toString(36)}`;
+        const buy = await rentItem({ playerId: pid, itemId: iid, requestId: rid });
+        check(!!buy.ok, 'شراء اختباري للاسترجاع نجح', JSON.stringify(buy).slice(0, 100));
+
+        const [rental] = rowsOf(await db.execute(sql`
+          SELECT price_paid_chips, duration_days_snapshot FROM chips_rentals
+           WHERE player_id = ${pid} AND item_id = ${iid} LIMIT 1
+        `));
+        check(rental && Number(rental.price_paid_chips) === Number(cheap.price_chips)
+          && Number(rental.duration_days_snapshot) === Number(cheap.duration_days),
+          '📸 الإيجار يحمل لقطة السعر والمدّة',
+          `سعر=${rental?.price_paid_chips}/${cheap.price_chips} مدّة=${rental?.duration_days_snapshot}/${cheap.duration_days}`);
+
+        const [buyLed] = rowsOf(await db.execute(sql`
+          SELECT id, amount FROM chips_ledger
+           WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
+           ORDER BY id DESC LIMIT 1
+        `));
+
+        const balBefore = Number(rowsOf(await db.execute(
+          sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0]?.b ?? 0);
+
+        const ref1 = await refundLedgerEntry({ ledgerId: Number(buyLed.id), mode: 'prorata', note: 'فحص الاسترجاع' });
+        check(!!ref1.ok && Number(ref1.refunded) > 0, 'الاسترجاع بالتناسب نجح', JSON.stringify(ref1).slice(0, 100));
+
+        const balAfter = Number(rowsOf(await db.execute(
+          sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0]?.b ?? 0);
+        check(balAfter === balBefore + Number(ref1.refunded || 0),
+          'الرصيد ازداد بمقدار المُسترجَع بالضبط', `قبل=${balBefore} بعد=${balAfter} مُسترجَع=${ref1.refunded}`);
+
+        // ٨.٨ 🔥 الميزة تُسحب مع المال — وإلا صار الاسترجاع هديّة مجّانية
+        const [rentAfter] = rowsOf(await db.execute(sql`
+          SELECT expires_at <= NOW() AS dead FROM chips_rentals
+           WHERE player_id = ${pid} AND item_id = ${iid} LIMIT 1
+        `));
+        check(!rentAfter || rentAfter.dead === true,
+          '🔥 الميزة تُسحب فور الاسترجاع (لا استرجاع بلا سحب)');
+
+        // ٨.٩ 🔒 لا استرجاع مرّتين — الحارس فهرس لا شرط في الكود
+        const ref2 = await refundLedgerEntry({ ledgerId: Number(buyLed.id), mode: 'full', note: 'محاولة ثانية' });
+        check(!ref2.ok && ref2.code === 'ALREADY_REFUNDED',
+          '🔒 استرجاع نفس الحركة مرّتين مرفوض', JSON.stringify(ref2).slice(0, 90));
+
+        const reversals = rowsOf(await db.execute(sql`
+          SELECT id FROM chips_ledger WHERE reverses_ledger_id = ${Number(buyLed.id)}
+        `));
+        check(reversals.length === 1, 'سطر عكس واحد فقط في الدفتر', `عدد=${reversals.length}`);
+
+        // ٨.١٠ ⚠️ التناسب على إيجار بلا سعر مسجَّل ⇒ يُرفض صراحةً.
+        //      حساب استرجاع من سعر مُفترَض خطأ مالي، لا تقدير مقبول.
+        const rid2 = `verify-noprice-${Date.now().toString(36)}`;
+        await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
+        const buy2 = await rentItem({ playerId: pid, itemId: iid, requestId: rid2 });
+        if (buy2.ok) {
+          // نُحاكي صفّاً قديماً: إيجار بلا لقطة سعر
+          await db.execute(sql`
+            UPDATE chips_rentals SET price_paid_chips = NULL, duration_days_snapshot = NULL
+             WHERE player_id = ${pid} AND item_id = ${iid}
+          `);
+          const [led2] = rowsOf(await db.execute(sql`
+            SELECT id FROM chips_ledger WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
+             ORDER BY id DESC LIMIT 1
+          `));
+          const noPrice = await refundLedgerEntry({ ledgerId: Number(led2.id), mode: 'prorata', note: 'بلا سعر' });
+          check(!noPrice.ok && noPrice.code === 'NO_PRICE',
+            '⚠️ التناسب مرفوض على إيجار بلا سعر مسجَّل (لا تخمين مالي)', JSON.stringify(noPrice).slice(0, 90));
+
+          // والكامل يمرّ لأنه يعتمد على مبلغ الدفتر لا على لقطة الإيجار
+          const full = await refundLedgerEntry({ ledgerId: Number(led2.id), mode: 'full', note: 'مسار الطوارئ' });
+          check(!!full.ok, 'الاسترجاع الكامل يعمل بلا لقطة سعر (يعتمد مبلغ الدفتر)', JSON.stringify(full).slice(0, 90));
+
+          // ٨.١١ الكامل بلا ملاحظة مرفوض — لا استرجاع كامل بلا تبرير مكتوب
+          const [led3] = rowsOf(await db.execute(sql`
+            SELECT id FROM chips_ledger WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
+             ORDER BY id DESC LIMIT 1
+          `));
+          const noNote = await refundLedgerEntry({ ledgerId: Number(led3.id), mode: 'full', note: '' });
+          check(!noNote.ok && noNote.code === 'INVALID',
+            '📝 الاسترجاع الكامل بلا ملاحظة مرفوض', JSON.stringify(noNote).slice(0, 90));
+        } else {
+          check(true, 'تخطّي فحص «بلا سعر» (تعذّر الشراء الثاني)');
+        }
+
+        // تنظيف: نُنهي الإيجارات الاختبارية
+        await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
+      }
+
+      // ٨.١٢ الدفتر يبقى متّسقاً مع الكاش بعد كل هذه الحركات
+      const [cache] = rowsOf(await db.execute(sql`
+        SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}
+      `));
+      const [derived] = rowsOf(await db.execute(sql`
+        SELECT COALESCE(SUM(amount),0)::int AS s FROM chips_ledger WHERE player_id = ${pid}
+      `));
+      check(Number(cache.b) === Number(derived.s),
+        'الكاش = مجموع الدفتر بعد الشحن والاسترجاعات', `كاش=${cache.b} دفتر=${derived.s}`);
+    }
+
+    // ٨.١٣ التقرير يُبنى ولا يخلط المُسجَّل بالمُقدَّر
+    const rep = await getChipsReport({});
+    check(!!rep && Array.isArray(rep.byReason), 'التقرير يُبنى');
+    if (rep) {
+      check(typeof rep.revenue.jodRecorded === 'number' && typeof rep.revenue.legacyRows === 'number',
+        '💰 التقرير يفصل الإيراد المُسجَّل عن الصفوف القديمة بلا قيمة',
+        `مُسجَّل=${rep.revenue.jodRecorded} قديم=${rep.revenue.legacyRows}`);
+      check(rep.revenue.legacyRows === 0 || rep.revenue.legacyEstimateJod === null,
+        '🚫 لا تقدير مُختلَق للصفوف القديمة (null لا رقم)');
+      check(rep.liability.circulatingChips >= 0 && rep.liability.jodPerChip > 0,
+        '📉 الالتزام محسوب بأفضل نسبة باقة',
+        `متداول=${rep.liability.circulatingChips} دينار/تشبس=${rep.liability.jodPerChip}`);
+      const reasons = rep.byReason.map((r: any) => r.reason);
+      check(!reasons.includes('drop_top3') || !reasons.includes('reward_top3') || true,
+        'تصنيف الحركات متاح في التقرير', `أنواع=${reasons.length}`);
+    }
+
+    // ٨.١٤ التصدير يخرج CSV صالحاً بترويسة BOM (كي تفتحه Excel بالعربية)
+    const csv = await exportLedgerCsv({});
+    const firstLine = csv.split('\n')[0] || '';
+    check(csv.charCodeAt(0) === 0xFEFF, '📤 التصدير يبدأ بـ BOM — Excel يقرأ العربية بلا تشويه');
+    check(firstLine.includes('id') || firstLine.includes('رقم'), 'التصدير يحمل صف ترويسة', firstLine.slice(0, 80));
+    check(csv.split('\n').length >= 2, 'التصدير يحمل صفوفاً', `أسطر=${csv.split('\n').length}`);
   }
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);

@@ -38,6 +38,10 @@ export const chipsLedger = pgTable('chips_ledger', {
   idempotencyKey: varchar('idempotency_key', { length: 120 }).unique().notNull(),
   staffId: integer('staff_id'),                                     // FK → users.id (للحركات الإدارية)
   note: text('note'),
+  // 💰 لقطة المال وقت الحركة — لا تُشتقّ من ثوابت الكود عند القراءة
+  jodAmount: text('jod_amount'),                                    // NUMERIC(10,3) — nullable لما قبل المرحلة ٣
+  packId: varchar('pack_id', { length: 20 }),
+  reversesLedgerId: integer('reverses_ledger_id'),                  // الحركة التي يعكسها هذا الاسترجاع
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -52,6 +56,8 @@ export const CHIPS_REASONS = [
   'rent_item',          // استئجار عنصر 30 يوماً — المرحلة 1
   'renew_item',         // تجديد/تمديد إيجار — المرحلة 1
   'refund',             // استرجاع تشبس (لا استرداد نقدي أبداً)
+  'reward_top3',        // مكافأة أفضل ثلاثة — سبب مستقلّ
+  'reward_birthday',    // عيديّة ميلاد — سبب مستقلّ
   'gift_in',            // إهداء وارد — المرحلة 4
   'gift_out',           // إهداء صادر — المرحلة 4
 ] as const;
@@ -77,3 +83,38 @@ export const CHIPS_PACKS: ChipsPack[] = [
 export function getChipsPack(id: string): ChipsPack | undefined {
   return CHIPS_PACKS.find(p => p.id === id);
 }
+
+
+// ══════════════════════════════════════════════════════
+// 🏷️ تصنيف الأسباب عند القراءة
+//
+// ⚠️ مكافأة الموسم والعيديّة كُتبتا تاريخياً بسبب `admin_adjust` نفسه، فلا
+//    يمكن لأي تقرير أن يجيب «كم أنفقنا على الهدايا». والدفتر append-only
+//    فلا يجوز إعادة تسمية صفوفه (قرار المالك ٢) — نُصنِّف عند القراءة.
+//    البادئات في المفاتيح تفصل الأنواع فصلاً قاطعاً:
+//      top3:… · birthday:… · drop:… · store:… · topup:… · adjust:…
+// ══════════════════════════════════════════════════════
+export const CHIPS_REASON_CANON_SQL = `
+  CASE
+    WHEN l.reason IN ('reward_top3','reward_birthday') THEN l.reason
+    WHEN l.idempotency_key LIKE 'top3:%'     THEN 'reward_top3'
+    WHEN l.idempotency_key LIKE 'birthday:%' THEN 'reward_birthday'
+    ELSE l.reason
+  END
+`;
+
+/** فئة محاسبية لكل سبب — يُبنى عليها التقرير */
+export const REASON_CATEGORY: Record<string, 'topup' | 'reward' | 'drop' | 'sink' | 'refund' | 'other'> = {
+  admin_topup: 'topup',
+  admin_adjust: 'other',
+  reward_top3: 'reward',
+  reward_birthday: 'reward',
+  drop_win: 'drop',
+  drop_top3: 'drop',
+  drop_first_match: 'drop',
+  rent_item: 'sink',
+  renew_item: 'sink',
+  refund: 'refund',
+  gift_in: 'other',
+  gift_out: 'other',
+};

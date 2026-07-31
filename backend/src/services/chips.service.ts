@@ -11,7 +11,8 @@ import { sql, eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { players } from '../schemas/player.schema.js';
 import {
-  chipsLedger, CHIPS_REASONS, getChipsPack,
+  chipsLedger, CHIPS_REASONS, getChipsPack, CHIPS_PACKS,
+  CHIPS_REASON_CANON_SQL, REASON_CATEGORY,
   type ChipsReason,
 } from '../schemas/chips.schema.js';
 
@@ -26,6 +27,11 @@ export interface ChipsTxInput {
   refId?: string | null;
   staffId?: number | null;
   note?: string | null;
+  /** 💰 قيمة الحركة بالدينار وقت وقوعها — تُخزَّن ولا تُشتقّ لاحقاً */
+  jodAmount?: number | null;
+  packId?: string | null;
+  /** معرّف الحركة التي يعكسها هذا الاسترجاع */
+  reversesLedgerId?: number | null;
   /** إشعار اللاعب (اختياري) — يُرسل بعد نجاح المعاملة فقط */
   notify?: { title: string; body: string } | null;
 }
@@ -55,6 +61,16 @@ function pgCodeOf(err: any): string | undefined {
 
 /** اسم القيد الفريد على مفتاح منع التكرار (index.ts — بذرة الإقلاع) */
 export const LEDGER_IDEM_CONSTRAINT = 'idx_chips_ledger_idem';
+
+/**
+ * تاريخ من مدخل خارجي. المدخل الفاسد يعود إلى الافتراضي،
+ * لأن Invalid Date يرمي RangeError عند toISOString ويصل للمستخدم خطأ 500.
+ */
+function safeDate(v: string | undefined, fallback: Date): Date {
+  if (!v) return fallback;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? fallback : d;
+}
 
 function constraintOf(err: any): string | undefined {
   return err?.constraint || err?.cause?.constraint || err?.originalError?.constraint;
@@ -150,6 +166,9 @@ export async function applyChipsTxIn(tx: any, input: ChipsTxInput): Promise<{ ba
     idempotencyKey: key,
     staffId: input.staffId ?? null,
     note: input.note ?? null,
+    jodAmount: input.jodAmount != null ? String(input.jodAmount) : null,
+    packId: input.packId ?? null,
+    reversesLedgerId: input.reversesLedgerId ?? null,
   } as any).returning({ id: chipsLedger.id });
 
   // 4) كاش الرصيد
@@ -260,6 +279,10 @@ export async function adminTopup(opts: {
     idempotencyKey: `topup:${rid}:${Number(opts.playerId)}:${pack.id}`,
     refType: 'topup_pack',
     refId: pack.id,
+    // 💰 لقطة المال: كان الإيراد يُعاد اشتقاقه من ثوابت الباقات وقت القراءة،
+    //    فتعديل سعر باقة يُعيد كتابة كل تاريخ الإيراد وسحبُها يُخفيه.
+    jodAmount: pack.jod,
+    packId: pack.id,
     staffId: opts.staffId ?? null,
     note: opts.note ?? null,
     notify: {
@@ -300,6 +323,269 @@ export async function adminAdjust(opts: {
   });
 }
 
+// ══════════════════════════════════════════════════════
+// ↩️ الاسترجاع — السبب كان معرَّفاً منذ اليوم الأول بلا أي مُنتِج
+//
+// ⚠️ العلاج الوحيد المتاح كان تصحيحاً يدوياً سالباً، لا يسحب الإيجار — فمن
+//    استُرجع له المال يحتفظ بالميزة مجاناً. وقرار المالك (١٠): للأدمن فقط،
+//    بالتناسب افتراضياً، وكاملاً بملاحظة إلزامية، **والاسترجاع تشبس لا نقداً**.
+// ══════════════════════════════════════════════════════
+
+export interface RefundResult {
+  ok: boolean;
+  code?: 'NOT_FOUND' | 'NOT_REFUNDABLE' | 'ALREADY_REFUNDED' | 'NO_PRICE' | 'INVALID' | 'ERROR';
+  message?: string;
+  refunded?: number;
+  balance?: number;
+}
+
+export async function refundLedgerEntry(opts: {
+  ledgerId: number; mode?: 'prorata' | 'full'; note: string; staffId?: number | null;
+}): Promise<RefundResult> {
+  const db = getDB();
+  if (!db) return { ok: false, code: 'ERROR', message: 'قاعدة البيانات غير متاحة' };
+
+  const ledgerId = Number(opts.ledgerId);
+  const mode = opts.mode === 'full' ? 'full' : 'prorata';
+  const note = String(opts.note || '').trim();
+  // الملاحظة إلزامية للكامل — قرار المالك: لا استرجاع كامل بلا تبرير مكتوب
+  if (mode === 'full' && note.length < 3) {
+    return { ok: false, code: 'INVALID', message: 'الملاحظة إلزامية للاسترجاع الكامل' };
+  }
+
+  try {
+    // 🔒 الرد والسحب في معاملة واحدة. لو فُصلا وسقطت العملية بينهما،
+    //    عاد المال وبقيت الميزة — والفهرس الفريد يمنع إعادة المحاولة،
+    //    فيصير الخلل دائماً لا عابراً.
+    const out = await db.transaction(async (tx: any) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`refund:${ledgerId}`}))`);
+
+      const [led] = rowsOf(await tx.execute(sql`
+        SELECT id, player_id, amount, reason, ref_id FROM chips_ledger WHERE id = ${ledgerId}
+      `));
+      if (!led) return { ok: false as const, code: 'NOT_FOUND' as const, message: 'الحركة غير موجودة' };
+      if (Number(led.amount) >= 0) return { ok: false as const, code: 'NOT_REFUNDABLE' as const, message: 'لا يُسترجع إلا صرف' };
+      if (!['rent_item', 'renew_item'].includes(led.reason)) {
+        return { ok: false as const, code: 'NOT_REFUNDABLE' as const, message: 'يُسترجع شراء العناصر فقط' };
+      }
+
+      const already = rowsOf(await tx.execute(sql`
+        SELECT id FROM chips_ledger WHERE reverses_ledger_id = ${ledgerId} LIMIT 1
+      `));
+      if (already.length) return { ok: false as const, code: 'ALREADY_REFUNDED' as const, message: 'هذه الحركة مُسترجَعة سابقاً' };
+
+      const playerId = Number(led.player_id);
+      const paid = Math.abs(Number(led.amount));
+      const itemId = Number(led.ref_id);
+
+      const [rental] = rowsOf(await tx.execute(sql`
+        SELECT id, expires_at, duration_days_snapshot, price_paid_chips
+          FROM chips_rentals
+         WHERE player_id = ${playerId} AND item_id = ${itemId}
+         ORDER BY expires_at DESC LIMIT 1
+         FOR UPDATE
+      `));
+
+      let amount = paid;
+      if (mode === 'prorata') {
+        // ⚠️ التناسب يحتاج طول المدّة المدفوعة. الإيجارات السابقة للمرحلة ٣
+        //    لا تحمل لقطة مدّة، وحسابُ نسبة من مدّة مُفترَضة خطأ مالي لا تقدير.
+        if (!rental || rental.duration_days_snapshot == null) {
+          return {
+            ok: false as const, code: 'NO_PRICE' as const,
+            message: 'لا مدّة مسجَّلة على هذا الإيجار (سابق لتسجيل الأسعار) — استعمل الاسترجاع الكامل بملاحظة',
+          };
+        }
+        const totalDays = Number(rental.duration_days_snapshot) || 1;
+        const msLeft = new Date(rental.expires_at).getTime() - Date.now();
+        const daysLeft = Math.max(0, Math.ceil(msLeft / 86400000));
+        // 📌 الأساس مبلغُ الحركة المعكوسة نفسها لا سعرُ الإيجار الحالي:
+        //    الإيجار المُمدَّد يحمل سعر آخر تجديد، فالاحتساب منه يردّ أكثر ممّا دُفع.
+        amount = Math.floor(paid * Math.min(1, daysLeft / totalDays));
+        if (amount <= 0) {
+          return { ok: false as const, code: 'NOT_REFUNDABLE' as const, message: 'انتهت المدة — لا شيء يُسترجع بالتناسب' };
+        }
+      }
+
+      const credit = await applyChipsTxIn(tx, {
+        playerId,
+        amount,
+        reason: 'refund',
+        idempotencyKey: `refund:${ledgerId}`,
+        refType: 'item',
+        refId: String(itemId),
+        staffId: opts.staffId ?? null,
+        reversesLedgerId: ledgerId,
+        note: `استرجاع ${mode === 'full' ? 'كامل' : 'بالتناسب'} — ${note || 'بلا ملاحظة'}`,
+      });
+
+      // 🔚 الميزة تُسحب مع المال — وإلا صار الاسترجاع هديّة
+      if (rental) {
+        await tx.execute(sql`UPDATE chips_rentals SET expires_at = NOW() WHERE id = ${rental.id}`);
+      }
+
+      return { ok: true as const, refunded: amount, balance: credit.balance, playerId };
+    });
+
+    if (!out.ok) return out;
+
+    // ── آثار جانبية بعد التثبيت فقط ──
+    emitChipsSideEffects({
+      playerId: out.playerId, amount: out.refunded, reason: 'refund',
+      idempotencyKey: `refund:${ledgerId}`,
+      notify: {
+        title: '↩️ استُرجع لك تشبس',
+        body: `أُعيد ${out.refunded} 🪙 إلى محفظتك${note ? ` — ${note.slice(0, 60)}` : ''}`,
+      },
+    }, out.balance);
+
+    try {
+      const { getPlayerCosmetics, broadcastCosmetics } = await import('./chips-store.service.js');
+      await getPlayerCosmetics(out.playerId);   // يفكّ الخانات المنتهية فوراً
+      broadcastCosmetics(out.playerId);         // والشاشة تُحدَّث بلا انتظار جولة
+    } catch { /* التنظيف كسول أصلاً عند أول قراءة */ }
+
+    return { ok: true, refunded: out.refunded, balance: out.balance };
+  } catch (e: any) {
+    // سباق: استرجاعان تزامنا فمرّ أحدهما وسقط الآخر على الفهرس الفريد.
+    // هذا نجاحُ حماية لا عطل — يُقال للأدمن إنها مُسترجَعة سلفاً.
+    if (pgCodeOf(e) === '23505') {
+      return { ok: false, code: 'ALREADY_REFUNDED', message: 'هذه الحركة مُسترجَعة سابقاً' };
+    }
+    console.error('❌ refundLedgerEntry:', e?.message);
+    return { ok: false, code: 'ERROR', message: 'تعذّر الاسترجاع' };
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 📈 تقرير الاقتصاد — إيراد وإصدار ومصارف والتزام
+// ══════════════════════════════════════════════════════
+
+export async function getChipsReport(opts: { from?: string; to?: string } = {}) {
+  const db = getDB();
+  if (!db) return null;
+  const from = safeDate(opts.from, new Date(Date.now() - 90 * 86400000));
+  const to = safeDate(opts.to, new Date());
+
+  const canon = CHIPS_REASON_CANON_SQL;
+
+  const byReason = rowsOf(await db.execute(sql.raw(`
+    SELECT ${canon} AS reason,
+           COUNT(*)::int AS moves,
+           COALESCE(SUM(CASE WHEN l.amount > 0 THEN l.amount ELSE 0 END),0)::int AS credited,
+           COALESCE(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END),0)::int AS debited,
+           COALESCE(SUM(l.jod_amount),0)::numeric AS jod
+      FROM chips_ledger l
+     WHERE l.created_at >= '${from.toISOString()}' AND l.created_at <= '${to.toISOString()}'
+     GROUP BY 1 ORDER BY 2 DESC
+  `)));
+
+  // 💰 الإيراد من اللقطة المخزَّنة. الصفوف السابقة للمرحلة ٣ بلا قيمة —
+  //    تُعدّ منفصلة وتُعلَن كتقدير، لا تُخلط بالمؤكَّد.
+  const [rev] = rowsOf(await db.execute(sql`
+    SELECT COALESCE(SUM(jod_amount),0)::numeric AS jod_recorded,
+           COUNT(*) FILTER (WHERE jod_amount IS NULL)::int AS legacy_rows,
+           COUNT(*) FILTER (WHERE jod_amount IS NOT NULL)::int AS recorded_rows
+      FROM chips_ledger
+     WHERE reason = 'admin_topup' AND created_at >= ${from} AND created_at <= ${to}
+  `));
+
+  // الالتزام: الرصيد المتداول دَين على النادي — ويُقيَّم بأفضل نسبة باقة
+  const [liab] = rowsOf(await db.execute(sql`
+    SELECT COALESCE(SUM(GREATEST(COALESCE(chips_balance,0),0)),0)::int AS circulating,
+           COUNT(*) FILTER (WHERE COALESCE(chips_balance,0) > 0)::int AS holders
+      FROM players
+  `));
+  const best = CHIPS_PACKS.reduce((a, b) => (a.chips / a.jod > b.chips / b.jod ? a : b));
+  const jodPerChip = best.jod / best.chips;
+
+  const [rentalLiab] = rowsOf(await db.execute(sql`
+    SELECT COUNT(*)::int AS active_rentals,
+           COALESCE(SUM(price_paid_chips),0)::int AS paid_for_active
+      FROM chips_rentals WHERE expires_at > NOW()
+  `));
+
+  const sum = (pred: (r: any) => boolean, f: 'credited' | 'debited') =>
+    byReason.filter(pred).reduce((s: number, r: any) => s + Number(r[f] || 0), 0);
+
+  return {
+    from: from.toISOString(), to: to.toISOString(),
+    byReason: byReason.map((r: any) => ({
+      reason: r.reason, moves: Number(r.moves), credited: Number(r.credited),
+      debited: Number(r.debited), jod: Number(r.jod || 0),
+      category: REASON_CATEGORY[r.reason] || 'other',
+    })),
+    revenue: {
+      jodRecorded: Number(rev?.jod_recorded || 0),
+      recordedRows: Number(rev?.recorded_rows || 0),
+      legacyRows: Number(rev?.legacy_rows || 0),
+      // تقدير الصفوف القديمة — مُعلَن كتقدير لا كحقيقة محاسبية
+      legacyEstimateJod: Number(rev?.legacy_rows || 0) > 0 ? null : 0,
+    },
+    issuance: {
+      topup: sum(r => r.reason === 'admin_topup', 'credited'),
+      rewards: sum(r => String(r.reason).startsWith('reward_'), 'credited'),
+      drops: sum(r => String(r.reason).startsWith('drop_'), 'credited'),
+      adjustments: sum(r => r.reason === 'admin_adjust', 'credited'),
+      refunds: sum(r => r.reason === 'refund', 'credited'),
+    },
+    sinks: {
+      store: sum(r => ['rent_item', 'renew_item'].includes(r.reason), 'debited'),
+      adjustments: sum(r => r.reason === 'admin_adjust', 'debited'),
+    },
+    liability: {
+      circulatingChips: Number(liab?.circulating || 0),
+      holders: Number(liab?.holders || 0),
+      estimatedJod: Number(((Number(liab?.circulating || 0)) * jodPerChip).toFixed(2)),
+      jodPerChip: Number(jodPerChip.toFixed(4)),
+      activeRentals: Number(rentalLiab?.active_rentals || 0),
+      paidForActiveChips: Number(rentalLiab?.paid_for_active || 0),
+    },
+  };
+}
+
+/** تصدير الدفتر CSV — المحاسب لا يستطيع العمل على جدول ويب بخمسين صفّاً */
+export async function exportLedgerCsv(opts: { from?: string; to?: string; reason?: string }) {
+  const db = getDB();
+  if (!db) return '';
+  const conds: any[] = [];
+  if (opts.from) conds.push(gte(chipsLedger.createdAt, safeDate(opts.from, new Date(0))));
+  if (opts.to) conds.push(lte(chipsLedger.createdAt, safeDate(opts.to, new Date())));
+  if (opts.reason && CHIPS_REASONS.includes(opts.reason as ChipsReason)) {
+    conds.push(eq(chipsLedger.reason, opts.reason));
+  }
+  const rows = await db.select({
+    id: chipsLedger.id, createdAt: chipsLedger.createdAt,
+    playerId: chipsLedger.playerId, playerName: players.name, phone: players.phone,
+    amount: chipsLedger.amount, balanceAfter: chipsLedger.balanceAfter,
+    reason: chipsLedger.reason, refType: chipsLedger.refType, refId: chipsLedger.refId,
+    jodAmount: chipsLedger.jodAmount, packId: chipsLedger.packId,
+    staffId: chipsLedger.staffId, note: chipsLedger.note,
+    reverses: chipsLedger.reversesLedgerId,
+  }).from(chipsLedger)
+    .leftJoin(players, eq(players.id, chipsLedger.playerId))
+    .where(conds.length ? and(...conds) : (undefined as any))
+    .orderBy(desc(chipsLedger.id))
+    .limit(50000);
+
+  const head = ['id', 'التاريخ', 'معرّف اللاعب', 'اللاعب', 'الهاتف', 'المبلغ', 'الرصيد بعد',
+    'السبب', 'نوع المرجع', 'المرجع', 'الدينار', 'الباقة', 'الموظف', 'يعكس', 'ملاحظة'];
+  const esc = (v: any) => {
+    const s = v == null ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [head.join(',')];
+  for (const r of rows) {
+    lines.push([
+      r.id, r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+      r.playerId, r.playerName, r.phone, r.amount, r.balanceAfter,
+      r.reason, r.refType, r.refId, r.jodAmount, r.packId, r.staffId, r.reverses, r.note,
+    ].map(esc).join(','));
+  }
+  // BOM كي يفتح Excel العربية بترميز صحيح بدل حروف مشوّهة
+  return '﻿' + lines.join('\r\n');
+}
+
 /** رصيد لاعب واحد (من الكاش — الدفتر يبقى المرجع عند الشك) */
 export async function getChipsBalance(playerId: number): Promise<number> {
   const db = getDB();
@@ -311,11 +597,12 @@ export async function getChipsBalance(playerId: number): Promise<number> {
 /** ملخّص محفظة اللاعب: كم كسب مجاناً · كم شُحن له · كم صرف */
 export async function getPlayerWalletSummary(playerId: number) {
   const db = getDB();
-  if (!db) return { balance: 0, earnedFree: 0, toppedUp: 0, spent: 0, moves: 0 };
+  if (!db) return { balance: 0, earnedFree: 0, toppedUp: 0, otherIn: 0, spent: 0, moves: 0 };
   const res: any = await db.execute(sql`
     SELECT
-      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND reason LIKE 'drop_%'), 0)::int AS earned_free,
-      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND reason NOT LIKE 'drop_%'), 0)::int AS topped_up,
+      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND (reason LIKE 'drop_%' OR reason LIKE 'reward_%')), 0)::int AS earned_free,
+      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND reason = 'admin_topup'), 0)::int AS topped_up,
+      COALESCE(SUM(amount) FILTER (WHERE amount > 0 AND reason IN ('admin_adjust','refund','gift_in')), 0)::int AS other_in,
       COALESCE(SUM(-amount) FILTER (WHERE amount < 0), 0)::int AS spent,
       COUNT(*)::int AS moves
     FROM chips_ledger WHERE player_id = ${playerId}
@@ -326,6 +613,7 @@ export async function getPlayerWalletSummary(playerId: number) {
     balance,
     earnedFree: Number(r.earned_free ?? 0),
     toppedUp: Number(r.topped_up ?? 0),
+    otherIn: Number(r.other_in ?? 0),
     spent: Number(r.spent ?? 0),
     moves: Number(r.moves ?? 0),
   };
@@ -360,8 +648,8 @@ export async function getAdminLedger(opts: {
   const conds: any[] = [];
   if (opts.playerId) conds.push(eq(chipsLedger.playerId, opts.playerId));
   if (opts.reason && CHIPS_REASONS.includes(opts.reason as ChipsReason)) conds.push(eq(chipsLedger.reason, opts.reason));
-  if (opts.from) conds.push(gte(chipsLedger.createdAt, new Date(opts.from)));
-  if (opts.to) conds.push(lte(chipsLedger.createdAt, new Date(opts.to)));
+  if (opts.from) conds.push(gte(chipsLedger.createdAt, safeDate(opts.from, new Date(0))));
+  if (opts.to) conds.push(lte(chipsLedger.createdAt, safeDate(opts.to, new Date())));
   const where = conds.length ? and(...conds) : undefined;
 
   const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
@@ -380,6 +668,11 @@ export async function getAdminLedger(opts: {
     staffId: chipsLedger.staffId,
     note: chipsLedger.note,
     createdAt: chipsLedger.createdAt,
+    jodAmount: chipsLedger.jodAmount,
+    packId: chipsLedger.packId,
+    reversesLedgerId: chipsLedger.reversesLedgerId,
+    // 🔎 هل استُرجعت هذه الحركة؟ — تُقرأ من الدفتر نفسه، لا من علَم مُحدَّث
+    refundedById: sql<number | null>`(SELECT r.id FROM chips_ledger r WHERE r.reverses_ledger_id = ${chipsLedger.id} LIMIT 1)`,
   }).from(chipsLedger)
     .leftJoin(players, eq(players.id, chipsLedger.playerId))
     .where(where as any)

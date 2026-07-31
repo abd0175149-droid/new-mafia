@@ -14,7 +14,7 @@ import { CHIPS_PACKS } from '../schemas/chips.schema.js';
 import {
   adminTopup, adminAdjust, getChipsBalance, getPlayerLedger,
   getAdminLedger, getPlayerBalances, getChipsStats, auditChipsBalances,
-  getPlayerWalletSummary,
+  getPlayerWalletSummary, refundLedgerEntry, getChipsReport, exportLedgerCsv,
 } from '../services/chips.service.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
 import {
@@ -78,6 +78,79 @@ router.get('/packs', authenticatePlayer, (_req: Request, res: Response) => {
 // ══════════════════════════════════════════════════════
 
 router.use('/admin', authenticate, adminOnly);
+
+// ══════════════════════════════════════════════════════
+// ↩️ الاسترجاع — قرار المالك: للأدمن، بالتناسب افتراضياً، تشبس لا نقداً
+// ══════════════════════════════════════════════════════
+router.post('/admin/refund',
+  rateLimit({ windowMs: 60_000, max: 20, keyPrefix: 'chips-refund' }),
+  async (req: Request, res: Response) => {
+    try {
+      const ledgerId = parseInt(req.body.ledgerId);
+      const mode = req.body.mode === 'full' ? 'full' : 'prorata';
+      const note = req.body.note ? String(req.body.note).slice(0, 300) : '';
+      if (!ledgerId || isNaN(ledgerId)) return res.status(400).json({ error: 'معرّف الحركة مطلوب' });
+
+      const r = await refundLedgerEntry({ ledgerId, mode, note, staffId: (req as any).user?.id ?? null });
+      if (!r.ok) {
+        const status = r.code === 'NOT_FOUND' ? 404
+          : r.code === 'ALREADY_REFUNDED' ? 409
+          : r.code === 'NO_PRICE' ? 422 : 400;
+        return res.status(status).json({ error: r.message, code: r.code });
+      }
+
+      logStaffAction({
+        staffId: (req as any).user?.id,
+        staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role,
+        source: 'http',
+        action: 'chips:refund',
+        outcome: 'success',
+        details: { ledgerId, mode, refunded: r.refunded, note },
+      });
+      res.json({ success: true, ...r });
+    } catch (err: any) {
+      console.error('❌ chips refund:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+// ── 📈 تقرير الاقتصاد ──
+router.get('/admin/report', async (req: Request, res: Response) => {
+  try {
+    const report = await getChipsReport({
+      from: req.query.from ? String(req.query.from) : undefined,
+      to: req.query.to ? String(req.query.to) : undefined,
+    });
+    res.json({ success: true, report });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 📤 تصدير الدفتر CSV ──
+// المحاسب لا يستطيع العمل على جدول ويب بخمسين صفّاً في الصفحة.
+router.get('/admin/ledger.csv', async (req: Request, res: Response) => {
+  try {
+    const csv = await exportLedgerCsv({
+      from: req.query.from ? String(req.query.from) : undefined,
+      to: req.query.to ? String(req.query.to) : undefined,
+      reason: req.query.reason ? String(req.query.reason) : undefined,
+    });
+    logStaffAction({
+      staffId: (req as any).user?.id,
+      staffUsername: (req as any).user?.username,
+      staffRole: (req as any).user?.role,
+      source: 'http', action: 'chips:ledger-export', outcome: 'success',
+      details: { from: req.query.from, to: req.query.to, reason: req.query.reason },
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="chips-ledger-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── الباقات المعتمدة ──
 router.get('/admin/packs', (_req: Request, res: Response) => {

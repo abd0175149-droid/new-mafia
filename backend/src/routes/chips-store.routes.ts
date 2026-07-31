@@ -368,6 +368,19 @@ router.put('/items/:id', async (req: Request, res: Response) => {
 
     await db.update(chipsItems).set(patch).where(eq(chipsItems.id, id));
 
+    // 💰 تعديل السعر أو المدة يُسجَّل في التاريخ: سطر دفتر لإطار بـ١٢٠ يجب
+    //    أن يبقى مميَّزاً عن آخر اشتُري بـ٦٠، وإلا صار حساب الإيراد بأثر رجعي.
+    if (patch.priceChips != null || patch.durationDays != null) {
+      const [cur] = await db.select({ p: chipsItems.priceChips, d: chipsItems.durationDays })
+        .from(chipsItems).where(eq(chipsItems.id, id)).limit(1);
+      if (cur) {
+        await db.execute(sql`
+          INSERT INTO chips_item_price_history (item_id, price_chips, duration_days, changed_by)
+          VALUES (${id}, ${cur.p}, ${cur.d}, ${(req as any).user?.id ?? null})
+        `);
+      }
+    }
+
     logStaffAction({
       staffId: (req as any).user?.id,
       staffUsername: (req as any).user?.username,
