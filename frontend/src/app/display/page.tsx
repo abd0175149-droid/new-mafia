@@ -389,9 +389,13 @@ function DisplayPageContent() {
           compact: inMatch,
         });
         if (entranceTimerRef.current) clearTimeout(entranceTimerRef.current);
+        // ⏱️ مدّة التشريفة تأتي من إعداد العنصر — كانت تُهمَل تماماً وتُثبَّت
+        //    على القيمة الافتراضية، فيختار المؤلّف مدّة ولا أثر لها إطلاقاً.
+        //    مقصوصة هنا أيضاً دفاعاً عن الشاشة من صفّ قديم بقيمة شاذّة.
+        const fullMs = Math.min(6000, Math.max(1200, Number(entranceCfg.durationMs) || ENTRANCE_FULL_MS));
         entranceTimerRef.current = setTimeout(
           () => setEntrance(null),
-          inMatch ? ENTRANCE_COMPACT_MS : ENTRANCE_FULL_MS,
+          inMatch ? ENTRANCE_COMPACT_MS : fullMs,
         );
       }
     };

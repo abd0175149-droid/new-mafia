@@ -6,6 +6,9 @@
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback } from 'react';
+import DynamicMafiaCard from '@/components/DynamicMafiaCard';
+import { ChipsEmblem, type EmblemId } from '@/components/ChipsEmblems';
+import FxEditor from '@/components/effects/FxEditor';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -13,7 +16,9 @@ function getToken() { return typeof window !== 'undefined' ? localStorage.getIte
 async function apiGet(path: string) {
   const res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `API ${res.status}`);
+  // ⚠️ نُرفق حمولة الخادم بالخطأ: الرسالة وحدها تُضيّع اسم الحقل المرفوض
+  //    الذي يعيده المُطبِّع، فلا تستطيع الواجهة تمييزه للمؤلّف.
+  if (!res.ok) throw Object.assign(new Error(data?.error || `API ${res.status}`), { body: data, status: res.status });
   return data;
 }
 async function apiPost(path: string, body: any) {
@@ -23,7 +28,9 @@ async function apiPost(path: string, body: any) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `API ${res.status}`);
+  // ⚠️ نُرفق حمولة الخادم بالخطأ: الرسالة وحدها تُضيّع اسم الحقل المرفوض
+  //    الذي يعيده المُطبِّع، فلا تستطيع الواجهة تمييزه للمؤلّف.
+  if (!res.ok) throw Object.assign(new Error(data?.error || `API ${res.status}`), { body: data, status: res.status });
   return data;
 }
 
@@ -59,7 +66,9 @@ async function apiPut(path: string, body: any) {
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `API ${res.status}`);
+  // ⚠️ نُرفق حمولة الخادم بالخطأ: الرسالة وحدها تُضيّع اسم الحقل المرفوض
+  //    الذي يعيده المُطبِّع، فلا تستطيع الواجهة تمييزه للمؤلّف.
+  if (!res.ok) throw Object.assign(new Error(data?.error || `API ${res.status}`), { body: data, status: res.status });
   return data;
 }
 
@@ -790,57 +799,112 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
 // ══════════════════════════════════════════════════════
 // ➕ إضافة عنصر للخزنة (لقب / تشريفة دخول / تأثير اسم) — مع معاينة قبل الاعتماد
 // ══════════════════════════════════════════════════════
-const ENTRANCE_DESIGNS = [
-  { id: 'don', label: '👑 موكب العرّاب', desc: 'شريط ذهبي يعمّ الشاشة + تاج يهبط + اسم بخط سلطاني' },
-  { id: 'seal', label: '🩸 ختم العائلة', desc: 'ختم شمع قرمزي يُصفع على الشاشة بدوران وارتداد' },
-  { id: 'neon', label: '⚡ لافتة النيون', desc: 'الاسم يشتعل لافتة نيون برفّات كهرباء قبل أن يثبت' },
-  { id: 'file', label: '🗂️ الملف السري', desc: 'ملف مخابرات ينزلق بالصورة + ختم «وصل للتوّ»' },
-];
+// ══════════════════════════════════════════════════════
+// ➕ تأليف عنصر جديد — **الأنواع السبعة كلها**
+//
+// ⚠️ كان هذا اللوح يقبل ثلاثة أنواع فقط، وقوائمه ثوابت منسوخة في العميل
+//    قد تُقدّم خياراً يرفضه الخادم أو يُبدَّل بصمت. والمعاينة كانت رسماً
+//    يدوياً يختلف عمّا تعرضه القاعة فعلاً.
+//    الآن: الخيارات من سجلّ الخادم، والمعاينة **بمكوّن البطاقة الحقيقي**،
+//    والخادم يطبّع كل إعداد قبل تخزينه.
+// ══════════════════════════════════════════════════════
 
-const TITLE_STYLES = [
-  { id: 'gold', label: 'ذهبي', cls: 'bg-[rgba(69,26,3,0.8)] text-[#fcd34d] border-[rgba(245,158,11,0.6)]' },
-  { id: 'blood', label: 'دموي (نابض)', cls: 'bg-[rgba(69,10,10,0.8)] text-[#fca5a5] border-[rgba(220,38,38,0.6)]' },
-  { id: 'ghost', label: 'شبحي (متلاشٍ)', cls: 'bg-[rgba(24,24,27,0.7)] text-[#d4d4d8] border-[rgba(161,161,170,0.5)]' },
-];
+const KIND_META: Record<string, { label: string; icon: string; hint: string }> = {
+  frame:         { label: 'إطار',           icon: '🃏', hint: 'يحيط بطاقة اللاعب على وجهَيها' },
+  title:         { label: 'لقب',            icon: '🏷️', hint: 'لوحة تحت الاسم' },
+  name_fx:       { label: 'تأثير اسم',      icon: '✨', hint: 'لون وتوهّج الاسم' },
+  entrance:      { label: 'تشريفة دخول',    icon: '🚪', hint: 'تُعرض على شاشة القاعة عند دخوله' },
+  elimination:   { label: 'أنيميشن إقصاء',  icon: '🔥', hint: 'يحلّ محلّ الإطفاء الرمادي' },
+  victory_sting: { label: 'نغمة نصر',       icon: '🔊', hint: 'تُعزف في القاعة لحظة فوزه' },
+  xp_boost:      { label: 'معزّز خبرة',      icon: '⚡', hint: 'خبرة فقط — لا يمسّ الرانك' },
+};
+
+const ENTRANCE_LABEL: Record<string, string> = {
+  don: '👑 موكب العرّاب', seal: '🩸 ختم العائلة', neon: '⚡ لافتة النيون', file: '🗂️ الملف السري',
+};
+const TITLE_STYLE_LABEL: Record<string, string> = { gold: 'ذهبي', blood: 'دموي (نابض)', ghost: 'شبحي (متلاشٍ)' };
 
 function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 'ok' | 'err', t: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState<'title' | 'entrance' | 'name_fx'>('title');
+  const [registry, setRegistry] = useState<any>(null);
+  const [kind, setKind] = useState<string>('frame');
   const [nameAr, setNameAr] = useState('');
   const [hookAr, setHookAr] = useState('');
-  const [price, setPrice] = useState('25');
+  const [price, setPrice] = useState('35');
   const [days, setDays] = useState('30');
   const [rarity, setRarity] = useState('rare');
+  const [sortOrder, setSortOrder] = useState('900');
+  const [emblemId, setEmblemId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fieldErr, setFieldErr] = useState<string | null>(null);
 
-  // لقب
+  // إعداد كل نوع
+  const [fx, setFx] = useState<any>({ border: { enabled: true, color: '#f59e0b', style: 'solid' } });
   const [titleText, setTitleText] = useState('');
   const [titleStyle, setTitleStyle] = useState('gold');
-  // دخول
-  const [design, setDesign] = useState('don');
-  // تأثير اسم
   const [fxColor, setFxColor] = useState('#fcd34d');
   const [fxGlow, setFxGlow] = useState('#f59e0b');
+  const [fxGlowSize, setFxGlowSize] = useState('10');
+  const [entranceDesign, setEntranceDesign] = useState('don');
+  const [entranceMs, setEntranceMs] = useState('3500');
+  const [elimDesign, setElimDesign] = useState('burn');
+  const [soundKey, setSoundKey] = useState('chips_victory_sting');
+  const [multiplier, setMultiplier] = useState('2');
+
+  useEffect(() => {
+    if (!open || registry) return;
+    apiGet('/api/chips/items/design-registry')
+      .then(d => setRegistry(d))
+      .catch(() => toast('err', 'تعذّر تحميل سجلّ التصاميم'));
+  }, [open, registry, toast]);
+
+  // المدّة الافتراضية تتبع النوع (معزّز الخبرة ٧ أيام)
+  useEffect(() => {
+    const def = registry?.registry?.defaultDaysByKind?.[kind];
+    if (def) setDays(String(def));
+  }, [kind, registry]);
 
   const reset = () => {
-    setNameAr(''); setHookAr(''); setTitleText(''); setPrice('25'); setDays('30');
+    setNameAr(''); setHookAr(''); setTitleText(''); setFieldErr(null);
+    setPrice('35'); setSortOrder('900'); setEmblemId(null);
+  };
+
+  const buildConfig = (): any => {
+    switch (kind) {
+      case 'frame': return fx;
+      case 'title': return { text: titleText, style: titleStyle };
+      case 'name_fx': return { nameEffect: { color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } };
+      case 'entrance': return { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
+      case 'elimination': return { design: elimDesign };
+      case 'victory_sting': return { soundKey };
+      case 'xp_boost': return { multiplier: Number(multiplier) || 2 };
+      default: return {};
+    }
+  };
+
+  // معاينة على مكوّن البطاقة الحقيقي — ما تراه هنا هو ما تعرضه القاعة
+  const previewCosmetics = (): any => {
+    if (kind === 'frame') return { frame: { config: fx, emblemId } };
+    if (kind === 'title') return { title: { config: { text: titleText, style: titleStyle } } };
+    if (kind === 'name_fx') return { nameFx: { config: { nameEffect: { enabled: true, color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } } } };
+    return null;
   };
 
   const create = async () => {
-    setBusy(true);
+    setBusy(true); setFieldErr(null);
     try {
-      const config = kind === 'title' ? { text: titleText, style: titleStyle }
-        : kind === 'entrance' ? { design }
-        : { nameEffect: { color: fxColor, glowColor: fxGlow, glowSize: 10 } };
-
       await apiPost('/api/chips/items', {
         kind, nameAr, hookAr, rarity,
-        priceChips: Number(price) || 0,
-        durationDays: Number(days) || 30,
-        config,
+        priceChips: Math.max(0, Math.trunc(Number(price) || 0)),
+        durationDays: Math.max(1, Math.trunc(Number(days) || 30)),
+        sortOrder: Math.trunc(Number(sortOrder) || 900),
+        emblemId: kind === 'frame' ? emblemId : null,
+        config: buildConfig(),
       });
       reset(); setOpen(false); onCreated();
     } catch (e: any) {
+      // الخادم يسمّي الحقل المرفوض — نعرضه بدل رسالة عامة
+      setFieldErr(e?.body?.field || null);
       toast('err', e.message || 'تعذّرت الإضافة');
     } finally { setBusy(false); }
   };
@@ -849,57 +913,81 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
     return (
       <button onClick={() => setOpen(true)}
         className="w-full py-3 rounded-2xl font-bold text-sm bg-gray-800/40 border border-dashed border-gray-600/50 text-gray-300 hover:border-amber-500/50 hover:text-amber-400 transition-all">
-        ➕ أضف عنصراً جديداً للخزنة (لقب · تشريفة دخول · تأثير اسم)
+        ➕ أضف عنصراً جديداً للخزنة — الأنواع السبعة كلها
       </button>
     );
   }
 
+  const kinds: string[] = registry?.kinds || Object.keys(KIND_META);
+  const reg = registry?.registry;
   const valid = nameAr.trim().length >= 2 && (kind !== 'title' || titleText.trim().length >= 1);
+  const cos = previewCosmetics();
 
   return (
     <div className="bg-gray-800/40 border border-amber-600/30 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-bold text-amber-400">➕ عنصر جديد</h2>
         <button onClick={() => setOpen(false)} className="text-gray-500 text-xs">✕ إغلاق</button>
       </div>
 
-      {/* النوع */}
-      <div className="flex gap-2 mb-4">
-        {([['title', '🏷️ لقب'], ['entrance', '🚪 تشريفة دخول'], ['name_fx', '✨ تأثير اسم']] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setKind(k)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
-              kind === k ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'
-            }`}>
-            {l}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {kinds.map(k => (
+          <button key={k} onClick={() => { setKind(k); setFieldErr(null); }}
+            title={KIND_META[k]?.hint}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${kind === k
+              ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+              : 'bg-gray-900/50 border-gray-700/40 text-gray-400'}`}>
+            {KIND_META[k]?.icon} {KIND_META[k]?.label || k}
           </button>
         ))}
       </div>
+      <p className="text-[10px] text-gray-500 mb-4">{KIND_META[kind]?.hint}</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* النموذج */}
-        <div className="space-y-3">
+        <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
           <div>
             <label className="block text-[11px] text-gray-500 mb-1">اسم العنصر بالمتجر</label>
-            <input value={nameAr} onChange={e => setNameAr(e.target.value)} placeholder="مثال: سيّد الطاولة"
+            <input value={nameAr} onChange={e => setNameAr(e.target.value)} placeholder="مثال: تاج العرّاب"
               className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
           </div>
+
+          {kind === 'frame' && (
+            <>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">الشعار فوق البطاقة</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button onClick={() => setEmblemId(null)}
+                    className={`px-2 py-1 rounded text-[10px] border ${!emblemId ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'text-gray-500 border-gray-700/40'}`}>بلا شعار</button>
+                  {(reg?.emblems || []).map((id: string) => (
+                    <button key={id} onClick={() => setEmblemId(id)}
+                      className={`px-1.5 py-1 rounded border ${emblemId === id ? 'bg-amber-500/20 border-amber-500/40' : 'border-gray-700/40'}`}>
+                      <ChipsEmblem id={id as EmblemId} size={26} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">التأثيرات</label>
+                <FxEditor value={fx} onChange={setFx} frameTypes={reg?.frameSvgTypes} />
+              </div>
+            </>
+          )}
 
           {kind === 'title' && (
             <>
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">نص اللقب كما يظهر على البطاقة</label>
                 <input value={titleText} onChange={e => setTitleText(e.target.value)} placeholder="☠️ سفّاح الليل"
-                  className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+                  className={`w-full bg-gray-900/70 border rounded-lg px-3 py-2 text-sm text-white focus:outline-none ${fieldErr === 'config.text' ? 'border-rose-500' : 'border-gray-700/40 focus:border-amber-500'}`} />
               </div>
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">النمط</label>
                 <div className="flex gap-2">
-                  {TITLE_STYLES.map(s => (
-                    <button key={s.id} onClick={() => setTitleStyle(s.id)}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
-                        titleStyle === s.id ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'
-                      }`}>
-                      {s.label}
+                  {(reg?.titleStyles || ['gold', 'blood', 'ghost']).map((s: string) => (
+                    <button key={s} onClick={() => setTitleStyle(s)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border ${titleStyle === s
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'}`}>
+                      {TITLE_STYLE_LABEL[s] || s}
                     </button>
                   ))}
                 </div>
@@ -907,112 +995,141 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
             </>
           )}
 
+          {kind === 'name_fx' && (
+            <>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-[11px] text-gray-500 mb-1">لون الاسم</label>
+                  <input type="color" value={fxColor} onChange={e => setFxColor(e.target.value)} className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[11px] text-gray-500 mb-1">لون التوهّج</label>
+                  <input type="color" value={fxGlow} onChange={e => setFxGlow(e.target.value)} className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">حجم التوهّج ({fxGlowSize}px)</label>
+                <input type="range" min={0} max={30} value={fxGlowSize} onChange={e => setFxGlowSize(e.target.value)} className="w-full accent-amber-500" />
+              </div>
+            </>
+          )}
+
           {kind === 'entrance' && (
+            <>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">شكل الدخول</label>
+                <div className="space-y-2">
+                  {(reg?.entranceDesigns || ['don', 'seal', 'neon', 'file']).map((d: string) => (
+                    <button key={d} onClick={() => setEntranceDesign(d)}
+                      className={`w-full text-right px-3 py-2 rounded-xl border ${entranceDesign === d ? 'bg-amber-500/10 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-300'}`}>
+                      <span className="text-xs font-bold">{ENTRANCE_LABEL[d] || d}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] text-gray-500 mb-1">المدّة ({(Number(entranceMs) / 1000).toFixed(1)} ثانية)</label>
+                <input type="range" min={1200} max={6000} step={100} value={entranceMs} onChange={e => setEntranceMs(e.target.value)} className="w-full accent-amber-500" />
+                <p className="text-[10px] text-gray-600 mt-1">أثناء مباراة جارية تُعرض نسخة مختصرة صامتة كي لا تقطع النقاش.</p>
+              </div>
+            </>
+          )}
+
+          {kind === 'elimination' && (
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">شكل الدخول والأنيميشن</label>
-              <div className="space-y-2">
-                {ENTRANCE_DESIGNS.map(d => (
-                  <button key={d.id} onClick={() => setDesign(d.id)}
-                    className={`w-full text-right px-3 py-2 rounded-xl border transition-all ${
-                      design === d.id ? 'bg-amber-500/10 border-amber-500/50' : 'bg-gray-900/50 border-gray-700/40'
-                    }`}>
-                    <p className={`text-xs font-bold ${design === d.id ? 'text-amber-300' : 'text-gray-300'}`}>{d.label}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">{d.desc}</p>
+              <label className="block text-[11px] text-gray-500 mb-1">نمط الإقصاء</label>
+              <div className="flex gap-2">
+                {(reg?.eliminationDesigns || ['burn']).map((d: string) => (
+                  <button key={d} onClick={() => setElimDesign(d)}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border ${elimDesign === d ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'}`}>
+                    {d === 'burn' ? '🔥 موت بالنار' : d}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {kind === 'name_fx' && (
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="block text-[11px] text-gray-500 mb-1">لون الاسم</label>
-                <input type="color" value={fxColor} onChange={e => setFxColor(e.target.value)}
-                  className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
-              </div>
-              <div className="flex-1">
-                <label className="block text-[11px] text-gray-500 mb-1">لون التوهّج</label>
-                <input type="color" value={fxGlow} onChange={e => setFxGlow(e.target.value)}
-                  className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
-              </div>
+          {kind === 'victory_sting' && (
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">مفتاح الصوت</label>
+              <input value={soundKey} onChange={e => setSoundKey(e.target.value)} dir="ltr"
+                className={`w-full bg-gray-900/70 border rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none ${fieldErr === 'config.soundKey' ? 'border-rose-500' : 'border-gray-700/40 focus:border-amber-500'}`} />
+              <p className="text-[10px] text-amber-500/80 mt-1">
+                يجب أن يكون مربوطاً بملف صوت من لوحة المؤثرات — وإلا رُفض الإنشاء. لا تُباع نغمة بلا صوت.
+              </p>
+            </div>
+          )}
+
+          {kind === 'xp_boost' && (
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">المضاعِف (×{multiplier})</label>
+              <input type="range" min={1} max={3} step={0.5} value={multiplier} onChange={e => setMultiplier(e.target.value)} className="w-full accent-amber-500" />
+              <p className="text-[10px] text-gray-600 mt-1">خبرة فقط — لا يمسّ الرانك ولا نتيجة المباراة.</p>
             </div>
           )}
 
           <div>
-            <label className="block text-[11px] text-gray-500 mb-1">جملة البيع (تظهر تحت الاسم بالمتجر)</label>
+            <label className="block text-[11px] text-gray-500 mb-1">جملة البيع</label>
             <input value={hookAr} onChange={e => setHookAr(e.target.value)} placeholder="لماذا يشتريه اللاعب؟"
               className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             <div>
               <label className="block text-[11px] text-gray-500 mb-1">السعر 🪙</label>
-              <input value={price} onChange={e => setPrice(e.target.value)}
-                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
+              <input type="number" min={0} step={1} value={price} onChange={e => setPrice(e.target.value)}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
             </div>
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">المدة (يوم)</label>
-              <input value={days} onChange={e => setDays(e.target.value)}
-                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
+              <label className="block text-[11px] text-gray-500 mb-1">المدة</label>
+              <input type="number" min={1} max={365} step={1} value={days} onChange={e => setDays(e.target.value)}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
             </div>
             <div>
               <label className="block text-[11px] text-gray-500 mb-1">الندرة</label>
               <select value={rarity} onChange={e => setRarity(e.target.value)}
-                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-1 py-2 text-xs text-white focus:outline-none focus:border-amber-500">
                 <option value="common">شائع</option>
                 <option value="rare">نادر</option>
                 <option value="epic">ملحمي</option>
                 <option value="myth">أسطوري</option>
               </select>
             </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">الترتيب</label>
+              <input type="number" step={10} value={sortOrder} onChange={e => setSortOrder(e.target.value)}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
+            </div>
           </div>
         </div>
 
-        {/* المعاينة */}
-        <div className="bg-black/40 border border-gray-700/40 rounded-2xl p-4 flex flex-col items-center justify-center min-h-[240px]">
-          <p className="text-[11px] text-gray-500 mb-3">👁️ المعاينة قبل الاعتماد</p>
-
-          {kind === 'title' && (
-            <div className="text-center">
-              <div className="w-40 h-24 rounded-xl bg-gradient-to-b from-zinc-800 to-black border border-amber-600/30 flex flex-col items-center justify-center gap-1.5">
-                <span className="text-white font-black text-lg" style={{ fontFamily: 'Amiri, serif' }}>اسم اللاعب</span>
-                {titleText && (
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black border ${TITLE_STYLES.find(s => s.id === titleStyle)?.cls}`}>
-                    {titleText}
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-gray-600 mt-2">كما يظهر تحت الاسم على البطاقة</p>
+        <div className="bg-black/40 border border-gray-700/40 rounded-2xl p-4 flex flex-col items-center justify-start min-h-[260px] sticky top-4 self-start">
+          <p className="text-[11px] text-gray-500 mb-3">👁️ المعاينة — بمكوّن البطاقة الحقيقي</p>
+          {cos ? (
+            <div style={{ paddingTop: 26 }}>
+              <DynamicMafiaCard
+                playerNumber={7}
+                playerName="اسم اللاعب"
+                role={null}
+                gender="MALE"
+                size="md"
+                flippable={false}
+                rankTier="GODFATHER"
+                cosmetics={cos}
+              />
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <div className="text-4xl mb-2">{KIND_META[kind]?.icon}</div>
+              <p className="text-xs text-gray-400 font-bold">{KIND_META[kind]?.label}</p>
+              <p className="text-[11px] text-gray-600 mt-2 max-w-[220px]">
+                {kind === 'entrance' && 'تُعرض على شاشة القاعة لحظة دخوله — عايِنها من صفحة العرض التجريبية.'}
+                {kind === 'elimination' && 'تحلّ محلّ الإطفاء الرمادي لحظة خروجه أمام الجميع.'}
+                {kind === 'victory_sting' && 'تُعزف في القاعة لحظة فوزه — الشاشة هي مصدر الصوت.'}
+                {kind === 'xp_boost' && 'يضاعف الخبرة فقط. لا يمسّ الرانك ولا نتيجة المباراة.'}
+              </p>
             </div>
           )}
-
-          {kind === 'entrance' && (
-            <div className="text-center">
-              <div className="text-4xl mb-2">{ENTRANCE_DESIGNS.find(d => d.id === design)?.label.split(' ')[0]}</div>
-              <p className="text-amber-300 font-bold text-sm">{ENTRANCE_DESIGNS.find(d => d.id === design)?.label}</p>
-              <p className="text-[11px] text-gray-500 mt-1 max-w-[220px]">{ENTRANCE_DESIGNS.find(d => d.id === design)?.desc}</p>
-              <a href="/card-demo/chips" target="_blank" rel="noreferrer"
-                className="inline-block mt-3 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-900/30 border border-amber-600/40 text-amber-300">
-                ▶️ شاهد الأنيميشن كاملاً
-              </a>
-            </div>
-          )}
-
-          {kind === 'name_fx' && (
-            <div className="text-center">
-              <div className="w-40 h-24 rounded-xl bg-gradient-to-b from-zinc-800 to-black border border-amber-600/30 flex items-center justify-center">
-                <span className="font-black text-xl" style={{
-                  fontFamily: 'Amiri, serif', color: fxColor,
-                  textShadow: `0 0 10px ${fxGlow}88, 0 0 25px ${fxGlow}44`,
-                }}>
-                  اسم اللاعب
-                </span>
-              </div>
-              <p className="text-[10px] text-gray-600 mt-2">يظهر في كل واجهة يظهر فيها اسمه</p>
-            </div>
-          )}
-
           <div className="mt-4 text-center">
             <p className="text-amber-400 font-bold text-sm tabular-nums">🪙 {price || 0} / {days || 30} يوماً</p>
             {hookAr && <p className="text-[11px] text-gray-500 mt-1 max-w-[240px]">{hookAr}</p>}
@@ -1024,6 +1141,9 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
         className="w-full mt-4 py-2.5 rounded-xl font-bold text-sm bg-amber-600 hover:bg-amber-500 text-black transition-all disabled:opacity-40">
         {busy ? 'جارٍ الإضافة…' : '✅ اعتمد وأضف للخزنة'}
       </button>
+      <p className="text-[10px] text-gray-600 mt-2 text-center">
+        الخادم يطبّع كل إعداد قبل تخزينه — لا يمكن حفظ تصميم يعجز المُصيّر عن رسمه.
+      </p>
     </div>
   );
 }

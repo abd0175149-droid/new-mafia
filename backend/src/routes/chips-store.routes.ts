@@ -17,6 +17,10 @@ import {
   grantRental, notifyExpiringSoon, isSoundKeyAvailable,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
+import {
+  normalizeItemConfig, normalizeEmblemId, designRegistry,
+  DEFAULT_DAYS_BY_KIND, KEY_PREFIX_BY_KIND,
+} from '../shared/chips-design.contract.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
 
 const router = Router();
@@ -195,8 +199,14 @@ router.post('/items', async (req: Request, res: Response) => {
 
     const b = req.body || {};
     const kind = String(b.kind || '');
-    if (!['title', 'entrance', 'name_fx'].includes(kind)) {
-      return res.status(400).json({ error: 'النوع المدعوم للإضافة: لقب أو تشريفة دخول أو تأثير اسم' });
+
+    // ✅ الأنواع السبعة كلها قابلة للإنشاء الآن.
+    //    كان القبول محصوراً بثلاثة (لقب · تشريفة · تأثير اسم)، فالإطارات —
+    //    أغلى نوع وأكثره تمييزاً — لم يكن يمكن إنشاؤها من اللوحة إطلاقاً،
+    //    وحدها البذرة والنشر. سبب المنع كان أن المُصيّر ينهار على إعداد ناقص؛
+    //    وقد صار محصَّناً، وصار التطبيع أدناه يمنع تخزين الفاسد من الأصل.
+    if (!CHIPS_ITEM_KINDS.includes(kind as any)) {
+      return res.status(400).json({ error: `نوع غير معروف — المتاح: ${CHIPS_ITEM_KINDS.join(' · ')}` });
     }
 
     const nameAr = String(b.nameAr || '').trim();
@@ -204,37 +214,32 @@ router.post('/items', async (req: Request, res: Response) => {
 
     const rarity = CHIPS_RARITIES.includes(b.rarity) ? b.rarity : 'rare';
     const priceChips = Math.max(0, Math.min(100000, Math.trunc(Number(b.priceChips) || 0)));
-    const durationDays = Math.min(365, Math.max(1, Math.trunc(Number(b.durationDays) || 30)));
+    const durationDays = Math.min(365, Math.max(1,
+      Math.trunc(Number(b.durationDays) || DEFAULT_DAYS_BY_KIND[kind] || 30)));
     const hookAr = String(b.hookAr || '').slice(0, 500);
 
-    // ── التحقق من محتوى كل نوع ──
-    let config: any = {};
-    if (kind === 'title') {
-      const text = String(b.config?.text || '').trim();
-      if (!text) return res.status(400).json({ error: 'نص اللقب مطلوب' });
-      const style = ['gold', 'blood', 'ghost'].includes(b.config?.style) ? b.config.style : 'gold';
-      config = { text: text.slice(0, 40), style };
-    } else if (kind === 'entrance') {
-      const design = String(b.config?.design || '');
-      if (!['don', 'seal', 'neon', 'file'].includes(design)) {
-        return res.status(400).json({ error: 'اختر شكل الدخول: موكب العرّاب أو ختم العائلة أو لافتة النيون أو الملف السري' });
+    // ── التطبيع: المصدر الوحيد للتحقّق، لكل نوع ──
+    const norm = normalizeItemConfig(kind, b.config);
+    if (!norm.ok) return res.status(400).json({ error: norm.message, field: norm.field });
+
+    // نغمة بلا ملف صوت وعدٌ فارغ — نرفضها عند الإنشاء بدل أن تُخفى بصمت
+    if (kind === 'victory_sting') {
+      const ok = await isSoundKeyAvailable(String(norm.config.soundKey));
+      if (!ok) {
+        return res.status(409).json({
+          error: `لا ملف صوت مربوط بالمفتاح «${norm.config.soundKey}» — ارفعه من لوحة المؤثرات أولاً`,
+          field: 'config.soundKey',
+        });
       }
-      config = { design, durationMs: 3500 };
-    } else {
-      const color = String(b.config?.nameEffect?.color || '#fcd34d');
-      const glowColor = String(b.config?.nameEffect?.glowColor || '#f59e0b');
-      const glowSize = Math.min(30, Math.max(2, Math.trunc(Number(b.config?.nameEffect?.glowSize) || 10)));
-      config = { nameEffect: { enabled: true, color, glowColor, glowSize } };
     }
 
-    // مفتاح فريد مقروء
-    const base = kind === 'title' ? 'title_' : kind === 'entrance' ? 'entrance_' : 'namefx_';
-    const itemKey = `${base}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    // مفتاح فريد مقروء لكل نوع
+    const itemKey = `${KEY_PREFIX_BY_KIND[kind] || 'item_'}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 
     const [item] = await db.insert(chipsItems).values({
       kind, itemKey, nameAr, hookAr, rarity, priceChips, durationDays,
-      emblemId: b.emblemId || null,
-      config,
+      emblemId: normalizeEmblemId(b.emblemId),
+      config: norm.config,
       isActive: b.isActive !== false,
       isPurchasable: b.isPurchasable !== false,
       sortOrder: Math.trunc(Number(b.sortOrder) || 900),
@@ -247,7 +252,7 @@ router.post('/items', async (req: Request, res: Response) => {
       source: 'http',
       action: 'chips:item-create',
       outcome: 'success',
-      details: { kind, itemKey, nameAr, priceChips, durationDays, config },
+      details: { kind, itemKey, nameAr, priceChips, durationDays, config: norm.config, coerced: norm.coerced },
     });
 
     res.json({ success: true, item });
@@ -255,6 +260,14 @@ router.post('/items', async (req: Request, res: Response) => {
     console.error('❌ create chips item:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── 🎨 سجلّ التصاميم المتاحة ──
+// اللوحة تبني منتقياتها من هنا بدل ثوابت منسوخة في العميل. كانت النسخة
+// العميلة تُقدّم خيارات لا يقبلها الخادم (والعكس)، فيختار المؤلّف تصميماً
+// ويُرفض أو يُبدَّل بصمت.
+router.get('/items/design-registry', (_req: Request, res: Response) => {
+  res.json({ success: true, registry: designRegistry(), kinds: CHIPS_ITEM_KINDS, rarities: CHIPS_RARITIES });
 });
 
 // ── تعديل عنصر (السعر/المدة/العرض/الإغلاق النهائي/كائن التأثيرات) ──
@@ -275,7 +288,25 @@ router.put('/items/:id', async (req: Request, res: Response) => {
     if (b.isActive != null) patch.isActive = !!b.isActive;
     if (b.isPurchasable != null) patch.isPurchasable = !!b.isPurchasable;
     if (b.sortOrder != null) patch.sortOrder = Math.trunc(Number(b.sortOrder) || 0);
-    if (b.config != null && typeof b.config === 'object') patch.config = b.config;
+    if (b.emblemId !== undefined) patch.emblemId = normalizeEmblemId(b.emblemId);
+
+    // ⚠️ كان هذا السطر يقبل **أي كائن** بلا تحقّق — بما فيه المصفوفات —
+    //    ويشحنه مباشرةً إلى مُصيّر ينهار على إعداد ناقص. أي حفظة أدمن واحدة
+    //    كانت كافية لتعتيم كل بطاقات شاشة القاعة في منتصف الفعالية.
+    //    الآن يُقرأ نوع العنصر من صفّه ثم يُطبَّع الإعداد بمُطبِّع نوعه.
+    let coerced: string[] | undefined;
+    if (b.config != null) {
+      const [row] = await db.select({ kind: chipsItems.kind }).from(chipsItems).where(eq(chipsItems.id, id)).limit(1);
+      if (!row) return res.status(404).json({ error: 'العنصر غير موجود' });
+      const norm = normalizeItemConfig(row.kind, b.config);
+      if (!norm.ok) return res.status(400).json({ error: norm.message, field: norm.field });
+      if (row.kind === 'victory_sting') {
+        const ok = await isSoundKeyAvailable(String(norm.config.soundKey));
+        if (!ok) return res.status(409).json({ error: `لا ملف صوت مربوط بالمفتاح «${norm.config.soundKey}»`, field: 'config.soundKey' });
+      }
+      patch.config = norm.config;
+      coerced = norm.coerced;
+    }
     // 🔒 الإغلاق النهائي لا رجعة فيه (محرك الندرة) — يُضبط ولا يُلغى
     if (b.close === true) patch.closedAt = new Date();
 
@@ -288,7 +319,7 @@ router.put('/items/:id', async (req: Request, res: Response) => {
       source: 'http',
       action: 'chips:item-edit',
       outcome: 'success',
-      details: { itemId: id, patch: { ...patch, config: b.config ? '[كائن تأثيرات]' : undefined } },
+      details: { itemId: id, patch: { ...patch, config: b.config ? '[كائن تأثيرات]' : undefined }, coerced },
     });
 
     const [item] = await db.select().from(chipsItems).where(eq(chipsItems.id, id)).limit(1);
