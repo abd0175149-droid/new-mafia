@@ -28,6 +28,7 @@ import { gameAnalyticsReport } from './definitions/game-analytics.report.js';
 import { revenueTrendReport } from './definitions/revenue-trend.report.js';
 import { staffActionAuditReport } from './definitions/staff-action-audit.report.js';
 import { noShowReport } from './definitions/no-show.report.js';
+import { chipsEconomyReport } from './definitions/chips-economy.report.js';
 
 export const REPORT_DEFINITIONS: ReportDefinition[] = [
   // مالية
@@ -37,6 +38,7 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   foundationalCostsReport,
   partnerSettlementReport,
   revenueTrendReport,
+  chipsEconomyReport,
   // عمليات
   activitySummaryReport,
   locationPerformanceReport,

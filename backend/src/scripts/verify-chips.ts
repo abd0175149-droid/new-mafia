@@ -1048,10 +1048,15 @@ async function main() {
     // ٨.١٤ التصدير يخرج CSV صالحاً بترويسة BOM (كي تفتحه Excel بالعربية)
     // ـ تقرير السجل يُحل فعلاً على بيانات حقيقية
     {
-      const { chipsEconomyReport } = await import('../reports/definitions/chips-economy.report.js');
+      // ⚠️ يُقرأ من السجلّ لا باستيراد مباشر: استيراد الملف ينجح ولو لم يُسجَّل،
+      //    فيمرّ الفحص على تقرير لا تصل إليه الواجهة أبداً. هذا ما وقع فعلاً.
+      const { getByKey } = await import('../reports/registry.js');
+      const chipsEconomyReport: any = getByKey('chips-economy');
+      check(!!chipsEconomyReport, 'تقرير chips-economy مُسجَّل في سجلّ التقارير (تصل إليه الواجهة)');
+
       let doc: any = null, err: any = null;
       try {
-        doc = await chipsEconomyReport.resolve({
+        doc = await chipsEconomyReport!.resolve({
           db: db as any, params: {},
           user: { id: 0, username: 'verify', role: 'admin', displayName: 'التحقّق' },
         });
