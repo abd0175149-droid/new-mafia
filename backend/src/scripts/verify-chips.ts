@@ -1056,6 +1056,86 @@ async function main() {
     if (cleanupAcct) await cleanupAcct();
   }
 
+
+  // ══════════════════════════════════════════════════════
+  // ٩) التنظيف — الفحص لا يترك أثراً
+  //
+  // ⚠️ لماذا يلزم: كل تشغيل كان يموّل حساب الاختبار ليشتري، فيتراكم الرصيد
+  //    عبر التشغيلات حتى يصير أغلى عنصر في متناوله — فيُتخطّى فحص «الاستئجار
+  //    بلا رصيد كافٍ» إلى الأبد. الفحص الذي يبتلعه أثرُه لا يفحص شيئاً.
+  //
+  // 🔒 النطاق ضيّق عمداً: صفوفٌ مفاتيحُها من صنع هذا السكربت، وعلى حسابات
+  //    مُعلَّمة اختباريةً حصراً. لا يمسّ صفّاً واحداً للاعب حقيقي.
+  // ══════════════════════════════════════════════════════
+  console.log('\n٩) التنظيف:');
+  {
+    // مفاتيح من صنع السكربت وحده — ثوابت، لا مدخل خارجي
+    const MINE = `l.idempotency_key LIKE ANY (ARRAY[
+      'verify-%', 'verify2-%', 'store:%:verify-%', 'topup:verify-%',
+      'adjust:verify-%', 'verify-fund:%'
+    ])`;
+    const scoped = (alias = 'l') => `
+      SELECT ${alias}.id FROM chips_ledger ${alias}
+        JOIN players p ON p.id = ${alias}.player_id
+       WHERE COALESCE(p.is_test_account,false) = true
+         AND ${MINE.replace(/\bl\./g, `${alias}.`)}`;
+
+    const before = rowsOf(await db.execute(sql.raw(scoped())));
+
+    if (before.length === 0) {
+      check(true, 'لا بقايا من تشغيلات سابقة');
+    } else {
+      // الاسترجاعات أولاً: عكسٌ يشير إلى صفّ محذوف أسوأ من البقيّة نفسها
+      await ledgerAdminExec(db, sql.raw(`
+        DELETE FROM chips_ledger WHERE reverses_ledger_id IN (${scoped('x')})
+      `));
+      await ledgerAdminExec(db, sql.raw(`
+        DELETE FROM chips_ledger WHERE id IN (${scoped('x')})
+      `));
+
+      const after = rowsOf(await db.execute(sql.raw(scoped())));
+      check(after.length === 0, `أُزيلت ${before.length} بقيّة من صنع الفحص`, `متبقٍّ=${after.length}`);
+    }
+
+    // 🧹 إيجارٌ على حساب اختباري بلا صفّ دفع باقٍ = إيجار دفعت ثمنه بقيّة محذوفة.
+    //    الشرط ضيّق عمداً: إيجارٌ اشتراه مُختبِرٌ بشراء حقيقي يبقى، لأن صفّه باقٍ.
+    await db.execute(sql`
+      DELETE FROM chips_rentals r
+       USING players p
+       WHERE p.id = r.player_id
+         AND COALESCE(p.is_test_account,false) = true
+         AND NOT EXISTS (
+           SELECT 1 FROM chips_ledger l
+            WHERE l.player_id = r.player_id
+              AND l.reason IN ('rent_item','renew_item')
+              AND l.ref_id = r.item_id::text
+         )
+    `);
+
+    // 🔁 الكاش يُعاد اشتقاقه من الدفتر — الحذف وحده لا يُصحّح الكاش
+    await db.execute(sql`
+      UPDATE players p
+         SET chips_balance = COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
+       WHERE COALESCE(p.is_test_account,false) = true
+         AND COALESCE(p.chips_balance,0) <> COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
+    `);
+
+    const drift = rowsOf(await db.execute(sql`
+      SELECT p.id FROM players p
+       WHERE COALESCE(p.chips_balance,0) <> COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
+    `));
+    check(drift.length === 0, 'لا انحراف بين الكاش والدفتر لأي لاعب بعد التنظيف',
+      drift.length ? `منحرف=${drift.map((d: any) => d.id).join(',')}` : '');
+
+    const dangling = rowsOf(await db.execute(sql`
+      SELECT l.id FROM chips_ledger l
+       WHERE l.reverses_ledger_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM chips_ledger r WHERE r.id = l.reverses_ledger_id)
+    `));
+    check(dangling.length === 0, 'لا سطر عكس يشير إلى حركة غير موجودة',
+      dangling.length ? `معلَّق=${dangling.length}` : '');
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);
