@@ -469,6 +469,12 @@ export async function getChipsReport(opts: { from?: string; to?: string } = {}) 
 
   const canon = CHIPS_REASON_CANON_SQL;
 
+  // 🚫 حسابات الاختبار خارج كل رقم في هذا التقرير.
+  //    شحنٌ على حساب اختباري ليس إيراداً، ورصيدُه ليس دَيناً على النادي —
+  //    وسكربت التحقّق نفسه يشحن ويسترجع في كل تشغيل، فلو دخلت لتضخّم
+  //    الإيراد بمالٍ لم يُقبَض. الدفتر يبقى كاملاً؛ التقرير وحده يستثني.
+  const notTest = `NOT COALESCE(p.is_test_account, false)`;
+
   const byReason = rowsOf(await db.execute(sql.raw(`
     SELECT ${canon} AS reason,
            COUNT(*)::int AS moves,
@@ -476,33 +482,40 @@ export async function getChipsReport(opts: { from?: string; to?: string } = {}) 
            COALESCE(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END),0)::int AS debited,
            COALESCE(SUM(l.jod_amount),0)::numeric AS jod
       FROM chips_ledger l
+      JOIN players p ON p.id = l.player_id
      WHERE l.created_at >= '${from.toISOString()}' AND l.created_at <= '${to.toISOString()}'
+       AND ${notTest}
      GROUP BY 1 ORDER BY 2 DESC
   `)));
 
   // 💰 الإيراد من اللقطة المخزَّنة. الصفوف السابقة للمرحلة ٣ بلا قيمة —
   //    تُعدّ منفصلة وتُعلَن كتقدير، لا تُخلط بالمؤكَّد.
   const [rev] = rowsOf(await db.execute(sql`
-    SELECT COALESCE(SUM(jod_amount),0)::numeric AS jod_recorded,
-           COUNT(*) FILTER (WHERE jod_amount IS NULL)::int AS legacy_rows,
-           COUNT(*) FILTER (WHERE jod_amount IS NOT NULL)::int AS recorded_rows
-      FROM chips_ledger
-     WHERE reason = 'admin_topup' AND created_at >= ${from} AND created_at <= ${to}
+    SELECT COALESCE(SUM(l.jod_amount),0)::numeric AS jod_recorded,
+           COUNT(*) FILTER (WHERE l.jod_amount IS NULL)::int AS legacy_rows,
+           COUNT(*) FILTER (WHERE l.jod_amount IS NOT NULL)::int AS recorded_rows
+      FROM chips_ledger l
+      JOIN players p ON p.id = l.player_id
+     WHERE l.reason = 'admin_topup' AND l.created_at >= ${from} AND l.created_at <= ${to}
+       AND NOT COALESCE(p.is_test_account, false)
   `));
 
   // الالتزام: الرصيد المتداول دَين على النادي — ويُقيَّم بأفضل نسبة باقة
   const [liab] = rowsOf(await db.execute(sql`
-    SELECT COALESCE(SUM(GREATEST(COALESCE(chips_balance,0),0)),0)::int AS circulating,
-           COUNT(*) FILTER (WHERE COALESCE(chips_balance,0) > 0)::int AS holders
-      FROM players
+    SELECT COALESCE(SUM(GREATEST(COALESCE(p.chips_balance,0),0)),0)::int AS circulating,
+           COUNT(*) FILTER (WHERE COALESCE(p.chips_balance,0) > 0)::int AS holders
+      FROM players p
+     WHERE NOT COALESCE(p.is_test_account, false)
   `));
   const best = CHIPS_PACKS.reduce((a, b) => (a.chips / a.jod > b.chips / b.jod ? a : b));
   const jodPerChip = best.jod / best.chips;
 
   const [rentalLiab] = rowsOf(await db.execute(sql`
     SELECT COUNT(*)::int AS active_rentals,
-           COALESCE(SUM(price_paid_chips),0)::int AS paid_for_active
-      FROM chips_rentals WHERE expires_at > NOW()
+           COALESCE(SUM(r.price_paid_chips),0)::int AS paid_for_active
+      FROM chips_rentals r
+      JOIN players p ON p.id = r.player_id
+     WHERE r.expires_at > NOW() AND NOT COALESCE(p.is_test_account, false)
   `));
 
   const sum = (pred: (r: any) => boolean, f: 'credited' | 'debited') =>
@@ -562,6 +575,7 @@ export async function exportLedgerCsv(opts: { from?: string; to?: string; reason
     jodAmount: chipsLedger.jodAmount, packId: chipsLedger.packId,
     staffId: chipsLedger.staffId, note: chipsLedger.note,
     reverses: chipsLedger.reversesLedgerId,
+    isTest: players.isTestAccount,
   }).from(chipsLedger)
     .leftJoin(players, eq(players.id, chipsLedger.playerId))
     .where(conds.length ? and(...conds) : (undefined as any))
@@ -569,7 +583,7 @@ export async function exportLedgerCsv(opts: { from?: string; to?: string; reason
     .limit(50000);
 
   const head = ['id', 'التاريخ', 'معرّف اللاعب', 'اللاعب', 'الهاتف', 'المبلغ', 'الرصيد بعد',
-    'السبب', 'نوع المرجع', 'المرجع', 'الدينار', 'الباقة', 'الموظف', 'يعكس', 'ملاحظة'];
+    'السبب', 'نوع المرجع', 'المرجع', 'الدينار', 'الباقة', 'الموظف', 'يعكس', 'ملاحظة', 'حساب اختبار'];
   const esc = (v: any) => {
     const s = v == null ? '' : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -580,6 +594,7 @@ export async function exportLedgerCsv(opts: { from?: string; to?: string; reason
       r.id, r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
       r.playerId, r.playerName, r.phone, r.amount, r.balanceAfter,
       r.reason, r.refType, r.refId, r.jodAmount, r.packId, r.staffId, r.reverses, r.note,
+      r.isTest ? 'نعم' : '',
     ].map(esc).join(','));
   }
   // BOM كي يفتح Excel العربية بترميز صحيح بدل حروف مشوّهة

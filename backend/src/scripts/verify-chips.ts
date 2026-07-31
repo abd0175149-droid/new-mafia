@@ -975,6 +975,31 @@ async function main() {
       const reasons = rep.byReason.map((r: any) => r.reason);
       check(!reasons.includes('drop_top3') || !reasons.includes('reward_top3') || true,
         'تصنيف الحركات متاح في التقرير', `أنواع=${reasons.length}`);
+
+      // ٨.١٣.١ 🚫 مال الاختبار لا يدخل التقرير — وإلا ضخّم هذا السكربتُ نفسُه
+      //        الإيرادَ في كل تشغيل بمالٍ لم يُقبَض.
+      const [testJod] = rowsOf(await db.execute(sql`
+        SELECT COALESCE(SUM(l.jod_amount),0)::numeric AS jod
+          FROM chips_ledger l JOIN players p ON p.id = l.player_id
+         WHERE l.reason = 'admin_topup' AND COALESCE(p.is_test_account,false) = true
+      `));
+      const [allJod] = rowsOf(await db.execute(sql`
+        SELECT COALESCE(SUM(jod_amount),0)::numeric AS jod FROM chips_ledger WHERE reason = 'admin_topup'
+      `));
+      check(Number(testJod.jod) === 0 || Number(rep.revenue.jodRecorded) < Number(allJod.jod),
+        '🚫 شحن حسابات الاختبار مستثنى من الإيراد',
+        `اختبار=${testJod.jod} تقرير=${rep.revenue.jodRecorded} الكل=${allJod.jod}`);
+
+      const [testBal] = rowsOf(await db.execute(sql`
+        SELECT COALESCE(SUM(GREATEST(COALESCE(chips_balance,0),0)),0)::int AS b
+          FROM players WHERE COALESCE(is_test_account,false) = true
+      `));
+      const [allBal] = rowsOf(await db.execute(sql`
+        SELECT COALESCE(SUM(GREATEST(COALESCE(chips_balance,0),0)),0)::int AS b FROM players
+      `));
+      check(rep.liability.circulatingChips === Number(allBal.b) - Number(testBal.b),
+        '🚫 أرصدة حسابات الاختبار مستثناة من الالتزام',
+        `تقرير=${rep.liability.circulatingChips} الكل=${allBal.b} اختبار=${testBal.b}`);
     }
 
     // ٨.١٤ التصدير يخرج CSV صالحاً بترويسة BOM (كي تفتحه Excel بالعربية)
