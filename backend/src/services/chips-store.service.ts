@@ -97,17 +97,14 @@ export async function getPlayerCosmetics(playerId: number) {
   const activeIds = new Set(active.map(r => r.itemId));
   const byId = new Map(active.map(r => [r.itemId, r]));
 
-  // تنظيف الخانات المنتهية (فكّ التجهيز التلقائي)
-  const stale = equippedIds.filter(id => !activeIds.has(id));
-  if (stale.length) {
-    const sets: string[] = [];
-    if (p.frameId && stale.includes(p.frameId)) sets.push('chips_frame_item_id = NULL');
-    if (p.titleId && stale.includes(p.titleId)) sets.push('chips_title_item_id = NULL');
-    if (p.nameFxId && stale.includes(p.nameFxId)) sets.push('chips_name_fx_item_id = NULL');
-    if (sets.length) {
-      await db.execute(sql.raw(`UPDATE players SET ${sets.join(', ')} WHERE id = ${Number(playerId)}`));
-    }
-  }
+  // ⛔ لا كتابة من قراءة. كان هنا `UPDATE players SET chips_*_item_id = NULL`
+  //    لفكّ الخانات المنتهية — فكانت كل قراءة للمظهر (والمتجر يقرؤه في كل
+  //    فتحة) تكتب في جدول اللاعبين.
+  //
+  //    وحذفه لا يُفسد شيئاً: `pick()` أدناه يرفض أصلاً أي خانة ليست ضمن
+  //    الإيجارات النشطة، فالقارئ يرى الحقيقة سواء نُظِّف العمود أم لا.
+  //    التنظيف الفعلي انتقل إلى `sweepStaleEquipSlots` في المجدول.
+  void equippedIds;
 
   const shape = (r: any) => ({
     itemId: r.itemId, itemKey: r.itemKey, nameAr: r.nameAr, rarity: r.rarity,
@@ -261,15 +258,27 @@ export async function rentItem(opts: {
         throw Object.assign(new Error('DUPLICATE'), { storeCode: 'DUPLICATE', ledgerId: Number(legacyHit[0].id), balance: Number(legacyHit[0].balance_after) });
       }
 
-      // ③ إيجار نشط؟ (تجديد = تمديد) — بقفل الصفّ فلا يمدّده طلبان معاً
+      // ③ الصفّ القائم لهذا (اللاعب، العنصر) — **بلا شرط انتهاء**.
+      //
+      // ⚠️ كان الشرط `expires_at > now`، فإيجارٌ **منتهٍ** + شراء جديد
+      //    يُنتجان صفّاً ثانياً — والتكرار ليس أثر تزامن كما بدا، بل
+      //    نتيجة حتمية لكل من اشترى ثم ترك العنصر ينتهي ثم عاد.
+      //    الصفوف المكرّرة تُضخّم عدّاد المالكين، وتُكرّر إشعار الانتهاء،
+      //    وتجعل الاسترجاع يُبطل صفّاً ويترك آخر.
+      //
+      // 📌 و«تجديد أم شراء» يُقرَّر **داخل SQL** لا في جافاسكربت: الحساب
+      //    في العقدة يلتقط الوقت قبل فتح المعاملة، والعمود بلا منطقة
+      //    زمنية — وهذا الفرع يقرّر rent_item مقابل renew_item، أي
+      //    يقرّر تصنيف الإيراد في التقرير. لا انحراف ساعة في فرع محاسبي.
       const existingRows = rowsOf(await tx.execute(sql`
-        SELECT id, expires_at FROM chips_rentals
-         WHERE player_id = ${playerId} AND item_id = ${itemId} AND expires_at > ${nowIso}
+        SELECT id, expires_at, (expires_at > NOW()) AS is_active
+          FROM chips_rentals
+         WHERE player_id = ${playerId} AND item_id = ${itemId}
          ORDER BY expires_at DESC LIMIT 1
          FOR UPDATE
       `));
       const existing = existingRows[0] || null;
-      const renewing = !!existing;
+      const renewing = !!existing?.is_active;
       const price = Math.abs(Number(item.price_chips) || 0);
       const days = Number(item.duration_days || DEFAULT_RENTAL_DAYS);
 
@@ -285,13 +294,18 @@ export async function rentItem(opts: {
         note: `${renewing ? 'تجديد' : 'استئجار'} ${item.name_ar} — ${days} يوماً`,
       });
 
-      // ⑤ الإيجار — تمديد فوق المتبقّي (GREATEST) فلا تُهدر أيام
+      // ⑤ الإيجار — صفّ واحد لكل (لاعب، عنصر) دائماً.
+      //    القائم يُحدَّث سواء كان فعّالاً (تمديد فوق المتبقّي فلا تُهدر أيام)
+      //    أو منتهياً (GREATEST تُعيده إلى الآن فيبدأ مدّة كاملة نظيفة).
       let expiresAt: any;
       if (existing) {
         const r: any = await tx.execute(sql`
           UPDATE chips_rentals
              SET expires_at = GREATEST(NOW(), expires_at) + (${days} || ' days')::interval,
-                 source = 'renew', ledger_id = ${ledger.ledgerId}, warned_at = NULL,
+                 -- شراء جديد فوق صفّ منتهٍ يبدأ من جديد: يُعاد ضبط تاريخ البدء
+                 starts_at = CASE WHEN ${renewing} THEN starts_at ELSE NOW() END,
+                 source = ${renewing ? 'renew' : 'rent'},
+                 ledger_id = ${ledger.ledgerId}, warned_at = NULL,
                  price_paid_chips = ${price}, duration_days_snapshot = ${days}
            WHERE id = ${existing.id}
           RETURNING expires_at
@@ -306,8 +320,13 @@ export async function rentItem(opts: {
           RETURNING expires_at
         `);
         expiresAt = rowsOf(r)[0]?.expires_at;
+      }
 
-        // ⑥ تجهيز تلقائي للخانة الفارغة — أول شراء يجب أن يُرى فوراً
+      // ⑥ تجهيز تلقائي للخانة الفارغة — أول شراء يجب أن يُرى فوراً.
+      //    ⚠️ كان داخل فرع الإدراج وحده، فمن اشترى ثم انتهت مدّته ثم عاد
+      //    لا يُجهَّز له شيء — يدفع ولا يرى، وهو نفس عطب «دفع ولم يُسلَّم»
+      //    بشكل أخفّ. الشرط هو «شراء جديد» لا «صفّ جديد».
+      if (!renewing) {
         const col = SLOT_COLUMN[item.kind as ChipsItemKind];
         if (col) {
           await tx.execute(sql.raw(
@@ -385,14 +404,17 @@ async function repairOrConfirmRental(playerId: number, itemId: number, idemKey: 
         throw Object.assign(new Error('KEY_COLLISION'), { storeCode: 'INVALID', msg: 'تعارض في معرّف الطلب — أعد المحاولة' });
       }
 
-      // ⏳ إيجار **نشط** فقط يُعدّ تأكيداً. صفّ منتهٍ ليس بضاعةً سُلِّمت.
+      // ⏳ إيجار **نشط** فقط يُعدّ تأكيداً. صفّ منتهٍ ليس بضاعةً سُلِّمت —
+      //    لكنه صفّ قائم يجب أن يُعاد استعماله لا أن يُضاف فوقه ثانٍ.
       const rental = rowsOf(await tx.execute(sql`
-        SELECT id, expires_at FROM chips_rentals
-         WHERE player_id = ${playerId} AND item_id = ${itemId} AND expires_at > NOW()
+        SELECT id, expires_at, (expires_at > NOW()) AS is_active FROM chips_rentals
+         WHERE player_id = ${playerId} AND item_id = ${itemId}
          ORDER BY expires_at DESC LIMIT 1 FOR UPDATE
       `))[0];
 
-      if (rental) return { balance: led ? Number(led.balance_after) : undefined, expiresAt: rental.expires_at, repaired: false };
+      if (rental?.is_active) {
+        return { balance: led ? Number(led.balance_after) : undefined, expiresAt: rental.expires_at, repaired: false };
+      }
 
       // خصمٌ بلا إيجار — نُنشئه الآن بمدّة العنصر المعلنة
       const item = rowsOf(await tx.execute(sql`
@@ -401,11 +423,20 @@ async function repairOrConfirmRental(playerId: number, itemId: number, idemKey: 
       if (!item) return { balance: led ? Number(led.balance_after) : undefined, expiresAt: undefined, repaired: false };
 
       const days = Number(item.duration_days || DEFAULT_RENTAL_DAYS);
-      const r: any = await tx.execute(sql`
-        INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id)
-        VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${led ? Number(led.id) : null})
-        RETURNING expires_at
-      `);
+      // صفّ منتهٍ موجود ⇒ يُحيا. لا صفّ ⇒ يُدرَج. لا ثالث.
+      const r: any = rental
+        ? await tx.execute(sql`
+            UPDATE chips_rentals
+               SET starts_at = NOW(), expires_at = NOW() + (${days} || ' days')::interval,
+                   source = 'rent', ledger_id = ${led ? Number(led.id) : null}, warned_at = NULL
+             WHERE id = ${rental.id}
+            RETURNING expires_at
+          `)
+        : await tx.execute(sql`
+            INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source, ledger_id)
+            VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, 'rent', ${led ? Number(led.id) : null})
+            RETURNING expires_at
+          `);
       const col = SLOT_COLUMN[item.kind as ChipsItemKind];
       if (col) {
         await tx.execute(sql.raw(
@@ -439,15 +470,44 @@ export async function grantRental(opts: {
 
   const days = Number(opts.days || item.durationDays || DEFAULT_RENTAL_DAYS);
   const source = opts.source || 'admin_grant';
+  const playerId = Number(opts.playerId);
+  const itemId = Number(opts.itemId);
 
-  const res: any = await db.execute(sql`
-    INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
-    VALUES (${Number(opts.playerId)}, ${Number(opts.itemId)}, NOW(), NOW() + (${days} || ' days')::interval, ${source})
-    RETURNING expires_at
-  `);
+  // ⚠️ كان إدراجاً أعمى بلا قفل ولا بحث — وهو **المسار الوحيد** القادر على
+  //    إنتاج صفّين **فعّالين معاً** لنفس (اللاعب، العنصر). وأثره المالي مباشر:
+  //    الاسترجاع يُبطل صفّاً واحداً (`ORDER BY expires_at DESC LIMIT 1`)
+  //    فيعود المال ويبقى الصفّ الآخر حيّاً — أي استرجاعٌ يُنتج هديّة.
+  //    الآن: قفل استشاري ثم تمديد الصفّ القائم، وإدراجٌ فقط إن لم يوجد.
+  const res: any = await db.transaction(async (tx: any) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`rent:${playerId}:${itemId}`}))`);
+
+    const [existing] = rowsOf(await tx.execute(sql`
+      SELECT id, (expires_at > NOW()) AS is_active FROM chips_rentals
+       WHERE player_id = ${playerId} AND item_id = ${itemId}
+       ORDER BY expires_at DESC LIMIT 1
+       FOR UPDATE
+    `));
+
+    if (existing) {
+      return await tx.execute(sql`
+        UPDATE chips_rentals
+           SET expires_at = GREATEST(NOW(), expires_at) + (${days} || ' days')::interval,
+               starts_at = CASE WHEN ${!!existing.is_active} THEN starts_at ELSE NOW() END,
+               source = ${source}, warned_at = NULL
+         WHERE id = ${existing.id}
+        RETURNING expires_at
+      `);
+    }
+    return await tx.execute(sql`
+      INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
+      VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${days} || ' days')::interval, ${source})
+      RETURNING expires_at
+    `);
+  });
+
   // 📡 المنح الإداري/بالإنجاز يجب أن يُرى فوراً كالشراء تماماً
-  broadcastCosmetics(Number(opts.playerId));
-  return { ok: true, expiresAt: rowsOf(res)[0]?.expires_at, itemId: Number(opts.itemId) };
+  broadcastCosmetics(playerId);
+  return { ok: true, expiresAt: rowsOf(res)[0]?.expires_at, itemId };
 }
 
 // ══════════════════════════════════════════════════════
@@ -624,9 +684,9 @@ export function broadcastCosmetics(playerId: number) {
 // ⏳ تنبيه قرب الانتهاء (كسول — يُستدعى عند فتح المتجر/الهوم)
 // ══════════════════════════════════════════════════════
 
-export async function notifyExpiringSoon(playerId: number) {
+export async function notifyExpiringSoon(playerId: number): Promise<number> {
   const db = getDB();
-  if (!db) return;
+  if (!db) return 0;
   try {
     const rows: any = await db.execute(sql`
       SELECT r.id, i.name_ar, r.expires_at
@@ -638,7 +698,7 @@ export async function notifyExpiringSoon(playerId: number) {
          AND r.expires_at <= NOW() + (${EXPIRY_WARN_DAYS} || ' days')::interval
     `);
     const list = rowsOf(rows);
-    if (!list.length) return;
+    if (!list.length) return 0;
 
     const { sendPushToPlayers } = await import('./fcm.service.js');
     for (const r of list) {
@@ -653,6 +713,113 @@ export async function notifyExpiringSoon(playerId: number) {
       await db.execute(sql`UPDATE chips_rentals SET warned_at = NOW() WHERE id = ${r.id}`);
     }
   } catch { /* التنبيه لا يعطّل شيئاً */ }
+}
+
+// ══════════════════════════════════════════════════════
+// ⏳ مجدول تنبيه الانتهاء
+//
+// ⚠️ لماذا وُجد: `notifyExpiringSoon` كان له مستدعٍ واحد — `GET /store`.
+//    أي أن التنبيه الذي وظيفته **أن يقود اللاعب إلى المتجر** كان معلّقاً
+//    على أن يفتح اللاعب المتجر أصلاً. من لا يزوره لا يُنبَّه أبداً، وينتهي
+//    إيجاره بصمت. وفي المقابل كانت كل قراءة للمتجر تكتب في القاعدة
+//    وتُرسل إشعارات — فحلقة تحديث واحدة تُغرق اللاعب.
+//
+// الآن: مسحة واحدة دورية لكل من يقترب انتهاؤه، و`warned_at` يبقى حارس
+// عدم التكرار. والقراءة تتحرّر من الكتابة (انظر GET /store).
+// ══════════════════════════════════════════════════════
+
+/** ساعة الأردن (UTC+3 ثابتة) — الحاوية تعمل على UTC */
+function jordanHour(): number {
+  return new Date(Date.now() + 3 * 3600_000).getUTCHours();
+}
+
+/**
+ * نافذة الإرسال: ١٠ صباحاً – ١٠ مساءً بتوقيت الأردن.
+ * إشعار «إيجارك ينتهي» الرابعة فجراً ليس خدمةً بل إزعاج،
+ * وأسرع طريق لإطفاء الإشعارات من الجهاز نهائياً.
+ */
+function withinSendingHours(): boolean {
+  const h = jordanHour();
+  return h >= 10 && h < 22;
+}
+
+/** مسحة واحدة: كل اللاعبين الذين يقترب انتهاء إيجارهم ولم يُنبَّهوا بعد */
+export async function sweepExpiringRentals(): Promise<{ notified: number; players: number }> {
+  const db = getDB();
+  if (!db) return { notified: 0, players: 0 };
+
+  const due = rowsOf(await db.execute(sql`
+    SELECT DISTINCT r.player_id
+      FROM chips_rentals r
+      JOIN players p ON p.id = r.player_id
+     WHERE r.warned_at IS NULL
+       AND r.expires_at > NOW()
+       AND r.expires_at <= NOW() + (${EXPIRY_WARN_DAYS} || ' days')::interval
+       AND NOT COALESCE(p.is_test_account, false)
+     LIMIT 500
+  `));
+
+  let notified = 0;
+  for (const row of due) {
+    try {
+      const n = await notifyExpiringSoon(Number(row.player_id));
+      notified += n;
+    } catch { /* لاعب واحد لا يُسقط المسحة */ }
+  }
+  return { notified, players: due.length };
+}
+
+/**
+ * 🧹 فكّ الخانات التي انتهت إيجاراتها.
+ *
+ * كان هذا يجري عند **كل قراءة** لمظهر لاعب. القراءة لا تحتاجه
+ * (المُرجَع مفلتر أصلاً)، لكنّ ترك الأعمدة تشير إلى عنصر منتهٍ
+ * يُربك أي استعلام إداري يقرأ الأعمدة مباشرة — فيُنظَّف دورياً.
+ */
+export async function sweepStaleEquipSlots(): Promise<number> {
+  const db = getDB();
+  if (!db) return 0;
+  const r: any = await db.execute(sql`
+    UPDATE players p SET
+      chips_frame_item_id   = CASE WHEN p.chips_frame_item_id   IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM chips_rentals r WHERE r.player_id = p.id AND r.item_id = p.chips_frame_item_id   AND r.expires_at > NOW()
+      ) THEN NULL ELSE p.chips_frame_item_id   END,
+      chips_title_item_id   = CASE WHEN p.chips_title_item_id   IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM chips_rentals r WHERE r.player_id = p.id AND r.item_id = p.chips_title_item_id   AND r.expires_at > NOW()
+      ) THEN NULL ELSE p.chips_title_item_id   END,
+      chips_name_fx_item_id = CASE WHEN p.chips_name_fx_item_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM chips_rentals r WHERE r.player_id = p.id AND r.item_id = p.chips_name_fx_item_id AND r.expires_at > NOW()
+      ) THEN NULL ELSE p.chips_name_fx_item_id END
+    WHERE p.chips_frame_item_id IS NOT NULL
+       OR p.chips_title_item_id IS NOT NULL
+       OR p.chips_name_fx_item_id IS NOT NULL
+  `);
+  return Number(r?.rowCount ?? 0);
+}
+
+let expiryTimer: NodeJS.Timeout | null = null;
+
+export function startExpiryScheduler(): void {
+  if (expiryTimer) return;
+  const everyMs = 30 * 60_000;   // كل نصف ساعة — النافذة ٣ أيام، فلا داعي لأكثر
+
+  const tick = async () => {
+    // التنظيف يجري دائماً — لا علاقة له بساعات الإرسال
+    try { await sweepStaleEquipSlots(); } catch { /* التنظيف لا يعطّل شيئاً */ }
+    if (!withinSendingHours()) return;
+    try {
+      const r = await sweepExpiringRentals();
+      if (r.notified > 0) console.log(`⏳ تنبيه انتهاء: ${r.notified} إشعاراً لـ${r.players} لاعباً`);
+    } catch (e: any) {
+      console.error('❌ مسحة الانتهاء:', e?.message);
+    }
+  };
+
+  expiryTimer = setInterval(tick, everyMs);
+  if (typeof expiryTimer.unref === 'function') expiryTimer.unref();
+  // مسحة أولى بعد دقيقتين من الإقلاع — لا فوراً، كي لا تزاحم الترحيل
+  setTimeout(tick, 120_000).unref?.();
+  console.log('⏳ مجدول تنبيه انتهاء الإيجارات يعمل (كل ٣٠ دقيقة · ١٠ص–١٠م)');
 }
 
 // ── مساعد: الخانات المدعومة حالياً ──

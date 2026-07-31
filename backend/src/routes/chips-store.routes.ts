@@ -14,7 +14,7 @@ import { chipsItems, CHIPS_ITEM_KINDS, CHIPS_RARITIES } from '../schemas/chips-s
 import { players } from '../schemas/player.schema.js';
 import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
-  grantRental, notifyExpiringSoon, isSoundKeyAvailable,
+  grantRental, isSoundKeyAvailable,
   getInventorySummary, getExpiringRentals,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
@@ -132,8 +132,10 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
       };
     });
 
-    // تنبيه قرب الانتهاء يُفحص كسولاً عند فتح المتجر
-    notifyExpiringSoon(playerId);
+    // ⛔ لا إشعار من قراءة. كان هذا السطر يجعل كل فتحة متجر تكتب في
+    //    القاعدة (warned_at) وتُطلق إشعاراً — فحلقة تحديث أو prefetch
+    //    تُغرق اللاعب. التنبيه انتقل إلى `startExpiryScheduler` وهو يصل
+    //    من لا يفتح المتجر أصلاً — وهم مَن يحتاجونه فعلاً.
 
     // 💵 الباقات ومعدلات الكسب: كانت موجودة في الخادم بلا أي مستدعٍ، فاللاعب
     //    الذي ينقصه رصيد لم يكن يعرف كم يساوي التشبس ولا كيف يكسبه.

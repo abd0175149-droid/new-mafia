@@ -1178,6 +1178,161 @@ async function main() {
       dangling.length ? `معلَّق=${dangling.length}` : '');
   }
 
+
+  // ══════════════════════════════════════════════════════
+  // ١٠) صفّ إيجار واحد لكل (لاعب، عنصر)
+  //
+  // ⚠️ التكرار لم يكن أثر تزامن كما بدا: البحث كان مشروطاً بـ
+  //    `expires_at > now`، فإيجارٌ منتهٍ + شراء جديد يُنتجان صفّاً ثانياً —
+  //    وهذا يقع لكل من اشترى ثم ترك العنصر ينتهي ثم عاد. وصفّان
+  //    **فعّالان معاً** (من `grantRental` الأعمى) يجعلان الاسترجاع هديّة:
+  //    يُبطل أحدهما ويبقى الآخر.
+  // ══════════════════════════════════════════════════════
+  console.log('\n١٠) صفّ إيجار واحد لكل عنصر:');
+  {
+    const { rentItem: rent2, grantRental } = await import('../services/chips-store.service.js');
+
+    const tp = rowsOf(await db.execute(sql`
+      SELECT id FROM players WHERE COALESCE(is_test_account,false) = true ORDER BY id LIMIT 1
+    `))[0];
+    const cheap = rowsOf(await db.execute(sql`
+      SELECT id, price_chips FROM chips_items
+       WHERE is_active = true AND is_purchasable = true AND closed_at IS NULL
+       ORDER BY price_chips ASC LIMIT 1
+    `))[0];
+
+    if (!tp || !cheap) {
+      check(true, 'تخطّي فحص الصفّ الواحد (لا حساب اختباري أو لا عنصر)');
+    } else {
+      const pid = Number(tp.id);
+      const iid = Number(cheap.id);
+      const price = Number(cheap.price_chips) || 0;
+
+      const countRows = async () => Number(rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}
+      `))[0]?.c ?? 0);
+
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
+
+      // تمويل يكفي شراءين
+      const fundKey = `verify-onerow-${Date.now().toString(36)}`;
+      await db.execute(sql`
+        INSERT INTO chips_ledger (player_id, amount, balance_after, reason, ref_type, idempotency_key, note)
+        SELECT ${pid}, ${price * 3 + 10}, COALESCE(chips_balance,0) + ${price * 3 + 10}, 'admin_adjust', 'manual',
+               ${fundKey}, 'تمويل فحص الصفّ الواحد'
+          FROM players WHERE id = ${pid}
+      `);
+      await db.execute(sql`UPDATE players SET chips_balance = COALESCE(chips_balance,0) + ${price * 3 + 10} WHERE id = ${pid}`);
+
+      // ١٠.١ شراء أول
+      const b1 = await rent2({ playerId: pid, itemId: iid, requestId: `verify-r1-${Date.now().toString(36)}` });
+      check(!!b1.ok && (await countRows()) === 1, 'شراء أول ⇒ صفّ واحد', JSON.stringify(b1).slice(0, 80));
+
+      // ١٠.٢ 🔴 نُنهي المدّة يدوياً ثم نشتري ثانيةً — هذا ما كان يُنتج الصفّ الثاني
+      await db.execute(sql`UPDATE chips_rentals SET expires_at = NOW() - interval '1 day' WHERE player_id = ${pid} AND item_id = ${iid}`);
+      const b2 = await rent2({ playerId: pid, itemId: iid, requestId: `verify-r2-${Date.now().toString(36)}` });
+      const after2 = await countRows();
+      check(!!b2.ok && after2 === 1,
+        '🔴 شراء بعد انتهاء المدّة يُحيي الصفّ نفسه ولا يُنشئ ثانياً', `صفوف=${after2}`);
+
+      // ١٠.٣ الشراء بعد الانتهاء يُسجَّل شراءً لا تجديداً (تصنيف الإيراد)
+      const [reason2] = rowsOf(await db.execute(sql`
+        SELECT reason FROM chips_ledger WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
+         ORDER BY id DESC LIMIT 1
+      `));
+      check(reason2?.reason === 'rent_item',
+        'الشراء بعد الانتهاء يُصنَّف rent_item لا renew_item', `السبب=${reason2?.reason}`);
+
+      // ١٠.٤ تجديد فوق إيجار **فعّال** يبقى صفّاً واحداً ويُصنَّف تجديداً
+      const b3 = await rent2({ playerId: pid, itemId: iid, requestId: `verify-r3-${Date.now().toString(36)}` });
+      const after3 = await countRows();
+      const [reason3] = rowsOf(await db.execute(sql`
+        SELECT reason FROM chips_ledger WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
+         ORDER BY id DESC LIMIT 1
+      `));
+      check(!!b3.ok && after3 === 1 && reason3?.reason === 'renew_item',
+        'التجديد فوق إيجار فعّال: صفّ واحد وتصنيف renew_item', `صفوف=${after3} سبب=${reason3?.reason}`);
+
+      // ١٠.٥ 🔴 المنح الإداري فوق إيجار قائم لا يُنشئ صفّاً ثانياً
+      //      (هذا هو المسار الوحيد الذي كان يُنتج صفّين فعّالين ⇒ استرجاع = هديّة)
+      const g = await grantRental({ playerId: pid, itemId: iid, days: 3, source: 'admin_grant' });
+      const after4 = await countRows();
+      check(!!g.ok && after4 === 1,
+        '🔴 منح إداري فوق إيجار قائم ⇒ صفّ واحد (لا استرجاع-هديّة)', `صفوف=${after4}`);
+
+      // ١٠.٦ لا صفوف مكرّرة لأي لاعب في القاعدة كلها
+      const dupes = rowsOf(await db.execute(sql`
+        SELECT player_id, item_id, COUNT(*)::int AS c
+          FROM chips_rentals GROUP BY player_id, item_id HAVING COUNT(*) > 1
+      `));
+      check(dupes.length === 0, 'لا صفّ إيجار مكرّر في القاعدة كلها',
+        dupes.length ? `مكرّر=${dupes.length} أول=${JSON.stringify(dupes[0])}` : '');
+
+      // تنظيف
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // ١١) القراءة قراءة — لا كتابة ولا إشعار من GET
+  // ══════════════════════════════════════════════════════
+  console.log('\n١١) القراءة لا تكتب:');
+  {
+    const { getPlayerCosmetics: readCos, sweepStaleEquipSlots } = await import('../services/chips-store.service.js');
+    const src = await import('fs').then(fs =>
+      fs.readFileSync(new URL('../routes/chips-store.routes.ts', import.meta.url), 'utf8').toString(),
+    ).catch(() => '');
+
+    if (src) {
+      const getBlock = src.slice(src.indexOf("router.get('/store'"), src.indexOf("router.post('/store/rent'"));
+      check(!getBlock.includes('notifyExpiringSoon('),
+        '⛔ GET /store لا يستدعي التنبيه (كان يُرسل إشعاراً مع كل فتحة)');
+    } else {
+      check(true, 'تخطّي فحص المصدر (غير متاح داخل الحاوية)');
+    }
+
+    const tp = rowsOf(await db.execute(sql`
+      SELECT id FROM players WHERE COALESCE(is_test_account,false) = true ORDER BY id LIMIT 1
+    `))[0];
+    if (tp) {
+      const pid = Number(tp.id);
+      const snap = async () => JSON.stringify(rowsOf(await db.execute(sql`
+        SELECT chips_frame_item_id, chips_title_item_id, chips_name_fx_item_id FROM players WHERE id = ${pid}
+      `))[0]);
+      const before = await snap();
+      await readCos(pid); await readCos(pid); await readCos(pid);
+      const after = await snap();
+      check(before === after, 'ثلاث قراءات للمظهر لا تُغيّر عمود تجهيز واحداً', `قبل=${before} بعد=${after}`);
+
+      const warnedBefore = rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_rentals WHERE player_id = ${pid} AND warned_at IS NOT NULL
+      `))[0]?.c;
+      await readCos(pid);
+      const warnedAfter = rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_rentals WHERE player_id = ${pid} AND warned_at IS NOT NULL
+      `))[0]?.c;
+      check(Number(warnedBefore) === Number(warnedAfter), 'القراءة لا تضع علامة تنبيه');
+    } else {
+      check(true, 'تخطّي فحص الكتابة (لا حساب اختباري)');
+    }
+
+    // المكنسة موجودة وتعمل — هي البديل عن التنظيف الكسول المحذوف
+    const swept = await sweepStaleEquipSlots();
+    check(typeof swept === 'number', 'مكنسة الخانات المنتهية تعمل', `صفوف=${swept}`);
+
+    const stale = rowsOf(await db.execute(sql`
+      SELECT p.id FROM players p
+       WHERE (p.chips_frame_item_id IS NOT NULL AND NOT EXISTS (
+               SELECT 1 FROM chips_rentals r WHERE r.player_id = p.id AND r.item_id = p.chips_frame_item_id AND r.expires_at > NOW()))
+          OR (p.chips_title_item_id IS NOT NULL AND NOT EXISTS (
+               SELECT 1 FROM chips_rentals r WHERE r.player_id = p.id AND r.item_id = p.chips_title_item_id AND r.expires_at > NOW()))
+          OR (p.chips_name_fx_item_id IS NOT NULL AND NOT EXISTS (
+               SELECT 1 FROM chips_rentals r WHERE r.player_id = p.id AND r.item_id = p.chips_name_fx_item_id AND r.expires_at > NOW()))
+    `));
+    check(stale.length === 0, 'لا خانة مُجهَّزة تشير إلى إيجار منتهٍ بعد المكنسة',
+      stale.length ? `عالقة=${stale.length}` : '');
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);

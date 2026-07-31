@@ -1573,6 +1573,8 @@ async function main() {
   try {
     const { startBirthdayScheduler } = await import('./services/chips-rewards.service.js');
     startBirthdayScheduler();
+    const { startExpiryScheduler } = await import('./services/chips-store.service.js');
+    startExpiryScheduler();
   } catch (e: any) { console.warn('⚠️ birthday scheduler init:', e.message); }
 
   // ── 📊 تحديث كاش التحليلات: عند الإقلاع إن كان قديماً + ليليّاً الساعة ٤ فجراً ──
