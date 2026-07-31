@@ -236,6 +236,71 @@ function isOptoutMessage(msgType: string, body: string): boolean {
 // معالجة حمولة الـ Webhook (رسائل + حالات)
 // ══════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════
+// ⚠️ صحّة حساب واتساب — الجودة والحدّ والقيود
+// ══════════════════════════════════════════════════════
+// FLAGGED = هبط التقييم (بلاغات/حظر من المستقبلين) — إنذار مبكّر قبل التعطيل.
+// انخفاض الحدّ (downgrade) يعني تقليص عدد من نراسلهم يومياً.
+// account_update يحمل الأشدّ: مخالفات وتقييد وحظر.
+const QUALITY_EVENT_AR: Record<string, string> = {
+  FLAGGED: '🔴 هبط تقييم الجودة — وصلتنا بلاغات أو حظر من مستقبلين',
+  UNFLAGGED: '🟢 عاد تقييم الجودة سليماً',
+  ONBOARDING: 'ℹ️ الرقم في مرحلة التهيئة',
+  DOWNGRADE: '🔻 انخفض حدّ الإرسال اليوميّ',
+  UPGRADE: '🔼 ارتفع حدّ الإرسال اليوميّ',
+};
+const ACCOUNT_EVENT_AR: Record<string, string> = {
+  ACCOUNT_VIOLATION: '🚨 مخالفة على الحساب',
+  ACCOUNT_RESTRICTION: '🚨 قيد على الحساب — الإرسال قد يتوقف',
+  DISABLED_UPDATE: '⛔ عُطِّل الحساب',
+  ACCOUNT_DELETED: '⛔ حُذف الحساب',
+  PARTNER_ADDED: 'ℹ️ أُضيف شريك للحساب',
+};
+
+async function handleAccountHealthUpdate(field: string, value: any): Promise<void> {
+  const event = String(value?.event || value?.ban_info?.waba_ban_state || '').toUpperCase();
+  const isQuality = field === 'phone_number_quality_update';
+  const label = (isQuality ? QUALITY_EVENT_AR[event] : ACCOUNT_EVENT_AR[event])
+    || `تحديث على حساب واتساب (${event || field})`;
+
+  const bits: string[] = [];
+  if (value?.display_phone_number) bits.push(`الرقم: ${value.display_phone_number}`);
+  if (value?.current_limit) bits.push(`الحدّ الحاليّ: ${value.current_limit}`);
+  if (value?.new_limit) bits.push(`الحدّ الجديد: ${value.new_limit}`);
+  if (value?.reason) bits.push(`السبب: ${value.reason}`);
+
+  // خطير = يستحق إيقاظ الجميع: هبوط جودة، أو أي حدث على مستوى الحساب
+  const severe = event === 'FLAGGED' || event === 'DOWNGRADE' || !isQuality;
+
+  console.log(`${severe ? '🚨' : 'ℹ️'} WA account health [${field}] ${event}:`, JSON.stringify(value).slice(0, 300));
+
+  await notifyAdmins(
+    label,
+    bits.join(' · ') || 'راجع WhatsApp Manager للتفاصيل',
+    { url: '/admin/whatsapp', tag: `wa-health-${field}` },
+  ).catch(() => {});
+
+  emitInbox('wa:account:health', { field, event, value, severe });
+
+  // الجودة الهابطة تعني أن أي حملة جارية تزيد الطين بلّة — نوقفها فوراً
+  // (إيقاف لا إلغاء: تُستأنف بزر واحد بعد معالجة السبب)
+  if (event === 'FLAGGED' || event === 'DOWNGRADE') {
+    try {
+      const { pauseRunningCampaignsForHealth } = await import('./whatsapp-campaigns.service.js');
+      const paused = await pauseRunningCampaignsForHealth();
+      if (paused.length) {
+        await notifyAdmins(
+          '⏸️ أُوقفت الحملات الجارية تلقائياً',
+          `بسبب ${event === 'FLAGGED' ? 'هبوط تقييم الجودة' : 'انخفاض حدّ الإرسال'} — ${paused.length} حملة. عالج السبب ثم استأنفها يدوياً.`,
+          { url: '/admin/whatsapp', tag: 'wa-health-autopause' },
+        ).catch(() => {});
+      }
+    } catch (err: any) {
+      console.warn('⚠️ auto-pause campaigns on health drop:', err.message);
+    }
+  }
+}
+
 export async function processWebhookPayload(payload: any): Promise<void> {
   const db = getDB();
   if (!db) return;
@@ -244,6 +309,19 @@ export async function processWebhookPayload(payload: any): Promise<void> {
     for (const change of entry?.changes || []) {
       const value = change?.value;
       if (!value) continue;
+
+      // ── ⚠️ صحّة الرقم: تقييم الجودة وحدّ الإرسال والقيود ──
+      // ميتا لا تكشف عدد البلاغات إطلاقاً — تقييم الجودة هو الإشارة الوحيدة،
+      // والبلاغات والحظر هي ما يهبطه. بدون هذا المعالج لا تُعرف الأزمة إلا
+      // بفحص يدويّ، وقد يمرّ يومان قبل أن ينتبه أحد.
+      if (change.field === 'phone_number_quality_update' || change.field === 'account_update') {
+        try {
+          await handleAccountHealthUpdate(change.field, value);
+        } catch (err: any) {
+          console.warn('⚠️ WA account health webhook:', err.message);
+        }
+        continue;
+      }
 
       // ── موافقات القوالب (استوديو القوالب) ──────────
       if (change.field === 'message_template_status_update') {

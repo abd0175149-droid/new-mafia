@@ -2236,6 +2236,9 @@ const VAR_FIELDS = [
 
 // 🔘 كتالوج أزرار البث — مرآة BROADCAST_BUTTONS في whatsapp-broadcast.service.ts
 // «حتمي» = كود ينفّذ مباشرة · «نيّة» = العنوان يصل كرسالة العميل فيردّ الدون بالأداة المناسبة
+// الدينار مربوط بالدولار بسعر ثابت — للعرض التقريبي بجانب الفاتورة الدولارية
+const USD_TO_JOD = 0.709;
+
 const BROADCAST_BTNS = [
   { key: 'book',          title: 'احجزلي مكان',      kind: 'نيّة',  hint: 'الدون يعرض تأكيد الحجز للفعالية القادمة', needsBot: true },
   { key: 'cancelBooking', title: 'ألغي حجزي',        kind: 'حتمي', hint: 'إلغاء فعلي بقاعدة الـ3 ساعات · يظهر فقط لمن له حجز قادم', needsBot: false },
@@ -2565,11 +2568,16 @@ function CampaignMonitor() {
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [capWait, setCapWait] = useState<Record<number, boolean>>({});
+  const [pricing, setPricing] = useState<any>(null);   // 💰 تسعير حيّ من ميتا
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiFetch('/api/whatsapp/campaigns');
+      const [data, pr] = await Promise.all([
+        apiFetch('/api/whatsapp/campaigns'),
+        apiFetch('/api/whatsapp/pricing?days=30').catch(() => null),
+      ]);
+      if (pr?.pricing) setPricing(pr.pricing);
       setCampaigns(data.campaigns || []);
     } catch (e: any) {
       swalAlert('تعذر جلب الحملات: ' + e.message, 'error');
@@ -2652,7 +2660,27 @@ function CampaignMonitor() {
                 </div>
               ))}
             </div>
-            <div className="text-[10px] text-gray-600 mt-1.5">{fmtWhen(c.createdAt)} · {c.createdBy} · العزو: حجز خلال 24 ساعة من الإرسال</div>
+            {/* 💰 التكلفة الفعليّة — السعر مشتقّ من فاتورة ميتا نفسها، مضروباً بما وصل فعلاً */}
+            {pricing?.available && pricing.ratePerMarketingMsg > 0 && (() => {
+              const billable = (c.deliveredCount || 0) + (c.readCount || 0);
+              const usd = billable * pricing.ratePerMarketingMsg;
+              const jod = usd * USD_TO_JOD;
+              const perReply = c.repliedCount > 0 ? usd / c.repliedCount : 0;
+              const perBooking = c.convertedCount > 0 ? usd / c.convertedCount : 0;
+              return (
+                <div className="mt-2 bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px]">
+                  <span className="text-gray-400 font-bold">💰 التكلفة</span>
+                  <span className="text-white font-bold">${usd.toFixed(2)}</span>
+                  <span className="text-gray-500">≈ {jod.toFixed(2)} د.أ</span>
+                  <span className="text-gray-600">({billable} رسالة محاسَبة × ${pricing.ratePerMarketingMsg.toFixed(4)})</span>
+                  {perReply > 0 && <span className="text-amber-400">💬 ${perReply.toFixed(3)} لكل رد</span>}
+                  {perBooking > 0
+                    ? <span className="text-emerald-400 font-bold">🎯 ${perBooking.toFixed(2)} لكل حجز</span>
+                    : <span className="text-gray-600">🎯 لا حجوزات بعد</span>}
+                </div>
+              );
+            })()}
+            <div className="text-[10px] text-gray-600 mt-1.5">{fmtWhen(c.createdAt)} · {c.createdBy} · العزو: حجز خلال 24 ساعة من الإرسال · الفاشلة لا تُحاسَب</div>
           </div>
         );
       })}

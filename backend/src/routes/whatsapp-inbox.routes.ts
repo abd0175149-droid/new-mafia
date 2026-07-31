@@ -808,6 +808,17 @@ router.post('/campaigns', authenticate, adminOnly, async (req: Request, res: Res
   }
 });
 
+// 💰 التسعير الفعليّ من ميتا — السعر لكل رسالة تسويقيّة يُشتقّ من الفاتورة نفسها
+router.get('/pricing', authenticate, adminOnly, async (req: Request, res: Response) => {
+  try {
+    const { getPricingSummary } = await import('../services/whatsapp-campaigns.service.js');
+    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || '30')) || 30));
+    res.json({ success: true, pricing: await getPricingSummary(days) });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/campaigns', authenticate, adminOnly, async (_req: Request, res: Response) => {
   try {
     const { listCampaigns } = await import('../services/whatsapp-campaigns.service.js');

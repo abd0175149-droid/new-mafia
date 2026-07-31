@@ -11,6 +11,7 @@
 
 import { eq, and, desc, gte, lt, sql, isNull, inArray } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
+import { env } from '../config/env.js';
 import {
   waCampaigns, waCampaignRecipients, waOptouts, waTemplates, activities, bookings, waConversations,
 } from '../schemas/admin.schema.js';
@@ -438,6 +439,84 @@ export async function resumeRunningCampaigns(): Promise<void> {
   } catch (err: any) {
     console.warn('⚠️ resumeRunningCampaigns:', err.message);
   }
+}
+
+/**
+ * إيقاف كل الحملات الجارية عند هبوط صحّة الحساب (جودة أو حدّ إرسال).
+ * إيقاف لا إلغاء — المستلمون المجمَّدون يبقون، وتُستأنف بزر واحد بعد معالجة السبب.
+ * الاستمرار بالإرسال وقت هبوط الجودة يسرّع الطريق نحو تعطيل الرقم.
+ */
+export async function pauseRunningCampaignsForHealth(): Promise<number[]> {
+  const db = getDB();
+  if (!db) return [];
+  const running = await db.select({ id: waCampaigns.id }).from(waCampaigns).where(eq(waCampaigns.status, 'running'));
+  const ids: number[] = [];
+  for (const c of running) {
+    // المشغّل يفحص الحالة في كل دورة، فتغيير الحالة هو آليّة الإيقاف نفسها
+    await db.update(waCampaigns).set({ status: 'paused' } as any).where(eq(waCampaigns.id, c.id));
+    ids.push(c.id);
+    console.log(`⏸️ campaign #${c.id} paused — account health drop`);
+  }
+  if (ids.length) emitInbox('wa:campaign:health-paused', { campaignIds: ids });
+  return ids;
+}
+
+// ══════════════════════════════════════════════════════
+// 💰 التكلفة الفعليّة من ميتا — لا تقدير
+// ══════════════════════════════════════════════════════
+// ميتا انتقلت للتسعير بالرسالة (لا بالمحادثة)، و conversation_analytics صار
+// يعيد فراغاً. pricing_analytics هو المصدر الحيّ: يعطي الحجم والتكلفة لكل
+// فئة تسعير. رسائل الخدمة (ردود الدون داخل نافذة 24 ساعة) تكلفتها صفر.
+//
+// السعر لكل رسالة يُشتقّ من الفاتورة نفسها (التكلفة ÷ الحجم) بدل تثبيت رقم
+// يتغيّر بتغيّر تعرفة ميتا للأردن.
+export async function getPricingSummary(days = 30): Promise<{
+  currency: string; ratePerMarketingMsg: number;
+  marketingVolume: number; marketingCost: number;
+  serviceVolume: number; serviceCost: number;
+  byDay: Array<{ date: string; category: string; volume: number; cost: number }>;
+  available: boolean; note?: string;
+}> {
+  const empty = {
+    currency: 'USD', ratePerMarketingMsg: 0, marketingVolume: 0, marketingCost: 0,
+    serviceVolume: 0, serviceCost: 0, byDay: [], available: false,
+  };
+  if (!env.WA_TOKEN || !env.WA_WABA_ID) return { ...empty, note: 'WA_TOKEN / WA_WABA_ID غير مضبوطة' };
+
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - days * 86400;
+  const url = `https://graph.facebook.com/v21.0/${env.WA_WABA_ID}`
+    + `?fields=pricing_analytics.start(${start}).end(${end}).granularity(DAILY)`
+    + `.dimensions(['PRICING_CATEGORY','PRICING_TYPE'])`;
+
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } });
+  const json: any = await res.json().catch(() => ({}));
+  if (json.error) return { ...empty, note: json.error.error_user_msg || json.error.message };
+
+  const points: any[] = json?.pricing_analytics?.data?.[0]?.data_points || [];
+  let marketingVolume = 0, marketingCost = 0, serviceVolume = 0, serviceCost = 0;
+  const byDay: Array<{ date: string; category: string; volume: number; cost: number }> = [];
+
+  for (const p of points) {
+    const vol = Number(p.volume || 0), cost = Number(p.cost || 0);
+    const cat = String(p.pricing_category || '');
+    if (cat === 'MARKETING') { marketingVolume += vol; marketingCost += cost; }
+    else { serviceVolume += vol; serviceCost += cost; }
+    byDay.push({
+      date: new Date(Number(p.start) * 1000).toISOString().slice(0, 10),
+      category: cat, volume: vol, cost,
+    });
+  }
+
+  return {
+    currency: 'USD',
+    ratePerMarketingMsg: marketingVolume > 0 ? marketingCost / marketingVolume : 0,
+    marketingVolume, marketingCost: Math.round(marketingCost * 10000) / 10000,
+    serviceVolume, serviceCost,
+    byDay: byDay.sort((a, b) => b.date.localeCompare(a.date)),
+    available: points.length > 0,
+    note: points.length ? undefined : 'لا بيانات تسعير بعد لهذه الفترة',
+  };
 }
 
 export async function setCampaignStatus(id: number, status: 'running' | 'paused' | 'stopped'): Promise<void> {
