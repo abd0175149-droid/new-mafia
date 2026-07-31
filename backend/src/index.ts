@@ -1458,6 +1458,39 @@ async function main() {
         console.warn('⚠️ Chips ledger durability migration:', e?.message);
       }
 
+      // ── صفّ إيجار واحد لكل (لاعب، عنصر) — قيدٌ لا اتفاق ──
+      //
+      // الشيفرة صارت غير قادرة على إنتاج صفّ ثانٍ، لكن «غير قادرة» وعدٌ
+      // يبقى صحيحاً حتى يكتب أحدهم مساراً رابعاً. القيد يجعله مستحيلاً.
+      //
+      // ⚠️ الدمج قبل الفهرس إلزامي: بيئة فيها صفّ مكرّر واحد تُفشل الإنشاء
+      //    وتترك القاعدة بلا قيد بينما السجلّ يقول «تمّ».
+      try {
+        const merged: any = await db.execute(sql`
+          WITH ranked AS (
+            SELECT id, player_id, item_id, expires_at,
+                   ROW_NUMBER() OVER (PARTITION BY player_id, item_id ORDER BY expires_at DESC, id DESC) AS rn
+              FROM chips_rentals
+          ),
+          winners AS (SELECT * FROM ranked WHERE rn = 1),
+          losers  AS (SELECT * FROM ranked WHERE rn > 1),
+          -- الفائز يرث أبعد انتهاء (وهو أصلاً الأبعد بحكم الترتيب)
+          gone AS (DELETE FROM chips_rentals WHERE id IN (SELECT id FROM losers) RETURNING id)
+          SELECT (SELECT COUNT(*) FROM gone)::int AS removed,
+                 (SELECT COUNT(*) FROM winners)::int AS kept
+        `);
+        const removed = Number((merged?.rows ?? merged)?.[0]?.removed ?? 0);
+        if (removed > 0) console.log(`🧹 Chips rentals de-duplicated: ${removed} row(s) merged away`);
+
+        await db.execute(sql`
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_chips_rentals_player_item
+            ON chips_rentals(player_id, item_id)
+        `);
+        console.log('🔒 Chips rentals uniqueness ensured (one row per player+item)');
+      } catch (e: any) {
+        console.warn('⚠️ Chips rentals uniqueness migration:', e?.message);
+      }
+
       // بذر الكتالوج المعتمد (آمن التكرار — لا يلمس تعديلات الأدمن)
       try {
         const { seedChipsCatalog } = await import('./services/chips-catalog.seed.js');

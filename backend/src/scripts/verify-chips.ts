@@ -1268,6 +1268,28 @@ async function main() {
       check(dupes.length === 0, 'لا صفّ إيجار مكرّر في القاعدة كلها',
         dupes.length ? `مكرّر=${dupes.length} أول=${JSON.stringify(dupes[0])}` : '');
 
+      // ١٠.٧ القيد نفسه موجود — الشيفرة وعد، والفهرس إلزام
+      const uix = rowsOf(await db.execute(sql`
+        SELECT indexdef FROM pg_indexes
+         WHERE tablename = 'chips_rentals' AND indexname = 'idx_chips_rentals_player_item'
+      `));
+      check(uix.length === 1 && /UNIQUE/i.test(uix[0].indexdef),
+        '🔒 فهرس فريد على (player_id, item_id)',
+        uix.length ? String(uix[0].indexdef).slice(0, 90) : 'مفقود');
+
+      // ١٠.٨ وإدراج مكرّر متعمّد يُرفض من القاعدة لا من الكود
+      let rejected = false;
+      try {
+        await db.transaction(async (tx: any) => {
+          await tx.execute(sql`
+            INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
+            VALUES (${pid}, ${iid}, NOW(), NOW() + interval '1 day', 'rent'),
+                   (${pid}, ${iid}, NOW(), NOW() + interval '2 day', 'rent')
+          `);
+        });
+      } catch { rejected = true; }
+      check(rejected, '🔒 إدراج صفّين لنفس (لاعب، عنصر) مرفوض على مستوى القاعدة');
+
       // تنظيف
       await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
     }
