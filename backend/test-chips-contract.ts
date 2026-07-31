@@ -59,8 +59,10 @@ console.log('\n٢) الرفض الصريح:');
   const el = normalizeItemConfig('elimination', { design: 'freeze' });
   check(!el.ok, 'نمط إقصاء مجهول مرفوض (كان يُخزَّن ولا يُرسم شيء)');
 
+  // 🔗 الربط صار بمعرّف الملف لا بمفتاح الحدث — فحقل الرفض تغيّر معه.
+  //    المفتاح الفاسد لم يعد يُرفض بذاته، بل يسقط الطلب كلّه لغياب نغمة مختارة.
   const s = normalizeItemConfig('victory_sting', { soundKey: 'Bad Key!' });
-  check(!s.ok && s.field === 'config.soundKey', 'مفتاح صوت غير صالح مرفوض');
+  check(!s.ok && s.field === 'config.soundId', 'نغمة بلا ملف مربوط مرفوضة', JSON.stringify(s));
 
   const f = normalizeItemConfig('frame', {});
   check(!f.ok, 'إطار بلا أي قناة مفعّلة مرفوض — لا يُباع ما لا يُرى');
@@ -137,6 +139,80 @@ console.log('\n٦) الثبات:');
     if (!twice.ok || JSON.stringify(once.config) !== JSON.stringify(twice.config)) stable = false;
   }
   check(stable, 'التطبيع ثابت لكل نوع: normalize(normalize(x)) === normalize(x)');
+}
+
+
+// ══════════════════════════════════════════════════════
+// ٧) لوحة اللقب — التخصيص الكامل
+//
+// القاعدة الحاكمة: من اشترى لقباً بأحد الأنماط الثلاثة يجب أن يراه
+// **كما كان بالضبط**. لذلك تلك الأنماط لا تحمل حقل `plaque` إطلاقاً،
+// فتمرّ من مسار CSS القديم بلا أي أنماط سطرية.
+// ══════════════════════════════════════════════════════
+console.log('\n٧) لوحة اللقب:');
+{
+  const t = (cfg: any) => normalizeItemConfig('title', cfg) as any;
+
+  // ٧.١ الأنماط الثلاثة تُخزَّن كما كانت — بلا حقل زائد
+  for (const style of ['gold', 'blood', 'ghost']) {
+    const r = t({ text: 'سفّاح', style });
+    const keys = JSON.stringify(Object.keys(r.config).sort());
+    check(keys === JSON.stringify(['style', 'text']) && r.config.style === style,
+      `النمط «${style}» يُخزَّن بحقلين فقط (لا plaque) — لا يتغيّر شيء لمن اشترى`, keys);
+  }
+
+  // ٧.٢ النمط المخصّص يحمل لوحة كاملة
+  const custom = t({ text: 'العرّاب', style: 'custom' });
+  check(custom.ok && custom.config.style === 'custom' && !!custom.config.plaque,
+    'المخصّص يُقبل ويحمل لوحة');
+  check(JSON.stringify(Object.keys(custom.config.plaque).sort())
+    === JSON.stringify(['anim', 'bg', 'border', 'glow', 'layout', 'shadow', 'text']),
+    'اللوحة تحمل قنواتها السبع كاملةً مهما كان المُدخل ناقصاً',
+    JSON.stringify(Object.keys(custom.config.plaque || {})));
+
+  // ٧.٣ القصّ يحمي المُصيّر من أي قيمة خارجة
+  const wild = t({
+    text: 'x', style: 'custom',
+    plaque: {
+      bg: { type: 'nope', angle: 9999, blur: -5 },
+      text: { size: 999, weight: 12345, letterSpacing: 99 },
+      border: { width: 99, style: 'zigzag', radius: -3 },
+      glow: { size: 999 }, shadow: { size: 999 },
+      anim: { type: 'explode', duration: 0.001, intensity: 42 },
+      layout: { paddingX: 999, maxWidth: 5 },
+    },
+  }).config.plaque;
+  check(wild.bg.type === 'solid', 'نوع خلفية مجهول ⇒ الافتراضي', wild.bg.type);
+  check(wild.bg.angle === 360 && wild.bg.blur === 0, 'الزاوية والضبابية تُقصّان', `${wild.bg.angle}/${wild.bg.blur}`);
+  check(wild.text.size === 20 && wild.text.weight === 900, 'حجم النص وسماكته يُقصّان', `${wild.text.size}/${wild.text.weight}`);
+  check(wild.border.style === 'solid' && wild.border.radius === 0, 'نمط الحدود واستدارتها يُقصّان');
+  check(wild.glow.size === 24 && wild.shadow.size === 30, 'التوهّج والظلّ يُقصّان', `${wild.glow.size}/${wild.shadow.size}`);
+  check(wild.anim.type === 'none' && wild.anim.duration === 0.4 && wild.anim.intensity === 1,
+    'الحركة: نوع مجهول ⇒ بلا حركة، والمدّة والشدّة تُقصّان');
+  check(wild.layout.maxWidth === 40 && wild.layout.paddingX === 24, 'التخطيط يُقصّ');
+
+  // ٧.٤ مصفوفة أو قيمة عبثية مكان اللوحة لا تُسقط شيئاً
+  let survived = true;
+  for (const bad of [[], 'nope', 42, null, undefined, { bg: null }]) {
+    const r = t({ text: 'x', style: 'custom', plaque: bad });
+    if (!r.ok || !r.config?.plaque?.bg?.color) survived = false;
+  }
+  check(survived, 'لوحة من أي نوع فاسد ⇒ افتراضي كامل، لا انهيار ولا رفض');
+
+  // ٧.٥ نمط غير معروف ما زال يُرفض صراحةً (لا تحويل صامت)
+  const unknown = t({ text: 'x', style: 'neon' });
+  check(!unknown.ok && unknown.field === 'config.style',
+    'نمط غير معروف ⇒ رفض صريح لا تحويل صامت');
+
+  // ٧.٦ الثبات: التطبيع مرّتين = مرّة
+  const once = t({ text: 'x', style: 'custom', plaque: { anim: { type: 'shimmer' } } }).config.plaque;
+  const twice = t({ text: 'x', style: 'custom', plaque: once }).config.plaque;
+  check(JSON.stringify(twice) === JSON.stringify(once),
+    'التطبيع ثابت: normalize(normalize(x)) === normalize(x)');
+
+  // ٧.٧ النص إلزامي وما زال يُقصّ
+  check(!t({ style: 'custom' }).ok, 'اللقب بلا نص مرفوض');
+  check(t({ text: 'ط'.repeat(60), style: 'custom' }).config.text.length === 40, 'النص يُقصّ إلى ٤٠ حرفاً');
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);

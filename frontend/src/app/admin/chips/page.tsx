@@ -9,6 +9,8 @@ import { useEffect, useState, useCallback } from 'react';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { ChipsEmblem, type EmblemId } from '@/components/ChipsEmblems';
 import FxEditor from '@/components/effects/FxEditor';
+import TitleEditor from '@/components/effects/TitleEditor';
+import { TITLE_PLAQUE_DEFAULTS } from '@/components/TitlePlaque';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -858,7 +860,7 @@ const KIND_META: Record<string, { label: string; icon: string; hint: string }> =
 const ENTRANCE_LABEL: Record<string, string> = {
   don: '👑 موكب العرّاب', seal: '🩸 ختم العائلة', neon: '⚡ لافتة النيون', file: '🗂️ الملف السري',
 };
-const TITLE_STYLE_LABEL: Record<string, string> = { gold: 'ذهبي', blood: 'دموي (نابض)', ghost: 'شبحي (متلاشٍ)' };
+const TITLE_STYLE_LABEL: Record<string, string> = { gold: 'ذهبي', blood: 'دموي (نابض)', ghost: 'شبحي (متلاشٍ)', custom: '✨ مخصّص' };
 
 function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 'ok' | 'err', t: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -878,6 +880,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   const [fx, setFx] = useState<any>({ border: { enabled: true, color: '#f59e0b', style: 'solid' } });
   const [titleText, setTitleText] = useState('');
   const [titleStyle, setTitleStyle] = useState('gold');
+  const [titlePlaque, setTitlePlaque] = useState<any>(TITLE_PLAQUE_DEFAULTS);
   const [fxColor, setFxColor] = useState('#fcd34d');
   const [fxGlow, setFxGlow] = useState('#f59e0b');
   const [fxGlowSize, setFxGlowSize] = useState('10');
@@ -917,7 +920,9 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   const buildConfig = (): any => {
     switch (kind) {
       case 'frame': return fx;
-      case 'title': return { text: titleText, style: titleStyle };
+      case 'title': return titleStyle === 'custom'
+        ? { text: titleText, style: 'custom', plaque: titlePlaque }
+        : { text: titleText, style: titleStyle };
       case 'name_fx': return { nameEffect: { color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } };
       case 'entrance': return { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
       case 'elimination': return { design: elimDesign };
@@ -930,7 +935,9 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   // معاينة على مكوّن البطاقة الحقيقي — ما تراه هنا هو ما تعرضه القاعة
   const previewCosmetics = (): any => {
     if (kind === 'frame') return { frame: { config: fx, emblemId } };
-    if (kind === 'title') return { title: { config: { text: titleText, style: titleStyle } } };
+    if (kind === 'title') return { title: { config: titleStyle === 'custom'
+      ? { text: titleText, style: 'custom', plaque: titlePlaque }
+      : { text: titleText, style: titleStyle } } };
     if (kind === 'name_fx') return { nameFx: { config: { nameEffect: { enabled: true, color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } } } };
     return null;
   };
@@ -1027,8 +1034,8 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
               </div>
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">النمط</label>
-                <div className="flex gap-2">
-                  {(reg?.titleStyles || ['gold', 'blood', 'ghost']).map((s: string) => (
+                <div className="flex flex-wrap gap-2">
+                  {(reg?.titleStyles || ['gold', 'blood', 'ghost', 'custom']).map((s: string) => (
                     <button key={s} onClick={() => setTitleStyle(s)}
                       className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border ${titleStyle === s
                         ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'}`}>
@@ -1036,7 +1043,17 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
                     </button>
                   ))}
                 </div>
+                <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed">
+                  الأنماط الثلاثة الجاهزة تبقى كما هي تماماً لمن اشتراها.
+                  اختر <b className="text-amber-400">مخصّص</b> لتصميم لوحة من الصفر — خلفية وتدرّج وحدود وتوهّج وظلّ وحركة.
+                </p>
               </div>
+
+              {titleStyle === 'custom' && (
+                <div className="border border-gray-700/40 rounded-xl p-3 bg-gray-900/30">
+                  <TitleEditor value={titlePlaque} onChange={setTitlePlaque} />
+                </div>
+              )}
             </>
           )}
 

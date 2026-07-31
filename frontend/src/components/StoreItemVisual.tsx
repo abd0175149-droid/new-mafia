@@ -4,6 +4,7 @@ import React from 'react';
 import './RankEffects.css';
 import { ChipsEmblem, type EmblemId } from './ChipsEmblems';
 import { normalizeFx } from '@/lib/chips-fx';
+import TitlePlaque from './TitlePlaque';
 
 // ══════════════════════════════════════════════════════
 // 🖼️ صورة العنصر في المتجر
@@ -65,9 +66,13 @@ export default function StoreItemVisual({ item, playerName = 'اسمك', size = 
   if (item.kind === 'title') {
     return (
       <div style={{ ...box, width: 'auto', minWidth: size, padding: '0 8px' }}>
-        <span className={`chips-title-plaque chips-title-${item.config?.style || 'gold'}`} style={{ margin: 0, fontSize: 10 }}>
-          {item.config?.text || 'لقب'}
-        </span>
+        {/* اللوحة الحقيقية لا نسخة يدوية — فما يراه المشتري هو ما سيُرسم */}
+        <TitlePlaque
+          text={item.config?.text || 'لقب'}
+          style={item.config?.style}
+          plaque={item.config?.plaque}
+          className="!m-0"
+        />
       </div>
     );
   }
