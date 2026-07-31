@@ -11,6 +11,7 @@ import { ChipsEmblem, type EmblemId } from '@/components/ChipsEmblems';
 import FxEditor from '@/components/effects/FxEditor';
 import TitleEditor from '@/components/effects/TitleEditor';
 import NameFxEditor from '@/components/effects/NameFxEditor';
+import ElimEditor from '@/components/effects/ElimEditor';
 import { TITLE_PLAQUE_DEFAULTS } from '@/components/TitlePlaque';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -886,7 +887,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   const [nameFxCfg, setNameFxCfg] = useState<any>({ enabled: true, color: '#fcd34d', glowColor: '#f59e0b', glowSize: 10 });
   const [entranceDesign, setEntranceDesign] = useState('don');
   const [entranceMs, setEntranceMs] = useState('3500');
-  const [elimDesign, setElimDesign] = useState('burn');
+  const [elimCfg, setElimCfg] = useState<any>({ design: 'burn' });
   const [soundId, setSoundId] = useState<number | null>(null);
   const [stings, setStings] = useState<Array<{ id: number; name: string; url: string; isActive: boolean }>>([]);
   const [multiplier, setMultiplier] = useState('2');
@@ -925,7 +926,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
         : { text: titleText, style: titleStyle };
       case 'name_fx': return { nameEffect: nameFxCfg };
       case 'entrance': return { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
-      case 'elimination': return { design: elimDesign };
+      case 'elimination': return elimCfg;
       case 'victory_sting': return { soundId };
       case 'xp_boost': return { multiplier: Number(multiplier) || 2 };
       default: return {};
@@ -1085,16 +1086,8 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
           )}
 
           {kind === 'elimination' && (
-            <div>
-              <label className="block text-[11px] text-gray-500 mb-1">نمط الإقصاء</label>
-              <div className="flex gap-2">
-                {(reg?.eliminationDesigns || ['burn']).map((d: string) => (
-                  <button key={d} onClick={() => setElimDesign(d)}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border ${elimDesign === d ? 'bg-amber-500/15 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-400'}`}>
-                    {d === 'burn' ? '🔥 موت بالنار' : d}
-                  </button>
-                ))}
-              </div>
+            <div className="border border-gray-700/40 rounded-xl p-3 bg-gray-900/30">
+              <ElimEditor value={elimCfg} onChange={setElimCfg} />
             </div>
           )}
 

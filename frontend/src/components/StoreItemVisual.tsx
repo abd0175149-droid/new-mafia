@@ -5,6 +5,7 @@ import './RankEffects.css';
 import { ChipsEmblem, type EmblemId } from './ChipsEmblems';
 import { normalizeFx } from '@/lib/chips-fx';
 import TitlePlaque from './TitlePlaque';
+import EliminationFx from './EliminationFx';
 import { buildNameFxStyle } from '@/lib/name-fx';
 
 // ══════════════════════════════════════════════════════
@@ -108,15 +109,12 @@ export default function StoreItemVisual({ item, playerName = 'اسمك', size = 
 
   // ── الإقصاء: لهب حيّ بأصناف الحرق نفسها ──
   if (item.kind === 'elimination') {
+    // المكوّن الإنتاجي نفسه — النسخة اليدوية هنا كانت ترسم ناراً
+    // دائماً ولو كان العنصر مباعاً بتصميم آخر.
     return (
-      <div style={{ ...box, background: 'rgba(30,10,4,0.9)', border: '1px solid rgba(234,88,12,0.45)' }}>
-        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 12 }}>
-          {[0, 1, 2, 3, 4].map(i => (
-            <div key={i} className="elim-burn-flame"
-              style={{ left: `${8 + i * 19}%`, height: `${36 + (i % 3) * 16}%`, animationDelay: `${i * 0.18}s` }} />
-          ))}
-        </div>
-        <span style={{ position: 'relative', fontSize: 16 }}>🔥</span>
+      <div style={{ ...box, background: 'rgba(20,18,22,0.92)', border: '1px solid rgba(120,120,130,0.35)' }}>
+        <EliminationFx config={item.config} className="!rounded-xl" />
+        <span style={{ position: 'relative', fontSize: 15, opacity: 0.55 }}>☠︎</span>
       </div>
     );
   }

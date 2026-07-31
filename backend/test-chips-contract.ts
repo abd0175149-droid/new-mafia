@@ -215,5 +215,60 @@ console.log('\n٧) لوحة اللقب:');
   check(t({ text: 'ط'.repeat(60), style: 'custom' }).config.text.length === 40, 'النص يُقصّ إلى ٤٠ حرفاً');
 }
 
+
+// ══════════════════════════════════════════════════════
+// ٨) تصاميم الإقصاء
+//
+// 🔒 الفخّ المُسلَّح: البوّابة الحيّة كانت `design === 'burn'` — مساواة لا
+//    صدق قيمة. أي استخراج يُبدّلها إلى `!!design` يجعل كل تصميم قادم
+//    يرسم ناراً. الفحص أدناه يثبت أن التوزيع لكل تصميم على حدة.
+// ══════════════════════════════════════════════════════
+console.log('\n٨) تصاميم الإقصاء:');
+{
+  const e = (cfg: any) => normalizeItemConfig('elimination', cfg) as any;
+
+  // ٨.١ التصاميم الخمسة كلها مقبولة
+  const designs = ['burn', 'ash', 'drain', 'shatter', 'static'];
+  const allOk = designs.every(d => e({ design: d }).ok);
+  check(allOk, `التصاميم الخمسة مقبولة (${designs.join(' · ')})`);
+
+  // ٨.٢ 🔒 المجهول ما زال مرفوضاً — لا يُخزَّن معرّف لا يعرف المُصيّر رسمه
+  const bad = e({ design: 'explode' });
+  check(!bad.ok && bad.field === 'config.design', 'تصميم مجهول مرفوض صراحةً');
+
+  // ٨.٣ كل تصميم يحمل معاملاته الافتراضية الخاصة به
+  const burn = e({ design: 'burn' }).config;
+  const ash = e({ design: 'ash' }).config;
+  check(burn.particles === 7 && burn.color === '#f97316', 'النار بمعاملاتها الأصلية', JSON.stringify(burn));
+  check(ash.particles === 12 && ash.color === '#a8a29e', 'الرماد بمعاملاته الخاصة لا بمعاملات النار', JSON.stringify(ash));
+
+  // ٨.٤ 🔒 عنصر مباع اليوم (design فقط) يبقى مطابقاً لما كان يُرسم
+  const legacy = e({ design: 'burn' }).config;
+  check(legacy.particles === 7, '🔒 عنصر النار المباع سابقاً يُرسم بسبعة ألسنة كما كان');
+  check(legacy.speed === 1 && legacy.intensity === 0.85, 'سرعته وشدّته الافتراضيتان تُطابقان المخبوز سابقاً');
+
+  // ٨.٥ القصّ — سقف الجسيمات يحمي معدّل إطارات شاشة القاعة
+  const wild = e({
+    design: 'burn', particles: 999, speed: 99, intensity: 42,
+    color: 'nope', color2: 123,
+  }).config;
+  check(wild.particles === 16, 'عدد الجسيمات مقصوص عند ١٦ (عشرة مُقصين على شاشة واحدة)', String(wild.particles));
+  check(wild.speed === 3 && wild.intensity === 1, 'السرعة والشدّة مقصوصتان');
+  check(wild.color === '#f97316' && wild.color2 === '#dc2626', 'ألوان فاسدة ⇒ افتراضي التصميم');
+
+  const wild2 = e({ design: 'burn', particles: -5, speed: 0.001 }).config;
+  check(wild2.particles === 0 && wild2.speed === 0.25, 'القيم دون الحدّ تُرفع إليه');
+
+  // ٨.٦ showInRecap ما زال مطفأً افتراضياً (قرار المالك ٥)
+  check(e({ design: 'burn' }).config.showInRecap === false,
+    'الإقصاء مطفأ في شبكة النتائج افتراضياً (قرار المالك ٥)');
+  check(e({ design: 'burn', showInRecap: true }).config.showInRecap === true, 'ويمكن تفعيله صراحةً');
+
+  // ٨.٧ الثبات
+  const once = e({ design: 'shatter', particles: 5 }).config;
+  const twice = e(once).config;
+  check(JSON.stringify(twice) === JSON.stringify(once), 'التطبيع ثابت');
+}
+
 console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
 process.exit(fail === 0 ? 0 : 1);

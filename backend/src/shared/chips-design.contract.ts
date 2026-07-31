@@ -24,19 +24,28 @@ export const FRAME_SVG_TYPES = ['none', 'simple', 'greek', 'islamic', 'deco', 'r
 /** الشعارات المرسومة — frontend/src/components/ChipsEmblems.tsx */
 export const EMBLEM_IDS = ['don', 'blood', 'neon', 'bullet', 'smoke', 'deal', 'crime', 'champ'] as const;
 
-/** أنماط لوحة اللقب — أصناف CSS في RankEffects.css */
 /** كتالوج تأثيرات الاسم — frontend/src/lib/name-fx.ts */
 export const NAME_FX_STYLES = ['glow', 'gradient', 'outline', 'engraved'] as const;
 export const NAME_FX_ANIMS = ['none', 'pulse', 'flicker', 'sweep', 'cycle'] as const;
 export const NAME_FX_ENTERS = ['none', 'fade', 'rise'] as const;
 
+/** أنماط لوحة اللقب — الثلاثة الأولى أصناف CSS، و`custom` بيانات كاملة */
 export const TITLE_STYLES = ['gold', 'blood', 'ghost', 'custom'] as const;
 
 /** تخطيطات تشريفة الدخول — frontend/src/components/EntranceOverlay.tsx */
 export const ENTRANCE_DESIGNS = ['don', 'seal', 'neon', 'file'] as const;
 
-/** أنماط أنيميشن الإقصاء — DisplayDayView.tsx */
-export const ELIMINATION_DESIGNS = ['burn'] as const;
+/** تصاميم أنيميشن الإقصاء — frontend/src/components/EliminationFx.tsx */
+export const ELIMINATION_DESIGNS = ['burn', 'ash', 'drain', 'shatter', 'static'] as const;
+
+/** أفضل صورة لكل تصميم إقصاء حين لا يضبط المؤلّف شيئاً */
+export const ELIM_DESIGN_DEFAULTS: Record<string, { particles: number; color: string; color2: string }> = {
+  burn:    { particles: 7,  color: '#f97316', color2: '#dc2626' },
+  ash:     { particles: 12, color: '#a8a29e', color2: '#57534e' },
+  drain:   { particles: 0,  color: '#b91c1c', color2: '#450a0a' },
+  shatter: { particles: 8,  color: '#e0f2fe', color2: '#0ea5e9' },
+  static:  { particles: 0,  color: '#e5e7eb', color2: '#111827' },
+};
 
 export const BORDER_STYLES = ['solid', 'gradient', 'traveling'] as const;
 export const PARTICLE_ANIMS = ['orbit', 'burst'] as const;
@@ -433,7 +442,21 @@ export function normalizeItemConfig(kind: string, raw: any): NormalizeResult {
       if (!(ELIMINATION_DESIGNS as readonly string[]).includes(cfg.design)) {
         return { ok: false, field: 'config.design', message: `نمط إقصاء غير معروف — المتاح: ${ELIMINATION_DESIGNS.join(' · ')}` };
       }
-      return { ok: true, config: { design: cfg.design, showInRecap: bool(cfg.showInRecap, false) } };
+      const d = ELIM_DESIGN_DEFAULTS[cfg.design] || ELIM_DESIGN_DEFAULTS.burn;
+      return {
+        ok: true,
+        config: {
+          design: cfg.design,
+          showInRecap: bool(cfg.showInRecap, false),
+          // ⚠️ السقف ١٦: تُرسم لكل لاعب مُقصى على شاشة واحدة —
+          //    عشرة لاعبين × ٣٠ جسيماً يُسقط معدّل إطارات جهاز العرض.
+          particles: Math.trunc(num(cfg.particles, d.particles, 0, 16)),
+          color: hex(cfg.color, d.color),
+          color2: hex(cfg.color2, d.color2),
+          speed: num(cfg.speed, 1, 0.25, 3),
+          intensity: num(cfg.intensity, 0.85, 0, 1),
+        },
+      };
     }
 
     case 'victory_sting': {
