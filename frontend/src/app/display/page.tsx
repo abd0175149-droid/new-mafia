@@ -93,6 +93,22 @@ function DisplayPageContent() {
   const [entrance, setEntrance] = useState<EntrancePayload | null>(null);
   const entranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phaseRef = useRef<Phase>(Phase.LOBBY);
+
+  // 🪙 نافذة تجاوز قصيرة للمظهر المشترى.
+  // الخادم يثبّت المظهر في Redis قبل بثّه، لكن حزمة حالة بُنيت قبل التثبيت قد
+  // تصل بعده فتمحو ما ظهر للتوّ. نحتفظ بآخر مظهر مبثوث لبضع ثوانٍ ونُغلّبه على
+  // الإسقاط، ثم يسقط التجاوز تلقائياً فلا يُخفي إزالةً حقيقية لاحقاً.
+  const cosmeticsOverrideRef = useRef<Map<number, { cosmetics: any; at: number }>>(new Map());
+  const COSMETICS_OVERRIDE_MS = 15_000;
+  const freshCosmetics = (physicalId: number) => {
+    const hit = cosmeticsOverrideRef.current.get(physicalId);
+    if (!hit) return undefined;
+    if (Date.now() - hit.at > COSMETICS_OVERRIDE_MS) {
+      cosmeticsOverrideRef.current.delete(physicalId);
+      return undefined;
+    }
+    return hit.cosmetics;
+  };
   // 🎂 احتفالية عيد الميلاد (يطلقها القائد) — طبقة بمستوى الصفحة
   const [birthday, setBirthday] = useState<Celebrant[] | null>(null);
   const birthdayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,7 +272,12 @@ function DisplayPageContent() {
           role: effectivePhase === 'LOBBY' ? null : (p.role || null),
           avatarUrl: p.avatarUrl || null,
           rankTier: p.rankTier || 'INFORMANT',
-          cosmetics: p.cosmetics || null,   // 🪙 المظهر المشترى (إطار/لقب/تأثير اسم)
+          // 🪙 المظهر المشترى (إطار/لقب/تأثير اسم/شعار).
+          // ⚠️ التجاوز المؤقّت يغلب الإسقاط: الخادم يثبّت المظهر في Redis قبل
+          //    أن يبثّه، لكن قد تكون حزمة حالة قديمة **في الطريق** بُنيت قبل
+          //    التثبيت — فتصل بعد البثّ وتمحو ما اشتراه اللاعب للتوّ. النافذة
+          //    قصيرة ومحدودة زمنياً كي لا تُخفي إزالةً لاحقة حقيقية.
+          cosmetics: freshCosmetics(p.physicalId) ?? (p.cosmetics || null),
           penalties: p.penalties || 0,
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
@@ -500,6 +521,11 @@ function DisplayPageContent() {
     // 🪙 تغيير المظهر أثناء الجلسة — يظهر على الشاشة فوراً بلا إعادة انضمام
     const onCosmeticsUpdated = (data: any) => {
       if (!data?.physicalId) return;
+      // نُسجّله في نافذة التجاوز أولاً كي لا تمحوه حزمة حالة قديمة في الطريق
+      cosmeticsOverrideRef.current.set(data.physicalId, {
+        cosmetics: data.cosmetics || null,
+        at: Date.now(),
+      });
       setPlayers(prev => prev.map(p =>
         p.physicalId === data.physicalId ? { ...p, cosmetics: data.cosmetics || null } : p
       ));
@@ -559,6 +585,22 @@ function DisplayPageContent() {
     });
     // 🔊 استقبال الأصوات المبثوثة من الليدر (المصدر الحصري) وتشغيلها
     socket.on('display:sound-play', (d: any) => { if (d?.fn) applyRemoteSound(d); });
+
+    // 🔊 نغمة النصر المدفوعة — قرار المالك (٦): الشاشة تملكها حصراً.
+    //
+    // ⚠️ الخادم يبثّ هذا الحدث للغرفة كلها منذ البداية، وكان **الليدر وحده**
+    //    يستمع له. فإن كان جهازه مكتوماً أو مغلقاً أو يُعيد الاتصال، لم تُعزف
+    //    النغمة التي دفع لاعب مالاً حقيقياً ثمنها ولم يعلم أحد.
+    //    الاستماع هنا يجعل السماع مرة واحدة بالضبط في كل الحالات.
+    //    نستدعي applyRemoteSound لأنها تتجاوز بوابة التشغيل المحلي المُطفأة
+    //    على الشاشة (setLocalPlayback(false)) وتشغّل الـ impl الداخلية مباشرةً.
+    socket.on('chips:victory-sting', (d: any) => {
+      if (!d?.soundKey) return;
+      // تأخير قصير كي لا تتراكب مع صوت فوز الفريق
+      setTimeout(() => {
+        try { applyRemoteSound({ fn: 'playGameSound', args: [String(d.soundKey)] }); } catch { /* الميزة زخرفية */ }
+      }, 1400);
+    });
     socket.on('game:started', (data: any) => {
       setPhase(data.phase);
       if (data.teamCounts) setTeamCounts(data.teamCounts);
@@ -672,6 +714,7 @@ function DisplayPageContent() {
       socket.off('display:birthday-celebration-clear', onBirthdayClear);
       if (birthdayTimerRef.current) clearTimeout(birthdayTimerRef.current);
       socket.off('display:sound-play');
+      socket.off('chips:victory-sting');
       socket.off('game:phase-changed', onPhaseChanged);
       socket.off('night:animation', onNightAnimation);
       socket.off('night:step-info', onNightStepInfo);

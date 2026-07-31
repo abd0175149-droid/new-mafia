@@ -43,6 +43,23 @@ export function setLocalPlayback(enabled: boolean): void {
   localPlaybackEnabled = enabled;
 }
 
+// ── 🔇 كتم هذا الجهاز وحده — منفصل تماماً عن البثّ للقاعة ─────────────
+//
+// ⚠️ لماذا يجب أن يكون منفصلاً: زرّ الكتم في شاشة الليدر كان يعود **قبل**
+//    استدعاء دوالّ الصوت، والبثّ للقاعة يُطلَق من داخل تلك الدوالّ — فكتم
+//    جهاز الليدر (ردّ فعل طبيعي عند صدى السماعات) كان يُسكت القاعة كلها:
+//    أصوات الأطوار، والإقصاء، وأغنية الميلاد، ونغمة النصر التي دفع لاعب
+//    مالاً حقيقياً ثمنها. والحالة محفوظة محلياً فتنجو عبر الجلسات.
+//
+//    الآن: البثّ يقع دائماً، والكتم يمنع **التشغيل المحلي فقط**.
+let localMuted = false;
+export function setLocalMuted(muted: boolean): void {
+  localMuted = muted;
+  // إسكات ما يعمل الآن على هذا الجهاز — بلا بثّ إيقاف للقاعة
+  if (muted) { try { _stopOneShotSounds(); _stopAmbientSound(); } catch { /* تجاهل */ } }
+}
+export function isLocalMuted(): boolean { return localMuted; }
+
 // ══════════════════════════════════════════════════════
 // 🔈 AudioContext مشترَك — يُنشأ ويُستأنف عند أول تفاعل ويُعاد استخدامه لكل الأصوات المُركّبة
 // إنشاء سياق جديد لكل صوت (خاصة داخل setInterval للمؤقّت) يبقى «suspended» على الجوال/Safari
@@ -160,7 +177,7 @@ export async function reloadSoundMap(): Promise<void> {
 export function playGameSound(eventKey: string): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playGameSound', args: [eventKey] });
-  _playGameSound(eventKey);
+  if (!localMuted) _playGameSound(eventKey);
 }
 // ── مستوى الصوت لكل مفتاح (افتراضي 0.7) — أصوات المؤقّت/التصويت بمستوى كامل؛ تنبيه الليدر مخفّض لطيف ──
 const VOLUME_BY_KEY: Record<string, number> = {
@@ -202,7 +219,7 @@ function _playGameSound(eventKey: string): void {
 export function playAmbientSound(eventKey: string): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playAmbientSound', args: [eventKey] });
-  _playAmbientSound(eventKey);
+  if (!localMuted) _playAmbientSound(eventKey);
 }
 function _playAmbientSound(eventKey: string): void {
   // إيقاف أي صوت خلفي سابق
@@ -230,7 +247,7 @@ function _playAmbientSound(eventKey: string): void {
 export function stopAmbientSound(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'stopAmbientSound', args: [] });
-  _stopAmbientSound();
+  if (!localMuted) _stopAmbientSound();
 }
 function _stopAmbientSound(): void {
   if (ambientAudio) {
@@ -248,7 +265,7 @@ function _stopAmbientSound(): void {
 export function stopOneShotSounds(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'stopOneShotSounds', args: [] });
-  _stopOneShotSounds();
+  if (!localMuted) _stopOneShotSounds();
 }
 function _stopOneShotSounds(): void {
   oneShotAudios.forEach((a) => {
@@ -263,7 +280,7 @@ function _stopOneShotSounds(): void {
 export function duckAmbient(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'duckAmbient', args: [] });
-  _duckAmbient();
+  if (!localMuted) _duckAmbient();
 }
 function _duckAmbient(): void {
   if (ambientAudio) {
@@ -274,7 +291,7 @@ function _duckAmbient(): void {
 export function unduckAmbient(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'unduckAmbient', args: [] });
-  _unduckAmbient();
+  if (!localMuted) _unduckAmbient();
 }
 function _unduckAmbient(): void {
   if (ambientAudio) {
@@ -288,7 +305,7 @@ function _unduckAmbient(): void {
 export function playEventSound(eventKey: string, durationMs: number = 3000): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playEventSound', args: [eventKey, durationMs] });
-  _playEventSound(eventKey, durationMs);
+  if (!localMuted) _playEventSound(eventKey, durationMs);
 }
 function _playEventSound(eventKey: string, durationMs: number = 3000): void {
   // خفض الخلفية
@@ -309,7 +326,7 @@ const MAFIA_ROLE_KEYS = ['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_B
 export function playEliminationSound(role: string | null): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playEliminationSound', args: [role] });
-  _playEliminationSound(role);
+  if (!localMuted) _playEliminationSound(role);
 }
 function _playEliminationSound(role: string | null): void {
   if (!role) {
@@ -355,7 +372,7 @@ const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
 export function playNightStepAmbient(stepType: string): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playNightStepAmbient', args: [stepType] });
-  _playNightStepAmbient(stepType);
+  if (!localMuted) _playNightStepAmbient(stepType);
 }
 function _playNightStepAmbient(stepType: string): void {
   const stepKey = NIGHT_STEP_AMBIENT_MAP[stepType.toUpperCase()];
@@ -841,7 +858,7 @@ function playDefaultSound(eventKey: string): void {
 export function playDrumroll(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playDrumroll', args: [] });
-  _playDrumroll();
+  if (!localMuted) _playDrumroll();
 }
 function _playDrumroll(): void {
   if (customSoundMap['drumroll']) {
@@ -872,7 +889,7 @@ function _playDrumroll(): void {
 export function playImpactBoom(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playImpactBoom', args: [] });
-  _playImpactBoom();
+  if (!localMuted) _playImpactBoom();
 }
 function _playImpactBoom(): void {
   if (customSoundMap['impact_boom']) {

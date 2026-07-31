@@ -354,27 +354,46 @@ export async function equipItem(opts: {
   return { ok: true, itemId, expiresAt: owned.expiresAt };
 }
 
-/** بثّ المظهر الجديد: لغرفة اللاعب + لغرف اللعب التي هو فيها (تحديث حي) */
+/**
+ * بثّ المظهر الجديد: لغرفة اللاعب + لغرف اللعب التي هو فيها (تحديث حي).
+ *
+ * ⚠️ **يُكتب في حالة اللعبة قبل البثّ.** كان يبثّ فقط، والشاشة تُطبّق التغيير
+ *    على حالتها المحلية وحدها — بينما `syncStateFromData` تُعيد بناء مصفوفة
+ *    اللاعبين من إسقاط Redis عند كل مزامنة. فأي تغيّر طور أو تصويت أو عقوبة
+ *    بعد ثوانٍ كان يمحو المظهر الذي دفع اللاعب ثمنه، ولا يعود إلا بانضمام جديد.
+ *    الكتابة أولاً تجعل المصدر والشاشة متطابقين، فلا فرق أيّهما وصل أخيراً.
+ */
 function broadcastCosmetics(playerId: number) {
   (async () => {
     try {
       const io = (global as any).io;
-      if (!io) return;
       const cos = await getPlayerCosmetics(playerId);
-      io.to(`player:${playerId}`).emit('chips:cosmetics-updated', { cosmetics: cos });
 
       // غرف اللعب الجارية التي يجلس فيها اللاعب
       const { getAllGameStates } = await import('../config/redis.js');
+      const { updatePlayer } = await import('../game/state.js');
       const states: any[] = await getAllGameStates();
+
       for (const st of states) {
         if (!st || st.phase === 'GAME_OVER') continue;
         const seat = (st.players || []).find((p: any) => p?.playerId === playerId);
-        if (seat) {
+        if (!seat) continue;
+
+        // 1) التثبيت في Redis — هذا ما تقرأه الشاشة عند كل مزامنة
+        try {
+          await updatePlayer(st.roomId, seat.physicalId, { cosmetics: cos } as any);
+        } catch { /* غرفة اختفت بين القراءة والكتابة — لا يعطّل البقيّة */ }
+
+        // 2) البثّ الفوري كي لا ينتظر اللاعب مزامنة
+        if (io) {
           io.to(st.roomId).emit('player:cosmetics-updated', {
             playerId, physicalId: seat.physicalId, cosmetics: cos,
           });
         }
       }
+
+      // غرفة اللاعب نفسه (تطبيقه) — بعد التثبيت كي لا يسبق العرضُ الحقيقةَ
+      if (io) io.to(`player:${playerId}`).emit('chips:cosmetics-updated', { cosmetics: cos });
     } catch { /* البث ليس جزءاً من ضمان العملية */ }
   })();
 }

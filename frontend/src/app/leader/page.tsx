@@ -11,7 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
-import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio } from '@/lib/soundManager';
+import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
@@ -175,9 +175,13 @@ export default function LeaderPage() {
   const leaderSoundOnRef = useRef(true);
   useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
   const lastVoteCountRef = useRef(0);
-  // يُشغّل صوت حدث على الليدر (المصدر الحصري) إن لم يكن مكتوماً — ويُبثّ تلقائياً لشاشة العرض
+  // يُشغّل صوت حدث على الليدر (المصدر الحصري) ويُبثّ تلقائياً لشاشة العرض.
+  //
+  // ⚠️ لا يفحص الكتم هنا إطلاقاً. كان يعود مبكراً عند الكتم، والبثّ للقاعة
+  //    يُطلَق من **داخل** دوالّ الصوت — فكتم جهاز الليدر كان يُسكت القاعة كلها.
+  //    الكتم صار في مدير الصوت (setLocalMuted) ويمنع التشغيل على هذا الجهاز
+  //    وحده، بينما يصل الصوت إلى شاشة القاعة كالمعتاد.
   const localSound = (fn: () => void) => {
-    if (!leaderSoundOnRef.current) return;
     try { fn(); } catch {}
   };
   // خريطة صوت «افتتاحية» لكل مرحلة (بخلاف الصوت الخلفي) — يطابق شاشة العرض
@@ -202,7 +206,7 @@ export default function LeaderPage() {
     loadSoundMap();
     try {
       const saved = localStorage.getItem('leader-sound-on');
-      if (saved === '0') setLeaderSoundOn(false);
+      if (saved === '0') { setLeaderSoundOn(false); setLocalMuted(true); }
     } catch {}
     // فكّ قفل التشغيل التلقائي (Autoplay) عند أول نقرة/لمسة — يُهيّئ السياق الصوتي المشترَك
     const unlock = () => {
@@ -227,7 +231,9 @@ export default function LeaderPage() {
   useEffect(() => {
     const phase = gameState?.phase as string | undefined;
     const key = phase ? AMBIENT_BY_PHASE[phase] : undefined;
-    if (!leaderSoundOn || !key) {
+    // ⚠️ الكتم لم يعد شرطاً هنا: إيقاف الخلفية كان يُبثّ للقاعة فيُسكتها معه.
+    //    الخلفية تتبع الطور فقط، ومدير الصوت يكتمها محلياً إن أراد الليدر.
+    if (!key) {
       if (leaderAmbientKeyRef.current) { stopAmbientSound(); leaderAmbientKeyRef.current = null; }
       return;
     }
@@ -235,7 +241,7 @@ export default function LeaderPage() {
       playAmbientSound(key);            // يوقف السابق داخلياً ثم يبدأ الجديد
       leaderAmbientKeyRef.current = key;
     }
-  }, [gameState?.phase, leaderSoundOn]);
+  }, [gameState?.phase]);
   // إيقاف الصوت الخلفي عند مغادرة صفحة الليدر
   useEffect(() => () => { stopAmbientSound(); }, []);
 
@@ -243,6 +249,8 @@ export default function LeaderPage() {
   const discussionPrevTimeRef = useRef<number>(-1);
   // 🔊 مؤقّت نغمة النصر المشتراة (تُعزف بعد صوت الفوز بقليل)
   const stingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** تنويه نغمة النصر — الشاشة تعزفها، والليدر يعرف فقط أنها عُزفت */
+  const [stingNotice, setStingNotice] = useState<string | null>(null);
   // 🎂 حالة عيد الميلاد (زر القائد)
   const [showBirthday, setShowBirthday] = useState(false);
   const [bdayList, setBdayList] = useState<any[]>([]);
@@ -1071,13 +1079,16 @@ export default function LeaderPage() {
     });
 
     // 🔊 نغمة النصر المشتراة — يبثّها الخادم من finalizeMatch (نقطة النهاية المحروسة)
+    // 🔊 نغمة النصر المدفوعة — قرار المالك (٦): **شاشة العرض تملكها حصراً**.
+    //    الليدر يعرض تنويهاً فقط ولا يعزف.
+    //    السبب: هذه التركيبة وحدها تضمن أن تُسمع النغمة **مرة واحدة بالضبط**
+    //    سواء كان جهاز الليدر مكتوماً أو مغلقاً أو يُعيد الاتصال — والخادم
+    //    يبثّ الحدث للغرفة كلها فتصل الشاشة مباشرةً.
     const offVictorySting = on('chips:victory-sting', (d: any) => {
       if (!d?.soundKey) return;
+      setStingNotice(d.playerName ? `🔊 نغمة نصر ${d.playerName}` : '🔊 نغمة نصر');
       if (stingTimerRef.current) clearTimeout(stingTimerRef.current);
-      // تأخير قصير كي لا تتراكب مع صوت فوز الفريق
-      stingTimerRef.current = setTimeout(() => {
-        localSound(() => playGameSound(String(d.soundKey)));
-      }, 1400);
+      stingTimerRef.current = setTimeout(() => setStingNotice(null), 6000);
     });
 
     const offGameOver = on('game:over', (data: any) => {
@@ -1628,14 +1639,29 @@ export default function LeaderPage() {
   // ── 🔊 زرّ كتم/تشغيل أصوات الليدر (عائم، صمّام أمان لتجنّب صدى سمّاعات القاعة) ──
   const soundToggleBtn = (
     <button
-      onClick={() => setLeaderSoundOn((v) => { const nv = !v; if (!nv) stopOneShotSounds(); try { localStorage.setItem('leader-sound-on', nv ? '1' : '0'); } catch {}; return nv; })}
-      title={leaderSoundOn ? 'كتم أصوات الليدر' : 'تشغيل أصوات الليدر'}
+      onClick={() => setLeaderSoundOn((v) => {
+        const nv = !v;
+        // ⚠️ لا نستدعي stopOneShotSounds() هنا: هي دالّة عامّة تبثّ أمر الإيقاف
+        //    للقاعة فتقطع ما يُعزف على شاشة العرض. setLocalMuted يُسكت هذا
+        //    الجهاز وحده.
+        setLocalMuted(!nv);
+        try { localStorage.setItem('leader-sound-on', nv ? '1' : '0'); } catch {}
+        return nv;
+      })}
+      title={leaderSoundOn ? 'كتم صوت هذا الجهاز فقط (القاعة تبقى تسمع)' : 'تشغيل صوت هذا الجهاز'}
       aria-label={leaderSoundOn ? 'كتم الصوت' : 'تشغيل الصوت'}
       className={`fixed bottom-4 left-4 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors ${leaderSoundOn ? 'bg-[#0f2a1a]/80 border-emerald-600/40 text-emerald-300' : 'bg-[#2a0f0f]/80 border-red-700/40 text-red-300'}`}
     >
       {leaderSoundOn ? '🔊' : '🔇'}
     </button>
   );
+
+  // 🔊 تنويه نغمة النصر — تُعزف على شاشة القاعة، وهذا إشعار للّيدر فقط
+  const stingNoticeBadge = stingNotice ? (
+    <div className="fixed bottom-4 left-20 z-[60] px-3 py-2 rounded-xl text-xs font-bold border backdrop-blur-sm shadow-lg bg-[#1a1206]/90 border-amber-600/40 text-amber-300">
+      {stingNotice}
+    </div>
+  ) : null;
 
   if (checkingAuth || !isAuthenticated) {
     return (
@@ -1997,6 +2023,7 @@ export default function LeaderPage() {
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
+          {stingNoticeBadge}
           {mafiaChatBtn}
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
@@ -3272,6 +3299,7 @@ export default function LeaderPage() {
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
+          {stingNoticeBadge}
           {mafiaChatBtn}
           {mafiaChatModal}
           {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}
