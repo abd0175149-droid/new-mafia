@@ -3,6 +3,9 @@
 import React, { useState } from 'react';
 import './RankEffects.css';
 import { RankFrame } from './RankFrames';
+import { ChipsEmblem, type EmblemId } from './ChipsEmblems';
+import { CardFxBoundary } from './CardFxBoundary';
+import { normalizeFx, mergeFx, hasAnyEnabled, hasLayerVisuals } from '@/lib/chips-fx';
 import { useGameConfig, type CardTemplateDef, type RoleDef } from '@/hooks/useGameConfig';
 import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
 import {
@@ -34,8 +37,11 @@ function getLucideIcon(name: string): LucideIcon {
 // ── Props ──────────────────────────────────────
 
 // ── Rank Helper ─────────────────────────────────
+// ⚠️ محصَّنة: كانت تستدعي slice على قيمة قد تكون undefined فترمي وتُسقط
+//    شجرة البطاقة كاملة — وعلى شاشة القاعة يعني ذلك اختفاء كل البطاقات معاً.
 function hexToRgba(hex: string, a: number) {
-  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  const h = (typeof hex === 'string' && /^#[0-9a-fA-F]{6}$/.test(hex)) ? hex : '#6b7280';
+  const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
   return `rgba(${r},${g},${b},${a})`;
 }
 
@@ -66,7 +72,8 @@ export interface DynamicMafiaCardProps {
    * الإطار المدفوع يظهر على **وجهي البطاقة** (قرار مقفل).
    */
   cosmetics?: {
-    frame?: { config?: any } | null;
+    /** `emblemId` شعار SVG يعلو البطاقة — كان يُرسم في معاينة المتجر فقط */
+    frame?: { config?: any; emblemId?: string | null } | null;
     title?: { config?: { text?: string; style?: string } } | null;
     nameFx?: { config?: { nameEffect?: any } } | null;
   } | null;
@@ -107,12 +114,41 @@ export default function DynamicMafiaCard({
   const tier = (rankTier || 'INFORMANT');
   const { getRoleById, getCardForRole, getRoleName, isDynamicMafia, isDynamicNeutral, getRankEffectsForTier, loading } = useGameConfig();
   const rankDef = getRankEffectsForTier(tier);
-  // 🪙 الإطار المشترى يستبدل تأثير الرتبة (معاينة المحرر تعلو الجميع)
-  const fx = rankEffectsOverride || cosmetics?.frame?.config || rankDef?.effects;
+  const paidFrameCfg = cosmetics?.frame?.config;
+
+  // 🪙 تسوية التأثيرات — بعدها يقرأ المُصيّر كل القنوات بلا حماية:
+  //    كل مفتاح موجود، وكل لون صالح، وكل رقم مقصوص.
+  //
+  // الأولوية: معاينة المحرّر ← دمج (المشترى فوق الرتبة) ← الرتبة وحدها.
+  // ⚠️ إعداد مشترى فارغ أو مكسور **لا يحجب** تأثير الرتبة — كان `{}` كائناً
+  //    صادقاً منطقياً فيُسقط شكل الرتبة ولا يعطي شيئاً مكانه.
+  const fx = React.useMemo(() => {
+    if (rankEffectsOverride) return normalizeFx(rankEffectsOverride);
+    const paid = normalizeFx(paidFrameCfg);
+    return hasAnyEnabled(paid) ? mergeFx(rankDef?.effects, paidFrameCfg) : normalizeFx(rankDef?.effects);
+  }, [rankEffectsOverride, paidFrameCfg, rankDef]);
+
   // تأثير الاسم المشترى يعلو تأثير الإطار/الرتبة
-  const nameFx = cosmetics?.nameFx?.config?.nameEffect || fx?.nameEffect;
+  const nameFx = React.useMemo(() => {
+    const bought = cosmetics?.nameFx?.config?.nameEffect;
+    return bought ? normalizeFx({ nameEffect: bought }).nameEffect : fx.nameEffect;
+  }, [cosmetics?.nameFx?.config?.nameEffect, fx]);
+
+  // 🪙 نمط الاسم المشترك بين وجهَي البطاقة — قرار المالك (٤): تأثير الاسم على
+  //    الوجهين، ولوحة اللقب على وجه الغلاف فقط (وجه الدور مزدحم وستتصادم
+  //    اللوحة مع اسم الدور). لا يُعاد فتح هذا القرار.
+  const nameFxStyle: React.CSSProperties = nameFx?.enabled
+    ? {
+        color: nameFx.color,
+        textShadow: `0 0 ${nameFx.glowSize}px ${hexToRgba(nameFx.glowColor, 0.45)}, 0 0 ${nameFx.glowSize * 2.5}px ${hexToRgba(nameFx.glowColor, 0.18)}`,
+      }
+    : {};
+
   const titleCfg = cosmetics?.title?.config || null;
-  const hasRankEffects = fx ? (fx.border?.enabled || fx.glow?.enabled || fx.shimmer?.enabled || fx.particles?.enabled || fx.frame?.enabled || fx.floating?.enabled || fx.badge?.enabled) : false;
+  const emblemId = cosmetics?.frame?.emblemId || null;
+  /** حجم الشعار تبعاً لحجم البطاقة — يبقى متناسباً من الهاتف إلى شاشة القاعة */
+  const emblemSize = size === 'sm' ? 40 : size === 'lg' ? 72 : 56;
+  const hasRankEffects = hasLayerVisuals(fx);
   const [internalFlip, setInternalFlip] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
   const isFlipped = controlledFlip !== undefined ? controlledFlip : internalFlip;
@@ -255,14 +291,14 @@ export default function DynamicMafiaCard({
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
-                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font, ...(nameFx?.enabled ? { color: nameFx.color, textShadow: `0 0 ${nameFx.glowSize}px ${hexToRgba(nameFx.glowColor, 0.4)}, 0 0 ${nameFx.glowSize * 2.5}px ${hexToRgba(nameFx.glowColor, 0.15)}` } : {}) }}>{truncatedName}</h2>
+                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font, ...nameFxStyle }}>{truncatedName}</h2>
                   <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
-                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' && !nameFx?.enabled ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...(nameFx?.enabled ? { color: nameFx.color, textShadow: `0 0 ${nameFx.glowSize}px ${hexToRgba(nameFx.glowColor, 0.45)}, 0 0 ${nameFx.glowSize * 2.5}px ${hexToRgba(nameFx.glowColor, 0.18)}` } : {}), ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
+                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' && !nameFx?.enabled ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...nameFxStyle, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
                 {/* 🪙 لوحة اللقب المشترى — تحت الاسم مباشرة */}
                 {titleCfg?.text && (
                   <div className={`chips-title-plaque chips-title-${titleCfg.style || 'gold'}`}>{titleCfg.text}</div>
@@ -319,9 +355,9 @@ export default function DynamicMafiaCard({
 
         {/* ── 🎖️ Rank Effects Overlay — طبقة منفصلة فوق الكارد ── */}
         {/* 🪙 تُرسم مرتين: للوجه الأمامي وللوجه الخلفي (الإطار المدفوع على الوجهين — قرار مقفل) */}
-        {hasRankEffects && fx && [false, true].map((isBack) => (
+        {(hasRankEffects || !!emblemId) && [false, true].map((isBack) => (
+          <CardFxBoundary key={isBack ? 'fx-back' : 'fx-front'}>
           <div
-            key={isBack ? 'fx-back' : 'fx-front'}
             className={`absolute inset-0 rounded-2xl overflow-visible ${rankEditable && !isBack ? '' : 'pointer-events-none'}`}
             style={{
               backfaceVisibility: 'hidden',
@@ -352,6 +388,26 @@ export default function DynamicMafiaCard({
                 ...(fx.glow.pulseEnabled && fx.border.style === 'solid' ? { animation: `rank-pulse ${fx.glow.pulseDuration}s ease-in-out infinite`, '--rank-glow': `0 0 ${fx.glow.size}px ${hexToRgba(fx.glow.color, fx.glow.opacity)}`, '--rank-glow-strong': `0 0 ${fx.glow.size * 1.6}px ${hexToRgba(fx.glow.color, Math.min(1, fx.glow.opacity * 1.5))}` } as any : {}),
               }} />
             )}
+            {/* Corners — أربع زوايا زخرفية.
+                ⚠️ كانت قناة ميتة: معرَّفة في النوع، ومبذورة في كل صفّ، ولها
+                CSS جاهز — ولا تُرسم أبداً. ورتبة CAPO تشحنها مفعّلة، أي أن
+                تنفيذها يُصلح رتبة مكسورة لا يضيف ميزة (قرار المالك ٢). */}
+            {fx.corners.enabled && (['tl', 'tr', 'bl', 'br'] as const).map((pos) => (
+              <div
+                key={`corner-${pos}`}
+                style={{
+                  position: 'absolute', zIndex: 51, pointerEvents: 'none',
+                  width: fx.corners.size, height: fx.corners.size,
+                  borderColor: hexToRgba(fx.corners.color, 0.75),
+                  borderStyle: 'solid', borderWidth: 0,
+                  ...(pos === 'tl' ? { top: 2, left: 2, borderTopWidth: fx.corners.width, borderLeftWidth: fx.corners.width, borderTopLeftRadius: 4 } : {}),
+                  ...(pos === 'tr' ? { top: 2, right: 2, borderTopWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderTopRightRadius: 4 } : {}),
+                  ...(pos === 'bl' ? { bottom: 2, left: 2, borderBottomWidth: fx.corners.width, borderLeftWidth: fx.corners.width, borderBottomLeftRadius: 4 } : {}),
+                  ...(pos === 'br' ? { bottom: 2, right: 2, borderBottomWidth: fx.corners.width, borderRightWidth: fx.corners.width, borderBottomRightRadius: 4 } : {}),
+                  ...(fx.corners.pulseEnabled ? { animation: 'corner-pulse 2.5s ease-in-out infinite' } : {}),
+                }}
+              />
+            ))}
             {/* Badge */}
             {fx.badge.enabled && (
               <div data-rank-el="badge" style={{
@@ -426,7 +482,23 @@ export default function DynamicMafiaCard({
                 cursor: rankEditable ? 'grab' : undefined,
               }}>{fx.floating.content}</div>
             )}
+            {/* 🪙 شعار الإطار المشترى — يعلو البطاقة.
+                ⚠️ كان يُرسم في **معاينة المتجر فقط** ولا يقرؤه المحرّك إطلاقاً،
+                فكان «جرّب قبل الشراء» يعرض أكثر مما يُسلَّم — أسوأ فئة خلل
+                تجارياً. يُرسم الآن على البطاقة الحقيقية وعلى وجهَيها. */}
+            {emblemId && (
+              <div
+                className="absolute pointer-events-none"
+                style={{
+                  top: -Math.round(emblemSize * 0.42), left: '50%', transform: 'translateX(-50%)',
+                  zIndex: 75, filter: 'drop-shadow(0 5px 10px rgba(0,0,0,0.65))',
+                }}
+              >
+                <ChipsEmblem id={emblemId as EmblemId} size={emblemSize} />
+              </div>
+            )}
           </div>
+          </CardFxBoundary>
         ))}
 
         {/* ══════════════════════════════════ */}
@@ -509,11 +581,14 @@ export default function DynamicMafiaCard({
                 </h3>
 
                 {/* اسم اللاعب — يُخفى عند hideIdentity */}
+                {/* 🪙 تأثير الاسم المشترى يسري هنا أيضاً (قرار المالك ٤): كان
+                    يظهر على وجه الغلاف فقط فيختفي لحظة انقلاب البطاقة في
+                    مراسم الكشف — أي في أكثر لحظة يراها الجميع. */}
                 {!hideIdentity && cardTemplate?.elements?.showPlayerNumber !== false && (
                   <p
-                    className="text-white/50 text-sm max-w-[85%] truncate mx-auto"
+                    className={`text-sm max-w-[85%] truncate mx-auto ${nameFx?.enabled ? 'font-bold' : 'text-white/50'}`}
                     dir="auto"
-                    style={{ fontFamily: 'Amiri, serif', ...(cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}) }}
+                    style={{ fontFamily: 'Amiri, serif', ...nameFxStyle, ...(cardTemplate?.elements?.positions?.playerName ? { transform: `translate(${cardTemplate.elements.positions.playerName.x}px, ${cardTemplate.elements.positions.playerName.y}px) scale(${cardTemplate.elements.positions.playerName.s || 1})` } : {}) }}
                   >
                     {playerName}
                   </p>

@@ -98,7 +98,10 @@ export default function StorePage() {
   const previewCosmetics = useMemo(() => {
     if (!tryOn) return cosmetics;
     const base = { ...(cosmetics || {}) };
-    if (tryOn.kind === 'frame') base.frame = { config: tryOn.config };
+    // ⚠️ الشعار يُمرَّر مع الإطار: البطاقة نفسها ترسمه الآن، فما تراه هنا هو
+    //    ما تعرضه شاشة القاعة حرفياً. سابقاً كان يُرسم بطبقة يدوية في المتجر
+    //    فقط — أي أن المعاينة كانت تَعِد بأكثر مما يُسلَّم.
+    if (tryOn.kind === 'frame') base.frame = { config: tryOn.config, emblemId: tryOn.emblemId ?? null };
     else if (tryOn.kind === 'title') base.title = { config: tryOn.config };
     else if (tryOn.kind === 'name_fx') base.nameFx = { config: tryOn.config };
     return base;
@@ -182,11 +185,8 @@ export default function StorePage() {
               avatarUrl={me?.avatarUrl || null}
               cosmetics={previewCosmetics}
             />
-            {tryOn?.kind === 'frame' && tryOn.emblemId && (
-              <div className="absolute pointer-events-none" style={{ top: -4, left: '50%', transform: 'translateX(-50%)', zIndex: 75, filter: 'drop-shadow(0 5px 10px rgba(0,0,0,0.65))' }}>
-                <ChipsEmblem id={tryOn.emblemId as EmblemId} size={58} />
-              </div>
-            )}
+            {/* الشعار يرسمه محرّك البطاقة نفسه الآن — أُزيلت الطبقة اليدوية
+                كي لا تفترق المعاينة عمّا يظهر في القاعة. */}
           </div>
           <p className="text-[11px] text-gray-500 mt-3">
             {tryOn ? `👀 تُعاين «${tryOn.nameAr}» — لم تُشترَ بعد` : 'بطاقتك كما يراها الجميع'}
