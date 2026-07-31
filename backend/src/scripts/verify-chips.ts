@@ -1046,6 +1046,24 @@ async function main() {
     }
 
     // ٨.١٤ التصدير يخرج CSV صالحاً بترويسة BOM (كي تفتحه Excel بالعربية)
+    // ـ تقرير السجل يُحل فعلاً على بيانات حقيقية
+    {
+      const { chipsEconomyReport } = await import('../reports/definitions/chips-economy.report.js');
+      let doc: any = null, err: any = null;
+      try {
+        doc = await chipsEconomyReport.resolve({
+          db: db as any, params: {},
+          user: { id: 0, username: 'verify', role: 'admin', displayName: 'التحقّق' },
+        });
+      } catch (e: any) { err = e; }
+      check(!!doc && Array.isArray(doc.sections) && doc.sections.length >= 4,
+        'تقرير السجل (chips-economy) يُحلّ بلا خطأ',
+        err ? String(err?.message).slice(0, 120) : `أقسام=${doc?.sections?.length}`);
+      const kpis = doc?.sections?.find((x: any) => x.type === 'kpis');
+      check(!!kpis && kpis.items.every((k: any) => k.value !== undefined && k.value !== null),
+        'مؤشّرات التقرير محسوبة بلا قيم مفقودة');
+    }
+
     const csv = await exportLedgerCsv({});
     const firstLine = csv.split('\n')[0] || '';
     check(csv.charCodeAt(0) === 0xFEFF, '📤 التصدير يبدأ بـ BOM — Excel يقرأ العربية بلا تشويه');
