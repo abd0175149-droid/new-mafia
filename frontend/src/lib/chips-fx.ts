@@ -25,7 +25,12 @@ export interface FxChannels {
   gradientOverlay: { enabled: boolean; color: string; opacity: number; direction: string };
   floating: { enabled: boolean; content: string; position: 'top' | 'bottom'; size: number; animation: FloatAnim; glowColor: string; offsetX?: number; offsetY?: number; scale?: number };
   badge: { enabled: boolean; emoji: string; label: string; bgColor: string; textColor: string; borderColor: string; offsetX?: number; offsetY?: number; scale?: number };
-  nameEffect: { enabled: boolean; color: string; glowColor: string; glowSize: number };
+  nameEffect: {
+    enabled: boolean; color: string; glowColor: string; glowSize: number;
+    style: string; color2: string; angle: number;
+    outlineColor: string; outlineWidth: number;
+    anim: string; animDuration: number; enter: string;
+  };
 }
 
 /** كل القنوات مطفأة — الأساس الذي يُدمج فوقه أي إعداد جزئي */
@@ -39,7 +44,12 @@ export const FX_DEFAULTS: FxChannels = {
   gradientOverlay: { enabled: false, color: '#f59e0b', opacity: 0.1, direction: 'to top' },
   floating: { enabled: false, content: '', position: 'top', size: 18, animation: 'float', glowColor: '#f59e0b' },
   badge: { enabled: false, emoji: '', label: '', bgColor: 'rgba(0,0,0,0.6)', textColor: '#fcd34d', borderColor: 'rgba(245,158,11,0.4)' },
-  nameEffect: { enabled: false, color: '#ffffff', glowColor: '#f59e0b', glowSize: 8 },
+  nameEffect: {
+    enabled: false, color: '#ffffff', glowColor: '#f59e0b', glowSize: 8,
+    style: 'glow', color2: '#f59e0b', angle: 90,
+    outlineColor: '#000000', outlineWidth: 1,
+    anim: 'none', animDuration: 2.5, enter: 'none',
+  },
 };
 
 export const FX_CHANNELS = Object.keys(FX_DEFAULTS) as (keyof FxChannels)[];
@@ -187,6 +197,15 @@ export function normalizeFx(input: unknown): FxChannels {
       color: hex(ne.color, d.nameEffect.color),
       glowColor: hex(ne.glowColor, d.nameEffect.glowColor),
       glowSize: num(ne.glowSize, d.nameEffect.glowSize, 0, 30),
+      // قنوات كتالوج التأثيرات — الافتراضي يُنتج السلوك القديم حرفياً
+      style: pick(ne.style, ['glow', 'gradient', 'outline', 'engraved'] as const, d.nameEffect.style as any),
+      color2: hex(ne.color2, d.nameEffect.color2),
+      angle: Math.round(num(ne.angle, d.nameEffect.angle, 0, 360)),
+      outlineColor: hex(ne.outlineColor, d.nameEffect.outlineColor),
+      outlineWidth: num(ne.outlineWidth, d.nameEffect.outlineWidth, 0, 2),
+      anim: pick(ne.anim, ['none', 'pulse', 'flicker', 'sweep', 'cycle'] as const, d.nameEffect.anim as any),
+      animDuration: num(ne.animDuration, d.nameEffect.animDuration, 0.4, 20),
+      enter: pick(ne.enter, ['none', 'fade', 'rise'] as const, d.nameEffect.enter as any),
     },
   };
 }

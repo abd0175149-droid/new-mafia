@@ -10,6 +10,7 @@ import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { ChipsEmblem, type EmblemId } from '@/components/ChipsEmblems';
 import FxEditor from '@/components/effects/FxEditor';
 import TitleEditor from '@/components/effects/TitleEditor';
+import NameFxEditor from '@/components/effects/NameFxEditor';
 import { TITLE_PLAQUE_DEFAULTS } from '@/components/TitlePlaque';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -881,9 +882,8 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   const [titleText, setTitleText] = useState('');
   const [titleStyle, setTitleStyle] = useState('gold');
   const [titlePlaque, setTitlePlaque] = useState<any>(TITLE_PLAQUE_DEFAULTS);
-  const [fxColor, setFxColor] = useState('#fcd34d');
-  const [fxGlow, setFxGlow] = useState('#f59e0b');
-  const [fxGlowSize, setFxGlowSize] = useState('10');
+  // كامل كائن تأثير الاسم — لا ثلاثة متغيّرات منفصلة
+  const [nameFxCfg, setNameFxCfg] = useState<any>({ enabled: true, color: '#fcd34d', glowColor: '#f59e0b', glowSize: 10 });
   const [entranceDesign, setEntranceDesign] = useState('don');
   const [entranceMs, setEntranceMs] = useState('3500');
   const [elimDesign, setElimDesign] = useState('burn');
@@ -923,7 +923,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
       case 'title': return titleStyle === 'custom'
         ? { text: titleText, style: 'custom', plaque: titlePlaque }
         : { text: titleText, style: titleStyle };
-      case 'name_fx': return { nameEffect: { color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } };
+      case 'name_fx': return { nameEffect: nameFxCfg };
       case 'entrance': return { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
       case 'elimination': return { design: elimDesign };
       case 'victory_sting': return { soundId };
@@ -938,7 +938,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
     if (kind === 'title') return { title: { config: titleStyle === 'custom'
       ? { text: titleText, style: 'custom', plaque: titlePlaque }
       : { text: titleText, style: titleStyle } } };
-    if (kind === 'name_fx') return { nameFx: { config: { nameEffect: { enabled: true, color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } } } };
+    if (kind === 'name_fx') return { nameFx: { config: { nameEffect: { ...nameFxCfg, enabled: true } } } };
     return null;
   };
 
@@ -1058,22 +1058,9 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
           )}
 
           {kind === 'name_fx' && (
-            <>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="block text-[11px] text-gray-500 mb-1">لون الاسم</label>
-                  <input type="color" value={fxColor} onChange={e => setFxColor(e.target.value)} className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-[11px] text-gray-500 mb-1">لون التوهّج</label>
-                  <input type="color" value={fxGlow} onChange={e => setFxGlow(e.target.value)} className="w-full h-9 bg-gray-900/70 border border-gray-700/40 rounded-lg" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-[11px] text-gray-500 mb-1">حجم التوهّج ({fxGlowSize}px)</label>
-                <input type="range" min={0} max={30} value={fxGlowSize} onChange={e => setFxGlowSize(e.target.value)} className="w-full accent-amber-500" />
-              </div>
-            </>
+            <div className="border border-gray-700/40 rounded-xl p-3 bg-gray-900/30">
+              <NameFxEditor value={nameFxCfg} onChange={setNameFxCfg} />
+            </div>
           )}
 
           {kind === 'entrance' && (

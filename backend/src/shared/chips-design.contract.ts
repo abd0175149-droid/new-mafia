@@ -25,6 +25,11 @@ export const FRAME_SVG_TYPES = ['none', 'simple', 'greek', 'islamic', 'deco', 'r
 export const EMBLEM_IDS = ['don', 'blood', 'neon', 'bullet', 'smoke', 'deal', 'crime', 'champ'] as const;
 
 /** أنماط لوحة اللقب — أصناف CSS في RankEffects.css */
+/** كتالوج تأثيرات الاسم — frontend/src/lib/name-fx.ts */
+export const NAME_FX_STYLES = ['glow', 'gradient', 'outline', 'engraved'] as const;
+export const NAME_FX_ANIMS = ['none', 'pulse', 'flicker', 'sweep', 'cycle'] as const;
+export const NAME_FX_ENTERS = ['none', 'fade', 'rise'] as const;
+
 export const TITLE_STYLES = ['gold', 'blood', 'ghost', 'custom'] as const;
 
 /** تخطيطات تشريفة الدخول — frontend/src/components/EntranceOverlay.tsx */
@@ -401,6 +406,15 @@ export function normalizeItemConfig(kind: string, raw: any): NormalizeResult {
             color: hex(ne.color, '#fcd34d'),
             glowColor: hex(ne.glowColor, '#f59e0b'),
             glowSize: num(ne.glowSize, 10, 0, 30),
+            // كتالوج التأثيرات — الافتراضي `glow` وهو السلوك القديم حرفياً
+            style: pick(ne.style, NAME_FX_STYLES, 'glow'),
+            color2: hex(ne.color2, '#f59e0b'),
+            angle: Math.round(num(ne.angle, 90, 0, 360)),
+            outlineColor: hex(ne.outlineColor, '#000000'),
+            outlineWidth: num(ne.outlineWidth, 1, 0, 2),
+            anim: pick(ne.anim, NAME_FX_ANIMS, 'none'),
+            animDuration: num(ne.animDuration, 2.5, 0.4, 20),
+            enter: pick(ne.enter, NAME_FX_ENTERS, 'none'),
           },
         },
         coerced: coercionsOf(ne, { color: hex(ne.color, '#fcd34d'), glowColor: hex(ne.glowColor, '#f59e0b') }),
@@ -467,6 +481,9 @@ export function designRegistry() {
     frameSvgTypes: FRAME_SVG_TYPES,
     emblems: EMBLEM_IDS,
     titleStyles: TITLE_STYLES,
+    nameFxStyles: NAME_FX_STYLES,
+    nameFxAnims: NAME_FX_ANIMS,
+    nameFxEnters: NAME_FX_ENTERS,
     titlePlaqueDefaults: TITLE_PLAQUE_DEFAULTS,
     titlePresets: TITLE_PRESETS,
     titleAnims: TITLE_ANIMS,

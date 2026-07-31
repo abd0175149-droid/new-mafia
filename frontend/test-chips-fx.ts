@@ -11,6 +11,7 @@ import {
   normalizeFx, mergeFx, hasAnyEnabled, hasLayerVisuals,
   FX_DEFAULTS, FX_CHANNELS, type FxChannels,
 } from './src/lib/chips-fx';
+import { buildNameFxStyle } from './src/lib/name-fx';
 
 let pass = 0, fail = 0;
 function check(ok: boolean, label: string, detail = '') {
@@ -133,6 +134,83 @@ check(hasAnyEnabled(normalizeFx({ nameEffect: { enabled: true } })) === true, '�
 check(hasLayerVisuals(normalizeFx({ nameEffect: { enabled: true } })) === false, 'تأثير الاسم وحده لا يستدعي طبقة تأثيرات (يُرسم على الاسم مباشرة)');
 check(hasLayerVisuals(normalizeFx({ corners: { enabled: true } })) === true, 'الزوايا تستدعي الطبقة — القناة صارت حيّة');
 check(hasLayerVisuals(normalizeFx({ glow: { enabled: true } })) === false, 'توهّج بلا إطار لا يستدعي طبقة (لأنه لن يُرسم)');
+
+
+// ══════════════════════════════════════════════════════
+// ٧) كتالوج تأثير الاسم
+//
+// القاعدة الحاكمة: صفٌّ مخزَّن بلا `style` هو المسار القديم — يجب أن
+// يُنتج **نفس سلسلة textShadow بطبقتيها** التي كانت تُرسم، حرفياً.
+// ══════════════════════════════════════════════════════
+console.log('\n٧) كتالوج تأثير الاسم:');
+{
+  const b = (cfg: any) => buildNameFxStyle(cfg);
+
+  // ٧.١ 🔒 المسار القديم بلا تغيير بكسل
+  const legacy = b({ enabled: true, color: '#fcd34d', glowColor: '#f59e0b', glowSize: 10 });
+  const expected = 'rgba(245, 158, 11, 0.45)';
+  check(legacy.style.color === '#fcd34d', 'اللون كما هو');
+  check(String(legacy.style.textShadow).includes('0 0 10px') && String(legacy.style.textShadow).includes('0 0 25px'),
+    '🔒 التوهّج بطبقتيه (10px ثم 25px) كما كان حرفياً', String(legacy.style.textShadow));
+  check(String(legacy.style.textShadow).includes(expected), 'شفافية الطبقة القريبة 0.45 كما كانت');
+  check(legacy.className === '', 'المسار القديم بلا أي صنف — لا حركة مفروضة على من اشترى');
+
+  // ٧.٢ التأثير المطفأ لا يُنتج شيئاً
+  const off = b({ enabled: false, color: '#fff' });
+  check(Object.keys(off.style).length === 0 && off.className === '', 'المطفأ لا يُنتج أنماطاً');
+
+  // ٧.٣ التدرّج يقصّ الخلفية على الحروف — ولا يستعمل ظلّ النصّ
+  const grad = b({ enabled: true, style: 'gradient', color: '#ff0000', color2: '#0000ff', angle: 45, glowSize: 8 });
+  check(String(grad.style.backgroundImage).includes('linear-gradient(45deg'), 'التدرّج بزاويته');
+  check((grad.style as any).WebkitBackgroundClip === 'text' && (grad.style as any).WebkitTextFillColor === 'transparent',
+    'الخلفية مقصوصة على الحروف');
+  check(!grad.style.textShadow && String(grad.style.filter).includes('drop-shadow'),
+    '⚠️ التوهّج مرشّح لا ظلّ نصّ — ظلّ النصّ لا يُرسم إطلاقاً مع الحروف الشفّافة');
+
+  // ٧.٤ التوهّج في التدرّج مقصوص حفاظاً على قراءة الحرف من بعيد
+  const grad2 = b({ enabled: true, style: 'gradient', glowSize: 30 });
+  check(String(grad2.style.filter).includes('12px'), 'توهّج التدرّج مقصوص عند ١٢px', String(grad2.style.filter));
+
+  // ٧.٥ الحدّ الخارجي
+  const out = b({ enabled: true, style: 'outline', outlineColor: '#000000', outlineWidth: 2 });
+  check((out.style as any).WebkitTextStrokeWidth === '2px' && (out.style as any).WebkitTextStrokeColor === '#000000',
+    'الحدّ الخارجي بسماكته ولونه');
+  check(out.style.paintOrder === 'stroke fill', 'ترتيب الرسم يضع الحدّ خلف الحرف فلا يأكله');
+
+  // ٧.٦ النقش
+  const eng = b({ enabled: true, style: 'engraved' });
+  check(String(eng.style.textShadow).includes('0 1px 0') && String(eng.style.textShadow).includes('0 -1px 1px'),
+    'النقش: ضوء من فوق وظلّ من تحت');
+
+  // ٧.٧ الحركة تُنتج صنفاً ومتغيّرات لا صنفاً لكل قيمة
+  const anim = b({ enabled: true, anim: 'pulse', animDuration: 3.5 });
+  check(anim.className.includes('namefx-pulse'), 'الحركة تُنتج صنفها');
+  check((anim.style as any)['--namefx-dur'] === '3.5s', 'المدّة تصل عبر متغيّر CSS', String((anim.style as any)['--namefx-dur']));
+
+  // ٧.٨ اللمعة مع التدرّج تستعمل حركة الخلفية لا صنف النبض
+  const sweep = b({ enabled: true, style: 'gradient', anim: 'sweep' });
+  check(sweep.className.includes('namefx-sweep') && String(sweep.style.backgroundSize).includes('250%'),
+    'اللمعة تمرّ عبر خلفية أعرض من النص');
+
+  // ٧.٩ الدخول
+  const enter = b({ enabled: true, enter: 'rise' });
+  check(enter.className.includes('namefx-enter-rise'), 'حركة الدخول تُنتج صنفها');
+
+  // ٧.١٠ القصّ والمدخلات الفاسدة
+  const wild = b({
+    enabled: true, style: 'nope', anim: 'explode', enter: 'boom',
+    color: 'not-a-color', glowSize: 999, outlineWidth: 99, angle: -50, animDuration: 0.0001,
+  });
+  check(wild.style.color === '#ffffff', 'لون فاسد ⇒ الافتراضي', String(wild.style.color));
+  check(String(wild.style.textShadow).includes('30px'), 'حجم التوهّج مقصوص عند ٣٠');
+  check(wild.className === '', 'نمط وحركة ودخول مجهولة ⇒ الافتراضي الصامت (لا صنف)');
+
+  for (const bad of [null, undefined, [], 'x', 42]) {
+    const r = b(bad);
+    check(typeof r.style === 'object' && typeof r.className === 'string',
+      `مُدخل من نوع ${typeof bad} لا يُسقط البناء`);
+  }
+}
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
 process.exit(fail === 0 ? 0 : 1);

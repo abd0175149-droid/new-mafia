@@ -5,6 +5,7 @@ import './RankEffects.css';
 import { ChipsEmblem, type EmblemId } from './ChipsEmblems';
 import { normalizeFx } from '@/lib/chips-fx';
 import TitlePlaque from './TitlePlaque';
+import { buildNameFxStyle } from '@/lib/name-fx';
 
 // ══════════════════════════════════════════════════════
 // 🖼️ صورة العنصر في المتجر
@@ -79,14 +80,15 @@ export default function StoreItemVisual({ item, playerName = 'اسمك', size = 
 
   // ── تأثير الاسم: اسم اللاعب نفسه بالتأثير المعروض للبيع ──
   if (item.kind === 'name_fx') {
-    const ne = normalizeFx({ nameEffect: item.config?.nameEffect }).nameEffect;
+    // نفس باني الأنماط الذي تستعمله البطاقة — فلا تعد المعاينة
+    // تعرض غير ما يُرسم (النسخة اليدوية هنا كانت تتجاهل التدرّج والحركة).
+    const nf = buildNameFxStyle({ ...(item.config?.nameEffect || {}), enabled: true });
     return (
       <div style={{ ...box, width: 'auto', minWidth: size, padding: '0 10px' }}>
-        <span style={{
-          fontFamily: 'Amiri, serif', fontWeight: 900, fontSize: 15,
-          color: ne.color,
-          textShadow: `0 0 ${ne.glowSize}px ${ne.glowColor}88, 0 0 ${ne.glowSize * 2.5}px ${ne.glowColor}44`,
-        }}>{playerName}</span>
+        <span className={nf.className}
+          style={{ fontFamily: 'Amiri, serif', fontWeight: 900, fontSize: 15, ...nf.style }}>
+          {playerName}
+        </span>
       </div>
     );
   }

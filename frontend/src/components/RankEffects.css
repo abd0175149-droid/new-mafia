@@ -619,3 +619,53 @@
   .chips-title-plaque { animation: none !important; }
   .chips-title-plaque::after { animation: none !important; }
 }
+
+/* ══════════════════════════════════════════════════════
+   🔤 كتالوج تأثيرات الاسم — الحركة والدخول
+   البيانات تختار الصنف والمدّة والألوان (عبر متغيّرات CSS)،
+   وهذه توفّر الحركة وحدها. لا صنف لكل لون.
+   ══════════════════════════════════════════════════════ */
+
+@keyframes namefx-pulse-kf {
+  0%, 100% { text-shadow: 0 0 6px var(--namefx-glow, rgba(245,158,11,0.5)); }
+  50%      { text-shadow: 0 0 20px var(--namefx-glow, rgba(245,158,11,0.9)), 0 0 34px var(--namefx-glow, rgba(245,158,11,0.4)); }
+}
+.namefx-pulse { animation: namefx-pulse-kf var(--namefx-dur, 2.5s) ease-in-out infinite; }
+
+/* رفّة نيون — غير منتظمة عمداً، فالانتظام يبدو آلياً لا معطوباً */
+@keyframes namefx-flicker-kf {
+  0%, 19%, 21%, 49%, 53%, 100% { opacity: 1; }
+  20%  { opacity: 0.45; }
+  50%  { opacity: 0.72; }
+  52%  { opacity: 0.35; }
+}
+.namefx-flicker { animation: namefx-flicker-kf var(--namefx-dur, 2.5s) linear infinite; }
+
+/* اللمعة تمرّ عبر التدرّج — تعمل فقط مع نمط التدرّج (الخلفية مقصوصة على النص) */
+@keyframes namefx-sweep-kf {
+  0%   { background-position: 200% 50%; }
+  100% { background-position: -100% 50%; }
+}
+.namefx-sweep { animation: namefx-sweep-kf var(--namefx-dur, 2.5s) linear infinite; }
+
+/* تبديل لوني بين اللونين المختارين — يبقى ضمن اختيار المؤلّف فلا يشحب */
+@keyframes namefx-cycle-kf {
+  0%, 100% { color: var(--namefx-color, #ffffff); }
+  50%      { color: var(--namefx-color2, #f59e0b); }
+}
+.namefx-cycle { animation: namefx-cycle-kf var(--namefx-dur, 2.5s) ease-in-out infinite; }
+
+/* الدخول — يُلعب مرّة واحدة عند ظهور البطاقة (وهي تنقلب في الكشف) */
+@keyframes namefx-enter-fade-kf { from { opacity: 0; } to { opacity: 1; } }
+.namefx-enter-fade { animation: namefx-enter-fade-kf 0.5s ease-out both; }
+
+@keyframes namefx-enter-rise-kf {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.namefx-enter-rise { animation: namefx-enter-rise-kf 0.45s cubic-bezier(0.16,1,0.3,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .namefx-pulse, .namefx-flicker, .namefx-sweep, .namefx-cycle,
+  .namefx-enter-fade, .namefx-enter-rise { animation: none !important; }
+}

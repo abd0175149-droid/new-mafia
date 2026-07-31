@@ -7,6 +7,7 @@ import { ChipsEmblem, type EmblemId } from './ChipsEmblems';
 import { CardFxBoundary } from './CardFxBoundary';
 import TitlePlaque from './TitlePlaque';
 import { normalizeFx, mergeFx, hasAnyEnabled, hasLayerVisuals } from '@/lib/chips-fx';
+import { buildNameFxStyle } from '@/lib/name-fx';
 import { useGameConfig, type CardTemplateDef, type RoleDef } from '@/hooks/useGameConfig';
 import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
 import {
@@ -147,12 +148,11 @@ export default function DynamicMafiaCard({
   // 🪙 نمط الاسم المشترك بين وجهَي البطاقة — قرار المالك (٤): تأثير الاسم على
   //    الوجهين، ولوحة اللقب على وجه الغلاف فقط (وجه الدور مزدحم وستتصادم
   //    اللوحة مع اسم الدور). لا يُعاد فتح هذا القرار.
-  const nameFxStyle: React.CSSProperties = nameFx?.enabled
-    ? {
-        color: nameFx.color,
-        textShadow: `0 0 ${nameFx.glowSize}px ${hexToRgba(nameFx.glowColor, 0.45)}, 0 0 ${nameFx.glowSize * 2.5}px ${hexToRgba(nameFx.glowColor, 0.18)}`,
-      }
-    : {};
+  //    البناء انتقل إلى lib/name-fx لأن التأثير صار كتالوجاً (تدرّج · حدّ
+  //    خارجي · نقش) مع حركة ودخول — وبعضها يحتاج صنفاً لا أنماطاً سطرية.
+  const { style: nameFxStyle, className: nameFxClass } = React.useMemo(
+    () => buildNameFxStyle(nameFx), [nameFx],
+  );
 
   const titleCfg = cosmetics?.title?.config || null;
   const emblemId = cosmetics?.frame?.emblemId || null;
@@ -301,14 +301,14 @@ export default function DynamicMafiaCard({
               <div onClick={handleVoteClick} className="w-full flex flex-col items-center justify-center cursor-pointer group relative flex-1">
                 {votes > 0 && <div className="absolute inset-0 bg-red-900/15 animate-pulse rounded-b-xl" />}
                 <div className="relative z-10 flex items-center justify-center gap-2 w-full" style={cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}}>
-                  <h2 className={`${nameSize} font-black text-white leading-tight`} style={{ fontFamily: font, ...nameFxStyle }}>{truncatedName}</h2>
+                  <h2 className={`${nameSize} font-black text-white leading-tight ${nameFxClass}`} style={{ fontFamily: font, ...nameFxStyle }}>{truncatedName}</h2>
                   <span className={`font-mono font-black transition-all duration-300 ${{ sm: 'text-3xl', md: 'text-4xl', lg: 'text-5xl', fluid: 'text-4xl' }[size]} ${votes > 0 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.6)]' : 'text-zinc-600 group-hover:text-zinc-400'}`}>{votes}</span>
                 </div>
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
               </div>
             ) : (
               <>
-                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' && !nameFx?.enabled ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...nameFxStyle, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
+                <h2 className={`${nameSize} font-black text-white text-center leading-tight ${nameFxClass} ${tier === 'GODFATHER' && !nameFx?.enabled ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...nameFxStyle, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
                 {/* 🪙 لوحة اللقب المشترى — تحت الاسم مباشرة */}
                 {titleCfg?.text && (
                   <TitlePlaque text={titleCfg.text} style={titleCfg.style} plaque={titleCfg.plaque} />
