@@ -396,6 +396,7 @@ function DisplayPageContent() {
         const inMatch = phaseRef.current !== Phase.LOBBY && phaseRef.current !== Phase.ROLE_GENERATION && phaseRef.current !== Phase.ROLE_BINDING;
         setEntrance({
           design: entranceCfg.design,
+          elements: entranceCfg.elements,
           name: data.name,
           physicalId: data.physicalId,
           gender: data.gender === 'FEMALE' ? 'FEMALE' : 'MALE',

@@ -14,11 +14,14 @@ import { motion } from 'framer-motion';
 import './RankEffects.css';   // رفّة النيون (entrance-flick)
 import MafiaCard from './MafiaCard';
 import { ChipsEmblem } from './ChipsEmblems';
+import EntranceStage from './EntranceStage';
 
-export type EntranceDesign = 'don' | 'seal' | 'neon' | 'file';
+export type EntranceDesign = 'don' | 'seal' | 'neon' | 'file' | 'custom';
 
 export interface EntrancePayload {
   design: EntranceDesign;
+  /** عناصر التشريفة المؤلَّفة — تُقرأ فقط حين design === 'custom' */
+  elements?: any;
   name: string;
   physicalId: number;
   gender?: 'MALE' | 'FEMALE';
@@ -41,7 +44,7 @@ export function EntranceOverlay({ data }: { data: EntrancePayload }) {
       design === 'don' ? { bg: 'rgba(69,26,3,0.92)', bd: 'rgba(245,158,11,0.55)', fg: '#fcd34d' }
       : design === 'seal' ? { bg: 'rgba(69,10,10,0.92)', bd: 'rgba(220,38,38,0.55)', fg: '#fca5a5' }
       : design === 'neon' ? { bg: 'rgba(8,51,68,0.92)', bd: 'rgba(34,211,238,0.55)', fg: '#67e8f9' }
-      : { bg: 'rgba(24,24,27,0.92)', bd: 'rgba(161,161,170,0.5)', fg: '#d4d4d8' };
+      : { bg: 'rgba(24,24,27,0.92)', bd: 'rgba(161,161,170,0.5)', fg: '#d4d4d8' };   // يشمل 'custom' و'file'
     return (
       <motion.div
         initial={{ y: -70, opacity: 0 }}
@@ -51,9 +54,23 @@ export function EntranceOverlay({ data }: { data: EntrancePayload }) {
         className="fixed top-20 left-1/2 -translate-x-1/2 z-[295] px-5 py-2.5 rounded-2xl flex items-center gap-3 pointer-events-none"
         style={{ background: tone.bg, border: `1px solid ${tone.bd}`, backdropFilter: 'blur(10px)' }}
       >
+        {/* المختصرة أثناء المباراة تبقى شريطاً هادئاً مهما كان التصميم —
+            مسرح كامل في منتصف نقاش محتدم يقطع اللعب لا يزيّنه. */}
         <ChipsEmblem id={design === 'don' ? 'don' : design === 'seal' ? 'blood' : design === 'neon' ? 'neon' : 'smoke'} size={30} />
         <span className="text-xl font-black" style={{ fontFamily: 'Amiri, serif', color: tone.fg }}>{name}</span>
         <span className="text-[10px] font-mono tracking-[0.25em] uppercase" style={{ color: tone.fg, opacity: 0.6 }}>JOINED</span>
+      </motion.div>
+    );
+  }
+
+  // ── ✨ تشريفة مؤلَّفة — تمرّ من المسرح لا من فرع مكتوب بخطّ اليد ──
+  //    الفروع الأربعة أدناه تبقى كما هي بلا لمس: من اشترى «موكب العرّاب»
+  //    يراه كما رآه أمس. هذا المسار للتصاميم الجديدة وحدها.
+  if (design === 'custom') {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[295] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md pointer-events-none">
+        <EntranceStage elements={data.elements} playerName={name} />
       </motion.div>
     );
   }

@@ -123,8 +123,13 @@ console.log('\n٥) السجلّ:');
   // كل معرّف في السجلّ يجب أن يقبله المُطبِّع — وإلا عرضت اللوحة خياراً يُرفض
   const badTitle = reg.titleStyles.filter(st => !normalizeItemConfig('title', { text: 'x', style: st }).ok);
   check(badTitle.length === 0, 'كل نمط لقب في السجلّ يقبله المُطبِّع', badTitle.join(','));
-  const badEnt = reg.entranceDesigns.filter(d => !normalizeItemConfig('entrance', { design: d }).ok);
-  check(badEnt.length === 0, 'كل تخطيط تشريفة في السجلّ يقبله المُطبِّع', badEnt.join(','));
+  // ⚠️ «custom» يحتاج عنصراً واحداً على الأقل — وهو رفض مقصود لا تناقض.
+  //    الثابت المقصود هنا: كل خيار تعرضه اللوحة له إعداد صالح يُقبل،
+  //    لا أن كل خيار يُقبل فارغاً.
+  const minimalEntrance = (d: string) =>
+    d === 'custom' ? { design: d, elements: [{ type: 'name' }] } : { design: d };
+  const badEnt = reg.entranceDesigns.filter(d => !normalizeItemConfig('entrance', minimalEntrance(d)).ok);
+  check(badEnt.length === 0, 'كل تخطيط تشريفة في السجلّ له إعداد صالح يقبله المُطبِّع', badEnt.join(','));
   const badElim = reg.eliminationDesigns.filter(d => !normalizeItemConfig('elimination', { design: d }).ok);
   check(badElim.length === 0, 'كل نمط إقصاء في السجلّ يقبله المُطبِّع', badElim.join(','));
 }
@@ -267,6 +272,86 @@ console.log('\n٨) تصاميم الإقصاء:');
   // ٨.٧ الثبات
   const once = e({ design: 'shatter', particles: 5 }).config;
   const twice = e(once).config;
+  check(JSON.stringify(twice) === JSON.stringify(once), 'التطبيع ثابت');
+}
+
+
+// ══════════════════════════════════════════════════════
+// ٩) التشريفة المؤلَّفة
+//
+// 🔒 القاعدة: الأربعة القديمة تُخزَّن بحقلين فقط، فتمرّ من فروعها الحيّة
+//    التي لم تُمسّ. `custom` وحده يحمل عناصر.
+// ══════════════════════════════════════════════════════
+console.log('\n٩) التشريفة المؤلَّفة:');
+{
+  const en = (cfg: any) => normalizeItemConfig('entrance', cfg) as any;
+
+  // ٩.١ الأربعة القديمة بلا حقل زائد
+  for (const d of ['don', 'seal', 'neon', 'file']) {
+    const r = en({ design: d, durationMs: 3500 });
+    const keys = JSON.stringify(Object.keys(r.config).sort());
+    check(r.ok && keys === JSON.stringify(['design', 'durationMs']),
+      `«${d}» يُخزَّن بحقلين فقط — فرعه الحيّ لم يُمسّ`, keys);
+  }
+
+  // ٩.٢ المخصّص يحتاج عنصراً — لا يُباع مسرح فارغ
+  const empty = en({ design: 'custom', elements: [] });
+  check(!empty.ok && empty.field === 'config.elements', 'تشريفة مخصّصة بلا عناصر مرفوضة');
+  const noEls = en({ design: 'custom' });
+  check(!noEls.ok, 'وبلا حقل عناصر أصلاً مرفوضة');
+
+  // ٩.٣ عنصر واحد يكفي
+  const one = en({ design: 'custom', elements: [{ type: 'name' }] });
+  check(one.ok && one.config.elements.length === 1, 'عنصر واحد يكفي');
+  check(one.config.design === 'custom' && typeof one.config.durationMs === 'number',
+    'المخصّص يحمل التصميم والمدّة والعناصر');
+
+  // ٩.٤ كل عنصر يخرج كاملاً مهما كان المُدخل ناقصاً
+  const full = en({ design: 'custom', elements: [{ type: 'emblem' }] }).config.elements[0];
+  check(JSON.stringify(Object.keys(full).sort()) === JSON.stringify(
+    ['color', 'color2', 'delayMs', 'durationMs', 'emblemId', 'enterFx', 'from', 'id', 'opacity', 'size', 'text', 'type', 'x', 'y'].sort()),
+    'العنصر يخرج بكل حقوله', JSON.stringify(Object.keys(full)));
+
+  // ٩.٥ القصّ
+  const wild = en({
+    design: 'custom',
+    elements: [{
+      type: 'zzz', x: 999, y: -999, size: 99999,
+      color: 'nope', emblemId: 'ghost-emblem',
+      enterFx: 'explode', from: 'diagonal',
+      delayMs: 99999, durationMs: 1, opacity: 42,
+    }],
+  }).config.elements[0];
+  check(wild.type === 'text', 'نوع عنصر مجهول ⇒ نصّ', wild.type);
+  check(wild.x === 50 && wild.y === -50, 'الموضع مقصوص إلى ±٥٠٪');
+  check(wild.size === 400, 'الحجم مقصوص عند ٤٠٠');
+  check(wild.color === '#fcd34d', 'لون فاسد ⇒ الافتراضي');
+  check(wild.emblemId === 'don', 'شعار مجهول ⇒ الافتراضي (لا يُخزَّن معرّف لا يُرسم)');
+  check(wild.enterFx === 'fade' && wild.from === 'center', 'حركة واتجاه مجهولان ⇒ الافتراضي');
+  check(wild.delayMs === 5500, 'التأخير مقصوص دون السقف — لا عنصر يُخزَّن ولا يظهر أبداً');
+  check(wild.durationMs === 100 && wild.opacity === 1, 'المدّة والشفافية مقصوصتان');
+
+  // ٩.٦ سقف العناصر
+  const many = en({ design: 'custom', elements: Array.from({ length: 40 }, () => ({ type: 'text' })) });
+  check(many.config.elements.length === 10, 'العناصر مقصوصة عند ١٠ (مسرح مزدحم لا يُقرأ من ٣ أمتار)',
+    String(many.config.elements.length));
+
+  // ٩.٧ مُدخلات فاسدة مكان القائمة
+  for (const bad of ['x', 42, { a: 1 }, null]) {
+    const r = en({ design: 'custom', elements: bad });
+    check(!r.ok, `عناصر من نوع ${typeof bad} ⇒ رفض واضح لا انهيار`);
+  }
+  const withJunk = en({ design: 'custom', elements: ['x', null, { type: 'name' }] });
+  check(withJunk.ok && withJunk.config.elements.length === 3,
+    'عناصر عبثية داخل القائمة تُطبَّع إلى افتراضي بدل إسقاط الحفظ');
+
+  // ٩.٨ المدّة ما زالت محترمة ومقصوصة
+  check(en({ design: 'custom', elements: [{ type: 'name' }], durationMs: 99999 }).config.durationMs === 6000,
+    'مدّة التشريفة مقصوصة عند ٦ ثوانٍ');
+
+  // ٩.٩ الثبات
+  const once = en({ design: 'custom', elements: [{ type: 'seal', delayMs: 300 }] }).config;
+  const twice = en(once).config;
   check(JSON.stringify(twice) === JSON.stringify(once), 'التطبيع ثابت');
 }
 

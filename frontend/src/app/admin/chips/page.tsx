@@ -12,6 +12,7 @@ import FxEditor from '@/components/effects/FxEditor';
 import TitleEditor from '@/components/effects/TitleEditor';
 import NameFxEditor from '@/components/effects/NameFxEditor';
 import ElimEditor from '@/components/effects/ElimEditor';
+import EntranceEditor from '@/components/effects/EntranceEditor';
 import { TITLE_PLAQUE_DEFAULTS } from '@/components/TitlePlaque';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -861,6 +862,7 @@ const KIND_META: Record<string, { label: string; icon: string; hint: string }> =
 
 const ENTRANCE_LABEL: Record<string, string> = {
   don: '👑 موكب العرّاب', seal: '🩸 ختم العائلة', neon: '⚡ لافتة النيون', file: '🗂️ الملف السري',
+  custom: '✨ تصميم حرّ — ألّف عناصرك',
 };
 const TITLE_STYLE_LABEL: Record<string, string> = { gold: 'ذهبي', blood: 'دموي (نابض)', ghost: 'شبحي (متلاشٍ)', custom: '✨ مخصّص' };
 
@@ -887,6 +889,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   const [nameFxCfg, setNameFxCfg] = useState<any>({ enabled: true, color: '#fcd34d', glowColor: '#f59e0b', glowSize: 10 });
   const [entranceDesign, setEntranceDesign] = useState('don');
   const [entranceMs, setEntranceMs] = useState('3500');
+  const [entranceEls, setEntranceEls] = useState<any[]>([]);
   const [elimCfg, setElimCfg] = useState<any>({ design: 'burn' });
   const [soundId, setSoundId] = useState<number | null>(null);
   const [stings, setStings] = useState<Array<{ id: number; name: string; url: string; isActive: boolean }>>([]);
@@ -925,7 +928,9 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
         ? { text: titleText, style: 'custom', plaque: titlePlaque }
         : { text: titleText, style: titleStyle };
       case 'name_fx': return { nameEffect: nameFxCfg };
-      case 'entrance': return { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
+      case 'entrance': return entranceDesign === 'custom'
+        ? { design: 'custom', durationMs: Number(entranceMs) || 3500, elements: entranceEls }
+        : { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
       case 'elimination': return elimCfg;
       case 'victory_sting': return { soundId };
       case 'xp_boost': return { multiplier: Number(multiplier) || 2 };
@@ -1069,14 +1074,25 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">شكل الدخول</label>
                 <div className="space-y-2">
-                  {(reg?.entranceDesigns || ['don', 'seal', 'neon', 'file']).map((d: string) => (
+                  {(reg?.entranceDesigns || ['don', 'seal', 'neon', 'file', 'custom']).map((d: string) => (
                     <button key={d} onClick={() => setEntranceDesign(d)}
                       className={`w-full text-right px-3 py-2 rounded-xl border ${entranceDesign === d ? 'bg-amber-500/10 border-amber-500/50 text-amber-300' : 'bg-gray-900/50 border-gray-700/40 text-gray-300'}`}>
                       <span className="text-xs font-bold">{ENTRANCE_LABEL[d] || d}</span>
                     </button>
                   ))}
                 </div>
+                <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed">
+                  الأربعة الجاهزة تبقى كما هي تماماً لمن اشتراها.
+                  اختر <b className="text-amber-400">تصميم حرّ</b> لتؤلّف تشريفة من عناصرها — لكل عنصر موضعه وحركته ولحظة دخوله.
+                </p>
               </div>
+
+              {entranceDesign === 'custom' && (
+                <div className="border border-gray-700/40 rounded-xl p-3 bg-gray-900/30">
+                  <EntranceEditor value={entranceEls} onChange={setEntranceEls} />
+                </div>
+              )}
+
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">المدّة ({(Number(entranceMs) / 1000).toFixed(1)} ثانية)</label>
                 <input type="range" min={1200} max={6000} step={100} value={entranceMs} onChange={e => setEntranceMs(e.target.value)} className="w-full accent-amber-500" />

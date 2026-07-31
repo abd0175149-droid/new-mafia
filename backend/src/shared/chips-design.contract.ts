@@ -33,7 +33,14 @@ export const NAME_FX_ENTERS = ['none', 'fade', 'rise'] as const;
 export const TITLE_STYLES = ['gold', 'blood', 'ghost', 'custom'] as const;
 
 /** تخطيطات تشريفة الدخول — frontend/src/components/EntranceOverlay.tsx */
-export const ENTRANCE_DESIGNS = ['don', 'seal', 'neon', 'file'] as const;
+export const ENTRANCE_DESIGNS = ['don', 'seal', 'neon', 'file', 'custom'] as const;
+
+/** أنواع عناصر التشريفة المؤلَّفة — frontend/src/lib/entrance-schema.ts */
+export const ENTRANCE_ELEMENT_TYPES = ['text', 'name', 'emblem', 'bar', 'seal', 'wash', 'sparks'] as const;
+export const ENTRANCE_ENTER_FX = ['fade', 'slide', 'scale', 'stamp', 'flip'] as const;
+export const ENTRANCE_FROM = ['top', 'bottom', 'left', 'right', 'center'] as const;
+/** سقف العناصر: مسرح مزدحم لا يُقرأ من ثلاثة أمتار ويُثقل جهاز العرض */
+export const MAX_ENTRANCE_ELEMENTS = 10;
 
 /** تصاميم أنيميشن الإقصاء — frontend/src/components/EliminationFx.tsx */
 export const ELIMINATION_DESIGNS = ['burn', 'ash', 'drain', 'shatter', 'static'] as const;
@@ -84,6 +91,46 @@ function str(v: any, fallback: string, max = 40): string {
 function obj(src: any, k: string): any {
   const v = src?.[k];
   return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+}
+
+// ── عناصر التشريفة المؤلَّفة ──────────────────────────
+//
+// ⚠️ التشريفة كانت أربعة فروع JSX مكتوبة بخطّ اليد داخل مكوّن العرض،
+//    بمواضع وتأخيرات أرقاماً حرفية. تشريفة خامسة = فرع خامس ونشرة.
+//    الآن التشريفة قائمة عناصر، والخطّ الزمني كلّه بيانات.
+
+const ENTRANCE_ELEMENT_DEFAULTS = {
+  type: 'text', x: 0, y: 0, size: 100,
+  color: '#fcd34d', color2: '#f59e0b',
+  text: '', emblemId: 'don',
+  enterFx: 'fade', from: 'center',
+  delayMs: 0, durationMs: 600, opacity: 1,
+};
+
+/** يُطبّع قائمة العناصر — لا يرمي، ويقصّ ما تجاوز السقف */
+export function normalizeEntranceElements(raw: any): any[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const d = ENTRANCE_ELEMENT_DEFAULTS;
+  return arr.slice(0, MAX_ENTRANCE_ELEMENTS).map((e: any, i: number) => {
+    const el = (e && typeof e === 'object' && !Array.isArray(e)) ? e : {};
+    return {
+      id: typeof el.id === 'string' && el.id ? el.id.slice(0, 24) : `el${i}`,
+      type: pick(el.type, ENTRANCE_ELEMENT_TYPES, d.type as any),
+      x: num(el.x, d.x, -50, 50),
+      y: num(el.y, d.y, -50, 50),
+      size: num(el.size, d.size, 10, 400),
+      color: hex(el.color, d.color),
+      color2: hex(el.color2, d.color2),
+      text: str(el.text, d.text, 40),
+      emblemId: normalizeEmblemId(el.emblemId) || d.emblemId,
+      enterFx: pick(el.enterFx, ENTRANCE_ENTER_FX, d.enterFx as any),
+      from: pick(el.from, ENTRANCE_FROM, d.from as any),
+      // التأخير مقصوص دون السقف الكلّي، وإلا خُزِّن عنصر لا يظهر أبداً
+      delayMs: Math.trunc(num(el.delayMs, d.delayMs, 0, 5500)),
+      durationMs: Math.trunc(num(el.durationMs, d.durationMs, 100, 3000)),
+      opacity: num(el.opacity, d.opacity, 0, 1),
+    };
+  });
 }
 
 // ── كائن التأثيرات (الإطارات) ─────────────────────────
@@ -435,7 +482,22 @@ export function normalizeItemConfig(kind: string, raw: any): NormalizeResult {
         return { ok: false, field: 'config.design', message: `اختر شكل الدخول — المتاح: ${ENTRANCE_DESIGNS.join(' · ')}` };
       }
       // المدّة صارت محترمة فعلاً بدل أن تُهمَل وتُثبَّت على ٣٫٥ ثانية
-      return { ok: true, config: { design: cfg.design, durationMs: Math.trunc(num(cfg.durationMs, 3500, 1200, 6000)) } };
+      const durationMs = Math.trunc(num(cfg.durationMs, 3500, 1200, 6000));
+
+      // 🔒 الأربعة القديمة تُخزَّن كما كانت — فروعها الحيّة في EntranceOverlay
+      //    تبقى بلا لمس، فمن اشترى «موكب العرّاب» يراه كما رآه أمس.
+      if (cfg.design !== 'custom') {
+        return { ok: true, config: { design: cfg.design, durationMs } };
+      }
+
+      const elements = normalizeEntranceElements(cfg.elements);
+      if (!elements.length) {
+        return {
+          ok: false, field: 'config.elements',
+          message: 'التشريفة المخصّصة تحتاج عنصراً واحداً على الأقل — لا يُباع مسرح فارغ',
+        };
+      }
+      return { ok: true, config: { design: 'custom', durationMs, elements } };
     }
 
     case 'elimination': {
@@ -504,6 +566,10 @@ export function designRegistry() {
     frameSvgTypes: FRAME_SVG_TYPES,
     emblems: EMBLEM_IDS,
     titleStyles: TITLE_STYLES,
+    entranceElementTypes: ENTRANCE_ELEMENT_TYPES,
+    entranceEnterFx: ENTRANCE_ENTER_FX,
+    entranceFrom: ENTRANCE_FROM,
+    maxEntranceElements: MAX_ENTRANCE_ELEMENTS,
     nameFxStyles: NAME_FX_STYLES,
     nameFxAnims: NAME_FX_ANIMS,
     nameFxEnters: NAME_FX_ENTERS,
