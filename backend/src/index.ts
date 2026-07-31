@@ -1327,6 +1327,72 @@ async function main() {
       await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_chips_config_key ON chips_config(key)`);
       console.log('✅ Chips economy tables ensured (ledger + balance cache + store catalog + rentals)');
 
+      // ══════════════════════════════════════════════════
+      // 🛡️ المرحلة ٢ — ديمومة الدفتر (كتلة مستقلّة، آمنة التكرار)
+      //
+      // ⚠️ العلّة: الدفتر يُوصف بأنه «append-only لا يُحذف إطلاقاً» بينما مرجعه
+      //    كان ON DELETE CASCADE — فحذف لاعب واحد يمحو سجلّه المالي كاملاً،
+      //    ودمج حسابين مكرّرين (عملية نادٍ روتينية) يحرق رصيد لاعب دافع
+      //    وكل تاريخ شرائه. الوعد كان تعليقاً، لا قيداً.
+      //
+      // كتلة منفصلة عن كتلة المرحلة ٠ عمداً: فشلٌ هنا يجب ألّا يمنع بذر
+      // الكتالوج، والعكس.
+      // ══════════════════════════════════════════════════
+      try {
+        // ① تحويل المراجع من CASCADE إلى RESTRICT — **بلا افتراض اسم القيد**
+        //    (الاسم مولَّد تلقائياً لأن المرجع كُتب inline في CREATE TABLE).
+        for (const t of [
+          { table: 'chips_ledger', col: 'player_id' },
+          { table: 'chips_rentals', col: 'player_id' },
+        ]) {
+          const conRows: any = await db.execute(sql.raw(`
+            SELECT c.conname
+              FROM pg_constraint c
+              JOIN pg_class rel ON rel.oid = c.conrelid
+              JOIN pg_attribute a ON a.attrelid = rel.oid AND a.attnum = ANY(c.conkey)
+             WHERE rel.relname = '${t.table}' AND c.contype = 'f'
+               AND a.attname = '${t.col}' AND c.confdeltype = 'c'
+          `));
+          const rows = conRows?.rows ?? (Array.isArray(conRows) ? conRows : []);
+          for (const r of rows) {
+            await db.execute(sql.raw(`ALTER TABLE ${t.table} DROP CONSTRAINT "${r.conname}"`));
+            // NOT VALID ثم VALIDATE: القفل الحصري لحظيّ بدل مسح الجدول كاملاً
+            await db.execute(sql.raw(`
+              ALTER TABLE ${t.table}
+                ADD CONSTRAINT ${t.table}_${t.col}_restrict_fk
+                FOREIGN KEY (${t.col}) REFERENCES players(id) ON DELETE RESTRICT NOT VALID
+            `));
+            await db.execute(sql.raw(`ALTER TABLE ${t.table} VALIDATE CONSTRAINT ${t.table}_${t.col}_restrict_fk`));
+            console.log(`🛡️ ${t.table}.${t.col} → ON DELETE RESTRICT (كان CASCADE)`);
+          }
+        }
+
+        // ② الوعد يصير قيداً: لا UPDATE ولا DELETE على الدفتر.
+        //    مخرج الصيانة الوحيد إعلان صريح داخل المعاملة:
+        //      SET LOCAL app.chips_ledger_admin = 'on';
+        //    فلا يقع تعديل بالمصادفة، ويبقى الإصلاح المتعمّد ممكناً وموثَّقاً.
+        await db.execute(sql`
+          CREATE OR REPLACE FUNCTION chips_ledger_immutable() RETURNS trigger AS $$
+          BEGIN
+            IF COALESCE(current_setting('app.chips_ledger_admin', true), '') = 'on' THEN
+              RETURN COALESCE(NEW, OLD);
+            END IF;
+            RAISE EXCEPTION 'chips_ledger is append-only (% blocked). Set app.chips_ledger_admin to override.', TG_OP;
+          END;
+          $$ LANGUAGE plpgsql
+        `);
+        await db.execute(sql`DROP TRIGGER IF EXISTS trg_chips_ledger_immutable ON chips_ledger`);
+        await db.execute(sql`
+          CREATE TRIGGER trg_chips_ledger_immutable
+          BEFORE UPDATE OR DELETE ON chips_ledger
+          FOR EACH ROW EXECUTE FUNCTION chips_ledger_immutable()
+        `);
+
+        console.log('🛡️ Chips ledger durability ensured (RESTRICT + append-only trigger)');
+      } catch (e: any) {
+        console.warn('⚠️ Chips ledger durability migration:', e?.message);
+      }
+
       // بذر الكتالوج المعتمد (آمن التكرار — لا يلمس تعديلات الأدمن)
       try {
         const { seedChipsCatalog } = await import('./services/chips-catalog.seed.js');

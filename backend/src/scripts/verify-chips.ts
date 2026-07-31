@@ -25,6 +25,18 @@ function check(ok: boolean, label: string, detail = '') {
 }
 function rowsOf(res: any): any[] { return res?.rows ?? (Array.isArray(res) ? res : []); }
 
+/**
+ * 🧹 حذف صيانة من الدفتر — الزناد يمنع كل UPDATE/DELETE إلا بإعلان صريح.
+ * نستعمل معاملة كي يسري `SET LOCAL` على نفس الاتصال الذي ينفّذ الحذف
+ * (المجمّع قد يعطي اتصالاً آخر لو استعملنا SET على مستوى الجلسة).
+ */
+async function ledgerAdminExec(db: any, statement: any): Promise<void> {
+  await db.transaction(async (tx: any) => {
+    await tx.execute(sql`SET LOCAL app.chips_ledger_admin = 'on'`);
+    await tx.execute(statement);
+  });
+}
+
 async function main() {
   await connectDB();
   const db = getDB();
@@ -216,7 +228,7 @@ async function main() {
       check(g2.granted.length === 0, 'إعادة احتساب نفس المباراة لا تمنح شيئاً (منع التكرار)');
 
       // تنظيف
-      await db.execute(sql`DELETE FROM chips_ledger WHERE ref_type = 'match' AND ref_id = ${String(fakeMatch)}`);
+      await ledgerAdminExec(db, sql`DELETE FROM chips_ledger WHERE ref_type = 'match' AND ref_id = ${String(fakeMatch)}`);
       await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
       const b = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
       check(Number(b?.b) === 0, 'نُظّفت آثار اختبار القطرات');
@@ -652,13 +664,13 @@ async function main() {
       const silentFree = !!rCollide.ok && Number(before2.b) === Number(after2.b);
       check(!silentFree, '🔒 مفتاح قديم لعنصر مختلف لا يُعدّ تكراراً (لا منح مجاني)',
         `ok=${rCollide.ok} قبل=${before2.b} بعد=${after2.b}`);
-      await db.execute(sql`DELETE FROM chips_ledger WHERE idempotency_key = ${fakeLegacy}`);
+      await ledgerAdminExec(db, sql`DELETE FROM chips_ledger WHERE idempotency_key = ${fakeLegacy}`);
 
       // تنظيف كامل — الرصيد يعود لما كان
       await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid}`);
       // يشمل بقايا الفحوص القديمة (store:verify-*, rent:*, renew:*) كي يبقى
       // ثابت «لا يتيم» نظيفاً في المرات القادمة بدل أن يتراكم الضجيج.
-      await db.execute(sql`
+      await ledgerAdminExec(db, sql`
         DELETE FROM chips_ledger
          WHERE player_id = ${pid}
            AND (idempotency_key LIKE 'store:%'
@@ -685,6 +697,79 @@ async function main() {
          WHERE player_id = ${pid} AND idempotency_key LIKE ${`store:${pid}:${rid}%`}
       `))[0];
       check(Number(leftover?.c) === 0, 'لم يبقَ أي سطر من سطور هذا الاختبار', `متبقٍ=${leftover?.c}`);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // ٧) ديمومة الدفتر — الوعد صار قيداً
+  // ══════════════════════════════════════════════════════
+  console.log('\n٧) ديمومة الدفتر:');
+  {
+    // ٧.١ المراجع RESTRICT لا CASCADE
+    const fks = rowsOf(await db.execute(sql`
+      SELECT rel.relname AS tbl, c.confdeltype AS del
+        FROM pg_constraint c
+        JOIN pg_class rel ON rel.oid = c.conrelid
+        JOIN pg_attribute a ON a.attrelid = rel.oid AND a.attnum = ANY(c.conkey)
+       WHERE rel.relname IN ('chips_ledger','chips_rentals')
+         AND c.contype = 'f' AND a.attname = 'player_id'
+    `));
+    const cascading = fks.filter((f: any) => f.del === 'c').map((f: any) => f.tbl);
+    check(fks.length >= 2 && cascading.length === 0,
+      'مراجع الدفتر والإيجارات على RESTRICT (لا CASCADE)',
+      cascading.length ? `ما زال CASCADE: ${cascading.join(', ')}` : `عدد المراجع=${fks.length}`);
+
+    // ٧.٢ زناد المنع موجود
+    const trg = rowsOf(await db.execute(sql`
+      SELECT tgname FROM pg_trigger WHERE tgname = 'trg_chips_ledger_immutable' AND NOT tgisinternal
+    `));
+    check(trg.length === 1, 'زناد «الدفتر لا يُعدَّل» مركَّب');
+
+    // ٧.٣ 🔒 محاولة حذف بلا إعلان صيانة ⇒ **ترفَض**.
+    //     تُنفَّذ داخل معاملة مستقلّة: الاستثناء يُجهض المعاملة، والتراجع
+    //     يُعيد الاتصال سليماً بدل أن تفشل كل جملة بعده.
+    let blocked = false;
+    try {
+      await db.transaction(async (tx: any) => {
+        await tx.execute(sql`DELETE FROM chips_ledger WHERE id = (SELECT MIN(id) FROM chips_ledger)`);
+      });
+    } catch { blocked = true; }
+    check(blocked, '🔒 الحذف المباشر من الدفتر مرفوض (append-only مفروض بالقاعدة)');
+
+    let blockedUpd = false;
+    try {
+      await db.transaction(async (tx: any) => {
+        await tx.execute(sql`UPDATE chips_ledger SET note = 'tamper' WHERE id = (SELECT MIN(id) FROM chips_ledger)`);
+      });
+    } catch { blockedUpd = true; }
+    check(blockedUpd, '🔒 التعديل المباشر على الدفتر مرفوض');
+
+    // ٧.٤ مخرج الصيانة يعمل — وإلا استحال الإصلاح المتعمّد والدمج
+    let escapeWorks = false;
+    try {
+      await db.transaction(async (tx: any) => {
+        await tx.execute(sql`SET LOCAL app.chips_ledger_admin = 'on'`);
+        await tx.execute(sql`UPDATE chips_ledger SET note = note WHERE id = (SELECT MIN(id) FROM chips_ledger)`);
+        escapeWorks = true;
+        throw Object.assign(new Error('ROLLBACK_ON_PURPOSE'), { intended: true });
+      });
+    } catch (e: any) { if (!e?.intended) escapeWorks = false; }
+    check(escapeWorks, 'مخرج الصيانة (app.chips_ledger_admin) يسمح بالإصلاح المتعمّد');
+
+    // ٧.٥ لا يمكن حذف لاعب له سجلّ مالي (الحارس على مستوى القاعدة)
+    const holder = rowsOf(await db.execute(sql`
+      SELECT player_id FROM chips_ledger GROUP BY player_id ORDER BY COUNT(*) DESC LIMIT 1
+    `))[0];
+    if (holder) {
+      let restricted = false;
+      try {
+        await db.transaction(async (tx: any) => {
+          await tx.execute(sql`DELETE FROM players WHERE id = ${Number(holder.player_id)}`);
+        });
+      } catch { restricted = true; }
+      check(restricted, '🔒 حذف لاعب له سجلّ مالي مرفوض على مستوى القاعدة', `لاعب #${holder.player_id}`);
+    } else {
+      check(true, 'لا لاعب بسجلّ مالي — فحص الحذف غير منطبق');
     }
   }
 

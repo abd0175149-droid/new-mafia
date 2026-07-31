@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pkg from 'pg';
 const { Pool } = pkg;
-import { eq, or, and } from 'drizzle-orm';
+import { eq, or, and, sql } from 'drizzle-orm';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers } from '../schemas/game.schema.js';
 import { bookings } from '../schemas/admin.schema.js';
@@ -74,8 +74,31 @@ async function mergePlayers() {
       .returning({ id: playerFollows.id });
     console.log(`✅ Transferred ${followersUpdate.length} follower records.`);
 
-    // 6. Delete Old Player
-    await db.delete(players).where(eq(players.id, oldId));
+    // ══════════════════════════════════════════════════
+    // 6. 🪙 نقل السجلّ المالي — **قبل** الحذف
+    //
+    // ⚠️ كان هذا السكربت ينقل المباريات والحجوزات والمتابعات ثم يحذف الحساب،
+    //    ولا يمسّ التشبس إطلاقاً. مع ON DELETE CASCADE كان دمج حسابين مكرّرين
+    //    — وهي عملية نادٍ روتينية — يمحو رصيد لاعب دافع وكل تاريخ شرائه بصمت.
+    //    ومع RESTRICT صار الحذف يفشل بدل أن يمحو، وهذا أفضل لكنه يوقف الدمج.
+    //    النقل هو الجواب الصحيح: المال يتبع صاحبه إلى حسابه الباقي.
+    // ══════════════════════════════════════════════════
+    await db.transaction(async (tx: any) => {
+      // الزناد يمنع أي UPDATE على الدفتر إلا بإعلان صيانة صريح
+      await tx.execute(sql`SET LOCAL app.chips_ledger_admin = 'on'`);
+      const led: any = await tx.execute(sql`UPDATE chips_ledger SET player_id = ${newId} WHERE player_id = ${oldId}`);
+      const ren: any = await tx.execute(sql`UPDATE chips_rentals SET player_id = ${newId} WHERE player_id = ${oldId}`);
+      // الكاش يُعاد اشتقاقه من الدفتر — المصدر الوحيد للحقيقة
+      await tx.execute(sql`
+        UPDATE players SET chips_balance =
+          COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${newId}), 0)
+        WHERE id = ${newId}
+      `);
+      console.log(`✅ Transferred chips: ${led?.rowCount ?? '?'} ledger row(s), ${ren?.rowCount ?? '?'} rental(s).`);
+
+      // 7. Delete Old Player — داخل نفس المعاملة فلا تبقى حالة وسطى
+      await tx.execute(sql`DELETE FROM players WHERE id = ${oldId}`);
+    });
     console.log(`🗑️ Deleted old player account #${oldId}.`);
 
     console.log('🎉 Merge completed successfully!');

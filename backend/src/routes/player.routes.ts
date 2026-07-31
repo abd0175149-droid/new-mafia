@@ -8,9 +8,10 @@ import { Router, Request, Response } from 'express';
 import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
 import { players as playersTable, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { authenticate, adminOnly, authorize, staffOrSelf } from '../middleware/auth.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
+import { logStaffAction } from '../services/staff-action-log.service.js';
 import {
   findPlayerByPhone,
   createPlayer,
@@ -225,8 +226,84 @@ router.delete('/:id', authenticate, adminOnly, async (req: Request, res: Respons
       return res.status(404).json({ success: false, error: 'اللاعب غير موجود' });
     }
 
-    // حذف اللاعب
+    // ══════════════════════════════════════════════════
+    // 🛡️ حارس الحذف — قرار المالك (١): رفض صريح، لا حذف ناعم.
+    //
+    // مرجع الدفتر صار ON DELETE RESTRICT، فالحذف هنا كان سيرتدّ خطأ ٥٠٠ خاماً
+    // بلا تفسير. والأهم أن السؤال الحقيقي — «ماذا يحلّ بمال هذا الشخص؟» —
+    // يجب أن يُطرح صراحةً لا أن يُجاب عنه بالمحو. نُعيد ٤٠٩ يسمّي الأرقام،
+    // ونعرض مسار نقل عبر `?transferTo=` للحساب الباقي.
+    // ══════════════════════════════════════════════════
+    const money: any = await db.execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM chips_ledger  WHERE player_id = ${playerId})::int AS ledger_rows,
+        (SELECT COUNT(*) FROM chips_rentals WHERE player_id = ${playerId})::int AS rentals,
+        (SELECT COALESCE(chips_balance,0) FROM players WHERE id = ${playerId})::int AS balance
+    `);
+    const m = (money?.rows ?? money ?? [])[0] || {};
+    const hasHistory = Number(m.ledger_rows || 0) > 0 || Number(m.rentals || 0) > 0;
+
+    const transferTo = req.query.transferTo ? parseInt(String(req.query.transferTo)) : null;
+
+    if (hasHistory && !transferTo) {
+      return res.status(409).json({
+        success: false,
+        code: 'CHIPS_HISTORY',
+        error: `لا يُحذف «${existing[0].name}»: له سجلّ مالي (${m.ledger_rows} حركة · ${m.rentals} إيجار · رصيد ${m.balance} 🪙). `
+             + 'انقل سجلّه إلى حساب آخر أولاً عبر transferTo=<معرّف اللاعب الباقي>.',
+        chips: { ledgerRows: Number(m.ledger_rows || 0), rentals: Number(m.rentals || 0), balance: Number(m.balance || 0) },
+      });
+    }
+
+    if (hasHistory && transferTo) {
+      if (transferTo === playerId) {
+        return res.status(400).json({ success: false, error: 'لا يمكن النقل إلى الحساب نفسه' });
+      }
+      const [target] = await db.select({ id: playersTable.id, name: playersTable.name })
+        .from(playersTable).where(eq(playersTable.id, transferTo)).limit(1);
+      if (!target) return res.status(404).json({ success: false, error: 'حساب النقل غير موجود' });
+
+      // النقل والحذف في معاملة واحدة — لا حالة وسطى يفقد فيها السجلّ صاحبه
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL app.chips_ledger_admin = 'on'`);
+        await tx.execute(sql`UPDATE chips_ledger  SET player_id = ${transferTo} WHERE player_id = ${playerId}`);
+        await tx.execute(sql`UPDATE chips_rentals SET player_id = ${transferTo} WHERE player_id = ${playerId}`);
+        await tx.execute(sql`
+          UPDATE players SET chips_balance =
+            COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${transferTo}), 0)
+          WHERE id = ${transferTo}
+        `);
+        await tx.execute(sql`DELETE FROM players WHERE id = ${playerId}`);
+      });
+
+      logStaffAction({
+        staffId: (req as any).user?.id,
+        staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role,
+        source: 'http',
+        action: 'player:delete-with-chips-transfer',
+        outcome: 'success',
+        targetName: existing[0].name,
+        details: { playerId, transferTo, targetName: target.name, ...m },
+      });
+
+      console.log(`🗑️ Admin deleted player #${playerId} — نُقل سجلّه المالي إلى #${transferTo}`);
+      return res.json({ success: true, message: `حُذف اللاعب ونُقل سجلّه المالي إلى «${target.name}»` });
+    }
+
+    // لا سجلّ مالي — حذف عادي
     await db.delete(playersTable).where(eq(playersTable.id, playerId));
+
+    logStaffAction({
+      staffId: (req as any).user?.id,
+      staffUsername: (req as any).user?.username,
+      staffRole: (req as any).user?.role,
+      source: 'http',
+      action: 'player:delete',
+      outcome: 'success',
+      targetName: existing[0].name,
+      details: { playerId },
+    });
 
     console.log(`🗑️ Admin deleted player #${playerId} (${existing[0].name})`);
     return res.json({ success: true, message: 'تم حذف اللاعب بنجاح' });
