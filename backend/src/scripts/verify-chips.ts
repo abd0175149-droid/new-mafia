@@ -146,9 +146,27 @@ async function main() {
 
     if (cheap) {
       const price = Number(cheap.price_chips);
-      // استئجار بلا رصيد كافٍ → مرفوض
-      const poor = await rentItem({ playerId: pid, itemId: Number(cheap.id), requestId: `verify-poor-${Date.now()}` });
-      check(poor.ok === false && poor.code === 'INSUFFICIENT', 'الاستئجار بلا رصيد كافٍ مرفوض', JSON.stringify(poor));
+
+      // ⚠️ فحص «بلا رصيد كافٍ» كان يفترض أن الحساب فارغ — وهو افتراضٌ عن حالةٍ
+      //    خارجة عن الفحص. رصيدٌ بقي من تشغيلٍ سابق كان يجعل الشراء ينجح فيسقط
+      //    الفحص بلا خلل حقيقي. نختار الآن عنصراً أغلى من الرصيد الحالي فعلاً.
+      const balNow = Number(rowsOf(await db.execute(
+        sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0]?.b ?? 0);
+      const tooPricey = rowsOf(await db.execute(sql`
+        SELECT id, price_chips FROM chips_items
+         WHERE is_purchasable = true AND is_active = true AND closed_at IS NULL
+           AND price_chips > ${balNow}
+         ORDER BY price_chips ASC LIMIT 1
+      `))[0];
+
+      if (!tooPricey) {
+        check(true, `تخطّي فحص «بلا رصيد كافٍ» — لا عنصر أغلى من الرصيد الحالي (${balNow})`);
+      } else {
+        const poor = await rentItem({ playerId: pid, itemId: Number(tooPricey.id), requestId: `verify-poor-${Date.now()}` });
+        check(poor.ok === false && poor.code === 'INSUFFICIENT',
+          'الاستئجار بلا رصيد كافٍ مرفوض',
+          `رصيد=${balNow} سعر=${tooPricey.price_chips} ${JSON.stringify(poor)}`);
+      }
 
       // نشحن ثم نستأجر
       const stamp2 = `verify2-${Date.now().toString(36)}`;
@@ -786,6 +804,7 @@ async function main() {
   console.log('\n٨) المحاسبة والاسترجاع:');
   {
     const { rentItem } = await import('../services/chips-store.service.js');
+    let cleanupAcct: (() => Promise<void>) | null = null;
 
     // ٨.١ أعمدة اللقطة المالية موجودة
     const lcols = rowsOf(await db.execute(sql`
@@ -829,6 +848,16 @@ async function main() {
       check(true, 'تخطّي فحوص الاسترجاع (لا حساب اختباري)');
     } else {
       const pid = Number(tp.id);
+
+      // 📌 خطّ العودة: كل ما يُنشئه هذا القسم يُمحى في نهايته والرصيد يعود كما كان.
+      //    لولا ذلك لبقي الحساب مموَّلاً من تشغيلٍ سابق، فيمرّ فحصُ «الاستئجار
+      //    بلا رصيد كافٍ» كاذباً في التشغيل التالي — والفحص الذي يعتمد على
+      //    أثر تشغيلٍ ماضٍ ليس فحصاً.
+      const balAtStart = Number(rowsOf(await db.execute(
+        sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0]?.b ?? 0);
+      const ledMarkStart = Number(rowsOf(await db.execute(
+        sql`SELECT COALESCE(MAX(id),0)::int AS m FROM chips_ledger`))[0]?.m ?? 0);
+
       const pack = CHIPS_PACKS[0];
       const topRid = `verify-acct-${Date.now().toString(36)}`;
       const top = await adminTopup({ playerId: pid, packId: pack.id, note: 'فحص محاسبي', requestId: topRid, staffId: null });
@@ -958,6 +987,20 @@ async function main() {
       `));
       check(Number(cache.b) === Number(derived.s),
         'الكاش = مجموع الدفتر بعد الشحن والاسترجاعات', `كاش=${cache.b} دفتر=${derived.s}`);
+
+      // يُنفَّذ بعد فحوص التقرير — فحصُ «مال الاختبار مستثنى» يحتاج المال قائماً
+      cleanupAcct = async () => {
+        await ledgerAdminExec(db, sql`DELETE FROM chips_ledger WHERE id > ${ledMarkStart} AND player_id = ${pid}`);
+        await db.execute(sql`UPDATE players SET chips_balance = ${balAtStart} WHERE id = ${pid}`);
+        const [left] = rowsOf(await db.execute(sql`
+          SELECT COUNT(*)::int AS c FROM chips_ledger WHERE id > ${ledMarkStart} AND player_id = ${pid}
+        `));
+        const [bal] = rowsOf(await db.execute(sql`
+          SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}
+        `));
+        check(Number(left.c) === 0 && Number(bal.b) === balAtStart,
+          'لم يبقَ أثر لفحص المحاسبة (الرصيد عاد كما كان)', `بقايا=${left.c} رصيد=${bal.b}/${balAtStart}`);
+      };
     }
 
     // ٨.١٣ التقرير يُبنى ولا يخلط المُسجَّل بالمُقدَّر
@@ -1008,6 +1051,9 @@ async function main() {
     check(csv.charCodeAt(0) === 0xFEFF, '📤 التصدير يبدأ بـ BOM — Excel يقرأ العربية بلا تشويه');
     check(firstLine.includes('id') || firstLine.includes('رقم'), 'التصدير يحمل صف ترويسة', firstLine.slice(0, 80));
     check(csv.split('\n').length >= 2, 'التصدير يحمل صفوفاً', `أسطر=${csv.split('\n').length}`);
+
+    // تنظيف أثر هذا القسم على حساب الاختبار
+    if (cleanupAcct) await cleanupAcct();
   }
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
