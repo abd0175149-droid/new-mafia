@@ -806,6 +806,9 @@ export function startExpiryScheduler(): void {
   const tick = async () => {
     // التنظيف يجري دائماً — لا علاقة له بساعات الإرسال
     try { await sweepStaleEquipSlots(); } catch { /* التنظيف لا يعطّل شيئاً */ }
+    // 👑 إكليل البطل حيازة تتبع الصدارة لا جائزة تُمنح مرّة —
+    //    فمن فقد الصدارة يخلعه، وذلك يحتاج مزامنة دورية.
+    try { await syncChampionFrame(); } catch { /* التتويج لا يعطّل المجدول */ }
     if (!withinSendingHours()) return;
     try {
       const r = await sweepExpiringRentals();
@@ -994,6 +997,141 @@ export async function claimFreeTrial(opts: { playerId: number; itemId: number })
     }
     console.error('❌ claimFreeTrial:', e?.message);
     return { ok: false, code: 'ERROR', message: 'تعذّرت التجربة' };
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
+// 👑 إكليل البطل — الإطار المرتبط بالإنجاز
+//
+// ⚠️ العطل الذي يغلقه هذا القسم: العنصر مبذور في الكتالوج منذ البداية،
+//    وجملة بيعه تقول «لبطل الموسم وحده حتى تتويج التالي» — و**لا شيء في
+//    المشروع كلّه يمنحه**. `grantRental` لا يُستدعى إلا من زرّ منح إداري
+//    يدوي، و`grantTop3` يمنح تشبس فقط. فبقي الإطار زخرفةً في المتجر:
+//    طموحٌ معروض لا طريق إليه. (على الإنتاج: صفر منح منذ إنشائه.)
+//
+// 📐 دلالته: ليس جائزة تُمنح مرّة، بل **حيازة تتبع الصدارة**. من تصدّر
+//    يلبسه، ومن فقد الصدارة يخلعه في اللحظة نفسها. لذلك المزامنة تُشغَّل
+//    دورياً لا عند حدث واحد.
+// ══════════════════════════════════════════════════════
+
+/** مفتاح العنصر المبذور — ثابت لا يتغيّر مع تعديلات الأدمن */
+export const CHAMPION_ITEM_KEY = 'frame_champ';
+
+export interface ChampionSyncResult {
+  ok: boolean;
+  seasonId?: number | null;
+  championId?: number | null;
+  granted?: boolean;
+  revoked?: number;
+  reason?: string;
+}
+
+/**
+ * يُزامن حيازة إكليل البطل مع صدارة الموسم النشط.
+ *
+ * لا يمسّ الرصيد ولا الدفتر: إنجاز لا شراء.
+ * ولا يُنشئ سطر سعر: `price_paid_chips = 0` صراحةً كي لا يُعيد استرجاعٌ
+ * مالاً لم يُدفع.
+ */
+export async function syncChampionFrame(seasonId?: number | null): Promise<ChampionSyncResult> {
+  const db = getDB();
+  if (!db) return { ok: false, reason: 'DB_DOWN' };
+
+  try {
+    const [item] = rowsOf(await db.execute(sql`
+      SELECT id FROM chips_items WHERE item_key = ${CHAMPION_ITEM_KEY} LIMIT 1
+    `));
+    if (!item) return { ok: false, reason: 'ITEM_MISSING' };
+    const itemId = Number(item.id);
+
+    // الموسم: المُمرَّر، وإلا العادي النشط
+    const { listSeasonsForRewards, getSeasonTopPlayers } = await import('./chips-rewards.service.js');
+    const seasons = await listSeasonsForRewards();
+    const season = seasonId
+      ? seasons.find((s: any) => s.id === Number(seasonId))
+      : (seasons.find((s: any) => s.type === 'REGULAR' && s.status === 'ACTIVE')
+         || seasons.find((s: any) => s.status === 'ACTIVE'));
+    if (!season) return { ok: false, reason: 'NO_ACTIVE_SEASON' };
+
+    const top = await getSeasonTopPlayers(Number(season.id), 1);
+    const champion = top[0]?.playerId ? Number(top[0].playerId) : null;
+
+    // ⚠️ لا متصدّر ⇒ **لا نسحب من أحد**. جدول فارغ لحظةَ إعادة حساب أو
+    //    بداية موسم لا يعني أن البطل لم يعد بطلاً؛ السحب هنا يخلع الإكليل
+    //    عن مستحقّه بسبب استعلامٍ عابر.
+    if (!champion) return { ok: true, seasonId: Number(season.id), championId: null, reason: 'NO_LEADER' };
+
+    const out = await db.transaction(async (tx: any) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`champion:${itemId}`}))`);
+
+      // يُخلع عن كل من ليس البطل الحالي
+      const revoked: any = await tx.execute(sql`
+        UPDATE chips_rentals
+           SET expires_at = NOW()
+         WHERE item_id = ${itemId}
+           AND player_id <> ${champion}
+           AND expires_at > NOW()
+      `);
+
+      // ويُلبَس للبطل — صفّ واحد لكل (لاعب، عنصر) فالتحديث يسبق الإدراج
+      const [existing] = rowsOf(await tx.execute(sql`
+        SELECT id, (expires_at > NOW()) AS is_active FROM chips_rentals
+         WHERE player_id = ${champion} AND item_id = ${itemId}
+         ORDER BY expires_at DESC LIMIT 1 FOR UPDATE
+      `));
+
+      const alreadyHeld = !!existing?.is_active;
+      // 📅 سنة كاملة: «حتى تتويج التالي» تُنفَّذ بالمزامنة لا بانتهاء المدّة،
+      //    والمدّة الطويلة تمنع سقوطه لو تعطّلت المزامنة يوماً.
+      if (existing) {
+        await tx.execute(sql`
+          UPDATE chips_rentals
+             SET expires_at = NOW() + interval '365 days',
+                 starts_at = CASE WHEN ${alreadyHeld} THEN starts_at ELSE NOW() END,
+                 source = 'achievement', price_paid_chips = 0, duration_days_snapshot = 365,
+                 warned_at = NULL
+           WHERE id = ${existing.id}
+        `);
+      } else {
+        await tx.execute(sql`
+          INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source,
+                                     price_paid_chips, duration_days_snapshot)
+          VALUES (${champion}, ${itemId}, NOW(), NOW() + interval '365 days', 'achievement', 0, 365)
+        `);
+      }
+
+      // تجهيز تلقائي للخانة الفارغة — إكليل لا يُرى ليس تتويجاً
+      await tx.execute(sql`
+        UPDATE players SET chips_frame_item_id = ${itemId}
+         WHERE id = ${champion} AND chips_frame_item_id IS NULL
+      `);
+
+      return { revoked: Number(revoked?.rowCount ?? 0), alreadyHeld };
+    });
+
+    // البثّ للبطل ولمن خُلع عنه — الشاشة والتطبيق يتحدّثان بلا انتظار
+    broadcastCosmetics(champion);
+
+    if (!out.alreadyHeld) {
+      try {
+        const { sendPushToPlayers } = await import('./fcm.service.js');
+        await sendPushToPlayers(
+          [champion], '👑 إكليل البطل لك',
+          'تصدّرت الموسم — الإطار الذي لا يُشترى بأي ثمن صار على بطاقتك',
+          'chips', { tag: 'chips-champion', url: '/player/store' },
+        );
+      } catch { /* الإشعار ليس شرطاً للتتويج */ }
+      console.log(`👑 إكليل البطل → لاعب ${champion} (موسم ${season.id}) · خُلع عن ${out.revoked}`);
+    }
+
+    return {
+      ok: true, seasonId: Number(season.id), championId: champion,
+      granted: !out.alreadyHeld, revoked: out.revoked,
+    };
+  } catch (e: any) {
+    console.error('❌ syncChampionFrame:', e?.message);
+    return { ok: false, reason: 'ERROR' };
   }
 }
 

@@ -379,6 +379,12 @@ export async function grantTop3(opts: {
   }
 
   const totalGranted = results.filter(r => r.ok && !r.duplicate).reduce((s, r) => s + r.amount, 0);
+  // 👑 المتصدّر يلبس إكليل البطل لحظة التتويج لا بعد نصف ساعة
+  try {
+    const { syncChampionFrame } = await import('./chips-store.service.js');
+    await syncChampionFrame(season?.id ?? null);
+  } catch { /* الإطار زينة — فشله لا يمنع منح التشبس */ }
+
   return { ok: true, season, results, totalGranted };
 }
 

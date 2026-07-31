@@ -1567,6 +1567,90 @@ async function main() {
     }
   }
 
+
+  // ══════════════════════════════════════════════════════
+  // ١٤) إكليل البطل — الإطار المرتبط بالإنجاز
+  //
+  // ⚠️ العطل الذي يغلقه: العنصر مبذور منذ البداية وجملته تقول «لبطل الموسم
+  //    وحده»، و**لا شيء في المشروع كان يمنحه**. على الإنتاج: صفر منح.
+  //    طموحٌ معروض في المتجر بلا طريق إليه.
+  // ══════════════════════════════════════════════════════
+  console.log('\n١٤) إكليل البطل:');
+  {
+    const { syncChampionFrame, CHAMPION_ITEM_KEY } = await import('../services/chips-store.service.js');
+
+    const [champItem] = rowsOf(await db.execute(sql`
+      SELECT id, is_purchasable, rarity FROM chips_items WHERE item_key = ${CHAMPION_ITEM_KEY} LIMIT 1
+    `));
+    check(!!champItem, 'عنصر الإكليل موجود في الكتالوج', CHAMPION_ITEM_KEY);
+
+    if (!champItem) {
+      check(true, 'تخطّي بقيّة الفحص (العنصر غير مبذور)');
+    } else {
+      const itemId = Number(champItem.id);
+      check(champItem.is_purchasable === false, 'لا يُشترى بأي ثمن (إنجاز فقط)');
+      check(String(champItem.rarity) === 'achievement', 'ندرته achievement');
+
+      const r = await syncChampionFrame();
+      check(r.ok, 'المزامنة تعمل', JSON.stringify(r).slice(0, 110));
+
+      if (r.championId) {
+        // ١٤.١ 🔴 البطل يحمله فعلاً — وهذا ما لم يكن يحدث إطلاقاً
+        const [held] = rowsOf(await db.execute(sql`
+          SELECT source, price_paid_chips, (expires_at > NOW()) AS active
+            FROM chips_rentals WHERE player_id = ${r.championId} AND item_id = ${itemId}
+        `));
+        check(!!held?.active, '🔴 متصدّر الموسم يحمل الإكليل فعلاً (كان يُمنح صفر مرّة)');
+        check(held?.source === 'achievement', 'المصدر achievement لا شراء', String(held?.source));
+        check(Number(held?.price_paid_chips) === 0,
+          'السعر المسجَّل صفر — فالاسترجاع لا يُعيد مالاً لم يُدفع');
+
+        // ١٤.٢ 🔒 لا أحد غيره يحمله — الحيازة تتبع الصدارة لا تتراكم
+        const others = rowsOf(await db.execute(sql`
+          SELECT player_id FROM chips_rentals
+           WHERE item_id = ${itemId} AND expires_at > NOW() AND player_id <> ${r.championId}
+        `));
+        check(others.length === 0,
+          '🔒 لا يحمله إلا المتصدّر — من فقد الصدارة خلعه',
+          others.length ? `آخرون=${others.map((o: any) => o.player_id).join(',')}` : '');
+
+        // ١٤.٣ التكرار لا يُنتج صفّاً ثانياً ولا إشعاراً ثانياً
+        const before = Number(rowsOf(await db.execute(sql`
+          SELECT COUNT(*)::int AS c FROM chips_rentals WHERE item_id = ${itemId}
+        `))[0]?.c ?? 0);
+        const again = await syncChampionFrame();
+        const after = Number(rowsOf(await db.execute(sql`
+          SELECT COUNT(*)::int AS c FROM chips_rentals WHERE item_id = ${itemId}
+        `))[0]?.c ?? 0);
+        check(after === before && again.granted === false,
+          'المزامنة المتكرّرة لا تُنشئ صفّاً ولا تُعيد التتويج', `قبل=${before} بعد=${after}`);
+
+        // ١٤.٤ لا سطر دفتر — إنجاز لا شراء
+        const led = rowsOf(await db.execute(sql`
+          SELECT COUNT(*)::int AS c FROM chips_ledger
+           WHERE player_id = ${r.championId} AND ref_id = ${String(itemId)}
+             AND reason IN ('rent_item','renew_item')
+        `));
+        check(Number(led[0]?.c ?? 0) === 0, 'الإكليل لا يكتب سطر دفتر (لا مال فيه)');
+      } else {
+        check(true, `تخطّي فحص الحيازة (لا متصدّر: ${r.reason || 'غير معروف'})`);
+      }
+
+      // ١٤.٥ 🛡️ جدول فارغ لا يخلع الإكليل عن مستحقّه
+      //      (استعلام عابر أثناء إعادة حساب لا يعني أن البطل لم يعد بطلاً)
+      const src = await import('fs').then(fs =>
+        fs.readFileSync(new URL('../services/chips-store.service.ts', import.meta.url), 'utf8').toString(),
+      ).catch(() => '');
+      if (src) {
+        const blk = src.slice(src.indexOf('export async function syncChampionFrame'));
+        check(blk.includes("reason: 'NO_LEADER'") && blk.indexOf("reason: 'NO_LEADER'") < blk.indexOf('UPDATE chips_rentals'),
+          '🛡️ غياب المتصدّر يخرج **قبل** أي سحب — لا يُخلع الإكليل بسبب استعلام عابر');
+      } else {
+        check(true, 'تخطّي فحص المصدر (غير متاح داخل الحاوية)');
+      }
+    }
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);

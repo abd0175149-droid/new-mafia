@@ -115,6 +115,29 @@ router.post('/admin/refund',
     }
   });
 
+// ── 👑 مزامنة إكليل البطل ──
+// الإطار حيازة تتبع الصدارة لا جائزة تُمنح مرّة. يجري تلقائياً كل نصف ساعة
+// وبعد منح التوب-٣ مباشرةً؛ وهذا الزرّ للتشغيل الفوري بعد إعادة حساب ترتيب.
+router.post('/admin/champion-frame/sync', async (req: Request, res: Response) => {
+  try {
+    const { syncChampionFrame } = await import('../services/chips-store.service.js');
+    const seasonId = req.body?.seasonId ? parseInt(req.body.seasonId) : null;
+    const r = await syncChampionFrame(seasonId);
+    if (!r.ok) return res.status(r.reason === 'ITEM_MISSING' ? 404 : 400).json({ error: r.reason });
+
+    logStaffAction({
+      staffId: (req as any).user?.id,
+      staffUsername: (req as any).user?.username,
+      staffRole: (req as any).user?.role,
+      source: 'http', action: 'chips:champion-sync', outcome: 'success',
+      details: r,
+    });
+    res.json({ success: true, ...r });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── 📈 تقرير الاقتصاد ──
 router.get('/admin/report', async (req: Request, res: Response) => {
   try {

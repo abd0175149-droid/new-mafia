@@ -67,6 +67,14 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     // المكتبة تُقرأ مرّة واحدة — لا استعلام لكل عنصر (حلقة N+1 كانت هنا).
     const rewardsCfgEarly = await getRewardsConfig().catch(() => null as any);
     const trialUsed = await hasUsedTrial(playerId);
+    // حامل الإكليل الحالي — استعلام واحد، يجعل «إنجاز فقط» هدفاً لا حائطاً
+    const championName = db ? (rowsOf(await db.execute(sql`
+      SELECT p.name FROM chips_rentals r
+        JOIN players p ON p.id = r.player_id
+        JOIN chips_items i ON i.id = r.item_id
+       WHERE i.item_key = 'frame_champ' AND r.expires_at > NOW()
+       ORDER BY r.expires_at DESC LIMIT 1
+    `))[0]?.name || null) : null;
     const stingLib = await listVictoryStings();
     const activeStingIds = new Set(stingLib.filter(x => x.isActive).map(x => x.id));
     const stingUrlById = new Map(stingLib.map(x => [x.id, x.url]));
@@ -149,6 +157,10 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
         sortOrder: it.sortOrder ?? 0,
         // 🎁 الأهلية تُحسب مرّة للاعب ومرّة للعنصر — فالزرّ لا يظهر ليُرفض
         trialEligible: !trialUsed && itemTrialEligible(it) && !owned,
+        // 👑 عنصر الإنجاز: لا يكفي أن يُقال «إنجاز فقط» — يُسمّى الإنجاز
+        //    ويُذكر حامله الحالي، وإلا بقي صندوقاً رمادياً بلا طريق إليه.
+        achievementAr: it.itemKey === 'frame_champ' ? 'صدارة الموسم' : null,
+        holderName: it.itemKey === 'frame_champ' ? (championName || null) : null,
         // 🔊 رابط الملف — يسمح للمتجر بإسماع النغمة قبل الشراء.
         //    تُعزَف على جهاز اللاعب وحده ولا تُبَثّ للقاعة إطلاقاً.
         soundUrl: it.kind === 'victory_sting' && it.config?.soundId

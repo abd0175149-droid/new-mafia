@@ -44,6 +44,8 @@ function newRequestId() {
 
 interface StoreItem {
   trialEligible?: boolean;
+  achievementAr?: string | null;
+  holderName?: string | null;
   soundUrl?: string | null;
   id: number; kind: string; itemKey: string; nameAr: string; hookAr: string;
   rarity: string; priceChips: number; durationDays: number; emblemId?: string | null;
@@ -358,8 +360,15 @@ export default function StorePage() {
                 : `ينقصك ${item.priceChips - balance} 🪙 — كيف أحصل عليها؟`}
             </button>
           ) : (
-            <div className="flex-1 py-2 rounded-xl text-xs font-bold text-center bg-white/5 border border-white/10 text-gray-500">
-              إنجاز فقط
+            <div className="flex-1 py-2 px-3 rounded-xl text-center bg-white/5 border border-white/10">
+              {/* كان «إنجاز فقط» وحدها: صندوق رمادي لا يقول أيّ إنجاز
+                  ولا من ناله — طموح معروض بلا طريق إليه. */}
+              <div className="text-xs font-bold text-gray-300">
+                👑 {item.achievementAr ? `يُنال بـ${item.achievementAr}` : 'إنجاز فقط'}
+              </div>
+              {item.holderName && (
+                <div className="text-[10px] text-amber-400/80 mt-0.5">يحمله الآن: {item.holderName}</div>
+              )}
             </div>
           )}
 
