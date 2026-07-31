@@ -605,9 +605,43 @@ async function main() {
         await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${oid}`);
       }
 
+      // ٦.٥ 🔒 الثغرة: معرّف طلب يحوي نقطتين ينتحل شكل مفتاح آخر.
+      //     شراء رخيص بـrid=«q» يولّد `store:{p}:q:{item}`؛ ثم إرسال
+      //     rid=«q:{item}» لعنصر آخر يجعل «المفتاح القديم» مطابقاً حرفياً،
+      //     فيُعدّ الطلب مكرّراً **قبل أي خصم** ويُسلَّم العنصر مجاناً.
+      const evilRid = `${rid}:${iid}`;
+      const balBefore = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      const rEvil = await rentItem({ playerId: pid, itemId: iid, requestId: evilRid });
+      const balAfter = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      const evilKeys = rowsOf(await db.execute(sql`
+        SELECT idempotency_key FROM chips_ledger WHERE idempotency_key LIKE ${`store:${pid}:${evilRid}%`}
+      `));
+      // إمّا رُفض، أو نُفِّذ كشراء حقيقي بخصم — المهم ألّا يكون «مجاناً»
+      const freeGrab = !!rEvil.ok && Number(balBefore.b) === Number(balAfter.b) && evilKeys.length === 0;
+      check(!freeGrab, '🔒 معرّف طلب بنقطتين لا يمنح عنصراً مجاناً',
+        `ok=${rEvil.ok} قبل=${balBefore.b} بعد=${balAfter.b} مفاتيح=${evilKeys.length}`);
+
+      // ٦.٦ 🔒 سطر دفتر بمفتاح مشابه لكن **لعنصر آخر** لا يُعدّ تكراراً
+      const fakeLegacy = `store:legacyprobe-${rid}`;
+      await db.execute(sql`
+        INSERT INTO chips_ledger (player_id, amount, balance_after, reason, ref_type, ref_id, idempotency_key, note)
+        SELECT ${pid}, -1, COALESCE(chips_balance,0) - 1, 'rent_item', 'item', ${String(iid + 100000)},
+               ${fakeLegacy}, 'اختبار تصادم المفاتيح'
+          FROM players WHERE id = ${pid}
+      `);
+      await db.execute(sql`UPDATE players SET chips_balance = COALESCE(chips_balance,0) - 1 WHERE id = ${pid}`);
+      const before2 = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      const rCollide = await rentItem({ playerId: pid, itemId: iid, requestId: `legacyprobe-${rid}` });
+      const after2 = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
+      // إمّا رفض صريح، أو خصم حقيقي — لا «نجاح بلا خصم»
+      const silentFree = !!rCollide.ok && Number(before2.b) === Number(after2.b);
+      check(!silentFree, '🔒 مفتاح قديم لعنصر مختلف لا يُعدّ تكراراً (لا منح مجاني)',
+        `ok=${rCollide.ok} قبل=${before2.b} بعد=${after2.b}`);
+      await db.execute(sql`DELETE FROM chips_ledger WHERE idempotency_key = ${fakeLegacy}`);
+
       // تنظيف كامل — الرصيد يعود لما كان
-      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}`);
-      await db.execute(sql`DELETE FROM chips_ledger WHERE idempotency_key LIKE ${`store:${rid}%`} OR idempotency_key = ${'verify-fund:' + rid}`);
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid}`);
+      await db.execute(sql`DELETE FROM chips_ledger WHERE player_id = ${pid} AND (idempotency_key LIKE ${`store:${pid}:%`} OR idempotency_key LIKE ${`store:%${rid}%`} OR idempotency_key = ${'verify-fund:' + rid})`);
       await db.execute(sql`UPDATE players SET chips_frame_item_id = NULL, chips_title_item_id = NULL, chips_name_fx_item_id = NULL WHERE id = ${pid}`);
       await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
       const back = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];

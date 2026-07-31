@@ -123,10 +123,18 @@ export default function DynamicMafiaCard({
   // ⚠️ إعداد مشترى فارغ أو مكسور **لا يحجب** تأثير الرتبة — كان `{}` كائناً
   //    صادقاً منطقياً فيُسقط شكل الرتبة ولا يعطي شيئاً مكانه.
   const fx = React.useMemo(() => {
-    if (rankEffectsOverride) return normalizeFx(rankEffectsOverride);
-    const paid = normalizeFx(paidFrameCfg);
-    return hasAnyEnabled(paid) ? mergeFx(rankDef?.effects, paidFrameCfg) : normalizeFx(rankDef?.effects);
-  }, [rankEffectsOverride, paidFrameCfg, rankDef]);
+    const base = (() => {
+      if (rankEffectsOverride) return normalizeFx(rankEffectsOverride);
+      const paid = normalizeFx(paidFrameCfg);
+      return hasAnyEnabled(paid) ? mergeFx(rankDef?.effects, paidFrameCfg) : normalizeFx(rankDef?.effects);
+    })();
+    // 🪙 الشعار المشترى والعنصر العائم للرتبة يُرسمان في **نفس الموضع** (أعلى
+    //    الوسط) فيتراكبان — تاج GODFATHER فوق تاج تاج العرّاب. الشعار المدفوع
+    //    هو البديل المقصود للزينة العلوية، فيُخفى العائم عند وجوده.
+    const emb = cosmetics?.frame?.emblemId;
+    if (emb && base.floating.enabled) return { ...base, floating: { ...base.floating, enabled: false } };
+    return base;
+  }, [rankEffectsOverride, paidFrameCfg, rankDef, cosmetics?.frame?.emblemId]);
 
   // تأثير الاسم المشترى يعلو تأثير الإطار/الرتبة
   const nameFx = React.useMemo(() => {
@@ -488,7 +496,7 @@ export default function DynamicMafiaCard({
                 تجارياً. يُرسم الآن على البطاقة الحقيقية وعلى وجهَيها. */}
             {emblemId && (
               <div
-                className="absolute pointer-events-none"
+                className="absolute pointer-events-none emblem-float"
                 style={{
                   top: -Math.round(emblemSize * 0.42), left: '50%', transform: 'translateX(-50%)',
                   zIndex: 75, filter: 'drop-shadow(0 5px 10px rgba(0,0,0,0.65))',

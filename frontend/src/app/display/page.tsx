@@ -94,17 +94,20 @@ function DisplayPageContent() {
   const entranceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const phaseRef = useRef<Phase>(Phase.LOBBY);
 
-  // 🪙 نافذة تجاوز قصيرة للمظهر المشترى.
-  // الخادم يثبّت المظهر في Redis قبل بثّه، لكن حزمة حالة بُنيت قبل التثبيت قد
-  // تصل بعده فتمحو ما ظهر للتوّ. نحتفظ بآخر مظهر مبثوث لبضع ثوانٍ ونُغلّبه على
-  // الإسقاط، ثم يسقط التجاوز تلقائياً فلا يُخفي إزالةً حقيقية لاحقاً.
-  const cosmeticsOverrideRef = useRef<Map<number, { cosmetics: any; at: number }>>(new Map());
-  const COSMETICS_OVERRIDE_MS = 15_000;
-  const freshCosmetics = (physicalId: number) => {
+  // 🪙 تجاوز المظهر المشترى على إسقاط الحالة.
+  //
+  // الخادم يثبّت المظهر في Redis **في اللوبي فقط** — أثناء المباراة لا يكتب
+  // لئلا يسابق كتابةَ الأصوات وأفعال الليل على الكائن نفسه. فالشاشة هي من
+  // تحتفظ بالمظهر لبقيّة الجلسة، وإلا محاه أول تغيّر طور.
+  //
+  // مربوط بالاسم كي لا يرث لاعبٌ جديدٌ مظهرَ من جلس في المقعد قبله، ويُمسح
+  // عند مغادرة اللاعب أو تبديل الغرفة.
+  const cosmeticsOverrideRef = useRef<Map<number, { cosmetics: any; name?: string }>>(new Map());
+  const freshCosmetics = (physicalId: number, name?: string) => {
     const hit = cosmeticsOverrideRef.current.get(physicalId);
     if (!hit) return undefined;
-    if (Date.now() - hit.at > COSMETICS_OVERRIDE_MS) {
-      cosmeticsOverrideRef.current.delete(physicalId);
+    if (hit.name && name && hit.name !== name) {
+      cosmeticsOverrideRef.current.delete(physicalId);   // صاحب المقعد تغيّر
       return undefined;
     }
     return hit.cosmetics;
@@ -277,7 +280,7 @@ function DisplayPageContent() {
           //    أن يبثّه، لكن قد تكون حزمة حالة قديمة **في الطريق** بُنيت قبل
           //    التثبيت — فتصل بعد البثّ وتمحو ما اشتراه اللاعب للتوّ. النافذة
           //    قصيرة ومحدودة زمنياً كي لا تُخفي إزالةً لاحقة حقيقية.
-          cosmetics: freshCosmetics(p.physicalId) ?? (p.cosmetics || null),
+          cosmetics: freshCosmetics(p.physicalId, p.name) ?? (p.cosmetics || null),
           penalties: p.penalties || 0,
         })));
         setPlayerCount(activePlayers.filter((p: any) => p.isAlive !== false).length);
@@ -396,6 +399,8 @@ function DisplayPageContent() {
     const onPlayerKicked = (data: any) => {
       setPlayerCount(data.totalPlayers);
       setPlayers(prev => prev.filter(p => p.physicalId !== data.physicalId));
+      // يُخلى تجاوز المظهر للمقعد كي لا يرثه من يجلس مكانه
+      cosmeticsOverrideRef.current.delete(data.physicalId);
     };
 
     // ── تغيير المرحلة: يستخدم الحالة من الحدث أولاً + fallback لـ REST ──
@@ -524,7 +529,7 @@ function DisplayPageContent() {
       // نُسجّله في نافذة التجاوز أولاً كي لا تمحوه حزمة حالة قديمة في الطريق
       cosmeticsOverrideRef.current.set(data.physicalId, {
         cosmetics: data.cosmetics || null,
-        at: Date.now(),
+        name: data.name,
       });
       setPlayers(prev => prev.map(p =>
         p.physicalId === data.physicalId ? { ...p, cosmetics: data.cosmetics || null } : p

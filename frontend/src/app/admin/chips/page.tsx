@@ -544,9 +544,15 @@ function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string)
           ))}
         </div>
 
+        {data?.guardUnavailable && (
+          <div className="mt-3 rounded-xl px-3 py-2 text-[11px] font-bold bg-rose-950/40 border border-rose-700/40 text-rose-300">
+            ⚠️ تعذّر التحقّق من «مُنح سابقاً» لهذا الموسم — المنح موقوف حتى ينجح الفحص، منعاً لدفع مزدوج. أعد التحميل.
+          </div>
+        )}
         {(data?.top?.length || 0) > 0 && (() => {
           const eligible = (data.top || []).filter((_: any, i: number) => (Number(amounts[i]) || 0) > 0);
-          const allPaid = eligible.length > 0 && eligible.every((p: any) => p.alreadyGranted);
+          const allPaid = eligible.length > 0 && eligible.every((p: any) => p.alreadyGranted === true);
+          if (data?.guardUnavailable) return null;   // لا زرّ منح ونحن لا نعرف من استلم
           return (
             <div className="flex items-center gap-2 mt-4">
               {allPaid ? (

@@ -199,11 +199,16 @@ export async function listSeasonsForRewards() {
  *    مرة ثانية — لأن المفتاح الجديد لا يتعارض مع القديم.
  *    (منح متعمّد ثانٍ يحمل لاحقة `:regrant:` ولا يُحسب هنا.)
  */
-async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Promise<Set<number>> {
+async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Promise<Set<number> | null> {
   const db = getDB();
   const out = new Set<number>();
   const ids = playerIds.map(n => Number(n)).filter(n => Number.isInteger(n) && n > 0);
-  if (!db || ids.length === 0) return out;
+  if (ids.length === 0) return out;
+  // ⚠️ **يفشل مغلقاً لا مفتوحاً.** هذا الفحص هو الحارس **الوحيد** للمواسم
+  //    المدفوعة قبل النشر (مفاتيحها بالصيغة القديمة ولا تتعارض مع الجديدة).
+  //    ابتلاع الخطأ وإرجاع مجموعة فارغة يعني «لم يُدفع لأحد» — أي دفعٌ ثانٍ
+  //    للمنصّة كلها. نُعيد null = «تعذّر التحقّق» ويتوقّف المنح.
+  if (!db) return null;
   const sid = Number(seasonId);
   try {
     const res: any = await db.execute(sql.raw(`
@@ -216,8 +221,11 @@ async function top3GrantedPlayerIds(seasonId: number, playerIds: number[]): Prom
          )
     `));
     for (const r of rowsOf(res)) out.add(Number(r.player_id));
-  } catch { /* الفحص تحسين أمان — لا يعطّل المعاينة */ }
-  return out;
+    return out;
+  } catch (e: any) {
+    console.error('❌ top3GrantedPlayerIds — تعذّر فحص «مُنح سابقاً»:', e?.message);
+    return null;
+  }
 }
 
 /**
@@ -243,8 +251,15 @@ export async function previewTop3(seasonId?: number | null) {
   if (!season) return { season: null, top: [], config, seasons: allSeasons, alreadyGrantedCount: 0 };
   const rows = await getSeasonTopPlayers(season.id, 3);
   const grantedIds = await top3GrantedPlayerIds(season.id, rows.map(r => r.playerId));
-  const top = rows.map(r => ({ ...r, alreadyGranted: grantedIds.has(r.playerId) }));
-  return { season, top, config, seasons: allSeasons, alreadyGrantedCount: grantedIds.size };
+  // null = تعذّر التحقّق. نُعلنها للواجهة كي تمتنع عن عرض زرّ المنح بدل أن
+  // تعرض «لم يُمنح لأحد» وهي لا تعرف.
+  const guardUnavailable = grantedIds === null;
+  const top = rows.map(r => ({ ...r, alreadyGranted: guardUnavailable ? null : grantedIds!.has(r.playerId) }));
+  return {
+    season, top, config, seasons: allSeasons,
+    alreadyGrantedCount: guardUnavailable ? null : grantedIds!.size,
+    guardUnavailable,
+  };
 }
 
 /**
@@ -288,6 +303,14 @@ export async function grantTop3(opts: {
   //    لصار «لا أحد مستحقّ» مساوياً لـ«الكل استلم»، فيُرفض موسم جديد برسالة
   //    مضلّلة تماماً.
   const alreadyIds = await top3GrantedPlayerIds(season.id, top.map(p => p.playerId));
+  if (alreadyIds === null) {
+    // «لا أعرف» لا يجوز أن تتحوّل إلى «ادفع». نتوقّف ونطلب إعادة المحاولة.
+    return {
+      ok: false, code: 'GUARD_UNAVAILABLE',
+      error: 'تعذّر التحقّق من المنح السابق لهذا الموسم — لم يُمنح شيء. أعد المحاولة.',
+      season,
+    };
+  }
   const eligible = top.filter(p => amountFor(p.rank) > 0);
   const allAlreadyPaid = eligible.length > 0 && eligible.every(p => alreadyIds.has(p.playerId));
   if (!opts.allowRepeat && allAlreadyPaid) {

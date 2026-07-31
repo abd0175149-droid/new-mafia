@@ -213,12 +213,23 @@ export async function applyChipsTx(input: ChipsTxInput): Promise<ChipsTxResult> 
  * الفحص ستُرى إعادةُ محاولةٍ نجحت قبل النشر كطلبٍ جديد فتُنفَّذ مرة ثانية.
  * يبقى الفحص ١٤ يوماً بعد النشر ثم يُحذف.
  */
-async function legacyKeyUsed(legacyKey: string): Promise<{ balance: number; ledgerId: number } | null> {
+async function legacyKeyUsed(
+  legacyKey: string, playerId: number, reason: ChipsReason,
+): Promise<{ balance: number; ledgerId: number } | null> {
   const db = getDB();
   if (!db) return null;
   try {
+    // ⚠️ يُشترط تطابق **اللاعب والسبب** لا المفتاح وحده. وجود سطر بذلك المفتاح
+    //    لا يعني أن هذه العملية نُفِّذت لهذا الزبون — ومعاملته كمكرّر تعني
+    //    أن يدفع الزبون ولا يستلم، بينما ترى الشاشة «مُنفَّذة سابقاً».
     const [row] = await db.select({ id: chipsLedger.id, balanceAfter: chipsLedger.balanceAfter })
-      .from(chipsLedger).where(eq(chipsLedger.idempotencyKey, legacyKey)).limit(1);
+      .from(chipsLedger)
+      .where(and(
+        eq(chipsLedger.idempotencyKey, legacyKey),
+        eq(chipsLedger.playerId, Number(playerId)),
+        eq(chipsLedger.reason, reason),
+      ))
+      .limit(1);
     return row ? { balance: row.balanceAfter, ledgerId: row.id } : null;
   } catch { return null; }
 }
@@ -239,7 +250,7 @@ export async function adminTopup(opts: {
   //    كان `topup:{rid}` وحده ومعرّف الطلب لا يتجدّد إلا عند النجاح — فموظّف
   //    ضاع ردّ شحنه ثم انتقل **للزبون التالي** كان يرى «مُنفَّذة سابقاً»
   //    ويُكتب رصيد الزبون الأول على صفّ الثاني: دفع ولم يستلم، وبلا سطر تدقيق.
-  const legacy = await legacyKeyUsed(`topup:${rid}`);
+  const legacy = await legacyKeyUsed(`topup:${rid}`, Number(opts.playerId), 'admin_topup');
   if (legacy) return { ok: true, balance: legacy.balance, ledgerId: legacy.ledgerId, duplicate: true, pack: { id: pack.id, jod: pack.jod, chips: pack.chips } };
 
   const res = await applyChipsTx({
@@ -272,7 +283,7 @@ export async function adminAdjust(opts: {
   const amount = Math.trunc(Number(opts.amount));
 
   // 🔑 مربوط بهدفه (الطلب + اللاعب + القيمة) — نفس علّة الشحن أعلاه
-  const legacy = await legacyKeyUsed(`adjust:${rid}`);
+  const legacy = await legacyKeyUsed(`adjust:${rid}`, Number(opts.playerId), 'admin_adjust');
   if (legacy) return { ok: true, balance: legacy.balance, ledgerId: legacy.ledgerId, duplicate: true };
 
   return applyChipsTx({

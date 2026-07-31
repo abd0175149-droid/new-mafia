@@ -202,22 +202,37 @@ export async function rentItem(opts: {
   const itemId = Number(opts.itemId);
   if (!playerId || !itemId) return { ok: false, code: 'INVALID', message: 'طلب غير صالح' };
 
-  const rid = String(opts.requestId || '').trim().slice(0, 60)
-    || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  // 🔒 تعقيم معرّف الطلب: **النقطتان محظورتان**.
+  //    المفتاح مبنيّ بالنقطتين فاصلاً، فمعرّف طلب يحوي `:` يستطيع انتحال
+  //    شكل مفتاح آخر. مثال حقيقي: شراء رخيص بـrid=«q» يولّد `store:{p}:q:3`،
+  //    ثم إرسال rid=«q:3» لعنصر آخر يجعل المفتاح القديم مطابقاً حرفياً —
+  //    فيُرى الطلب «مكرّراً» قبل أي خصم. نقصر المعرّف على محارف آمنة.
+  const rawRid = String(opts.requestId || '').trim().slice(0, 60);
+  const rid = /^[A-Za-z0-9._-]{1,60}$/.test(rawRid)
+    ? rawRid
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-  // 🔑 المفتاح مربوط بهدفه: الطلب **والعنصر** معاً.
-  //    كان `store:{rid}` وحده، ومعرّف الطلب لا يتجدّد إلا عند النجاح — فلاعب
-  //    ضاع ردّ شرائه لعنصر A ثم اشترى B كان يحصل على «✅ صار B لك» لعنصر
-  //    لا يملكه ولم يُخصم ثمنه.
-  const key = `store:${rid}:${itemId}`;
-  // 🕰️ المفتاح القديم — يُفحص ١٤ يوماً بعد النشر. بدونه تُرى إعادةُ محاولةٍ
-  //    نجحت قبل النشر كطلبٍ جديد فتُخصم ثانيةً.
+  // 🔑 المفتاح مربوط بهدفه بالكامل: **الدافع** والطلب والعنصر.
+  //    القيد الفريد على المفتاح عالميّ لا لكل لاعب — فمفتاح بلا معرّف لاعب
+  //    يتعارض عبر الحسابات: حساب ثانٍ يُعيد نفس الطلب يصطدم بالقيد، تتراجع
+  //    معاملته بلا خصم، ثم يُسلَّم له العنصر مجاناً. إدراج معرّف اللاعب يغلق
+  //    هذا الباب من أصله.
+  const key = `store:${playerId}:${rid}:${itemId}`;
+  // 🕰️ المفتاح القديم — يُفحص ١٤ يوماً بعد النشر ثم يُحذف. بدونه تُرى إعادةُ
+  //    محاولةٍ نجحت قبل النشر كطلبٍ جديد فتُخصم ثانيةً.
   const legacyKey = `store:${rid}`;
 
   const nowIso = new Date();
 
   try {
     const out = await db.transaction(async (tx) => {
+      // ⓪ قفل استشاري لهذا (اللاعب + العنصر) طوال المعاملة.
+      //    `FOR UPDATE` على صفوف الإيجار لا يقفل شيئاً حين **لا يوجد** إيجار
+      //    بعد — وهي بالضبط حالة الشراء الأول. فطلبان متزامنان بمعرّفَي طلب
+      //    مختلفين كانا يمرّان معاً فيُخصم مرتين ويُنشأ إيجاران متداخلان.
+      //    القفل الاستشاري يُسلسل الحالتين معاً: الأولى والتجديد.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`rent:${playerId}:${itemId}`}))`);
+
       // ① العنصر — يُقرأ **داخل** المعاملة كي لا يتغيّر سعره بين الفحص والخصم
       const itemRows = rowsOf(await tx.execute(sql`
         SELECT id, kind, name_ar, price_chips, duration_days, is_active, is_purchasable, closed_at
@@ -229,9 +244,18 @@ export async function rentItem(opts: {
       if (item.closed_at) throw Object.assign(new Error('CLOSED'), { storeCode: 'CLOSED', msg: 'أُغلق هذا العنصر نهائياً — لا يعود' });
       if (!item.is_purchasable) throw Object.assign(new Error('NOT_PURCHASABLE'), { storeCode: 'NOT_PURCHASABLE', msg: 'هذا العنصر يُنال بالإنجاز لا بالشراء' });
 
-      // ② المفتاح القديم مُستهلَك؟ ⇒ الطلب نفسه نجح قبل النشر
+      // ② المفتاح القديم مُستهلَك؟ ⇒ الطلب نفسه نجح قبل النشر.
+      //    ⚠️ يُشترط تطابق **اللاعب والعنصر والسبب** معاً: وجود سطر بمفتاح
+      //    متشابه لا يعني أن هذا الطلب نُفِّذ. بلا هذه الشروط كان يكفي أن
+      //    يوجد أي سطر بذلك المفتاح ليُعدّ الطلب مكرّراً — قبل أي خصم.
       const legacyHit = rowsOf(await tx.execute(sql`
-        SELECT id, balance_after FROM chips_ledger WHERE idempotency_key = ${legacyKey} LIMIT 1
+        SELECT id, balance_after FROM chips_ledger
+         WHERE idempotency_key = ${legacyKey}
+           AND player_id = ${playerId}
+           AND ref_type = 'item'
+           AND ref_id = ${String(itemId)}
+           AND reason IN ('rent_item','renew_item')
+         LIMIT 1
       `));
       if (legacyHit.length) {
         throw Object.assign(new Error('DUPLICATE'), { storeCode: 'DUPLICATE', ledgerId: Number(legacyHit[0].id), balance: Number(legacyHit[0].balance_after) });
@@ -336,13 +360,32 @@ async function repairOrConfirmRental(playerId: number, itemId: number, idemKey: 
   if (!db) return { ok: false, code: 'DB_DOWN', message: 'قاعدة البيانات غير متاحة' };
   try {
     const out = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`rent:${playerId}:${itemId}`}))`);
+
+      // 🔒 سطر الدفتر يجب أن يكون **دفعةَ هذا اللاعب لهذا العنصر** تحديداً.
+      //    بلا هذه الشروط كان يكفي وجود أي سطر بذلك المفتاح لتُنشأ ملكية —
+      //    أي «ادفع مرة، خُذ الكتالوج كله مجاناً». الشروط هنا هي الفارق بين
+      //    إصلاح خصمٍ ضائع وبين منح مجاني.
       const led = rowsOf(await tx.execute(sql`
-        SELECT id, balance_after FROM chips_ledger WHERE idempotency_key = ${idemKey} LIMIT 1
+        SELECT id, balance_after FROM chips_ledger
+         WHERE idempotency_key = ${idemKey}
+           AND player_id = ${playerId}
+           AND ref_type = 'item'
+           AND ref_id = ${String(itemId)}
+           AND reason IN ('rent_item','renew_item')
+         LIMIT 1
       `))[0];
 
+      if (!led) {
+        // المفتاح موجود لكنه ليس دفعة هذا اللاعب لهذا العنصر ⇒ تصادم مفاتيح،
+        // لا تكرار. نرفض بوضوح ولا نمنح شيئاً.
+        throw Object.assign(new Error('KEY_COLLISION'), { storeCode: 'INVALID', msg: 'تعارض في معرّف الطلب — أعد المحاولة' });
+      }
+
+      // ⏳ إيجار **نشط** فقط يُعدّ تأكيداً. صفّ منتهٍ ليس بضاعةً سُلِّمت.
       const rental = rowsOf(await tx.execute(sql`
         SELECT id, expires_at FROM chips_rentals
-         WHERE player_id = ${playerId} AND item_id = ${itemId}
+         WHERE player_id = ${playerId} AND item_id = ${itemId} AND expires_at > NOW()
          ORDER BY expires_at DESC LIMIT 1 FOR UPDATE
       `))[0];
 
@@ -375,6 +418,7 @@ async function repairOrConfirmRental(playerId: number, itemId: number, idemKey: 
     }
     return { ok: true, balance: out.balance, expiresAt: out.expiresAt, itemId };
   } catch (e: any) {
+    if (e?.storeCode) return { ok: false, code: e.storeCode, message: e.msg || 'تعذّر تأكيد العملية' };
     console.error('❌ repairOrConfirmRental:', e?.message);
     return { ok: false, code: 'ERROR', message: 'تعذّر تأكيد العملية' };
   }
@@ -461,15 +505,25 @@ function broadcastCosmetics(playerId: number) {
         const seat = (st.players || []).find((p: any) => p?.playerId === playerId);
         if (!seat) continue;
 
-        // 1) التثبيت في Redis — هذا ما تقرأه الشاشة عند كل مزامنة
-        try {
-          await updatePlayer(st.roomId, seat.physicalId, { cosmetics: cos } as any);
-        } catch { /* غرفة اختفت بين القراءة والكتابة — لا يعطّل البقيّة */ }
+        // ① التثبيت في Redis — **في اللوبي فقط**.
+        //
+        // ⚠️ `updatePlayer` يقرأ حالة اللعبة كاملةً ثم يكتبها كاملةً. تشغيله من
+        //    مسار يبدأه لاعب (شراء/تجهيز) أثناء مباراة جارية يفتح سباق
+        //    قراءة-تعديل-كتابة على نفس الكائن الذي تكتب فيه الأصوات وأفعال
+        //    الليل — فقد يُمحى صوتٌ أو فعلٌ بصمت. ثمن المظهر لا يبرّر ذلك أبداً.
+        //    في اللوبي لا تصويت ولا أفعال ليل، والكتابة هناك هي بالضبط ما يفعله
+        //    الانضمام أصلاً.
+        //    أثناء المباراة: نكتفي بالبثّ، والشاشة تحتفظ بالمظهر لبقيّة الجلسة.
+        if (st.phase === 'LOBBY') {
+          try {
+            await updatePlayer(st.roomId, seat.physicalId, { cosmetics: cos } as any);
+          } catch { /* غرفة اختفت بين القراءة والكتابة — لا يعطّل البقيّة */ }
+        }
 
-        // 2) البثّ الفوري كي لا ينتظر اللاعب مزامنة
+        // ② البثّ الفوري كي لا ينتظر اللاعب مزامنة
         if (io) {
           io.to(st.roomId).emit('player:cosmetics-updated', {
-            playerId, physicalId: seat.physicalId, cosmetics: cos,
+            playerId, physicalId: seat.physicalId, name: seat.name, cosmetics: cos,
           });
         }
       }

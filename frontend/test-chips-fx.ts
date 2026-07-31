@@ -112,6 +112,20 @@ check(mergeFx(godfather, paidBadge).badge.label === 'ملحمي', 'حين يُف
 const emptyPaid = mergeFx(godfather, {});
 check(emptyPaid.badge.label === 'GODFATHER' && emptyPaid.border.color === '#f59e0b', 'إعداد مشترى فارغ لا يمحو شيئاً');
 
+// ── ٥.٥) التدرّج يحتاج نقطتين على الأقل ──
+console.log('\n٥.٥) صلاحية التدرّج:');
+{
+  // `linear-gradient(135deg, #f59e0b)` غير صالح في CSS: الخاصية كلها تسقط
+  // ويختفي الإطار المدفوع بلا أي أثر. الافتراضي نفسه كان بلون واحد.
+  const one = normalizeFx({ border: { enabled: true, style: 'traveling', gradientColors: ['#ff0000'] } });
+  check(one.border.gradientColors.length >= 2, 'قائمة بلون واحد تُبطَّن إلى نقطتين', JSON.stringify(one.border.gradientColors));
+  const none = normalizeFx({ border: { enabled: true, style: 'gradient' } });
+  check(none.border.gradientColors.length >= 2, 'قائمة فارغة تُبطَّن إلى نقطتين', JSON.stringify(none.border.gradientColors));
+  check(FX_DEFAULTS.border.gradientColors.length >= 1, 'الافتراضي موجود');
+  const dflt = normalizeFx({});
+  check(dflt.border.gradientColors.length >= 2, 'التطبيع الافتراضي نفسه لا يُنتج تدرّجاً غير صالح');
+}
+
 // ── ٦) حرّاس الرسم ──
 console.log('\n٦) حرّاس الرسم:');
 check(hasAnyEnabled(normalizeFx({})) === false, 'كائن فارغ ⇒ لا قناة مفعّلة');

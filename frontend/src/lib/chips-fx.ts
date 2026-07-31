@@ -103,7 +103,12 @@ export function normalizeFx(input: unknown): FxChannels {
       width: num(b.width, d.border.width, 0.5, 6),
       inset: num(b.inset, d.border.inset, -10, 10),
       style: pick(b.style, ['solid', 'gradient', 'traveling'] as const, d.border.style),
-      gradientColors: gradientColors.length ? gradientColors : [hex(b.color, d.border.color)],
+      // ⚠️ لا تقلّ عن لونين: المُصيّر يبني `linear-gradient(135deg, …)` من هذه
+      //    القائمة، و`linear-gradient` بلون واحد **غير صالح** في CSS فتسقط
+      //    الخاصية كاملةً ويختفي الإطار المدفوع بلا أثر. نُكرّر اللون الواحد.
+      gradientColors: gradientColors.length >= 2
+        ? gradientColors
+        : [gradientColors[0] || hex(b.color, d.border.color), gradientColors[0] || hex(b.color, d.border.color)],
       travelSpeed: num(b.travelSpeed, d.border.travelSpeed, 0.5, 30),
     },
     glow: {
