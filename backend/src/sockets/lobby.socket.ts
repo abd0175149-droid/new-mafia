@@ -4,6 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Server, Socket } from 'socket.io';
+import { verifyDisplayToken, displayAuthEnforced } from '../services/display-auth.service.js';
 import { createRoom, addPlayer, updatePlayer, updateRoom, getRoom, getRoomByCode, bindRole, unbindRole, setPhase, Phase } from '../game/state.js';
 import { allocateSeat } from '../game/seat-allocator.js';
 import type { SeatConstraints } from '../game/seat-allocator.js';
@@ -3244,8 +3245,29 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   });
 
   // ── شاشة العرض تنضم للغرفة (بعد التحقق من PIN عبر REST) ──
-  socket.on('display:join-room', async (data: { roomId: string }, callback?: any) => {
+  socket.on('display:join-room', async (data: { roomId: string; displayToken?: string }, callback?: any) => {
     if (data.roomId) {
+      // 🔒 الحارس الذي كان غائباً تماماً.
+      //
+      //    كان أي ساكت ينضم للغرفة، **ويمنح نفسه دور `display`**، فيُعيد له
+      //    المعالج حالة اللعبة كاملةً بأدوار كل اللاعبين — وذلك الدور نفسه
+      //    هو ما يقرؤه `isTrusted` ليرسل الحالة بلا تنقية في الغرف البعيدة.
+      //    والقائمة العامة للأنشطة تسلّم معرّفات الغرف بلا رمز، فرمز الشاشة
+      //    كان حارساً بلا أثر: أي لاعب بأدوات المطوّر يقرأ التوزيع كاملاً.
+      //
+      //    المقبول: توكن شاشة موقَّع لهذه الغرفة (يُمنح بعد التحقق من الرمز)
+      //    أو توكن موظف موثّق. والفرض قابل للإطفاء بمتغيّر بيئة كي يكون
+      //    التراجع إعادةَ تشغيل لا نشرةَ كود تحت الضغط.
+      const okToken = verifyDisplayToken(data.displayToken, data.roomId);
+      const okStaff = !!socket.data.authStaff;
+      if (!okToken && !okStaff && displayAuthEnforced()) {
+        console.warn(`🚫 display:join-room مرفوض (بلا توكن) — غرفة ${data.roomId}`);
+        if (typeof callback === 'function') {
+          callback({ success: false, error: 'UNAUTHORIZED_DISPLAY', message: 'انتهت صلاحية الشاشة — أعد إدخال الرقم السري' });
+        }
+        return;
+      }
+
       socket.join(data.roomId);
       socket.data.role = 'display';
       socket.data.roomId = data.roomId;
@@ -3822,9 +3844,15 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
   });
 
+  // 🔒 الإعادة تُلقي طبقة ملء الشاشة على بروجكتور القاعة وتكشف أدوار مباراة
+  //    سابقة — وكانت بلا أي حارس، فأي ساكت يستطيع مقاطعة السهرة أو قراءة
+  //    نتائج أي مباراة بمعرّفها. نقصرها على ليدر موثّق أو شاشة مُصادَقة.
+  const replayAllowed = () => socket.data.role === 'leader' || socket.data.role === 'display';
+
   // ── عرض إعادة نتيجة لعبة سابقة على شاشة Display ────────────
   socket.on('display:show-replay', async (data: { roomId: string; matchId: number }, callback?) => {
     try {
+      if (!replayAllowed()) return callback?.({ success: false, error: 'غير مصرّح' });
       const { getMatchDetails } = await import('../services/match.service.js');
       const match = await getMatchDetails(data.matchId);
       if (!match) {
@@ -3846,6 +3874,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
   // ── إخفاء إعادة النتيجة من شاشة Display ────────────
   socket.on('display:hide-replay', (data: { roomId: string }, callback?) => {
+    if (!replayAllowed()) return callback?.({ success: false, error: 'غير مصرّح' });
     io.to(data.roomId).emit('display:replay-hidden');
     callback?.({ success: true });
   });

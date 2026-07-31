@@ -8,6 +8,9 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { env } from './config/env.js';
+import {
+  mintDisplayToken, pinAttemptKey, pinLockState, recordPinFailure, clearPinFailures,
+} from './services/display-auth.service.js';
 import { connectDB } from './config/db.js';
 import { connectRedis } from './config/redis.js';
 import { seedDatabase } from './utils/seed.js';
@@ -392,20 +395,38 @@ app.post('/api/game/verify-pin', async (req, res) => {
       return res.json({ success: false, error: 'roomId and pin are required' });
     }
 
+    // 🔒 قفل التخمين: الرمز ٤–٦ أرقام، والمسار غير مصادَق، وردّه عند النجاح
+    //    يحمل أدوار كل اللاعبين — فمسح فضاء المفاتيح كان ممكناً في ثوانٍ.
+    const attemptKey = pinAttemptKey(req, String(roomId));
+    const lock = pinLockState(attemptKey);
+    if (lock.locked) {
+      res.setHeader('Retry-After', String(lock.retryAfterSec));
+      return res.status(429).json({ success: false, error: `محاولات كثيرة — أعد المحاولة بعد ${Math.ceil(lock.retryAfterSec / 60)} دقيقة` });
+    }
+
     const room = activeRooms.get(roomId);
     if (!room) {
       return res.json({ success: false, error: 'اللعبة غير موجودة' });
     }
 
     if (room.displayPin !== pin) {
-      return res.json({ success: false, error: 'الرقم السري غير صحيح' });
+      const after = recordPinFailure(attemptKey);
+      if (after.locked) res.setHeader('Retry-After', String(after.retryAfterSec));
+      return res.status(after.locked ? 429 : 401).json({
+        success: false,
+        error: after.locked ? 'محاولات كثيرة — الرمز مقفل مؤقتاً' : 'الرقم السري غير صحيح',
+      });
     }
+    clearPinFailures(attemptKey);
 
     // جلب حالة الغرفة الكاملة
     const state = await getRoom(roomId);
 
     res.json({
       success: true,
+      // 📺 توكن الشاشة — يُشترط لاحقاً في `display:join-room`.
+      //    بلا هذا كان أي ساكت ينضم للغرفة ويقرأ أدوار الجميع.
+      displayToken: mintDisplayToken(String(roomId)),
       gameName: room.gameName,
       roomCode: room.roomCode,
       playerCount: room.playerCount,
@@ -457,14 +478,29 @@ app.post('/api/game/verify-pin-by-code', async (req, res) => {
       return res.json({ success: false, error: 'الغرفة غير نشطة — تأكد أن القائد دخلها' });
     }
 
-    if (room.displayPin !== pin) {
-      return res.json({ success: false, error: 'الرقم السري غير صحيح' });
+    // 🔒 نفس قفل التخمين — هذا المسار يُعيد الأدوار أيضاً، فتأمين أحدهما وحده لا يكفي
+    const attemptKey2 = pinAttemptKey(req, String(room.roomId));
+    const lock2 = pinLockState(attemptKey2);
+    if (lock2.locked) {
+      res.setHeader('Retry-After', String(lock2.retryAfterSec));
+      return res.status(429).json({ success: false, error: `محاولات كثيرة — أعد المحاولة بعد ${Math.ceil(lock2.retryAfterSec / 60)} دقيقة` });
     }
+
+    if (room.displayPin !== pin) {
+      const after = recordPinFailure(attemptKey2);
+      if (after.locked) res.setHeader('Retry-After', String(after.retryAfterSec));
+      return res.status(after.locked ? 429 : 401).json({
+        success: false,
+        error: after.locked ? 'محاولات كثيرة — الرمز مقفل مؤقتاً' : 'الرقم السري غير صحيح',
+      });
+    }
+    clearPinFailures(attemptKey2);
 
     const state = await getRoom(room.roomId);
     res.json({
       success: true,
       roomId: room.roomId,
+      displayToken: mintDisplayToken(String(room.roomId)),
       gameName: room.gameName,
       roomCode: room.roomCode,
       playerCount: room.playerCount,

@@ -59,6 +59,20 @@ interface PlayerInfo {
 
 // مؤثرات الفوز أصبحت مُدارة من soundManager
 
+
+// 📺 توكن شاشة العرض — يُمنح بعد التحقق من الرقم السري ويُشترط في الانضمام.
+// ⚠️ يُخزَّن محلياً عمداً: `display:join-room` يُعاد إرساله عند كل إعادة اتصال،
+//    وتحديثُ صفحةٍ بلا توكن محفوظ كان سيُقفل شاشة القاعة خارج النظام في منتصف
+//    السهرة ويُجبر المشغّل على إدخال الرقم من جديد.
+const DISPLAY_TOKEN_KEY = 'mafia_display_token';
+function saveDisplayToken(roomId: string, token?: string | null) {
+  if (!token) return;
+  try { localStorage.setItem(`${DISPLAY_TOKEN_KEY}:${roomId}`, token); } catch { /* تجاهل */ }
+}
+function readDisplayToken(roomId: string): string {
+  try { return localStorage.getItem(`${DISPLAY_TOKEN_KEY}:${roomId}`) || ''; } catch { return ''; }
+}
+
 function DisplayPageContent() {
   const socketRef = useRef<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -309,7 +323,8 @@ function DisplayPageContent() {
     };
 
     // ── الانضمام لغرفة السوكت — مع callback لمزامنة الحالة الأولية ──
-    socket.emit('display:join-room', { roomId: currentRoomId }, (res: any) => {
+    socket.emit('display:join-room', { roomId: currentRoomId, displayToken: readDisplayToken(currentRoomId) }, (res: any) => {
+      if (res?.error === 'UNAUTHORIZED_DISPLAY') { setPinError(res.message || 'انتهت صلاحية الشاشة'); setStep('pin'); return; }
       if (res?.state) {
         console.log('✅ Display: Initial state synced on join');
         syncStateFromData(res.state);
@@ -323,7 +338,8 @@ function DisplayPageContent() {
     // ══════════════════════════════════════════════════
     const onReconnect = () => {
       console.log('🔄 Display: Socket reconnected — re-joining room...');
-      socket.emit('display:join-room', { roomId: currentRoomId }, (res: any) => {
+      socket.emit('display:join-room', { roomId: currentRoomId, displayToken: readDisplayToken(currentRoomId) }, (res: any) => {
+        if (res?.error === 'UNAUTHORIZED_DISPLAY') { setPinError(res.message || 'انتهت صلاحية الشاشة'); setStep('pin'); return; }
         if (res?.state) {
           console.log('✅ Display: Re-synced state after reconnect');
           syncStateFromData(res.state);
@@ -820,6 +836,7 @@ function DisplayPageContent() {
         setPinError(data.error || 'الرقم السري غير صحيح');
         return;
       }
+      saveDisplayToken(String(roomId), data.displayToken);
 
       // نجاح! → انتقل للوبي
       setCurrentRoomId(roomId);
@@ -888,6 +905,7 @@ function DisplayPageContent() {
         setStep('select-activity');
         return;
       }
+      saveDisplayToken(String(data.roomId), data.displayToken);
       setCurrentRoomId(data.roomId);
       setGameName(data.gameName);
       setRoomCode(data.roomCode);
