@@ -1424,7 +1424,13 @@ async function main() {
           FOR EACH ROW EXECUTE FUNCTION chips_ledger_immutable()
         `);
 
-        console.log('🛡️ Chips ledger durability ensured (RESTRICT + append-only trigger)');
+        // ③ فهارس واجهة المتجر — بلاها تصير كل فتحة متجر مسحاً كاملاً
+        //    لجدول الإيجارات (وهو أسرع جداول التشبس نموّاً).
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_rentals_item_exp ON chips_rentals(item_id, expires_at)`);
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_rentals_player_exp ON chips_rentals(player_id, expires_at)`);
+        await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_chips_ledger_ref ON chips_ledger(ref_type, ref_id)`);
+
+        console.log('🛡️ Chips ledger durability ensured (RESTRICT + append-only trigger + store indexes)');
       } catch (e: any) {
         console.warn('⚠️ Chips ledger durability migration:', e?.message);
       }

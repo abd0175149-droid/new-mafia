@@ -505,6 +505,28 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* 🏦 خزنة الدون — باب ثانٍ للمتجر.
+          ⚠️ كان قرص الرصيد في الترويسة **الباب الوحيد** إليه من الصفحة كلها،
+             ويختفي عند أي فشل جلب. لافتة بنفس نمط لافتات الصفحة تجعل المتجر
+             مرئياً بذاته لا مخبوءاً خلف رقاقة صغيرة بجوار الجرس. */}
+      <button
+        onClick={() => router.push('/player/store')}
+        className="w-full rounded-2xl p-4 text-right transition-all"
+        style={{
+          background: 'linear-gradient(135deg, rgba(251,191,36,0.10), rgba(5,5,5,0.9))',
+          border: '1px solid rgba(251,191,36,0.22)',
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <span className="text-amber-400 text-xs font-medium">🏦 خزنة الدون</span>
+            <p className="text-white text-sm mt-1">إطارك ولقبك وتشريفة دخولك — يراها كل من في القاعة</p>
+          </div>
+          <span className="px-4 py-2 rounded-xl text-sm font-bold whitespace-nowrap"
+            style={{ background: 'linear-gradient(135deg, #fbbf24, #d97706)', color: '#1a1206' }}>افتح →</span>
+        </div>
+      </button>
+
       {/* 🍽️ اطلب من المكان — تظهر فقط عندما يكون للاعب سياق طلب فعّال */}
       {fnbCtx && (
         <button

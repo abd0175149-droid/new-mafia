@@ -22,7 +22,12 @@ import {
   normalizeItemConfig, normalizeEmblemId, designRegistry,
   DEFAULT_DAYS_BY_KIND, KEY_PREFIX_BY_KIND,
 } from '../shared/chips-design.contract.js';
+import { getRewardsConfig } from '../services/chips-rewards.service.js';
+import { CHIPS_PACKS } from '../schemas/chips.schema.js';
+import { sql } from 'drizzle-orm';
 import { logStaffAction } from '../services/staff-action-log.service.js';
+
+function rowsOf(res: any): any[] { return res?.rows ?? (Array.isArray(res) ? res : []); }
 
 const router = Router();
 
@@ -66,6 +71,38 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
       if (await isSoundKeyAvailable(key)) availableSounds.add(key);
     }
 
+    // ══════════════════════════════════════════════════
+    // 🛍️ بيانات التسويق — كلها من صفوف موجودة أصلاً
+    //
+    // ⚠️ كان المتجر يعرض السعر والاسم فقط. كل ما يجعل قراراً شرائياً ممكناً
+    //    — كم يملكه غيري؟ ما الأكثر طلباً؟ ما الجديد؟ ماذا كان لي وانتهى؟
+    //    كم ينقصني؟ وكم يساوي التشبس بالدينار؟ — كان موجوداً في القاعدة
+    //    وغير معروض. هذه ثلاثة تجميعات وفهارسها.
+    // ══════════════════════════════════════════════════
+    const ownersRows = db ? rowsOf(await db.execute(sql`
+      SELECT item_id, COUNT(DISTINCT player_id)::int AS owners
+        FROM chips_rentals WHERE expires_at > NOW() GROUP BY item_id
+    `)) : [];
+    const owners = new Map<number, number>(ownersRows.map((r: any) => [Number(r.item_id), Number(r.owners)]));
+
+    const hotRows = db ? rowsOf(await db.execute(sql`
+      SELECT ref_id, COUNT(*)::int AS c FROM chips_ledger
+       WHERE ref_type = 'item' AND reason IN ('rent_item','renew_item')
+         AND created_at >= date_trunc('month', NOW())
+       GROUP BY ref_id ORDER BY c DESC LIMIT 3
+    `)) : [];
+    const hot = new Set<number>(hotRows.map((r: any) => Number(r.ref_id)));
+
+    // «كان لك» — أقوى دافع استرجاع: عنصر جرّبه ثم فقده
+    const lapsedRows = db ? rowsOf(await db.execute(sql`
+      SELECT DISTINCT item_id FROM chips_rentals
+       WHERE player_id = ${playerId} AND expires_at <= NOW()
+    `)) : [];
+    const lapsed = new Set<number>(lapsedRows.map((r: any) => Number(r.item_id)));
+
+    const NEW_DAYS = 14;
+    const newCutoff = Date.now() - NEW_DAYS * 86400000;
+
     const ownedByItem = new Map(rentals.map(r => [r.itemId, r]));
     const items = catalog
       .filter((it: any) => it.kind !== 'victory_sting' || availableSounds.has(String(it.config?.soundKey || '')))
@@ -86,13 +123,31 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
         closed: !!it.closedAt,
         owned: !!owned,
         expiresAt: owned?.expiresAt ?? null,
+        // ── إشارات التسويق ──
+        owners: owners.get(it.id) || 0,
+        isHot: hot.has(it.id),
+        isNew: it.createdAt ? new Date(it.createdAt).getTime() > newCutoff : false,
+        wasOwned: !owned && lapsed.has(it.id),
+        sortOrder: it.sortOrder ?? 0,
       };
     });
 
     // تنبيه قرب الانتهاء يُفحص كسولاً عند فتح المتجر
     notifyExpiringSoon(playerId);
 
-    res.json({ success: true, balance, items, cosmetics, me });
+    // 💵 الباقات ومعدلات الكسب: كانت موجودة في الخادم بلا أي مستدعٍ، فاللاعب
+    //    الذي ينقصه رصيد لم يكن يعرف كم يساوي التشبس ولا كيف يكسبه.
+    const rewardsCfg = await getRewardsConfig().catch(() => null);
+    res.json({
+      success: true, balance, items, cosmetics, me,
+      packs: CHIPS_PACKS,
+      earnRates: {
+        win: rewardsCfg?.drops?.win ?? 2,
+        top3: rewardsCfg?.drops?.top3 ?? 3,
+        firstMatch: rewardsCfg?.drops?.firstMatch ?? 10,
+        birthday: rewardsCfg?.birthday?.enabled ? (rewardsCfg?.birthday?.amount ?? 0) : 0,
+      },
+    });
   } catch (err: any) {
     console.error('❌ chips store:', err.message);
     res.status(500).json({ error: err.message });
