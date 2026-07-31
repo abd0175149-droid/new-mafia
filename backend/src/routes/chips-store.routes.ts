@@ -15,6 +15,7 @@ import { players } from '../schemas/player.schema.js';
 import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
   grantRental, isSoundKeyAvailable, listVictoryStings, getStingById,
+  claimFreeTrial, hasUsedTrial, itemTrialEligible,
   getInventorySummary, getExpiringRentals,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
@@ -65,6 +66,7 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     // (بيع نغمة بلا صوت = وعد فارغ). الفحص لحظي فلا يحتاج إعادة تشغيل.
     // المكتبة تُقرأ مرّة واحدة — لا استعلام لكل عنصر (حلقة N+1 كانت هنا).
     const rewardsCfgEarly = await getRewardsConfig().catch(() => null as any);
+    const trialUsed = await hasUsedTrial(playerId);
     const stingLib = await listVictoryStings();
     const activeStingIds = new Set(stingLib.filter(x => x.isActive).map(x => x.id));
     const stingUrlById = new Map(stingLib.map(x => [x.id, x.url]));
@@ -145,6 +147,8 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
         isNew: it.newOverride ?? (it.createdAt ? new Date(it.createdAt).getTime() > newCutoff : false),
         wasOwned: !owned && lapsed.has(it.id),
         sortOrder: it.sortOrder ?? 0,
+        // 🎁 الأهلية تُحسب مرّة للاعب ومرّة للعنصر — فالزرّ لا يظهر ليُرفض
+        trialEligible: !trialUsed && itemTrialEligible(it) && !owned,
         // 🔊 رابط الملف — يسمح للمتجر بإسماع النغمة قبل الشراء.
         //    تُعزَف على جهاز اللاعب وحده ولا تُبَثّ للقاعة إطلاقاً.
         soundUrl: it.kind === 'victory_sting' && it.config?.soundId
@@ -161,7 +165,7 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     //    الذي ينقصه رصيد لم يكن يعرف كم يساوي التشبس ولا كيف يكسبه.
     const rewardsCfg = await getRewardsConfig().catch(() => null);
     res.json({
-      success: true, balance, items, cosmetics, me,
+      success: true, balance, items, cosmetics, me, trialUsed,
       packs: CHIPS_PACKS,
       earnRates: {
         win: rewardsCfg?.drops?.win ?? 2,
@@ -194,6 +198,35 @@ router.get('/store/cosmetics', authenticatePlayer, async (req: Request, res: Res
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── 🎁 التجربة المجانية (قرار المالك ٩) ──
+// ندرة ≤ epic · ٣ أيام · مرّة واحدة للأبد، والحدّ مسنود بفهرس لا بشرط.
+router.post('/store/trial',
+  rateLimit({
+    windowMs: 60_000, max: 60, keyPrefix: 'chips-trial',
+    identity: (req) => String(req.headers.authorization || '').slice(-32) || null,
+    identityMax: 5,
+  }),
+  authenticatePlayer,
+  async (req: Request, res: Response) => {
+    try {
+      const playerId = req.playerAccount!.playerId;
+      const itemId = parseInt(req.body?.itemId);
+      if (!itemId || isNaN(itemId)) return res.status(400).json({ error: 'معرّف العنصر مطلوب' });
+
+      const r = await claimFreeTrial({ playerId, itemId });
+      if (!r.ok) {
+        const status = r.code === 'NOT_FOUND' ? 404
+          : r.code === 'ALREADY_USED' || r.code === 'PAID_BEFORE' || r.code === 'ALREADY_OWNED' ? 409
+          : r.code === 'DB_DOWN' ? 503 : 400;
+        return res.status(status).json({ error: r.message, code: r.code });
+      }
+      res.json({ success: true, ...r });
+    } catch (err: any) {
+      console.error('❌ chips trial:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
 
 // ── استئجار / تجديد ──
 router.post('/store/rent',

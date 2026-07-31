@@ -43,6 +43,8 @@ function newRequestId() {
 }
 
 interface StoreItem {
+  trialEligible?: boolean;
+  soundUrl?: string | null;
   id: number; kind: string; itemKey: string; nameAr: string; hookAr: string;
   rarity: string; priceChips: number; durationDays: number; emblemId?: string | null;
   config: any; isPurchasable: boolean; closed: boolean; owned: boolean; expiresAt: string | null;
@@ -182,6 +184,30 @@ export default function StorePage() {
     else if (tryOn.kind === 'name_fx') base.nameFx = { config: tryOn.config };
     return base;
   }, [tryOn, cosmetics]);
+
+  /**
+   * 🎁 التجربة المجانية — مرّة واحدة للأبد لكل لاعب (قرار المالك ٩).
+   * سبب الرفض يُعرَض كما جاء من الخادم لا برسالة عامة: «استعملتها سابقاً»
+   * و«سبق أن اشتريته» قراران مختلفان تماماً بالنسبة للاعب.
+   */
+  const doTrial = async (item: StoreItem) => {
+    setBusy(item.id);
+    try {
+      const d = await api('/api/chips/store/trial', {
+        method: 'POST',
+        body: JSON.stringify({ itemId: item.id }),
+      });
+      setItems(prev => prev.map(i => i.id === item.id
+        ? { ...i, owned: true, expiresAt: d.expiresAt, wasOwned: false, trialEligible: false }
+        // التجربة مرّة واحدة — فتسقط أهليّتها عن كل العناصر فوراً
+        : { ...i, trialEligible: false }));
+      setTryOn(null);
+      setCelebrate({ ...item, expiresAt: d.expiresAt, owned: true });
+      api('/api/chips/store/cosmetics').then(c => setCosmetics(c.cosmetics || null)).catch(() => {});
+    } catch (e: any) {
+      say(false, e?.message || 'تعذّرت التجربة');
+    } finally { setBusy(null); }
+  };
 
   const doRent = async (item: StoreItem) => {
     if (balance < item.priceChips) { setShortfall(item); return; }
@@ -335,6 +361,15 @@ export default function StorePage() {
             <div className="flex-1 py-2 rounded-xl text-xs font-bold text-center bg-white/5 border border-white/10 text-gray-500">
               إنجاز فقط
             </div>
+          )}
+
+          {/* 🎁 التجربة المجانية — تظهر فقط حيث تُقبل فعلاً،
+              فلا يراها لاعب ليُرفض عند الضغط */}
+          {item.trialEligible && (
+            <button onClick={() => doTrial(item)} disabled={busy === item.id}
+              className="px-3 py-2 rounded-xl text-[11px] font-black bg-sky-600/20 border border-sky-500/40 text-sky-200 hover:bg-sky-600/30 transition-all disabled:opacity-40">
+              🎁 جرّبه ٣ أيام
+            </button>
           )}
         </div>
       </div>

@@ -1458,6 +1458,32 @@ async function main() {
         console.warn('⚠️ Chips ledger durability migration:', e?.message);
       }
 
+      // ── التجربة المجانية: مرّة واحدة للأبد، بقيدٍ لا بشرط ──
+      //
+      // ⚠️ فهرس **جزئي فريد على اللاعب وحده** حين يكون المصدر تجربة.
+      //    الشرط في الكود يكفي للاستعمال العادي، لكن هذا مسار مجّاني:
+      //    سباقٌ فيه يُنتج تجربتين ولا أثر مالي يكشفه لاحقاً.
+      try {
+        // دمج أي ازدواج سابق قبل القيد (لا يوجد اليوم — لكن الترحيل يجب
+        // أن يصحّ على أي بيئة، وإلا فشل الإنشاء وبقيت القاعدة بلا قيد)
+        await db.execute(sql`
+          DELETE FROM chips_rentals a
+           USING chips_rentals b
+           WHERE a.player_id = b.player_id
+             AND a.source IN ('trial','trial_converted')
+             AND b.source IN ('trial','trial_converted')
+             AND a.id > b.id
+        `);
+        await db.execute(sql`
+          CREATE UNIQUE INDEX IF NOT EXISTS uniq_chips_trial_once_per_player
+            ON chips_rentals(player_id)
+            WHERE source IN ('trial', 'trial_converted')
+        `);
+        console.log('🎁 Chips free-trial uniqueness ensured (once per player, ever)');
+      } catch (e: any) {
+        console.warn('⚠️ Chips trial index migration:', e?.message);
+      }
+
       // ── ضبط التسويق: تجاوز يدوي للإشارات المشتقّة ──
       //
       // «الأكثر طلباً» و«جديد» يُحسبان من البيانات، وهذا صحيح افتراضاً —

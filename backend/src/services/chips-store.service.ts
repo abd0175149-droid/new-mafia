@@ -822,6 +822,181 @@ export function startExpiryScheduler(): void {
   console.log('⏳ مجدول تنبيه انتهاء الإيجارات يعمل (كل ٣٠ دقيقة · ١٠ص–١٠م)');
 }
 
+// ══════════════════════════════════════════════════════
+// 🎁 التجربة المجانية — قرار المالك المقفل (٩)
+//
+// الشروط: ندرة ≤ epic · ٣ أيام · **مرّة واحدة للأبد** لكل لاعب،
+// مسنودة بفهرس جزئي فريد لا بشرط في الكود.
+//
+// ⚠️ لماذا الفهرس لا الشرط: هذا مسار مجّاني — أي سباق فيه يُنتج تجارب
+//    متعدّدة بلا أثر مالي يكشفها لاحقاً. القفل الاستشاري يمنع التزامن
+//    داخل عملية واحدة، والفهرس يمنعه أبداً.
+//
+// 🔗 تصادم مقصود مع منع تكرار الإيجار: بعد أن صار هناك صفّ واحد أبدي لكل
+//    (لاعب، عنصر)، صار «امتلكه سابقاً» و«يملكه الآن» استعلاماً واحداً.
+//    ولذلك يُبنى الحرمان على **مصدر** الإيجار لا على مجرّد وجوده:
+//      • إيجار مدفوع سابق (rent/renew) ⇒ يُحرَم — التجربة لا تُستعمل
+//        لتأجيل تجديد كان سيُدفع.
+//      • منحة إدارية أو إنجاز انتهت ⇒ لا تمنع — لم يدفع شيئاً ولم يختر.
+// ══════════════════════════════════════════════════════
+
+/** الندرات المسموح تجربتها — القرار: ≤ epic */
+const TRIAL_RARITIES = new Set(['common', 'rare', 'epic']);
+const TRIAL_DAYS = 3;
+
+export type TrialCode =
+  | 'NOT_FOUND' | 'CLOSED' | 'NOT_PURCHASABLE' | 'RARITY'
+  | 'KIND' | 'ALREADY_USED' | 'ALREADY_OWNED' | 'PAID_BEFORE' | 'DB_DOWN' | 'ERROR';
+
+export interface TrialResult {
+  ok: boolean;
+  code?: TrialCode;
+  message?: string;
+  expiresAt?: Date | string;
+  itemId?: number;
+}
+
+/** هل استهلك اللاعب تجربته؟ سؤال واحد يُجاب من الصفوف لا من علَم */
+export async function hasUsedTrial(playerId: number): Promise<boolean> {
+  const db = getDB();
+  if (!db) return true;   // عند الشكّ نمنع: منح تجربة ثانية أسوأ من منعها
+  const rows = rowsOf(await db.execute(sql`
+    SELECT 1 FROM chips_rentals
+     WHERE player_id = ${Number(playerId)}
+       AND source IN ('trial', 'trial_converted')
+     LIMIT 1
+  `));
+  return rows.length > 0;
+}
+
+/** هل هذا العنصر قابل للتجربة أصلاً؟ (للعرض في المتجر) */
+export function itemTrialEligible(item: any): boolean {
+  if (!item) return false;
+  if (item.closedAt || item.closed_at) return false;
+  if (item.isPurchasable === false || item.is_purchasable === false) return false;
+  // ⛔ معزّز الخبرة مستثنى: ليس مظهراً بل الاستثناء الوحيد المرتبط بالتقدّم.
+  //    تجربة مجانية له تعني ×٢ خبرة مجاناً — وهو باب خلفي لـ«الدفع مقابل التقدّم».
+  if ((item.kind) === 'xp_boost') return false;
+  return TRIAL_RARITIES.has(String(item.rarity));
+}
+
+/**
+ * منح التجربة. لا يمسّ الرصيد ولا يكتب في الدفتر — لا مال هنا،
+ * فسطر دفتر بقيمة صفر يُلوّث حساب الإيراد بلا فائدة.
+ */
+export async function claimFreeTrial(opts: { playerId: number; itemId: number }): Promise<TrialResult> {
+  const db = getDB();
+  if (!db) return { ok: false, code: 'DB_DOWN', message: 'قاعدة البيانات غير متاحة' };
+
+  const playerId = Number(opts.playerId);
+  const itemId = Number(opts.itemId);
+  if (!playerId || !itemId) return { ok: false, code: 'ERROR', message: 'طلب غير صالح' };
+
+  try {
+    const out = await db.transaction(async (tx: any) => {
+      // قفل على اللاعب لا على العنصر: الحدّ «مرّة واحدة» يخصّ اللاعب
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`trial:${playerId}`}))`);
+
+      const [item] = rowsOf(await tx.execute(sql`
+        SELECT id, kind, rarity, is_purchasable, closed_at, name_ar
+          FROM chips_items WHERE id = ${itemId} LIMIT 1
+      `));
+      if (!item) return { ok: false as const, code: 'NOT_FOUND' as const, message: 'العنصر غير موجود' };
+      if (item.closed_at) return { ok: false as const, code: 'CLOSED' as const, message: 'هذا العنصر أُغلق نهائياً' };
+      if (!item.is_purchasable) {
+        return { ok: false as const, code: 'NOT_PURCHASABLE' as const, message: 'هذا العنصر يُنال بالإنجاز لا بالتجربة' };
+      }
+      if (item.kind === 'xp_boost') {
+        return { ok: false as const, code: 'KIND' as const, message: 'المعزّز لا يدخل التجربة المجانية' };
+      }
+      if (!TRIAL_RARITIES.has(String(item.rarity))) {
+        return { ok: false as const, code: 'RARITY' as const, message: 'هذا العنصر أندر من أن يُجرَّب مجاناً' };
+      }
+
+      // مرّة واحدة للأبد — على مستوى اللاعب لا العنصر
+      const used = rowsOf(await tx.execute(sql`
+        SELECT 1 FROM chips_rentals
+         WHERE player_id = ${playerId} AND source IN ('trial', 'trial_converted') LIMIT 1
+      `));
+      if (used.length) {
+        return { ok: false as const, code: 'ALREADY_USED' as const, message: 'استعملت تجربتك المجانية سابقاً — وهي مرّة واحدة' };
+      }
+
+      const [existing] = rowsOf(await tx.execute(sql`
+        SELECT id, source, (expires_at > NOW()) AS is_active
+          FROM chips_rentals WHERE player_id = ${playerId} AND item_id = ${itemId}
+         ORDER BY expires_at DESC LIMIT 1
+         FOR UPDATE
+      `));
+
+      if (existing?.is_active) {
+        return { ok: false as const, code: 'ALREADY_OWNED' as const, message: 'العنصر لديك الآن' };
+      }
+      // 💰 حماية إيراد التجديد: من دفع ثمنه سابقاً لا يستعمل التجربة لتأجيل تجديده.
+      //    أمّا منحة إدارية أو إنجاز انتهيا فلا يمنعان — لم يدفع ولم يختر.
+      if (existing && ['rent', 'renew'].includes(String(existing.source))) {
+        return {
+          ok: false as const, code: 'PAID_BEFORE' as const,
+          message: 'سبق أن اشتريت هذا العنصر — التجربة لمن لم يجرّبه بعد',
+        };
+      }
+
+      const r: any = existing
+        ? await tx.execute(sql`
+            UPDATE chips_rentals
+               SET starts_at = NOW(), expires_at = NOW() + (${TRIAL_DAYS} || ' days')::interval,
+                   source = 'trial', ledger_id = NULL, warned_at = NULL,
+                   price_paid_chips = 0, duration_days_snapshot = ${TRIAL_DAYS}
+             WHERE id = ${existing.id}
+            RETURNING expires_at
+          `)
+        : await tx.execute(sql`
+            INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source,
+                                       price_paid_chips, duration_days_snapshot)
+            VALUES (${playerId}, ${itemId}, NOW(), NOW() + (${TRIAL_DAYS} || ' days')::interval, 'trial',
+                    0, ${TRIAL_DAYS})
+            RETURNING expires_at
+          `);
+
+      // تجهيز الخانة الفارغة — تجربة لا تُرى ليست تجربة
+      const col = SLOT_COLUMN[item.kind as ChipsItemKind];
+      if (col) {
+        await tx.execute(sql.raw(
+          `UPDATE players SET ${col} = ${itemId} WHERE id = ${playerId} AND ${col} IS NULL`,
+        ));
+      }
+
+      return {
+        ok: true as const,
+        expiresAt: rowsOf(r)[0]?.expires_at,
+        itemId,
+        nameAr: String(item.name_ar),
+      };
+    });
+
+    if (!out.ok) return out;
+
+    broadcastCosmetics(playerId);
+    try {
+      const { sendPushToPlayers } = await import('./fcm.service.js');
+      await sendPushToPlayers(
+        [playerId], '🎁 تجربتك المجانية بدأت',
+        `«${(out as any).nameAr}» لك ${TRIAL_DAYS} أيام — جهّزه وشوفه على الشاشة`,
+        'chips', { tag: 'chips-trial', url: '/player/store' },
+      );
+    } catch { /* الإشعار ليس شرطاً للمنح */ }
+
+    return { ok: true, expiresAt: out.expiresAt, itemId };
+  } catch (e: any) {
+    // سباق: الفهرس الجزئي رفض تجربةً ثانية — نجاح حماية لا عطل
+    if (String(e?.code || e?.cause?.code) === '23505') {
+      return { ok: false, code: 'ALREADY_USED', message: 'استعملت تجربتك المجانية سابقاً' };
+    }
+    console.error('❌ claimFreeTrial:', e?.message);
+    return { ok: false, code: 'ERROR', message: 'تعذّرت التجربة' };
+  }
+}
+
 // ── مساعد: الخانات المدعومة حالياً ──
 export function equipSlots() { return EQUIP_SLOTS.filter(k => !!SLOT_COLUMN[k]); }
 

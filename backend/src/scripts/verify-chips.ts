@@ -1122,11 +1122,16 @@ async function main() {
 
     // 🧹 إيجارٌ على حساب اختباري بلا صفّ دفع باقٍ = إيجار دفعت ثمنه بقيّة محذوفة.
     //    الشرط ضيّق عمداً: إيجارٌ اشتراه مُختبِرٌ بشراء حقيقي يبقى، لأن صفّه باقٍ.
+    //
+    // ⚠️ المنح والتجربة **بلا سطر دفتر أصلاً** (لا مال فيهما)،
+    //    فإسقاطهما هنا يحذف إيجارات مشروعة — وفي حالة التجربة
+    //    يُعيد للاعب تجربةً استهلكها وهي مرّة واحدة للأبد.
     await db.execute(sql`
       DELETE FROM chips_rentals r
        USING players p
        WHERE p.id = r.player_id
          AND COALESCE(p.is_test_account,false) = true
+         AND r.source NOT IN ('trial', 'trial_converted', 'achievement', 'admin_grant')
          AND NOT EXISTS (
            SELECT 1 FROM chips_ledger l
             WHERE l.player_id = r.player_id
@@ -1425,6 +1430,135 @@ async function main() {
     }
   }
 
+
+
+  // ══════════════════════════════════════════════════════
+  // ١٣) التجربة المجانية — قرار المالك (٩)
+  //
+  // ندرة ≤ epic · ٣ أيام · **مرّة واحدة للأبد**، والحدّ مسنود بفهرس جزئي
+  //    لا بشرط في الكود: هذا مسار مجّاني، وسباقٌ فيه يُنتج تجربتين ولا
+  //    أثر مالي يكشفه لاحقاً.
+  // ══════════════════════════════════════════════════════
+  console.log('\n١٣) التجربة المجانية:');
+  {
+    const { claimFreeTrial, hasUsedTrial, itemTrialEligible } =
+      await import('../services/chips-store.service.js');
+
+    // ١٣.١ الفهرس الجزئي موجود ويشترط المصدر
+    const idx = rowsOf(await db.execute(sql`
+      SELECT indexdef FROM pg_indexes
+       WHERE tablename = 'chips_rentals' AND indexname = 'uniq_chips_trial_once_per_player'
+    `));
+    check(idx.length === 1 && /UNIQUE/i.test(idx[0].indexdef) && /source/i.test(idx[0].indexdef),
+      '🔒 فهرس جزئي فريد يمنع تجربتين لنفس اللاعب',
+      idx.length ? String(idx[0].indexdef).slice(0, 110) : 'مفقود');
+    check(idx.length === 1 && !/item_id/i.test(idx[0].indexdef),
+      'الفهرس على اللاعب وحده — «مرّة واحدة» تخصّ اللاعب لا العنصر');
+
+    // ١٣.٢ الأهلية: الندرة والنوع
+    check(itemTrialEligible({ rarity: 'common', kind: 'frame' }), 'العادي مؤهَّل');
+    check(itemTrialEligible({ rarity: 'epic', kind: 'title' }), 'epic مؤهَّل (السقف)');
+    check(!itemTrialEligible({ rarity: 'myth', kind: 'frame' }), 'myth فوق السقف — غير مؤهَّل');
+    check(!itemTrialEligible({ rarity: 'achievement', kind: 'frame' }), 'الإنجاز لا يُجرَّب');
+    check(!itemTrialEligible({ rarity: 'common', kind: 'xp_boost' }),
+      '⛔ معزّز الخبرة مستثنى — تجربة مجّانية له تفتح «الدفع مقابل التقدّم» من الخلف');
+    check(!itemTrialEligible({ rarity: 'common', kind: 'frame', closedAt: new Date() }), 'المُغلق نهائياً لا يُجرَّب');
+    check(!itemTrialEligible(null), 'مُدخل فارغ ⇒ غير مؤهَّل (لا انهيار)');
+
+    // ١٣.٣ المسار الحيّ على حساب اختباري
+    const tp = rowsOf(await db.execute(sql`
+      SELECT id FROM players WHERE COALESCE(is_test_account,false) = true ORDER BY id LIMIT 1
+    `))[0];
+    const cheap = rowsOf(await db.execute(sql`
+      SELECT id, rarity FROM chips_items
+       WHERE is_active = true AND is_purchasable = true AND closed_at IS NULL
+         AND rarity IN ('common','rare','epic') AND kind <> 'xp_boost'
+       ORDER BY price_chips ASC LIMIT 1
+    `))[0];
+
+    if (!tp || !cheap) {
+      check(true, 'تخطّي المسار الحيّ (لا حساب اختباري أو لا عنصر مؤهَّل)');
+    } else {
+      const pid = Number(tp.id);
+      const iid = Number(cheap.id);
+
+      // نقطة بداية نظيفة
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid}`);
+
+      check((await hasUsedTrial(pid)) === false, 'قبل التجربة: لم تُستعمل');
+
+      const t1 = await claimFreeTrial({ playerId: pid, itemId: iid });
+      check(!!t1.ok && !!t1.expiresAt, 'التجربة الأولى تنجح', JSON.stringify(t1).slice(0, 90));
+
+      const [row] = rowsOf(await db.execute(sql`
+        SELECT source, price_paid_chips, duration_days_snapshot,
+               EXTRACT(DAY FROM (expires_at - starts_at))::int AS days
+          FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}
+      `));
+      check(row?.source === 'trial', 'المصدر يُسجَّل trial', String(row?.source));
+      check(Number(row?.days) === 3 && Number(row?.duration_days_snapshot) === 3, 'المدّة ٣ أيام', String(row?.days));
+      check(Number(row?.price_paid_chips) === 0, 'السعر المسجَّل صفر — فالاسترجاع لا يُعيد مالاً لم يُدفع');
+
+      // ١٣.٤ 🔴 لا سطر دفتر: لا مال في التجربة، وسطر بصفر يُلوّث الإيراد
+      const led = rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_ledger
+         WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
+      `));
+      check(Number(led[0]?.c ?? 0) === 0, '🔴 التجربة لا تكتب سطر دفتر (لا مال فيها)');
+
+      check((await hasUsedTrial(pid)) === true, 'بعد التجربة: استُعملت');
+
+      // ١٣.٥ 🔒 تجربة ثانية — على عنصر آخر — مرفوضة
+      const other = rowsOf(await db.execute(sql`
+        SELECT id FROM chips_items
+         WHERE is_active = true AND is_purchasable = true AND closed_at IS NULL
+           AND rarity IN ('common','rare','epic') AND kind <> 'xp_boost' AND id <> ${iid}
+         ORDER BY price_chips ASC LIMIT 1
+      `))[0];
+      if (other) {
+        const t2 = await claimFreeTrial({ playerId: pid, itemId: Number(other.id) });
+        check(!t2.ok && t2.code === 'ALREADY_USED',
+          '🔒 تجربة ثانية على عنصر مختلف مرفوضة — الحدّ على اللاعب', JSON.stringify(t2).slice(0, 90));
+      } else {
+        check(true, 'تخطّي فحص العنصر الثاني (لا عنصر مؤهَّل آخر)');
+      }
+
+      // ١٣.٦ 🔒 القاعدة ترفض تجربتين ولو تجاوز أحدٌ الكود
+      let dbBlocked = false;
+      try {
+        await db.transaction(async (tx: any) => {
+          await tx.execute(sql`
+            INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
+            VALUES (${pid}, ${iid + 99999}, NOW(), NOW() + interval '3 days', 'trial')
+          `);
+        });
+      } catch { dbBlocked = true; }
+      check(dbBlocked, '🔒 إدراج تجربة ثانية مرفوض على مستوى القاعدة لا الكود');
+
+      // ١٣.٧ من دفع سابقاً يُحرَم — حماية إيراد التجديد
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid}`);
+      await db.execute(sql`
+        INSERT INTO chips_rentals (player_id, item_id, starts_at, expires_at, source)
+        VALUES (${pid}, ${iid}, NOW() - interval '40 days', NOW() - interval '10 days', 'rent')
+      `);
+      const t3 = await claimFreeTrial({ playerId: pid, itemId: iid });
+      check(!t3.ok && t3.code === 'PAID_BEFORE',
+        '💰 من اشترى العنصر سابقاً لا يجرّبه — التجربة لا تُؤجّل تجديداً كان سيُدفع',
+        JSON.stringify(t3).slice(0, 90));
+
+      // ١٣.٨ ومنحة إدارية منتهية **لا** تمنع — لم يدفع ولم يختر
+      await db.execute(sql`UPDATE chips_rentals SET source = 'admin_grant' WHERE player_id = ${pid} AND item_id = ${iid}`);
+      const t4 = await claimFreeTrial({ playerId: pid, itemId: iid });
+      check(!!t4.ok, 'منحة إدارية منتهية لا تمنع التجربة', JSON.stringify(t4).slice(0, 90));
+
+      // تنظيف
+      await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid}`);
+      await db.execute(sql`
+        UPDATE players SET chips_frame_item_id = NULL, chips_title_item_id = NULL, chips_name_fx_item_id = NULL
+         WHERE id = ${pid}
+      `);
+    }
+  }
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
