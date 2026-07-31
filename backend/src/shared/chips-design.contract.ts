@@ -293,11 +293,27 @@ export function normalizeItemConfig(kind: string, raw: any): NormalizeResult {
     }
 
     case 'victory_sting': {
-      const soundKey = String(cfg.soundKey ?? '').trim();
-      if (!/^[a-z0-9_]{3,40}$/.test(soundKey)) {
-        return { ok: false, field: 'config.soundKey', message: 'مفتاح صوت غير صالح (حروف إنجليزية صغيرة وأرقام وشرطة سفلية)' };
+      // 🔗 الربط بمعرّف الصوت المرفوع هو الشكل المعتمد.
+      //
+      // ⚠️ كان الربط بمفتاح حدث، والمفتاح واحد للبند كلّه — فلو رُبِط به
+      //    صوتان صار أيّهما يُعزَف مسألة حظّ، ولذلك استحال بيع أكثر من
+      //    نغمة واحدة إطلاقاً. الآن كل عنصر يشير إلى **ملفّه** بعينه،
+      //    و«نغمة نصر» يصير تصنيفاً في مكتبة الأصوات لا مفتاح تشغيل.
+      const soundId = Math.trunc(Number(cfg.soundId ?? 0));
+      if (Number.isFinite(soundId) && soundId > 0) {
+        return { ok: true, config: { soundId } };
       }
-      return { ok: true, config: { soundKey } };
+
+      // المسار القديم يبقى مقبولاً: عناصر بيعت قبل وجود المكتبة تحمل مفتاحاً.
+      const soundKey = String(cfg.soundKey ?? '').trim();
+      if (/^[a-z0-9_]{3,40}$/.test(soundKey)) {
+        return { ok: true, config: { soundKey } };
+      }
+
+      return {
+        ok: false, field: 'config.soundId',
+        message: 'اختر نغمة من المرفوعة تحت بند «نغمة النصر» في صفحة المؤثرات الصوتية',
+      };
     }
 
     case 'xp_boost': {

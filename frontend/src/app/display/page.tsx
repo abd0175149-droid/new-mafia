@@ -620,10 +620,22 @@ function DisplayPageContent() {
     //    نستدعي applyRemoteSound لأنها تتجاوز بوابة التشغيل المحلي المُطفأة
     //    على الشاشة (setLocalPlayback(false)) وتشغّل الـ impl الداخلية مباشرةً.
     socket.on('chips:victory-sting', (d: any) => {
-      if (!d?.soundKey) return;
+      if (!d?.soundUrl && !d?.soundKey) return;
       // تأخير قصير كي لا تتراكب مع صوت فوز الفريق
       setTimeout(() => {
-        try { applyRemoteSound({ fn: 'playGameSound', args: [String(d.soundKey)] }); } catch { /* الميزة زخرفية */ }
+        try {
+          // 🎵 الملف المربوط بالعنصر يُعزف مباشرةً.
+          //    التشغيل بالمفتاح كان يعني أن نغمتين تحت البند نفسه تتنافسان
+          //    على مفتاح واحد، فأيّهما تُسمَع مسألة حظّ — ولذلك استحال
+          //    بيع أكثر من نغمة. الآن العنصر يشير إلى ملفّه بعينه.
+          if (d.soundUrl) {
+            const a = new Audio(String(d.soundUrl));
+            a.volume = 0.9;
+            void a.play().catch(() => { /* المتصفح قد يمنع التشغيل التلقائي */ });
+          } else {
+            applyRemoteSound({ fn: 'playGameSound', args: [String(d.soundKey)] });
+          }
+        } catch { /* الميزة زخرفية — لا تُعطّل شيئاً */ }
       }, 1400);
     });
     socket.on('game:started', (data: any) => {

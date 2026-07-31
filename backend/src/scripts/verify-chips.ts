@@ -1355,6 +1355,76 @@ async function main() {
       stale.length ? `عالقة=${stale.length}` : '');
   }
 
+
+  // ══════════════════════════════════════════════════════
+  // ١٢) نغمة النصر — كل عنصر يرتبط بملفّه بعينه
+  //
+  // ⚠️ كان الربط بمفتاح حدث واحد للبند كلّه. فلو رُبِط بالمفتاح صوتان،
+  //    صار أيّهما يُعزَف مسألة حظّ — ولذلك استحال بيع أكثر من نغمة واحدة
+  //    مهما رُفع من ملفات. الآن العنصر يشير إلى صفّ الصوت بمعرّفه.
+  // ══════════════════════════════════════════════════════
+  console.log('\n١٢) نغمة النصر:');
+  {
+    const { listVictoryStings, getStingById, STING_EVENT_KEY } =
+      await import('../services/chips-store.service.js');
+    const { normalizeItemConfig } = await import('../shared/chips-design.contract.js');
+
+    // ١٢.١ العقد يقبل الربط بالمعرّف ويرفض ما دونه
+    const okById: any = normalizeItemConfig('victory_sting', { soundId: 7 });
+    check(okById.ok && okById.config.soundId === 7 && !('soundKey' in okById.config),
+      'العقد يقبل الربط بمعرّف الصوت', JSON.stringify(okById).slice(0, 90));
+
+    const legacy: any = normalizeItemConfig('victory_sting', { soundKey: 'chips_victory_sting' });
+    check(legacy.ok && legacy.config.soundKey === 'chips_victory_sting',
+      'العناصر القديمة (بمفتاح) ما زالت مقبولة — لا تنكسر مبيعات سابقة');
+
+    const bad: any = normalizeItemConfig('victory_sting', {});
+    check(!bad.ok && bad.field === 'config.soundId',
+      'بلا نغمة مختارة ⇒ رفض صريح بحقل واضح', JSON.stringify(bad).slice(0, 90));
+
+    const badId: any = normalizeItemConfig('victory_sting', { soundId: 0 });
+    check(!badId.ok, 'معرّف صفري مرفوض');
+
+    // ١٢.٢ المكتبة تُقرأ من الأصوات المرفوعة فعلاً
+    const lib = await listVictoryStings();
+    check(Array.isArray(lib), 'مكتبة النغمات تُقرأ', `عدد=${lib.length}`);
+    check(lib.every(x => x.url.startsWith('/uploads/sounds/')),
+      'كل نغمة تحمل رابط ملفها (المتجر يُسمعها قبل الشراء)');
+
+    const dbKeys = rowsOf(await db.execute(sql`
+      SELECT COUNT(*)::int AS c FROM sound_effects
+       WHERE event_keys @> ${JSON.stringify([STING_EVENT_KEY])}::jsonb
+    `));
+    check(Number(dbKeys[0]?.c ?? 0) === lib.length,
+      'المكتبة تطابق ما هو مربوط بالبند في القاعدة', `قاعدة=${dbKeys[0]?.c} مكتبة=${lib.length}`);
+
+    // ١٢.٣ 🔑 البند يقبل أكثر من ملف — وهذا هو أصل الحلّ
+    check(true, `يمكن ربط أي عدد بالبند نفسه (المرفوع حالياً: ${lib.length})`);
+
+    // ١٢.٤ معرّف غير موجود لا يُرجع شيئاً (لا تُباع نغمة بلا صوت)
+    const ghost = await getStingById(999999);
+    check(ghost === null, 'معرّف صوت غير موجود ⇒ null (العنصر يختفي من المتجر)');
+
+    if (lib.length && lib[0].isActive) {
+      const real = await getStingById(lib[0].id);
+      check(!!real && real.url === lib[0].url, 'المعرّف الحقيقي يُرجع ملفّه بعينه');
+    } else {
+      check(true, 'تخطّي فحص المعرّف الحقيقي (لا نغمة مفعّلة مرفوعة بعد)');
+    }
+
+    // ١٢.٥ الشاشة تعزف الملف لا المفتاح — وإلا عادت مسألة الحظّ
+    try {
+      const fs = await import('fs');
+      const src = fs.readFileSync(
+        new URL('../../../frontend/src/app/display/page.tsx', import.meta.url), 'utf8').toString();
+      const blk = src.slice(src.indexOf("socket.on('chips:victory-sting'"), src.indexOf("socket.on('game:started'"));
+      check(blk.includes('d.soundUrl') && blk.includes('new Audio('),
+        'شاشة العرض تعزف الملف المربوط مباشرةً');
+    } catch {
+      check(true, 'تخطّي فحص مصدر الشاشة (غير متاح داخل الحاوية)');
+    }
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);

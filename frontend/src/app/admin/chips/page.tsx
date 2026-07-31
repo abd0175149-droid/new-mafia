@@ -884,7 +884,8 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
   const [entranceDesign, setEntranceDesign] = useState('don');
   const [entranceMs, setEntranceMs] = useState('3500');
   const [elimDesign, setElimDesign] = useState('burn');
-  const [soundKey, setSoundKey] = useState('chips_victory_sting');
+  const [soundId, setSoundId] = useState<number | null>(null);
+  const [stings, setStings] = useState<Array<{ id: number; name: string; url: string; isActive: boolean }>>([]);
   const [multiplier, setMultiplier] = useState('2');
 
   useEffect(() => {
@@ -893,6 +894,14 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
       .then(d => setRegistry(d))
       .catch(() => toast('err', 'تعذّر تحميل سجلّ التصاميم'));
   }, [open, registry, toast]);
+
+  useEffect(() => {
+    if (!open) return;
+    apiGet('/api/chips/items/stings')
+      .then(d => setStings(d.stings || []))
+      .catch(() => setStings([]));
+  }, [open]);
+
 
   // المدّة الافتراضية تتبع النوع (معزّز الخبرة ٧ أيام)
   useEffect(() => {
@@ -912,7 +921,7 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
       case 'name_fx': return { nameEffect: { color: fxColor, glowColor: fxGlow, glowSize: Number(fxGlowSize) || 10 } };
       case 'entrance': return { design: entranceDesign, durationMs: Number(entranceMs) || 3500 };
       case 'elimination': return { design: elimDesign };
-      case 'victory_sting': return { soundKey };
+      case 'victory_sting': return { soundId };
       case 'xp_boost': return { multiplier: Number(multiplier) || 2 };
       default: return {};
     }
@@ -1087,11 +1096,45 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
 
           {kind === 'victory_sting' && (
             <div>
-              <label className="block text-[11px] text-gray-500 mb-1">مفتاح الصوت</label>
-              <input value={soundKey} onChange={e => setSoundKey(e.target.value)} dir="ltr"
-                className={`w-full bg-gray-900/70 border rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none ${fieldErr === 'config.soundKey' ? 'border-rose-500' : 'border-gray-700/40 focus:border-amber-500'}`} />
-              <p className="text-[10px] text-amber-500/80 mt-1">
-                يجب أن يكون مربوطاً بملف صوت من لوحة المؤثرات — وإلا رُفض الإنشاء. لا تُباع نغمة بلا صوت.
+              <label className="block text-[11px] text-gray-500 mb-1">النغمة — من المرفوع تحت بند «نغمة النصر»</label>
+
+              {stings.length === 0 ? (
+                <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-3 text-[11px] text-amber-300/90 leading-relaxed">
+                  لا توجد نغمات مرفوعة بعد. افتح <b>المؤثرات الصوتية</b>، ارفع ملفاً، واربطه ببند
+                  «نغمة النصر المشتراة» — ثم عُد إلى هنا.
+                  <br />يمكنك ربط <b>أي عدد</b> من الملفات بالبند نفسه، وكل عنصر يرتبط بملف واحد بعينه.
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                  {stings.map(st => (
+                    <div key={st.id}
+                      className={`flex items-center gap-2 p-2 rounded-lg border transition-all cursor-pointer ${
+                        soundId === st.id ? 'border-amber-500 bg-amber-900/20' : 'border-gray-700/40 bg-gray-900/40 hover:border-gray-600'
+                      } ${st.isActive ? '' : 'opacity-50'}`}
+                      onClick={() => st.isActive && setSoundId(st.id)}>
+                      <input type="radio" readOnly checked={soundId === st.id} disabled={!st.isActive} className="accent-amber-500" />
+                      <span className="flex-1 text-sm text-gray-200 truncate">{st.name}</span>
+                      {!st.isActive && <span className="text-[10px] text-rose-400">معطّل</span>}
+                      <button type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // تُسمَع على جهاز المؤلّف وحده — لا بثّ للقاعة
+                          try { const a = new Audio(st.url); a.volume = 0.8; void a.play(); } catch { /* لا شيء */ }
+                        }}
+                        className="px-2 py-1 rounded-md text-[11px] bg-gray-800/70 border border-gray-700/40 text-gray-300 hover:text-white">
+                        ▶︎
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {fieldErr === 'config.soundId' && (
+                <p className="text-[11px] text-rose-400 mt-1.5">اختر نغمة قبل الاعتماد</p>
+              )}
+              <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed">
+                كل عنصر يرتبط بملف واحد بعينه — فيمكن بيع عدّة نغمات مختلفة معاً.
+                والعنصر الذي يُعطَّل ملفّه يختفي من المتجر تلقائياً: لا تُباع نغمة بلا صوت.
               </p>
             </div>
           )}

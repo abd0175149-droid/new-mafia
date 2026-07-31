@@ -830,6 +830,51 @@ export function equipSlots() { return EQUIP_SLOTS.filter(k => !!SLOT_COLUMN[k]);
 // ══════════════════════════════════════════════════════
 
 /** هل مفتاح الصوت مرفوع ومفعّل فعلاً؟ (نغمة تُباع بلا ملف = وعد فارغ) */
+/**
+ * 🎵 مكتبة نغمات النصر — كل صوت مرفوع ومربوط ببند «chips_victory_sting».
+ *
+ * ⚠️ لماذا بالمعرّف لا بالمفتاح: المفتاح واحد للبند كلّه،
+ *    فإن رُبِط به صوتان صار أيّهما يُعزَف مسألة حظّ. ولذلك لم يكن
+ *    يُباع إلا نغمة واحدة أبداً. الربط بمعرّف الصفّ يجعل كل عنصر
+ *    مربوطاً بملفّه وحده، والبند يصير تصنيفاً لا مفتاح تشغيل.
+ */
+export const STING_EVENT_KEY = 'chips_victory_sting';
+
+export async function listVictoryStings(): Promise<Array<{ id: number; name: string; url: string; isActive: boolean }>> {
+  const db = getDB();
+  if (!db) return [];
+  try {
+    const res: any = await db.execute(sql`
+      SELECT id, name, filename, is_active
+        FROM sound_effects
+       WHERE event_keys @> ${JSON.stringify([STING_EVENT_KEY])}::jsonb
+       ORDER BY is_active DESC, name ASC
+    `);
+    return rowsOf(res).map((r: any) => ({
+      id: Number(r.id),
+      name: String(r.name),
+      url: `/uploads/sounds/${r.filename}`,
+      isActive: !!r.is_active,
+    }));
+  } catch { return []; }
+}
+
+/** هل النغمة المربوطة بهذا المعرّف موجودة ومفعّلة؟ */
+export async function getStingById(soundId: number): Promise<{ id: number; name: string; url: string } | null> {
+  const db = getDB();
+  if (!db || !soundId) return null;
+  try {
+    const res: any = await db.execute(sql`
+      SELECT id, name, filename FROM sound_effects
+       WHERE id = ${Number(soundId)} AND is_active = true
+         AND event_keys @> ${JSON.stringify([STING_EVENT_KEY])}::jsonb
+       LIMIT 1
+    `);
+    const r = rowsOf(res)[0];
+    return r ? { id: Number(r.id), name: String(r.name), url: `/uploads/sounds/${r.filename}` } : null;
+  } catch { return null; }
+}
+
 export async function isSoundKeyAvailable(soundKey: string): Promise<boolean> {
   const db = getDB();
   if (!db || !soundKey) return false;
@@ -877,9 +922,21 @@ export async function resolveVictorySting(winners: Array<{ playerId: number; nam
 
     const pick = ordered[0];
     const item = owners.get(pick.playerId)!;
-    const soundKey = String((item.config as any)?.soundKey || '');
-    if (!soundKey || !(await isSoundKeyAvailable(soundKey))) return null;
+    const cfg: any = item.config || {};
 
+    // الربط بالمعرّف أوّلاً: هو الذي يُحدّد **ملفّاً بعينه**.
+    // والمفتاح يبقى للعناصر القديمة التي بيعت قبل وجود المكتبة.
+    const bound = cfg.soundId ? await getStingById(Number(cfg.soundId)) : null;
+    if (bound) {
+      return {
+        soundId: bound.id, soundUrl: bound.url, soundName: bound.name,
+        soundKey: STING_EVENT_KEY,
+        playerId: pick.playerId, playerName: pick.name || '', itemNameAr: item.nameAr,
+      };
+    }
+
+    const soundKey = String(cfg.soundKey || '');
+    if (!soundKey || !(await isSoundKeyAvailable(soundKey))) return null;
     return { soundKey, playerId: pick.playerId, playerName: pick.name || '', itemNameAr: item.nameAr };
   } catch { return null; }
 }

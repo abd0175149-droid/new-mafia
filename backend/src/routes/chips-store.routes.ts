@@ -14,7 +14,7 @@ import { chipsItems, CHIPS_ITEM_KINDS, CHIPS_RARITIES } from '../schemas/chips-s
 import { players } from '../schemas/player.schema.js';
 import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
-  grantRental, isSoundKeyAvailable,
+  grantRental, isSoundKeyAvailable, listVictoryStings,
   getInventorySummary, getExpiringRentals,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
@@ -62,6 +62,11 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
 
     // 🔊 نغمة النصر لا تُعرض ما لم يكن ملفها الصوتي مربوطاً فعلاً بلوحة المؤثرات
     // (بيع نغمة بلا صوت = وعد فارغ). الفحص لحظي فلا يحتاج إعادة تشغيل.
+    // المكتبة تُقرأ مرّة واحدة — لا استعلام لكل عنصر (حلقة N+1 كانت هنا).
+    const stingLib = await listVictoryStings();
+    const activeStingIds = new Set(stingLib.filter(x => x.isActive).map(x => x.id));
+    const stingUrlById = new Map(stingLib.map(x => [x.id, x.url]));
+
     const stingKeys = new Set<string>();
     for (const it of catalog as any[]) {
       if (it.kind === 'victory_sting' && it.config?.soundKey) stingKeys.add(String(it.config.soundKey));
@@ -70,6 +75,12 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     for (const key of stingKeys) {
       if (await isSoundKeyAvailable(key)) availableSounds.add(key);
     }
+
+    /** عنصر نغمة يُعرَض فقط إن كان ملفّه موجوداً فعلاً — لا نبيع وعداً فارغاً */
+    const stingPlayable = (it: any) =>
+      it.kind !== 'victory_sting'
+      || (it.config?.soundId ? activeStingIds.has(Number(it.config.soundId))
+                             : availableSounds.has(String(it.config?.soundKey || '')));
 
     // ══════════════════════════════════════════════════
     // 🛍️ بيانات التسويق — كلها من صفوف موجودة أصلاً
@@ -105,7 +116,7 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
 
     const ownedByItem = new Map(rentals.map(r => [r.itemId, r]));
     const items = catalog
-      .filter((it: any) => it.kind !== 'victory_sting' || availableSounds.has(String(it.config?.soundKey || '')))
+      .filter(stingPlayable)
       .map((it: any) => {
       const owned = ownedByItem.get(it.id);
       return {
@@ -129,6 +140,10 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
         isNew: it.createdAt ? new Date(it.createdAt).getTime() > newCutoff : false,
         wasOwned: !owned && lapsed.has(it.id),
         sortOrder: it.sortOrder ?? 0,
+        // 🔊 رابط الملف — يسمح للمتجر بإسماع النغمة قبل الشراء.
+        //    تُعزَف على جهاز اللاعب وحده ولا تُبَثّ للقاعة إطلاقاً.
+        soundUrl: it.kind === 'victory_sting' && it.config?.soundId
+          ? (stingUrlById.get(Number(it.config.soundId)) || null) : null,
       };
     });
 
@@ -330,6 +345,18 @@ router.post('/items', async (req: Request, res: Response) => {
 // اللوحة تبني منتقياتها من هنا بدل ثوابت منسوخة في العميل. كانت النسخة
 // العميلة تُقدّم خيارات لا يقبلها الخادم (والعكس)، فيختار المؤلّف تصميماً
 // ويُرفض أو يُبدَّل بصمت.
+// ── 🎵 مكتبة نغمات النصر ──
+// كل صوت مرفوع ومربوط ببند «نغمة النصر» في صفحة المؤثرات.
+// منها يختار المؤلّف نغمة **واحدة بعينها** لكل عنصر.
+router.get('/items/stings', authenticate, adminOnly, async (_req: Request, res: Response) => {
+  try {
+    const stings = await listVictoryStings();
+    res.json({ success: true, stings, eventKey: 'chips_victory_sting' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/items/design-registry', (_req: Request, res: Response) => {
   res.json({ success: true, registry: designRegistry(), kinds: CHIPS_ITEM_KINDS, rarities: CHIPS_RARITIES });
 });
