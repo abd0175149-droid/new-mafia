@@ -571,3 +571,51 @@
   .emblem-float, .emblem-spark, .emblem-drop,
   .emblem-smoke-wisp, .emblem-spin, .emblem-flick { animation: none; }
 }
+
+/* ══════════════════════════════════════════════════════
+   🏷️ حركات لوحة اللقب المخصّصة
+   البيانات تختار الاسم والمدّة والشدّة؛ وهذه تُوفّر الحركة وحدها.
+   لا صنف لكل تصميم — الشدّة تصل عبر متغيّر CSS فلا نحتاج صنفاً لكل قيمة.
+   ══════════════════════════════════════════════════════ */
+
+@keyframes chips-plaque-pulse {
+  0%, 100% { box-shadow: 0 0 4px var(--plaque-glow, rgba(245,158,11,0.4)); }
+  50%      { box-shadow: 0 0 calc(6px + 16px * var(--plaque-intensity, 0.5)) var(--plaque-glow, rgba(245,158,11,0.9)); }
+}
+
+@keyframes chips-plaque-breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: calc(1 - 0.6 * var(--plaque-intensity, 0.5)); }
+}
+
+@keyframes chips-plaque-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(calc(-2px - 3px * var(--plaque-intensity, 0.5))); }
+}
+
+/* اللمعة تمرّ فوق اللوحة — تحتاج طبقة، فتُرسم على ::after بلا تغيير التخطيط */
+@keyframes chips-plaque-shimmer-sweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.chips-title-plaque[style*="chips-plaque-shimmer"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.chips-title-plaque[style*="chips-plaque-shimmer"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,calc(0.25 * var(--plaque-intensity, 0.5))), transparent);
+  animation: chips-plaque-shimmer-sweep inherit;
+  animation-duration: inherit;
+  pointer-events: none;
+}
+
+/* شاشة القاعة تعمل ساعات متواصلة — من يطلب تقليل الحركة يحصل عليه */
+@media (prefers-reduced-motion: reduce) {
+  .chips-title-plaque { animation: none !important; }
+  .chips-title-plaque::after { animation: none !important; }
+}

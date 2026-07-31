@@ -281,6 +281,33 @@ function renderPreview(bodyText: string, vars: string[]): string {
 
 const runners = new Map<number, boolean>(); // حارس: لا مشغّلين متوازيين لنفس الحملة
 
+/**
+ * فحص صحّة الرقم لحظة الإطلاق — الحارس الذي كان ناقصاً يوم 2026-07-31.
+ * الرقم المحظور أو المقيَّد لا يرسل شيئاً، وكل محاولة تُسجَّل ضدّك في التظلّم.
+ * يعيد null إن كان سليماً، أو رسالة المنع.
+ */
+export async function checkSendingHealth(): Promise<string | null> {
+  if (!env.WA_TOKEN || !env.WA_PHONE_NUMBER_ID) return 'إعدادات واتساب ناقصة (WA_TOKEN / WA_PHONE_NUMBER_ID)';
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}?fields=status,quality_rating,messaging_limit_tier,display_phone_number`,
+      { headers: { Authorization: `Bearer ${env.WA_TOKEN}` } },
+    );
+    const j: any = await res.json().catch(() => ({}));
+    if (j.error) return `تعذّر التحقق من حالة الرقم عند ميتا: ${j.error.message}`;
+    if (j.status && j.status !== 'CONNECTED') {
+      return `🚫 لا يمكن إطلاق حملة — حالة الرقم عند ميتا «${j.status}» وليست CONNECTED.`
+        + (j.status === 'BANNED' ? ' الرقم محظور: قدّم تظلّماً من Business Support Home قبل أي إرسال.' : '');
+    }
+    if (j.quality_rating === 'RED') {
+      return '🚫 تقييم جودة الرقم أحمر — الإرسال الآن يسرّع الحظر. عالج السبب وانتظر عودته أخضر.';
+    }
+    return null;
+  } catch (err: any) {
+    return `تعذّر التحقق من صحّة الرقم: ${err.message}`;
+  }
+}
+
 export async function createCampaign(input: {
   name: string;
   templateName: string;
@@ -290,6 +317,10 @@ export async function createCampaign(input: {
 }): Promise<any> {
   const db = getDB();
   if (!input.name?.trim()) throw new Error('اسم الحملة مطلوب');
+
+  // 🚦 حارس الصحّة قبل أي شيء — لا تُنشأ حملة على رقم محظور أو أحمر التقييم
+  const health = await checkSendingHealth();
+  if (health) throw new Error(health);
 
   const [tpl] = await db.select().from(waTemplates).where(eq(waTemplates.name, input.templateName)).limit(1);
   if (!tpl) throw new Error('القالب غير موجود — زامن القوالب أولاً');

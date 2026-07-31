@@ -282,16 +282,18 @@ async function handleAccountHealthUpdate(field: string, value: any): Promise<voi
 
   emitInbox('wa:account:health', { field, event, value, severe });
 
-  // الجودة الهابطة تعني أن أي حملة جارية تزيد الطين بلّة — نوقفها فوراً
-  // (إيقاف لا إلغاء: تُستأنف بزر واحد بعد معالجة السبب)
-  if (event === 'FLAGGED' || event === 'DOWNGRADE') {
+  // أي حدث يمسّ القدرة على الإرسال يوقف الحملات فوراً.
+  // ⚠️ النسخة الأولى غطّت الإنذار (FLAGGED/DOWNGRADE) وأهملت الكارثة نفسها —
+  //    يوم 2026-07-31 وصل DISABLED_UPDATE + ACCOUNT_VIOLATION(SPAM) وبقيت
+  //    الحملة `running`. أي حدث على مستوى الحساب يُعامَل الآن كإيقاف فوريّ.
+  if (event === 'FLAGGED' || event === 'DOWNGRADE' || !isQuality) {
     try {
       const { pauseRunningCampaignsForHealth } = await import('./whatsapp-campaigns.service.js');
       const paused = await pauseRunningCampaignsForHealth();
       if (paused.length) {
         await notifyAdmins(
           '⏸️ أُوقفت الحملات الجارية تلقائياً',
-          `بسبب ${event === 'FLAGGED' ? 'هبوط تقييم الجودة' : 'انخفاض حدّ الإرسال'} — ${paused.length} حملة. عالج السبب ثم استأنفها يدوياً.`,
+          `بسبب ${event === 'FLAGGED' ? 'هبوط تقييم الجودة' : event === 'DOWNGRADE' ? 'انخفاض حدّ الإرسال' : `حدث على مستوى الحساب (${event})`} — ${paused.length} حملة. عالج السبب ثم استأنفها يدوياً.`,
           { url: '/admin/whatsapp', tag: 'wa-health-autopause' },
         ).catch(() => {});
       }

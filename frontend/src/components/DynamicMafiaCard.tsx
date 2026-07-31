@@ -5,6 +5,7 @@ import './RankEffects.css';
 import { RankFrame } from './RankFrames';
 import { ChipsEmblem, type EmblemId } from './ChipsEmblems';
 import { CardFxBoundary } from './CardFxBoundary';
+import TitlePlaque from './TitlePlaque';
 import { normalizeFx, mergeFx, hasAnyEnabled, hasLayerVisuals } from '@/lib/chips-fx';
 import { useGameConfig, type CardTemplateDef, type RoleDef } from '@/hooks/useGameConfig';
 import { Role, ROLE_NAMES, isMafiaRole } from '@/lib/constants';
@@ -74,7 +75,8 @@ export interface DynamicMafiaCardProps {
   cosmetics?: {
     /** `emblemId` شعار SVG يعلو البطاقة — كان يُرسم في معاينة المتجر فقط */
     frame?: { config?: any; emblemId?: string | null } | null;
-    title?: { config?: { text?: string; style?: string } } | null;
+    // `plaque` يُقرأ فقط حين style === 'custom' — الأنماط الثلاثة بلا حقل زائد
+    title?: { config?: { text?: string; style?: string; plaque?: any } } | null;
     nameFx?: { config?: { nameEffect?: any } } | null;
   } | null;
   /** وضع السحب — يسمح بتحريك العناصر */
@@ -309,7 +311,7 @@ export default function DynamicMafiaCard({
                 <h2 className={`${nameSize} font-black text-white text-center leading-tight ${tier === 'GODFATHER' && !nameFx?.enabled ? 'rank-name-glow' : ''}`} style={{ fontFamily: font, ...nameFxStyle, ...(cardTemplate?.elements?.positions?.coverName ? { transform: `translate(${cardTemplate.elements.positions.coverName.x}px, ${cardTemplate.elements.positions.coverName.y}px) scale(${cardTemplate.elements.positions.coverName.s || 1})` } : {}) }}>{truncatedName}</h2>
                 {/* 🪙 لوحة اللقب المشترى — تحت الاسم مباشرة */}
                 {titleCfg?.text && (
-                  <div className={`chips-title-plaque chips-title-${titleCfg.style || 'gold'}`}>{titleCfg.text}</div>
+                  <TitlePlaque text={titleCfg.text} style={titleCfg.style} plaque={titleCfg.plaque} />
                 )}
                 <p className="text-[8px] font-mono tracking-[0.25em] uppercase mt-1" style={{ color: isFemale ? 'rgba(192,132,252,0.4)' : 'rgba(197,160,89,0.4)', ...(cardTemplate?.elements?.positions?.coverBranding ? { transform: `translate(${cardTemplate.elements.positions.coverBranding.x}px, ${cardTemplate.elements.positions.coverBranding.y}px) scale(${cardTemplate.elements.positions.coverBranding.s || 1})` } : {}) }}>MAFIA CLUB</p>
                 {flippable && (

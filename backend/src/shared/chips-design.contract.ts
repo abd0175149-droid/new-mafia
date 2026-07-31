@@ -25,7 +25,7 @@ export const FRAME_SVG_TYPES = ['none', 'simple', 'greek', 'islamic', 'deco', 'r
 export const EMBLEM_IDS = ['don', 'blood', 'neon', 'bullet', 'smoke', 'deal', 'crime', 'champ'] as const;
 
 /** أنماط لوحة اللقب — أصناف CSS في RankEffects.css */
-export const TITLE_STYLES = ['gold', 'blood', 'ghost'] as const;
+export const TITLE_STYLES = ['gold', 'blood', 'ghost', 'custom'] as const;
 
 /** تخطيطات تشريفة الدخول — frontend/src/components/EntranceOverlay.tsx */
 export const ENTRANCE_DESIGNS = ['don', 'seal', 'neon', 'file'] as const;
@@ -233,6 +233,124 @@ function coercionsOf(before: any, after: any, path = ''): string[] {
   return out;
 }
 
+// ══════════════════════════════════════════════════════
+// 🏷️ لوحة اللقب — قنوات التصميم
+//
+// ⚠️ كان اللقب النوع الوحيد الذي تصميمه **اسم صنف CSS** لا بيانات:
+//    سطر واحد في المُصيّر و`.chips-title-{gold,blood,ghost}` في الملف.
+//    فأي شكل رابع يعني CSS جديداً ونشرة — والمؤلّف لا يملك إلا ثلاثة.
+//
+// 🔒 التوافق: `style` يبقى المُميِّز. الأنماط الثلاثة تمرّ من مسارها
+//    القديم بلا لمس (نفس الصنف، بلا أي أنماط سطرية) فلا يتغيّر بكسل
+//    لمن اشترى. و`custom` وحده يقرأ `plaque`.
+// ══════════════════════════════════════════════════════
+
+export const TITLE_BG_TYPES = ['solid', 'gradient'] as const;
+export const TITLE_BORDER_STYLES = ['solid', 'dashed', 'dotted', 'double'] as const;
+export const TITLE_WEIGHTS = [400, 600, 700, 800, 900] as const;
+export const TITLE_ANIMS = ['none', 'pulse', 'breathe', 'shimmer', 'float'] as const;
+
+export interface TitlePlaque {
+  bg: { type: 'solid' | 'gradient'; color: string; color2: string; angle: number; blur: number };
+  text: { color: string; size: number; weight: number; letterSpacing: number };
+  border: { enabled: boolean; color: string; width: number; style: string; radius: number };
+  glow: { enabled: boolean; color: string; size: number };
+  shadow: { enabled: boolean; color: string; size: number };
+  anim: { type: string; duration: number; intensity: number };
+  layout: { paddingX: number; paddingY: number; marginTop: number; maxWidth: number };
+}
+
+export const TITLE_PLAQUE_DEFAULTS: TitlePlaque = {
+  bg: { type: 'solid', color: 'rgba(69,26,3,0.8)', color2: 'rgba(120,53,15,0.8)', angle: 135, blur: 4 },
+  text: { color: '#fcd34d', size: 10, weight: 900, letterSpacing: 0 },
+  border: { enabled: true, color: 'rgba(245,158,11,0.6)', width: 1, style: 'solid', radius: 7 },
+  glow: { enabled: true, color: 'rgba(245,158,11,0.5)', size: 8 },
+  shadow: { enabled: false, color: 'rgba(0,0,0,0.4)', size: 4 },
+  anim: { type: 'none', duration: 2, intensity: 0.5 },
+  layout: { paddingX: 8, paddingY: 1, marginTop: 3, maxWidth: 92 },
+};
+
+/**
+ * قوالب تُنتج شكل الأنماط الثلاثة بالبيانات — نقطة انطلاق للمؤلّف
+ * حين يضغط «ابدأ من هذا النمط»، لا بديلاً عن مسار CSS القديم.
+ */
+export const TITLE_PRESETS: Record<string, TitlePlaque> = {
+  gold: TITLE_PLAQUE_DEFAULTS,
+  blood: {
+    ...TITLE_PLAQUE_DEFAULTS,
+    bg: { ...TITLE_PLAQUE_DEFAULTS.bg, color: 'rgba(69,10,10,0.8)' },
+    text: { ...TITLE_PLAQUE_DEFAULTS.text, color: '#fca5a5' },
+    border: { ...TITLE_PLAQUE_DEFAULTS.border, color: 'rgba(220,38,38,0.6)' },
+    glow: { enabled: false, color: 'rgba(220,38,38,0.5)', size: 8 },
+    anim: { type: 'pulse', duration: 1.6, intensity: 0.75 },
+  },
+  ghost: {
+    ...TITLE_PLAQUE_DEFAULTS,
+    bg: { ...TITLE_PLAQUE_DEFAULTS.bg, color: 'rgba(24,24,27,0.7)' },
+    text: { ...TITLE_PLAQUE_DEFAULTS.text, color: '#d4d4d8' },
+    border: { ...TITLE_PLAQUE_DEFAULTS.border, color: 'rgba(161,161,170,0.5)' },
+    glow: { enabled: false, color: 'rgba(161,161,170,0.4)', size: 6 },
+    anim: { type: 'breathe', duration: 3, intensity: 0.58 },
+  },
+};
+
+/**
+ * تطبيع لوحة اللقب — يدمج فوق الافتراضي ويقصّ كل قيمة إلى مداها.
+ * لا يرمي أبداً: أي مدخل فاسد يعود إلى قيمته الافتراضية.
+ */
+export function normalizeTitlePlaque(raw: any): TitlePlaque {
+  const p = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+  const d = TITLE_PLAQUE_DEFAULTS;
+  const g = (k: string) => (p[k] && typeof p[k] === 'object' && !Array.isArray(p[k])) ? p[k] : {};
+
+  const bg = g('bg'), text = g('text'), border = g('border');
+  const glow = g('glow'), shadow = g('shadow'), anim = g('anim'), layout = g('layout');
+
+  return {
+    bg: {
+      type: pick(bg.type, TITLE_BG_TYPES, d.bg.type),
+      color: cssColor(bg.color, d.bg.color),
+      color2: cssColor(bg.color2, d.bg.color2),
+      angle: Math.round(num(bg.angle, d.bg.angle, 0, 360)),
+      blur: num(bg.blur, d.bg.blur, 0, 12),
+    },
+    text: {
+      color: cssColor(text.color, d.text.color),
+      size: num(text.size, d.text.size, 8, 20),
+      weight: pick(Number(text.weight) as any, TITLE_WEIGHTS as any, d.text.weight as any),
+      letterSpacing: num(text.letterSpacing, d.text.letterSpacing, -0.5, 4),
+    },
+    border: {
+      enabled: bool(border.enabled, d.border.enabled),
+      color: cssColor(border.color, d.border.color),
+      width: num(border.width, d.border.width, 0, 4),
+      style: pick(border.style, TITLE_BORDER_STYLES, d.border.style as any),
+      radius: num(border.radius, d.border.radius, 0, 20),
+    },
+    glow: {
+      enabled: bool(glow.enabled, d.glow.enabled),
+      color: cssColor(glow.color, d.glow.color),
+      size: num(glow.size, d.glow.size, 0, 24),
+    },
+    shadow: {
+      enabled: bool(shadow.enabled, d.shadow.enabled),
+      color: cssColor(shadow.color, d.shadow.color),
+      size: num(shadow.size, d.shadow.size, 0, 30),
+    },
+    anim: {
+      type: pick(anim.type, TITLE_ANIMS, d.anim.type as any),
+      duration: num(anim.duration, d.anim.duration, 0.4, 20),
+      intensity: num(anim.intensity, d.anim.intensity, 0, 1),
+    },
+    layout: {
+      paddingX: num(layout.paddingX, d.layout.paddingX, 0, 24),
+      paddingY: num(layout.paddingY, d.layout.paddingY, 0, 12),
+      marginTop: num(layout.marginTop, d.layout.marginTop, 0, 16),
+      maxWidth: num(layout.maxWidth, d.layout.maxWidth, 40, 100),
+    },
+  };
+}
+
 /**
  * يطبّع إعداد أي نوع.
  *
@@ -258,7 +376,19 @@ export function normalizeItemConfig(kind: string, raw: any): NormalizeResult {
       if (cfg.style !== undefined && !(TITLE_STYLES as readonly string[]).includes(cfg.style)) {
         return { ok: false, field: 'config.style', message: `نمط غير معروف — المتاح: ${TITLE_STYLES.join(' · ')}` };
       }
-      return { ok: true, config: { text: text.slice(0, 40), style: cfg.style ?? 'gold' } };
+      const style = cfg.style ?? 'gold';
+
+      // 🔒 الأنماط الثلاثة تُخزَّن كما كانت **بلا حقل زائد**، فتمرّ من مسار
+      //    CSS القديم حرفياً. إضافة `plaque` إليها كانت ستُغيّر ما يراه
+      //    من اشترى بالفعل — وهو ما لا يجوز أن يقع بتغيير تأليف.
+      if (style !== 'custom') {
+        return { ok: true, config: { text: text.slice(0, 40), style } };
+      }
+
+      return {
+        ok: true,
+        config: { text: text.slice(0, 40), style: 'custom', plaque: normalizeTitlePlaque(cfg.plaque) },
+      };
     }
 
     case 'name_fx': {
@@ -337,6 +467,12 @@ export function designRegistry() {
     frameSvgTypes: FRAME_SVG_TYPES,
     emblems: EMBLEM_IDS,
     titleStyles: TITLE_STYLES,
+    titlePlaqueDefaults: TITLE_PLAQUE_DEFAULTS,
+    titlePresets: TITLE_PRESETS,
+    titleAnims: TITLE_ANIMS,
+    titleBgTypes: TITLE_BG_TYPES,
+    titleBorderStyles: TITLE_BORDER_STYLES,
+    titleWeights: TITLE_WEIGHTS,
     entranceDesigns: ENTRANCE_DESIGNS,
     eliminationDesigns: ELIMINATION_DESIGNS,
     borderStyles: BORDER_STYLES,
