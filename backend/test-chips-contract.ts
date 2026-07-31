@@ -11,7 +11,7 @@
 import {
   normalizeFx, normalizeItemConfig, normalizeEmblemId, designRegistry,
   FX_CHANNELS, FX_DEFAULTS, DEFAULT_DAYS_BY_KIND, KEY_PREFIX_BY_KIND,
-  EMBLEM_IDS, FRAME_SVG_TYPES,
+  EMBLEM_IDS, FRAME_SVG_TYPES, normalizePriceChips, normalizeDurationDays,
 } from './src/shared/chips-design.contract.js';
 
 let pass = 0, fail = 0;
@@ -353,6 +353,44 @@ console.log('\n٩) التشريفة المؤلَّفة:');
   const once = en({ design: 'custom', elements: [{ type: 'seal', delayMs: 300 }] }).config;
   const twice = en(once).config;
   check(JSON.stringify(twice) === JSON.stringify(once), 'التطبيع ثابت');
+}
+
+
+// ══════════════════════════════════════════════════════
+// ١٠) حرّاس السعر والمدّة
+//
+// ⚠️ كان `Number(x) || 0` يحوّل كل مُدخل فاسد إلى **صفر** بصمت: حرف واحد
+//    في خانة السعر يجعل عنصراً حيّاً مجّانياً، والواجهة تُبلِغ بالنجاح.
+// ══════════════════════════════════════════════════════
+console.log('\n١٠) حرّاس السعر والمدّة:');
+{
+  // ١٠.١🔴 كل ما كان يصير صفراً بصمت يُرفض الآن
+  const silentZero = ['', 'abc', null, undefined, NaN, Infinity, -Infinity, {}, []];
+  const allRejected = silentZero.every(v => !normalizePriceChips(v as any).ok);
+  check(allRejected, '🔴 المُدخلات التي كانت تصير صفراً بصمت تُرفض كلّها',
+    silentZero.filter(v => normalizePriceChips(v as any).ok).map(String).join(','));
+
+  // ١٠.٢ السالب مرفوض، والصفر مقبول عمداً (عنصر مجّاني قرار واعٍ لا حادث)
+  check(!normalizePriceChips(-5).ok, 'السعر السالب مرفوض');
+  const free = normalizePriceChips(0);
+  check(free.ok && free.value === 0, 'الصفر مقبول — عنصر مجّاني قرار مقصود، لكنه يُكتب صراحةً');
+
+  check(!normalizePriceChips(1e9).ok, 'سعر خيالي مرفوض');
+  const ok = normalizePriceChips('45');
+  check(ok.ok && ok.value === 45, 'نصّ رقمي صالح يُقبل ويُقصّ إلى صحيح');
+  check(normalizePriceChips(45.9).value === 45, 'الكسور تُقصّ لا تُقرَّب لأعلى');
+
+  // ١٠.٣ المدّة: صفر = تملّك أبدي، وهو نقض لنموذج الإيجار (قرار مقفل)
+  check(!normalizeDurationDays(0).ok, '⛔ مدّة صفرية مرفوضة — لا تملّك أبدي');
+  check(!normalizeDurationDays('').ok && !normalizeDurationDays('x').ok, 'مدّة فارغة أو نصّية مرفوضة');
+  check(!normalizeDurationDays(400).ok, 'مدّة تتجاوز السنة مرفوضة');
+  const d = normalizeDurationDays('30');
+  check(d.ok && d.value === 30, 'المدّة الصالحة تُقبل');
+
+  // ١٠.٤ كل رفض يحمل رسالةً تشرح السبب — لا رفض صامت
+  const msgs = [normalizePriceChips('x'), normalizeDurationDays(0), normalizePriceChips(-1)];
+  check(msgs.every(m => !m.ok && typeof m.message === 'string' && m.message.length > 5),
+    'كل رفض يحمل رسالة مفهومة للمؤلّف');
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);

@@ -13,6 +13,7 @@ import TitleEditor from '@/components/effects/TitleEditor';
 import NameFxEditor from '@/components/effects/NameFxEditor';
 import ElimEditor from '@/components/effects/ElimEditor';
 import EntranceEditor from '@/components/effects/EntranceEditor';
+import EditDesignModal from '@/components/chips/EditDesignModal';
 import { TITLE_PLAQUE_DEFAULTS } from '@/components/TitlePlaque';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -716,6 +717,7 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
   const [loading, setLoading] = useState(true);
   const [edit, setEdit] = useState<Record<number, { priceChips: string; durationDays: string }>>({});
   const [busy, setBusy] = useState<number | null>(null);
+  const [designItem, setDesignItem] = useState<any>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -750,6 +752,7 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
   }, {});
 
   return (
+    <>
     <div className="space-y-5">
       {/* ➕ إضافة عنصر جديد */}
       <AddItemPanel onCreated={() => { load(); toast('ok', '✅ أُضيف العنصر للخزنة'); }} toast={toast} />
@@ -813,6 +816,10 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
                         )}
                         {!it.closedAt && (
                           <>
+                            <button disabled={busy === it.id} onClick={() => setDesignItem(it)}
+                              className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-gray-800/60 border border-amber-700/40 text-amber-300 ml-1">
+                              ✏️ التصميم
+                            </button>
                             <button disabled={busy === it.id}
                               onClick={() => save(it, { isActive: !it.isActive }, it.isActive ? '👁️ أُخفي' : '👁️ عُرض')}
                               className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-gray-800/60 border border-gray-700/40 text-gray-300 ml-1">
@@ -833,7 +840,18 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
           </div>
         </div>
       ))}
-    </div>
+      </div>
+
+      {designItem && (
+        <EditDesignModal
+          item={designItem}
+          onClose={() => setDesignItem(null)}
+          onSaved={load}
+          apiPut={apiPut}
+          toast={toast}
+        />
+      )}
+    </>
   );
 }
 

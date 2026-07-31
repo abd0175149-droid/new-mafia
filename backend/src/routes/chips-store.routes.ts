@@ -14,12 +14,13 @@ import { chipsItems, CHIPS_ITEM_KINDS, CHIPS_RARITIES } from '../schemas/chips-s
 import { players } from '../schemas/player.schema.js';
 import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
-  grantRental, isSoundKeyAvailable, listVictoryStings,
+  grantRental, isSoundKeyAvailable, listVictoryStings, getStingById,
   getInventorySummary, getExpiringRentals,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
 import {
   normalizeItemConfig, normalizeEmblemId, designRegistry,
+  normalizePriceChips, normalizeDurationDays,
   DEFAULT_DAYS_BY_KIND, KEY_PREFIX_BY_KIND,
 } from '../shared/chips-design.contract.js';
 import { getRewardsConfig } from '../services/chips-rewards.service.js';
@@ -303,11 +304,13 @@ router.post('/items', async (req: Request, res: Response) => {
 
     // نغمة بلا ملف صوت وعدٌ فارغ — نرفضها عند الإنشاء بدل أن تُخفى بصمت
     if (kind === 'victory_sting') {
-      const ok = await isSoundKeyAvailable(String(norm.config.soundKey));
-      if (!ok) {
+      const bound = norm.config.soundId
+        ? await getStingById(Number(norm.config.soundId))
+        : (await isSoundKeyAvailable(String(norm.config.soundKey)) ? true : null);
+      if (!bound) {
         return res.status(409).json({
-          error: `لا ملف صوت مربوط بالمفتاح «${norm.config.soundKey}» — ارفعه من لوحة المؤثرات أولاً`,
-          field: 'config.soundKey',
+          error: 'النغمة المختارة غير موجودة أو مُعطّلة — ارفعها واربطها ببند «نغمة النصر» أولاً',
+          field: 'config.soundId',
         });
       }
     }
@@ -323,6 +326,20 @@ router.post('/items', async (req: Request, res: Response) => {
       isPurchasable: b.isPurchasable !== false,
       sortOrder: Math.trunc(Number(b.sortOrder) || 900),
     } as any).returning();
+
+    // 💰 سطر التاريخ الأوّل يُكتب عند الإنشاء.
+    //
+    // ⚠️ لم يكن يُكتب إطلاقاً: البذرة وحدها تكتبه عند الإقلاع،
+    //    فعنصر يُنشئه الأدمن يبقى بلا تاريخ سعر حتى إعادة التشغيل
+    //    التالية — ونافذة يكون فيها السعر غير موثّق تكفي لإفساد حساب الإيراد.
+    try {
+      await db.execute(sql`
+        INSERT INTO chips_item_price_history (item_id, price_chips, duration_days, changed_by)
+        VALUES (${item.id}, ${priceChips}, ${durationDays}, ${(req as any).user?.id ?? null})
+      `);
+    } catch (e: any) {
+      console.warn('⚠️ price history on create:', e?.message);
+    }
 
     logStaffAction({
       staffId: (req as any).user?.id,
@@ -374,8 +391,16 @@ router.put('/items/:id', async (req: Request, res: Response) => {
     if (b.nameAr != null) patch.nameAr = String(b.nameAr).slice(0, 80);
     if (b.hookAr != null) patch.hookAr = String(b.hookAr).slice(0, 500);
     if (b.rarity != null && CHIPS_RARITIES.includes(b.rarity)) patch.rarity = b.rarity;
-    if (b.priceChips != null) patch.priceChips = Math.max(0, Math.trunc(Number(b.priceChips) || 0));
-    if (b.durationDays != null) patch.durationDays = Math.min(365, Math.max(1, Math.trunc(Number(b.durationDays) || 30)));
+    if (b.priceChips != null) {
+      const g = normalizePriceChips(b.priceChips);
+      if (!g.ok) return res.status(400).json({ error: g.message, field: 'priceChips' });
+      patch.priceChips = g.value;
+    }
+    if (b.durationDays != null) {
+      const g = normalizeDurationDays(b.durationDays);
+      if (!g.ok) return res.status(400).json({ error: g.message, field: 'durationDays' });
+      patch.durationDays = g.value;
+    }
     if (b.isActive != null) patch.isActive = !!b.isActive;
     if (b.isPurchasable != null) patch.isPurchasable = !!b.isPurchasable;
     if (b.sortOrder != null) patch.sortOrder = Math.trunc(Number(b.sortOrder) || 0);
@@ -392,8 +417,16 @@ router.put('/items/:id', async (req: Request, res: Response) => {
       const norm = normalizeItemConfig(row.kind, b.config);
       if (!norm.ok) return res.status(400).json({ error: norm.message, field: norm.field });
       if (row.kind === 'victory_sting') {
-        const ok = await isSoundKeyAvailable(String(norm.config.soundKey));
-        if (!ok) return res.status(409).json({ error: `لا ملف صوت مربوط بالمفتاح «${norm.config.soundKey}»`, field: 'config.soundKey' });
+        // الربط صار بالمعرّف؛ والمفتاح يبقى للعناصر القديمة.
+        const bound = norm.config.soundId
+          ? await getStingById(Number(norm.config.soundId))
+          : (await isSoundKeyAvailable(String(norm.config.soundKey)) ? true : null);
+        if (!bound) {
+          return res.status(409).json({
+            error: 'النغمة المختارة غير موجودة أو مُعطّلة — لا تُباع نغمة بلا صوت',
+            field: 'config.soundId',
+          });
+        }
       }
       patch.config = norm.config;
       coerced = norm.coerced;

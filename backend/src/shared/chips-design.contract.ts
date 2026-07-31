@@ -412,6 +412,48 @@ export function normalizeTitlePlaque(raw: any): TitlePlaque {
   };
 }
 
+// ── حرّاس السعر والمدّة ───────────────────────────────
+//
+// ⚠️ كان `Number(x) || 0` يحوّل كل مُدخل فاسد إلى **صفر** بصمت: حرف واحد
+//    في خانة السعر يجعل عنصراً حيّاً مجّانياً، والواجهة تُبلِغ بالنجاح.
+//    الرفض الصريح أصدق من تصحيح يُغيّر المعنى.
+
+export interface NumGuard { ok: boolean; value?: number; message?: string }
+
+/**
+ * ⚠️ يُرفض كل ما ليس رقماً أو نصّاً رقميّاً **قبل** التحويل.
+ *    لأن `Number([])` يساوي **صفراً** و`Number([5])` يساوي ٥ —
+ *    ففحص `Number.isFinite` وحده يترك نفس ثغرة «الصفر الصامت»
+ *    مفتوحة بشكل آخر. (التقطه الفحص وقت كتابته.)
+ */
+function isNumericInput(v: unknown): boolean {
+  if (typeof v === 'number') return true;
+  return typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v));
+}
+
+export function normalizePriceChips(v: unknown): NumGuard {
+  if (!isNumericInput(v)) {
+    return { ok: false, message: 'السعر مطلوب ويجب أن يكون رقماً' };
+  }
+  const n = Number(v);
+  if (!Number.isFinite(n)) return { ok: false, message: 'السعر يجب أن يكون رقماً' };
+  if (n < 0) return { ok: false, message: 'السعر لا يكون سالباً' };
+  if (n > 100000) return { ok: false, message: 'السعر يتجاوز الحدّ المسموح (١٠٠٬٠٠٠)' };
+  return { ok: true, value: Math.trunc(n) };
+}
+
+export function normalizeDurationDays(v: unknown): NumGuard {
+  if (!isNumericInput(v)) {
+    return { ok: false, message: 'المدّة مطلوبة ويجب أن تكون رقماً' };
+  }
+  const n = Number(v);
+  if (!Number.isFinite(n)) return { ok: false, message: 'المدّة يجب أن تكون رقماً' };
+  // ⛔ مدّة صفرية = تملّك أبدي، وهو نقض لنموذج الإيجار كلّه (قرار مقفل)
+  if (n < 1) return { ok: false, message: 'أقلّ مدّة يوم واحد — لا تملّك أبدي' };
+  if (n > 365) return { ok: false, message: 'أقصى مدّة سنة' };
+  return { ok: true, value: Math.trunc(n) };
+}
+
 /**
  * يطبّع إعداد أي نوع.
  *
