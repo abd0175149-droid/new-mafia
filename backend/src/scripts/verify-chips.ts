@@ -1426,59 +1426,6 @@ async function main() {
   }
 
 
-  // ══════════════════════════════════════════════════════
-  // ١٣) التسليم — المشتري يرى ما دفع ثمنه
-  //
-  // ⚠️ فحوص مصدرية عمداً: هذه أعطال «لا يُمرَّر شيء» — لا حالة قاعدة تكشفها،
-  //    ولا استعلام يُثبتها. الشيء الوحيد الذي يمنع عودتها هو أن يبقى
-  //    التمرير مكتوباً في الملف.
-  // ══════════════════════════════════════════════════════
-  console.log('\n١٣) التسليم على الأسطح:');
-  {
-    const fs = await import('fs');
-    const read = (rel: string) => {
-      try { return fs.readFileSync(new URL(rel, import.meta.url), 'utf8').toString(); }
-      catch { return ''; }
-    };
-
-    const cine = read('../../../frontend/src/components/NightAnimCinematic.tsx');
-    if (!cine) {
-      check(true, 'تخطّي فحوص المصدر (ملفات الواجهة غير متاحة داخل الحاوية)');
-    } else {
-      const cards = (cine.match(/<MafiaCard/g) || []).length;
-      const looks = (cine.match(/lookOf\(players,/g) || []).length;
-      // بطاقة واحدة نائبة بلا هوية (playerNumber={0}) لا تأخذ مظهر أحد
-      check(cards > 0 && looks >= (cards - 1) * 2,
-        `المشهد الليلي يمرّر المظهر والرتبة لكل بطاقة ذات هوية (${cards} بطاقة · ${looks} بحث)`,
-        `بطاقات=${cards} عمليات بحث=${looks}`);
-
-      check(cine.includes('function lookOf(') && cine.includes('Number(x.physicalId) === Number(physicalId)'),
-        '🔑 البحث بالمعرّف الفيزيائي لا بترتيب المصفوفة (القنّاص وهدفه في مشهد واحد)');
-
-      const disp = read('../../../frontend/src/app/display/page.tsx');
-      check(disp.includes('<NightAnimCinematic data={animation} players={players} />'),
-        'الشاشة تُغذّي المشهد بقائمة اللاعبين');
-
-      check((disp.match(/showInRecap/g) || []).length >= 2,
-        '🔥 showInRecap صار له مستهلك فعلي في شبكتَي النتائج (كان يُخزَّن ولا يُقرأ أبداً)');
-
-      const prof = read('../../../frontend/src/app/player/profile/page.tsx');
-      check(prof.includes('usePlayerCosmetics') && prof.includes('<DynamicMafiaCard'),
-        'صفحة البروفايل تعرض بطاقة اللاعب بمظهره');
-
-      // ⚠️ ترتيب الخطّافات: الصفحة تُرجِع مبكراً مرّتين قبل الجسم الرئيسي
-      const hookAt = prof.indexOf('usePlayerCosmetics()');
-      const firstReturn = prof.indexOf('if(loading)return(');
-      check(hookAt > 0 && firstReturn > 0 && hookAt < firstReturn,
-        '🪝 الخطّاف قبل أي إرجاع مبكر — وإلا تغيّر عددها بين الرسمتين وسقط React',
-        `الخطّاف=${hookAt} أوّل إرجاع=${firstReturn}`);
-
-      const hook = read('../../../frontend/src/hooks/usePlayerCosmetics.ts');
-      check(hook.includes('reconnectSocketAuth'),
-        '🔌 الخطّاف يُصلح سباق الانضمام لغرفة اللاعب (البثّ لا يصل لمن اتّصل قبل كتابة الرمز)');
-    }
-  }
-
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);

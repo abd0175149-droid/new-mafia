@@ -12,6 +12,7 @@ import {
   FX_DEFAULTS, FX_CHANNELS, type FxChannels,
 } from './src/lib/chips-fx';
 import { buildNameFxStyle } from './src/lib/name-fx';
+import { readFileSync } from 'fs';
 
 let pass = 0, fail = 0;
 function check(ok: boolean, label: string, detail = '') {
@@ -210,6 +211,61 @@ console.log('\n٧) كتالوج تأثير الاسم:');
     check(typeof r.style === 'object' && typeof r.className === 'string',
       `مُدخل من نوع ${typeof bad} لا يُسقط البناء`);
   }
+}
+
+
+// ══════════════════════════════════════════════════════
+// ٨) التسليم على الأسطح — المشتري يرى ما دفع ثمنه
+//
+// ⚠️ فحوص مصدرية عمداً: هذه أعطال «لا يُمرَّر شيء» — لا حالة قاعدة تكشفها
+//    ولا استعلام يُثبتها. الشيء الوحيد الذي يمنع عودتها أن يبقى التمرير
+//    مكتوباً في الملف.
+//
+// 📍 موضعها هنا لا في verify-chips: ذاك يحتاج قاعدة بيانات (فيموت محلياً
+//    حيث المصادر موجودة) ولا يحمل مصادر الواجهة (داخل الحاوية حيث القاعدة
+//    موجودة) — فكان القسم يتخطّى نفسه في الحالتين ولا يعمل في أيّهما.
+//    **فحص لا يعمل في أي مكان لا يُثبت شيئاً.**
+// ══════════════════════════════════════════════════════
+console.log('\n٨) التسليم على الأسطح:');
+{
+  const read = (rel: string) => {
+    try { return readFileSync(new URL(rel, import.meta.url), 'utf8').toString(); }
+    catch { return ''; }
+  };
+
+  const cine = read('./src/components/NightAnimCinematic.tsx');
+  const cards = (cine.match(/<MafiaCard/g) || []).length;
+  const looks = (cine.match(/lookOf\(players,/g) || []).length;
+  check(cards >= 10, 'المشهد الليلي يرسم بطاقات', `عدد=${cards}`);
+  // بطاقة نائبة واحدة بلا هوية لا تأخذ مظهر أحد؛ الباقي مظهر + رتبة
+  check(looks >= (cards - 1) * 2,
+    `كل بطاقة ذات هوية تأخذ مظهرها ورتبتها (${cards} بطاقة · ${looks} بحث)`,
+    `بطاقات=${cards} بحث=${looks}`);
+  check(cine.includes('Number(x.physicalId) === Number(physicalId)'),
+    '🔑 البحث بالمعرّف الفيزيائي لا بترتيب المصفوفة (القنّاص وهدفه في مشهد واحد)');
+
+  const disp = read('./src/app/display/page.tsx');
+  check(disp.includes('<NightAnimCinematic data={animation} players={players} />'),
+    'الشاشة تُغذّي المشهد بقائمة اللاعبين');
+  check((disp.match(/showInRecap/g) || []).length >= 2,
+    '🔥 showInRecap صار له مستهلك في شبكتَي النتائج (كان يُخزَّن ولا يُقرأ أبداً)');
+
+  const prof = read('./src/app/player/profile/page.tsx');
+  check(prof.includes('usePlayerCosmetics') && prof.includes('<DynamicMafiaCard'),
+    'صفحة البروفايل تعرض بطاقة اللاعب بمظهره');
+  const hookAt = prof.indexOf('usePlayerCosmetics()');
+  const firstReturn = prof.indexOf('if(loading)return(');
+  check(hookAt > 0 && firstReturn > 0 && hookAt < firstReturn,
+    '🪝 الخطّاف قبل أي إرجاع مبكر — وإلا تغيّر عددها بين الرسمتين وسقط React',
+    `الخطّاف=${hookAt} أوّل إرجاع=${firstReturn}`);
+
+  const hook = read('./src/hooks/usePlayerCosmetics.ts');
+  check(hook.includes('reconnectSocketAuth'),
+    '🔌 الخطّاف يُصلح سباق الانضمام لغرفة اللاعب (البثّ لا يصل لمن اتّصل قبل كتابة الرمز)');
+
+  const day = read('./src/app/display/DisplayDayView.tsx');
+  check(day.includes('<EliminationFx'),
+    'مشهد النهار يستعمل مكوّن الإقصاء لا نسخة سطرية');
 }
 
 console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
