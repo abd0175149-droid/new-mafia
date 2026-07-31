@@ -95,10 +95,19 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
 });
 
 // ── مظهري (الخانات المُجهَّزة الفعّالة) ──
+// تُرجع كذلك رتبة اللاعب: بطاقته داخل التطبيق تحتاج الاثنين معاً لترسم
+// نفس ما تعرضه شاشة القاعة، و`/api/player-auth/me` لا يحمل الرتبة.
 router.get('/store/cosmetics', authenticatePlayer, async (req: Request, res: Response) => {
   try {
-    const cosmetics = await getPlayerCosmetics(req.playerAccount!.playerId);
-    res.json({ success: true, cosmetics });
+    const playerId = req.playerAccount!.playerId;
+    const db = getDB();
+    const [cosmetics, rankRow] = await Promise.all([
+      getPlayerCosmetics(playerId),
+      db
+        ? db.select({ rankTier: players.rankTier }).from(players).where(eq(players.id, playerId)).limit(1)
+        : Promise.resolve([] as any[]),
+    ]);
+    res.json({ success: true, cosmetics, rankTier: rankRow?.[0]?.rankTier || null });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -15,6 +15,7 @@ import RolesInfoModal from './RolesInfoModal';
 import PhaseLoading from '@/components/PhaseLoading';
 import RoomCodeCard from '@/components/RoomCodeCard';
 import { useGameState } from '@/hooks/useGameState';
+import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
@@ -121,6 +122,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [requireTicket, setRequireTicket] = useState(false);
   const [ticketNumber, setTicketNumber] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  // 🪙 مظهره المشترى ورتبته — بطاقته في يده يجب أن تطابق ما تعرضه شاشة القاعة
+  const { cosmetics: myCosmetics, rankTier: myRankTier } = usePlayerCosmetics();
   const [userExited, setUserExited] = useState(() => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('mafia_user_exited') === 'true';
@@ -3019,6 +3022,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         flippable={false}
                         size="md"
                         avatarUrl={avatarUrl}
+                        rankTier={myRankTier || undefined}
+                        cosmetics={myCosmetics}
                       />
                     </div>
 
@@ -3061,6 +3066,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         flippable={true}
                         size="md"
                         avatarUrl={avatarUrl}
+                        rankTier={myRankTier || undefined}
+                        cosmetics={myCosmetics}
                       />
                     </div>
 
@@ -3391,6 +3398,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         flippable={false}
                         size="md"
                         avatarUrl={avatarUrl}
+                        rankTier={myRankTier || undefined}
+                        cosmetics={myCosmetics}
                       />
                     </div>
                     <p className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em]">
@@ -3420,6 +3429,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         flippable={true}
                         size="md"
                         avatarUrl={avatarUrl}
+                        rankTier={myRankTier || undefined}
+                        cosmetics={myCosmetics}
                       />
                     </div>
                     <AnimatePresence mode="wait">
@@ -3501,6 +3512,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         flippable={false}
                         size="md"
                         avatarUrl={avatarUrl}
+                        rankTier={myRankTier || undefined}
+                        cosmetics={myCosmetics}
                       />
                     </div>
                     <p className="text-[#C5A059] text-[11px] font-mono uppercase tracking-[0.2em]">

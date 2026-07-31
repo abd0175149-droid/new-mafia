@@ -188,6 +188,8 @@ function VotingCard({
           role={targetDetails?.role || null}
           gender={targetDetails?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
           avatarUrl={targetDetails?.avatarUrl || null}
+          rankTier={targetDetails?.rankTier}
+          cosmetics={(targetDetails as any)?.cosmetics}
           isFlipped={isFlipped}
           flippable={false}
           size="sm"
@@ -1328,6 +1330,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                   playerName={player?.name || 'Unknown'}
                   role={role}
                   avatarUrl={player?.avatarUrl || null}
+                  rankTier={player?.rankTier}
+                  cosmetics={(player as any)?.cosmetics}
                   isFlipped={true}
                   flippable={false}
                   size="sm"
@@ -1433,6 +1437,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 playerName={player?.name || 'Unknown'}
                 role={role}
                 avatarUrl={player?.avatarUrl || null}
+                rankTier={player?.rankTier}
+                cosmetics={(player as any)?.cosmetics}
                 isFlipped={true}
                 flippable={false}
                 size="sm"
@@ -1549,6 +1555,8 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
                 playerName={player?.name || 'Unknown'}
                 role={role}
                 avatarUrl={player?.avatarUrl || null}
+                rankTier={player?.rankTier}
+                cosmetics={(player as any)?.cosmetics}
                 isFlipped={true}
                 flippable={false}
                 isAlive={false}

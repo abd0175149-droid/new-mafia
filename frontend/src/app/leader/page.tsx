@@ -2359,6 +2359,8 @@ export default function LeaderPage() {
                         isAlive={true}
                         size="sm"
                         avatarUrl={p.avatarUrl}
+                        rankTier={p.rankTier}
+                        cosmetics={(p as any).cosmetics}
                       />
                       {/* 🪑 زر نقل/تبديل المقعد — يظهر عند hover (لمستان؛ خاضع لقفل السرّ في السيرفر) */}
                       {!showExcludeUI && !isSessionEditing && sessionMovingId === null && (
@@ -3455,6 +3457,8 @@ export default function LeaderPage() {
                     isAlive={false}
                     size="lg"
                     avatarUrl={gameState.players.find((p: any) => p.physicalId === adminRevealData.physicalId)?.avatarUrl}
+                    rankTier={gameState.players.find((p: any) => p.physicalId === adminRevealData.physicalId)?.rankTier}
+                    cosmetics={(gameState.players.find((p: any) => p.physicalId === adminRevealData.physicalId) as any)?.cosmetics}
                   />
                 </motion.div>
 
@@ -4051,6 +4055,8 @@ export default function LeaderPage() {
                       isAlive={p.isAlive}
                       size="sm"
                       avatarUrl={p.avatarUrl}
+                      rankTier={p.rankTier}
+                      cosmetics={(p as any).cosmetics}
                     />
                     {/* زر الاستبعاد */}
                     {showExcludeUI && (

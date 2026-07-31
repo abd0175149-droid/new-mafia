@@ -578,6 +578,8 @@ export default function LeaderLobbyView({ gameState, emit, setError, hideOffline
                   role={null}
                   gender={player.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                   avatarUrl={player.avatarUrl || null}
+                  rankTier={player.rankTier}
+                  cosmetics={(player as any).cosmetics}
                   showVoting={false}
                   flippable={false}
                   size="sm"

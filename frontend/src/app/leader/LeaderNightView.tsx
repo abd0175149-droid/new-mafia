@@ -492,6 +492,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                 flippable={false}
                 gender={targetPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                 avatarUrl={targetPlayer?.avatarUrl || null}
+                rankTier={targetPlayer?.rankTier}
+                cosmetics={(targetPlayer as any)?.cosmetics}
                 size="md"
                 isAlive={true}
               />
@@ -649,6 +651,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                     flippable={false}
                     gender={playerData?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                     avatarUrl={playerData?.avatarUrl || null}
+                    rankTier={playerData?.rankTier}
+                    cosmetics={(playerData as any)?.cosmetics}
                     size="sm"
                     isAlive={true}
                     className={`transition-all duration-300 ${
@@ -1108,6 +1112,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                       flippable={false}
                       gender={p.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                       avatarUrl={p.avatarUrl || null}
+                      rankTier={p.rankTier}
+                      cosmetics={(p as any).cosmetics}
                       size="sm"
                       isAlive={true}
                     />
@@ -1360,6 +1366,8 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                       flippable={false}
                       gender={targetPlayer?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
                       avatarUrl={targetPlayer?.avatarUrl || null}
+                      rankTier={targetPlayer?.rankTier}
+                      cosmetics={(targetPlayer as any)?.cosmetics}
                       size={nightStep.availableTargets.length <= 12 ? 'md' : 'sm'}
                       isAlive={true}
                       className={`transition-all duration-300 ${
