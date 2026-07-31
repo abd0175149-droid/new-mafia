@@ -36,6 +36,17 @@ export interface ChipsRewardsConfig {
     messageTitle: string;
     messageBody: string;
   };
+  /**
+   * 💧 قطرات نهاية المباراة — أكبر صنبور إصدار في الاقتصاد.
+   * ⚠️ كانت ثوابت مُصرَّفة في الكود بينما كل رقم اقتصادي آخر قابل للتعديل
+   *    من اللوحة، فضبط التضخّم أو إيقاف الصنبور كان يحتاج نشرةَ كود.
+   */
+  drops: {
+    enabled: boolean;
+    win: number;
+    top3: number;
+    firstMatch: number;
+  };
 }
 
 export const DEFAULT_REWARDS_CONFIG: ChipsRewardsConfig = {
@@ -49,6 +60,8 @@ export const DEFAULT_REWARDS_CONFIG: ChipsRewardsConfig = {
     messageTitle: '🎂 كل عام وأنت بخير!',
     messageBody: 'عيديّة النادي {العدد} 🪙 — افتح خزنة الدون واختر ما يعجبك',
   },
+  // القيم المقفلة (أرتفاكت v4) — تبقى الافتراضي فلا يتغيّر شيء بمجرّد النقل
+  drops: { enabled: true, win: 2, top3: 3, firstMatch: 10 },
 };
 
 let cfgCache: { v: ChipsRewardsConfig; at: number } | null = null;
@@ -66,6 +79,7 @@ export async function getRewardsConfig(): Promise<ChipsRewardsConfig> {
     const merged: ChipsRewardsConfig = {
       top3: { ...DEFAULT_REWARDS_CONFIG.top3, ...(v.top3 || {}) },
       birthday: { ...DEFAULT_REWARDS_CONFIG.birthday, ...(v.birthday || {}) },
+      drops: { ...DEFAULT_REWARDS_CONFIG.drops, ...(v.drops || {}) },
     };
     cfgCache = { v: merged, at: Date.now() };
     return merged;
@@ -93,6 +107,13 @@ export async function saveRewardsConfig(patch: any): Promise<ChipsRewardsConfig>
       excludeTestAccounts: patch?.birthday?.excludeTestAccounts != null ? !!patch.birthday.excludeTestAccounts : current.birthday.excludeTestAccounts,
       messageTitle: patch?.birthday?.messageTitle != null ? String(patch.birthday.messageTitle).slice(0, 120) : current.birthday.messageTitle,
       messageBody: patch?.birthday?.messageBody != null ? String(patch.birthday.messageBody).slice(0, 300) : current.birthday.messageBody,
+    },
+    drops: {
+      enabled: patch?.drops?.enabled != null ? !!patch.drops.enabled : current.drops.enabled,
+      // سقف ١٠٠ لكل قطرة: خطأ مطبعي في خانة واحدة لا يجوز أن يُغرق الاقتصاد
+      win: patch?.drops?.win != null ? Math.max(0, Math.min(100, Math.trunc(Number(patch.drops.win) || 0))) : current.drops.win,
+      top3: patch?.drops?.top3 != null ? Math.max(0, Math.min(100, Math.trunc(Number(patch.drops.top3) || 0))) : current.drops.top3,
+      firstMatch: patch?.drops?.firstMatch != null ? Math.max(0, Math.min(100, Math.trunc(Number(patch.drops.firstMatch) || 0))) : current.drops.firstMatch,
     },
   };
 

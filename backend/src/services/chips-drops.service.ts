@@ -11,7 +11,11 @@
 // ══════════════════════════════════════════════════════
 
 import { applyChipsTx } from './chips.service.js';
+import { getRewardsConfig } from './chips-rewards.service.js';
 
+// ⚠️ هذه الثوابت صارت **افتراضياً فقط**. القيم الفعلية تُقرأ من إعدادات
+//    المكافآت في القاعدة عند كل مباراة، فضبط أكبر صنبور إصدار في الاقتصاد
+//    — أو إيقافه — لم يعد يحتاج نشرة كود.
 export const DROP_WIN = 2;
 export const DROP_TOP3 = 3;
 export const DROP_FIRST_MATCH = 10;
@@ -56,6 +60,16 @@ export async function grantMatchDrops(opts: {
     const rows = (opts.players || []).filter(p => !!p?.playerId) as Required<DropPlayerInput>[];
     if (rows.length === 0) { out.skipped = 'no-registered-players'; return out; }
 
+    // القيم من اللوحة (وإن تعذّرت القراءة فالافتراضي المقفل — القطرة لا تُفشل مباراة)
+    const cfg = await getRewardsConfig().catch(() => null);
+    const AMT = {
+      enabled: cfg?.drops?.enabled ?? true,
+      win: cfg?.drops?.win ?? DROP_WIN,
+      top3: cfg?.drops?.top3 ?? DROP_TOP3,
+      firstMatch: cfg?.drops?.firstMatch ?? DROP_FIRST_MATCH,
+    };
+    if (!AMT.enabled) { out.skipped = 'drops-disabled'; return out; }
+
     // ── ترتيب التوب-3 على صافي الرانك (rrChange) ──
     // التعادل عند الحدّ: كل المتعادلين على قيمة المركز الثالث يأخذون القطرة
     // (أعدل من قطع عشوائي، وكلفته ضئيلة).
@@ -72,24 +86,24 @@ export async function grantMatchDrops(opts: {
       const pid = Number(p.playerId);
       const drops: Array<{ type: string; amount: number; title: string; body: string }> = [];
 
-      if (p.won) {
+      if (p.won && AMT.win > 0) {
         drops.push({
-          type: 'win', amount: DROP_WIN,
-          title: `🏆 +${DROP_WIN} 🪙 قطرة فوز`,
+          type: 'win', amount: AMT.win,
+          title: `🏆 +${AMT.win} 🪙 قطرة فوز`,
           body: 'فاز فريقك الليلة — أُضيفت لمحفظتك',
         });
       }
-      if (top3Ids.has(pid)) {
+      if (top3Ids.has(pid) && AMT.top3 > 0) {
         drops.push({
-          type: 'top3', amount: DROP_TOP3,
-          title: `🥉 +${DROP_TOP3} 🪙 من الأفضل ثلاثة`,
+          type: 'top3', amount: AMT.top3,
+          title: `🥉 +${AMT.top3} 🪙 من الأفضل ثلاثة`,
           body: 'أداؤك وضعك ضمن الثلاثة الأوائل بصافي النقاط',
         });
       }
-      if (Number(p.lifetimeMatchesBefore ?? 1) === 0) {
+      if (Number(p.lifetimeMatchesBefore ?? 1) === 0 && AMT.firstMatch > 0) {
         drops.push({
-          type: 'first_match', amount: DROP_FIRST_MATCH,
-          title: `🎉 +${DROP_FIRST_MATCH} 🪙 هدية أول مباراة`,
+          type: 'first_match', amount: AMT.firstMatch,
+          title: `🎉 +${AMT.firstMatch} 🪙 هدية أول مباراة`,
           body: 'أهلاً بك في العائلة — افتح خزنة الدون واختر مظهرك',
         });
       }

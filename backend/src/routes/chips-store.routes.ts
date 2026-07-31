@@ -15,6 +15,7 @@ import { players } from '../schemas/player.schema.js';
 import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
   grantRental, notifyExpiringSoon, isSoundKeyAvailable,
+  getInventorySummary, getExpiringRentals,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
 import {
@@ -358,6 +359,27 @@ router.post('/items/grant', async (req: Request, res: Response) => {
 
     res.json({ success: true, ...result });
   } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── 📊 دفتر المخزون: ما يُباع فعلاً وما يوشك أن ينتهي ──
+router.get('/items/inventory', async (req: Request, res: Response) => {
+  try {
+    const days = req.query.days ? parseInt(String(req.query.days)) : 7;
+    const [items, expiring] = await Promise.all([
+      getInventorySummary(days),
+      getExpiringRentals(days),
+    ]);
+    const totals = items.reduce((t, i) => ({
+      activeOwners: t.activeOwners + i.activeOwners,
+      revenueChips: t.revenueChips + i.revenueChips,
+      purchases: t.purchases + i.purchases,
+      expiringSoon: t.expiringSoon + i.expiringSoon,
+    }), { activeOwners: 0, revenueChips: 0, purchases: 0, expiringSoon: 0 });
+    res.json({ success: true, days, items, expiring, totals });
+  } catch (err: any) {
+    console.error('❌ chips inventory:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

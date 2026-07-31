@@ -78,7 +78,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function ChipsAdminPage() {
-  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards'>('topup');
+  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards' | 'inventory'>('topup');
   const [stats, setStats] = useState<any>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -126,7 +126,7 @@ export default function ChipsAdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5 border-b border-gray-700/40">
-        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
+        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['inventory', '📊 المخزون'], ['ledger', '📒 الدفتر']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-bold transition-all border-b-2 -mb-px ${
               tab === k ? 'text-amber-400 border-amber-400' : 'text-gray-500 border-transparent hover:text-gray-300'
@@ -139,6 +139,7 @@ export default function ChipsAdminPage() {
       {tab === 'topup' && <TopupView packs={packs} onChanged={loadStats} toast={showToast} />}
       {tab === 'rewards' && <RewardsView toast={showToast} onChanged={loadStats} />}
       {tab === 'catalog' && <CatalogView toast={showToast} />}
+      {tab === 'inventory' && <InventoryView toast={showToast} />}
       {tab === 'ledger' && <LedgerView />}
 
       {/* Toast */}
@@ -583,6 +584,38 @@ function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string)
           );
         })()}
         <p className="text-[10px] text-gray-600 mt-2">🔒 المفتاح حتميّ لكل (موسم + لاعب) — الضغط مرّتين لا يدفع مرّتين. ومن استلم يظهر بعلامة ✔︎، والمنح المتعمّد ثانيةً يحتاج كتابة «تأكيد».</p>
+      </div>
+
+      {/* ── 💧 قطرات نهاية المباراة ── */}
+      <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+        <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+          <h2 className="text-sm font-bold text-gray-300">💧 قطرات نهاية المباراة</h2>
+          <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={cfg?.drops?.enabled !== false}
+              onChange={e => saveCfg({ drops: { enabled: e.target.checked } })}
+              className="accent-amber-500" />
+            مفعّلة
+          </label>
+        </div>
+        <p className="text-[11px] text-gray-500 mb-3">
+          هذه هي <b>أكبر صنبور إصدار</b> في الاقتصاد. المواسم العادية فقط، وغير الاختبارية.
+          كانت أرقاماً مُصرَّفة في الكود — ضبطها كان يحتاج نشرة.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {([['win', '🏆 فوز'], ['top3', '🥉 أفضل ثلاثة'], ['firstMatch', '🎉 أول مباراة']] as const).map(([k, label]) => (
+            <div key={k}>
+              <label className="block text-[11px] text-gray-500 mb-1">{label}</label>
+              <input type="number" min={0} max={100}
+                value={String(cfg?.drops?.[k] ?? '')}
+                onChange={e => setCfg((c: any) => ({ ...c, drops: { ...(c?.drops || {}), [k]: Number(e.target.value) } }))}
+                onBlur={e => saveCfg({ drops: { [k]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) } })}
+                className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-2 text-sm text-white tabular-nums focus:outline-none focus:border-amber-500" />
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-gray-600 mt-2">
+          يُحفظ عند مغادرة الحقل. صفر = تعطيل تلك القطرة وحدها. الحدّ الأقصى ١٠٠ لكل قطرة.
+        </p>
       </div>
 
       {/* ── عيديّة الميلاد ── */}
@@ -1144,6 +1177,172 @@ function AddItemPanel({ onCreated, toast }: { onCreated: () => void; toast: (k: 
       <p className="text-[10px] text-gray-600 mt-2 text-center">
         الخادم يطبّع كل إعداد قبل تخزينه — لا يمكن حفظ تصميم يعجز المُصيّر عن رسمه.
       </p>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📊 دفتر المخزون — ما يملكه الناس فعلاً
+//
+// ⚠️ جدول الإيجارات هو دفتر مخزون العمل كله، ولم تكن له أي واجهة إطلاقاً:
+//    لا «أي عنصر يُباع»، ولا «كم إيجاراً نشطاً»، ولا «من ينتهي إيجاره هذا
+//    الأسبوع كي نُذكّره»، ولا زرّ تعويض. ومساران جاهزان في الخادم بلا مستدعٍ.
+//    كان المتجر يُدار على العمياني.
+// ══════════════════════════════════════════════════════
+function InventoryView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
+  const [data, setData] = useState<any>(null);
+  const [days, setDays] = useState(7);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async (d: number) => {
+    setLoading(true);
+    try { setData(await apiGet(`/api/chips/items/inventory?days=${d}`)); }
+    catch { setData(null); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(days); }, [load, days]);
+
+  // 🎁 منح/تعويض — المسار كان موجوداً في الخادم بلا أي زرّ يستدعيه
+  const grant = async (itemId: number, itemName: string) => {
+    const pid = prompt(`منح «${itemName}» بلا مقابل.\n\nاكتب معرّف اللاعب:`);
+    const playerId = parseInt(String(pid || '').trim());
+    if (!playerId || isNaN(playerId)) return;
+    const d = prompt('عدد الأيام (اتركه فارغاً للمدّة الافتراضية):');
+    const daysNum = d && !isNaN(parseInt(d)) ? parseInt(d) : undefined;
+    if (!confirm(`منح «${itemName}» للاعب #${playerId}${daysNum ? ` لمدة ${daysNum} يوماً` : ''}؟\n\nبلا خصم من رصيده — يُستعمل للتعويض والإنجاز.`)) return;
+    setBusy(true);
+    try {
+      await apiPost('/api/chips/items/grant', { playerId, itemId, days: daysNum });
+      toast('ok', `✅ مُنح «${itemName}» للاعب #${playerId}`);
+      load(days);
+    } catch (e: any) { toast('err', e.message || 'فشل المنح'); }
+    finally { setBusy(false); }
+  };
+
+  const t = data?.totals;
+  const items: any[] = data?.items || [];
+  const expiring: any[] = data?.expiring || [];
+  const sold = items.filter(i => i.totalRentals > 0);
+  const never = items.filter(i => i.totalRentals === 0 && i.isPurchasable && !i.closed);
+
+  return (
+    <div className="space-y-5">
+      {/* ملخّص */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi label="إيجارات نشطة" value={t?.activeOwners} unit="إيجار" tone="emerald" hint="ما يملكه اللاعبون الآن فعلاً" />
+        <Kpi label="إيراد الخزنة" value={t?.revenueChips} unit="🪙" tone="amber" hint="من الدفتر — يشمل التجديدات" />
+        <Kpi label="عمليات شراء" value={t?.purchases} unit="عملية" tone="sky" hint="استئجار + تجديد" />
+        <Kpi label={`ينتهي خلال ${days} أيام`} value={t?.expiringSoon} unit="إيجار" tone="rose" hint="فرصة تذكير قبل الانقطاع" />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-gray-500">نافذة الانتهاء:</span>
+        {[3, 7, 14, 30].map(d => (
+          <button key={d} onClick={() => setDays(d)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${days === d
+              ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+              : 'bg-gray-900/50 border-gray-700/40 text-gray-400'}`}>
+            {d} أيام
+          </button>
+        ))}
+      </div>
+
+      {loading && <p className="text-center text-gray-600 text-xs py-10">جارٍ التحميل…</p>}
+
+      {/* لكل عنصر */}
+      {!loading && (
+        <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-gray-300 mb-3">🏦 أداء كل عنصر</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] text-gray-500 border-b border-gray-700/40">
+                  <th className="text-right py-2 px-2 font-medium">العنصر</th>
+                  <th className="text-right py-2 px-2 font-medium">نشط الآن</th>
+                  <th className="text-right py-2 px-2 font-medium">عمليات</th>
+                  <th className="text-right py-2 px-2 font-medium">الإيراد 🪙</th>
+                  <th className="text-right py-2 px-2 font-medium">ينتهي قريباً</th>
+                  <th className="py-2 px-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(i => (
+                  <tr key={i.id} className="border-b border-gray-800/50">
+                    <td className="py-2 px-2 text-gray-200">
+                      <span className="flex items-center gap-2">
+                        {i.emblemId && <ChipsEmblem id={i.emblemId as EmblemId} size={20} />}
+                        <span>
+                          {i.nameAr}
+                          <span className="block text-[10px] text-gray-600">
+                            {i.kind} · 🪙{i.priceChips} / {i.durationDays}ي
+                            {i.closed ? ' · 🔒 مُغلق' : i.isActive ? '' : ' · مخفي'}
+                            {!i.isPurchasable && ' · إنجاز فقط'}
+                          </span>
+                        </span>
+                      </span>
+                    </td>
+                    <td className={`py-2 px-2 tabular-nums font-bold ${i.activeOwners > 0 ? 'text-emerald-400' : 'text-gray-600'}`}>{i.activeOwners}</td>
+                    <td className="py-2 px-2 tabular-nums text-gray-400">{i.purchases}</td>
+                    <td className="py-2 px-2 tabular-nums text-amber-400">{i.revenueChips.toLocaleString('en-US')}</td>
+                    <td className={`py-2 px-2 tabular-nums ${i.expiringSoon > 0 ? 'text-rose-400' : 'text-gray-600'}`}>{i.expiringSoon}</td>
+                    <td className="py-2 px-2 text-left">
+                      <button disabled={busy} onClick={() => grant(i.id, i.nameAr)}
+                        className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-gray-800/60 border border-gray-700/40 text-gray-300 hover:border-amber-500/40 hover:text-amber-300">
+                        🎁 منح
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {never.length > 0 && (
+            <p className="text-[11px] text-amber-400/80 mt-3">
+              ⚠️ {never.length} عنصراً معروضاً لم يُشترَ ولا مرة — راجع سعره أو جملة بيعه أو موضعه في الترتيب.
+            </p>
+          )}
+          {sold.length === 0 && !never.length && (
+            <p className="text-center text-gray-600 text-xs py-6">لا مبيعات بعد</p>
+          )}
+        </div>
+      )}
+
+      {/* من ينتهي إيجاره */}
+      {!loading && (
+        <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-gray-300 mb-1">⏳ ينتهي خلال {days} أيام</h3>
+          <p className="text-[11px] text-gray-500 mb-3">
+            قائمة التذكير: هؤلاء يفقدون ما دفعوا ثمنه قريباً. التنبيه التلقائي يصلهم عند فتح الخزنة.
+          </p>
+          {expiring.length === 0 ? (
+            <p className="text-center text-gray-600 text-xs py-6">لا شيء ينتهي في هذه النافذة</p>
+          ) : (
+            <div className="max-h-80 overflow-y-auto divide-y divide-gray-800/50">
+              {expiring.map(e => {
+                const left = Math.max(0, Math.ceil((new Date(e.expiresAt).getTime() - Date.now()) / 86400000));
+                return (
+                  <div key={e.rentalId} className="flex items-center justify-between py-2 px-1">
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-200 font-bold truncate">
+                        {e.playerName} <span className="text-gray-600 font-normal">#{e.playerId}</span>
+                      </p>
+                      <p className="text-[10px] text-gray-500">{e.itemName} · 🪙{e.priceChips}</p>
+                    </div>
+                    <div className="text-left shrink-0">
+                      <p className={`text-xs font-bold tabular-nums ${left <= 2 ? 'text-rose-400' : 'text-amber-400'}`}>
+                        {left} {left === 1 ? 'يوم' : 'أيام'}
+                      </p>
+                      <p className="text-[9px] text-gray-600">{e.warnedAt ? 'نُبّه' : 'لم يُنبَّه'}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

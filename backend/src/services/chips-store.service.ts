@@ -448,6 +448,89 @@ export async function grantRental(opts: {
 }
 
 // ══════════════════════════════════════════════════════
+// 📊 دفتر المخزون — ما يملكه الناس فعلاً
+//
+// ⚠️ `chips_rentals` هو دفتر مخزون العمل كله، ولم تكن له **أي واجهة**.
+//    المالك لا يستطيع أن يجيب: أي عنصر يُباع؟ كم إيجاراً نشطاً الآن؟ من
+//    ينتهي إيجاره هذا الأسبوع كي نُذكّره؟ — أي أن المتجر يُدار على العمياني.
+//    ومساران جاهزان في الخادم (`/items/rentals/:id` و`/items/grant`) بلا أي
+//    مستدعٍ في الواجهة إطلاقاً.
+// ══════════════════════════════════════════════════════
+
+/** ملخّص لكل عنصر: مالكون نشطون · إجمالي مبيعات · إيراد بالتشبس · يوشك أن ينتهي */
+export async function getInventorySummary(expiringDays = 7) {
+  const db = getDB();
+  if (!db) return [];
+  const days = Math.min(90, Math.max(1, Math.trunc(expiringDays) || 7));
+
+  const rows = rowsOf(await db.execute(sql`
+    SELECT i.id, i.kind, i.name_ar, i.item_key, i.price_chips, i.duration_days,
+           i.rarity, i.is_active, i.is_purchasable, i.closed_at, i.emblem_id,
+           COUNT(r.id) FILTER (WHERE r.expires_at > NOW())::int AS active_owners,
+           COUNT(r.id)::int AS total_rentals,
+           COUNT(r.id) FILTER (
+             WHERE r.expires_at > NOW() AND r.expires_at <= NOW() + (${days} || ' days')::interval
+           )::int AS expiring_soon,
+           MAX(r.starts_at) AS last_rented_at
+      FROM chips_items i
+      LEFT JOIN chips_rentals r ON r.item_id = i.id
+     GROUP BY i.id
+     ORDER BY active_owners DESC, i.sort_order ASC, i.id ASC
+  `));
+
+  // الإيراد من الدفتر لا من عدّ الإيجارات: التجديد حركة مالية بلا صفّ إيجار
+  // جديد، فعدّ الصفوف يُنقص الإيراد الحقيقي.
+  const revenue = new Map<number, { chips: number; moves: number }>();
+  for (const r of rowsOf(await db.execute(sql`
+    SELECT ref_id, SUM(-amount)::int AS chips, COUNT(*)::int AS moves
+      FROM chips_ledger
+     WHERE ref_type = 'item' AND reason IN ('rent_item','renew_item') AND amount < 0
+     GROUP BY ref_id
+  `))) {
+    const id = Number(r.ref_id);
+    if (Number.isInteger(id)) revenue.set(id, { chips: Number(r.chips || 0), moves: Number(r.moves || 0) });
+  }
+
+  return rows.map((r: any) => {
+    const rev = revenue.get(Number(r.id)) || { chips: 0, moves: 0 };
+    return {
+      id: Number(r.id), kind: r.kind, nameAr: r.name_ar, itemKey: r.item_key,
+      rarity: r.rarity, emblemId: r.emblem_id,
+      priceChips: Number(r.price_chips || 0), durationDays: Number(r.duration_days || 0),
+      isActive: !!r.is_active, isPurchasable: !!r.is_purchasable, closed: !!r.closed_at,
+      activeOwners: Number(r.active_owners || 0),
+      totalRentals: Number(r.total_rentals || 0),
+      expiringSoon: Number(r.expiring_soon || 0),
+      lastRentedAt: r.last_rented_at || null,
+      revenueChips: rev.chips,
+      purchases: rev.moves,
+    };
+  });
+}
+
+/** من يوشك إيجاره على الانتهاء — قائمة التذكير التي لم تكن موجودة */
+export async function getExpiringRentals(days = 7, limit = 200) {
+  const db = getDB();
+  if (!db) return [];
+  const d = Math.min(90, Math.max(1, Math.trunc(days) || 7));
+  return rowsOf(await db.execute(sql`
+    SELECT r.id, r.expires_at, r.warned_at,
+           p.id AS player_id, p.name AS player_name, p.phone, p.avatar_url,
+           i.id AS item_id, i.name_ar AS item_name, i.kind, i.price_chips
+      FROM chips_rentals r
+      JOIN players p ON p.id = r.player_id
+      JOIN chips_items i ON i.id = r.item_id
+     WHERE r.expires_at > NOW() AND r.expires_at <= NOW() + (${d} || ' days')::interval
+     ORDER BY r.expires_at ASC
+     LIMIT ${Math.min(1000, Math.max(1, limit))}
+  `)).map((r: any) => ({
+    rentalId: Number(r.id), expiresAt: r.expires_at, warnedAt: r.warned_at,
+    playerId: Number(r.player_id), playerName: r.player_name, phone: r.phone, avatarUrl: r.avatar_url,
+    itemId: Number(r.item_id), itemName: r.item_name, kind: r.kind, priceChips: Number(r.price_chips || 0),
+  }));
+}
+
+// ══════════════════════════════════════════════════════
 // 🎽 التجهيز
 // ══════════════════════════════════════════════════════
 
