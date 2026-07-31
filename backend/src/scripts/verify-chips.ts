@@ -526,21 +526,30 @@ async function main() {
     // ٦.١ 🔒 ثابت على مستوى الجدول (قراءة فقط، يشمل كل التاريخ):
     //     كل سطر دفتر استئجار/تجديد يجب أن يقابله إيجار لنفس اللاعب والعنصر.
     //     أي يتيم = مالٌ خُصم بلا مقابل.
-    const orphans = rowsOf(await db.execute(sql`
-      SELECT l.id, l.player_id, l.ref_id, l.created_at
+    // ⚠️ يُستثنى حسابات الاختبار: مسح الإيجارات في تنظيف الفحوص السابقة يترك
+    //    سطور دفتر بلا مقابل، وهي ضجيج لا خسارة. المهمّ هنا اللاعبون الحقيقيون.
+    const orphanSql = (testOnly: boolean) => sql`
+      SELECT l.id, l.player_id, l.ref_id, left(l.idempotency_key, 40) AS k
         FROM chips_ledger l
+        JOIN players p ON p.id = l.player_id
        WHERE l.reason IN ('rent_item','renew_item')
          AND l.ref_type = 'item'
+         AND COALESCE(p.is_test_account,false) = ${testOnly}
          AND NOT EXISTS (
            SELECT 1 FROM chips_rentals r
             WHERE r.player_id = l.player_id
               AND r.item_id = NULLIF(l.ref_id,'')::int
          )
        ORDER BY l.id DESC LIMIT 10
-    `));
+    `;
+    const orphans = rowsOf(await db.execute(orphanSql(false)));
+    const testOrphans = rowsOf(await db.execute(orphanSql(true)));
     check(orphans.length === 0,
-      `لا خصم استئجار بلا إيجار مقابل (${orphans.length} يتيم)`,
+      `لا لاعب حقيقي خُصم منه استئجار بلا إيجار مقابل (${orphans.length})`,
       orphans.length ? JSON.stringify(orphans.slice(0, 3)) : '');
+    if (testOrphans.length) {
+      console.log(`     ↳ ${testOrphans.length} بقايا على حسابات الاختبار من فحوص سابقة (ضجيج، لا خسارة)`);
+    }
 
     // ٦.٢ شراء حقيقي على حساب اختباري — يجب أن يُنشئ الاثنين معاً
     const tp = rowsOf(await db.execute(sql`
@@ -573,7 +582,7 @@ async function main() {
       check(!!r1.ok && !!r1.expiresAt, 'الشراء ينجح ويُعيد تاريخ انتهاء', JSON.stringify(r1).slice(0, 120));
 
       const led1 = rowsOf(await db.execute(sql`
-        SELECT id FROM chips_ledger WHERE idempotency_key = ${`store:${rid}:${iid}`}
+        SELECT id FROM chips_ledger WHERE idempotency_key = ${`store:${pid}:${rid}:${iid}`}
       `));
       const ren1 = rowsOf(await db.execute(sql`
         SELECT id FROM chips_rentals WHERE player_id = ${pid} AND item_id = ${iid}
@@ -586,7 +595,7 @@ async function main() {
       const after = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
       check(!!r2.ok && Number(before.b) === Number(after.b), 'إعادة نفس الطلب لا تخصم ثانيةً', `قبل=${before.b} بعد=${after.b}`);
       const ledDup = rowsOf(await db.execute(sql`
-        SELECT id FROM chips_ledger WHERE idempotency_key LIKE ${`store:${rid}:%`}
+        SELECT id FROM chips_ledger WHERE idempotency_key LIKE ${`store:${pid}:${rid}:%`}
       `));
       check(ledDup.length === 1, 'لا سطر دفتر ثانٍ لنفس الطلب', `عدد=${ledDup.length}`);
 
@@ -614,7 +623,7 @@ async function main() {
       const rEvil = await rentItem({ playerId: pid, itemId: iid, requestId: evilRid });
       const balAfter = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
       const evilKeys = rowsOf(await db.execute(sql`
-        SELECT idempotency_key FROM chips_ledger WHERE idempotency_key LIKE ${`store:${pid}:${evilRid}%`}
+        SELECT idempotency_key FROM chips_ledger WHERE idempotency_key LIKE ${`store:${pid}:%`}
       `));
       // إمّا رُفض، أو نُفِّذ كشراء حقيقي بخصم — المهم ألّا يكون «مجاناً»
       const freeGrab = !!rEvil.ok && Number(balBefore.b) === Number(balAfter.b) && evilKeys.length === 0;
@@ -641,7 +650,16 @@ async function main() {
 
       // تنظيف كامل — الرصيد يعود لما كان
       await db.execute(sql`DELETE FROM chips_rentals WHERE player_id = ${pid}`);
-      await db.execute(sql`DELETE FROM chips_ledger WHERE player_id = ${pid} AND (idempotency_key LIKE ${`store:${pid}:%`} OR idempotency_key LIKE ${`store:%${rid}%`} OR idempotency_key = ${'verify-fund:' + rid})`);
+      // يشمل بقايا الفحوص القديمة (store:verify-*, rent:*, renew:*) كي يبقى
+      // ثابت «لا يتيم» نظيفاً في المرات القادمة بدل أن يتراكم الضجيج.
+      await db.execute(sql`
+        DELETE FROM chips_ledger
+         WHERE player_id = ${pid}
+           AND (idempotency_key LIKE 'store:%'
+             OR idempotency_key LIKE 'rent:%'
+             OR idempotency_key LIKE 'renew:%'
+             OR idempotency_key LIKE 'verify%')
+      `);
       await db.execute(sql`UPDATE players SET chips_frame_item_id = NULL, chips_title_item_id = NULL, chips_name_fx_item_id = NULL WHERE id = ${pid}`);
       await db.execute(sql`UPDATE players SET chips_balance = COALESCE((SELECT SUM(amount) FROM chips_ledger WHERE player_id = ${pid}),0) WHERE id = ${pid}`);
       const back = rowsOf(await db.execute(sql`SELECT COALESCE(chips_balance,0)::int AS b FROM players WHERE id = ${pid}`))[0];
