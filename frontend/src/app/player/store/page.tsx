@@ -22,6 +22,7 @@ import { usePlayer } from '@/context/PlayerContext';
 import { getSocket } from '@/lib/socket';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import StoreItemVisual from '@/components/StoreItemVisual';
+import StorePreviewButton from '@/components/StorePreviewButton';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -266,6 +267,9 @@ export default function StorePage() {
 
             {/* جملة البيع مُرقّاة إلى نصّ أساسي — كانت أصغر نصّ في البطاقة */}
             {item.hookAr && <p className="text-[12.5px] text-gray-300 leading-relaxed mt-1">{item.hookAr}</p>}
+
+            {/* ▶︎ معاينة ما لا يُرى — والنغمة تُسمَع قبل الشراء */}
+            <StorePreviewButton item={item} playerName={myName} />
 
             {/* دليل اجتماعي — يُكتم تحت الثلاثة كي لا ينقلب إلى دليل عكسي */}
             {item.owners >= 3 && (

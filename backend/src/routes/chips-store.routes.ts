@@ -64,6 +64,7 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     // 🔊 نغمة النصر لا تُعرض ما لم يكن ملفها الصوتي مربوطاً فعلاً بلوحة المؤثرات
     // (بيع نغمة بلا صوت = وعد فارغ). الفحص لحظي فلا يحتاج إعادة تشغيل.
     // المكتبة تُقرأ مرّة واحدة — لا استعلام لكل عنصر (حلقة N+1 كانت هنا).
+    const rewardsCfgEarly = await getRewardsConfig().catch(() => null as any);
     const stingLib = await listVictoryStings();
     const activeStingIds = new Set(stingLib.filter(x => x.isActive).map(x => x.id));
     const stingUrlById = new Map(stingLib.map(x => [x.id, x.url]));
@@ -112,7 +113,9 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
     `)) : [];
     const lapsed = new Set<number>(lapsedRows.map((r: any) => Number(r.item_id)));
 
-    const NEW_DAYS = 14;
+    // نافذة «جديد» صارت إعداداً: إطلاقٌ شهريّ ونافذة أسبوعين قرارٌ تسويقيّ
+    // يتغيّر، ولا يجوز أن يحتاج نشرة كود.
+    const NEW_DAYS = Math.min(90, Math.max(1, Number(rewardsCfgEarly?.store?.newDays) || 14));
     const newCutoff = Date.now() - NEW_DAYS * 86400000;
 
     const ownedByItem = new Map(rentals.map(r => [r.itemId, r]));
@@ -137,8 +140,9 @@ router.get('/store', authenticatePlayer, async (req: Request, res: Response) => 
         expiresAt: owned?.expiresAt ?? null,
         // ── إشارات التسويق ──
         owners: owners.get(it.id) || 0,
-        isHot: hot.has(it.id),
-        isNew: it.createdAt ? new Date(it.createdAt).getTime() > newCutoff : false,
+        // التجاوز اليدوي يعلو الاشتقاق؛ و`null` يعني «اترك البيانات تقرّر»
+        isHot: it.hotOverride ?? hot.has(it.id),
+        isNew: it.newOverride ?? (it.createdAt ? new Date(it.createdAt).getTime() > newCutoff : false),
         wasOwned: !owned && lapsed.has(it.id),
         sortOrder: it.sortOrder ?? 0,
         // 🔊 رابط الملف — يسمح للمتجر بإسماع النغمة قبل الشراء.
@@ -404,6 +408,9 @@ router.put('/items/:id', async (req: Request, res: Response) => {
     if (b.isActive != null) patch.isActive = !!b.isActive;
     if (b.isPurchasable != null) patch.isPurchasable = !!b.isPurchasable;
     if (b.sortOrder != null) patch.sortOrder = Math.trunc(Number(b.sortOrder) || 0);
+    // null صالح عمداً: يُعيد الإشارة إلى الاشتقاق بدل تثبيتها
+    if (b.hotOverride !== undefined) patch.hotOverride = b.hotOverride === null ? null : !!b.hotOverride;
+    if (b.newOverride !== undefined) patch.newOverride = b.newOverride === null ? null : !!b.newOverride;
     if (b.emblemId !== undefined) patch.emblemId = normalizeEmblemId(b.emblemId);
 
     // ⚠️ كان هذا السطر يقبل **أي كائن** بلا تحقّق — بما فيه المصفوفات —

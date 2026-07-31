@@ -1458,6 +1458,23 @@ async function main() {
         console.warn('⚠️ Chips ledger durability migration:', e?.message);
       }
 
+      // ── ضبط التسويق: تجاوز يدوي للإشارات المشتقّة ──
+      //
+      // «الأكثر طلباً» و«جديد» يُحسبان من البيانات، وهذا صحيح افتراضاً —
+      // لكن المالك لا يملك وسيلة لإبراز عنصر أطلقه للتوّ أو كتم آخر.
+      // العمودان يسمحان بالتجاوز بلا تعطيل الاشتقاق.
+      try {
+        await db.execute(sql`
+          ALTER TABLE chips_items ADD COLUMN IF NOT EXISTS hot_override BOOLEAN;
+        `);
+        await db.execute(sql`
+          ALTER TABLE chips_items ADD COLUMN IF NOT EXISTS new_override BOOLEAN;
+        `);
+        console.log('🛍️ Chips merchandising overrides ensured');
+      } catch (e: any) {
+        console.warn('⚠️ Chips merch overrides migration:', e?.message);
+      }
+
       // ── صفّ إيجار واحد لكل (لاعب، عنصر) — قيدٌ لا اتفاق ──
       //
       // الشيفرة صارت غير قادرة على إنتاج صفّ ثانٍ، لكن «غير قادرة» وعدٌ

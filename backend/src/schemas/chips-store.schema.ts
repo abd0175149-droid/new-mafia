@@ -53,6 +53,12 @@ export const chipsItems = pgTable('chips_items', {
   isPurchasable: boolean('is_purchasable').default(true).notNull(), // false = إنجاز فقط (إكليل البطل)
   closedAt: timestamp('closed_at'),                               // موسمي محدود أُغلق نهائياً
   sortOrder: integer('sort_order').default(0),
+
+  /** تجاوز يدوي لإشارتَي التسويق — null يعني «اترك الاشتقاق يقرّر» */
+
+  hotOverride: boolean('hot_override'),
+
+  newOverride: boolean('new_override'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

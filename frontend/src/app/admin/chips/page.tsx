@@ -715,7 +715,7 @@ function RewardsView({ toast, onChanged }: { toast: (k: 'ok' | 'err', t: string)
 function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [edit, setEdit] = useState<Record<number, { priceChips: string; durationDays: string }>>({});
+  const [edit, setEdit] = useState<Record<number, { priceChips: string; durationDays: string; sortOrder: string }>>({});
   const [busy, setBusy] = useState<number | null>(null);
   const [designItem, setDesignItem] = useState<any>(null);
 
@@ -777,13 +777,15 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
                   <th className="text-right py-2 px-2 font-medium">الندرة</th>
                   <th className="text-right py-2 px-2 font-medium">السعر 🪙</th>
                   <th className="text-right py-2 px-2 font-medium">المدة (يوم)</th>
+                  <th className="text-right py-2 px-2 font-medium">الترتيب</th>
+                  <th className="text-right py-2 px-2 font-medium">تسويق</th>
                   <th className="text-right py-2 px-2 font-medium">الحالة</th>
                   <th className="py-2 px-2" />
                 </tr>
               </thead>
               <tbody>
                 {(list as any[]).map(it => {
-                  const e = edit[it.id] || { priceChips: String(it.priceChips), durationDays: String(it.durationDays) };
+                  const e = edit[it.id] || { priceChips: String(it.priceChips), durationDays: String(it.durationDays), sortOrder: String(it.sortOrder ?? 900) };
                   const dirty = Number(e.priceChips) !== it.priceChips || Number(e.durationDays) !== it.durationDays;
                   return (
                     <tr key={it.id} className="border-b border-gray-800/50">
@@ -802,6 +804,35 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
                           onChange={ev => setEdit(p => ({ ...p, [it.id]: { ...e, durationDays: ev.target.value } }))}
                           className="w-16 bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-1 text-xs text-white tabular-nums" />
                       </td>
+                      <td className="py-2 px-2">
+                        {/* الترتيب كان قابلاً للضبط عند الإنشاء فقط — فلا يمكن
+                            إبراز عنصر بعد إطلاقه إلا بإعادة إنشائه */}
+                        <input value={e.sortOrder}
+                          onChange={ev => setEdit(p => ({ ...p, [it.id]: { ...e, sortOrder: ev.target.value } }))}
+                          className="w-16 bg-gray-900/70 border border-gray-700/40 rounded-lg px-2 py-1 text-xs text-white tabular-nums" />
+                      </td>
+                      <td className="py-2 px-2">
+                        <div className="flex gap-1">
+                          {([['hotOverride', '🔥'], ['newOverride', '🆕']] as const).map(([k, icon]) => {
+                            const v = (it as any)[k];
+                            // ثلاث حالات: مُبرَز · مكتوم · اتركه للاشتقاق
+                            const next = v === true ? false : v === false ? null : true;
+                            return (
+                              <button key={k} disabled={busy === it.id}
+                                title={v === true ? 'مُبرَز يدوياً' : v === false ? 'مكتوم يدوياً' : 'يُحسب من البيانات'}
+                                onClick={() => save(it, { [k]: next } as any,
+                                  next === true ? `${icon} أُبرِز` : next === false ? `${icon} كُتم` : `${icon} عاد للاشتقاق`)}
+                                className={`px-1.5 py-1 rounded-md text-[11px] border ${
+                                  v === true ? 'bg-amber-500/20 border-amber-500/50'
+                                  : v === false ? 'bg-gray-800/60 border-gray-700/40 opacity-40'
+                                  : 'bg-gray-900/40 border-gray-700/30 opacity-70'
+                                }`}>
+                                {icon}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
                       <td className="py-2 px-2 text-xs">
                         {it.closedAt ? <span className="text-rose-400">🔒 مُغلق نهائياً</span>
                           : it.isActive ? <span className="text-emerald-400">معروض</span>
@@ -811,7 +842,7 @@ function CatalogView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void })
                       <td className="py-2 px-2 text-left whitespace-nowrap">
                         {dirty && (
                           <button disabled={busy === it.id}
-                            onClick={() => save(it, { priceChips: Number(e.priceChips), durationDays: Number(e.durationDays) }, '💾 حُفظ')}
+                            onClick={() => save(it, { priceChips: Number(e.priceChips), durationDays: Number(e.durationDays), sortOrder: Number(e.sortOrder) }, '💾 حُفظ')}
                             className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-600 text-black ml-1">حفظ</button>
                         )}
                         {!it.closedAt && (
