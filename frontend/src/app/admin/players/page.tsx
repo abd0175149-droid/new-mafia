@@ -103,14 +103,50 @@ export default function PlayersManagementPage() {
   }
 
   // ── Delete Player ──
+  //
+  // 🪙 اللاعب الذي له سجلّ مالي (حركات تشبس أو إيجارات) لا يُحذف بلا جواب عن
+  //    سؤال «أين يذهب ماله؟». الخادم يردّ 409 يسمّي الأرقام، ونحن نعرض هنا
+  //    مسار النقل إلى الحساب الباقي — وإلا صار الحارس جداراً بلا باب.
   async function handleDeletePlayer(player: any) {
     if (!(await swalConfirm(`⚠️ هل تريد حذف اللاعب "${player.name}" نهائياً؟\nلن يمكن استرجاع الحساب.`))) return;
     try {
       await apiFetch(`/api/player/${player.id}`, { method: 'DELETE' });
       setPlayers(prev => prev.filter(p => p.id !== player.id));
       showToast(`تم حذف ${player.name}`, 'success');
+      return;
     } catch (err: any) {
-      showToast(err.message || 'فشل حذف اللاعب', 'error');
+      const chips = err?.body?.chips || err?.chips;
+      const isChipsBlock = err?.body?.code === 'CHIPS_HISTORY' || err?.code === 'CHIPS_HISTORY'
+        || /سجلّ مالي/.test(String(err?.message || ''));
+      if (!isChipsBlock) {
+        showToast(err.message || 'فشل حذف اللاعب', 'error');
+        return;
+      }
+
+      const detail = chips
+        ? `${chips.ledgerRows} حركة · ${chips.rentals} إيجار · رصيد ${chips.balance} 🪙`
+        : 'له سجلّ مالي';
+      const target = window.prompt(
+        `🪙 لا يُحذف «${player.name}» — ${detail}.\n\n`
+        + 'اكتب معرّف الحساب الذي يُنقل إليه سجلّه المالي (الحساب الباقي بعد الدمج).\n'
+        + 'اتركه فارغاً للإلغاء.',
+      );
+      const toId = parseInt(String(target || '').trim());
+      if (!toId || isNaN(toId)) return;
+
+      const dest = players.find((p: any) => p.id === toId);
+      if (!(await swalConfirm(
+        `نقل سجلّ «${player.name}» المالي إلى ${dest ? `«${dest.name}» (#${toId})` : `الحساب #${toId}`} ثم حذف حسابه؟\n\n`
+        + 'الحركات والإيجارات تنتقل، والرصيد يُعاد احتسابه من الدفتر. لا رجعة.',
+      ))) return;
+
+      try {
+        await apiFetch(`/api/player/${player.id}?transferTo=${toId}`, { method: 'DELETE' });
+        setPlayers(prev => prev.filter(p => p.id !== player.id));
+        showToast(`حُذف ${player.name} ونُقل سجلّه المالي`, 'success');
+      } catch (e2: any) {
+        showToast(e2.message || 'فشل النقل والحذف', 'error');
+      }
     }
   }
 
