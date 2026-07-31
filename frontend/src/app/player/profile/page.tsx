@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ImageCropper } from '@/components/ImageCropper';
 import RolesInfoModal from '@/components/RolesInfoModal';
+import DynamicMafiaCard from '@/components/DynamicMafiaCard';
+import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 
 const ROLE_NAMES_AR: Record<string,string> = {
   GODFATHER:'شيخ المافيا',SILENCER:'قص المافيا',CHAMELEON:'حرباية المافيا',
@@ -189,6 +191,9 @@ function MatchHistorySection({ matchHistory }: { matchHistory: any[] }) {
 }
 
 export default function PlayerProfilePage(){
+  // ⚠️ في أعلى المكوّن حتماً: الصفحة تُرجِع مبكراً عند التحميل والخطأ،
+  //    فوضع خطّاف بعدهما يُغيّر عدد الخطّافات بين الرسمتين ويُسقط React.
+  const { cosmetics, rankTier: cosRank } = usePlayerCosmetics();
   const [profile,setProfile]=useState<any>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
@@ -388,6 +393,32 @@ export default function PlayerProfilePage(){
             <span className="text-xl">{rank.icon}</span>
             <span className="font-bold text-sm" style={{color:rank.color}}>{rank.name} {(progression?.rankTier||'INFORMANT')}</span>
           </motion.div>
+
+          {/* ═══ 🪙 بطاقتي بمظهري ═══
+              كانت الصفحة تعرض الرتبة ولا تعرض شيئاً ممّا اشتراه اللاعب:
+              لا إطار ولا شعار ولا لقب ولا تأثير اسم. فقيمة كل شراء تنهار
+              إلى «فقط حين أكون في النادي وأنظر إلى التلفاز». */}
+          {cosmetics && (cosmetics.frame || cosmetics.title || cosmetics.nameFx) && (
+            <motion.div initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} transition={{delay:0.15}}
+              className="flex flex-col items-center mb-5">
+              <DynamicMafiaCard
+                playerNumber={player.physicalId || 0}
+                playerName={player.name}
+                role={null}
+                isFlipped={false}
+                flippable={false}
+                isAlive
+                size="md"
+                avatarUrl={player.avatarUrl || null}
+                rankTier={cosRank || progression?.rankTier || 'INFORMANT'}
+                cosmetics={cosmetics as any}
+              />
+              <a href="/player/store"
+                className="mt-3 text-[11px] text-amber-400/80 hover:text-amber-300 transition">
+                غيّر مظهرك من الخزنة ←
+              </a>
+            </motion.div>
+          )}
 
           {/* Level + XP Bar */}
           <div className="flex items-center gap-3 max-w-xs mx-auto mb-2">

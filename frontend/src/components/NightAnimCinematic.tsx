@@ -11,6 +11,20 @@ import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
 // تأثيرات بصرية سينمائية لأحداث الليل
 // ══════════════════════════════════════════════════════
 
+type CardLook = { physicalId: number; cosmetics?: any; rankTier?: string | null };
+
+/**
+ * 🔎 مظهر لاعب بعينه — **بالمعرّف الفيزيائي لا بترتيب المصفوفة**.
+ *
+ * ⚠️ في مشهد القنص تُرسم بطاقتان: القنّاص وهدفه. تمرير مظهر واحد لكل
+ *    بطاقات المشهد يعطي القنّاص إطار ضحيّته — خطأ هويّة يراه كل الحضور.
+ */
+function lookOf(players: CardLook[] | undefined, physicalId: number | undefined) {
+  if (!players || !physicalId) return { cosmetics: null, rankTier: undefined };
+  const p = players.find(x => Number(x.physicalId) === Number(physicalId));
+  return { cosmetics: p?.cosmetics || null, rankTier: p?.rankTier || undefined };
+}
+
 interface NightAnimProps {
   data: {
     type: string;
@@ -18,6 +32,14 @@ interface NightAnimProps {
     targetName?: string;
     extra?: { targetRole?: string; [key: string]: any };
   };
+  /**
+   * 🎨 لاعبو الغرفة — للبحث عن المظهر المدفوع **بالمعرّف الفيزيائي**.
+   *
+   * ⚠️ كان المشهد يرسم عشر بطاقات بلا مظاهر ولا حتى رتبة، فيختفي كل إطار
+   *    وشعار ولقب وتأثير اسم في كل ليلة وكل صباح — على شاشة القاعة أمام
+   *    الجميع، وهو أكثر موضع يُرى فيه ما دفع اللاعب ثمنه.
+   */
+  players?: Array<{ physicalId: number; cosmetics?: any; rankTier?: string | null }>;
 }
 
 // ── مؤثر صوتي — يستخدم soundManager المركزي ──
@@ -393,7 +415,7 @@ function PolicewomanSound() {
 // ══════════════════════════════════════════
 // 🩸 Morning: Assassination Success
 // ══════════════════════════════════════════
-function MorningAssassinationAnim({ data }: NightAnimProps) {
+function MorningAssassinationAnim({ data, players }: NightAnimProps) {
   useEffect(() => { playGameSound('morning_assassination_success'); }, []);
   const targetRole = data.extra?.targetRole || null;
 
@@ -432,6 +454,8 @@ function MorningAssassinationAnim({ data }: NightAnimProps) {
             isAlive={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+            cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+            rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
           />
         </motion.div>
       ) : data.targetName && (
@@ -491,7 +515,7 @@ function MorningProtectionAnim() {
 // ══════════════════════════════════════════
 // 🎯 Morning: Snipe Results
 // ══════════════════════════════════════════
-function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean }) {
+function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success: boolean }) {
   useEffect(() => { playGameSound(success ? 'morning_snipe_mafia' : 'morning_snipe_citizen'); }, []);
   const targetRole = data.extra?.targetRole || null;
   const sniperPhysicalId = data.extra?.sniperPhysicalId as number | undefined;
@@ -537,6 +561,8 @@ function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean
               isAlive={true}
               size="fluid"
               className="w-40 h-[14rem] md:w-48 md:h-[16rem]"
+              cosmetics={lookOf(players, sniperPhysicalId).cosmetics}
+              rankTier={lookOf(players, sniperPhysicalId).rankTier}
             />
           </div>
           {/* كارد الهدف */}
@@ -551,6 +577,8 @@ function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean
               isAlive={true}
               size="fluid"
               className="w-40 h-[14rem] md:w-48 md:h-[16rem]"
+              cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+              rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
             />
           </div>
         </motion.div>
@@ -571,6 +599,8 @@ function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean
             isAlive={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+            cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+            rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
           />
         </motion.div>
       ) : (
@@ -590,7 +620,7 @@ function MorningSnipeAnim({ data, success }: NightAnimProps & { success: boolean
 // ══════════════════════════════════════════
 // 🤐 Morning: Silenced Player
 // ══════════════════════════════════════════
-function MorningSilencedAnim({ data }: NightAnimProps) {
+function MorningSilencedAnim({ data, players }: NightAnimProps) {
   useEffect(() => { playGameSound('morning_silenced'); }, []);
 
   return (
@@ -629,6 +659,8 @@ function MorningSilencedAnim({ data }: NightAnimProps) {
             isSilenced={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+            cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+            rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
           />
         </motion.div>
       )}
@@ -712,7 +744,7 @@ function WitchAnim() {
 // ══════════════════════════════════════════
 // 🧙‍♀️ Morning: Ability Disabled
 // ══════════════════════════════════════════
-function MorningAbilityDisabledAnim({ data }: NightAnimProps) {
+function MorningAbilityDisabledAnim({ data, players }: NightAnimProps) {
   useEffect(() => { playGameSound('morning_ability_disabled'); }, []);
   const disabledRole = data.extra?.disabledRole as Role | null;
   const roleNameAr = disabledRole ? (ROLE_NAMES[disabledRole] || disabledRole) : 'مجهول';
@@ -785,7 +817,7 @@ function MorningAbilityDisabledAnim({ data }: NightAnimProps) {
 // 🌙 Main NightAnimCinematic — Entry Point
 // يختار الأنيميشن المناسبة حسب نوع الحدث
 // ══════════════════════════════════════════════════════
-export default function NightAnimCinematic({ data }: NightAnimProps) {
+export default function NightAnimCinematic({ data, players }: NightAnimProps) {
   switch (data.type) {
     // أحداث الطابور الليلي (Queue)
     case 'ASSASSINATION_ATTEMPT':
@@ -807,17 +839,17 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
 
     // أحداث ملخص الصباح (Morning Recap)
     case 'ASSASSINATION':
-      return <MorningAssassinationAnim data={data} />;
+      return <MorningAssassinationAnim data={data} players={players} />;
     case 'ASSASSINATION_BLOCKED':
       return <MorningProtectionAnim />;
     case 'SILENCED':
-      return <MorningSilencedAnim data={data} />;
+      return <MorningSilencedAnim data={data} players={players} />;
     case 'SNIPE_MAFIA':
-      return <MorningSnipeAnim data={data} success={true} />;
+      return <MorningSnipeAnim data={data} success={true} players={players} />;
     case 'SNIPE_CITIZEN':
-      return <MorningSnipeAnim data={data} success={false} />;
+      return <MorningSnipeAnim data={data} success={false} players={players} />;
     case 'ABILITY_DISABLED':
-      return <MorningAbilityDisabledAnim data={data} />;
+      return <MorningAbilityDisabledAnim data={data} players={players} />;
 
     // 🔪 اغتيال السفّاح
     case 'ASSASSIN_KILL':
@@ -856,6 +888,8 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+                rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
             </motion.div>
           )}
@@ -910,6 +944,8 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+                rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
             </motion.div>
           )}
@@ -977,6 +1013,8 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
                 isAlive={false}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+                rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
             </motion.div>
           )}
@@ -1027,6 +1065,8 @@ export default function NightAnimCinematic({ data }: NightAnimProps) {
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
+                rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
             </motion.div>
           )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSocket } from '@/lib/socket';
+import { getSocket, reconnectSocketAuth } from '@/lib/socket';
 
 // ══════════════════════════════════════════════════════
 // 🪙 مظهر اللاعب داخل تطبيقه
@@ -22,7 +22,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export interface PlayerCosmetics {
   frame?: { config?: any; emblemId?: string | null } | null;
-  title?: { config?: { text?: string; style?: string } } | null;
+  title?: { config?: { text?: string; style?: string; plaque?: any } } | null;
   nameFx?: { config?: { nameEffect?: any } } | null;
   entrance?: any;
   elimination?: any;
@@ -51,6 +51,17 @@ export function usePlayerCosmetics() {
 
     // بثّ لحظي: تجهيز عنصر من المتجر يظهر على البطاقة بلا إعادة تحميل
     const socket = getSocket();
+
+    // ⚠️ البثّ يصل على غرفة `player:{id}`، والانضمام إليها يقع **مرّة واحدة
+    //    عند الاتصال** من رمز المصافحة. فإن كان السوكِت قد اتّصل قبل أن
+    //    يُكتب الرمز (وهو ترتيب شائع: السوكِت وحدة مفردة تُنشأ عند أول
+    //    استيراد)، فاللاعب ليس في الغرفة ولن يدخلها أبداً — وتوسيع قراءة
+    //    الرمز في الجلب لا يفيده إطلاقاً. نُعيد المصافحة برمزٍ حاضر.
+    try {
+      const handshakeToken = (socket as any)?.auth?.playerToken;
+      if (!handshakeToken) reconnectSocketAuth();
+    } catch { /* البثّ تحسين لا شرط — الجلب الأوّلي يكفي */ }
+
     const onUpdate = (p: { cosmetics?: PlayerCosmetics }) => {
       if (alive) setCosmetics(p?.cosmetics || null);
     };

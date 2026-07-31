@@ -10,6 +10,7 @@ import type { Socket } from 'socket.io-client';
 import DisplayDayView from './DisplayDayView';
 import MafiaCard from '@/components/MafiaCard';
 import NightAnimCinematic from '@/components/NightAnimCinematic';
+import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
 import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio } from '@/lib/soundManager';
@@ -1552,7 +1553,7 @@ function DisplayPageContent() {
             <AnimatePresence>
               {animation && (
                 <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="noir-card p-10 mt-12 max-w-lg mx-auto border-[#8A0303]/40">
-                  <NightAnimCinematic data={animation} />
+                  <NightAnimCinematic data={animation} players={players} />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1580,7 +1581,7 @@ function DisplayPageContent() {
                   transition={{ duration: 0.6 }}
                   className="noir-card p-10 mt-12 max-w-xl mx-auto border-[#C5A059]/30"
                 >
-                  <NightAnimCinematic data={animation} />
+                  <NightAnimCinematic data={animation} players={players} />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1749,6 +1750,7 @@ function DisplayPageContent() {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       transition={{ delay: 1.2 + (i * 0.15), duration: 0.5, type: 'spring', damping: 12 }}
                       style={p.isAlive ? {} : { filter: 'grayscale(100%) brightness(0.5)', opacity: 0.6 }}
+                    className="relative"
                     >
                       <MafiaCard
                         playerNumber={p.physicalId}
@@ -1763,6 +1765,9 @@ function DisplayPageContent() {
                         rankTier={p.rankTier}
                         cosmetics={(p as any).cosmetics}
                       />
+                    {!p.isAlive && (p as any)?.cosmetics?.elimination?.config?.showInRecap && (
+                      <EliminationFx config={(p as any).cosmetics.elimination.config} />
+                    )}
                     </motion.div>
                   ))}
                 </div>
@@ -1834,6 +1839,7 @@ function DisplayPageContent() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ delay: 0.8 + (i * 0.1), duration: 0.4, type: 'spring', damping: 12 }}
                     style={p.survivedToEnd ? {} : { filter: 'grayscale(100%) brightness(0.5)', opacity: 0.6 }}
+                    className="relative"
                   >
                     <MafiaCard
                       playerNumber={p.physicalId}
@@ -1845,6 +1851,9 @@ function DisplayPageContent() {
                       size="fluid"
                       className="w-32 h-[11rem] md:w-44 md:h-[15rem] lg:w-52 lg:h-[18rem]"
                     />
+                    {!p.survivedToEnd && (p as any)?.cosmetics?.elimination?.config?.showInRecap && (
+                      <EliminationFx config={(p as any).cosmetics.elimination.config} />
+                    )}
                   </motion.div>
                 ))}
               </div>
