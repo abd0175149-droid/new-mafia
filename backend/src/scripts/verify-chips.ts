@@ -1120,6 +1120,25 @@ async function main() {
          AND COALESCE(p.chips_balance,0) <> COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
     `);
 
+
+    // 🧹 عكسٌ يشير إلى حركة غير موجودة لا معنى له — بقايا تشغيلاتٍ حُذف
+    //    أصلُها قبل أن يتعلّم السكربت التنظيف. على حسابات الاختبار حصراً؛
+    //    على لاعب حقيقي هذا خلل يُبلَّغ عنه ولا يُمحى بصمت.
+    await ledgerAdminExec(db, sql`
+      DELETE FROM chips_ledger l
+       USING players p
+       WHERE p.id = l.player_id
+         AND COALESCE(p.is_test_account,false) = true
+         AND l.reverses_ledger_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM chips_ledger r WHERE r.id = l.reverses_ledger_id)
+    `);
+    await db.execute(sql`
+      UPDATE players p
+         SET chips_balance = COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
+       WHERE COALESCE(p.is_test_account,false) = true
+         AND COALESCE(p.chips_balance,0) <> COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
+    `);
+
     const drift = rowsOf(await db.execute(sql`
       SELECT p.id FROM players p
        WHERE COALESCE(p.chips_balance,0) <> COALESCE((SELECT SUM(l.amount) FROM chips_ledger l WHERE l.player_id = p.id), 0)
