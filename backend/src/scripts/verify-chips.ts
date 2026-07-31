@@ -1487,6 +1487,12 @@ async function main() {
 
       check((await hasUsedTrial(pid)) === false, 'قبل التجربة: لم تُستعمل');
 
+      // لقطة قبلية: الحساب يحمل سطور شراء من أقسام سابقة،
+      // فالمقارنة بالصفر تفحص شيئاً آخر. المقصود: **التجربة لا تزيد سطراً**.
+      const ledBefore = Number(rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_ledger WHERE player_id = ${pid}
+      `))[0]?.c ?? 0);
+
       const t1 = await claimFreeTrial({ playerId: pid, itemId: iid });
       check(!!t1.ok && !!t1.expiresAt, 'التجربة الأولى تنجح', JSON.stringify(t1).slice(0, 90));
 
@@ -1500,11 +1506,12 @@ async function main() {
       check(Number(row?.price_paid_chips) === 0, 'السعر المسجَّل صفر — فالاسترجاع لا يُعيد مالاً لم يُدفع');
 
       // ١٣.٤ 🔴 لا سطر دفتر: لا مال في التجربة، وسطر بصفر يُلوّث الإيراد
-      const led = rowsOf(await db.execute(sql`
-        SELECT COUNT(*)::int AS c FROM chips_ledger
-         WHERE player_id = ${pid} AND reason IN ('rent_item','renew_item')
-      `));
-      check(Number(led[0]?.c ?? 0) === 0, '🔴 التجربة لا تكتب سطر دفتر (لا مال فيها)');
+      const ledAfter = Number(rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_ledger WHERE player_id = ${pid}
+      `))[0]?.c ?? 0);
+      check(ledAfter === ledBefore,
+        '🔴 التجربة لا تزيد سطر دفتر واحداً (لا مال فيها)',
+        `قبل=${ledBefore} بعد=${ledAfter}`);
 
       check((await hasUsedTrial(pid)) === true, 'بعد التجربة: استُعملت');
 
