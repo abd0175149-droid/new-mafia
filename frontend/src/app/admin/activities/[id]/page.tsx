@@ -1093,7 +1093,7 @@ export default function ActivityDetailPage() {
           apiFetch(`/api/bookings?activityId=${activityId}`),
           apiFetch(`/api/costs?activityId=${activityId}`),
           apiFetch('/api/locations'),
-          apiFetch('/api/staff').catch(() => []),
+          apiFetch('/api/staff/names').catch(() => []),   // أسماء العرض وحدها — متاحة لكل موظّف
           apiFetch(`/api/activities/${activityId}/games-per-player`).catch(() => ({ players: [] })),
         ]);
         setActivity(act);

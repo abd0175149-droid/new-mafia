@@ -55,6 +55,7 @@ export default function ActivitiesPage() {
   const [costs, setCosts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [staffError, setStaffError] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -94,7 +95,10 @@ export default function ActivitiesPage() {
       setLocations(locs);
 
       // Staff (admin only)
-      try { setStaffList(await apiFetch('/api/staff')); } catch {}
+      // أسماء العرض وحدها — متاحة لأي موظّف. المسار الغنيّ /api/staff
+      // محصور بـadmin/accountant، فكان غيرهم يرى منسدلة «المستلم» فارغة بلا سبب ظاهر.
+      try { setStaffList(await apiFetch('/api/staff/names')); }
+      catch (e) { console.warn('المستلمون: تعذّر جلب الأسماء', e); setStaffError(true); }
 
       // Auto-status update
       for (const act of acts) {

@@ -56,6 +56,7 @@ export default function FinancePage() {
   const [activities, setActivities] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [staffError, setStaffError] = useState(false);
   const [expenseCategories, setExpenseCategories] = useState<any[]>([]);
   const [players, setPlayers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,7 +119,10 @@ export default function FinancePage() {
       setActivities(acts);
       setLocations(locs);
       setExpenseCategories(cats || []);
-      try { setStaffList(await apiFetch('/api/staff')); } catch {}
+      // أسماء العرض وحدها — متاحة لأي موظّف. المسار الغنيّ /api/staff
+      // محصور بـadmin/accountant، فكان غيرهم يرى منسدلة «المستلم» فارغة بلا سبب ظاهر.
+      try { setStaffList(await apiFetch('/api/staff/names')); }
+      catch (e) { console.warn('المستلمون: تعذّر جلب الأسماء', e); setStaffError(true); }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }, []);
@@ -456,6 +460,17 @@ export default function FinancePage() {
                                         {row.receivedBy && !receiverOptions.includes(row.receivedBy) && <option value={row.receivedBy}>{row.receivedBy}</option>}
                                         {receiverOptions.map(name => <option key={name} value={name}>{name}</option>)}
                                       </select>
+                                      {/* منسدلة فارغة بلا سبب تُقرأ عطلاً في الشاشة؛ فليُقل السبب. */}
+                                      {staffError && (
+                                        <div className="text-[9px] text-rose-400 mt-0.5 max-w-[130px] mx-auto leading-tight">
+                                          تعذّر جلب الأسماء — حدّث الصفحة
+                                        </div>
+                                      )}
+                                      {!staffError && receiverOptions.length === 0 && (
+                                        <div className="text-[9px] text-amber-400/80 mt-0.5 max-w-[130px] mx-auto leading-tight">
+                                          لا موظّفين فعّالين
+                                        </div>
+                                      )}
                                       {!row.receivedBy && row.bookingReceivers.length > 0 && (
                                         <div className="text-[9px] text-gray-500 mt-0.5 max-w-[130px] truncate mx-auto" title={row.bookingReceivers.join('، ')}>حسب الحجوزات: {row.bookingReceivers.join('، ')}</div>
                                       )}

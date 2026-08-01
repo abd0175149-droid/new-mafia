@@ -12,6 +12,33 @@ import { authenticate, adminOnly, authorize } from '../middleware/auth.js';
 const router = Router();
 
 // GET /api/staff (admin only)
+// ══════════════════════════════════════════════════════
+// GET /api/staff/names — أسماء العرض وحدها
+// ══════════════════════════════════════════════════════
+// أربع شاشات إدارية تحتاج قائمة أسماء لتملأ منسدلة «المستلم»، وكانت
+// كلّها تنادي `GET /api/staff` — وهو محصور بـadmin/accountant ويعيد
+// اسم الدخول والهاتف والصلاحيات وآخر دخول. فمن كان دوره مديراً رأى
+// الجدول كاملاً ومنسدلةً فارغة، بلا رسالة تشرح (النداء كان داخل
+// `catch {}` صامت).
+//
+// العلاج ليس توسيع المسار الغنيّ — بل مسار ضيّق: معرّف واسم عرض لكل
+// موظّف فعّال، لأي موظّف مصادَق. أسماء الزملاء ليست سرّاً بين الزملاء،
+// أمّا هواتفهم وصلاحياتهم فتبقى حيث كانت.
+//
+// ⚠️ يجب أن يسبق `/:id` — وإلا التقطه كمعرّف.
+router.get('/names', authenticate, async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  const rows = await db
+    .select({ id: staff.id, displayName: staff.displayName })
+    .from(staff)
+    .where(eq(staff.isActive, true))
+    .orderBy(staff.displayName);
+
+  res.json(rows.filter((r) => !!r.displayName));
+});
+
 router.get('/', authenticate, authorize('admin', 'accountant'), async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
