@@ -138,6 +138,20 @@ router.post('/admin/champion-frame/sync', async (req: Request, res: Response) =>
   }
 });
 
+// ── 📉 قمع المتجر ──
+router.get('/admin/store-funnel', async (req: Request, res: Response) => {
+  try {
+    const { getStoreFunnel } = await import('../services/chips-store.service.js');
+    const funnel = await getStoreFunnel({
+      from: req.query.from ? String(req.query.from) : undefined,
+      to: req.query.to ? String(req.query.to) : undefined,
+    });
+    res.json({ success: true, funnel });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── 📈 تقرير الاقتصاد ──
 router.get('/admin/report', async (req: Request, res: Response) => {
   try {

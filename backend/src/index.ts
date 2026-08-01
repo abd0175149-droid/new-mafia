@@ -1458,6 +1458,37 @@ async function main() {
         console.warn('⚠️ Chips ledger durability migration:', e?.message);
       }
 
+      // ── قمع المتجر: جدول أحداث خفيف ──
+      //
+      // ⚠️ الظهور مُقيَّد **يومياً لكل (لاعب، عنصر)**: بلا هذا القيد يكتب
+      //    ٣٠ لاعباً × ٢٠ عنصراً صفوفاً مع كل تمريرة — آلاف يومياً بلا أي
+      //    معنى إضافي، وجدول تحليلات يتضخّم حتى يُبطئ ما جاء ليقيسه.
+      try {
+        await db.execute(sql`
+          CREATE TABLE IF NOT EXISTS chips_store_events (
+            id SERIAL PRIMARY KEY,
+            player_id INTEGER NOT NULL,
+            event VARCHAR(20) NOT NULL,
+            item_id INTEGER,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+          )
+        `);
+        await db.execute(sql`
+          CREATE UNIQUE INDEX IF NOT EXISTS uniq_store_impression_day
+            ON chips_store_events (player_id, item_id, (created_at::date))
+            WHERE event = 'impression'
+        `);
+        await db.execute(sql`
+          CREATE INDEX IF NOT EXISTS idx_store_events_at ON chips_store_events (created_at DESC)
+        `);
+        await db.execute(sql`
+          CREATE INDEX IF NOT EXISTS idx_store_events_event ON chips_store_events (event, created_at DESC)
+        `);
+        console.log('📉 Chips store funnel table ensured');
+      } catch (e: any) {
+        console.warn('⚠️ Chips store funnel migration:', e?.message);
+      }
+
       // ── التجربة المجانية: مرّة واحدة للأبد، بقيدٍ لا بشرط ──
       //
       // ⚠️ فهرس **جزئي فريد على اللاعب وحده** حين يكون المصدر تجربة.

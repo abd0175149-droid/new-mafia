@@ -23,6 +23,7 @@ import { getSocket } from '@/lib/socket';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import StoreItemVisual from '@/components/StoreItemVisual';
 import StorePreviewButton from '@/components/StorePreviewButton';
+import { trackStore, installFunnelFlush } from '@/lib/store-funnel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -134,7 +135,12 @@ export default function StorePage() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // 📉 القمع يبدأ من الفتح — وهي اللحظة التي يُقاس عليها كل ما بعدها
+    trackStore('open');
+    return installFunnelFlush();
+  }, []);
 
   // الرصيد قد يتغيّر ونحن هنا (قطرة فوز، شحن من الإدارة)
   useEffect(() => {
@@ -212,7 +218,12 @@ export default function StorePage() {
   };
 
   const doRent = async (item: StoreItem) => {
-    if (balance < item.priceChips) { setShortfall(item); return; }
+    if (balance < item.priceChips) {
+      // اصطدامٌ بالسعر لا انصرافٌ عن الرغبة — ارتفاعه يعني التسعير أو معدّل الكسب
+      trackStore('shortfall', item.id);
+      setShortfall(item);
+      return;
+    }
     setBusy(item.id);
     try {
       const d = await api('/api/chips/store/rent', {
@@ -267,6 +278,10 @@ export default function StorePage() {
 
   // ── بطاقة عنصر ──
   const ItemCard = ({ item }: { item: StoreItem }) => {
+    // 📉 ظهور العنصر — في أثر لا في جسم الرسم: الرسم قد يُستدعى
+    //    مرّات ويُطرح، فالقياس من داخله يسجّل ما لم يُعرَض فعلاً.
+    useEffect(() => { trackStore('impression', item.id); }, [item.id]);
+
     const r = RARITY[item.rarity] || RARITY.common;
     const isEquipped = equippedIdFor(item.kind) === item.id;
     const left = daysLeft(item.expiresAt);
@@ -323,7 +338,11 @@ export default function StorePage() {
 
         <div className="flex gap-2 mt-3">
           {canPreview && (
-            <button onClick={() => setTryOn(tryOn?.id === item.id ? null : item)}
+            <button onClick={() => {
+              const next = tryOn?.id === item.id ? null : item;
+              if (next) trackStore('try_on', item.id);
+              setTryOn(next);
+            }}
               className="px-3 py-2 rounded-xl text-[11px] font-bold bg-white/5 border border-white/10 text-gray-300">
               {tryOn?.id === item.id ? '↩︎ إلغاء' : '👀 جرّب'}
             </button>

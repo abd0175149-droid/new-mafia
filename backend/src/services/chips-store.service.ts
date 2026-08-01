@@ -1135,6 +1135,151 @@ export async function syncChampionFrame(seasonId?: number | null): Promise<Champ
   }
 }
 
+
+// ══════════════════════════════════════════════════════
+// 📉 قمع المتجر — قياس الرحلة من الفتح إلى الشراء
+//
+// ⚠️ ما كان: لا قياس إطلاقاً. أُعيد بناء المتجر بالكامل ولا أحد يعرف
+//    أين يتسرّب اللاعبون: هل يفتحونه ولا يرون شيئاً؟ يجرّبون ولا يشترون؟
+//    يصطدمون بنقص الرصيد فينسحبون؟ كل قرار تسويقي لاحق كان سيُبنى على حدس.
+//
+// 📐 مبدآن حاكمان:
+//   1) **القياس لا يُعطّل البيع أبداً.** كل كتابة هنا لا ترمي ولا تُنتظَر،
+//      وفشلها لا يظهر للاعب. متجرٌ لا يعمل لأن جدول تحليلات امتلأ = عبث.
+//   2) **الأحداث المالية تُسجَّل خادمياً لا من العميل.** «اشترى» يُكتب من
+//      مسار الشراء نفسه؛ لو صدّقنا العميل لصار القمع قابلاً للتزوير،
+//      ولأصبحت أرقام التحويل أسوأ من غيابها.
+// ══════════════════════════════════════════════════════
+
+/** الأحداث المسموحة — قائمة مغلقة كي لا يُغرِق عميلٌ الجدول بأسماء حرّة */
+export const STORE_EVENTS = ['open', 'impression', 'try_on', 'shortfall', 'rent', 'trial'] as const;
+export type StoreEvent = (typeof STORE_EVENTS)[number];
+
+/** أحداث لا تُقبل من العميل إطلاقاً — تُكتب من مسارها الخادمي وحده */
+const SERVER_ONLY = new Set<string>(['rent', 'trial']);
+
+/**
+ * تسجيل حدث واحد. **لا يرمي أبداً** — يُستدعى من مسارات البيع.
+ * التكرار مقصود أنه مسموح للأحداث السلوكية: فتحتان في اليوم حدثان.
+ * الظهور وحده مُقيَّد بفهرس يومي (انظر الترحيل) وإلا انفجر الجدول:
+ * ٣٠ لاعباً × ٢٠ عنصراً × كل تمريرة = آلاف الصفوف يومياً بلا معنى إضافي.
+ */
+export async function recordStoreEvent(
+  playerId: number,
+  event: StoreEvent,
+  itemId?: number | null,
+): Promise<void> {
+  const db = getDB();
+  if (!db || !playerId) return;
+  if (!(STORE_EVENTS as readonly string[]).includes(event)) return;
+  try {
+    await db.execute(sql`
+      INSERT INTO chips_store_events (player_id, event, item_id)
+      VALUES (${Number(playerId)}, ${event}, ${itemId ? Number(itemId) : null})
+      ON CONFLICT DO NOTHING
+    `);
+  } catch { /* القياس لا يُعطّل البيع */ }
+}
+
+/** دفعة من العميل — يُصفّى منها ما لا يجوز أن يُصدَّق */
+export async function recordStoreEventsFromClient(
+  playerId: number,
+  raw: any,
+): Promise<{ accepted: number; rejected: number }> {
+  const list = Array.isArray(raw) ? raw.slice(0, 60) : [];
+  let accepted = 0, rejected = 0;
+  for (const e of list) {
+    const event = String(e?.event || '');
+    if (!(STORE_EVENTS as readonly string[]).includes(event) || SERVER_ONLY.has(event)) {
+      rejected++;
+      continue;
+    }
+    const itemId = Number(e?.itemId);
+    await recordStoreEvent(playerId, event as StoreEvent, Number.isFinite(itemId) && itemId > 0 ? itemId : null);
+    accepted++;
+  }
+  return { accepted, rejected };
+}
+
+/**
+ * القمع خلال مدّة. حسابات الاختبار مستثناة — كما في تقرير الاقتصاد:
+ * تصفّحُ مُختبِرٍ ليس نيّةَ شراء، وإدخاله يجعل نسبة التحويل كذباً مُطمئِناً.
+ */
+export async function getStoreFunnel(opts: { from?: string; to?: string } = {}) {
+  const db = getDB();
+  if (!db) return null;
+  const from = safeDateLocal(opts.from, new Date(Date.now() - 30 * 86400000));
+  const to = safeDateLocal(opts.to, new Date());
+
+  const [tot] = rowsOf(await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE e.event = 'open')::int        AS opens,
+      COUNT(DISTINCT e.player_id) FILTER (WHERE e.event = 'open')::int AS visitors,
+      COUNT(*) FILTER (WHERE e.event = 'impression')::int  AS impressions,
+      COUNT(*) FILTER (WHERE e.event = 'try_on')::int      AS tryOns,
+      COUNT(*) FILTER (WHERE e.event = 'shortfall')::int   AS shortfalls,
+      COUNT(*) FILTER (WHERE e.event = 'rent')::int        AS rents,
+      COUNT(*) FILTER (WHERE e.event = 'trial')::int       AS trials,
+      COUNT(DISTINCT e.player_id) FILTER (WHERE e.event IN ('rent','trial'))::int AS buyers
+      FROM chips_store_events e
+      JOIN players p ON p.id = e.player_id
+     WHERE e.created_at >= ${from} AND e.created_at <= ${to}
+       AND NOT COALESCE(p.is_test_account, false)
+  `));
+
+  // أين يتسرّبون: العنصر الذي يُجرَّب كثيراً ويُشترى قليلاً مشكلة سعر أو قيمة
+  const byItem = rowsOf(await db.execute(sql`
+    SELECT i.id, i.name_ar, i.kind, i.price_chips,
+           COUNT(*) FILTER (WHERE e.event = 'impression')::int AS impressions,
+           COUNT(*) FILTER (WHERE e.event = 'try_on')::int     AS try_ons,
+           COUNT(*) FILTER (WHERE e.event = 'shortfall')::int  AS shortfalls,
+           COUNT(*) FILTER (WHERE e.event IN ('rent','trial'))::int AS conversions
+      FROM chips_store_events e
+      JOIN players p ON p.id = e.player_id
+      JOIN chips_items i ON i.id = e.item_id
+     WHERE e.created_at >= ${from} AND e.created_at <= ${to}
+       AND NOT COALESCE(p.is_test_account, false)
+     GROUP BY i.id, i.name_ar, i.kind, i.price_chips
+     ORDER BY 5 DESC, 4 DESC
+     LIMIT 25
+  `));
+
+  const n = (v: any) => Number(v || 0);
+  const opens = n(tot?.opens), tryOns = n(tot?.tryons ?? tot?.tryOns);
+  const shortfalls = n(tot?.shortfalls), rents = n(tot?.rents), trials = n(tot?.trials);
+  const conversions = rents + trials;
+
+  return {
+    from: from.toISOString(), to: to.toISOString(),
+    totals: {
+      opens, visitors: n(tot?.visitors), impressions: n(tot?.impressions),
+      tryOns, shortfalls, rents, trials, conversions, buyers: n(tot?.buyers),
+    },
+    rates: {
+      // نسب على أساس **الفتحات** لا الظهور: الظهور مُقيَّد يومياً فنسبته مضلِّلة
+      tryOnRate: opens ? Math.round((tryOns / opens) * 100) : 0,
+      conversionRate: opens ? Math.round((conversions / opens) * 100) : 0,
+      // من جرّب ثم اشترى — أصدق مقياس لجودة العنصر نفسه
+      tryToBuyRate: tryOns ? Math.round((conversions / tryOns) * 100) : 0,
+      // من اصطدم بنقص الرصيد: ارتفاعه يعني التسعير أو معدّل الكسب لا الرغبة
+      shortfallRate: opens ? Math.round((shortfalls / opens) * 100) : 0,
+    },
+    byItem: byItem.map((r: any) => ({
+      itemId: n(r.id), nameAr: r.name_ar, kind: r.kind, priceChips: n(r.price_chips),
+      impressions: n(r.impressions), tryOns: n(r.try_ons),
+      shortfalls: n(r.shortfalls), conversions: n(r.conversions),
+      tryToBuy: n(r.try_ons) ? Math.round((n(r.conversions) / n(r.try_ons)) * 100) : null,
+    })),
+  };
+}
+
+/** تاريخ من مدخل خارجي — مدخل فاسد يعود للافتراضي بدل RangeError */
+function safeDateLocal(v: string | undefined, fallback: Date): Date {
+  if (!v) return fallback;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? fallback : d;
+}
+
 // ── مساعد: الخانات المدعومة حالياً ──
 export function equipSlots() { return EQUIP_SLOTS.filter(k => !!SLOT_COLUMN[k]); }
 

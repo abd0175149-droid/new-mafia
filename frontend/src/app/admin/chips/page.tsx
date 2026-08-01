@@ -86,7 +86,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default function ChipsAdminPage() {
-  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards' | 'inventory' | 'report'>('topup');
+  const [tab, setTab] = useState<'topup' | 'ledger' | 'catalog' | 'rewards' | 'inventory' | 'report' | 'funnel'>('topup');
   const [stats, setStats] = useState<any>(null);
   const [packs, setPacks] = useState<Pack[]>([]);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -134,7 +134,7 @@ export default function ChipsAdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 mb-5 border-b border-gray-700/40">
-        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['inventory', '📊 المخزون'], ['ledger', '📒 الدفتر'], ['report', '📈 التقرير']] as const).map(([k, l]) => (
+        {([['topup', '💵 الشحن والأرصدة'], ['rewards', '🎁 المكافآت'], ['catalog', '🏦 كتالوج الخزنة'], ['inventory', '📊 المخزون'], ['ledger', '📒 الدفتر'], ['report', '📈 التقرير'], ['funnel', '📉 القمع']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-bold transition-all border-b-2 -mb-px ${
               tab === k ? 'text-amber-400 border-amber-400' : 'text-gray-500 border-transparent hover:text-gray-300'
@@ -150,6 +150,7 @@ export default function ChipsAdminPage() {
       {tab === 'inventory' && <InventoryView toast={showToast} />}
       {tab === 'ledger' && <LedgerView toast={showToast} />}
       {tab === 'report' && <ReportView toast={showToast} />}
+      {tab === 'funnel' && <FunnelView toast={showToast} />}
 
       {/* Toast */}
       {toast && (
@@ -1878,6 +1879,163 @@ function FlowRows({ rows, total }: { rows: [string, number, string][]; total: nu
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📉 قمع المتجر — أين يتسرّب اللاعبون
+// ══════════════════════════════════════════════════════
+function FunnelView({ toast }: { toast: (k: 'ok' | 'err', t: string) => void }) {
+  const [f, setF] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState({ from: '', to: '' });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (range.from) qs.set('from', range.from);
+      if (range.to) qs.set('to', `${range.to}T23:59:59`);
+      const d = await apiGet(`/api/chips/admin/store-funnel?${qs.toString()}`);
+      setF(d.funnel);
+    } catch (e: any) { toast('err', e.message); setF(null); }
+    finally { setLoading(false); }
+  }, [range.from, range.to]); // eslint-disable-line
+
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  if (loading) return <div className="py-16 text-center text-gray-600 text-sm">جارٍ حساب القمع…</div>;
+  if (!f) return <div className="py-16 text-center text-gray-600 text-sm">تعذّر تحميل القمع</div>;
+
+  const t = f.totals, r = f.rates;
+  const steps: Array<[string, number, string]> = [
+    ['فتح المتجر', t.opens, 'sky'],
+    ['شاهد عنصراً', t.impressions, 'violet'],
+    ['جرّبه على بطاقته', t.tryOns, 'amber'],
+    ['اشترى أو جرّب مجاناً', t.conversions, 'emerald'],
+  ];
+  const top = Math.max(1, t.opens);
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">من تاريخ</label>
+            <input type="date" value={range.from} onChange={e => setRange({ ...range, from: e.target.value })}
+              className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+          </div>
+          <div>
+            <label className="block text-[11px] text-gray-500 mb-1">إلى تاريخ</label>
+            <input type="date" value={range.to} onChange={e => setRange({ ...range, to: e.target.value })}
+              className="w-full bg-gray-900/70 border border-gray-700/40 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+          </div>
+          <div className="flex items-end">
+            <button onClick={load} className="w-full py-2 rounded-lg text-sm font-bold bg-amber-600 hover:bg-amber-500 text-black transition-all">تطبيق</button>
+          </div>
+        </div>
+        <p className="text-[11px] text-gray-600 mt-2">
+          المدى الافتراضي آخر ٣٠ يوماً · حسابات الاختبار مستثناة — تصفّح مُختبِر ليس نيّة شراء.
+        </p>
+      </div>
+
+      {t.opens === 0 ? (
+        <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-6 text-center">
+          <p className="text-sm text-gray-400">لا بيانات في هذا المدى بعد.</p>
+          <p className="text-[11px] text-gray-600 mt-1.5">
+            القياس يبدأ من أول فتحة متجر بعد النشر — لا يُحتسب ما مضى.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+            <h3 className="text-sm font-bold text-gray-300 mb-3">📉 الرحلة</h3>
+            <div className="space-y-3">
+              {steps.map(([label, val, tone], i) => {
+                const pct = Math.round((val / top) * 100);
+                const prev = i > 0 ? steps[i - 1][1] : val;
+                const drop = prev > 0 ? Math.round(((prev - val) / prev) * 100) : 0;
+                const bg: Record<string, string> = {
+                  sky: 'bg-sky-500', violet: 'bg-violet-500', amber: 'bg-amber-500', emerald: 'bg-emerald-500',
+                };
+                return (
+                  <div key={label}>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-gray-300">{label}</span>
+                      <span className="flex items-center gap-2">
+                        {i > 0 && drop > 0 && <span className="text-[10px] text-rose-400/80">−{drop}%</span>}
+                        <span className="tabular-nums text-gray-200 font-bold">{val.toLocaleString()}</span>
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-900/70 rounded-full overflow-hidden">
+                      <div className={`h-full ${bg[tone]} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {([
+              ['زوّار', t.visitors, 'لاعباً فتح المتجر', 'sky'],
+              ['مشترون', t.buyers, 'لاعباً أتمّ عملية', 'emerald'],
+              ['من جرّب ثم اشترى', `${r.tryToBuyRate}%`, 'أصدق مقياس لجودة العنصر', 'amber'],
+              ['اصطدم بنقص الرصيد', `${r.shortfallRate}%`, 'ارتفاعه = تسعير لا رغبة', 'rose'],
+            ] as const).map(([label, val, hint, tone]) => (
+              <div key={label} className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-3.5">
+                <div className="text-[11px] text-gray-500">{label}</div>
+                <div className={`text-2xl font-black tabular-nums mt-0.5 ${
+                  tone === 'emerald' ? 'text-emerald-400' : tone === 'amber' ? 'text-amber-400'
+                  : tone === 'rose' ? 'text-rose-400' : 'text-sky-400'
+                }`}>{val}</div>
+                <div className="text-[10px] text-gray-600 mt-1 leading-relaxed">{hint}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-gray-800/40 border border-gray-700/30 rounded-2xl p-4">
+            <h3 className="text-sm font-bold text-gray-300 mb-1">🔎 حسب العنصر</h3>
+            <p className="text-[11px] text-gray-600 mb-3">
+              عنصر يُجرَّب كثيراً ويُشترى قليلاً مشكلة سعر أو قيمة، لا مشكلة عرض.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] text-gray-500 border-b border-gray-700/40">
+                    <th className="text-right py-2 px-2 font-medium">العنصر</th>
+                    <th className="text-left py-2 px-2 font-medium">السعر</th>
+                    <th className="text-left py-2 px-2 font-medium">ظهور</th>
+                    <th className="text-left py-2 px-2 font-medium">تجربة</th>
+                    <th className="text-left py-2 px-2 font-medium">نقص رصيد</th>
+                    <th className="text-left py-2 px-2 font-medium">تحويل</th>
+                    <th className="text-left py-2 px-2 font-medium">جرّب→اشترى</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {f.byItem.length === 0 && (
+                    <tr><td colSpan={7} className="py-8 text-center text-gray-600 text-xs">لا أحداث على عناصر بعد</td></tr>
+                  )}
+                  {f.byItem.map((it: any) => (
+                    <tr key={it.itemId} className="border-b border-gray-800/50">
+                      <td className="py-2 px-2 text-gray-200 text-xs">{it.nameAr}</td>
+                      <td className="py-2 px-2 text-left tabular-nums text-gray-400">{it.priceChips}</td>
+                      <td className="py-2 px-2 text-left tabular-nums text-gray-400">{it.impressions}</td>
+                      <td className="py-2 px-2 text-left tabular-nums text-amber-400">{it.tryOns}</td>
+                      <td className="py-2 px-2 text-left tabular-nums text-rose-400">{it.shortfalls || '—'}</td>
+                      <td className="py-2 px-2 text-left tabular-nums text-emerald-400">{it.conversions}</td>
+                      <td className="py-2 px-2 text-left tabular-nums text-gray-300">
+                        {it.tryToBuy === null ? '—' : `${it.tryToBuy}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

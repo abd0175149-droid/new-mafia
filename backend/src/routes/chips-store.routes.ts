@@ -16,6 +16,7 @@ import {
   listCatalog, getActiveRentals, getPlayerCosmetics, rentItem, equipItem,
   grantRental, isSoundKeyAvailable, listVictoryStings, getStingById,
   claimFreeTrial, hasUsedTrial, itemTrialEligible,
+  recordStoreEvent, recordStoreEventsFromClient,
   getInventorySummary, getExpiringRentals,
 } from '../services/chips-store.service.js';
 import { getChipsBalance } from '../services/chips.service.js';
@@ -211,6 +212,37 @@ router.get('/store/cosmetics', authenticatePlayer, async (req: Request, res: Res
   }
 });
 
+// ── 📉 أحداث القمع من العميل (دفعات) ──
+// حدّ مرتفع عمداً: هذه دفعات لا طلب لكل حدث، ورفضها يفقدنا قياساً
+// ولا يحمي شيئاً. والأحداث المالية لا تُقبل من هنا أصلاً.
+router.post('/store/events',
+  rateLimit({
+    windowMs: 60_000, max: 600, keyPrefix: 'chips-events',
+    identity: (req) => String(req.headers.authorization || '').slice(-32) || null,
+    identityMax: 30,
+  }),
+  // 🛰️ الدفعة الأخيرة تُرسَل بـ sendBeacon عند إغلاق الصفحة، وهو لا يحمل
+  //    ترويسات. نقبل الرمز من المسار **لهذه النقطة وحدها**: لا تُرجِع
+  //    بيانات ولا تُغير حالة ينتفع بها من يسرق الرمز من سجلّ وسيط.
+  (req: Request, _res: Response, next) => {
+    if (!req.headers.authorization && typeof req.query.t === 'string' && req.query.t) {
+      req.headers.authorization = `Bearer ${req.query.t}`;
+    }
+    next();
+  },
+  authenticatePlayer,
+  async (req: Request, res: Response) => {
+    try {
+      const playerId = req.playerAccount!.playerId;
+      const r = await recordStoreEventsFromClient(playerId, req.body?.events);
+      // 204: لا حمولة تُعاد — القياس لا يجب أن يُكلّف العميل قراءةً
+      res.status(204).json(r as any);
+    } catch {
+      // ⚠️ حتى الفشل يُعاد 204: خطأ في التحليلات لا يجوز أن يظهر للاعب
+      res.status(204).end();
+    }
+  });
+
 // ── 🎁 التجربة المجانية (قرار المالك ٩) ──
 // ندرة ≤ epic · ٣ أيام · مرّة واحدة للأبد، والحدّ مسنود بفهرس لا بشرط.
 router.post('/store/trial',
@@ -227,6 +259,7 @@ router.post('/store/trial',
       if (!itemId || isNaN(itemId)) return res.status(400).json({ error: 'معرّف العنصر مطلوب' });
 
       const r = await claimFreeTrial({ playerId, itemId });
+      if (r.ok) void recordStoreEvent(playerId, 'trial', itemId);
       if (!r.ok) {
         const status = r.code === 'NOT_FOUND' ? 404
           : r.code === 'ALREADY_USED' || r.code === 'PAID_BEFORE' || r.code === 'ALREADY_OWNED' ? 409
@@ -258,6 +291,8 @@ router.post('/store/rent',
       if (!itemId || isNaN(itemId)) return res.status(400).json({ error: 'العنصر مطلوب' });
 
       const result = await rentItem({ playerId, itemId, requestId });
+      // 📉 التحويل يُسجَّل من مسار الشراء نفسه لا من العميل — وإلا صار القمع قابلاً للتزوير
+      if (result.ok) void recordStoreEvent(playerId, 'rent', itemId);
       if (!result.ok) {
         const status = result.code === 'INSUFFICIENT' ? 402
           : result.code === 'NOT_FOUND' ? 404

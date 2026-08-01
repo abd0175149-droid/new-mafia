@@ -1651,6 +1651,101 @@ async function main() {
     }
   }
 
+
+  // ══════════════════════════════════════════════════════
+  // ١٥) قمع المتجر
+  //
+  // مبدآن يُفحصان هنا: القياس لا يُعطّل البيع، والأحداث المالية لا تُصدَّق
+  // من العميل — وإلا صارت نسبة التحويل رقماً قابلاً للتزوير.
+  // ══════════════════════════════════════════════════════
+  console.log('\n١٥) قمع المتجر:');
+  {
+    const { recordStoreEvent, recordStoreEventsFromClient, getStoreFunnel, STORE_EVENTS } =
+      await import('../services/chips-store.service.js');
+
+    // ١٥.١ الجدول والفهارس
+    const tbl = rowsOf(await db.execute(sql`SELECT to_regclass('public.chips_store_events') AS t`));
+    check(!!tbl[0]?.t, 'جدول أحداث المتجر موجود');
+
+    const idx = rowsOf(await db.execute(sql`
+      SELECT indexdef FROM pg_indexes
+       WHERE tablename = 'chips_store_events' AND indexname = 'uniq_store_impression_day'
+    `));
+    check(idx.length === 1 && /UNIQUE/i.test(idx[0].indexdef) && /impression/i.test(idx[0].indexdef),
+      '🔒 فهرس يومي فريد على الظهور — بلا هذا ينفجر الجدول بآلاف الصفوف يومياً',
+      idx.length ? String(idx[0].indexdef).slice(0, 110) : 'مفقود');
+
+    const tp = rowsOf(await db.execute(sql`
+      SELECT id FROM players WHERE COALESCE(is_test_account,false) = true ORDER BY id LIMIT 1
+    `))[0];
+    const anyItem = rowsOf(await db.execute(sql`SELECT id FROM chips_items ORDER BY id LIMIT 1`))[0];
+
+    if (!tp || !anyItem) {
+      check(true, 'تخطّي الفحص الحيّ (لا حساب اختباري أو لا عنصر)');
+    } else {
+      const pid = Number(tp.id);
+      const iid = Number(anyItem.id);
+      await db.execute(sql`DELETE FROM chips_store_events WHERE player_id = ${pid}`);
+
+      const countOf = async (ev: string) => Number(rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_store_events WHERE player_id = ${pid} AND event = ${ev}
+      `))[0]?.c ?? 0);
+
+      // ١٥.٢ الظهور يُقيَّد يومياً — خمس محاولات تُنتج صفّاً واحداً
+      for (let i = 0; i < 5; i++) await recordStoreEvent(pid, 'impression' as any, iid);
+      check((await countOf('impression')) === 1,
+        '🔒 خمس محاولات ظهور في اليوم نفسه ⇒ صفّ واحد', String(await countOf('impression')));
+
+      // ١٥.٣ الأحداث السلوكية تتكرّر بحرّية — فتحتان حدثان
+      await recordStoreEvent(pid, 'open' as any);
+      await recordStoreEvent(pid, 'open' as any);
+      check((await countOf('open')) === 2, 'الفتح يتكرّر (ليس مُقيَّداً)', String(await countOf('open')));
+
+      // ١٥.٤ 🔴 العميل لا يستطيع تزوير تحويل
+      const r = await recordStoreEventsFromClient(pid, [
+        { event: 'rent', itemId: iid },
+        { event: 'trial', itemId: iid },
+        { event: 'try_on', itemId: iid },
+        { event: 'zzz-fake', itemId: iid },
+      ]);
+      check(r.rejected === 3 && r.accepted === 1,
+        '🔴 العميل يُرفض منه rent/trial والاسم المجهول — التحويل يُكتب خادمياً وحده',
+        JSON.stringify(r));
+      check((await countOf('rent')) === 0 && (await countOf('trial')) === 0,
+        'ولم يُكتب أيٌّ منهما فعلاً في الجدول');
+
+      // ١٥.٥ الحدث الموثوق يُكتب من الخادم
+      await recordStoreEvent(pid, 'rent' as any, iid);
+      check((await countOf('rent')) === 1, 'المسار الخادمي يكتب التحويل');
+
+      // ١٥.٦ القياس لا يرمي أبداً مهما كان المُدخل
+      let threw = false;
+      try {
+        await recordStoreEvent(0 as any, 'open' as any);
+        await recordStoreEvent(pid, 'nope' as any, iid);
+        await recordStoreEventsFromClient(pid, 'not-an-array');
+        await recordStoreEventsFromClient(pid, null);
+      } catch { threw = true; }
+      check(!threw, '🛡️ القياس لا يرمي أبداً — متجرٌ يتعطّل بسبب تحليلات عبثٌ');
+
+      // ١٥.٧ القمع يُبنى ويستثني حسابات الاختبار
+      const fn = await getStoreFunnel({});
+      check(!!fn && !!fn.totals && !!fn.rates, 'القمع يُبنى');
+      const testOpens = await countOf('open');
+      check(testOpens > 0, 'حساب الاختبار سجّل فتحات (شرط الفحص التالي)');
+      const [allOpens] = rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS c FROM chips_store_events WHERE event = 'open'
+      `));
+      check(fn!.totals.opens === Number(allOpens.c) - testOpens,
+        '🚫 حسابات الاختبار مستثناة من القمع — تصفّح مُختبِر ليس نيّة شراء',
+        `قمع=${fn!.totals.opens} الكل=${allOpens.c} اختبار=${testOpens}`);
+
+      check(STORE_EVENTS.length === 6, 'قائمة الأحداث مغلقة (٦ أنواع)', STORE_EVENTS.join('·'));
+
+      await db.execute(sql`DELETE FROM chips_store_events WHERE player_id = ${pid}`);
+    }
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} النتيجة: ${pass} ناجح · ${fail} فاشل\n`);
   await disconnectDB();
   process.exit(fail === 0 ? 0 : 1);
