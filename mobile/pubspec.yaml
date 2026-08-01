@@ -1,0 +1,108 @@
+name: mafia_club
+description: "نادي المافيا — تطبيق اللاعب"
+publish_to: 'none'
+
+# الإصدار تقرأه بوابة الإصدار (GET /api/app/release) — ارفعه مع كل نشر.
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # الحالة والتنقّل
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.2
+
+  # الحركة
+  flutter_animate: ^4.5.2
+
+  # التخزين
+  shared_preferences: ^2.3.3
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # أدوات
+  intl: ^0.20.1
+  package_info_plus: ^8.1.2
+  url_launcher: ^6.3.1
+  cached_network_image: ^3.4.1
+  dotted_border: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  # ══════════════════════════════════════════════════════
+  # الخطوط أصول محلية — لا google_fonts وقت التشغيل
+  # ══════════════════════════════════════════════════════
+  # قراران وراء ذلك: التكافؤ دون اتصال (اللاعب في قاعة قد لا تكون شبكتها
+  # ممتازة، وخطّ لا يصل يعني واجهةً تُرسم بخطّ نظام مختلف)، وثبات النسخة
+  # (خطّ يتغيّر عند جوجل لا يغيّر شكل التطبيق فجأة).
+  fonts:
+    # ── Amiri: كل العناوين والنصوص المسرحية (serif النوار) ──
+    - family: Amiri
+      fonts:
+        - asset: assets/fonts/Amiri-400.ttf
+          weight: 400
+        - asset: assets/fonts/Amiri-700.ttf
+          weight: 700
+
+    # ── Tajawal: نصّ الجسم العربي — الـsans الفعليّ ──
+    # (الويب يذكر Inter أوّلاً لكنه لا يُحمَّل أبداً، فالفعليّ Tajawal)
+    - family: Tajawal
+      fonts:
+        - asset: assets/fonts/Tajawal-300.ttf
+          weight: 300
+        - asset: assets/fonts/Tajawal-400.ttf
+          weight: 400
+        - asset: assets/fonts/Tajawal-500.ttf
+          weight: 500
+        - asset: assets/fonts/Tajawal-700.ttf
+          weight: 700
+        - asset: assets/fonts/Tajawal-800.ttf
+          weight: 800
+        - asset: assets/fonts/Tajawal-900.ttf
+          weight: 900
+
+    # ── JetBrains Mono: اللاتينية والمعرّفات والمؤقّت ──
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-400.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-500.ttf
+          weight: 500
+        - asset: assets/fonts/JetBrainsMono-700.ttf
+          weight: 700
+
+    # ── الثلاثة التالية أصول خطّ فقط ──
+    # لا تُربط بـTextTheme؛ تُختار وقت التشغيل حسب
+    # cardTemplate.elements.fontFamily في قوالب بطاقات الأدوار (ملف 22).
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-400.ttf
+          weight: 400
+        - asset: assets/fonts/Cairo-700.ttf
+          weight: 700
+        - asset: assets/fonts/Cairo-900.ttf
+          weight: 900
+    - family: NotoKufiArabic
+      fonts:
+        - asset: assets/fonts/NotoKufiArabic-400.ttf
+          weight: 400
+        - asset: assets/fonts/NotoKufiArabic-700.ttf
+          weight: 700
+    - family: ReemKufi
+      fonts:
+        - asset: assets/fonts/ReemKufi-400.ttf
+          weight: 400
+        - asset: assets/fonts/ReemKufi-700.ttf
+          weight: 700
