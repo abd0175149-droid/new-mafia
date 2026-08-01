@@ -369,28 +369,43 @@ export default function StorePage() {
   const selEquipped = sel ? equippedIdFor(sel.kind) === sel.id : false;
   const selLeft = sel ? daysLeft(sel.expiresAt) : 0;
 
+  /**
+   * 📐 المرآة حالتان: مصغّرة حين لا معاينة، وكبيرة حين تُعاين.
+   *    البطاقة المصغّرة تكفي للسياق، لكنها لا تكفي للحكم على تفاصيل إطار —
+   *    وهو الفعل الذي جاء اللاعب من أجله. فتكبر لحظة الاختيار وحدها.
+   */
+  const CARD_W = 176, CARD_H = 240;          // مقاس البطاقة `sm` الحقيقي
+  const HEADROOM = 17;                        // الشعار المشترى يطفو فوق الحافّة
+  const k = sel ? 0.78 : 0.46;
+  const boxW = Math.round(CARD_W * k);
+  const boxH = Math.round((CARD_H + HEADROOM) * k);
+  const padTop = Math.round(HEADROOM * k);
+
+  // «أي كبسة برا تصغّره» — لمسة خارج المرآة وخارج أي عنصر تُنهي المعاينة
+  useEffect(() => {
+    if (!sel) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('[data-store-item]') || t?.closest?.('[data-mirror]')) return;
+      clearPick();
+    };
+    document.addEventListener('click', onDoc);
+    return () => document.removeEventListener('click', onDoc);
+  }, [sel]); // eslint-disable-line
+
   const MirrorStage = () => {
     if (!stage) return null;
     if (stage.kind === 'elimination') {
       return <EliminationFx config={stage.config} className="!rounded-xl" />;
     }
     if (stage.kind === 'entrance') {
+      // ⚠️ التشريفة تملأ شاشة القاعة في الواقع — فمعاينتها في مربّع ٨٨px
+      //    بلا معنى. تُعرض هنا على **عرض المرآة كاملاً** (نسبة قريبة من
+      //    شاشة العرض)، وهو أصدق ما يمكن على هاتف.
       return stage.config?.design === 'custom'
         ? <EntranceStage elements={stage.config?.elements} playerName={myName} className="!rounded-xl" />
         : (
-          <div className="absolute inset-0 rounded-xl overflow-hidden flex flex-col items-center justify-center gap-1"
-            style={{ background: 'radial-gradient(ellipse at 50% 45%, rgba(69,26,3,0.95), #000)' }}>
-            <motion.span initial={{ scale: 2.2, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} className="text-2xl">
-              {stage.config?.design === 'seal' ? '🩸' : stage.config?.design === 'neon' ? '⚡'
-                : stage.config?.design === 'file' ? '🗂️' : '👑'}
-            </motion.span>
-            <motion.span initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }} className="text-sm font-black text-amber-300"
-              style={{ fontFamily: 'Amiri, serif' }}>
-              {myName}
-            </motion.span>
-          </div>
+          <PresetEntranceStage design={String(stage.config?.design || 'don')} name={myName} />
         );
     }
     // نغمة — موجة صوتية فوق البطاقة أثناء العزف
@@ -422,18 +437,20 @@ export default function StorePage() {
       </div>
 
       {/* ══ المرآة — مثبَّتة، وكل لمسة تُطبَّق عليها فوراً ══ */}
-      <div ref={mirrorRef} className="sticky z-30 backdrop-blur-lg border-b border-white/[0.07] overflow-hidden"
+      <div ref={mirrorRef} data-mirror className="sticky z-30 backdrop-blur-lg border-b border-white/[0.07] overflow-hidden relative"
         style={{ top: headH, background: 'linear-gradient(180deg,rgba(5,5,5,.97),rgba(5,5,5,.88))' }}>
         <div className="max-w-lg mx-auto px-3 py-2.5 flex gap-3 items-center">
           {/* 📐 البطاقة `sm` مقاسها الحقيقي ١٧٦×٢٤٠ (w-44 h-[15rem]).
               كان الحساب على ١٧٧×٢٤٨ لمقاس `md` (٢٢٤×٣٢٠ فعلياً)، والمنشأ
               `top center` فيتمدّد يميناً — فتجاوزت البطاقة صندوقها وغطّت
               التبويبات. الآن: صندوق مقصوص بمقاس مضبوط، والمنشأ أعلى اليمين. */}
-          <div className="relative shrink-0 overflow-hidden" style={{ width: 88, height: 134 }}>
-            {/* ⬆️ ١٤px متنفَّس علوي: الشعار المشترى يطفو ١٧px فوق حافّة البطاقة
-                (والعنصر العائم للرتبة كذلك)، فالقصّ بلا متنفَّس يبتر التاج. */}
-            <div className="absolute right-0"
-              style={{ top: 14, width: 176, height: 240, transform: 'scale(0.5)', transformOrigin: 'top right' }}>
+          <div className="relative shrink-0 overflow-hidden transition-all duration-300"
+            style={{ width: boxW, height: boxH }}>
+            {/* ⬆️ متنفَّس علوي بمقدار طفو الشعار المشترى فوق حافّة البطاقة —
+                القصّ بلا متنفَّس يبتر التاج، وهو ما دفع اللاعب ثمنه. */}
+            <div className="absolute right-0 transition-transform duration-300"
+              style={{ top: padTop, width: CARD_W, height: CARD_H,
+                transform: `scale(${k})`, transformOrigin: 'top right' }}>
               <DynamicMafiaCard
                 playerNumber={player?.playerId ?? 1}
                 playerName={myName}
@@ -447,10 +464,10 @@ export default function StorePage() {
               />
             </div>
             <AnimatePresence>
-              {stage && (
+              {stage && stage.kind !== 'entrance' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   className="absolute right-0 rounded-xl overflow-hidden pointer-events-none"
-                  style={{ top: 14, width: 88, height: 120 }}>
+                  style={{ top: padTop, width: boxW, height: Math.round(CARD_H * k) }}>
                   <MirrorStage />
                 </motion.div>
               )}
@@ -564,6 +581,22 @@ export default function StorePage() {
             )}
           </div>
         </div>
+
+        {/* 🚪 مسرح التشريفة — يغطّي المرآة كاملةً.
+            التشريفة حدثٌ يملأ شاشة القاعة، فحصرها في مربّع البطاقة يجعلها
+            بقعة لون لا تُقرأ. هنا تأخذ عرض الشاشة كاملاً بنسبة قريبة من
+            نسبة شاشة العرض — وهو أصدق ما يمكن على هاتف. */}
+        <AnimatePresence>
+          {stage && stage.kind === 'entrance' && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 z-10 bg-black overflow-hidden pointer-events-none">
+              <MirrorStage />
+              <span className="absolute bottom-1.5 right-3 text-[9px] text-gray-500">
+                هكذا تظهر على شاشة القاعة
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* شريط تنبيه رفيع بدل قسم كامل */}
         {expiringSoon.length > 0 && !sel && (
@@ -792,6 +825,67 @@ export default function StorePage() {
     </div>
   );
 }
+// ══════════════════════════════════════════════════════
+// 🚪 مسرح التشريفات الجاهزة — بعرض المرآة
+//
+// الأربعة الجاهزة فروع JSX مكتوبة لشاشة قاعة ١٢٨٠×٧٢٠، وتصغيرها إلى
+// مربّع بطاقة يجعلها بقعة لون لا تُقرأ. هذه محاكاة أفقية بنفس الإيقاع
+// والألوان: شريط يعبر · شعار يهبط · الاسم يستقرّ.
+// ══════════════════════════════════════════════════════
+function PresetEntranceStage({ design, name }: { design: string; name: string }) {
+  const T: Record<string, { bg: string; fg: string; ic: string; label: string }> = {
+    don:  { bg: 'rgba(69,26,3,0.96)',  fg: '#fcd34d', ic: '👑', label: 'موكب العرّاب' },
+    seal: { bg: 'rgba(69,10,10,0.96)', fg: '#fca5a5', ic: '🩸', label: 'ختم العائلة' },
+    neon: { bg: 'rgba(8,51,68,0.96)',  fg: '#67e8f9', ic: '⚡', label: 'لافتة النيون' },
+    file: { bg: 'rgba(24,24,27,0.96)', fg: '#d4d4d8', ic: '🗂️', label: 'الملف السري' },
+  };
+  const t = T[design] || T.don;
+  // الختم يهبط بضربة؛ والبقيّة تدخل بانسياب — نفس إحساس الفروع الحيّة
+  const stamp = design === 'seal' || design === 'file';
+
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 overflow-hidden"
+      style={{ background: `radial-gradient(ellipse at 50% 45%, ${t.bg}, #000 78%)` }}>
+      {/* شريط علوي يعبر الشاشة */}
+      <motion.div
+        initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="absolute top-[22%] h-[2px] w-[72%]"
+        style={{ background: `linear-gradient(90deg, transparent, ${t.fg}, transparent)`, boxShadow: `0 0 12px ${t.fg}` }} />
+
+      <motion.span
+        initial={stamp ? { scale: 2.6, opacity: 0, rotate: -14 } : { scale: 0.6, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1, rotate: 0 }}
+        transition={{ duration: stamp ? 0.38 : 0.55, delay: 0.18, ease: [0.16, 1, 0.3, 1] }}
+        className="text-[34px] leading-none">
+        {t.ic}
+      </motion.span>
+
+      <motion.span
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.45, duration: 0.4 }}
+        className="text-lg font-black leading-none"
+        style={{ fontFamily: 'Amiri, serif', color: t.fg, textShadow: `0 0 14px ${t.fg}66` }}>
+        {name}
+      </motion.span>
+
+      <motion.div
+        initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="absolute bottom-[24%] h-[2px] w-[56%]"
+        style={{ background: `linear-gradient(90deg, transparent, ${t.fg}, transparent)` }} />
+
+      <motion.span
+        initial={{ opacity: 0 }} animate={{ opacity: 0.55 }} transition={{ delay: 0.7 }}
+        className="absolute bottom-[10%] text-[9px] font-mono tracking-[0.25em]"
+        style={{ color: t.fg }}>
+        JOINED
+      </motion.span>
+    </div>
+  );
+}
+
+
 
 // ══════════════════════════════════════════════════════
 // 🧱 بطاقة الشبكة — ما يُلبَس
@@ -807,7 +901,7 @@ function GridItem({ item, selected, equipped, onPick, myName }: {
   const left = daysLeft(item.expiresAt);
 
   return (
-    <button onClick={onPick}
+    <button onClick={onPick} data-store-item
       className={`relative rounded-xl overflow-hidden text-right transition-all border ${
         selected ? 'border-amber-500/60 bg-amber-500/[0.09]' : 'border-white/[0.09] bg-white/[0.035]'
       }`}>
@@ -854,7 +948,7 @@ function RowItem({ item, selected, onPick, myName }: {
   const temporal = TEMPORAL.includes(item.kind);
 
   return (
-    <button onClick={onPick}
+    <button onClick={onPick} data-store-item
       className={`flex items-center gap-2.5 p-2.5 rounded-xl text-right transition-all border w-full ${
         selected ? 'border-amber-500/60 bg-amber-500/[0.09]' : 'border-white/[0.09] bg-white/[0.035]'
       }`}>
