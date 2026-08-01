@@ -20,6 +20,7 @@ export const env = {
   WA_WABA_ID: process.env.WA_WABA_ID || '',                             // معرّف حساب الأعمال
   WA_WEBHOOK_VERIFY_TOKEN: process.env.WA_WEBHOOK_VERIFY_TOKEN || '',   // توكن تحقق الـ webhook (نختاره نحن)
   WA_APP_SECRET: process.env.WA_APP_SECRET || '',                       // App Secret للتحقق من توقيع X-Hub-Signature-256
+  WA_SUSPENDED: process.env.WA_SUSPENDED === '1',                       // ⛔ إجراء من ميتا قائم — يوقف كل إرسال تلقائيّ
   N8N_API_KEY: process.env.N8N_API_KEY || '',                           // مفتاح استدعاءات n8n الداخلية (البوت)
   N8N_WA_WEBHOOK_URL: process.env.N8N_WA_WEBHOOK_URL || '',             // رابط webhook البوت في n8n (فارغ = البوت معطّل)
 } as const;

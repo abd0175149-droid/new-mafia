@@ -14,6 +14,7 @@ import { getDB } from '../config/db.js';
 import { reservations, activities, locations, waConversations } from '../schemas/admin.schema.js';
 import { sendMessage, isFreeWindowOpen, waEnabled } from './whatsapp-inbox.service.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
+import { env } from '../config/env.js';
 
 // 🇯🇴 توقيت الأردن ثابت UTC+3 — لعرض موعد اللعبة للعميل
 const JO_OFFSET_MS = 3 * 3600e3;
@@ -34,7 +35,7 @@ function fmtJo(input: any): string {
 // مسحة واحدة: أرسِل التذكير لكلّ حجز مؤهّل نافذته مفتوحة، ولعبته خلال الساعة القادمة
 export async function runReminderScan(): Promise<void> {
   const db = getDB();
-  if (!db || !waEnabled()) return;
+  if (!db || !waEnabled() || env.WA_SUSPENDED) return;
   const now = Date.now();
   const horizon = new Date(now + 60 * 60 * 1000); // اللعبة خلال ≤60 دقيقة
 
@@ -96,6 +97,13 @@ let started = false;
 export function startReminderScheduler(): void {
   if (started) return;
   started = true;
+  // ⛔ إجراء إنفاذ قائم من ميتا: لا إرسال تلقائيّ إطلاقاً حتى يُرفع.
+  //    الرسائل كانت ستتوقّف وحدها بانغلاق نوافذ الـ24 ساعة، لكن «تتوقّف وحدها»
+  //    ليست ضماناً — والضمان هو ما نحتاج إثباته في التظلّم. ارفع WA_SUSPENDED عند العودة.
+  if (env.WA_SUSPENDED) {
+    console.log('⛔ WhatsApp reminder scheduler NOT started — WA_SUSPENDED=1 (إجراء من ميتا قائم)');
+    return;
+  }
   setInterval(() => { runReminderScan().catch((e) => console.warn('⚠️ WA reminder scan:', e.message)); }, 60_000);
   console.log('🔔 WhatsApp reminder scheduler started (every 60s)');
 }
