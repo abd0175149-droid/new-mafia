@@ -100,7 +100,6 @@ export default function StorePage() {
   const [balance, setBalance] = useState(0);
   const [cosmetics, setCosmetics] = useState<any>(null);
   const [me, setMe] = useState<{ name?: string; avatarUrl?: string | null; rankTier?: string; gender?: string } | null>(null);
-  const [packs, setPacks] = useState<any[]>([]);
   const [earnRates, setEarnRates] = useState<any>(null);
   const [tab, setTab] = useState('offers');
   const [loading, setLoading] = useState(true);
@@ -133,7 +132,6 @@ export default function StorePage() {
       setBalance(Number(d.balance || 0));
       setCosmetics(d.cosmetics || null);
       setMe(d.me || null);
-      setPacks(d.packs || []);
       setEarnRates(d.earnRates || null);
       setLoadError(false);
     } catch (e: any) {
@@ -227,13 +225,6 @@ export default function StorePage() {
   const cheapestFor = (kind: string) =>
     items.filter(i => i.kind === kind && i.isPurchasable && !i.closed && !i.owned)
       .sort((a, b) => a.priceChips - b.priceChips)[0];
-
-  const jodPerChip = useMemo(() => {
-    if (!packs.length) return 0;
-    const best = packs.reduce((a: any, b: any) => (a.chips / a.jod > b.chips / b.jod ? a : b));
-    return best.jod / best.chips;
-  }, [packs]);
-  const jodOf = (chips: number) => (jodPerChip ? (chips * jodPerChip).toFixed(2) : null);
 
   const previewCosmetics = useMemo(() => {
     if (!tryOn) return cosmetics;
@@ -516,7 +507,6 @@ export default function StorePage() {
                   <p className="text-[11px] font-black text-amber-400 mt-1 tabular-nums">
                     🪙 {sel.priceChips}
                     <span className="text-gray-500 font-normal"> · {(sel.priceChips / Math.max(1, sel.durationDays)).toFixed(1)} يومياً</span>
-                    {jodOf(sel.priceChips) && <span className="text-gray-600 font-normal"> · ≈{jodOf(sel.priceChips)} د.أ</span>}
                   </p>
                 ) : (
                   <p className="text-[10.5px] text-slate-300 mt-1 font-bold">
@@ -736,20 +726,13 @@ export default function StorePage() {
                 </div>
               )}
 
-              {packs.length > 0 && (
-                <div className="mt-5">
-                  <h4 className="text-xs font-black text-gray-300 mb-2">أو اشحن من الإدارة</h4>
-                  <div className="space-y-1.5">
-                    {packs.map((p: any) => (
-                      <div key={p.id} className="flex items-center justify-between rounded-xl px-3 py-2 bg-white/[0.04] border border-white/8">
-                        <span className="text-xs text-gray-300 font-bold">{p.jod} د.أ</span>
-                        <span className="text-xs text-amber-400 font-black tabular-nums">{p.chips} 🪙</span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-2 text-center">الشحن يتم في النادي عند الحضور — كلّم الإدارة.</p>
-                </div>
-              )}
+              {/* الشحن يتمّ في النادي نقداً — ولا يُذكر هنا مبلغ بالدينار.
+                  التطبيق الأصليّ سيحمل نفس الشاشة، وقائمة أسعار داخله تُقرأ عند
+                  آبل توجيهاً للشراء خارج المتجر. السعر هنا بالتشبس وحده. */}
+              <div className="mt-5 rounded-xl px-3 py-2.5 bg-white/[0.04] border border-white/8">
+                <p className="text-[12px] text-gray-300 font-bold text-center">أو اشحن رصيدك من الإدارة</p>
+                <p className="text-[11px] text-gray-500 mt-1 text-center">الشحن يتم في النادي عند الحضور — كلّم الإدارة.</p>
+              </div>
 
               <button onClick={() => setShortfall(null)}
                 className="w-full mt-6 py-3 rounded-xl font-black text-sm bg-white/5 border border-white/10 text-gray-300">
