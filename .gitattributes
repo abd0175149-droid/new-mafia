@@ -1,0 +1,40 @@
+# ══════════════════════════════════════════════════════
+# نهايات الأسطر
+# ══════════════════════════════════════════════════════
+# التطوير على ويندوز والبناء لـiOS على ماك. سكربتات Xcode وCocoaPods
+# تُنفَّذ بـsh، وسطرٌ ينتهي بـCRLF يجعلها تفشل برسائل لا تدلّ على السبب
+# (`command not found` على أمر صحيح). فتُثبَّت LF لكل ما يعبر الجهازين.
+
+* text=auto eol=lf
+
+# ملفات ويندوز الأصيلة تبقى CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# ثنائيّات — لا تُمسّ
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.mp3  binary
+*.wav  binary
+*.ogg  binary
+*.ttf  binary
+*.otf  binary
+*.woff binary
+*.woff2 binary
+*.pdf  binary
+*.jar  binary
+*.keystore binary
+*.jks  binary
+
+# التطبيق الأصليّ — حسّاس تحديداً
+mobile/ios/**    text eol=lf
+mobile/android/gradlew text eol=lf
+*.pbxproj        text eol=lf -diff
+*.xcconfig       text eol=lf
+Podfile          text eol=lf
+Podfile.lock     text eol=lf
