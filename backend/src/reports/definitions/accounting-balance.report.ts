@@ -8,7 +8,7 @@ import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
 import type { ReportDefinition, ReportDocument } from '../types.js';
 import { activities, bookings, costs, locations } from '../../schemas/admin.schema.js';
 import { players } from '../../schemas/player.schema.js';
-import { paidRevenue, unpaidReceivable, unpaidCount, num, pct, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
+import { paidRevenue, unpaidReceivable, unpaidCount, effectiveReceiver, num, pct, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
 
 const SCOPE_AR: Record<string, string> = {
   general: 'عام', activity: 'نشاط', player: 'لاعب', equipment: 'معدات', other: 'أخرى',
@@ -80,6 +80,37 @@ export const accountingBalanceReport: ReportDefinition = {
 
     const operationalTotal = expenseRows.reduce((s, c) => s + num(c.amount), 0);
 
+    // ── المستلمون: من استلم أموال الفترة (مستلم الفعالية يطغى على مستلم الحجز) ──
+    const receiverRows = await db.select({
+      receiver: effectiveReceiver,
+      received: paidRevenue(),
+    }).from(activities)
+      .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
+      .where(actDateCond)
+      .groupBy(effectiveReceiver);
+
+    const receivedMap = new Map<string, number>();
+    for (const r of receiverRows) {
+      const k = (r.receiver || '').trim() || 'غير محدد';
+      receivedMap.set(k, (receivedMap.get(k) ?? 0) + num(r.received));
+    }
+    const paidByMap = new Map<string, number>();
+    for (const c of expenseRows) {
+      const k = (c.paidBy || '').trim() || 'غير محدد';
+      paidByMap.set(k, (paidByMap.get(k) ?? 0) + num(c.amount));
+    }
+    // «معه حالياً» = ما استلمه − ما دفعه من مصاريف خلال الفترة
+    const holderRows = Array.from(new Set([...receivedMap.keys(), ...paidByMap.keys()]))
+      .map((name) => {
+        const received = receivedMap.get(name) ?? 0;
+        const paid = paidByMap.get(name) ?? 0;
+        return { name, received, paid, held: received - paid };
+      })
+      .filter((r) => r.received !== 0 || r.paid !== 0)
+      .sort((a, b) => b.held - a.held);
+    const totalReceived = holderRows.reduce((s, r) => s + r.received, 0);
+    const totalPaidBy = holderRows.reduce((s, r) => s + r.paid, 0);
+
     // ── مصاريف مرتبطة بلاعبين (قد تكون مرتبطة بنشاط أيضاً أو عامة على اللاعب) ──
     const playerCosts = expenseRows.filter((c) => c.scope === 'player');
 
@@ -108,6 +139,18 @@ export const accountingBalanceReport: ReportDefinition = {
             { icon: '📈', labelAr: 'صافي الربح', value: net, format: 'currency', tone: net >= 0 ? 'green' : 'red' },
             { icon: '％', labelAr: 'هامش الربح', value: margin, format: 'percent', tone: 'blue' },
           ],
+        },
+        {
+          type: 'table', titleAr: 'المستلمون — من استلم أموال الفترة وكم معه حالياً',
+          columns: [
+            { key: 'name', labelAr: 'الاسم' },
+            { key: 'received', labelAr: 'المبلغ المستلم', format: 'currency' },
+            { key: 'paid', labelAr: 'مصاريف دفعها', format: 'currency' },
+            { key: 'held', labelAr: 'معه حالياً', format: 'currency' },
+          ],
+          rows: holderRows,
+          totalsRow: { name: 'الإجمالي', received: totalReceived, paid: totalPaidBy, held: totalReceived - totalPaidBy },
+          emptyAr: 'لا توجد مبالغ مستلمة أو مصاريف في هذه الفترة',
         },
         {
           type: 'keyvalue', titleAr: 'الحجوزات غير المدفوعة (خارج الصافي)',

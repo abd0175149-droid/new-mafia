@@ -17,6 +17,7 @@ import { expensesByCategoryReport } from './definitions/expenses-by-category.rep
 import { foundationalCostsReport } from './definitions/foundational-costs.report.js';
 import { locationPerformanceReport } from './definitions/location-performance.report.js';
 import { partnerSettlementReport } from './definitions/partner-settlement.report.js';
+import { partnerBalanceReport } from './definitions/partner-balance.report.js';
 import { staffPerformanceReport } from './definitions/staff-performance.report.js';
 import { reservationsAttendanceReport } from './definitions/reservations-attendance.report.js';
 import { reservationRosterReport } from './definitions/reservation-roster.report.js';
@@ -33,6 +34,7 @@ import { chipsEconomyReport } from './definitions/chips-economy.report.js';
 export const REPORT_DEFINITIONS: ReportDefinition[] = [
   // مالية
   accountingBalanceReport,
+  partnerBalanceReport,
   receivablesReport,
   expensesByCategoryReport,
   foundationalCostsReport,

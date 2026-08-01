@@ -28,6 +28,11 @@ export const notTestMatch = sql`(${matches.sessionId} IS NULL OR ${matches.sessi
 export const paidRevenue = (b: BookingsTable = bookings) =>
   sql<number>`COALESCE(SUM(CASE WHEN ${b.isPaid} = true AND ${b.isFree} = false THEN ${b.paidAmount}::numeric ELSE 0 END), 0)`;
 
+// المستلم الفعلي لأموال الحجز: مستلم الفعالية (إن عُيِّن من صفحة المالية) يطغى على مستلم الحجز.
+// يتطلّب استعلاماً يضمّ activities مع join على bookings.
+export const effectiveReceiver =
+  sql<string>`COALESCE(NULLIF(TRIM(${activities.receivedBy}), ''), NULLIF(TRIM(${bookings.receivedBy}), ''), 'غير محدد')`;
+
 // المستحقات المعلّقة: غير مدفوع وغير مجاني (خارج الصافي)
 export const unpaidReceivable = (b: BookingsTable = bookings) =>
   sql<number>`COALESCE(SUM(CASE WHEN ${b.isPaid} = false AND ${b.isFree} = false THEN ${b.paidAmount}::numeric ELSE 0 END), 0)`;

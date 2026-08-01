@@ -1263,6 +1263,8 @@ async function main() {
     await db.execute(sql`ALTER TABLE costs ADD COLUMN IF NOT EXISTS player_id INTEGER`);
     // نقل البيانات القديمة: المصاريف المرتبطة بنشاط → scope='activity'
     await db.execute(sql`UPDATE costs SET scope='activity' WHERE activity_id IS NOT NULL AND (scope IS NULL OR scope='general')`);
+    // 💰 مستلم حساب الفعالية (يُعدَّل من صفحة المالية — يطغى على مستلمي الحجوزات في التقارير)
+    await db.execute(sql`ALTER TABLE activities ADD COLUMN IF NOT EXISTS received_by VARCHAR(100) DEFAULT ''`);
     console.log('✅ Staff action log + creator columns + expense categories/scope ensured');
   } catch (err: any) {
     console.warn('⚠️ Staff action log migration:', err.message);

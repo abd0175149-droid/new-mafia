@@ -82,6 +82,8 @@ export const activities = pgTable('activities', {
   sessionId: integer('session_id'),
   // 👤 مُنشئ الفعالية (staff.id) — للتمييز عن بقية الأدمن لاحقاً (صلاحيات خاصة)
   createdBy: integer('created_by'),
+  // 💰 من استلم حساب الفعالية (display_name) — يطغى على bookings.received_by في التقارير عند تعيينه
+  receivedBy: varchar('received_by', { length: 100 }).default(''),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });

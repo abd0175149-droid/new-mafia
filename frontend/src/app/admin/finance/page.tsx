@@ -158,10 +158,13 @@ export default function FinancePage() {
       const paidPlayers = actBookings.filter(b => b.isPaid && !b.isFree).reduce((s, b) => s + (b.count || 1), 0);
       const expenses = costs.filter(c => c.scope === 'activity' && c.activityId === act.id);
       const expensesTotal = expenses.reduce((s, c) => s + Number(c.amount || 0), 0);
+      // مستلمو الحجوزات المدفوعة (يظهرون كتلميح عندما لا يوجد مستلم مُعيَّن للفعالية)
+      const bookingReceivers = Array.from(new Set(actBookings.filter(b => b.isPaid && b.receivedBy).map(b => String(b.receivedBy).trim()).filter(Boolean)));
       return {
         id: act.id, name: act.name, date: act.date,
         revenue, freePlayers, paidPlayers, totalPlayers: freePlayers + paidPlayers,
         expenses, expensesTotal, net: revenue - expensesTotal,
+        receivedBy: act.receivedBy || '', bookingReceivers,
       };
     });
     return rows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -194,7 +197,7 @@ export default function FinancePage() {
     return { revenue, expenses, net: revenue - expenses };
   }, [filteredFinance, filteredOtherExpensesTotal]);
 
-  const finColSpan = isLocationOwner ? 4 : 6;
+  const finColSpan = isLocationOwner ? 4 : 7;
 
   function openExpenseModal() {
     setExCategory(''); setExAmount(''); setExPaidBy(''); setExScope('general'); setExActivityId(''); setExPlayerId(''); setExDate('');
@@ -246,6 +249,22 @@ export default function FinancePage() {
     await apiFetch(`/api/costs/${id}`, { method: 'DELETE' });
     fetchAll();
   }
+
+  // ── تعيين مستلم حساب الفعالية (يطغى على مستلمي الحجوزات في التقارير) ──
+  async function handleSetReceiver(activityId: number, name: string) {
+    const prev = activities;
+    setActivities(a => a.map((act: any) => act.id === activityId ? { ...act, receivedBy: name } : act));
+    try {
+      await apiFetch(`/api/activities/${activityId}`, { method: 'PUT', body: JSON.stringify({ receivedBy: name }) });
+    } catch { setActivities(prev); }
+  }
+
+  // خيارات المستلم: أسماء الموظفين الفعّالين (مرتّبة عربياً)
+  const receiverOptions = useMemo(() =>
+    staffList.filter((s: any) => s.isActive !== false && s.displayName)
+      .map((s: any) => String(s.displayName))
+      .sort((a, b) => a.localeCompare(b, 'ar')),
+  [staffList]);
 
   // ══════════════════════════════════════════════════════
   // ██ FOUNDATIONAL TAB — Logic (بدون تعديل)
@@ -403,6 +422,7 @@ export default function FinancePage() {
                         <th className="text-right px-4 py-3 font-medium">النشاط والتاريخ</th>
                         <th className="text-center px-4 py-3 font-medium">اللاعبون</th>
                         <th className="text-center px-4 py-3 font-medium">الإيرادات</th>
+                        {!isLocationOwner && <th className="text-center px-4 py-3 font-medium">المستلم</th>}
                         {!isLocationOwner && <th className="text-center px-4 py-3 font-medium">المصاريف</th>}
                         {!isLocationOwner && <th className="text-center px-4 py-3 font-medium">الصافي</th>}
                       </tr>
@@ -423,6 +443,28 @@ export default function FinancePage() {
                                 <div className="text-[10px] text-gray-500 mt-0.5"><span className="text-emerald-400">{row.paidPlayers} مدفوع</span> · <span className="text-blue-400">{row.freePlayers} مجاني</span></div>
                               </td>
                               <td className="px-4 py-3 text-center text-emerald-400 font-bold text-xs">{row.revenue.toLocaleString()} {CURRENCY}</td>
+                              {!isLocationOwner && (
+                                <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
+                                  {isFinanceManager ? (
+                                    <>
+                                      <select value={row.receivedBy}
+                                        onChange={e => handleSetReceiver(row.id, e.target.value)}
+                                        className="px-2 py-1 bg-gray-900/60 border border-gray-600/50 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-amber-500/30 max-w-[130px] text-white"
+                                        style={{ color: row.receivedBy ? undefined : '#6b7280' }}>
+                                        <option value="">— غير محدد —</option>
+                                        {/* اسم قديم غير موجود في قائمة الموظفين الحاليين */}
+                                        {row.receivedBy && !receiverOptions.includes(row.receivedBy) && <option value={row.receivedBy}>{row.receivedBy}</option>}
+                                        {receiverOptions.map(name => <option key={name} value={name}>{name}</option>)}
+                                      </select>
+                                      {!row.receivedBy && row.bookingReceivers.length > 0 && (
+                                        <div className="text-[9px] text-gray-500 mt-0.5 max-w-[130px] truncate mx-auto" title={row.bookingReceivers.join('، ')}>حسب الحجوزات: {row.bookingReceivers.join('، ')}</div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span className="text-xs text-gray-300">{row.receivedBy || (row.bookingReceivers.length > 0 ? row.bookingReceivers.join('، ') : '—')}</span>
+                                  )}
+                                </td>
+                              )}
                               {!isLocationOwner && <td className="px-4 py-3 text-center text-rose-400 font-bold text-xs">{row.expensesTotal.toLocaleString()} {CURRENCY}</td>}
                               {!isLocationOwner && (
                                 <td className="px-4 py-3 text-center font-bold text-sm">

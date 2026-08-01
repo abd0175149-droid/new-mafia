@@ -730,14 +730,17 @@ router.post('/:id/create-drive-folder', authenticate, async (req: Request, res: 
 
 // PUT /api/activities/:id
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
-  if (req.user?.role === 'accountant') return res.status(403).json({ error: 'ليس لديك صلاحية تعديل الأنشطة' });
+  // المحاسب لا يعدّل الأنشطة — باستثناء «مستلم الحساب» (حقل مالي بحت من صفحة المالية)
+  const receiverOnly = Object.keys(req.body ?? {}).every((k) => k === 'receivedBy') && req.body?.receivedBy !== undefined;
+  if (req.user?.role === 'accountant' && !receiverOnly) return res.status(403).json({ error: 'ليس لديك صلاحية تعديل الأنشطة' });
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy } = req.body;
 
   const updates: any = {};
+  if (receivedBy !== undefined) updates.receivedBy = String(receivedBy ?? '').slice(0, 100);
   if (name !== undefined) updates.name = name;
   if (date !== undefined) updates.date = parseJordanDate(date);
   if (description !== undefined) updates.description = description;
