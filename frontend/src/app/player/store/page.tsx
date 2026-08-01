@@ -23,7 +23,7 @@
 //   • ≈٤٠٠٠px من مستطيلات متشابهة بارتفاع ١٩٠px لكل عنصر.
 // ══════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { usePlayer } from '@/context/PlayerContext';
@@ -117,6 +117,13 @@ export default function StorePage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const stageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ⚠️ تثبيت العناصر فوق بعضها بأرقام مكتوبة يدوياً يُخطئ مع أول تغيّر في
+  //    المحتوى (ظهور شريط الانتهاء · التفاف اسم طويل). نقيس الارتفاع فعلياً.
+  const headRef = useRef<HTMLDivElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
+  const [headH, setHeadH] = useState(45);
+  const [mirrorH, setMirrorH] = useState(140);
+
   const say = (ok: boolean, text: string) => { setToast({ ok, text }); setTimeout(() => setToast(null), 3800); };
 
   const load = async () => {
@@ -147,6 +154,21 @@ export default function StorePage() {
     const onBal = (p: { balance: number }) => setBalance(Number(p?.balance || 0));
     socket.on('chips:balance-updated', onBal);
     return () => { socket.off('chips:balance-updated', onBal); };
+  }, []);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      if (headRef.current) setHeadH(headRef.current.offsetHeight);
+      if (mirrorRef.current) setMirrorH(mirrorRef.current.offsetHeight);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro) {
+      if (headRef.current) ro.observe(headRef.current);
+      if (mirrorRef.current) ro.observe(mirrorRef.current);
+    }
+    window.addEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
 
   // إيقاف أي معاينة زمنيّة عند مغادرة الصفحة — صوت يتبع اللاعب خارج المتجر عطل
@@ -387,7 +409,7 @@ export default function StorePage() {
   return (
     <div dir="rtl" className="min-h-screen bg-[#050505] pb-24">
       {/* ══ الترويسة ══ */}
-      <div className="sticky top-0 z-40 px-3 py-2.5 backdrop-blur-xl bg-[#050505]/92 border-b border-amber-500/15">
+      <div ref={headRef} className="sticky top-0 z-40 px-3 py-2.5 backdrop-blur-xl bg-[#050505]/92 border-b border-amber-500/15">
         <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
           <button onClick={() => router.push('/player/home')} className="text-gray-500 text-xs px-1.5 py-1">← رجوع</button>
           <h1 className="text-base font-black text-amber-400" style={{ fontFamily: 'Amiri, serif' }}>🏦 خزنة الدون</h1>
@@ -400,17 +422,24 @@ export default function StorePage() {
       </div>
 
       {/* ══ المرآة — مثبَّتة، وكل لمسة تُطبَّق عليها فوراً ══ */}
-      <div className="sticky top-[45px] z-30 backdrop-blur-lg border-b border-white/[0.07]"
-        style={{ background: 'linear-gradient(180deg,rgba(5,5,5,.97),rgba(5,5,5,.88))' }}>
+      <div ref={mirrorRef} className="sticky z-30 backdrop-blur-lg border-b border-white/[0.07] overflow-hidden"
+        style={{ top: headH, background: 'linear-gradient(180deg,rgba(5,5,5,.97),rgba(5,5,5,.88))' }}>
         <div className="max-w-lg mx-auto px-3 py-2.5 flex gap-3 items-center">
-          <div className="relative shrink-0" style={{ width: 92 }}>
-            <div className="origin-top" style={{ transform: 'scale(0.52)', width: 177, height: 248, marginBottom: -119, marginRight: -43 }}>
+          {/* 📐 البطاقة `sm` مقاسها الحقيقي ١٧٦×٢٤٠ (w-44 h-[15rem]).
+              كان الحساب على ١٧٧×٢٤٨ لمقاس `md` (٢٢٤×٣٢٠ فعلياً)، والمنشأ
+              `top center` فيتمدّد يميناً — فتجاوزت البطاقة صندوقها وغطّت
+              التبويبات. الآن: صندوق مقصوص بمقاس مضبوط، والمنشأ أعلى اليمين. */}
+          <div className="relative shrink-0 overflow-hidden" style={{ width: 88, height: 134 }}>
+            {/* ⬆️ ١٤px متنفَّس علوي: الشعار المشترى يطفو ١٧px فوق حافّة البطاقة
+                (والعنصر العائم للرتبة كذلك)، فالقصّ بلا متنفَّس يبتر التاج. */}
+            <div className="absolute right-0"
+              style={{ top: 14, width: 176, height: 240, transform: 'scale(0.5)', transformOrigin: 'top right' }}>
               <DynamicMafiaCard
                 playerNumber={player?.playerId ?? 1}
                 playerName={myName}
                 role={null}
                 gender={me?.gender === 'FEMALE' ? 'FEMALE' : 'MALE'}
-                size="md"
+                size="sm"
                 flippable={false}
                 rankTier={me?.rankTier || 'INFORMANT'}
                 avatarUrl={me?.avatarUrl || null}
@@ -420,7 +449,8 @@ export default function StorePage() {
             <AnimatePresence>
               {stage && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+                  className="absolute right-0 rounded-xl overflow-hidden pointer-events-none"
+                  style={{ top: 14, width: 88, height: 120 }}>
                   <MirrorStage />
                 </motion.div>
               )}
@@ -548,7 +578,7 @@ export default function StorePage() {
 
       {/* ══ التبويبات — فوراً تحت المرآة ══ */}
       <div className="sticky z-20 backdrop-blur-lg bg-[#050505]/94 border-b border-white/[0.06]"
-        style={{ top: expiringSoon.length > 0 && !sel ? 172 : 145 }}>
+        style={{ top: headH + mirrorH }}>
         <div className="max-w-lg mx-auto overflow-x-auto">
           <div className="flex gap-1.5 px-3 py-2 min-w-max">
             {tabs.map(t => (
