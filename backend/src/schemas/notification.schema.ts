@@ -16,6 +16,10 @@ export const playerFcmTokens = pgTable('player_fcm_tokens', {
   playerId: integer('player_id').notNull().references(() => players.id, { onDelete: 'cascade' }),
   fcmToken: text('fcm_token').notNull(),
   deviceInfo: varchar('device_info', { length: 200 }).default(''),
+  // منصّة الجهاز: web (الـPWA) · android · ios — القديم كلّه web.
+  // لا يغيّر الإرسال (firebase-admin يخدم الثلاث بنفس النداء) لكنّه
+  // يُمكّن ما يختلف فعلاً: قنوات أندرويد، وشارة iOS، وقياس التبنّي.
+  platform: varchar('platform', { length: 10 }).default('web'),
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

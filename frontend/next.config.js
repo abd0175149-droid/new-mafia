@@ -20,6 +20,18 @@ const nextConfig = {
         source: '/uploads/:path*',
         destination: `${backendUrl}/uploads/:path*`,
       },
+      // ── 📱 ملفّا ربط التطبيق الأصليّ ──
+      // يجب أن يُقدَّما من جذر الدومين بهذين المسارين بالضبط — لا nginx هنا،
+      // فالتحويل من خادم Next هو الطريق. الباك إند يبنيهما من متغيّرات البيئة
+      // ويردّ 404 ما لم تُضبط (ملفّ خاطئ أسوأ من غائب: أندرويد يخزّن الفشل).
+      {
+        source: '/.well-known/assetlinks.json',
+        destination: `${backendUrl}/api/app/assetlinks`,
+      },
+      {
+        source: '/.well-known/apple-app-site-association',
+        destination: `${backendUrl}/api/app/apple-app-site-association`,
+      },
     ];
   },
 };

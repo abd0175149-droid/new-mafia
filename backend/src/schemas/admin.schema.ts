@@ -532,3 +532,18 @@ export const reservations = pgTable('reservations', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
+
+// ── 📱 إصدار التطبيق الأصليّ (صفّ واحد، id=1) ──
+// بوابة التحديث القسريّ: تُضبط من اللوحة لا بإصدار جديد —
+// فمن حُجبت نسخته لا يمكن دفع إصلاح إليه عبر التطبيق نفسه.
+export const appRelease = pgTable('app_release', {
+  id: integer('id').primaryKey(),
+  minAndroid: varchar('min_android', { length: 40 }).default('0.0.0'),
+  minIos: varchar('min_ios', { length: 40 }).default('0.0.0'),
+  latestAndroid: varchar('latest_android', { length: 40 }).default('0.0.0'),
+  latestIos: varchar('latest_ios', { length: 40 }).default('0.0.0'),
+  androidUrl: varchar('android_url', { length: 300 }).default(''),
+  iosUrl: varchar('ios_url', { length: 300 }).default(''),
+  message: varchar('message', { length: 500 }).default(''),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});

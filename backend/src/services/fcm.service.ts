@@ -124,6 +124,7 @@ export async function registerPlayerToken(
   token: string,
   deviceInfo: string = '',
   deviceId: string = '',
+  platform: string = 'web',
 ) {
   const db = getDB();
   if (!db) return;
@@ -156,10 +157,12 @@ export async function registerPlayerToken(
         playerId,
         fcmToken: token,
         deviceInfo: storedInfo,
+        // قائمة مغلقة: أي قيمة أخرى تعود web — لا نخزّن ما يرسله عميل كما هو.
+        platform: ['android', 'ios'].includes(platform) ? platform : 'web',
         isActive: true,
       } as any);
     });
-    console.log(`📱 FCM token registered for player #${playerId} (device=${deviceId || 'UA-fallback'})`);
+    console.log(`📱 FCM token registered for player #${playerId} (${platform}, device=${deviceId || 'UA-fallback'})`);
   } catch (err: any) {
     console.error('❌ registerPlayerToken:', err.message);
   }

@@ -21,10 +21,10 @@ router.post('/register-token', authenticatePlayer, async (req: Request, res: Res
   const playerId = extractPlayerId(req);
   if (!playerId) return res.status(401).json({ error: 'غير مصادق' });
 
-  const { token, deviceInfo, deviceId } = req.body;
+  const { token, deviceInfo, deviceId, platform } = req.body;
   if (!token) return res.status(400).json({ error: 'token مطلوب' });
 
-  await registerPlayerToken(playerId, token, deviceInfo || '', deviceId || '');
+  await registerPlayerToken(playerId, token, deviceInfo || '', deviceId || '', String(platform || 'web'));
   res.json({ success: true });
 });
 

@@ -54,6 +54,7 @@ import staffActionLogRoutes from './routes/staff-action-log.routes.js';
 import { venueRouter, playerFnbRouter } from './routes/fnb.routes.js';
 import chipsRoutes from './routes/chips.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
+import appReleaseRoutes from './routes/app-release.routes.js';
 import { registerVenueEvents } from './sockets/venue.socket.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
@@ -193,6 +194,7 @@ app.use('/api/venue', venueRouter);      // 🏪 كونسول حساب المك�
 app.use('/api/fnb', playerFnbRouter);    // 🍽️ طلبات المنيو — جهة اللاعب
 app.use('/api/chips', chipsRoutes);      // 🪙 اقتصاد التشبس (محفظة + دفتر + شحن إداري)
 app.use('/api/chips', chipsStoreRoutes); // 🏦 خزنة الدون (كتالوج + إيجار + تجهيز)
+app.use('/api/app', appReleaseRoutes);   // 📱 بوابة إصدار التطبيق + ملفّا روابط المنصّتين
 
 // ── VAPID Public Key لـ Web Push (iOS Safari) ──
 // مصدر واحد ثابت (config/vapid.ts) — نفس المفتاح الذي يوقّع به السيرفر الإرسال
@@ -1115,6 +1117,30 @@ async function main() {
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_wa_bot_usage_at ON wa_bot_usage(created_at DESC)`);
       console.log('✅ WhatsApp inbox tables ensured');
+
+      // ── 📱 تهيئة التطبيق الأصليّ (Flutter) ──
+      // منصّة التوكن: كل الصفوف القائمة توكنات ويب، فالافتراضيّ web صحيح أثريّاً.
+      await db.execute(sql`ALTER TABLE player_fcm_tokens ADD COLUMN IF NOT EXISTS platform VARCHAR(10) DEFAULT 'web'`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_player_fcm_platform ON player_fcm_tokens(platform)`);
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS app_release (
+          id INTEGER PRIMARY KEY,
+          min_android VARCHAR(40) DEFAULT '0.0.0',
+          min_ios VARCHAR(40) DEFAULT '0.0.0',
+          latest_android VARCHAR(40) DEFAULT '0.0.0',
+          latest_ios VARCHAR(40) DEFAULT '0.0.0',
+          android_url VARCHAR(300) DEFAULT '',
+          ios_url VARCHAR(300) DEFAULT '',
+          message VARCHAR(500) DEFAULT '',
+          updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+        )
+      `);
+      // صفّ الإعدادات الوحيد — حدّ صفر يعني «لا حجب أحداً» حتّى يُضبط.
+      await db.execute(sql`
+        INSERT INTO app_release (id, message) VALUES (1, 'صدر تحديث مطلوب للتطبيق — حدّثه للمتابعة.')
+        ON CONFLICT (id) DO NOTHING
+      `);
+      console.log('✅ Native app tables ensured');
     }
   } catch (err: any) {
     console.warn('⚠️ WhatsApp inbox migration:', err.message);
