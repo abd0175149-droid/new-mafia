@@ -72,6 +72,7 @@ services:
       - WA_WABA_ID=${WA_WABA_ID:-}
       - WA_WEBHOOK_VERIFY_TOKEN=${WA_WEBHOOK_VERIFY_TOKEN:-}
       - WA_APP_SECRET=${WA_APP_SECRET:-}
+      - WA_SUSPENDED=${WA_SUSPENDED:-}
       - N8N_API_KEY=${N8N_API_KEY:-}
       - N8N_WA_WEBHOOK_URL=${N8N_WA_WEBHOOK_URL:-}
     ports:
