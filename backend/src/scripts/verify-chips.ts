@@ -1731,14 +1731,21 @@ async function main() {
       // ١٥.٧ القمع يُبنى ويستثني حسابات الاختبار
       const fn = await getStoreFunnel({});
       check(!!fn && !!fn.totals && !!fn.rates, 'القمع يُبنى');
-      const testOpens = await countOf('open');
-      check(testOpens > 0, 'حساب الاختبار سجّل فتحات (شرط الفحص التالي)');
-      const [allOpens] = rowsOf(await db.execute(sql`
-        SELECT COUNT(*)::int AS c FROM chips_store_events WHERE event = 'open'
+      check((await countOf('open')) > 0, 'حساب الاختبار سجّل فتحات (شرط الفحص التالي)');
+
+      // ⚠️ يُطرح فتح كل حسابات الاختبار لا الحساب الذي استعمله الفحص وحده:
+      //    القمع يستثنيها جميعاً، وطرح واحد منها يجعل الحساب خاطئاً متى
+      //    وُجد حساب اختباري ثانٍ — وهو الواقع على الإنتاج.
+      const [openCounts] = rowsOf(await db.execute(sql`
+        SELECT COUNT(*)::int AS all_opens,
+               COUNT(*) FILTER (WHERE COALESCE(p.is_test_account,false))::int AS test_opens
+          FROM chips_store_events e JOIN players p ON p.id = e.player_id
+         WHERE e.event = 'open'
       `));
-      check(fn!.totals.opens === Number(allOpens.c) - testOpens,
+      const expected = Number(openCounts.all_opens) - Number(openCounts.test_opens);
+      check(fn!.totals.opens === expected,
         '🚫 حسابات الاختبار مستثناة من القمع — تصفّح مُختبِر ليس نيّة شراء',
-        `قمع=${fn!.totals.opens} الكل=${allOpens.c} اختبار=${testOpens}`);
+        `قمع=${fn!.totals.opens} متوقّع=${expected} الكل=${openCounts.all_opens} اختبار=${openCounts.test_opens}`);
 
       check(STORE_EVENTS.length === 6, 'قائمة الأحداث مغلقة (٦ أنواع)', STORE_EVENTS.join('·'));
 
