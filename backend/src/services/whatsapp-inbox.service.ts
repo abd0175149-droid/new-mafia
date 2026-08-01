@@ -154,6 +154,25 @@ export function isFreeWindowOpen(conv: { lastInboundAt: Date | null }): boolean 
 }
 
 // ══════════════════════════════════════════════════════
+// ⛔ قفل الإرسال
+// ══════════════════════════════════════════════════════
+// مصدران يُغلقانه: قرار تشغيليّ (WA_SUSPENDED في البيئة) وإشارة من ميتا
+// نفسها تصل عبر webhook. الثاني هو ما كان ناقصاً يوم ٣١ يوليو: وصل
+// DISABLED_UPDATE فأوقفنا «الحملات» فقط، بينما كان يجب أن يتوقّف كل شيء.
+let metaSuspension: string | null = null;
+
+export function suspendSending(reason: string): void {
+  metaSuspension = reason;
+  console.warn(`⛔ WA sending suspended: ${reason}`);
+}
+
+/** سبب المنع إن كان الإرسال مقفلاً، وإلا null. */
+export function sendingSuspendedReason(): string | null {
+  if (env.WA_SUSPENDED) return 'إجراء إنفاذ قائم من ميتا (WA_SUSPENDED=1)';
+  return metaSuspension;
+}
+
+// ══════════════════════════════════════════════════════
 // إشعار الأدمنية — عبر تطبيق اللاعب (قرار المالك):
 // كل حساب أدمن مرتبط بحساب لاعب (players.linked_staff_id)
 // ══════════════════════════════════════════════════════
@@ -287,19 +306,12 @@ async function handleAccountHealthUpdate(field: string, value: any): Promise<voi
   //    يوم 2026-07-31 وصل DISABLED_UPDATE + ACCOUNT_VIOLATION(SPAM) وبقيت
   //    الحملة `running`. أي حدث على مستوى الحساب يُعامَل الآن كإيقاف فوريّ.
   if (event === 'FLAGGED' || event === 'DOWNGRADE' || !isQuality) {
-    try {
-      const { pauseRunningCampaignsForHealth } = await import('./whatsapp-campaigns.service.js');
-      const paused = await pauseRunningCampaignsForHealth();
-      if (paused.length) {
-        await notifyAdmins(
-          '⏸️ أُوقفت الحملات الجارية تلقائياً',
-          `بسبب ${event === 'FLAGGED' ? 'هبوط تقييم الجودة' : event === 'DOWNGRADE' ? 'انخفاض حدّ الإرسال' : `حدث على مستوى الحساب (${event})`} — ${paused.length} حملة. عالج السبب ثم استأنفها يدوياً.`,
-          { url: '/admin/whatsapp', tag: 'wa-health-autopause' },
-        ).catch(() => {});
-      }
-    } catch (err: any) {
-      console.warn('⚠️ auto-pause campaigns on health drop:', err.message);
-    }
+    suspendSending(label);
+    await notifyAdmins(
+      '⛔ أُوقف الإرسال تلقائياً',
+      `${label} — كل إرسال صادر مقفل حتى يُرفع القفل يدوياً بعد معالجة السبب.`,
+      { url: '/admin/whatsapp', tag: 'wa-health-autostop' },
+    ).catch(() => {});
   }
 }
 
@@ -442,12 +454,6 @@ async function handleInboundMessage(db: any, msg: any, contacts: any[]) {
     },
   );
 
-  // 📣 عدّاد ردود الحملات: أول رد بعد رسالة حملة حديثة يُحتسب
-  try {
-    const { onCampaignReply } = await import('./whatsapp-campaigns.service.js');
-    await onCampaignReply(conv.phone);
-  } catch { /* تكميلي */ }
-
   // ── 🔔 ردّ زرّ التذكير — معالجة حتميّة (بلا بوت/LLM) ──
   const remindBtnId: string | undefined = msg?.interactive?.button_reply?.id;
   if (remindBtnId && remindBtnId.startsWith('wa_remind:')) {
@@ -542,11 +548,6 @@ async function handleStatusUpdate(db: any, st: any) {
 
   if (updated) {
     emitInbox('wa:status:update', updated);
-    // 📣 مزامنة حالة مستلم الحملة (وصلت/قُرئت/فشلت) بنفس الـwamid
-    try {
-      const { onCampaignStatusUpdate } = await import('./whatsapp-campaigns.service.js');
-      await onCampaignStatusUpdate(wamid, st.status || '', patch.errorMessage || '');
-    } catch { /* الحملات تكميلية هنا */ }
   }
 }
 
@@ -644,7 +645,7 @@ export interface SendMessageInput {
   phone?: string;                       // بديل عن conversationId (أي صيغة)
   text?: string;                        // رسالة نصية
   interactive?: any;                    // كائن interactive جاهز (قوائم/أزرار — للبوت)
-  source: 'staff' | 'bot' | 'system' | 'broadcast'; // broadcast: بث جماعي — لا يوقف البوت
+  source: 'staff' | 'bot' | 'system';
   staffId?: number;
   staffName?: string;
 }
@@ -653,6 +654,13 @@ export async function sendMessage(input: SendMessageInput) {
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
   if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل (WA_TOKEN/WA_PHONE_NUMBER_ID)');
+
+  const blocked = sendingSuspendedReason();
+  if (blocked) {
+    const err: any = new Error(`الإرسال مقفل: ${blocked}`);
+    err.code = 'SENDING_SUSPENDED';
+    throw err;
+  }
 
   // ── إيجاد المحادثة ──
   let conv: any = null;
@@ -667,9 +675,18 @@ export async function sendMessage(input: SendMessageInput) {
   const text = (input.text || '').trim();
   if (!hasInteractive && !text) throw new Error('لا يوجد محتوى للإرسال');
 
-  // ── حارس نافذة الـ24 ساعة (الرسائل الحرة فقط — القوالب لاحقاً مع الحملات) ──
+  // ══════════════════════════════════════════════════════
+  // 🔒 قيد الموافقة — البوّابة الوحيدة للصادر
+  // ══════════════════════════════════════════════════════
+  // النافذة تُفتح بوصول رسالة من العميل (lastInboundAt)، فاشتراطها هنا
+  // يعني حرفياً: لا نراسل إلا مَن راسلنا أولاً، وردّاً على رسالته.
+  // هذا ليس قاعدة في دليل الموظّف بل شرطٌ في طبقة الإرسال — لا يوجد
+  // مسار آخر إلى Cloud API في هذا النظام، ولا استثناء لأحد.
   if (!isFreeWindowOpen(conv)) {
-    const err: any = new Error('نافذة الرد المجانية (24 ساعة) منتهية لهذه المحادثة — الإرسال يحتاج قالباً معتمداً (يُفعَّل مع الحملات)');
+    const err: any = new Error(
+      'لا توجد نافذة خدمة مفتوحة مع هذا الرقم — لا نبدأ محادثة مع أحد. '
+      + 'انتظر أن يراسلك العميل، فتُفتح نافذة الـ24 ساعة.',
+    );
     err.code = 'WINDOW_EXPIRED';
     throw err;
   }
@@ -731,60 +748,14 @@ export async function sendMessage(input: SendMessageInput) {
 
   return { message: saved, conversation: updatedConv };
 }
+// ═══════════════════════════════════════════════════════
+// 🚫 لا يوجد إرسال قوالب — ولا يُعاد
+// ═══════════════════════════════════════════════════════
+// كانت sendTemplateMessage هنا: ترسل قالباً إلى أي رقم **متجاوزةً حارس
+// النافذة عمداً** — وهي الأداة التي نفّذت المخالفة يوم ً١٣ يوليو.
+// حُذفت مع محرّك الحملات والبثّ. المسار الوحيد إلى Cloud API الآن
+// هو sendMessage أعلاه، وهو مشروط بنافذة خدمة مفتوحة.
+//
+// إن عاد الحساب ولزم قالب خدميّ (تذكير حجز مثلاً) فيُبنى حينها
+// مقيّداً بمن له حجز قائم — لا كبديل عامّ لمراسلة من لم يراسلنا.
 
-// ══════════════════════════════════════════════════════
-// 📣 إرسال قالب معتمد (للحملات) — يتجاوز حارس النافذة عمداً:
-// القوالب هي الطريقة الشرعية الوحيدة لمراسلة نافذة مغلقة.
-// تُسجَّل بالمحادثة (تُنشأ إن لم توجد) بمصدر template ولا توقف البوت.
-// ══════════════════════════════════════════════════════
-
-export async function sendTemplateMessage(input: {
-  phone: string;
-  templateName: string;
-  language?: string;
-  bodyParams?: string[];          // قيم {{1}}.. بالترتيب
-  previewText?: string;           // النص المعبّأ للعرض بسجل المحادثة
-}): Promise<{ wamid: string | null; conversationId: number }> {
-  const db = getDB();
-  if (!db) throw new Error('DB unavailable');
-  if (!waEnabled()) throw new Error('إرسال واتساب غير مفعّل');
-
-  const conv = await getOrCreateConversation(input.phone);
-  if (!conv) throw new Error('رقم غير صالح');
-
-  const template: any = {
-    name: input.templateName,
-    language: { code: input.language || 'ar' },
-  };
-  if (input.bodyParams?.length) {
-    template.components = [{
-      type: 'body',
-      parameters: input.bodyParams.map((t) => ({ type: 'text', text: String(t).slice(0, 500) })),
-    }];
-  }
-  const apiBody = { messaging_product: 'whatsapp', to: conv.waPhone, type: 'template', template };
-  const apiRes = await callWaApi(`${env.WA_PHONE_NUMBER_ID}/messages`, apiBody);
-  const wamid = apiRes?.messages?.[0]?.id || null;
-
-  const preview = input.previewText || `📋 قالب: ${input.templateName}`;
-  const [saved] = await db.insert(waMessages).values({
-    conversationId: conv.id,
-    wamid,
-    direction: 'out',
-    source: 'template',
-    msgType: 'template',
-    body: preview,
-    payload: apiBody,
-    status: 'sent',
-  } as any).returning();
-
-  const now = new Date();
-  const [updatedConv] = await db.update(waConversations).set({
-    lastMessageAt: now,
-    lastMessagePreview: preview.slice(0, 120),
-    updatedAt: now,
-  } as any).where(eq(waConversations.id, conv.id)).returning();
-
-  emitInbox('wa:message:new', { conversation: updatedConv, message: saved });
-  return { wamid, conversationId: conv.id };
-}

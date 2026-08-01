@@ -9,11 +9,10 @@
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import crypto from 'crypto';
-import multer from 'multer';
 import { eq, desc, and, lt, sql, or, ilike, isNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { env } from '../config/env.js';
-import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, waBroadcasts, bookings, locations, activities } from '../schemas/admin.schema.js';
+import { waConversations, waMessages, waCustomerNotes, waOptouts, waMessageTemplates, bookings, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { normalizeLocalPhone } from '../utils/phone.util.js';
 import { authenticate, adminOnly } from '../middleware/auth.js';
@@ -341,8 +340,7 @@ router.post('/bot/playground', authenticate, adminOnly, async (req: Request, res
     const { runPlayground } = await import('../services/whatsapp-bot.service.js');
     const history = Array.isArray(req.body?.history) ? req.body.history : [];
     // وضع الحملة: يحاكي محادثة بدأت من قالب تسويقي (لاختبار باب ٨ قبل أي رقم حقيقي)
-    const campaignTemplate = req.body?.campaignTemplate ? String(req.body.campaignTemplate) : undefined;
-    const result = await runPlayground(history, { campaignTemplate });
+    const result = await runPlayground(history);
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -698,25 +696,6 @@ router.get('/meta-templates', authenticate, adminOnly, async (req: Request, res:
   }
 });
 
-router.post('/meta-templates', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { createTemplate } = await import('../services/whatsapp-templates.service.js');
-    const template = await createTemplate({
-      name: String(req.body?.name || ''),
-      category: req.body?.category === 'UTILITY' ? 'UTILITY' : 'MARKETING',
-      bodyText: String(req.body?.bodyText || ''),
-      examples: Array.isArray(req.body?.examples) ? req.body.examples.map(String) : [],
-      footer: String(req.body?.footer || ''),
-      quickReplies: Array.isArray(req.body?.quickReplies) ? req.body.quickReplies.map(String) : [],
-      urlButton: req.body?.urlButton?.text ? { text: String(req.body.urlButton.text), url: String(req.body.urlButton.url || '') } : null,
-      createdBy: (req as any).user?.displayName || '',
-    });
-    res.json({ success: true, template });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
 router.delete('/meta-templates/:name', authenticate, adminOnly, async (req: Request, res: Response) => {
   try {
     const { deleteTemplate } = await import('../services/whatsapp-templates.service.js');
@@ -727,202 +706,17 @@ router.delete('/meta-templates/:name', authenticate, adminOnly, async (req: Requ
   }
 });
 
-// ══════════════════════════════════════════════════════
-// 📣 الحملات (دفعة 2): شرائح + إنشاء + مراقبة + تحكم
-// ══════════════════════════════════════════════════════
-
-router.get('/campaigns/segment-preview', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { previewSegment } = await import('../services/whatsapp-campaigns.service.js');
-    const preview = await previewSegment({
-      type: String(req.query.type || 'all') as any,
-      rankMin: req.query.rankMin ? String(req.query.rankMin) : undefined,
-      days: req.query.days ? parseInt(String(req.query.days)) : undefined,
-    });
-    res.json({ success: true, ...preview });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// 📄 رفع ملف أرقام (إكسل/CSV) لحملة تعريف بأرقام خارجية.
-//    يعيد الأرقام المطبَّعة + معاينة كاملة للاستبعادات — الملف نفسه لا يُخزَّن.
-const numbersUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },   // 5MB يكفي عشرات الآلاف من الأرقام
-});
-
-router.post(
-  '/campaigns/upload-numbers',
-  authenticate, adminOnly, numbersUpload.single('file'),
-  async (req: Request, res: Response) => {
-    try {
-      const file = (req as any).file;
-      if (!file?.buffer) return res.status(400).json({ error: 'لم يصل ملف — أرسله بالحقل file' });
-      if (!/\.(xlsx|xlsm|csv|txt)$/i.test(file.originalname || '')) {
-        return res.status(400).json({ error: 'الصيغ المدعومة: xlsx · csv · txt (ملفات xls القديمة غير مدعومة — احفظه كـ xlsx)' });
-      }
-      const { parseNumbersFile, previewUploaded } = await import('../services/whatsapp-campaigns.service.js');
-      const parsed = await parseNumbersFile(file.buffer, file.originalname || '');
-      if (!parsed.phones.length) {
-        return res.status(400).json({
-          error: 'لم يُعثر على أي رقم أردني صالح في الملف',
-          ...parsed,
-        });
-      }
-      const excludePlayers = String(req.query.excludePlayers ?? 'true') !== 'false';
-      const preview = await previewUploaded(parsed.phones, excludePlayers);
-      res.json({ success: true, parsed, preview, excludePlayers });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  },
-);
-
-// إعادة معاينة قائمة مرفوعة بعد تغيير خيار استبعاد اللاعبين (بلا رفع الملف ثانية)
-router.post('/campaigns/preview-uploaded', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const phones: string[] = Array.isArray(req.body?.phones) ? req.body.phones : [];
-    if (!phones.length) return res.status(400).json({ error: 'لا توجد أرقام' });
-    const { previewUploaded } = await import('../services/whatsapp-campaigns.service.js');
-    const preview = await previewUploaded(phones, req.body?.excludePlayers !== false);
-    res.json({ success: true, preview });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.post('/campaigns', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { createCampaign } = await import('../services/whatsapp-campaigns.service.js');
-    const campaign = await createCampaign({
-      name: String(req.body?.name || ''),
-      templateName: String(req.body?.templateName || ''),
-      varMapping: Array.isArray(req.body?.varMapping) ? req.body.varMapping : [],
-      segment: req.body?.segment || { type: 'all' },
-      createdBy: (req as any).user?.displayName || '',
-    });
-    res.json({ success: true, campaign });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// 💰 التسعير الفعليّ من ميتا — السعر لكل رسالة تسويقيّة يُشتقّ من الفاتورة نفسها
-router.get('/pricing', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { getPricingSummary } = await import('../services/whatsapp-campaigns.service.js');
-    const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || '30')) || 30));
-    res.json({ success: true, pricing: await getPricingSummary(days) });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.get('/campaigns', authenticate, adminOnly, async (_req: Request, res: Response) => {
-  try {
-    const { listCampaigns } = await import('../services/whatsapp-campaigns.service.js');
-    res.json({ success: true, campaigns: await listCampaigns() });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/campaigns/:id', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { campaignDetails } = await import('../services/whatsapp-campaigns.service.js');
-    res.json({ success: true, ...(await campaignDetails(parseInt(req.params.id))) });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.post('/campaigns/:id/:action(pause|resume|stop)', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { setCampaignStatus } = await import('../services/whatsapp-campaigns.service.js');
-    const map: any = { pause: 'paused', resume: 'running', stop: 'stopped' };
-    await setCampaignStatus(parseInt(req.params.id), map[req.params.action]);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-// ══════════════════════════════════════════════════════
-// 📢 البث الجماعي — النوافذ المفتوحة (القرارات المعتمدة 2026-07-26)
-// ══════════════════════════════════════════════════════
-
-router.get('/broadcast/recipients', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { getOpenWindowRecipients, nearestUpcomingActivityName } = await import('../services/whatsapp-broadcast.service.js');
-    const q = req.query;
-    const recipients = await getOpenWindowRecipients({
-      linked: String(q.linked || 'all'),
-      excludeAttention: q.excludeAttention === '1',
-      // 🎮 فلترة اللعب (الدفعتان)
-      game: {
-        activityId: q.gActivity ? parseInt(String(q.gActivity)) : undefined,
-        withinHours: q.gHours ? parseInt(String(q.gHours)) : undefined,
-        team: q.gTeam ? String(q.gTeam) as any : undefined,
-        role: q.gRole ? String(q.gRole) : undefined,
-        result: q.gResult ? String(q.gResult) as any : undefined,
-        firstTimer: q.gFirst === '1',
-        noShow: q.gNoShow === '1',
-        earlyOut: q.gEarly === '1',
-        topScorer: q.gTop === '1',
-      },
-    });
-    const activityName = await nearestUpcomingActivityName();
-    // آخر الفعاليات (للمنسدلة) — الماضية أولاً لأن الفلترة عن سهرات جرت
-    const db = getDB();
-    const recentActivities = db ? await db
-      .select({ id: activities.id, name: activities.name, date: activities.date })
-      .from(activities)
-      .orderBy(desc(activities.date))
-      .limit(14) : [];
-    res.json({ success: true, recipients, activityName, recentActivities });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.post('/broadcast', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { launchBroadcast } = await import('../services/whatsapp-broadcast.service.js');
-    const { body, templateId, conversationIds, recipientMeta, buttons, skipOptoutButton } = req.body || {};
-    const result = await launchBroadcast({
-      body: String(body || ''),
-      templateId: templateId ? parseInt(templateId) : null,
-      conversationIds: Array.isArray(conversationIds) ? conversationIds.map((n: any) => parseInt(n)).filter(Boolean) : [],
-      createdBy: (req as any).user?.displayName || '',
-      recipientMeta: recipientMeta && typeof recipientMeta === 'object' ? recipientMeta : {},
-      buttons: Array.isArray(buttons) ? buttons.map(String) : [],
-      skipOptoutButton: skipOptoutButton === true,
-    });
-    res.json({ success: true, ...result });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-router.post('/broadcast/:id/stop', authenticate, adminOnly, async (req: Request, res: Response) => {
-  try {
-    const { stopBroadcast } = await import('../services/whatsapp-broadcast.service.js');
-    stopBroadcast(parseInt(req.params.id));
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/broadcast/history', authenticate, adminOnly, async (_req: Request, res: Response) => {
-  try {
-    const { getBroadcastHistory } = await import('../services/whatsapp-broadcast.service.js');
-    const broadcasts = await getBroadcastHistory(20);
-    res.json({ success: true, broadcasts });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// ════════════════════════════════════════════════════
+// 🚫 لا حملات ولا بثّ جماعيّ — مُزالة بالكامل
+// ════════════════════════════════════════════════════
+// كان هنا مسارات: معاينة الشرائح، ورفع ملفّ أرقام (إكسل/CSV)،
+// وإنشاء حملة وتشغيلها، وبثّ حرّ إلى كل نافذة مفتوحة.
+//
+// حُذفت في ١ أغسطس ٢٠٢٦ بعد تعطيل ميتا للمحفظة بتهمة الرسائل
+// غير المرغوبة. لم تُعطّل بمفتاح بل أُزيلت — لأنّ المفتاح يُعاد
+// تشغيله، ولأنّ ما نقوله في التظلّم يجب أن يكون صحيحاً حرفيّاً.
+//
+// الصادر الوحيد الباقي: ردّ على محادثة بدأها العميل، عبر sendMessage
+// وحده، مشروطاً بنافذة خدمة مفتوحة.
 
 export default router;

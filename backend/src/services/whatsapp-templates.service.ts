@@ -94,101 +94,15 @@ export async function syncTemplates(): Promise<any[]> {
 // الإنشاء — نبني المكوّنات بقواعد ميتا ونفحص قبل الإرسال
 // ══════════════════════════════════════════════════════
 
-export interface CreateTemplateInput {
-  name: string;                       // snake_case لاتيني
-  category: 'MARKETING' | 'UTILITY';
-  bodyText: string;                   // يدعم {{1}} {{2}} …
-  examples: string[];                 // مثال لكل متغير (شرط مراجعة ميتا)
-  footer?: string;
-  quickReplies?: string[];            // أزرار رد سريع (حتى 3)
-  urlButton?: { text: string; url: string } | null;
-  createdBy?: string;
-}
-
-// ⚠️ قيد ميتا غير الموثّق جيداً (اكتُشف من ردّ 400 عند إنشاء قوالب الحملة التعريفية 2026-07-29):
-//    «Buttons can't have any variables, newlines, emojis, or formatting characters»
-//    «The message footer can't have any newlines or emojis»
-//    الإيموجي مسموح في نص القالب (BODY) فقط — نمنعه مبكراً بدل رسالة خطأ مبهمة من ميتا.
-const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/u;
-
-export function validateTemplateInput(input: CreateTemplateInput): string | null {
-  const name = String(input.name || '').trim();
-  if (!/^[a-z0-9_]{3,512}$/.test(name)) return 'اسم القالب: حروف لاتينية صغيرة وأرقام و_ فقط (3 أحرف فأكثر) — مثال: event_invite';
-  const body = String(input.bodyText || '').trim();
-  if (!body) return 'نص القالب مطلوب';
-  if (body.length > 1024) return 'نص القالب أطول من 1024 حرفاً';
-  const vars = [...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1]));
-  const maxVar = vars.length ? Math.max(...vars) : 0;
-  for (let i = 1; i <= maxVar; i++) {
-    if (!vars.includes(i)) return `المتغيرات يجب أن تكون متسلسلة — {{${i}}} مفقود`;
-    if (!String(input.examples?.[i - 1] || '').trim()) return `أدخل قيمة مثال للمتغير {{${i}}} (شرط مراجعة ميتا)`;
-  }
-  if (body.startsWith('{{') || body.endsWith(`{{${maxVar}}}`)) {
-    if (/^\{\{\d+\}\}/.test(body) || /\{\{\d+\}\}$/.test(body.trimEnd())) {
-      return 'ميتا ترفض قالباً يبدأ أو ينتهي بمتغير — أضف نصاً قبله/بعده';
-    }
-  }
-  if ((input.quickReplies || []).length > 3) return 'حد أقصى 3 أزرار رد سريع';
-  if (input.urlButton && !/^https?:\/\//i.test(input.urlButton.url || '')) return 'رابط الزر يجب أن يبدأ بـ https://';
-  if (input.footer && input.footer.length > 60) return 'التذييل أطول من 60 حرفاً';
-
-  // قيود ميتا على التذييل والأزرار — الإيموجي والأسطر الجديدة ممنوعة (النص وحده يقبلها)
-  const footer = String(input.footer || '');
-  if (EMOJI_RE.test(footer)) return 'التذييل لا يقبل إيموجي — ميتا ترفضه (الإيموجي مسموح في نص القالب فقط)';
-  if (/[\r\n]/.test(footer)) return 'التذييل لا يقبل سطراً جديداً';
-  for (const b of [...(input.quickReplies || []), input.urlButton?.text || '']) {
-    const t = String(b || '').trim();
-    if (!t) continue;
-    if (EMOJI_RE.test(t)) return `الزر «${t}» لا يقبل إيموجي — ميتا ترفضه (الإيموجي مسموح في نص القالب فقط)`;
-    if (/[\r\n]/.test(t)) return `الزر «${t}» لا يقبل سطراً جديداً`;
-    if (/\{\{\d+\}\}/.test(t)) return `الزر «${t}» لا يقبل متغيرات`;
-  }
-  return null;
-}
-
-export async function createTemplate(input: CreateTemplateInput): Promise<any> {
-  const db = getDB();
-  if (!db) throw new Error('DB unavailable');
-  const err = validateTemplateInput(input);
-  if (err) throw new Error(err);
-
-  const body = input.bodyText.trim();
-  const varCount = Math.max(0, ...[...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => parseInt(m[1])));
-  const components: any[] = [];
-
-  const bodyComp: any = { type: 'BODY', text: body };
-  if (varCount > 0) bodyComp.example = { body_text: [input.examples.slice(0, varCount).map((e) => e.trim())] };
-  components.push(bodyComp);
-
-  if (input.footer?.trim()) components.push({ type: 'FOOTER', text: input.footer.trim().slice(0, 60) });
-
-  const buttons: any[] = [];
-  for (const qr of input.quickReplies || []) {
-    if (qr?.trim()) buttons.push({ type: 'QUICK_REPLY', text: qr.trim().slice(0, 25) });
-  }
-  if (input.urlButton?.text?.trim() && input.urlButton?.url) {
-    buttons.push({ type: 'URL', text: input.urlButton.text.trim().slice(0, 25), url: input.urlButton.url.trim() });
-  }
-  if (buttons.length) components.push({ type: 'BUTTONS', buttons });
-
-  const res = await graphCall(`${env.WA_WABA_ID}/message_templates`, {
-    method: 'POST',
-    body: { name: input.name.trim(), language: 'ar', category: input.category, components },
-  });
-
-  const [saved] = await db.insert(waTemplates).values({
-    metaId: String(res.id || ''),
-    name: input.name.trim(),
-    language: 'ar',
-    category: res.category || input.category, // ميتا قد تعيد التصنيف تلقائياً
-    status: res.status || 'PENDING',
-    components,
-    createdBy: input.createdBy || '',
-    lastSyncAt: new Date(),
-  } as any).returning();
-
-  return saved;
-}
+// ════════════════════════════════════════════════════
+// 🚫 لا إنشاء قوالب — قراءة وحذف فقط
+// ════════════════════════════════════════════════════
+// كان هنا createTemplate — ينشئ قالباً بفئة MARKETING عند ميتا.
+// أُزيل مع محرّك الحملات: نظام يردّ على من راسله لا يحتاج قوالب أصلاً
+// (القالب أداة مخاطبة نافذة مغلقة، ونحن لا نخاطب نوافذ مغلقة).
+//
+// ما بقي: مزامنة وقراءة وحذف — والحذف مقصود: به تُمسح القوالب
+// التسويقية القديمة من الحساب فور عودة الوصول إليه.
 
 export async function deleteTemplate(name: string): Promise<void> {
   const db = getDB();

@@ -1663,12 +1663,6 @@ async function main() {
     `);
   });
 
-  // ── 📣 استئناف الحملات الجارية (الموزّع الذكي يكمل بعد أي إعادة تشغيل) ──
-  try {
-    const { resumeRunningCampaigns } = await import('./services/whatsapp-campaigns.service.js');
-    resumeRunningCampaigns().catch(() => {});
-  } catch { /* الحملات تكميلية */ }
-
   // ── 🔔 مجدول تذكير الحجوزات (قبل اللعبة بساعة) — ماسح كل 60 ثانية ──
   try {
     const { startReminderScheduler } = await import('./services/whatsapp-reminder.service.js');
