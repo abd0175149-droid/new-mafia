@@ -67,7 +67,7 @@ class _DetailBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final won = match.detailWon;
+    final won = match.won;
     final base = won ? Tw.emerald500 : Tw.rose500;
 
     return DecoratedBox(
@@ -167,9 +167,9 @@ class _DetailBody extends StatelessWidget {
 
   // ── (أ) معلومات المباراة ──
   Widget _infoCard(bool won, Color base) {
-    final (teamLabel, teamFg, teamBg) = match.detailIsNeutral
+    final (teamLabel, teamFg, teamBg) = match.isNeutral
         ? ('دور محايد', Tw.purple400, Tw.purple500)
-        : match.detailIsMafia
+        : match.isMafia
             ? ('فريق المافيا', Tw.red400, Tw.red500)
             : ('فريق المواطنين', Tw.cyan400, Tw.cyan500);
 

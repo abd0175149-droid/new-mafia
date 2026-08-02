@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_club/models/match.dart';
+import 'package:mafia_club/models/profile.dart';
 
 // ══════════════════════════════════════════════════════
 // 🧪 سجل المباريات — الملفّ 16
@@ -8,45 +9,61 @@ import 'package:mafia_club/models/match.dart';
 void main() {
   MatchDetails m(Map<String, dynamic> j) => MatchDetails.fromJson(j);
 
-  group('اشتقاق البطاقة — الدور وحده', () {
-    test('لا ينظر إلى breakdown إطلاقاً', () {
-      // الخادم يقول «فاز»، والدور مدنيّ والفائز مافيا ⇒ البطاقة «خسارة»
+  group('⚖️ المصدر واحد — البطاقة وتفصيلها وكل شاشة أخرى', () {
+    /// نفس المباراة كما تصل من نقطتَي النهاية المختلفتين.
+    (MatchDetails, MatchHistoryEntry) both(Map<String, dynamic> j) => (
+          MatchDetails.fromJson(j),
+          MatchHistoryEntry.fromJson(j),
+        );
+
+    test('حكم الخادم يسبق الاشتقاق من الدور', () {
+      // الدور مدنيّ والفائز مافيا — الاشتقاق وحده يقول «خسارة»
       final x = m({
         'role': 'SHERIFF',
         'matchWinner': 'MAFIA',
         'breakdown': {'team': 'CITIZEN', 'won': true},
       });
-      expect(x.cardWon, isFalse);
-      expect(x.detailWon, isTrue);
+      expect(x.won, isTrue, reason: 'breakdown.won هو المرجع');
     });
 
-    test('مافيا وفازت المافيا ⇒ فوز', () {
-      expect(m({'role': 'GODFATHER', 'matchWinner': 'MAFIA'}).cardWon, isTrue);
-      expect(m({'role': 'GODFATHER', 'matchWinner': 'CITIZEN'}).cardWon, isFalse);
-    });
-  });
-
-  group('🔴 الدور المحايد يختلف بين البطاقة والتفصيل — مقصود', () {
-    final jester = m({
-      'role': 'JESTER',
-      'matchWinner': 'MAFIA',
-      'breakdown': {'team': 'NEUTRAL', 'won': true},
-    });
-
-    test('البطاقة تعامله مواطناً فتراه خاسراً', () {
-      expect(jester.cardIsMafia, isFalse);
-      expect(jester.cardWon, isFalse); // الفائز مافيا والدور «مواطن» بحسابها
+    test('🔴 الدور المحايد يُقرأ واحداً في كل مكان', () {
+      final (detail, profileRow) = both({
+        'role': 'JESTER',
+        'matchWinner': 'MAFIA',
+        'breakdown': {'team': 'NEUTRAL', 'won': true},
+      });
+      // كانت البطاقة تقول «خسارة» والتفصيل «فوز» عن المباراة نفسها
+      expect(detail.won, isTrue);
+      expect(profileRow.won, isTrue);
+      expect(detail.won, profileRow.won);
+      expect(detail.isNeutral, isTrue);
+      expect(profileRow.isNeutral, isTrue);
     });
 
-    test('التفصيل يقرأ حكم الخادم فيراه فائزاً محايداً', () {
-      expect(jester.detailIsNeutral, isTrue);
-      expect(jester.detailWon, isTrue);
+    test('الاتفاق يشمل الفريق لا النتيجة وحدها', () {
+      for (final j in <Map<String, dynamic>>[
+        {'role': 'GODFATHER', 'matchWinner': 'MAFIA'},
+        {'role': 'DOCTOR', 'matchWinner': 'CITIZEN'},
+        {'role': 'WITCH', 'matchWinner': 'CITIZEN'},
+        {'role': 'ASSASSIN', 'matchWinner': 'MAFIA',
+          'breakdown': {'team': 'NEUTRAL', 'won': false}},
+        {'role': 'SHERIFF', 'matchWinner': 'MAFIA',
+          'breakdown': {'team': 'CITIZEN', 'won': false}},
+        {}, // كل شيء غائب
+      ]) {
+        final (d, p) = both(j);
+        expect(d.won, p.won, reason: 'النتيجة اختلفت في $j');
+        expect(d.isMafia, p.isMafia, reason: 'الفريق اختلف في $j');
+        expect(d.isNeutral, p.isNeutral, reason: 'الحياد اختلف في $j');
+      }
     });
 
-    test('بلا breakdown لا يظهر «محايد» أصلاً', () {
-      final bare = m({'role': 'JESTER', 'matchWinner': 'MAFIA'});
-      expect(bare.detailIsNeutral, isFalse);
-      expect(bare.detailWon, bare.cardWon);
+    test('الاحتياطيّ يعمل للمباريات القديمة بلا breakdown', () {
+      expect(m({'role': 'GODFATHER', 'matchWinner': 'MAFIA'}).won, isTrue);
+      expect(m({'role': 'GODFATHER', 'matchWinner': 'CITIZEN'}).won, isFalse);
+      expect(m({'role': 'DOCTOR', 'matchWinner': 'CITIZEN'}).won, isTrue);
+      // «محايد» لا يُشتقّ من الدور — الخادم وحده يعرفه
+      expect(m({'role': 'JESTER'}).isNeutral, isFalse);
     });
   });
 

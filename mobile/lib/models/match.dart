@@ -1,4 +1,4 @@
-import 'profile.dart' show MatchBreakdown, mafiaRoles;
+import 'profile.dart' show MatchBreakdown, MatchOutcome;
 
 // ══════════════════════════════════════════════════════
 // 📜 نموذج مباراة في السجل الكامل — §8 في الملفّ 16
@@ -47,29 +47,11 @@ class MatchDetails {
   final int xpEarned, rrChange;
   final MatchBreakdown? breakdown;
 
-  // ══════════════════════════════════════════════════════
-  // 🔴 اشتقاقان مختلفان عمداً — لا توحّدهما
-  // ══════════════════════════════════════════════════════
-  // البطاقة تنظر إلى **الدور وحده**؛ التفصيل يفضّل `breakdown` ثمّ يسقط
-  // إلى الدور. النتيجة أنّ دوراً محايداً (المهرّج، السفّاح) قد يُعرض
-  // «خسارة» على البطاقة و«فوز» في تفصيله. هذا سلوك المصدر: البطاقة
-  // تصنيفٌ سريع بالفريق، والتفصيل حكم الخادم. توحيدهما يبدو إصلاحاً
-  // ويغيّر معنى الشاشتين.
-
-  /// اشتقاق **البطاقة**: من الدور فقط.
-  bool get cardIsMafia => mafiaRoles.contains(role);
-
-  bool get cardWon =>
-      (cardIsMafia && matchWinner == 'MAFIA') ||
-      (!cardIsMafia && matchWinner == 'CITIZEN');
-
-  /// اشتقاق **التفصيل**: `breakdown` أوّلاً.
-  bool get detailIsNeutral => breakdown?.team == 'NEUTRAL';
-
-  bool get detailIsMafia =>
-      breakdown != null ? breakdown!.team == 'MAFIA' : cardIsMafia;
-
-  bool get detailWon => breakdown?.won ?? cardWon;
+  // ⚖️ النتيجة والفريق من `MatchOutcome` — البطاقة وتفصيلها يقرآن **نفس
+  //    القيمة**. (كان في الويب اشتقاقان مختلفان؛ انظر التعليق هناك.)
+  bool get isNeutral => MatchOutcome.isNeutral(breakdown);
+  bool get isMafia => MatchOutcome.isMafia(breakdown, role);
+  bool get won => MatchOutcome.won(breakdown, role, matchWinner);
 
   /// «نجا للنهاية» أو «أُقصي ليلاً (جولة ٣)».
   String get survivalText {

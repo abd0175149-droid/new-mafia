@@ -207,7 +207,7 @@ class _MatchCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final won = match.cardWon;
+    final won = match.won;
     final base = won ? Tw.emerald500 : Tw.rose500;
 
     return InkWell(
@@ -313,20 +313,23 @@ class _MatchCard extends StatelessWidget {
     );
   }
 
-  /// 🔴 البطاقة لا تعرف «محايد» — الدور المحايد يُصنَّف مواطناً هنا
-  ///    ويُعرض «دور محايد» في التفصيل. مقصود (انظر models/match.dart).
+  /// البطاقة تعرف «محايد» أيضاً — وإلا قالت «مواطن» بينما يقول تفصيلها
+  /// «دور محايد» عن المباراة نفسها.
   Widget _teamChip() {
-    final mafia = match.cardIsMafia;
-    final c = mafia ? Tw.red500 : Tw.cyan500;
+    final (label, fg, bg) = match.isNeutral
+        ? ('محايد', Tw.purple400, Tw.purple500)
+        : match.isMafia
+            ? ('مافيا', Tw.red400, Tw.red500)
+            : ('مواطن', Tw.cyan400, Tw.cyan500);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(4),
-        color: c.withValues(alpha: 0.10),
-        border: Border.all(color: c.withValues(alpha: 0.20)),
+        color: bg.withValues(alpha: 0.10),
+        border: Border.all(color: bg.withValues(alpha: 0.20)),
       ),
-      child: Text(mafia ? 'مافيا' : 'مواطن',
-          style: ar(10, color: mafia ? Tw.red400 : Tw.cyan400)),
+      child: Text(label, style: ar(10, color: fg)),
     );
   }
 }

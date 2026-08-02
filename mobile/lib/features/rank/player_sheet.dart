@@ -73,8 +73,6 @@ class _PlayerSheetState extends State<_PlayerSheet> {
     if (mounted) setState(() { _following = !_following; _busy = false; });
   }
 
-  static const _mafiaRoles = mafiaRoles;
-
   @override
   Widget build(BuildContext context) {
     final p = profile.player;
@@ -167,11 +165,10 @@ class _PlayerSheetState extends State<_PlayerSheet> {
       );
 
   Widget _matchLine(MatchHistoryEntry m) {
-    // 🔴 اشتقاق محليّ لا `m.won`: هذه الورقة تعرض **لاعباً آخر**، والويب
-    //    هنا يشتقّ من الدور والفائز فقط ولا يقرأ `breakdown`. أبقيناه.
-    final isMafia = _mafiaRoles.contains(m.role);
-    final won = (isMafia && m.matchWinner == 'MAFIA') ||
-        (!isMafia && m.matchWinner == 'CITIZEN');
+    // ⚖️ `m.won` — نفس المصدر الذي تقرأه بقيّة الشاشات. كان الويب يشتقّ
+    //    هنا من الدور وحده، فتُعرض المباراة نفسها بنتيجتين مختلفتين في
+    //    مكانين. المصدر واحد الآن (models/profile.dart → MatchOutcome).
+    final won = m.won;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 6),

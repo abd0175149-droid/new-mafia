@@ -260,6 +260,31 @@ class MatchBreakdown {
       );
 }
 
+// ══════════════════════════════════════════════════════
+// ⚖️ نتيجة المباراة وفريقها — **المصدر الوحيد**
+// ══════════════════════════════════════════════════════
+// كل شاشة تعرض مباراةً تسأل هنا: صفوف الملفّ الشخصيّ، وبطاقات السجل
+// وتفصيلها، وآخر خمس مباريات في ورقة بروفايل الرتب.
+//
+// 🔴 كان في الويب اشتقاقان: البطاقة تنظر إلى الدور وحده، والتفصيل يقرأ
+//    `breakdown`. فمباراةٌ بدورٍ محايد (المهرّج، السفّاح) تُعرض «خسارة»
+//    في القائمة و«فوز» حين تفتحها. نقلتُ ذلك أوّلاً باسم التكافؤ، وهو
+//    خطأ: القيمة الواحدة لا تحمل معنيين. **حكم الخادم هو المرجع**،
+//    والاشتقاق من الدور احتياطٌ للمباريات القديمة التي سبقت `breakdown`.
+abstract final class MatchOutcome {
+  /// المحايد لا يُشتقّ من الدور — الخادم وحده يعرفه.
+  static bool isNeutral(MatchBreakdown? b) => b?.team == 'NEUTRAL';
+
+  static bool isMafia(MatchBreakdown? b, String? role) =>
+      b != null ? b.team == 'MAFIA' : mafiaRoles.contains(role);
+
+  static bool won(MatchBreakdown? b, String? role, String? winner) {
+    if (b != null) return b.won;
+    final mafia = mafiaRoles.contains(role);
+    return (mafia && winner == 'MAFIA') || (!mafia && winner == 'CITIZEN');
+  }
+}
+
 class MatchHistoryEntry {
   const MatchHistoryEntry({
     this.role,
@@ -285,16 +310,9 @@ class MatchHistoryEntry {
   final bool dealInitiated, dealSuccess;
   final MatchBreakdown? breakdown;
 
-  bool get isNeutral => breakdown?.team == 'NEUTRAL';
-
-  bool get isMafia => breakdown != null
-      ? breakdown!.team == 'MAFIA'
-      : mafiaRoles.contains(role);
-
-  /// `breakdown` أوّلاً — هو حساب الخادم. الاشتقاق احتياطٌ للمباريات
-  /// القديمة التي سبقت وجوده.
-  bool get won => breakdown?.won ??
-      ((isMafia && matchWinner == 'MAFIA') || (!isMafia && matchWinner == 'CITIZEN'));
+  bool get isNeutral => MatchOutcome.isNeutral(breakdown);
+  bool get isMafia => MatchOutcome.isMafia(breakdown, role);
+  bool get won => MatchOutcome.won(breakdown, role, matchWinner);
 
   factory MatchHistoryEntry.fromJson(Map<String, dynamic> j) => MatchHistoryEntry(
         role: j['role'] as String?,
