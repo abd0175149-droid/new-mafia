@@ -50,10 +50,26 @@ void main() {
   });
 
   group('النكهات', () {
-    test('كل نكهة تشير إلى خادمها', () {
-      expect(AppConfig.dev.baseUrl, 'https://mafia.grade.sbs');
+    test('النكهتان تشيران إلى الإنتاج — قرار مقصود لا سهو', () {
+      // كلتاهما على الإنتاج بقرار المالك (2026-08-02): staging متأخّرة
+      // 365 كوميت ولا أحد يستعملها. الفحص يثبّت القرار كي لا يُقرأ
+      // التطابق خطأً نسخٍ ولصق ويُصلَح إلى خادم ميّت.
       expect(AppConfig.prod.baseUrl, 'https://club-mafia.grade.sbs');
-      expect(AppConfig.dev.baseUrl, isNot(AppConfig.prod.baseUrl));
+      expect(AppConfig.dev.baseUrl, AppConfig.prod.baseUrl);
+    });
+
+    test('النكهتان تبقيان منفصلتين في الهويّة', () {
+      expect(AppConfig.dev.flavor, Flavor.dev);
+      expect(AppConfig.dev.isDev, isTrue);
+      expect(AppConfig.prod.isDev, isFalse);
+      expect(AppConfig.dev.appName, isNot(AppConfig.prod.appName));
+    });
+
+    test('كل رابط https ولا ينتهي بشرطة — resolveUpload يفترض ذلك', () {
+      for (final c in [AppConfig.dev, AppConfig.prod]) {
+        expect(c.baseUrl.startsWith('https://'), isTrue);
+        expect(c.baseUrl.endsWith('/'), isFalse);
+      }
     });
 
     test('حلّ روابط الرفوعات: النسبيّ يُلحق والمطلق يمرّ كما هو', () {
