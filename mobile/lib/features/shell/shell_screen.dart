@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/config.dart';
 import '../../app/theme/theme.dart';
 import '../../core/ui/atmosphere.dart';
+import '../home/home_screen.dart';
 import 'bottom_nav.dart';
 import 'core_status_screen.dart';
 
@@ -36,7 +37,7 @@ class _ShellScreenState extends State<ShellScreen> {
           sizing: StackFit.expand,
           index: _index,
           children: [
-            const _TabPlaceholder(title: 'الرئيسية', icon: Icons.home_outlined, file: '12-home.md'),
+            const HomeScreen(),
             const _TabPlaceholder(title: 'الألعاب', icon: Icons.sports_esports_outlined, file: '14-games-invites.md'),
             const _TabPlaceholder(title: 'ادخل', icon: Icons.verified_user_outlined, file: '21-join-lobby.md'),
             const _TabPlaceholder(title: 'التصنيف', icon: Icons.star_outline, file: '15-rank.md'),

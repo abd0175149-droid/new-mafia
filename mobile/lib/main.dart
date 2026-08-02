@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -34,6 +35,9 @@ Future<void> bootstrap(AppConfig config) async {
 
   // ── التخزين المحليّ ──
   await Hive.initFlutter();
+
+  // تقويم ar_JO — بلا تهيئة يرمي DateFormat على لغة غير الإنجليزية
+  await initializeDateFormatting('ar_JO');
 
   // ── تقادُم الكاش عند تغيّر الإصدار (§6.4، المرحلة الأولى) ──
   // لا service worker في Flutter، فمكافئ «مسح الكاش عند إصدار جديد» يقع
