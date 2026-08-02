@@ -139,6 +139,10 @@ class ProgressBar extends StatelessWidget {
               curve: Curves.easeOut,
               builder: (_, v, __) => FractionallySizedBox(
                 widthFactor: v,
+                // 🔴 heightFactor إلزاميّ: المكدّس يمرّر قيوداً فضفاضة،
+                //    و`DecoratedBox` بلا ابن يأخذ `constraints.smallest`
+                //    أي ارتفاع **صفر** — فالتعبئة تُرسم ولا تُرى.
+                heightFactor: 1,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(

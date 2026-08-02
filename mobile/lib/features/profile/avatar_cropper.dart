@@ -287,6 +287,7 @@ class _CropperScreenState extends State<_CropperScreen> {
                 AnimatedFractionallySizedBox(
                   duration: const Duration(milliseconds: 100),
                   widthFactor: math.min(1, _scale / 3),
+                  heightFactor: 1,
                   child: const ColoredBox(color: Tw.amber400),
                 ),
               ]),

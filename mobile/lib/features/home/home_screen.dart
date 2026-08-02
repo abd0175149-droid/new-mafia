@@ -268,6 +268,7 @@ class _ProfileCard extends StatelessWidget {
                   curve: Curves.easeOut,
                   builder: (_, v, __) => FractionallySizedBox(
                     widthFactor: v.clamp(0, 1),
+                    heightFactor: 1,   // بدونها ارتفاع التعبئة صفر — انظر ProgressBar
                     child: const DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(colors: [Color(0xFFFBBF24), Color(0xFFEF4444)]),

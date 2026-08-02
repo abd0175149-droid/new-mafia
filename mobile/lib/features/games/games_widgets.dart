@@ -256,6 +256,7 @@ class ActivityCard extends StatelessWidget {
             AnimatedFractionallySizedBox(
               duration: const Duration(milliseconds: 150),
               widthFactor: a.fillRatio,
+              heightFactor: 1,   // بدونها ارتفاع التعبئة صفر — انظر ProgressBar
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
