@@ -5,6 +5,7 @@ import '../../app/theme/theme.dart';
 import '../../core/ui/atmosphere.dart';
 import '../home/home_screen.dart';
 import '../profile/profile_screen.dart';
+import '../rank/rank_screen.dart';
 import 'bottom_nav.dart';
 
 // ══════════════════════════════════════════════════════
@@ -30,12 +31,16 @@ class _ShellScreenState extends State<ShellScreen> {
   /// الصفحة عند كل تنقّل. المفتاح يتيح جلباً صريحاً عند العودة للتبويب
   /// حتى لا يقرأ اللاعب رتبةً قديمة بعد مباراة.
   final _profileKey = GlobalKey<ProfileScreenState>();
+  final _rankKey = GlobalKey<RankScreenState>();
 
+  static const _rankTab = 3;
   static const _profileTab = 4;
 
   void _select(int i) {
     setState(() => _index = i);
     if (i == _profileTab) _profileKey.currentState?.reload();
+    // اللوحة تتغيّر بعد كل مباراة — العودة إليها تعني «أرني RR الجديد»
+    if (i == _rankTab) _rankKey.currentState?.reload();
   }
 
   @override
@@ -52,7 +57,7 @@ class _ShellScreenState extends State<ShellScreen> {
             const HomeScreen(),
             const _TabPlaceholder(title: 'الألعاب', icon: Icons.sports_esports_outlined, file: '14-games-invites.md'),
             const _TabPlaceholder(title: 'ادخل', icon: Icons.verified_user_outlined, file: '21-join-lobby.md'),
-            const _TabPlaceholder(title: 'التصنيف', icon: Icons.star_outline, file: '15-rank.md'),
+            RankScreen(key: _rankKey),
             ProfileScreen(
               key: _profileKey,
               config: widget.config,
