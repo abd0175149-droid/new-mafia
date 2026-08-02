@@ -16,10 +16,10 @@ import '../../core/ui/atmosphere.dart';
 // والإشعارات. تُستبدل بالشل الحقيقيّ في M2 (الملفّ 11).
 
 class CoreStatusScreen extends StatefulWidget {
-  const CoreStatusScreen({super.key, required this.config, required this.onLoggedOut});
+  const CoreStatusScreen({super.key, required this.config, this.onLoggedOut});
 
   final AppConfig config;
-  final VoidCallback onLoggedOut;
+  final VoidCallback? onLoggedOut;
 
   @override
   State<CoreStatusScreen> createState() => _CoreStatusScreenState();
@@ -55,7 +55,7 @@ class _CoreStatusScreenState extends State<CoreStatusScreen> {
     await PushService.instance.clear();
     await AuthRepository.instance.logout();
     SocketService.instance.reauth(); // يغادر غرفة اللاعب فوراً
-    widget.onLoggedOut();
+    widget.onLoggedOut?.call();
   }
 
   @override

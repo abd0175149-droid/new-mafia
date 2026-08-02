@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../../app/app_state.dart';
+import '../../core/socket/socket_service.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/theme/theme.dart';
@@ -14,9 +17,7 @@ import '../../core/api/auth_repository.dart';
 enum AuthMode { welcome, login, register, changePassword }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, required this.onDone});
-
-  final VoidCallback onDone;
+  const AuthScreen({super.key});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -24,6 +25,16 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   AuthMode _mode = AuthMode.welcome;
+
+  /// 🔴 لا callback: الدخول يُحدّث حالة التطبيق، والحارس في الراوتر ينقل
+  /// من `/player/login`. شاشةٌ تدفع وجهتها بنفسها تحتاج أن تعرف أين
+  /// تذهب — وهي لا تعرف: قد يكون هناك رابط عميق ينتظر.
+  void _finish() {
+    // إعادة المصافحة إلزامية: السوكِت أُنشئ عند الإقلاع بلا رمز،
+    // والانضمام إلى غرفة `player:{id}` يقع عند المصافحة وحدها.
+    SocketService.instance.reauth();
+    AppState.instance.evaluate();
+  }
 
   // الحقول تبقى محفوظة عبر الأوضاع — كما في الويب
   final _phone = TextEditingController();
@@ -60,7 +71,7 @@ class _AuthScreenState extends State<AuthScreen> {
         setState(() { _mode = AuthMode.changePassword; _loading = false; });
         return;
       }
-      widget.onDone();
+      _finish();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.isOffline ? 'خطأ في الاتصال بالخادم' : e.message);
     } finally {
@@ -87,7 +98,7 @@ class _AuthScreenState extends State<AuthScreen> {
         await _showWelcomeBonus(bonus);
         if (!mounted) return;
       }
-      widget.onDone();
+      _finish();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.isOffline ? 'خطأ في الاتصال بالخادم' : e.message);
     } finally {
@@ -103,7 +114,7 @@ class _AuthScreenState extends State<AuthScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       await AuthRepository.instance.changePassword(_newPassword.text);
-      if (mounted) widget.onDone();
+      if (mounted) _finish();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.isOffline ? 'خطأ في الاتصال' : e.message);
     } finally {

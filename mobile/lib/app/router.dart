@@ -1,0 +1,191 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../core/routing/destination.dart';
+import '../features/auth/auth_screen.dart';
+import '../features/home/home_screen.dart';
+import '../features/join/join_screen.dart';
+import '../features/profile/profile_screen.dart';
+import '../features/rank/rank_screen.dart';
+import '../features/shell/shell_screen.dart';
+import 'app_state.dart';
+import 'config.dart';
+import 'theme/theme.dart';
+
+// ══════════════════════════════════════════════════════
+// 🧭 الراوتر — الملفّ 08
+// ══════════════════════════════════════════════════════
+// المسارات تطابق الويب حرفياً (`/player/home` لا `/home`): وجهات
+// الإشعارات مكتوبة في الخادم بمسارات الويب، وأيّ اختلاف هنا يعني
+// جدول ترجمة يجب أن يبقى محدَّثاً في مكانين.
+
+abstract final class Routes {
+  static const login = '/player/login';
+  static const home = '/player/home';
+  static const games = '/player/games';
+  static const join = '/player/join';
+  static const rank = '/player/rank';
+  static const profile = '/player/profile';
+
+  /// عامّة دائماً — لا حارس ولا بوّابة ولا انتظار جلسة.
+  static const publicPaths = <String>[login, '/player/debug-push'];
+}
+
+final _rootKey = GlobalKey<NavigatorState>();
+
+// 🔴 `goBranch` لا يعيد بناء الفرع — حالته محفوظة بالتصميم. فالعودة إلى
+//    «التصنيف» بعد مباراة كانت ستعرض RR القديم إلى الأبد. المفاتيح تتيح
+//    جلباً صريحاً عند نقر التبويب (نفس ما كان يفعله IndexedStack يدوياً).
+final rankTabKey = GlobalKey<RankScreenState>();
+final profileTabKey = GlobalKey<ProfileScreenState>();
+
+GoRouter buildRouter(AppConfig config) {
+  final app = AppState.instance;
+
+  return GoRouter(
+    navigatorKey: _rootKey,
+    initialLocation: Routes.home,
+    refreshListenable: app,
+    debugLogDiagnostics: false,
+
+    // مسار مجهول لا يستحقّ شاشة خطأ — لا أحد يكتب مسارات بيده هنا،
+    // والوصول إليه يعني رابطاً قديماً. توجيه صامت.
+    errorBuilder: (_, __) => const _SilentRedirect(),
+
+    redirect: (context, state) {
+      final path = state.uri.path;
+
+      // ① الجذر
+      if (path == '/' || path == '/player') return Routes.home;
+
+      // ② الرابط العميق بالكود: عامّ دائماً — بلا حارس ولا انتظار.
+      //    🔴 كسر هذا يعني أن كل من يمسح رمز QR بلا حساب يُرمى إلى شاشة
+      //    الدخول بدل الغرفة. وهو أكثر مسارٍ يُفتح من خارج التطبيق.
+      if (path.startsWith('/join/')) return null;
+
+      // ③ الإعفاء نفسه لصفحة الانضمام داخل الغلاف
+      if (path == Routes.join) return null;
+
+      // ④ الجلسة لم تُحسم: لا توجيه — الشاشة تعرض تحميلها، والـURL لا
+      //    يتغيّر. توجيهٌ هنا يقذف اللاعب إلى الدخول ثم يعيده.
+      if (app.session == SessionState.loading) return null;
+
+      final public = Routes.publicPaths.contains(path);
+
+      if (app.session == SessionState.unauthenticated && !public) {
+        return Routes.login;
+      }
+      if (app.session == SessionState.authenticated && path == Routes.login) {
+        return Routes.home;
+      }
+      return null;
+    },
+
+    routes: [
+      GoRoute(
+        path: Routes.login,
+        builder: (_, __) => const AuthScreen(),
+      ),
+
+      // الرابط العميق العاري — خارج الغلاف، بلا شريط تنقّل
+      GoRoute(
+        path: '/join/:code',
+        builder: (_, s) => JoinScreen(
+          initialCode: s.pathParameters['code'],
+          bare: true,
+        ),
+      ),
+
+      StatefulShellRoute.indexedStack(
+        builder: (_, __, shell) => ShellScreen(config: config, shell: shell),
+        branches: [
+          _branch(Routes.home, (_, __) => const HomeScreen()),
+          _branch(Routes.games, (_, __) => const _Pending(title: 'الألعاب', file: '14-games-invites.md')),
+          _branch(Routes.join, (_, s) => JoinScreen(
+                initialCode: s.uri.queryParameters['code'],
+                invite: s.uri.queryParameters['invite'] == '1',
+                inviterName: s.uri.queryParameters['by'],
+              )),
+          _branch(Routes.rank, (_, __) => RankScreen(key: rankTabKey)),
+          _branch(Routes.profile, (_, __) => ProfileScreen(key: profileTabKey, config: config)),
+        ],
+      ),
+    ],
+  );
+}
+
+StatefulShellBranch _branch(String path, Widget Function(BuildContext, GoRouterState) b) =>
+    StatefulShellBranch(routes: [GoRoute(path: path, builder: b)]);
+
+// ══════════════════════════════════════════════════════
+// 🚏 التنقّل من أيّ مكان
+// ══════════════════════════════════════════════════════
+
+/// ينفّذ وجهةً مصنّفة: الداخليّ في الراوتر، وما عداه في المتصفّح.
+Future<void> navigateTo(String? raw) async {
+  final d = Destination.classify(raw);
+  switch (d.kind) {
+    case DestinationKind.internal:
+      final ctx = _rootKey.currentContext;
+      if (ctx != null) ctx.go(d.value);
+    case DestinationKind.external:
+    case DestinationKind.ourWebOnly:
+      await d.openExternal();
+    case DestinationKind.none:
+      break;
+  }
+}
+
+/// الموقع الحاليّ — لمقارنة الوجهة المعلّقة قبل تنفيذها.
+String? get currentLocation {
+  final ctx = _rootKey.currentContext;
+  if (ctx == null) return null;
+  return GoRouter.of(ctx).routeInformationProvider.value.uri.toString();
+}
+
+class _SilentRedirect extends StatelessWidget {
+  const _SilentRedirect();
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      context.go(AppState.instance.session == SessionState.authenticated
+          ? Routes.home
+          : Routes.login);
+    });
+    return const Scaffold(backgroundColor: Noir.pitchBlack);
+  }
+}
+
+/// تبويب لم يُبنَ بعد — يقول أيّ ملفّ مواصفة يملؤه، فلا يُقرأ عطلاً.
+class _Pending extends StatelessWidget {
+  const _Pending({required this.title, required this.file});
+
+  final String title, file;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 80, left: 24, right: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.sports_esports_outlined, size: 56, color: MafiaScales.dark[700]),
+                const SizedBox(height: 16),
+                Text(title, style: Theme.of(context).textTheme.headlineMedium),
+                const SizedBox(height: 8),
+                Text('يُبنى قريباً', style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 4),
+                // اسم ملفّ لاتينيّ داخل واجهة RTL يُقلب بصرياً
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: Text(file, style: monoStyle(size: 11, color: MafiaScales.dark[600]!)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+}

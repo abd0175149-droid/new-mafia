@@ -1,24 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:go_router/go_router.dart';
 
+import 'app_state.dart';
 import 'config.dart';
+import 'router.dart';
 import 'theme/theme.dart';
 import '../core/push/push_service.dart';
-import '../core/socket/socket_service.dart';
-import '../core/storage/session_store.dart';
 import '../core/ui/atmosphere.dart';
-import '../features/auth/auth_screen.dart';
 import '../features/gates/notification_gate.dart';
-import '../features/shell/shell_screen.dart';
 
 // ══════════════════════════════════════════════════════
-// 📱 جذر التطبيق + آلة حالات القشرة
+// 📱 جذر التطبيق
 // ══════════════════════════════════════════════════════
 // الترتيب الصارم (§6.1 في الملفّ 11): مصادقة ← بوابة الإشعارات ←
-// الغلاف الطبيعيّ. تُعاد التقييم عند كل تغيّر مدخلات وعند العودة من
-// الخلفية.
-
-enum _ShellState { loading, unauthenticated, gate, ready }
+// الغلاف. المصادقة صارت حارس الراوتر، والبوّابة **طبقة فوق المحتوى لا
+// مسار** (§6.2 في الملفّ 08): الـURL يبقى على الوجهة المقصودة، فإن جاء
+// اللاعب من رابط عميق وجد نفسه عليه بعد منح الإذن — لا على الرئيسية.
 
 class MafiaApp extends StatefulWidget {
   const MafiaApp({super.key, required this.config});
@@ -30,51 +28,61 @@ class MafiaApp extends StatefulWidget {
 }
 
 class _MafiaAppState extends State<MafiaApp> {
-  _ShellState _state = _ShellState.loading;
-  PushPermission _perm = PushPermission.prompt;
+  late final GoRouter _router = buildRouter(widget.config);
+  final _app = AppState.instance;
 
   @override
   void initState() {
     super.initState();
-    _evaluate();
+    _app.addListener(_onAppState);
+    _app.evaluate();
+    // وجهة إشعارٍ أقلع منه التطبيق تصل عبر PushService قبل حسم الجلسة
+    PushService.instance.pendingRoute.addListener(_onPushRoute);
   }
 
-  Future<void> _evaluate() async {
-    if (!SessionStore.instance.isLoggedIn) {
-      setState(() => _state = _ShellState.unauthenticated);
+  @override
+  void dispose() {
+    _app.removeListener(_onAppState);
+    PushService.instance.pendingRoute.removeListener(_onPushRoute);
+    super.dispose();
+  }
+
+  void _onPushRoute() {
+    final r = PushService.instance.pendingRoute.value;
+    if (r == null) return;
+    PushService.instance.pendingRoute.value = null;
+    _app.setPending(r);
+    _consumePending();
+  }
+
+  void _onAppState() {
+    if (mounted) setState(() {});
+    _consumePending();
+  }
+
+  /// 🔴 الاستهلاك **لا ينتظر البوّابة**: في الويب يقع التنقّل خلف الطبقة.
+  ///    فتبقى البوّابة فوق الوجهة الصحيحة، وتنكشف عنها عند منح الإذن.
+  void _consumePending() {
+    if (_app.session != SessionState.authenticated) return;
+    final target = _app.pending;
+    if (target == null) return;
+
+    // مطابقة الموقع الحاليّ تمنع تنقّلاً لا يغيّر شيئاً
+    if (currentLocation == target) {
+      _app.takePending();
       return;
     }
-    final p = await PushService.instance.permission();
-    if (!mounted) return;
-    setState(() {
-      _perm = p;
-      // `unsupported` لا تحجب: جهاز بلا خدمات Google لا يستطيع تفعيل
-      // شيئاً مهما فعل، وحجبه يعني تطبيقاً لا يُفتح أبداً. الويب كان
-      // يعرض رمز تجاوز؛ هنا نمرّره ونكتفي بغياب الإشعارات.
-      _state = (p == PushPermission.granted || p == PushPermission.unsupported)
-          ? _ShellState.ready
-          : _ShellState.gate;
-    });
-  }
-
-  void _onAuthDone() {
-    // 🔴 إعادة المصافحة إلزامية: السوكِت أُنشئ عند الإقلاع بلا رمز،
-    //    والانضمام إلى غرفة `player:{id}` يقع عند المصافحة وحدها.
-    SocketService.instance.reauth();
-    _evaluate();
-  }
-
-  void _onLoggedOut() {
-    SocketService.instance.reauth();
-    setState(() => _state = _ShellState.unauthenticated);
+    _app.takePending();
+    WidgetsBinding.instance.addPostFrameCallback((_) => navigateTo(target));
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: widget.config.appName,
       debugShowCheckedModeBanner: false,
       theme: buildNoirTheme(),
+      routerConfig: _router,
 
       // ── عربيّ RTL فقط ──
       locale: const Locale('ar'),
@@ -98,12 +106,12 @@ class _MafiaAppState extends State<MafiaApp> {
             // ⚠️ StackFit.expand إلزاميّ. المكدّس الافتراضيّ `loose`،
             //    فيمرّر لابنه غير المموضَع قيوداً فضفاضة فيتقلّص إلى حجم
             //    محتواه — والنتيجة Scaffold لا يملأ الشاشة، وشريط التنقّل
-            //    يستقرّ في منتصفها. لم يظهر في M0 لأن شاشة الهويّة كانت
-            //    تمرير قائمة يملأ وحده؛ ظهر لحظة أن صار للجسم محتوى قصير.
+            //    يستقرّ في منتصفها.
             child: Stack(
               fit: StackFit.expand,
               children: [
                 child ?? const SizedBox.shrink(),
+                if (_showGate) const Positioned.fill(child: _Gate()),
                 // الضجيج فوق كل شيء دائماً — آخر عنصر في المكدّس
                 const Positioned.fill(child: NoiseOverlay()),
               ],
@@ -111,41 +119,25 @@ class _MafiaAppState extends State<MafiaApp> {
           ),
         );
       },
-
-      home: switch (_state) {
-        _ShellState.loading => const _SessionLoading(),
-        _ShellState.unauthenticated => AuthScreen(onDone: _onAuthDone),
-        _ShellState.gate => NotificationGate(status: _perm, onResolved: _evaluate),
-        _ShellState.ready => ShellScreen(config: widget.config, onLoggedOut: _onLoggedOut),
-      },
     );
+  }
+
+  /// البوّابة تُعرض للمسجّل وحده، وخارج المسارات العامّة ومسار الكود.
+  bool get _showGate {
+    if (_app.session != SessionState.authenticated || _app.gatePassed) return false;
+    final loc = currentLocation ?? '';
+    final path = Uri.tryParse(loc)?.path ?? loc;
+    if (path.startsWith('/join/')) return false;
+    return !Routes.publicPaths.contains(path);
   }
 }
 
-/// شاشة استعادة الجلسة — §4.1 في الملفّ 11.
-class _SessionLoading extends StatelessWidget {
-  const _SessionLoading();
+class _Gate extends StatelessWidget {
+  const _Gate();
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
-        backgroundColor: Noir.pitchBlack,
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 48, height: 48,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFFF59E0B),
-                  backgroundColor: Color(0x4DF59E0B),
-                ),
-              ),
-              SizedBox(height: 16),
-              Text('جاري التحميل...',
-                  style: TextStyle(fontFamily: 'Tajawal', fontSize: 14, color: Color(0x99F59E0B), letterSpacing: 0)),
-            ],
-          ),
-        ),
+  Widget build(BuildContext context) => NotificationGate(
+        status: AppState.instance.permission,
+        onResolved: AppState.instance.evaluate,
       );
 }

@@ -2,9 +2,9 @@ import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../app/router.dart';
 import '../../core/api/api_client.dart';
 import '../../models/notification.dart';
 import '../profile/profile_palette.dart';
@@ -78,10 +78,7 @@ class _DetailState extends State<_Detail> {
 
   Future<void> _openUrl(String u) async {
     Navigator.of(context).pop();
-    if (isExternalUrl(u)) {
-      await launchUrl(Uri.parse(u), mode: LaunchMode.externalApplication);
-    }
-    // المسارات الداخلية تنتظر go_router (الملفّ 08)
+    await navigateTo(u);
   }
 
   @override

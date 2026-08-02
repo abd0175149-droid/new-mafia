@@ -7,6 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../models/notification.dart';
 import '../notifications/inbox_service.dart';
 
 import '../api/api_client.dart';
@@ -238,8 +239,19 @@ class PushService {
     );
   }
 
-  void _routeFromData(Map<String, dynamic> data) =>
-      _routeFromPayload((data['route'] ?? data['url']) as String?);
+  /// 🔴 `data.url` يتغلّب على الجدول (قاعدة `notificationclick` المنقولة)،
+  ///    ثم يُحلّ النوع عبر **نفس** المحلّل الذي يقرأه صندوق الوارد. كان
+  ///    في الويب محلّلان — واحد هنا وآخر في الصندوق — فالإشعار نفسه ينقل
+  ///    حين يصل من النظام ولا ينقل حين يُفتح من القائمة.
+  void _routeFromData(Map<String, dynamic> data) {
+    final explicit = (data['route'] ?? data['url'])?.toString().trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      _routeFromPayload(explicit);
+      return;
+    }
+    _routeFromPayload(resolveNotificationUrl(
+        (data['type'] ?? '').toString(), Map<String, dynamic>.from(data)));
+  }
 
   void _routeFromPayload(String? route) {
     if (route == null || route.isEmpty) return;

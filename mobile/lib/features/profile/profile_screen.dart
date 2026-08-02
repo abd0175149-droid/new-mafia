@@ -4,10 +4,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../app/app_state.dart';
 import '../../app/config.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/auth_repository.dart';
+import '../../core/socket/socket_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../core/ui/toast.dart';
 import '../../models/profile.dart';
@@ -29,10 +31,10 @@ import 'progress_guide.dart';
 //    من غيابه.
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, required this.config, required this.onLoggedOut});
+  const ProfileScreen({super.key, required this.config});
 
   final AppConfig config;
-  final VoidCallback onLoggedOut;
+
 
   @override
   State<ProfileScreen> createState() => ProfileScreenState();
@@ -439,7 +441,7 @@ class ProfileScreenState extends State<ProfileScreen> {
     // تحتاجه بالضبط اليوم (إذن الإشعارات، حالة السوكِت، اختبار REST).
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => CoreStatusScreen(
-          config: widget.config, onLoggedOut: widget.onLoggedOut),
+          config: widget.config),
     ));
   }
 
@@ -461,7 +463,8 @@ class ProfileScreenState extends State<ProfileScreen> {
   Widget _logoutButton() => InkWell(
         onTap: () async {
           await AuthRepository.instance.logout();
-          if (mounted) widget.onLoggedOut();
+          SocketService.instance.reauth();
+          AppState.instance.onLoggedOut();
         },
         borderRadius: BorderRadius.circular(12),
         child: Container(

@@ -1,7 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/push/push_service.dart';
@@ -87,14 +87,10 @@ class _InboxSheetState extends State<_InboxSheet> {
   }
 
   Future<void> _go(String url) async {
-    if (isExternalUrl(url)) {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      return;
-    }
-    // 📌 المسارات الداخلية تنتظر go_router (الملفّ 08) ومعه شاشات
-    //    الألعاب والدخول والطلبات. حتى ذلك الحين يُغلق الصندوق فقط —
-    //    الإشعار عُلّم مقروءاً وهو الأثر الذي يهمّ اللاعب الآن.
-    if (mounted) Navigator.of(context).pop();
+    // الصندوق يُغلق أوّلاً: التنقّل خلف ورقةٍ مفتوحة يترك اللاعب أمام
+    // إشعاراته لا أمام وجهته.
+    Navigator.of(context).pop();
+    await navigateTo(url);
   }
 
   @override
