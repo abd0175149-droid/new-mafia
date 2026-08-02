@@ -4,8 +4,8 @@ import '../../app/config.dart';
 import '../../app/theme/theme.dart';
 import '../../core/ui/atmosphere.dart';
 import '../home/home_screen.dart';
+import '../profile/profile_screen.dart';
 import 'bottom_nav.dart';
-import 'core_status_screen.dart';
 
 // ══════════════════════════════════════════════════════
 // 🏠 الغلاف الطبيعيّ — §4.7 في الملفّ 11
@@ -26,6 +26,18 @@ class ShellScreen extends StatefulWidget {
 class _ShellScreenState extends State<ShellScreen> {
   int _index = 0;
 
+  /// الملفّ الشخصيّ يحفظ حالته داخل IndexedStack، والويب يعيد بناء
+  /// الصفحة عند كل تنقّل. المفتاح يتيح جلباً صريحاً عند العودة للتبويب
+  /// حتى لا يقرأ اللاعب رتبةً قديمة بعد مباراة.
+  final _profileKey = GlobalKey<ProfileScreenState>();
+
+  static const _profileTab = 4;
+
+  void _select(int i) {
+    setState(() => _index = i);
+    if (i == _profileTab) _profileKey.currentState?.reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -41,16 +53,15 @@ class _ShellScreenState extends State<ShellScreen> {
             const _TabPlaceholder(title: 'الألعاب', icon: Icons.sports_esports_outlined, file: '14-games-invites.md'),
             const _TabPlaceholder(title: 'ادخل', icon: Icons.verified_user_outlined, file: '21-join-lobby.md'),
             const _TabPlaceholder(title: 'التصنيف', icon: Icons.star_outline, file: '15-rank.md'),
-            // «حسابي» يحمل مؤقّتاً شاشة حالة النواة — فيها الخروج، وهي
-            // الشيء الوحيد من M1 الذي يلزم بقاؤه حتى تصل شاشة الملفّ 13.
-            CoreStatusScreen(config: widget.config, onLoggedOut: widget.onLoggedOut),
+            ProfileScreen(
+              key: _profileKey,
+              config: widget.config,
+              onLoggedOut: widget.onLoggedOut,
+            ),
           ],
         ),
       ),
-      bottomNavigationBar: MafiaBottomNav(
-        index: _index,
-        onTap: (i) => setState(() => _index = i),
-      ),
+      bottomNavigationBar: MafiaBottomNav(index: _index, onTap: _select),
     );
   }
 }

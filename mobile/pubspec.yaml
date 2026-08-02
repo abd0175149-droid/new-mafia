@@ -44,6 +44,10 @@ dependencies:
   cached_network_image: ^3.4.1
   dotted_border: ^2.1.0
 
+  # الأفاتار: اختيار من المعرض ثم ترميز ناتج القص JPEG بجودة 92
+  image_picker: ^1.1.2
+  image: ^4.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

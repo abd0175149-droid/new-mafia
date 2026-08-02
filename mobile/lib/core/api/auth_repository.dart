@@ -86,12 +86,31 @@ class AuthRepository {
   /// تغيير كلمة السرّ.
   ///
   /// `oldPassword` مطلوبة خادمياً **إلا** حين يكون `mustChangePassword`
-  /// مرفوعاً — وهي الحالة الوحيدة التي تستدعيها هذه الشاشة، فلا تُرسَل.
-  Future<void> changePassword(String newPassword) async {
-    await _api.post('/api/player-auth/change-password', body: {'newPassword': newPassword});
+  /// مرفوعاً — وهي حالة تدفّق الدخول الإجباريّ، فتُترك فارغة هناك.
+  ///
+  /// 🔴 انحراف واعٍ عن الويب: صفحة البروفايل في الويب ترسل الحقل باسم
+  ///    `currentPassword`، والخادم يقرأ `oldPassword` — أي أنّ التحقّق من
+  ///    كلمة السرّ القديمة لا يجري أصلاً، ويردّ الخادم «كلمة المرور
+  ///    القديمة مطلوبة» على كل محاولة. نرسل الاسم القانونيّ فتعمل
+  ///    الحماية فعلاً ويعمل النموذج.
+  Future<void> changePassword(String newPassword, {String? oldPassword}) async {
+    final res = await _api.post('/api/player-auth/change-password', body: {
+      if (oldPassword != null && oldPassword.isNotEmpty) 'oldPassword': oldPassword,
+      'newPassword': newPassword,
+    });
+
+    // الخادم يُصدر رمزاً جديداً عند التغيير. تجاهله يعني جلسةً تعمل
+    // بالرمز القديم حتى انتهائه — والويب يفعل ذلك. نخزّنه.
+    final token = res is Map ? res['token'] : null;
     final p = _session.player;
-    if (p != null) {
-      await _session.updatePlayer(PlayerData.fromJson({...p.toJson(), 'mustChangePassword': false}));
+    final updated = p == null
+        ? null
+        : PlayerData.fromJson({...p.toJson(), 'mustChangePassword': false});
+
+    if (token is String && token.isNotEmpty && updated != null) {
+      await _session.save(token: token, player: updated);
+    } else if (updated != null) {
+      await _session.updatePlayer(updated);
     }
   }
 
