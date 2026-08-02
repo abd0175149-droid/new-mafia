@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:app_settings/app_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../notifications/inbox_service.dart';
 
 import '../api/api_client.dart';
 import '../storage/session_store.dart';
@@ -80,7 +85,12 @@ class PushService {
       FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
 
       // إشعار وصل والتطبيق مفتوح: أندرويد لا يعرضه تلقائياً، فنعرضه محلياً.
-      FirebaseMessaging.onMessage.listen(_showForeground);
+      FirebaseMessaging.onMessage.listen((m) {
+        _showForeground(m);
+        // الرسالة نفسها ليست مصدر الصندوق — الخادم هو. المحتوى هنا
+        // مجرّد محفّز لإعادة الجلب (نفس منطق الويب).
+        unawaited(InboxService.instance.refresh());
+      });
 
       // نقرة على إشعار والتطبيق في الخلفية
       FirebaseMessaging.onMessageOpenedApp.listen((m) => _routeFromData(m.data));
@@ -108,6 +118,17 @@ class PushService {
   ///
   ///    فنحفظ بأنفسنا أننا سألنا. لم نسأل ⇒ prompt مهما قال النظام.
   ///    (iOS يميّز notDetermined فعلاً، والعلم لا يضرّه.)
+  /// إذنٌ مرفوض على أندرويد ١٣+ **لا يُطلب ثانيةً** — النظام يردّ فوراً
+  /// بالرفض بلا حوار. الطريق الوحيد إعدادات التطبيق.
+  Future<void> openSettings() async {
+    try {
+      await AppSettings.openAppSettings(type: AppSettingsType.notification);
+    } catch (_) {
+      // بعض المصنّعين لا يملك شاشة إشعارات مستقلّة — نفتح صفحة التطبيق
+      try { await AppSettings.openAppSettings(); } catch (_) {}
+    }
+  }
+
   Future<PushPermission> permission() async {
     if (!_ready) await init();
     if (!_ready) return PushPermission.unsupported; // فشلت التهيئة نهائياً

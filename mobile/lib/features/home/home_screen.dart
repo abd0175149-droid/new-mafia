@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/notifications/inbox_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/home.dart';
+import '../notifications/inbox_sheet.dart';
 import '../shell/chips_balance_pill.dart';
 
 // ══════════════════════════════════════════════════════
@@ -136,22 +138,60 @@ class _Loading extends StatelessWidget {
       );
 }
 
-/// جرس الإشعارات — الشارة والصندوق في الملفّ 19.
+/// جرس الإشعارات وشارته — الملفّ 19.
 class _BellButton extends StatelessWidget {
   const _BellButton();
 
   @override
-  Widget build(BuildContext context) => InkWell(
-        onTap: () {}, // 19-notifications-inbox.md
-        borderRadius: NoirRadius.soft,
-        child: Container(
-          width: 42, height: 42,
-          decoration: const BoxDecoration(
-            color: Color(0x14FFFFFF),
+  Widget build(BuildContext context) => AnimatedBuilder(
+        // نسخة واحدة يستمع إليها الجرس والصندوق — العدّ لا يفترقان فيه
+        animation: InboxService.instance,
+        builder: (_, __) {
+          final unread = InboxService.instance.unreadCount;
+          return InkWell(
+            onTap: () => showInbox(context),
             borderRadius: NoirRadius.soft,
-          ),
-          child: const Center(child: Text('🔔', style: TextStyle(fontSize: 20))),
-        ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 42, height: 42,
+                  decoration: BoxDecoration(
+                    color: const Color(0x14FFFFFF),
+                    borderRadius: NoirRadius.soft,
+                    border: Border.all(color: const Color(0x1FFFFFFF)),
+                  ),
+                  child: const Center(child: Text('🔔', style: TextStyle(fontSize: 20))),
+                ),
+                if (unread > 0)
+                  // 🔴 `Positioned` لا `PositionedDirectional`: الشارة عنصر
+                  //    بصريّ لا نصّيّ، وموضعها أعلى-يمين الأيقونة في كل اتجاه.
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 20),
+                      height: 20,
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEF4444),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Center(
+                        child: Text(InboxService.instance.badgeText,
+                            style: const TextStyle(
+                                fontFamily: 'Tajawal',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: 0)),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       );
 }
 

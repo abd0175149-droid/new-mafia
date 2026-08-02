@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/config.dart';
 import '../../app/theme/theme.dart';
+import '../../core/notifications/inbox_service.dart';
 import '../../core/ui/atmosphere.dart';
 import '../home/home_screen.dart';
 import '../profile/profile_screen.dart';
@@ -35,6 +36,20 @@ class _ShellScreenState extends State<ShellScreen> {
 
   static const _rankTab = 3;
   static const _profileTab = 4;
+
+  @override
+  void initState() {
+    super.initState();
+    // صندوق الإشعارات يبدأ مع الغلاف ويتوقّف معه — الجرس في ترويسة
+    // الرئيسية يقرأ عدّه، فلا بدّ أن يعمل قبل أوّل بناء لها.
+    InboxService.instance.start();
+  }
+
+  @override
+  void dispose() {
+    InboxService.instance.stop();
+    super.dispose();
+  }
 
   void _select(int i) {
     setState(() => _index = i);

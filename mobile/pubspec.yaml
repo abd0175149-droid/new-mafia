@@ -48,6 +48,12 @@ dependencies:
   image_picker: ^1.1.2
   image: ^4.3.0
 
+  # إذنٌ مرفوض لا يُطلب ثانيةً على أندرويد — الطريق الوحيد إعدادات النظام
+  app_settings: ^5.1.1
+
+  # فيديو الإشعارات الغنية (إعلانات النادي) — تشغيل داخل التطبيق
+  video_player: ^2.9.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
