@@ -9,6 +9,7 @@ import '../features/join/join_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/rank/rank_screen.dart';
 import '../features/shell/shell_screen.dart';
+import '../features/wallet/wallet_screen.dart';
 import 'app_state.dart';
 import 'config.dart';
 import 'theme/theme.dart';
@@ -27,6 +28,7 @@ abstract final class Routes {
   static const join = '/player/join';
   static const rank = '/player/rank';
   static const profile = '/player/profile';
+  static const wallet = '/player/wallet';
 
   /// عامّة دائماً — لا حارس ولا بوّابة ولا انتظار جلسة.
   static const publicPaths = <String>[login, '/player/debug-push'];
@@ -84,6 +86,11 @@ GoRouter buildRouter(AppConfig config) {
     },
 
     routes: [
+      GoRoute(
+        path: Routes.wallet,
+        builder: (_, __) => const WalletScreen(),
+      ),
+
       GoRoute(
         path: Routes.login,
         builder: (_, __) => const AuthScreen(),
