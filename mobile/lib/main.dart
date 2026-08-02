@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app/app.dart';
 import 'app/config.dart';
 import 'app/theme/theme.dart';
+import 'core/api/api_client.dart';
+import 'core/api/auth_repository.dart';
+import 'core/push/push_service.dart';
+import 'core/socket/socket_service.dart';
+import 'core/storage/session_store.dart';
 
 // ══════════════════════════════════════════════════════
 // 🚀 الإقلاع المشترك — §6.1
@@ -34,9 +41,25 @@ Future<void> bootstrap(AppConfig config) async {
   // حسابه عند كل تحديث، وضياع ملاحظاته وسط لعبة.
   await _clearStaleCachesOnUpgrade();
 
-  // 🔌 مقعد Firebase — يُملأ في M1 مع الملفّ 06.
-  //    لا يُستدعى الآن: Firebase.initializeApp بلا google-services.json
-  //    يرمي عند الإقلاع، ولا معنى لتسجيل تطبيق قبل وجود حساب متجر.
+  // ══════════════════════════════════════════════════════
+  // 🔴 الترتيب هنا ليس تفصيلاً
+  // ══════════════════════════════════════════════════════
+  // ① الجلسة تُقرأ أوّلاً — كل ما بعدها يحتاج الرمز.
+  // ② العميل يُهيَّأ ثانياً — يقرأ الرمز من الجلسة عند كل نداء.
+  // ③ السوكِت آخراً — يقرأ الرمز **عند المصافحة وحدها** وينضمّ إلى
+  //    غرفة `player:{id}` بناءً عليه. سوكِتٌ اتّصل قبل قراءة الجلسة لا
+  //    يدخل الغرفة أبداً، ولا يصله حدث، ولا يُصلحه جلب لاحق.
+  await SessionStore.instance.load();
+  ApiClient.instance.init(config);
+  SocketService.instance.connect(config);
+
+  // الإشعارات تُهيَّأ بلا طلب إذن — الإذن يُطلب بعد الدخول (انظر
+  // PushService). طلبه عند أوّل إقلاع يُرفض غالباً، ورفض أندرويد ١٣
+  // نهائيّ لا يُعاد طلبه.
+  unawaited(PushService.instance.init());
+
+  // رمز محفوظ قد يكون انتهى — نتحقّق في الخلفية بلا تعطيل الإقلاع
+  unawaited(AuthRepository.instance.refresh());
 
   runApp(ProviderScope(child: MafiaApp(config: config)));
 }

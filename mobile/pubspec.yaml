@@ -21,7 +21,17 @@ dependencies:
   # الحركة
   flutter_animate: ^4.5.2
 
+  # الشبكة
+  dio: ^5.7.0
+  socket_io_client: ^3.0.2
+
+  # الإشعارات
+  firebase_core: ^3.8.1
+  firebase_messaging: ^15.1.6
+  flutter_local_notifications: ^18.0.1
+
   # التخزين
+  flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.3.3
   hive: ^2.2.3
   hive_flutter: ^1.1.0
@@ -29,6 +39,7 @@ dependencies:
   # أدوات
   intl: ^0.20.1
   package_info_plus: ^8.1.2
+  device_info_plus: ^11.2.0
   url_launcher: ^6.3.1
   cached_network_image: ^3.4.1
   dotted_border: ^2.1.0
