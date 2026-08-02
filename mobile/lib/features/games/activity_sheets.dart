@@ -12,6 +12,9 @@ import '../profile/profile_palette.dart';
 //    من الأسفل فيبقى شريط التنقّل ظاهراً وقابلاً للنقر. عرضهما على
 //    الـnavigator الجذر يغطّي الشريط ويكسر ذلك.
 
+/// ارتفاع شريط التنقّل — الورقة تنتهي فوقه لا خلفه.
+const double kNavInset = 64;
+
 BoxDecoration _sheetSkin() => const BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topCenter,
@@ -71,7 +74,11 @@ class _DetailsSheet extends StatelessWidget {
     return DecoratedBox(
       decoration: _sheetSkin(),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        // 🔴 حشوة سفلية بقدر شريط التنقّل: الورقة تُعرض على navigator
+        //    الفرع فتمتدّ خلف الشريط، فيغطّي الشريطُ أزرارها. رأيت
+        //    «احجز الآن» نصفه تحت الشريط على الجهاز.
+        padding: EdgeInsets.fromLTRB(
+            24, 24, 24, 24 + kNavInset + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -265,7 +272,11 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
     return DecoratedBox(
       decoration: _sheetSkin(),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        // 🔴 حشوة سفلية بقدر شريط التنقّل: الورقة تُعرض على navigator
+        //    الفرع فتمتدّ خلف الشريط، فيغطّي الشريطُ أزرارها. رأيت
+        //    «احجز الآن» نصفه تحت الشريط على الجهاز.
+        padding: EdgeInsets.fromLTRB(
+            24, 24, 24, 24 + kNavInset + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

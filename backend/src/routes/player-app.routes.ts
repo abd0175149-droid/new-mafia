@@ -139,7 +139,13 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
     }
 
     // إنشاء الحجز (count=1 دائماً — لنفسه فقط)
-    const { offerId } = req.body;
+    // 🔴 offerId هو **فهرس** في locations.offers، وصفرٌ فهرسٌ صحيح.
+    //    كان الشرط `offerId ? [offerId] : []` يبتلع الاختيار الأول صامتاً:
+    //    فاللاعب الذي يختار أول باقة يُسجَّل كمن لم يختر شيئاً — يختفي من
+    //    تقرير مبيعات الإضافات، وتُتخطّى بوّابة سعر التذكرة في اللوبي التي
+    //    تمنع الدخول عند دفعٍ ناقص. وُجد بالاختبار من التطبيق.
+    const rawOfferId = req.body.offerId;
+    const offerId = Number.isInteger(rawOfferId) && rawOfferId >= 0 ? rawOfferId : null;
     const result = await db.insert(bookings).values({
       activityId,
       name: player.name,
@@ -150,7 +156,7 @@ router.post('/book', authenticatePlayer, requireNoPendingFeedback, async (req: R
       isFree: isFreeAccount,
       playerId: player.playerId,
       createdBy: 'player-app',
-      offerItems: offerId ? [offerId] : [],
+      offerItems: offerId === null ? [] : [offerId],
     } as any).returning();
 
     // 📋 حجز المتابعة: حجز اللاعب بنفسه من التطبيق = تثبيتٌ تلقائيّ (أقوى تأكيدٍ من ردّ الواتساب).
