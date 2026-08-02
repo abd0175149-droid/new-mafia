@@ -457,8 +457,11 @@ class LeaderboardCard extends StatelessWidget {
 // §4.3.8 آخر المباريات
 // ══════════════════════════════════════════════════════
 class MatchHistoryCard extends StatefulWidget {
-  const MatchHistoryCard({super.key, required this.matches});
+  const MatchHistoryCard({super.key, required this.matches, this.onOpenFullHistory});
   final List<MatchHistoryEntry> matches;
+
+  /// السجلّ الكامل — الملفّ 16. غيابه يُخفي الزرّ بدل أن يعطّله.
+  final VoidCallback? onOpenFullHistory;
 
   @override
   State<MatchHistoryCard> createState() => _MatchHistoryCardState();
@@ -476,7 +479,26 @@ class _MatchHistoryCardState extends State<MatchHistoryCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          cardTitle('📜 آخر المباريات'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              cardTitle('📜 آخر المباريات'),
+              if (widget.onOpenFullHistory != null)
+                InkWell(
+                  onTap: widget.onOpenFullHistory,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0x33FBBF24)),
+                    ),
+                    child: Text('عرض السجل التفصيلي',
+                        style: ar(10, color: Tw.amber400)),
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 10),
           for (var i = 0; i < rows.length; i++)
             Padding(

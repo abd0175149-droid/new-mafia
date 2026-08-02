@@ -11,6 +11,7 @@ import '../../core/api/auth_repository.dart';
 import '../../core/storage/session_store.dart';
 import '../../core/ui/toast.dart';
 import '../../models/profile.dart';
+import '../history/history_screen.dart';
 import '../shell/core_status_screen.dart';
 import 'avatar_cropper.dart';
 import 'profile_palette.dart';
@@ -23,11 +24,9 @@ import 'progress_guide.dart';
 // ══════════════════════════════════════════════════════
 // REST بالكامل: **لا سوكِت في هذه الشاشة إطلاقاً**.
 //
-// 📌 مؤجَّل بوعي، لا منسيّ:
-//    • «تعرف على الكروت والأدوار» (§4.3.7) → مودال الأدوار في الملفّ 22،
-//      وهو من طبقة اللعب في M4/M5. زرٌّ يعتذر أسوأ من غيابه.
-//    • «عرض السجل التفصيلي» (§4.3.8) → شاشة السجل في الملفّ 16، بعد
-//      هذه الشاشة في نفس المرحلة. الصفوف الثمانية موجودة الآن.
+// 📌 مؤجَّل بوعي، لا منسيّ: «تعرف على الكروت والأدوار» (§4.3.7) → مودال
+//    الأدوار في الملفّ 22، وهو من طبقة اللعب في M4/M5. زرٌّ يعتذر أسوأ
+//    من غيابه.
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, required this.config, required this.onLoggedOut});
@@ -398,7 +397,11 @@ class ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 20),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: MatchHistoryCard(matches: p.matchHistory),
+            child: MatchHistoryCard(
+              matches: p.matchHistory,
+              onOpenFullHistory: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const HistoryScreen())),
+            ),
           ),
         ],
         const SizedBox(height: 20),
