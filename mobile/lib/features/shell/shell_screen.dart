@@ -46,6 +46,7 @@ class _ShellScreenState extends State<ShellScreen> {
     widget.shell.goBranch(i, initialLocation: i == widget.shell.currentIndex);
 
     // الفرع محفوظ الحالة، فلا يُعيد الجلب بنفسه — نطلبه صراحةً
+    if (i == 1) gamesTabKey.currentState?.reload();
     if (i == 3) rankTabKey.currentState?.reload();
     if (i == 4) profileTabKey.currentState?.reload();
   }

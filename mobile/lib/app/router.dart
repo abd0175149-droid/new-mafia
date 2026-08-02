@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
+import '../features/games/games_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/join/join_screen.dart';
 import '../features/profile/profile_screen.dart';
@@ -36,6 +37,7 @@ final _rootKey = GlobalKey<NavigatorState>();
 // 🔴 `goBranch` لا يعيد بناء الفرع — حالته محفوظة بالتصميم. فالعودة إلى
 //    «التصنيف» بعد مباراة كانت ستعرض RR القديم إلى الأبد. المفاتيح تتيح
 //    جلباً صريحاً عند نقر التبويب (نفس ما كان يفعله IndexedStack يدوياً).
+final gamesTabKey = GlobalKey<GamesScreenState>();
 final rankTabKey = GlobalKey<RankScreenState>();
 final profileTabKey = GlobalKey<ProfileScreenState>();
 
@@ -100,7 +102,10 @@ GoRouter buildRouter(AppConfig config) {
         builder: (_, __, shell) => ShellScreen(config: config, shell: shell),
         branches: [
           _branch(Routes.home, (_, __) => const HomeScreen()),
-          _branch(Routes.games, (_, __) => const _Pending(title: 'الألعاب', file: '14-games-invites.md')),
+          _branch(Routes.games, (_, s) => GamesScreen(
+                key: gamesTabKey,
+                focusActivityId: int.tryParse(s.uri.queryParameters['activityId'] ?? ''),
+              )),
           _branch(Routes.join, (_, s) => JoinScreen(
                 initialCode: s.uri.queryParameters['code'],
                 invite: s.uri.queryParameters['invite'] == '1',
@@ -156,36 +161,4 @@ class _SilentRedirect extends StatelessWidget {
     });
     return const Scaffold(backgroundColor: Noir.pitchBlack);
   }
-}
-
-/// تبويب لم يُبنَ بعد — يقول أيّ ملفّ مواصفة يملؤه، فلا يُقرأ عطلاً.
-class _Pending extends StatelessWidget {
-  const _Pending({required this.title, required this.file});
-
-  final String title, file;
-
-  @override
-  Widget build(BuildContext context) => SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 80, left: 24, right: 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.sports_esports_outlined, size: 56, color: MafiaScales.dark[700]),
-                const SizedBox(height: 16),
-                Text(title, style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 8),
-                Text('يُبنى قريباً', style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 4),
-                // اسم ملفّ لاتينيّ داخل واجهة RTL يُقلب بصرياً
-                Directionality(
-                  textDirection: TextDirection.ltr,
-                  child: Text(file, style: monoStyle(size: 11, color: MafiaScales.dark[600]!)),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
 }
