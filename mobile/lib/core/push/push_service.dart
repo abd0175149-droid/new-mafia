@@ -2,6 +2,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
 import '../storage/session_store.dart';
@@ -20,6 +21,12 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint('🔔 إشعار في الخلفية: ${message.messageId}');
 }
+
+/// حالة الإذن كما تحتاجها بوابة الإشعارات.
+///
+/// `unsupported` تقع على أندرويد بلا خدمات Google حين تفشل تهيئة FCM
+/// نهائياً — لا تقع على iOS أبداً (APNs مدمج).
+enum PushPermission { granted, prompt, denied, unsupported }
 
 class PushService {
   PushService._();
@@ -89,11 +96,59 @@ class PushService {
     }
   }
 
+  static const _kAsked = 'push_permission_asked';
+
+  /// حالة الإذن الآن — تُقرأ من النظام لا من علم محليّ، فالمستخدم قد
+  /// يغيّرها من الإعدادات ونحن في الخلفية.
+  ///
+  /// 🔴 على أندرويد لا يوجد «لم يُسأل بعد»: قبل الطلب وبعد الرفض كلاهما
+  ///    `denied`. فالاعتماد على النظام وحده يعرض شاشة «الإشعارات محظورة
+  ///    بالخطأ» لمن لم يُسأل قطّ — رأيتها كذلك على الجهاز، وهي تتّهم
+  ///    المستخدم بفعل لم يفعله وتطلب منه إصلاحاً في الإعدادات بلا سبب.
+  ///
+  ///    فنحفظ بأنفسنا أننا سألنا. لم نسأل ⇒ prompt مهما قال النظام.
+  ///    (iOS يميّز notDetermined فعلاً، والعلم لا يضرّه.)
+  Future<PushPermission> permission() async {
+    if (!_ready) await init();
+    if (!_ready) return PushPermission.unsupported; // فشلت التهيئة نهائياً
+    try {
+      final s = await _fcm.getNotificationSettings();
+      switch (s.authorizationStatus) {
+        case AuthorizationStatus.authorized:
+        case AuthorizationStatus.provisional:
+          return PushPermission.granted;
+        case AuthorizationStatus.denied:
+          final prefs = await SharedPreferences.getInstance();
+          return prefs.getBool(_kAsked) == true
+              ? PushPermission.denied
+              : PushPermission.prompt;
+        default:
+          return PushPermission.prompt;
+      }
+    } catch (_) {
+      return PushPermission.unsupported;
+    }
+  }
+
+  /// يفتح إعدادات إشعارات التطبيق في النظام — لمن رفض الإذن نهائياً.
+  Future<void> openSystemSettings() async {
+    try {
+      await _local
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.requestNotificationsPermission();
+    } catch (e) {
+      debugPrint('⚠️ تعذّر فتح الإعدادات: $e');
+    }
+  }
+
   /// يُطلب الإذن **بعد** الدخول لا عند أوّل إقلاع: طلبٌ قبل أن يفهم
   /// اللاعب لماذا يُرفض غالباً، ورفضُ أندرويد ١٣ نهائيّ لا يُعاد طلبه.
   Future<bool> requestPermissionAndRegister() async {
     if (!_ready) await init();
     try {
+      // يُوسم أوّلاً: الرفض يجب أن يُسجَّل كما يُسجَّل القبول، وإلا بقيت
+      // البوابة تعرض «اطلب الإذن» إلى الأبد لمن رفض.
+      (await SharedPreferences.getInstance()).setBool(_kAsked, true);
       final s = await _fcm.requestPermission(alert: true, badge: true, sound: true);
       final granted = s.authorizationStatus == AuthorizationStatus.authorized ||
           s.authorizationStatus == AuthorizationStatus.provisional;

@@ -3,15 +3,22 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'config.dart';
 import 'theme/theme.dart';
+import '../core/push/push_service.dart';
 import '../core/socket/socket_service.dart';
 import '../core/storage/session_store.dart';
 import '../core/ui/atmosphere.dart';
-import '../features/auth/login_screen.dart';
-import '../features/shell/core_status_screen.dart';
+import '../features/auth/auth_screen.dart';
+import '../features/gates/notification_gate.dart';
+import '../features/shell/shell_screen.dart';
 
 // ══════════════════════════════════════════════════════
-// 📱 جذر التطبيق
+// 📱 جذر التطبيق + آلة حالات القشرة
 // ══════════════════════════════════════════════════════
+// الترتيب الصارم (§6.1 في الملفّ 11): مصادقة ← بوابة الإشعارات ←
+// الغلاف الطبيعيّ. تُعاد التقييم عند كل تغيّر مدخلات وعند العودة من
+// الخلفية.
+
+enum _ShellState { loading, unauthenticated, gate, ready }
 
 class MafiaApp extends StatefulWidget {
   const MafiaApp({super.key, required this.config});
@@ -23,18 +30,44 @@ class MafiaApp extends StatefulWidget {
 }
 
 class _MafiaAppState extends State<MafiaApp> {
-  late bool _loggedIn = SessionStore.instance.isLoggedIn;
+  _ShellState _state = _ShellState.loading;
+  PushPermission _perm = PushPermission.prompt;
 
-  void _onLoggedIn() {
-    // 🔴 إعادة المصافحة إلزامية هنا. السوكِت أُنشئ عند الإقلاع بلا رمز،
-    //    والانضمام إلى غرفة `player:{id}` يقع عند المصافحة وحدها — فبلا
-    //    هذا السطر يبقى اللاعب خارج غرفته بعد دخول ناجح، ولا يصله حدث
-    //    واحد، ولا يظهر أي خطأ يدلّ على السبب.
-    SocketService.instance.reauth();
-    setState(() => _loggedIn = true);
+  @override
+  void initState() {
+    super.initState();
+    _evaluate();
   }
 
-  void _onLoggedOut() => setState(() => _loggedIn = false);
+  Future<void> _evaluate() async {
+    if (!SessionStore.instance.isLoggedIn) {
+      setState(() => _state = _ShellState.unauthenticated);
+      return;
+    }
+    final p = await PushService.instance.permission();
+    if (!mounted) return;
+    setState(() {
+      _perm = p;
+      // `unsupported` لا تحجب: جهاز بلا خدمات Google لا يستطيع تفعيل
+      // شيئاً مهما فعل، وحجبه يعني تطبيقاً لا يُفتح أبداً. الويب كان
+      // يعرض رمز تجاوز؛ هنا نمرّره ونكتفي بغياب الإشعارات.
+      _state = (p == PushPermission.granted || p == PushPermission.unsupported)
+          ? _ShellState.ready
+          : _ShellState.gate;
+    });
+  }
+
+  void _onAuthDone() {
+    // 🔴 إعادة المصافحة إلزامية: السوكِت أُنشئ عند الإقلاع بلا رمز،
+    //    والانضمام إلى غرفة `player:{id}` يقع عند المصافحة وحدها.
+    SocketService.instance.reauth();
+    _evaluate();
+  }
+
+  void _onLoggedOut() {
+    SocketService.instance.reauth();
+    setState(() => _state = _ShellState.unauthenticated);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +95,13 @@ class _MafiaAppState extends State<MafiaApp> {
           data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(clamped)),
           child: Directionality(
             textDirection: TextDirection.rtl,
+            // ⚠️ StackFit.expand إلزاميّ. المكدّس الافتراضيّ `loose`،
+            //    فيمرّر لابنه غير المموضَع قيوداً فضفاضة فيتقلّص إلى حجم
+            //    محتواه — والنتيجة Scaffold لا يملأ الشاشة، وشريط التنقّل
+            //    يستقرّ في منتصفها. لم يظهر في M0 لأن شاشة الهويّة كانت
+            //    تمرير قائمة يملأ وحده؛ ظهر لحظة أن صار للجسم محتوى قصير.
             child: Stack(
+              fit: StackFit.expand,
               children: [
                 child ?? const SizedBox.shrink(),
                 // الضجيج فوق كل شيء دائماً — آخر عنصر في المكدّس
@@ -73,15 +112,40 @@ class _MafiaAppState extends State<MafiaApp> {
         );
       },
 
-      // حارس المصادقة — يُستبدل بـgo_router في M2 (الملفّ 08/11) حين
-      // تصير المسارات أكثر من اثنين وتلزم الروابط العميقة.
-      // 🧭 مقعد توجيه الإشعارات: `PushService.pendingRoute` يحمل المسار
-      //    المطلوب ويُستهلك مع go_router في M2 (الملفّان 08 و11). يُخزَّن
-      //    الآن ولا يُنفَّذ — نقرة تفتح التطبيق ثم لا تصل شاشتها أفضل من
-      //    تنقّل يُخترع قبل وجود المسارات.
-      home: _loggedIn
-          ? CoreStatusScreen(config: widget.config, onLoggedOut: _onLoggedOut)
-          : LoginScreen(onLoggedIn: _onLoggedIn),
+      home: switch (_state) {
+        _ShellState.loading => const _SessionLoading(),
+        _ShellState.unauthenticated => AuthScreen(onDone: _onAuthDone),
+        _ShellState.gate => NotificationGate(status: _perm, onResolved: _evaluate),
+        _ShellState.ready => ShellScreen(config: widget.config, onLoggedOut: _onLoggedOut),
+      },
     );
   }
+}
+
+/// شاشة استعادة الجلسة — §4.1 في الملفّ 11.
+class _SessionLoading extends StatelessWidget {
+  const _SessionLoading();
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+        backgroundColor: Noir.pitchBlack,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 48, height: 48,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Color(0xFFF59E0B),
+                  backgroundColor: Color(0x4DF59E0B),
+                ),
+              ),
+              SizedBox(height: 16),
+              Text('جاري التحميل...',
+                  style: TextStyle(fontFamily: 'Tajawal', fontSize: 14, color: Color(0x99F59E0B), letterSpacing: 0)),
+            ],
+          ),
+        ),
+      );
 }

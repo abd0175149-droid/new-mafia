@@ -48,6 +48,53 @@ class AuthRepository {
     return await refresh() ?? player;
   }
 
+  /// إنشاء حساب. يعيد قيمة المكافأة الترحيبية إن منحها الخادم.
+  ///
+  /// 🔴 الجلسة تُثبَّت هنا فوراً — وهذا يخالف الويب عمداً؟ لا: الويب
+  /// يؤجّلها إلى ضغط زرّ المودال، ونحن نفعل المثل. الفرق أن التخزين
+  /// يقع هنا والمودال يُعرض قبل مغادرة الشاشة، فلا يرى أحد الحساب
+  /// جاهزاً قبل أن يقرأ مكافأته.
+  Future<int?> register({
+    required String name,
+    required String phone,
+    required String password,
+    required String gender,
+  }) async {
+    final res = await _api.post('/api/player-auth/register', body: {
+      'name': name.trim(),
+      'phone': phone.trim(),
+      'password': password,
+      'gender': gender,
+    });
+
+    final map = res is Map ? res : const {};
+    final token = map['token'];
+    final playerJson = map['player'];
+    if (token is! String || token.isEmpty || playerJson is! Map) {
+      throw ApiException('استجابة غير متوقّعة من الخادم');
+    }
+
+    await _session.save(
+      token: token,
+      player: PlayerData.fromJson(Map<String, dynamic>.from(playerJson)),
+    );
+
+    final bonus = map['welcomeBonus'] ?? map['welcomeBonusAmount'];
+    return bonus is num ? bonus.toInt() : (map['welcomeBonusApplied'] == true ? 200 : null);
+  }
+
+  /// تغيير كلمة السرّ.
+  ///
+  /// `oldPassword` مطلوبة خادمياً **إلا** حين يكون `mustChangePassword`
+  /// مرفوعاً — وهي الحالة الوحيدة التي تستدعيها هذه الشاشة، فلا تُرسَل.
+  Future<void> changePassword(String newPassword) async {
+    await _api.post('/api/player-auth/change-password', body: {'newPassword': newPassword});
+    final p = _session.player;
+    if (p != null) {
+      await _session.updatePlayer(PlayerData.fromJson({...p.toJson(), 'mustChangePassword': false}));
+    }
+  }
+
   /// تحديث بيانات اللاعب من الخادم.
   ///
   /// يُستدعى عند الإقلاع بجلسة محفوظة: الرمز قد يكون انتهى أو أُبطل،
