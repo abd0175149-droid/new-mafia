@@ -1,4 +1,4 @@
-package sbs.grade.mafia_club
+package sbs.grade.mafiaclub
 
 import io.flutter.embedding.android.FlutterActivity
 
