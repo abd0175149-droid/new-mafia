@@ -31,7 +31,7 @@ router.get('/names', authenticate, async (_req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const rows = await db
-    .select({ id: staff.id, displayName: staff.displayName })
+    .select({ id: staff.id, displayName: staff.displayName, isPartner: staff.isPartner })
     .from(staff)
     .where(eq(staff.isActive, true))
     .orderBy(staff.displayName);

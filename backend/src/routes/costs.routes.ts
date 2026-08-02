@@ -41,6 +41,14 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt < 0) return res.status(400).json({ error: 'المبلغ غير صالح' });
 
+  // «من دفعه» إلزامي ويجب أن يكون أحد الشركاء — الاسم الحرفي هو مفتاح الربط في تقارير التسوية/الموازنة
+  const payerName = String(paidBy ?? '').trim();
+  if (!payerName) return res.status(400).json({ error: 'حدّد من دفع المصروف (أحد الشركاء)' });
+  const [payer] = await db.select({ id: staff.id }).from(staff)
+    .where(and(eq(staff.displayName, payerName), eq(staff.isPartner, true), isNull(staff.deletedAt)))
+    .limit(1);
+  if (!payer) return res.status(400).json({ error: 'الدافع يجب أن يكون أحد المستخدمين الشركاء' });
+
   // الارتباط (5 حالات): general | activity | player | equipment | other
   const validScopes = ['general', 'activity', 'player', 'equipment', 'other'];
   const finalScope = validScopes.includes(scope) ? scope : (activityId ? 'activity' : 'general');
@@ -51,7 +59,7 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     item,
     amount: String(amt),
     date: new Date(date),
-    paidBy: paidBy || '',
+    paidBy: payerName,
     type: finalScope === 'activity' ? 'activity' : 'general',
     scope: finalScope,
     playerId: finalScope === 'player' ? (playerId || null) : null,

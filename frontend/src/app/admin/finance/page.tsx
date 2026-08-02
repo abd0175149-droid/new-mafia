@@ -225,7 +225,7 @@ export default function FinancePage() {
 
   async function handleAddExpense(e: React.FormEvent) {
     e.preventDefault();
-    if (!exCategory || !exAmount) return;
+    if (!exCategory || !exAmount || !exPaidBy.trim()) return;
     if (exScope === 'activity' && !exActivityId) return;
     if (exScope === 'player' && !exPlayerId) return;
     setAddingExpense(true);
@@ -266,6 +266,13 @@ export default function FinancePage() {
   // خيارات المستلم: أسماء الموظفين الفعّالين (مرتّبة عربياً)
   const receiverOptions = useMemo(() =>
     staffList.filter((s: any) => s.isActive !== false && s.displayName)
+      .map((s: any) => String(s.displayName))
+      .sort((a, b) => a.localeCompare(b, 'ar')),
+  [staffList]);
+
+  // «من دفعه»: الشركاء فقط — المصروف يجب أن يُربط بشريك (الخادم يتحقق أيضاً)
+  const partnerOptions = useMemo(() =>
+    staffList.filter((s: any) => s.isPartner && s.displayName)
       .map((s: any) => String(s.displayName))
       .sort((a, b) => a.localeCompare(b, 'ar')),
   [staffList]);
@@ -818,8 +825,16 @@ export default function FinancePage() {
                     <input type="number" min="0" step="0.5" value={exAmount} onChange={e => setExAmount(e.target.value)} placeholder="0" required className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-[11px] text-gray-400 mb-1">من دفعه</label>
-                    <input type="text" value={exPaidBy} onChange={e => setExPaidBy(e.target.value)} placeholder="اختياري" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+                    <label className="block text-[11px] text-gray-400 mb-1">من دفعه (شريك) *</label>
+                    {partnerOptions.length > 0 ? (
+                      <select value={exPaidBy} onChange={e => setExPaidBy(e.target.value)} required className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30">
+                        <option value="" disabled>— اختر الشريك —</option>
+                        {partnerOptions.map(name => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                    ) : (
+                      // تعذّر جلب قائمة الشركاء — إدخال يدوي والخادم يتحقق أنه اسم شريك
+                      <input type="text" value={exPaidBy} onChange={e => setExPaidBy(e.target.value)} placeholder="اسم الشريك" required className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+                    )}
                   </div>
                 </div>
 
