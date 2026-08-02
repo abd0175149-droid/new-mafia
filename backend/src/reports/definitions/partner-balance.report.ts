@@ -5,10 +5,14 @@
 // النتيجة: كم يجب أن يكون صافي حساب كل شريك.
 // ══════════════════════════════════════════════════════
 
-import { and, eq, isNull, gte, lte, sql } from 'drizzle-orm';
-import type { ReportDefinition, ReportDocument } from '../types.js';
+import { and, eq, isNull, gte, lte, sql, desc } from 'drizzle-orm';
+import type { ReportDefinition, ReportDocument, ReportSection } from '../types.js';
 import { activities, bookings, costs, staff } from '../../schemas/admin.schema.js';
 import { paidRevenue, effectiveReceiver, num, rangeDates, rangeLabel, notTestActivity, notTestCost } from '../helpers.js';
+
+const SCOPE_AR: Record<string, string> = {
+  general: 'عام', activity: 'نشاط', player: 'لاعب', equipment: 'معدات', other: 'أخرى',
+};
 
 export const partnerBalanceReport: ReportDefinition = {
   key: 'partner-balance',
@@ -54,6 +58,27 @@ export const partnerBalanceReport: ReportDefinition = {
       .where(actDateCond)
       .groupBy(effectiveReceiver);
 
+    // ── تفصيل الاستلام: (المستلم × النشاط) — لجداول كل شريك ──
+    const receivedDetail = await db.select({
+      receiver: effectiveReceiver,
+      activityName: activities.name,
+      activityDate: activities.date,
+      received: paidRevenue(),
+    }).from(activities)
+      .leftJoin(bookings, and(eq(bookings.activityId, activities.id), isNull(bookings.deletedAt)))
+      .where(actDateCond)
+      .groupBy(effectiveReceiver, activities.id, activities.name, activities.date)
+      .orderBy(desc(activities.date));
+
+    // ── تفصيل المصاريف: كل مصروف بتصنيفه وتاريخه (غير مجمّع) ──
+    const costDetail = await db.select({
+      item: costs.item, scope: costs.scope, amount: costs.amount, date: costs.date, paidBy: costs.paidBy,
+      activityName: activities.name,
+    }).from(costs)
+      .leftJoin(activities, eq(costs.activityId, activities.id))
+      .where(and(isNull(costs.deletedAt), gte(costs.date, from), lte(costs.date, to), notTestCost))
+      .orderBy(desc(costs.date));
+
     const paidMap = new Map<string, number>();
     for (const c of costRows) {
       const k = (c.paidBy || '').trim() || 'غير محدد';
@@ -85,6 +110,54 @@ export const partnerBalanceReport: ReportDefinition = {
     const partnersPaid = rows.reduce((s, r) => s + r.paid, 0);
     const partnersReceived = rows.reduce((s, r) => s + r.received, 0);
     const partnersFinal = rows.reduce((s, r) => s + r.finalBalance, 0);
+
+    // ── تفصيل كل شريك: ما استلمه باسم كل نشاط + ما دفعه بتصنيفه وتاريخه ──
+    const partnerDetailSections: ReportSection[] = partners.map((p) => {
+      const recRows = receivedDetail
+        .filter((r) => (r.receiver || '').trim() === p.name && num(r.received) > 0)
+        .map((r) => ({ activityName: r.activityName, date: r.activityDate, amount: num(r.received) }));
+      const recTotal = recRows.reduce((s, r) => s + r.amount, 0);
+      const payRows = costDetail
+        .filter((c) => (c.paidBy || '').trim() === p.name)
+        .map((c) => ({
+          item: c.item,
+          scopeAr: SCOPE_AR[c.scope ?? 'general'] ?? c.scope,
+          activityAr: c.activityName ?? '—',
+          date: c.date,
+          amount: num(c.amount),
+        }));
+      const payTotal = payRows.reduce((s, r) => s + r.amount, 0);
+      return {
+        type: 'group',
+        titleAr: `تفصيل الشريك — ${p.name}`,
+        children: [
+          {
+            type: 'table', titleAr: 'مبالغ استلمها (حسب النشاط)',
+            columns: [
+              { key: 'activityName', labelAr: 'النشاط' },
+              { key: 'date', labelAr: 'تاريخ النشاط', format: 'date' },
+              { key: 'amount', labelAr: 'المبلغ المستلم', format: 'currency' },
+            ],
+            rows: recRows,
+            totalsRow: { activityName: 'الإجمالي', amount: recTotal },
+            emptyAr: 'لم يستلم مبالغ في هذه الفترة',
+          },
+          {
+            type: 'table', titleAr: 'مصاريف دفعها (حسب التصنيف والتاريخ)',
+            columns: [
+              { key: 'item', labelAr: 'التصنيف' },
+              { key: 'scopeAr', labelAr: 'النوع', format: 'badge' },
+              { key: 'activityAr', labelAr: 'الارتباط' },
+              { key: 'date', labelAr: 'التاريخ', format: 'date' },
+              { key: 'amount', labelAr: 'المبلغ', format: 'currency' },
+            ],
+            rows: payRows,
+            totalsRow: { item: 'الإجمالي', amount: payTotal },
+            emptyAr: 'لم يدفع مصاريف في هذه الفترة',
+          },
+        ],
+      };
+    });
 
     // ── مبالغ بيد غير الشركاء (لا تدخل التسوية — للمراجعة والمتابعة) ──
     const partnerNames = new Set(partners.map((p) => p.name));
@@ -138,6 +211,7 @@ export const partnerBalanceReport: ReportDefinition = {
           },
           emptyAr: 'لا يوجد شركاء مسجّلون (فعّل «شريك» من صفحة الموظفين)',
         },
+        ...partnerDetailSections,
         {
           type: 'table', titleAr: 'مبالغ بيد غير الشركاء (خارج التسوية)',
           columns: [
