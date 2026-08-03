@@ -75,6 +75,7 @@ class LobbyView extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(top: 22),
           child: MafiaCardView(
+            size: CardSize.md,
             playerNumber: c.physicalId,
             playerName: c.displayName.isEmpty ? 'أنت' : c.displayName,
             avatarUrl: SessionStore.instance.player?.avatarUrl,
@@ -126,6 +127,8 @@ class LobbyView extends StatelessWidget {
       Padding(
         padding: const EdgeInsets.only(top: 22),
         child: MafiaCardView(
+          // §4.13: بطاقة اللوبي واللعب مقاس `md` — قاعدة معايرة القوالب
+          size: CardSize.md,
           role: c.assignedRole,
           flippable: true,
           isFlipped: c.cardFlipped,

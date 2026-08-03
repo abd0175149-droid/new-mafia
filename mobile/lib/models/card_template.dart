@@ -84,6 +84,7 @@ class CardTemplate {
     this.coverBranding,
     this.coverPhoto,
     this.shapes = const [],
+    this.secretImageUrl,
   });
 
   final String id, gradient, borderColor, textColor, glowEffect;
@@ -91,6 +92,15 @@ class CardTemplate {
   final bool showPlayerNumber, showClubBranding;
   final ElementPos? coverNumber, coverName, coverBranding, coverPhoto;
   final List<CardShape> shapes;
+
+  /// 🔴 صورة وجه الدور المرفوعة. حين توجد فالوجه الخلفيّ **صورةٌ واحدة
+  ///    ملء البطاقة بلا أيّ عنصرٍ ديناميكيّ آخر** — لا شارة فريق ولا
+  ///    أيقونة ولا اسم دور. المؤلّف رسمها كاملة، ورسمُ عناصرنا فوقها
+  ///    يشوّه ما صمّمه.
+  final String? secretImageUrl;
+
+  bool get hasSecretImage =>
+      secretImageUrl != null && secretImageUrl!.isNotEmpty;
 
   List<CardShape> get coverShapes =>
       shapes.where((s) => s.isCover).toList()
@@ -147,6 +157,9 @@ class CardTemplate {
       coverName: ElementPos.fromJson(p['coverName']),
       coverBranding: ElementPos.fromJson(p['coverBranding']),
       coverPhoto: ElementPos.fromJson(p['coverPhoto']),
+      secretImageUrl: (j['secretFace'] is Map)
+          ? (j['secretFace'] as Map)['customImageUrl'] as String?
+          : null,
       shapes: (e['shapes'] as List? ?? const [])
           .map(CardShape.fromJson)
           .whereType<CardShape>()

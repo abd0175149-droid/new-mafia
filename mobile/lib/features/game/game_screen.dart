@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/router.dart';
+import '../../core/api/game_config_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/game.dart';
 import '../profile/profile_palette.dart';
@@ -67,6 +68,12 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<void> _boot() async {
+    // 🔴 كتالوج اللعبة **قبل** أيّ رسمٍ للبطاقة: بدونه لا قالب دورٍ ولا
+    //    اسمٌ عربيّ ولا إزاحة رقم — فتُرسم البطاقة بقيمٍ افتراضية لا
+    //    وجود لها على شاشة القاعة.
+    unawaited(GameConfigService.instance
+        .ensureLoaded()
+        .then((_) => mounted ? setState(() {}) : null));
     await _c.start();
     if (!mounted) return;
     _booted = true;

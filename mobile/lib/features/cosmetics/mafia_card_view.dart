@@ -27,19 +27,34 @@ import 'title_plaque_view.dart';
 //    لا يمسّه المشترى يبقى للرتبة (`mergeFx`). وتأثير الاسم المشترى يعلو
 //    تأثير الإطار.
 
-enum CardSize { sm, lg }
+enum CardSize { sm, md, lg }
 
-/// المقاسات الحقيقية: `w-44 h-[15rem]` و`w-64 h-[22rem]`.
+/// المقاسات الحقيقية: `w-44 h-[15rem]` · `w-56 h-[20rem]` · `w-64 h-[22rem]`.
+///
+/// 🔴 `md` هي **قاعدة معايرة** المواضع والأشكال في القوالب: المحرّر يكتب
+///    إزاحاتها بالبكسل على هذا المقاس. رسمُ البطاقة `sm` مع إزاحاتٍ
+///    معايَرة على `md` يدفع الرقم خارج حدّها.
 const _cardBox = <CardSize, Size>{
   CardSize.sm: Size(176, 240),
+  CardSize.md: Size(224, 320),
   CardSize.lg: Size(256, 352),
 };
 
-const _emblemSize = <CardSize, double>{CardSize.sm: 40, CardSize.lg: 72};
-const _nameSize = <CardSize, double>{CardSize.sm: 16, CardSize.lg: 24};
-const _numberSize = <CardSize, double>{CardSize.sm: 64, CardSize.lg: 112};
-const _numberSizeTwoDigit = <CardSize, double>{CardSize.sm: 51.2, CardSize.lg: 88};
-const _nameMaxLen = <CardSize, int>{CardSize.sm: 10, CardSize.lg: 18};
+const _emblemSize = <CardSize, double>{
+  CardSize.sm: 40, CardSize.md: 56, CardSize.lg: 72,
+};
+const _nameSize = <CardSize, double>{
+  CardSize.sm: 16, CardSize.md: 20, CardSize.lg: 24,
+};
+const _numberSize = <CardSize, double>{
+  CardSize.sm: 64, CardSize.md: 88, CardSize.lg: 112,
+};
+const _numberSizeTwoDigit = <CardSize, double>{
+  CardSize.sm: 51.2, CardSize.md: 72, CardSize.lg: 88,
+};
+const _nameMaxLen = <CardSize, int>{
+  CardSize.sm: 10, CardSize.md: 14, CardSize.lg: 18,
+};
 
 /// ذهبيّ الهوية — لون الرقم حين لا يحمل القالب لوناً.
 const _goldSolid = Color(0xFFC5A059);
@@ -145,7 +160,14 @@ class _MafiaCardViewState extends State<MafiaCardView>
   // ── اختصاراتٌ لحقول الودجت ──
   CardSize get size => widget.size;
   EquippedCosmetics get cosmetics => widget.cosmetics;
-  CardTemplate get template => widget.template;
+  /// 🔴 قالب **الدور** متى عُيِّن — الويب يستعمله للوجهين معاً لا للخلفيّ
+  ///    وحده. ولكل دورٍ إزاحة رقمٍ وأشكالٌ وتدرّجٌ خاصّ به، فإبقاء
+  ///    `master` على الوجه الأماميّ يضع الرقم في غير موضعه.
+  CardTemplate get template {
+    final r = widget.role;
+    if (r == null || r.isEmpty) return widget.template;
+    return GameConfigService.instance.cardForRole(r);
+  }
   bool get isFemale => widget.isFemale;
   bool get animate => widget.animate;
   String? get avatarUrl => widget.avatarUrl;
@@ -245,7 +267,8 @@ class _MafiaCardViewState extends State<MafiaCardView>
               border: Border.all(color: template.border, width: 2),
             ),
             clipBehavior: Clip.antiAlias,
-            child: Column(children: [
+            child: Stack(children: [
+            Column(children: [
               // القسم العلويّ (٢/٣): الصورة والرقم
               Expanded(
                 flex: 2,
@@ -330,11 +353,13 @@ class _MafiaCardViewState extends State<MafiaCardView>
                 ]),
               ),
             ]),
+            // 🔴 أشكال الغلاف **داخل** القصّ: خارجه تتجاوز حدّ البطاقة
+            //    وتظهر مستطيلاتٍ سابحة حولها. الويب يضعها داخل عنصرٍ
+            //    بـ`overflow-hidden`.
+            for (final sh in template.coverShapes) _shape(sh),
+            ]),
           ),
         ),
-
-        // ── أشكال الغلاف من القالب (تحت الرقم وفوق الصورة) ──
-        for (final sh in template.coverShapes) _shape(sh),
 
         // ── طبقة التأثيرات ──
         Positioned.fill(child: CardFxLayer(fx: fx, animate: animate)),
@@ -380,6 +405,29 @@ class _MafiaCardViewState extends State<MafiaCardView>
                 const Color(0x4DF59E0B))
             : ('فريق المدينة 🔵', const Color(0x991E3A8A),
                 const Color(0xFF93C5FD), const Color(0x4D3B82F6));
+
+    // 🔴 وجهٌ مخصّص: صورةٌ واحدة ملء البطاقة **بلا أيّ عنصرٍ آخر**
+    if (t.hasSecretImage) {
+      return SizedBox(
+        width: box.width,
+        height: box.height,
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(kCardRadius),
+            border: Border.all(color: border, width: 2),
+            boxShadow: t.glow == null ? null : [t.glow!],
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: CachedNetworkImage(
+            imageUrl: ApiClient.instance.upload(t.secretImageUrl),
+            fit: BoxFit.cover,
+            errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black),
+            placeholder: (_, __) => const ColoredBox(color: Colors.black),
+          ),
+        ),
+      );
+    }
 
     return SizedBox(
       width: box.width,
@@ -458,40 +506,56 @@ class _MafiaCardViewState extends State<MafiaCardView>
             ),
           ),
 
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _roleIcon(def, border, textColor),
-                const SizedBox(height: 20),
-                Text(cfg.roleName(widget.role),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Amiri',
-                      fontSize: size == CardSize.lg ? 30 : 20,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0,
-                      color: textColor,
-                    )),
-                const SizedBox(height: 8),
-                Text(playerName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontFamily: 'Amiri',
-                        fontSize: 13,
-                        letterSpacing: 0,
-                        color: Color(0x80FFFFFF))),
-                const SizedBox(height: 16),
-                Container(width: 80, height: 1, color: border),
-                const Spacer(),
-                if (widget.flippable)
-                  Text('اضغط للإخفاء',
-                      style: ar(10, color: const Color(0xFF71717A))),
-              ],
+          // ⚠️ ارتفاع البطاقة ثابت: `Spacer` مع حشواتٍ ثابتة يفيض حتماً
+          //    على المقاس الصغير. العمود يتمركز، والتذييل يُثبَّت أسفلاً.
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 48, 12, 26),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _roleIcon(def, border, textColor),
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: Text(cfg.roleName(widget.role),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'Amiri',
+                          fontSize: size == CardSize.lg ? 30 : (size == CardSize.md ? 26 : 20),
+                          fontWeight: FontWeight.w900,
+                          height: 1.2,
+                          letterSpacing: 0,
+                          color: textColor,
+                        )),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(playerName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontFamily: 'Amiri',
+                          fontSize: 13,
+                          letterSpacing: 0,
+                          color: Color(0x80FFFFFF))),
+                  const SizedBox(height: 12),
+                  Container(width: 80, height: 1, color: border),
+                ],
+              ),
             ),
           ),
+          if (widget.flippable)
+            Positioned(
+              bottom: 8,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Text('اضغط للإخفاء',
+                    style: ar(10, color: const Color(0xFF71717A))),
+              ),
+            ),
 
           // 🔴 أشكال وجه الدور **لا تُزاح**: تبقى مركزةً فقط — بخلاف
           //    أشكال الغلاف. فرقٌ دقيق منقولٌ حرفياً.
@@ -524,7 +588,11 @@ class _MafiaCardViewState extends State<MafiaCardView>
   }
 
   Widget _roleIcon(RoleDef? def, Color border, Color textColor) {
-    final iconSize = size == CardSize.lg ? 52.0 : 32.0;
+    final iconSize = switch (size) {
+      CardSize.sm => 32.0,
+      CardSize.md => 44.0,
+      CardSize.lg => 52.0,
+    };
     Widget inner;
     if (def?.iconType == 'emoji' && (def?.iconValue ?? '').isNotEmpty) {
       inner = Text(def!.iconValue!, style: TextStyle(fontSize: iconSize));
@@ -580,7 +648,11 @@ class _MafiaCardViewState extends State<MafiaCardView>
     return byName[classic[roleId]] ?? Icons.person_outline;
   }
 
-  double get _scale => size == CardSize.lg ? 1.4 : 1.0;
+  double get _scale => switch (size) {
+        CardSize.sm => 1.0,
+        CardSize.md => 1.2,
+        CardSize.lg => 1.4,
+      };
 
   /// إزاحةٌ ومقياسٌ بوحدات بكسل CSS — **لا تُقاس بحجم البطاقة**: المحرّر
   /// يكتبها مطلقةً والويب يطبّقها كما هي على كل المقاسات.
