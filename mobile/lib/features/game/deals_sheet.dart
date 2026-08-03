@@ -57,6 +57,12 @@ Future<void> showDealsSheet(
         BuildContext context, GameSessionController c) =>
     showModalBottomSheet<void>(
       context: context,
+      // 🔴 مُلاحِح **الجذر** لا مُلاحِح الفرع: شاشة اللعب تعيش داخل
+      //    `StatefulShellRoute`، ومُلاحِحُ الفرع يرسم تحت شريط التنقّل
+      //    السفليّ — فتُقصّ الورقة من أسفلها ويختفي زرّ الإبرام.
+      useRootNavigator: true,
+      // وحاوية الأمان تمنع اصطدام الحافة السفلية بشريط الإيماءات
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       barrierColor: const Color(0xB3000000),

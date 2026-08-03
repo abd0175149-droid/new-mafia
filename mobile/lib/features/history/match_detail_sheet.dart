@@ -20,6 +20,9 @@ Future<void> showMatchDetail(BuildContext context, MatchDetails m) {
   if (wide) {
     return showDialog(
       context: context,
+      // 🔴 مُلاحِح الجذر: ما يُفتح من داخل تبويبٍ في `StatefulShellRoute`
+      //    يُرسم تحت شريط التنقّل السفليّ فيُقصّ من أسفله.
+      useRootNavigator: true,
       barrierColor: const Color(0xE6000000),
       builder: (_) => Dialog(
         backgroundColor: Colors.transparent,
@@ -46,6 +49,9 @@ Future<void> showMatchDetail(BuildContext context, MatchDetails m) {
 
   return showModalBottomSheet(
     context: context,
+    // 🔴 مُلاحِح الجذر: ما يُفتح من داخل تبويبٍ في `StatefulShellRoute`
+    //    يُرسم تحت شريط التنقّل السفليّ فيُقصّ من أسفله.
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xE6000000),
     isScrollControlled: true,

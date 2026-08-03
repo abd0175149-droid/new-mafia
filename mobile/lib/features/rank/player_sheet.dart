@@ -25,6 +25,9 @@ Future<void> showPlayerSheet(
 
   return showModalBottomSheet(
     context: context,
+    // 🔴 مُلاحِح الجذر: ما يُفتح من داخل تبويبٍ في `StatefulShellRoute`
+    //    يُرسم تحت شريط التنقّل السفليّ فيُقصّ من أسفله.
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xCC000000),
     isScrollControlled: true,

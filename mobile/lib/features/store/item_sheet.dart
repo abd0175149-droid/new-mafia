@@ -26,6 +26,9 @@ Future<ItemAction?> showItemSheet(
 }) {
   return showModalBottomSheet<ItemAction>(
     context: context,
+    // 🔴 مُلاحِح الجذر: ما يُفتح من داخل تبويبٍ في `StatefulShellRoute`
+    //    يُرسم تحت شريط التنقّل السفليّ فيُقصّ من أسفله.
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xB3000000),
     isScrollControlled: true,
@@ -268,6 +271,9 @@ Future<void> showNeedChips(
 
   return showModalBottomSheet(
     context: context,
+    // 🔴 مُلاحِح الجذر: ما يُفتح من داخل تبويبٍ في `StatefulShellRoute`
+    //    يُرسم تحت شريط التنقّل السفليّ فيُقصّ من أسفله.
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xB3000000),
     isScrollControlled: true,
@@ -414,6 +420,9 @@ Future<void> showPurchaseCelebration(
 }) {
   return showGeneralDialog(
     context: context,
+    // 🔴 مُلاحِح الجذر: ما يُفتح من داخل تبويبٍ في `StatefulShellRoute`
+    //    يُرسم تحت شريط التنقّل السفليّ فيُقصّ من أسفله.
+    useRootNavigator: true,
     barrierDismissible: true,
     barrierLabel: 'إغلاق',
     barrierColor: const Color(0xD9000000),
