@@ -686,6 +686,11 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _chat = const [];
       _chatUnread = false;
       _morning = const [];
+      // 🔒 الثابت السادس (٢٧ §4.7): كشوفُ الإقصاء تُمسح مع الجيم الجديد.
+      //    بقاؤها يعرض أدوار جيمٍ مضى على لاعبين يحملون أدواراً أخرى
+      //    الآن — تسريبٌ وتضليلٌ معاً.
+      _revealedRoles = const {};
+      _eliminated = const [];
     }
 
     // 🔒 ببدء اللعب تعود البطاقة إلى **وجهها العلنيّ** (الاسم والصورة
@@ -1931,6 +1936,20 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     if (step != null) _step = step;
   }
 
+  /// انتقالُ مرحلةٍ حقيقيّ عبر `_applyPhase` — لفحص قواعد التنظيف نفسها
+  /// لا نسخةٍ منها في الاختبار.
+  @visibleForTesting
+  void setPhaseForTest(String? phase) => _applyPhase(phase);
+
+  @visibleForTesting
+  void applyEliminationForTest({
+    required List<int> eliminated,
+    Map<int, String> revealed = const {},
+  }) {
+    _eliminated = eliminated;
+    _revealedRoles = revealed;
+  }
+
   /// يعيد المتحكّم المفرد إلى حالته الأولى — يُنادى بين الاختبارات.
   @visibleForTesting
   void resetForTest() {
@@ -1963,6 +1982,9 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _voting = null;
     _myVote = null;
     _step = GameStep.code;
+    _eliminated = const [];
+    _revealedRoles = const {};
+    _tied = const [];
   }
 
   /// 🔒 إعلانُ فتح معرض المافيا — **الترتيب لا يُبدَّل**:
