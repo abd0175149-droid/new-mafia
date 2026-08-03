@@ -159,4 +159,29 @@ void main() {
       expect(fires, 2);
     });
   });
+
+  group('🪦 بطاقة المُقصى', () {
+    // قرار المالك: البطاقة تُخفى أثناء اللعب **إلّا للمُقصى** — خرج من
+    // اللعب فلا مرحلةَ تشغله ولا سرّ يحرسه.
+    bool showsCard({required String? phase, required bool dead}) {
+      final locked = phase != null && !GamePhase.isPreGame(phase);
+      if (!locked) return true; // نافذة الكشف: البطاقة ظاهرةٌ للجميع
+      return dead;
+    }
+
+    test('الحيّ لا يراها أثناء اللعب', () {
+      expect(showsCard(phase: GamePhase.dayVoting, dead: false), isFalse);
+      expect(showsCard(phase: GamePhase.night, dead: false), isFalse);
+    });
+
+    test('🔴 والمُقصى يراها', () {
+      expect(showsCard(phase: GamePhase.dayVoting, dead: true), isTrue);
+      expect(showsCard(phase: GamePhase.morningRecap, dead: true), isTrue);
+    });
+
+    test('وقبل بدء اللعب يراها الجميع', () {
+      expect(showsCard(phase: GamePhase.roleBinding, dead: false), isTrue);
+      expect(showsCard(phase: null, dead: false), isTrue);
+    });
+  });
 }

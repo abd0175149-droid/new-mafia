@@ -86,19 +86,38 @@ class LobbyView extends StatelessWidget {
   /// 🔒 القفل مقصود: الكشف كان لثانيةٍ ليعرف اللاعب دوره، لا ليبقى
   ///    معروضاً لكلّ من جلس بجانبه طوال الجولة.
   Widget _playBody(GameSessionController c) => Column(children: [
-      if (c.isPlayerDead) ...[
-        Text('تم إقصاؤك',
-            style: const TextStyle(
-                fontFamily: 'Amiri',
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0,
-                color: Color(0xFFF87171))),
-        const SizedBox(height: 12),
-      ],
-      // 🔴 قرار المالك: البطاقة **تُخفى** ببدء أوّل نقاش. لا فائدة منها
-      //    بعد أن عرف اللاعب دوره، وهي تزاحم المرحلة على الشاشة —
-      //    وبطاقات الاقتراع تحتاج كلّ البكسلات المتاحة.
+        // 🔴 قرار المالك: البطاقة **تُخفى** ببدء أوّل نقاش — لا فائدة منها
+        //    بعد أن عرف اللاعب دوره، وهي تزاحم المرحلة على الشاشة
+        //    وبطاقات الاقتراع تحتاج كلّ البكسلات المتاحة.
+        //
+        //    **إلّا للمُقصى**: خرج من اللعب فلا مرحلةَ تشغله ولا سرّ
+        //    يحرسه، وبطاقته الرمادية آخر ما بقي له من الجولة.
+        if (c.isPlayerDead) ...[
+          const Text('تم إقصاؤك',
+              style: TextStyle(
+                  fontFamily: 'Amiri',
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0,
+                  color: Color(0xFFF87171))),
+          const SizedBox(height: 16),
+          MafiaCardView(
+            size: CardSize.md,
+            role: c.assignedRole,
+            // مكشوفةٌ ومقفلة: دورُه انتهى، ولا شيء يُخفيه بعد الآن
+            isFlipped: true,
+            flippable: false,
+            isAlive: false,
+            playerNumber: c.physicalId,
+            playerName: c.displayName.isEmpty ? 'أنت' : c.displayName,
+            avatarUrl: SessionStore.instance.player?.avatarUrl,
+            cosmetics: CosmeticsService.instance.cosmetics,
+            template: GameConfigService.instance.master,
+            rankFx: GameConfigService.instance
+                .effectsForTier(CosmeticsService.instance.rankTier),
+          ),
+          const SizedBox(height: 20),
+        ],
         _phaseBody(c),
       ]);
 
