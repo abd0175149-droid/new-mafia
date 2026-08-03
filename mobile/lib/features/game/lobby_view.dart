@@ -10,6 +10,7 @@ import '../../models/game.dart';
 import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'night_view.dart';
 import 'roles_info_modal.dart';
 
 // ══════════════════════════════════════════════════════
@@ -152,7 +153,9 @@ class LobbyView extends StatelessWidget {
 
   /// المراحل بعد اللوبي تصل مع ملفّاتها (٢٣ ← ٢٧). حتى ذلك الحين تُعرض
   /// المرحلة باسمها بدل شاشةٍ فارغة تُوهم اللاعب بعطل.
-  Widget _phaseBody(GameSessionController c) => Padding(
+  Widget _phaseBody(GameSessionController c) => c.gamePhase == GamePhase.night
+      ? PassiveNightBody(stepRoleName: c.nightStepRoleName)
+      : Padding(
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Column(children: [
           Text(_phaseLabel(c.gamePhase),

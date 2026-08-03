@@ -111,8 +111,9 @@ class SocketService {
 
   void on(String event, void Function(dynamic) handler) => _socket?.on(event, handler);
   void off(String event, [void Function(dynamic)? handler]) => _socket?.off(event, handler);
-  /// خطّافُ اختبارٍ يلتقط ما يُرسَل بلا سوكِتٍ حقيقيّ. ترتيبُ الإرسال في
-  /// إنذار الغشّ قاعدةٌ أمنية، ولا سبيل للتحقّق منه إلّا برؤية ما خرج.
+  /// خطّافُ اختبارٍ يلتقط **كلّ** ما يخرج — `emit` و`ask` معاً. ترتيبُ
+  /// الإرسال في إنذار الغشّ قاعدةٌ أمنية، و«لا يُرسَل شيءٌ عند انتهاء
+  /// مهلة الليل» قاعدةٌ أخرى: كلتاهما لا تُتحقَّق إلّا برؤية ما خرج.
   @visibleForTesting
   static void Function(String event, dynamic data)? emitProbe;
 
@@ -133,6 +134,7 @@ class SocketService {
     Object? data,
     Duration timeout = const Duration(seconds: 15),
   ]) {
+    emitProbe?.call(event, data);
     final s = _socket;
     if (s == null || !s.connected) return Future.value(null);
 

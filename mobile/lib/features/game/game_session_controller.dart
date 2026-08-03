@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/card_template.dart' show kMafiaRoleIds;
 import '../../models/game.dart';
+import '../../models/night.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎮 متحكّم جلسة اللعب — الملفّ 20
@@ -100,6 +102,28 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<RosterPlayer> _roster = const [];
   List<RosterPlayer> get roster => _roster;
+
+  // ══════════════════════════════════════════════════════
+  // 🌙 حالة الليل — §6.1 في الملفّ ٢٣
+  // ══════════════════════════════════════════════════════
+  NightActionRequest? _night;
+  NightActionRequest? get nightAction => _night;
+
+  int _nightCountdown = 0;
+  int get nightCountdown => _nightCountdown;
+
+  bool _nightSubmitted = false;
+  bool get nightSubmitted => _nightSubmitted;
+
+  bool _nursePending = false;
+  bool get nursePending => _nursePending;
+
+  /// «جارٍ اختيار الهدف من قبل …» — يصل في النمط اليدوي وحده.
+  String _nightStepRoleName = '';
+  String get nightStepRoleName => _nightStepRoleName;
+
+  Timer? _nightTicker;
+  Timer? _nightClose;
 
   VotingState? _voting;
   VotingState? get voting => _voting;
@@ -333,6 +357,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _voteTicker?.cancel();
     _seatAlertTimer?.cancel();
     _safetyNet?.cancel();
+    _nightTicker?.cancel();
+    _nightClose?.cancel();
   }
 
   void _on(String event, void Function(dynamic) handler) {
@@ -514,7 +540,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// 6.6 شبكة أمانٍ بعد الاستعادة — استطلاعٌ واحد بعد ٥٠٠ms.
   void _armSafetyNet() {
     _safetyNet?.cancel();
-    _safetyNet = Timer(const Duration(milliseconds: 500), _pollOnce);
+    _safetyNet =
+        Timer(const Duration(milliseconds: 500), () => _pollOnce(rebuildNight: true));
   }
 
   // ══════════════════════════════════════════════════════
@@ -541,7 +568,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _pollOnce() async {
+  Future<void> _pollOnce({bool rebuildNight = false}) async {
     if (!_step.inGame || _roomId.isEmpty) return;
     final res = await SocketService.instance.ask('room:get-my-state', {
       'roomId': _roomId,
@@ -551,6 +578,22 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     // أخطاء الاستطلاع تُبتلع — دورةٌ فائتة تُعوَّض بالتالية
     if (res == null || res['success'] != true) return;
     _syncFromState(res);
+    if (rebuildNight) _rebuildNightAfterRejoin(res);
+  }
+
+  /// §6.8 شبكة الأمان: من عاد منتصف الليل يجب أن تُفتح شاشته من جديد —
+  /// وإلّا ضاعت خطوته صامتةً واختار الخادم عنه عشوائياً.
+  ///
+  /// تعمل **بعد الاستعادة فقط** لا في كلّ دورة استطلاع: إعادةُ الفتح
+  /// دورياً تصفّر العدّاد كلّ ثلاث ثوانٍ فلا ينزل أبداً.
+  void _rebuildNightAfterRejoin(Map<String, dynamic> res) {
+    if (GamePhase.map(res['phase']) != GamePhase.night) return;
+    if (_night != null || _nightSubmitted) return;
+    final r = nightFromResume(res['nightState'], _physicalId);
+    if (r == null) return;
+    // المتبقّي الدقيق غير محسوبٍ على جهة اللاعب — أرضيّةٌ ٣ ثوانٍ تكفي
+    // لاختيارٍ واعٍ بدل صفرٍ يغلق الشاشة فور فتحها.
+    _openNight(r, math.max(3, r.timeoutSeconds));
   }
 
   /// مزامنةٌ **ذاتية الشفاء**: المقعد والاسم والدور والحياة والمرحلة.
@@ -795,6 +838,24 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _setPhase(GamePhase.map(d['phase']), fromSocket: true);
     });
 
+    // ── §6.2 وصول الخطوة: يصل لكلّ حيٍّ — صاحب الدور والمموِّه معاً ──
+    _on('night:action-required', (d) {
+      final r = NightActionRequest.fromJson(d);
+      if (r == null) return;
+      _openNight(r, r.timeoutSeconds);
+    });
+
+    _on('nurse:activation-request', (_) {
+      // نصّ الرسالة القادمة لا يُعرَض — الواجهة ثابتة
+      _nursePending = true;
+      notifyListeners();
+    });
+
+    _on('night:step-info', (d) {
+      _nightStepRoleName = d is Map ? '${d['roleName'] ?? ''}' : '';
+      notifyListeners();
+    });
+
     _on('day:voting-started', (d) {
       if (d is! Map) return;
       _setPhase(GamePhase.dayVoting, fromSocket: true);
@@ -1003,6 +1064,85 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       ).toJson()),
     );
   }
+
+  // ══════════════════════════════════════════════════════
+  // 🌙 منطق الليل — §6.2 · §6.3
+  // ══════════════════════════════════════════════════════
+
+  void _openNight(NightActionRequest r, int from) {
+    _nightTicker?.cancel();
+    _nightClose?.cancel();
+    _night = r;
+    _nightSubmitted = false;
+    _nightCountdown = from;
+    notifyListeners();
+
+    _nightTicker = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (_nightCountdown <= 1) {
+        t.cancel();
+        _nightCountdown = 0;
+        // 🔴 عند الصفر **لا يُرسل العميل شيئاً**: الخادم يختار عشوائياً
+        //    بنفسه. إرسالٌ من هنا يزاحم اختياره ويُدخل سباقاً.
+        //    ما يُعرَض «تم الإرسال» تجميليٌّ محض.
+        _nightClose = Timer(const Duration(milliseconds: 2000), () {
+          _nightSubmitted = true;
+          notifyListeners();
+          _nightClose = Timer(const Duration(milliseconds: 1500), _closeNight);
+        });
+        notifyListeners();
+        return;
+      }
+      _nightCountdown--;
+      notifyListeners();
+    });
+  }
+
+  void _closeNight() {
+    _nightTicker?.cancel();
+    _nightClose?.cancel();
+    _night = null;
+    _nightSubmitted = false;
+    _nightCountdown = 0;
+    notifyListeners();
+  }
+
+  /// إرسال فعل الليل — `null` تخطٍّ.
+  ///
+  /// الترتيب: العلامة **قبل** الانتظار. ضبطها بعده يفتح نافذةً للمس ثانٍ
+  /// يرسل فعلين لنفس الخطوة.
+  Future<void> submitNightAction(int? targetPhysicalId) async {
+    final r = _night;
+    if (r == null || _nightSubmitted) return;
+    _nightSubmitted = true;
+    _nightTicker?.cancel();
+    notifyListeners();
+
+    // الخطأ يُبتلع عمداً: لا رسالة خطأ في المصدر، والخادم يعوّض بعشوائيّه
+    try {
+      await SocketService.instance.ask('player:night-action', {
+        'roomId': _roomId,
+        'actionType': r.actionType,
+        'targetPhysicalId': targetPhysicalId,
+      });
+    } catch (_) {}
+
+    _nightClose?.cancel();
+    _nightClose = Timer(const Duration(milliseconds: 1500), _closeNight);
+  }
+
+  /// جواب مودال الممرضة — يُغلق فوراً بلا انتظار ack.
+  void respondNurse(bool activate) {
+    _nursePending = false;
+    notifyListeners();
+    if (_roomId.isEmpty) return;
+    SocketService.instance
+        .emit('nurse:activation-response', {'roomId': _roomId, 'activate': activate});
+  }
+
+  /// فتحُ خطوةِ ليلٍ مباشرةً — للاختبار فقط.
+  @visibleForTesting
+  void openNightForTest(NightActionRequest r, {int? from}) =>
+      _openNight(r, from ?? r.timeoutSeconds);
 
   /// بذرةٌ للاختبار فقط — المتحكّم مفردٌ ببانٍ خاصّ، ولا سبيل لفحص
   /// بوابة التسريب وترتيب الإنذار دون ضبط حالته مباشرةً.

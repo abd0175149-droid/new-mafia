@@ -10,6 +10,7 @@ import '../../models/game.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
 import 'mafia_gallery.dart';
+import 'night_view.dart';
 import 'join_flow.dart';
 import 'lobby_view.dart';
 
@@ -122,6 +123,8 @@ class _GameScreenState extends State<GameScreen> {
         if (_c.switchConfirm != null) _switchModal(),
         if (_c.joinConfirmation != null) _joinModal(),
         if (_showGalleryFab) _galleryFab(),
+        // 🌙 طبقة الليل تعلو كلّ شيء عدا مودال تبديل الغرفة
+        Positioned.fill(child: NightLayer(controller: _c)),
       ]),
     );
   }
