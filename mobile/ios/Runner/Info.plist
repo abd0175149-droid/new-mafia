@@ -4,9 +4,17 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- الهوية والعرض — 91-release-ios.md §6.5 -->
 	<key>CFBundleDevelopmentRegion</key>
-	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<string>ar</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ar</string>
+	</array>
+	<!-- الاسم المعروض يأتي من xcconfig النكهة: «نادي المافيا» / «Mafia Club Dev» -->
 	<key>CFBundleDisplayName</key>
+	<string>$(APP_DISPLAY_NAME)</string>
+	<key>CFBundleName</key>
 	<string>Mafia Club</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -14,8 +22,6 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>mafia_club</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -26,6 +32,22 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- الروابط العميقة — 08-deeplinks-routing.md §10 -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
+	<!-- تخطّي امتثال التصدير (HTTPS فقط، لا تشفير خاص) -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- أنماط الخلفية: remote-notification فقط في 1.0.
+	     audio وvoip يُضافان مع مرحلة الصوت عن بُعد (M5) — 91 §6.6 -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<!-- أوصاف الأذونات: صور المعرض فقط. لا ميكروفون ولا كاميرا في
+	     إصدار القاعة 1.0 (إعلان صلاحية بلا وظيفة = خطر رفض 5.1.1) — 91 §6.5 -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>نستخدم صور معرضك لاختيار صورة ملفك الشخصي في نادي المافيا فقط.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -53,18 +75,16 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- الاتجاه: portrait فقط على iPhone وiPad + ملء الشاشة (لا Split View) — 91 §5 -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 </dict>
 </plist>

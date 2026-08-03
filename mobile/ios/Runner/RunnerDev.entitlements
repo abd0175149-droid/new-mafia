@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- نكهة dev — «Mafia Club Dev» / sbs.grade.mafiaclub.dev
+	     يختلف عن prod في الدومين المرتبط فقط: staging على mafia.grade.sbs
+	     (يتطلب ملف AASA خاصاً هناك — 08 §7.5-ب ملاحظة staging). -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:mafia.grade.sbs</string>
+	</array>
+</dict>
+</plist>

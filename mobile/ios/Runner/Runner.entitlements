@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- نكهة prod — «نادي المافيا» / sbs.grade.mafiaclub
+	     Xcode يبدّل development إلى production تلقائياً في بناء التوزيع.
+	     91-release-ios.md §6.5 -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!-- applinks على /join/* فقط — لا /player/* (كي لا يخطف التطبيق روابط الـ PWA)
+	     08-deeplinks-routing.md §7.5-ب -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:club-mafia.grade.sbs</string>
+	</array>
+</dict>
+</plist>
