@@ -84,9 +84,7 @@ class _ChipsBalancePillState extends State<ChipsBalancePill> with WidgetsBinding
       clipBehavior: Clip.none,
       children: [
         InkWell(
-          // 📌 المواصفة توجّهها إلى **الخزنة**؛ وحتى تصل (الملفّ 33)
-          //    تفتح المحفظة — وجهةٌ صحيحة أفضل من ضغطةٍ لا تفعل شيئاً.
-          onTap: widget.onTap ?? () => navigateTo(Routes.wallet),
+          onTap: widget.onTap ?? () => pushTo(Routes.store),
           borderRadius: NoirRadius.soft,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

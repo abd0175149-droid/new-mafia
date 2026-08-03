@@ -9,6 +9,7 @@ import '../features/join/join_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/rank/rank_screen.dart';
 import '../features/shell/shell_screen.dart';
+import '../features/store/store_screen.dart';
 import '../features/wallet/wallet_screen.dart';
 import 'app_state.dart';
 import 'config.dart';
@@ -29,6 +30,7 @@ abstract final class Routes {
   static const rank = '/player/rank';
   static const profile = '/player/profile';
   static const wallet = '/player/wallet';
+  static const store = '/player/store';
 
   /// عامّة دائماً — لا حارس ولا بوّابة ولا انتظار جلسة.
   static const publicPaths = <String>[login, '/player/debug-push'];
@@ -86,6 +88,11 @@ GoRouter buildRouter(AppConfig config) {
     },
 
     routes: [
+      GoRoute(
+        path: Routes.store,
+        builder: (_, __) => const StoreScreen(),
+      ),
+
       GoRoute(
         path: Routes.wallet,
         builder: (_, __) => const WalletScreen(),
@@ -146,6 +153,55 @@ Future<void> navigateTo(String? raw) async {
     case DestinationKind.none:
       break;
   }
+}
+
+/// دخولٌ إلى شاشةٍ **فوق** الغلاف (الخزنة، المحفظة).
+///
+/// 🔴 `push` لا `go`: الخزنة والمحفظة مساراتٌ عليا شقيقة للغلاف، و`go`
+///    يستبدل المكدّس كلّه فلا يبقى تحتها شيء — فيخرج زرّ الرجوع العتاديّ
+///    من التطبيق إلى شاشة الجهاز. `navigateTo` يبقى على `go` لأن وجهته
+///    إشعارٌ قد يصل على بدءٍ بارد بلا مكدّس أصلاً.
+void pushTo(String path) {
+  final ctx = _rootKey.currentContext;
+  if (ctx != null) ctx.push(path);
+}
+
+/// تبديل شاشة الغطاء بأختها (الخزنة ↔ المحفظة).
+///
+/// 🔴 كلٌّ منهما تُحيل إلى الأخرى في ترويستها، فـ`push` بينهما يكدّس
+///    ذهاباً وإياباً بلا حدّ ويصير الرجوع رحلةً في التاريخ. الاستبدال
+///    يُبقي العمق واحداً: الرجوع من أيّهما يعود إلى الغلاف.
+void swapTo(String path) {
+  final ctx = _rootKey.currentContext;
+  if (ctx != null) ctx.pushReplacement(path);
+}
+
+/// رجوعٌ آمن: إلى ما تحت الشاشة إن وُجد، وإلى الرئيسية إن فُتحت من
+/// إشعارٍ على بدءٍ بارد فلا شيء تحتها.
+void popOrHome(BuildContext context) {
+  final nav = Navigator.of(context);
+  if (nav.canPop()) {
+    nav.pop();
+  } else {
+    context.go(Routes.home);
+  }
+}
+
+/// يمنع زرّ الرجوع العتاديّ من الخروج من التطبيق حين لا يكون تحت
+/// الشاشة شيء — يذهب إلى الرئيسية بدلاً من ذلك.
+class PopsToHome extends StatelessWidget {
+  const PopsToHome({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+        canPop: Navigator.of(context).canPop(),
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) navigateTo(Routes.home);
+        },
+        child: child,
+      );
 }
 
 /// الموقع الحاليّ — لمقارنة الوجهة المعلّقة قبل تنفيذها.

@@ -2,6 +2,7 @@ import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
+import '../../app/router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/socket/socket_service.dart';
 import '../../core/storage/session_store.dart';
@@ -69,34 +70,36 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     final w = _wallet;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
-      body: SafeArea(
-        bottom: false,
-        child: Column(children: [
-          _header(),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              color: Tw.amber500,
-              backgroundColor: const Color(0xFF111111),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.only(bottom: 96),
-                children: [
-                  _balance(w),
-                  if (!_loading && w != null) ...[
-                    _summary(w),
-                    const SizedBox(height: 24),
-                    _ledger(w),
-                    const SizedBox(height: 32),
-                    _earnCard(),
+    return PopsToHome(
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A0A0F),
+        body: SafeArea(
+          bottom: false,
+          child: Column(children: [
+            _header(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                color: Tw.amber500,
+                backgroundColor: const Color(0xFF111111),
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 96),
+                  children: [
+                    _balance(w),
+                    if (!_loading && w != null) ...[
+                      _summary(w),
+                      const SizedBox(height: 24),
+                      _ledger(w),
+                      const SizedBox(height: 32),
+                      _earnCard(),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
-          ),
-        ]),
+          ]),
+        ),
       ),
     );
   }
@@ -111,7 +114,7 @@ class _WalletScreenState extends State<WalletScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             InkWell(
-              onTap: () => Navigator.of(context).pop(),
+              onTap: () => popOrHome(context),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                 child: Text('← رجوع', style: ar(14, color: Tw.gray500)),
@@ -124,9 +127,15 @@ class _WalletScreenState extends State<WalletScreen> {
                     fontWeight: FontWeight.w900,
                     color: Tw.amber400,
                     letterSpacing: 0)),
-            // 📌 «الخزنة ←» تصل مع الملفّ 33. زرٌّ لا يذهب مكاناً أسوأ
-            //    من غيابه، فيُخفى حتى تصل الشاشة.
-            const SizedBox(width: 56),
+            InkWell(
+              onTap: () => swapTo(Routes.store),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                child: Text('الخزنة ←',
+                    style: ar(11, color: const Color(0xE6FBBF24),
+                        weight: FontWeight.bold)),
+              ),
+            ),
           ],
         ),
       );
