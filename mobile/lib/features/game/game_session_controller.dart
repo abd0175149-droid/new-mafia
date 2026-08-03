@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api/api_client.dart';
 import '../../core/haptics/haptics_service.dart';
 import '../../core/socket/socket_service.dart';
+import '../../core/sound/turn_alert.dart';
 import '../../models/card_template.dart' show kMafiaRoleIds;
 import '../../models/game.dart';
 import '../../models/night.dart';
@@ -68,6 +69,11 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _cardFlipped = false;
   bool get cardFlipped => _cardFlipped;
+
+  /// 🔒 البطاقة قابلةٌ للقلب في نافذة كشف الدور وحدها — أي قبل بدء اللعب.
+  ///    بعدها تُقفل على وجهها العلنيّ.
+  bool get cardLocked =>
+      _gamePhase != null && !GamePhase.isPreGame(_gamePhase);
   set cardFlipped(bool v) {
     if (_cardFlipped == v) return;
     _cardFlipped = v;
@@ -125,6 +131,19 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   Timer? _nightTicker;
   Timer? _nightClose;
+
+  // ══════════════════════════════════════════════════════
+  // 🎤 النقاش — §4.2 في الملفّ ٢٥
+  // ══════════════════════════════════════════════════════
+  DiscussionState? _discussion;
+  DiscussionState? get discussion => _discussion;
+
+  bool get isMyTurnToSpeak =>
+      _discussion?.currentSpeakerId != null &&
+      _discussion!.currentSpeakerId == _physicalId;
+
+  /// آخر متحدّثٍ عُولج — لإطلاق التنبيه على **الانتقال** لا على كلّ مزامنة.
+  int? _lastSpeakerSeen;
 
   VotingState? _voting;
   VotingState? get voting => _voting;
@@ -445,6 +464,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _assignedRole = null;
       _gameOverData = null;
     }
+
+    // 🔒 ببدء اللعب تعود البطاقة إلى **وجهها العلنيّ** (الاسم والصورة
+    //    والرقم) وتُقفل. إبقاؤها مكشوفةً على وجه الدور طوال الجولة يعرض
+    //    دورَ اللاعب لكلّ من جلس بجانبه — والكشف كان لثانيةٍ ليعرف دوره
+    //    لا ليبقى معروضاً. القفل في `cardLocked`.
+    if (!GamePhase.isPreGame(phase) && phase != null) _cardFlipped = false;
     if (!GamePhase.keepsVoting(phase)) _clearVoting();
     notifyListeners();
   }
@@ -754,6 +779,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _allowPlayerInvites = res['allowPlayerInvites'] as bool;
     }
 
+    // 🔴 نفس علّة الليل: `day:discussion-updated` يُبثّ مرّة. من فاته لا
+    //    يعلم أنّ الدور صار له — فيصمت الجميع ينتظرونه. الاستطلاع يشفيه.
+    if (res['discussionState'] != null) {
+      _applyDiscussion(DiscussionState.fromJson(res['discussionState']));
+    }
+
     _phaseData = {
       for (final k in const [
         'justificationData', 'withdrawalState', 'discussionState',
@@ -966,6 +997,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     _on('night:step-info', (d) {
       _nightStepRoleName = d is Map ? '${d['roleName'] ?? ''}' : '';
+      notifyListeners();
+    });
+
+    _on('day:discussion-updated', (d) {
+      if (d is! Map) return;
+      _applyDiscussion(DiscussionState.fromJson(d['discussionState']));
       notifyListeners();
     });
 
@@ -1206,6 +1243,23 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         playerId: _playerId,
       ).toJson()),
     );
+  }
+
+  /// 🔔 تنبيه «دورك في النقاش» — يُطلق على **انتقال** الدور إليّ فقط.
+  ///
+  /// إطلاقه على كل مزامنةٍ يعني اهتزازاً كل ٣ ثوانٍ طوال دقيقة كلامي.
+  /// ولذلك يُحفظ آخر متحدّثٍ رُئي، ويُصفَّر عند نهاية النقاش كي يعمل
+  /// التنبيه ثانيةً في الجولة القادمة إن عاد الدور إليّ.
+  void _applyDiscussion(DiscussionState? d) {
+    _discussion = d;
+    final now = d?.currentSpeakerId;
+    if (now != _lastSpeakerSeen) {
+      _lastSpeakerSeen = now;
+      if (now != null && now == _physicalId && !_isPlayerDead) {
+        unawaited(TurnAlert.instance.fire());
+      }
+    }
+    if (d == null || d.isFinished) _lastSpeakerSeen = null;
   }
 
   // ══════════════════════════════════════════════════════

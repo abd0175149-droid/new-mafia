@@ -10,6 +10,7 @@ import '../../models/game.dart';
 import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'discussion_view.dart';
 import 'night_view.dart';
 import 'voting_view.dart';
 import 'roles_info_modal.dart';
@@ -54,12 +55,64 @@ class LobbyView extends StatelessWidget {
         const SizedBox(height: 12),
       ],
 
-      if (_waiting) _waitingBody(c) else _roleBody(c),
+      // 🔴 ثلاث حالات لا حالتان. كان الشرط `assignedRole != null` يعرض
+      //    البطاقة **إلى الأبد**، فما إن يصل الدور حتى تتجمّد الشاشة عليه
+      //    ولا تُرسم مرحلةٌ بعدها: لا ليل ولا تصويت ولا نقاش. شكا المالك
+      //    من ذلك حرفياً: «يبدو أن تطبيق اللاعب يتجمد على مرحلة عرض
+      //    الكارد».
+      if (_waiting)
+        _waitingBody(c)
+      else if (!c.cardLocked)
+        _roleBody(c)
+      else
+        _playBody(c),
 
       const SizedBox(height: 12),
-      RoomCodeCard(code: c.roomCode),
-      const SizedBox(height: 8),
-      _SeatsProgress(joined: c.roster.length, max: c.maxPlayers),
+      // رمز الغرفة وعدّاد المقاعد قبل اللعب فقط — أثناء الجولة لا يفيدان
+      // ويزاحمان المرحلة على الشاشة.
+      if (!c.cardLocked) ...[
+        RoomCodeCard(code: c.roomCode),
+        const SizedBox(height: 8),
+        _SeatsProgress(joined: c.roster.length, max: c.maxPlayers),
+      ],
+    ]);
+  }
+
+  /// 🎮 أثناء اللعب: البطاقة على **وجهها العلنيّ** مقفلةً، ثمّ المرحلة.
+  ///
+  /// 🔒 القفل مقصود: الكشف كان لثانيةٍ ليعرف اللاعب دوره، لا ليبقى
+  ///    معروضاً لكلّ من جلس بجانبه طوال الجولة.
+  Widget _playBody(GameSessionController c) {
+    final me = c.roster.where((p) => p.physicalId == c.physicalId).firstOrNull;
+    final alive = !c.isPlayerDead && (me?.isAlive ?? true);
+
+    return Column(children: [
+      if (c.isPlayerDead) ...[
+        Text('تم إقصاؤك',
+            style: const TextStyle(
+                fontFamily: 'Amiri',
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0,
+                color: Color(0xFFF87171))),
+        const SizedBox(height: 12),
+      ],
+      MafiaCardView(
+        // مقاسٌ أصغر أثناء اللعب: المرحلة هي الأهمّ على الشاشة
+        size: CardSize.sm,
+        flippable: false,
+        isFlipped: false,
+        isAlive: alive,
+        playerNumber: c.physicalId,
+        playerName: c.displayName.isEmpty ? 'أنت' : c.displayName,
+        avatarUrl: SessionStore.instance.player?.avatarUrl,
+        cosmetics: CosmeticsService.instance.cosmetics,
+        template: GameConfigService.instance.master,
+        rankFx: GameConfigService.instance
+            .effectsForTier(CosmeticsService.instance.rankTier),
+      ),
+      const SizedBox(height: 20),
+      _phaseBody(c),
     ]);
   }
 
@@ -133,7 +186,7 @@ class LobbyView extends StatelessWidget {
           // §4.13: بطاقة اللوبي واللعب مقاس `md` — قاعدة معايرة القوالب
           size: CardSize.md,
           role: c.assignedRole,
-          flippable: true,
+          flippable: !c.cardLocked,
           isFlipped: c.cardFlipped,
           // كشفٌ لاصق: يُضبط ولا يُعكَس
           onFlip: () => c.cardFlipped = true,
@@ -156,6 +209,7 @@ class LobbyView extends StatelessWidget {
   /// المرحلة باسمها بدل شاشةٍ فارغة تُوهم اللاعب بعطل.
   Widget _phaseBody(GameSessionController c) => switch (c.gamePhase) {
         GamePhase.night => PassiveNightBody(stepRoleName: c.nightStepRoleName),
+        GamePhase.dayDiscussion => DiscussionBody(controller: c),
         GamePhase.dayVoting => VotingBallot(controller: c),
         GamePhase.dayTiebreaker => TiebreakerBody(tied: c.tiedCandidates),
         GamePhase.eliminationPending => EliminationBody(

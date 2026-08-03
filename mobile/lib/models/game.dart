@@ -533,3 +533,59 @@ enum RejoinResult {
   /// لا ردّ: شبكة أو سوكِت غير متّصل. يُعاد لاحقاً.
   unreachable,
 }
+
+// ══════════════════════════════════════════════════════
+// 🎤 حالة النقاش — §4.2 في الملفّ ٢٥
+// ══════════════════════════════════════════════════════
+
+class DiscussionState {
+  const DiscussionState({
+    this.currentSpeakerId,
+    this.timeLimitSeconds = 0,
+    this.timeRemaining = 0,
+    this.startTimeMs,
+    this.status = 'WAITING',
+    this.speakingQueue = const [],
+    this.hasSpoken = const [],
+    this.isFinished = false,
+  });
+
+  final int? currentSpeakerId;
+  final int timeLimitSeconds, timeRemaining;
+  final int? startTimeMs;
+
+  /// `WAITING` انتظار إذن الليدر · `SPEAKING` الوقت يُحتسب · `PAUSED`.
+  final String status;
+  final List<int> speakingQueue, hasSpoken;
+  final bool isFinished;
+
+  bool get isSpeaking => status == 'SPEAKING';
+
+  /// المتبقّي الحقيقيّ: `timeRemaining` يُجمَّد عند آخر إيقاف، فيُطرح منه
+  /// ما مضى منذ `startTime` وإلّا بقي العدّاد ساكناً طوال الكلام.
+  int remaining({DateTime? now}) {
+    final st = startTimeMs;
+    if (!isSpeaking || st == null) return timeRemaining;
+    final elapsed = ((now ?? DateTime.now()).millisecondsSinceEpoch - st) ~/ 1000;
+    final left = timeRemaining - elapsed;
+    return left < 0 ? 0 : left;
+  }
+
+  static List<int> _ids(Object? v) => v is! List
+      ? const []
+      : v.whereType<num>().map((e) => e.toInt()).toList(growable: false);
+
+  static DiscussionState? fromJson(Object? v) {
+    if (v is! Map) return null;
+    return DiscussionState(
+      currentSpeakerId: (v['currentSpeakerId'] as num?)?.toInt(),
+      timeLimitSeconds: _i(v['timeLimitSeconds']),
+      timeRemaining: _i(v['timeRemaining']),
+      startTimeMs: (v['startTime'] as num?)?.toInt(),
+      status: '${v['status'] ?? 'WAITING'}',
+      speakingQueue: _ids(v['speakingQueue']),
+      hasSpoken: _ids(v['hasSpoken']),
+      isFinished: v['isFinished'] == true,
+    );
+  }
+}
