@@ -1,21 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/router.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/game_config_service.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/store.dart';
 import '../../models/wallet.dart' show groupThousands;
+import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'item_sheet.dart';
+import 'mirror_stage.dart';
 import 'store_widgets.dart';
 
 // ══════════════════════════════════════════════════════
 // 🏦 خزنة الدون — الملفّ 33
 // ══════════════════════════════════════════════════════
-// 📌 المرآة (§4.2) تعرض «بطاقتك كما يراها كل من في القاعة» — أي **كرت
-//    اللعب الحقيقيّ** (الملفّ 22) وعليه طبقة المظهر (الملفّ 34)، وكلاهما
-//    في طبقة اللعب. مرآةٌ تعرض مربّعاً مخترعاً أسوأ من غيابها: اللاعب
-//    يشتري بناءً على ما رآه. تصل مع الكرت.
+// 📐 المبدأ الحاكم: **المرآة**. المتجر يبيع مظهراً، والمظهر لا يُوصف بل
+//    يُرى — فالمنتَج ليس القائمة بل البطاقة. لذلك:
+//      • البطاقة مثبَّتة أعلى الشاشة دائماً.
+//      • **اللمس هو التجربة** — لا زرّ «جرّب» إطلاقاً.
+//      • زرّ أساسيّ واحد في المرآة: الشراء. ولا أزرار على بطاقات العناصر.
+//      • كل معاينة تحاكي موضع العنصر في الواقع.
+
+/// ما يُلبَس على البطاقة — يُعاين على المرآة فوراً، ويُعرض في شبكة.
+const _wearable = {'frame', 'title', 'name_fx'};
+
+/// ما يُعرَض أو يُسمَع — معاينته زمنيّة، فيُعرض في صفوف.
+const _temporal = {'entrance', 'elimination', 'victory_sting'};
 
 class StoreScreen extends StatefulWidget {
   const StoreScreen({super.key});
@@ -27,19 +40,33 @@ class StoreScreen extends StatefulWidget {
 class _StoreScreenState extends State<StoreScreen> {
   StoreData? _data;
   bool _loading = true;
+  bool _loadError = false;
   String _tab = 'offers';
   int? _busyItem;
+
+  /// العنصر المُعايَن على المرآة — اللمس هو التجربة، فلا زرّ لها.
+  StoreItem? _tryOn;
+
+  /// معاينة زمنيّة جارية فوق المرآة (تشريفة · إقصاء · نغمة).
+  StoreItem? _stage;
+  Timer? _stageTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // قالب البطاقة وتأثيرات الرتب — بدونها ترسم المرآة بطاقةً غير التي
+    // تظهر على شاشة القاعة
+    GameConfigService.instance
+        .ensureLoaded()
+        .then((_) => mounted ? setState(() {}) : null);
     SocketService.instance.on('chips:balance-updated', _onBalance);
   }
 
   @override
   void dispose() {
     SocketService.instance.off('chips:balance-updated', _onBalance);
+    _stageTimer?.cancel();
     super.dispose();
   }
 
@@ -61,15 +88,15 @@ class _StoreScreenState extends State<StoreScreen> {
         setState(() {
           _data = d;
           _loading = false;
-          // تبويبٌ لم يعد موجوداً بعد الجلب يقفز إلى أوّل المتاح
+          _loadError = false;
           final tabs = _tabsOf(d).map((t) => t.$1).toList();
           if (!tabs.contains(_tab)) _tab = tabs.isEmpty ? 'offers' : tabs.first;
         });
         return;
       }
-      setState(() => _loading = false);
+      setState(() { _loading = false; _loadError = true; });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _loading = false; _loadError = true; });
     }
   }
 
@@ -92,45 +119,63 @@ class _StoreScreenState extends State<StoreScreen> {
       };
 
   // ══════════════════════════════════════════════════════
-  // الأفعال
+  // اللمس هو التجربة
   // ══════════════════════════════════════════════════════
-  Future<void> _open(StoreItem item) async {
-    final d = _data;
-    if (d == null) return;
-
-    final action = await showItemSheet(
-      context,
-      item: item,
-      balance: d.balance,
-      equipped: d.cosmetics.isEquipped(item),
-      busy: _busyItem == item.id,
-      playerName: d.name,
-    );
-    if (action == null || !mounted) return;
-
-    switch (action) {
-      case ItemAction.rent:
-        await _rent(item);
-      case ItemAction.trial:
-        await _trial(item);
-      case ItemAction.equip:
-        await _equip(item.kind, item.id);
-      case ItemAction.unequip:
-        await _equip(item.kind, null);
-      case ItemAction.needChips:
-        await showNeedChips(context,
-            item: item, balance: d.balance, rates: d.earnRates);
+  void _pick(StoreItem item) {
+    if (_wearable.contains(item.kind)) {
+      setState(() {
+        _stage = null;
+        _tryOn = _tryOn?.id == item.id ? null : item;
+      });
+      _stageTimer?.cancel();
+    } else {
+      setState(() => _tryOn = item);
+      _playStage(item);
     }
   }
 
+  void _clearPick() {
+    _stageTimer?.cancel();
+    setState(() {
+      _tryOn = null;
+      _stage = null;
+    });
+  }
+
+  /// 🎬 المعاينة الزمنيّة تُشغَّل **فوق المرآة** لأن هذا موضعها في الواقع:
+  ///    التشريفة حول بطاقتك، والإقصاء يحرق بطاقتك.
+  ///
+  /// 🔇 النغمة لا تمرّ بأيّ مسار بثّ — جهاز القائد مصدر صوت القاعة
+  ///    الحصريّ، ومعاينةٌ تُبَثّ تعني نغمة نصرٍ تُسمَع في الصالة لأن أحدهم
+  ///    يتصفّح المتجر.
+  void _playStage(StoreItem item) {
+    _stageTimer?.cancel();
+    setState(() => _stage = item);
+    final ms = switch (item.kind) {
+      'entrance' => ((item.config?['durationMs'] as num?)?.toInt() ?? 3500)
+          .clamp(1500, 6000),
+      'elimination' => 3200,
+      _ => 6000,
+    };
+    _stageTimer = Timer(Duration(milliseconds: ms),
+        () => mounted ? setState(() => _stage = null) : null);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // الأفعال
+  // ══════════════════════════════════════════════════════
   Future<void> _rent(StoreItem item) async {
-    // «جدّد» و«استأجر» مسارٌ واحد عند الخادم — ما يفرّقهما هنا هو أنه
-    // كان يملكه قبل الضغطة. يُلتقط الآن لأن `_load()` سيقلبه مملوكاً.
+    final d = _data;
+    if (d == null) return;
+    if (d.balance < item.priceChips) {
+      await showNeedChips(context,
+          item: item, balance: d.balance, rates: d.earnRates);
+      return;
+    }
     final renewing = item.owned;
     setState(() => _busyItem = item.id);
     try {
-      // 🔴 `requestId` ليس زينة: ضغطتان سريعتان على «استأجر» تعنيان خصمين
-      //    لنفس العنصر. الخادم يُسقط الثانية بنفس المعرّف.
+      // 🔴 `requestId` ليس زينة: ضغطتان سريعتان تعنيان خصمين لنفس العنصر.
       final r = await ApiClient.instance.post('/api/chips/store/rent', body: {
         'itemId': item.id,
         'requestId': 'rent-${item.id}-${DateTime.now().microsecondsSinceEpoch}',
@@ -139,18 +184,20 @@ class _StoreScreenState extends State<StoreScreen> {
       if (r is Map && r['success'] == true) {
         await _load();
         if (!mounted) return;
-        // المتبقّي بعد التجديد يأتي من الجلب الجديد — العنصر الممرَّر
-        // التُقط قبل الطلب فمدّته قديمة.
         final fresh = _data?.items.where((i) => i.id == item.id).firstOrNull;
-        await showPurchaseCelebration(context, item,
-            renewed: renewing,
-            remainingText: fresh?.daysLeftText,
-            playerName: _data?.name ?? '');
+        setState(() => _tryOn = null);
+        await showPurchaseCelebration(
+          context,
+          item,
+          renewed: renewing,
+          remainingText: fresh?.daysLeftText,
+          playerName: _data?.name ?? '',
+          data: _data,
+        );
         return;
       }
       _error(r is Map ? r['error'] as String? : null);
     } on ApiException catch (e) {
-      // رسائل الخادم عربية ومكتوبة للاعب — تُعرض حرفياً
       _error(e.message);
     } catch (_) {
       _error(null);
@@ -167,6 +214,13 @@ class _StoreScreenState extends State<StoreScreen> {
       if (!mounted) return;
       if (r is Map && r['success'] == true) {
         await _load();
+        if (!mounted) return;
+        final fresh = _data?.items.where((i) => i.id == item.id).firstOrNull;
+        setState(() => _tryOn = null);
+        await showPurchaseCelebration(context, item,
+            remainingText: fresh?.daysLeftText,
+            playerName: _data?.name ?? '',
+            data: _data);
         return;
       }
       _error(r is Map ? r['error'] as String? : null);
@@ -186,6 +240,7 @@ class _StoreScreenState extends State<StoreScreen> {
       if (!mounted) return;
       if (r is Map && r['success'] == true) {
         await _load();
+        if (mounted) setState(() => _tryOn = null);
         return;
       }
       _error(r is Map ? r['error'] as String? : null);
@@ -217,23 +272,20 @@ class _StoreScreenState extends State<StoreScreen> {
           bottom: false,
           child: Column(children: [
             _header(d),
-            if (d != null) _tabsBar(d),
-            Expanded(
-              child: _loading
-                  ? const Center(
-                      child: SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Tw.amber500),
-                      ),
-                    )
-                  : d == null
-                      ? Center(
-                          child: Text('تعذّر فتح الخزنة',
-                              style: ar(14, color: Tw.gray500)))
-                      : _body(d),
+            if (d != null) _Mirror(
+              data: d,
+              sel: _tryOn,
+              stage: _stage,
+              busy: _busyItem,
+              onClear: _clearPick,
+              onRent: _rent,
+              onTrial: _trial,
+              onEquip: _equip,
+              onReplay: _playStage,
+              onSlotTap: (kind) => setState(() => _tab = kind),
             ),
+            if (d != null) _tabsBar(d),
+            Expanded(child: _body(d)),
           ]),
         ),
       ),
@@ -250,8 +302,6 @@ class _StoreScreenState extends State<StoreScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             InkWell(
-              // إلى ما تحتها إن وُجد، وإلى الرئيسية إن فُتحت من إشعارٍ
-              // على بدءٍ بارد فلا شيء تحتها
               onTap: () => popOrHome(context),
               child: Padding(
                 padding: const EdgeInsets.all(4),
@@ -271,158 +321,511 @@ class _StoreScreenState extends State<StoreScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(8),
                   color: const Color(0x24F59E0B),
                   border: Border.all(color: const Color(0x52F59E0B)),
                 ),
-                child: Text('🪙 ${d == null ? '—' : groupThousands(d.balance)}',
-                    style: num_(13, color: Tw.amber400)),
+                child: ltrText('🪙 ${groupThousands(d?.balance ?? 0)}',
+                    num_(13, color: Tw.amber400)),
               ),
             ),
           ],
         ),
       );
 
-  Widget _tabsBar(StoreData d) {
-    final tabs = _tabsOf(d);
-    if (tabs.isEmpty) return const SizedBox.shrink();
-
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: tabs.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 6),
-        itemBuilder: (_, i) {
-          final (key, label, icon, count) = tabs[i];
-          final on = _tab == key;
-          return InkWell(
-            onTap: () => setState(() => _tab = key),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
+  Widget _tabsBar(StoreData d) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xF0050505),
+          border: Border(bottom: BorderSide(color: Color(0x0FFFFFFF))),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(children: [
+            for (final t in _tabsOf(d)) ...[
+              InkWell(
+                onTap: () {
+                  setState(() => _tab = t.$1);
+                  _clearPick();
+                },
                 borderRadius: BorderRadius.circular(8),
-                color: on ? const Color(0x26F59E0B) : const Color(0x0DFFFFFF),
-                border: Border.all(
-                    color: on ? const Color(0x80F59E0B) : const Color(0x1AFFFFFF)),
-              ),
-              child: Row(children: [
-                Text('$icon $label',
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: _tab == t.$1
+                        ? const Color(0x26F59E0B)
+                        : const Color(0x0DFFFFFF),
+                    border: Border.all(
+                        color: _tab == t.$1
+                            ? const Color(0x80F59E0B)
+                            : const Color(0x1AFFFFFF)),
+                  ),
+                  child: Text.rich(
+                    TextSpan(children: [
+                      TextSpan(text: '${t.$3} ${t.$2} '),
+                      TextSpan(
+                          text: '${t.$4}',
+                          style: ar(11.5, color: Tw.gray600)),
+                    ]),
                     style: ar(11.5,
-                        color: on ? const Color(0xFFFCD34D) : Tw.gray400,
-                        weight: FontWeight.bold)),
-                const SizedBox(width: 4),
-                Opacity(
-                  opacity: 0.5,
-                  child: Text('$count',
-                      style: num_(11.5,
-                          color: on ? const Color(0xFFFCD34D) : Tw.gray400,
-                          weight: FontWeight.bold)),
+                        color: _tab == t.$1
+                            ? const Color(0xFFFCD34D)
+                            : Tw.gray400,
+                        weight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+          ]),
+        ),
+      );
+
+  Widget _body(StoreData? d) {
+    if (_loading) {
+      return Center(
+          child: Text('جارٍ فتح الخزنة…', style: ar(14, color: Tw.gray600)));
+    }
+    if (_loadError || d == null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('تعذّر فتح الخزنة', style: ar(14, color: Tw.rose400)),
+          const SizedBox(height: 12),
+          InkWell(
+            onTap: _load,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                  color: Tw.amber500, borderRadius: BorderRadius.circular(12)),
+              child: Text('أعد المحاولة',
+                  style: ar(12, color: Colors.black, weight: FontWeight.w900)),
+            ),
+          ),
+        ]),
+      );
+    }
+
+    final items = _itemsOf(d);
+    final grid = _tab == 'offers' || _tab == 'mine' || _wearable.contains(_tab);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 40),
+      children: [
+        if (items.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 48),
+            child: Center(
+                child: Text('لا عناصر في هذا القسم',
+                    style: ar(14, color: Tw.gray600))),
+          )
+        else if (grid)
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 200,
+              mainAxisExtent: 150,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+            ),
+            itemCount: items.length,
+            itemBuilder: (_, i) => StoreGridItem(
+              item: items[i],
+              equipped: d.cosmetics.isEquipped(items[i]),
+              selected: _tryOn?.id == items[i].id,
+              onTap: () => _pick(items[i]),
+              playerName: d.name,
+            ),
+          )
+        else
+          for (final it in items) ...[
+            StoreRowItem(
+              item: it,
+              selected: _tryOn?.id == it.id,
+              temporal: _temporal.contains(it.kind),
+              onTap: () => _pick(it),
+              playerName: d.name,
+            ),
+            const SizedBox(height: 8),
+          ],
+        if (d.closedVault.isNotEmpty)
+          ClosedVault(items: d.closedVault, playerName: d.name),
+        if (d.earnRates != null) ...[
+          const SizedBox(height: 24),
+          _earnCard(d),
+        ],
+      ],
+    );
+  }
+
+  Widget _earnCard(StoreData d) {
+    final r = d.earnRates!;
+    Widget line(String s) => Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Text(s, style: ar(12, color: Tw.gray400, height: 1.5)),
+        );
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: const Color(0x0FF59E0B),
+        border: Border.all(color: const Color(0x33F59E0B)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('كيف تكسب تشبس؟',
+            style: ar(13, color: Tw.amber400, weight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        // 🔴 «+٢» داخل جملةٍ عربية ينقلب «٢+»: علامة الزائد محايدة فتأخذ
+        //    اتجاه الفقرة. تُلفّ مع رقمها في مقطعٍ لاتينيّ.
+        if (r.win > 0) line('🏆 اربح المباراة — ${ltrRun('+${r.win}')}'),
+        if (r.top3 > 0) line('🥉 ضمن أفضل ثلاثة — ${ltrRun('+${r.top3}')}'),
+        if (r.birthday > 0) line('🎂 عيد ميلادك — ${ltrRun('+${r.birthday}')}'),
+        line('💵 أو اشحن من الإدارة بالحضور'),
+      ]),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 🪞 المرآة
+// ══════════════════════════════════════════════════════
+// 📐 حالتان: مصغّرة حين لا معاينة، وكبيرة حين تُعاين. البطاقة المصغّرة
+//    تكفي للسياق لكنّها لا تكفي للحكم على تفاصيل إطار — وهو الفعل الذي
+//    جاء اللاعب من أجله. فتكبر لحظة الاختيار وحدها.
+class _Mirror extends StatelessWidget {
+  const _Mirror({
+    required this.data,
+    required this.sel,
+    required this.stage,
+    required this.busy,
+    required this.onClear,
+    required this.onRent,
+    required this.onTrial,
+    required this.onEquip,
+    required this.onReplay,
+    required this.onSlotTap,
+  });
+
+  final StoreData data;
+  final StoreItem? sel, stage;
+  final int? busy;
+  final VoidCallback onClear;
+  final void Function(StoreItem) onRent, onTrial, onReplay;
+  final void Function(String kind, int? itemId) onEquip;
+  final void Function(String kind) onSlotTap;
+
+  /// مقاس البطاقة `sm` الحقيقيّ، ومتنفَّسٌ علويّ بمقدار طفو الشعار.
+  static const _cardW = 176.0, _cardH = 240.0, _headroom = 17.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final k = sel != null ? 0.78 : 0.46;
+    final boxW = (_cardW * k).roundToDouble();
+    final boxH = ((_cardH + _headroom) * k).roundToDouble();
+    final padTop = (_headroom * k).roundToDouble();
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xF7050505), Color(0xE0050505)],
+        ),
+        border: Border(bottom: BorderSide(color: Color(0x12FFFFFF))),
+      ),
+      child: Stack(children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            // ⬆️ القصّ بلا متنفَّس يبتر التاج — وهو ما دفع اللاعب ثمنه
+            SizedBox(
+              width: boxW,
+              height: boxH,
+              child: ClipRect(
+                child: Stack(clipBehavior: Clip.none, children: [
+                  Positioned(
+                    top: padTop,
+                    right: 0,
+                    child: Transform.scale(
+                      scale: k,
+                      alignment: Alignment.topRight,
+                      child: SizedBox(
+                        width: _cardW,
+                        height: _cardH,
+                        child: MafiaCardView(
+                          playerName: data.name.isEmpty ? 'أنت' : data.name,
+                          avatarUrl: data.avatarUrl,
+                          cosmetics: data.cosmetics.preview(sel),
+                          template: GameConfigService.instance.master,
+                          rankFx: GameConfigService.instance
+                              .effectsForTier(data.rankTier),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (stage != null && stage!.kind != 'entrance')
+                    Positioned(
+                      top: padTop,
+                      right: 0,
+                      width: boxW,
+                      height: (_cardH * k).roundToDouble(),
+                      child: MirrorStageView(item: stage!),
+                    ),
+                ]),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: sel == null ? _idle(context) : _selected(context)),
+          ]),
+        ),
+
+        // 🚪 مسرح التشريفة يغطّي المرآة كاملةً: التشريفة حدثٌ يملأ شاشة
+        //    القاعة، وحصرها في مربّع البطاقة يجعلها بقعةَ لونٍ لا تُقرأ.
+        if (stage != null && stage!.kind == 'entrance')
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Stack(children: [
+                Positioned.fill(
+                    child: EntranceStageView(
+                        item: stage!,
+                        playerName: data.name.isEmpty ? 'أنت' : data.name)),
+                PositionedDirectional(
+                  bottom: 6,
+                  start: 12,
+                  child: Text('هكذا تظهر على شاشة القاعة',
+                      style: ar(9, color: Tw.gray500)),
                 ),
               ]),
             ),
-          );
-        },
-      ),
+          ),
+      ]),
     );
   }
 
-  Widget _body(StoreData d) {
-    final items = _itemsOf(d);
-    final kind = StoreKind.all.where((k) => k.key == _tab).firstOrNull;
-    // «عروض» و«خزانتي» مختلطة الأنواع ⇒ شبكة؛ والأنواع الزمنيّة صفوف.
-    final asGrid = kind == null || kind.wearable;
+  // ── لا معاينة ──
+  Widget _idle(BuildContext context) {
+    final empty = <(String kind, String label)>[
+      if (data.cosmetics.frame == null) ('frame', 'إطارك'),
+      if (data.cosmetics.title == null) ('title', 'لقبك'),
+      if (data.cosmetics.nameFx == null) ('name_fx', 'تأثير اسمك'),
+    ];
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      color: Tw.amber500,
-      backgroundColor: const Color(0xFF111111),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-        children: [
-          _emptySlots(d),
-          if (items.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 40),
-              child: Center(
-                  child: Text('لا يوجد شيء هنا بعد', style: ar(14, color: Tw.gray600))),
-            )
-          else if (asGrid)
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              // 🔴 عمودان **ثابتان** يعني بطاقةً بعرض ٣٦٠dp على تابلت،
-              //    وبنسبة ارتفاعٍ ثابتة تصير ٤٦٠dp طولاً — بطاقةٌ واحدة
-              //    تملأ الشاشة. المواصفة كُتبت لهاتف. العرض الأقصى يبقي
-              //    البطاقة بحجمها على كل جهاز ويزيد الأعمدة وحدها.
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 200,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                mainAxisExtent: 150,
-              ),
-              itemCount: items.length,
-              itemBuilder: (_, i) => StoreGridItem(
-                playerName: d.name,
-                item: items[i],
-                equipped: d.cosmetics.isEquipped(items[i]),
-                onTap: () => _open(items[i]),
-              ),
-            )
-          else
-            for (final it in items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: StoreRowItem(
-                    item: it, onTap: () => _open(it), playerName: d.name),
-              ),
-          if (d.closedVault.isNotEmpty)
-            ClosedVault(items: d.closedVault, playerName: d.name),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('بطاقتك كما يراها كل من في القاعة',
+            style: ar(11, color: Tw.gray400)),
+        const SizedBox(height: 6),
+        if (empty.isEmpty)
+          Text('المس أي عنصر لتراه على بطاقتك فوراً',
+              style: ar(10, color: Tw.gray600, height: 1.5))
+        else
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final s in empty)
+                InkWell(
+                  onTap: () => onSlotTap(s.$1),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: const Color(0x0FF59E0B),
+                      border: Border.all(color: const Color(0x4DF59E0B)),
+                    ),
+                    child: Text(
+                      data.cheapestOf(s.$1) == null
+                          ? '${s.$2} فاضي'
+                          : '${s.$2} فاضي — من 🪙${data.cheapestOf(s.$1)}',
+                      style: ar(10,
+                          color: const Color(0xE6FCD34D),
+                          weight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+      ],
     );
   }
 
-  /// رقائق «الخانة فاضية» — تُظهر ما ينقص البطاقة وتنقل إلى تبويبه.
-  Widget _emptySlots(StoreData d) {
-    final empty = StoreKind.all
-        .where((k) => k.wearable && d.cosmetics.forKind(k.key) == null)
-        .toList();
-    if (empty.isEmpty) return const SizedBox.shrink();
+  // ── معاينة جارية ──
+  Widget _selected(BuildContext context) {
+    final i = sel!;
+    final equipped = data.cosmetics.isEquipped(i);
 
-    const names = {'frame': 'إطارك', 'title': 'لقبك', 'name_fx': 'تأثير اسمك'};
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Wrap(
-        spacing: 6,
-        runSpacing: 6,
-        children: [
-          for (final k in empty)
-            InkWell(
-              onTap: () => setState(() => _tab = k.key),
-              borderRadius: BorderRadius.circular(999),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  color: const Color(0x0FF59E0B),
-                  border: Border.all(color: const Color(0x4DF59E0B)),
-                ),
-                child: Text(
-                  d.cheapestOf(k.key) == null
-                      ? '${names[k.key]} فاضي'
-                      : '${names[k.key]} فاضي — من 🪙${d.cheapestOf(k.key)}',
-                  style: ar(10,
-                      color: const Color(0xE6FCD34D), weight: FontWeight.bold),
-                ),
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(children: [
+          rarityDot(i.rarity),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              '${i.owned ? 'تملكه' : i.isAchievement ? '👑 إنجاز' : 'تعاينه الآن'}'
+              ' · ${rarityLabel(i.rarity)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: ar(10, color: Tw.gray500),
             ),
-        ],
-      ),
+          ),
+        ]),
+        Text(i.nameAr,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontFamily: 'Amiri',
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+                height: 1.2,
+                letterSpacing: 0)),
+        // جملة البيع هنا لا في الشبكة — يقرؤها من اهتمّ فعلاً
+        if (i.hookAr != null)
+          Text(i.hookAr!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: ar(10.5, color: Tw.gray400, height: 1.3)),
+        const SizedBox(height: 4),
+        _money(i),
+        const SizedBox(height: 6),
+        _actions(context, i, equipped),
+      ],
     );
   }
+
+  Widget _money(StoreItem i) {
+    if (i.owned) {
+      return Text('⏳ متبقٍ ${i.daysLeftText}',
+          style: num_(11, color: const Color(0xFF34D399)));
+    }
+    if (!i.isPurchasable) {
+      return Text.rich(TextSpan(children: [
+        TextSpan(
+            text: i.achievementAr == null
+                ? 'إنجاز فقط'
+                : 'يُنال بـ${i.achievementAr}',
+            style: ar(10.5,
+                color: const Color(0xFFCBD5E1), weight: FontWeight.bold)),
+        if (i.holderName != null)
+          TextSpan(
+              text: ' · يحمله ${i.holderName}',
+              style: ar(10.5, color: const Color(0xCCFBBF24))),
+      ]));
+    }
+    return Text.rich(TextSpan(children: [
+      TextSpan(text: '🪙 ${i.priceChips}', style: num_(11, color: Tw.amber400)),
+      if (i.perDayText != null)
+        TextSpan(
+            text: ' · ${i.perDayText} يومياً',
+            style: ar(11, color: Tw.gray500)),
+    ]));
+  }
+
+  /// الفعل الأساسيّ الوحيد في الشاشة.
+  Widget _actions(BuildContext context, StoreItem i, bool equipped) {
+    final busyNow = busy != null;
+    final buttons = <Widget>[];
+
+    if (i.isPurchasable) {
+      if (i.owned) {
+        if (_wearable.contains(i.kind)) {
+          buttons.add(Expanded(
+            child: _btn(
+              equipped ? 'إزالة من بطاقتي' : '🎽 جهّزه الآن',
+              filled: !equipped,
+              onTap: busyNow
+                  ? null
+                  : () => onEquip(i.kind, equipped ? null : i.id),
+            ),
+          ));
+        }
+        buttons.add(_btn('🔄 جدّد',
+            color: const Color(0x3305966A),
+            border: const Color(0x6610B981),
+            text: const Color(0xFF6EE7B7),
+            onTap: busyNow ? null : () => onRent(i)));
+      } else {
+        final enough = data.balance >= i.priceChips;
+        buttons.add(Expanded(
+          child: _btn(
+            busy == i.id
+                ? '…'
+                : enough
+                    ? 'استأجر — 🪙${i.priceChips}'
+                    : 'ينقصك ${groupThousands(i.priceChips - data.balance)} 🪙',
+            filled: true,
+            onTap: busy == i.id ? null : () => onRent(i),
+          ),
+        ));
+        if (i.trialEligible) {
+          buttons.add(_btn('🎁 ٣ أيام',
+              color: const Color(0x332563EA),
+              border: const Color(0x660EA5E9),
+              text: const Color(0xFFBAE6FD),
+              onTap: busy == i.id ? null : () => onTrial(i)));
+        }
+      }
+    }
+
+    if (_temporal.contains(i.kind)) {
+      buttons.add(_btn('↻', onTap: () => onReplay(i)));
+    }
+    buttons.add(_btn('↩︎', onTap: onClear));
+
+    return Row(children: [
+      for (var n = 0; n < buttons.length; n++) ...[
+        if (n > 0) const SizedBox(width: 6),
+        buttons[n],
+      ],
+    ]);
+  }
+
+  Widget _btn(
+    String label, {
+    bool filled = false,
+    Color? color,
+    Color? border,
+    Color? text,
+    VoidCallback? onTap,
+  }) =>
+      InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Opacity(
+          opacity: onTap == null ? 0.4 : 1,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              gradient: filled && color == null
+                  ? const LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
+                      colors: [Tw.amber400, Color(0xFFD97706)],
+                    )
+                  : null,
+              color: color ?? (filled ? null : const Color(0x0FFFFFFF)),
+              border: Border.all(
+                  color: border ?? (filled ? Colors.transparent : const Color(0x1FFFFFFF))),
+            ),
+            child: Center(
+              child: Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ar(11,
+                      color: text ?? (filled ? Colors.black : Tw.gray300),
+                      weight: FontWeight.w900)),
+            ),
+          ),
+        ),
+      );
 }

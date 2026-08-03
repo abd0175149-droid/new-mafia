@@ -55,11 +55,12 @@ class StoreGridItem extends StatelessWidget {
     required this.item,
     required this.equipped,
     required this.onTap,
+    this.selected = false,
     this.playerName = 'اسمك',
   });
 
   final StoreItem item;
-  final bool equipped;
+  final bool equipped, selected;
   final VoidCallback onTap;
   final String playerName;
 
@@ -81,8 +82,9 @@ class StoreGridItem extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: const Color(0x08FFFFFF),
-          border: Border.all(color: const Color(0x14FFFFFF)),
+          color: selected ? const Color(0x17F59E0B) : const Color(0x08FFFFFF),
+          border: Border.all(
+              color: selected ? const Color(0x99F59E0B) : const Color(0x17FFFFFF)),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -168,11 +170,14 @@ class StoreRowItem extends StatelessWidget {
     super.key,
     required this.item,
     required this.onTap,
+    this.selected = false,
+    this.temporal = false,
     this.playerName = 'اسمك',
   });
 
   final StoreItem item;
   final VoidCallback onTap;
+  final bool selected, temporal;
   final String playerName;
 
   @override
@@ -183,8 +188,9 @@ class StoreRowItem extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
-            color: const Color(0x08FFFFFF),
-            border: Border.all(color: const Color(0x14FFFFFF)),
+            color: selected ? const Color(0x17F59E0B) : const Color(0x08FFFFFF),
+            border: Border.all(
+                color: selected ? const Color(0x99F59E0B) : const Color(0x17FFFFFF)),
           ),
           child: Row(children: [
             ItemThumb(item: item, size: 44, playerName: playerName),
@@ -221,6 +227,22 @@ class StoreRowItem extends StatelessWidget {
                 ],
               ),
             ),
+            // ▶︎ الزمنيّ معاينته تُشغَّل — الصورة الساكنة لا تُمثّله
+            if (temporal) ...[
+              const SizedBox(width: 8),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0x26F59E0B),
+                  border: Border.all(color: const Color(0x66F59E0B)),
+                ),
+                child: Center(
+                  child: Text('▶︎', style: ar(11, color: const Color(0xFFFCD34D))),
+                ),
+              ),
+            ],
           ]),
         ),
       );

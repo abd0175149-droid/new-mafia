@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../models/store.dart';
 import '../../models/wallet.dart' show groupThousands;
+import '../../core/api/game_config_service.dart';
+import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'store_widgets.dart';
 
@@ -398,12 +400,18 @@ Future<void> showNeedChips(
 }
 
 // ══════════════════════════════════════════════════════
-// §4.7 احتفال الشراء
+// §4.7 احتفال الشراء — البطاقة الكبيرة وعليها ما اشتراه
 // ══════════════════════════════════════════════════════
 /// 🔴 التجديد ليس اقتناءً: «صار «كذا» لك» لمن يملكه أصلاً كذبةٌ صغيرة
 ///    تُربك — والمشتري يعرف أنه كان يملكه. النصّ ينقسم على `renewed`.
-Future<void> showPurchaseCelebration(BuildContext context, StoreItem item,
-    {bool renewed = false, String? remainingText, String playerName = 'اسمك'}) {
+Future<void> showPurchaseCelebration(
+  BuildContext context,
+  StoreItem item, {
+  bool renewed = false,
+  String? remainingText,
+  String playerName = 'اسمك',
+  StoreData? data,
+}) {
   return showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -412,46 +420,88 @@ Future<void> showPurchaseCelebration(BuildContext context, StoreItem item,
     transitionDuration: const Duration(milliseconds: 320),
     // 🔴 `Material` ليس زينة هنا: `showGeneralDialog` يبني فوق الـOverlay
     //    مباشرةً بلا `Material` فوقه، فينزل على كل `Text` النمط الاحتياطيّ
-    //    ذو `decoration: underline` و`decorationColor` أصفر مزدوج — يظهر
-    //    خطّاً أصفر تحت العنوان وتحت رمز المصغّر. الشفّاف يكفي.
+    //    ذو `decoration: underline` بلونٍ أصفر مزدوج — خطٌّ تحت العنوان
+    //    وتحت رمز المصغّر. الشفّاف يكفي.
     pageBuilder: (ctx, __, ___) => Material(
       type: MaterialType.transparency,
       child: GestureDetector(
         onTap: () => Navigator.of(ctx).pop(),
         behavior: HitTestBehavior.opaque,
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 📌 مكان البطاقة الكبيرة بمظهرها الجديد — تصل مع الكرت
-                //    (الملفّ 22). حتى ذلك الحين مصغّرٌ كبير بلون الندرة.
-                ItemThumb(item: item, size: 120, playerName: playerName),
-                const SizedBox(height: 20),
-                Text(
-                    renewed
-                        ? 'مُدِّد «${item.nameAr}»'
-                        : 'صار «${item.nameAr}» لك',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontFamily: 'Amiri',
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: Tw.amber400,
-                        letterSpacing: 0)),
-                const SizedBox(height: 6),
-                Text(
-                  renewed
-                      ? '+${arabicDays(item.durationDays)}${remainingText == null ? '' : ' — المتبقّي الآن $remainingText'}'
-                      : '${arabicDays(item.durationDays)} — وسيراه كل من في القاعة على الشاشة',
-                  textAlign: TextAlign.center,
-                  style: ar(12, color: Tw.gray400),
+        child: Stack(children: [
+          // هالةٌ خلف البطاقة
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [Color(0x38F59E0B), Colors.transparent],
+                  stops: [0, 0.6],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // متنفَّسٌ للشعار الطافي فوق الحافّة
+                  Padding(
+                    padding: const EdgeInsets.only(top: 30),
+                    child: MafiaCardView(
+                      size: CardSize.lg,
+                      playerName: playerName.isEmpty ? 'أنت' : playerName,
+                      avatarUrl: data?.avatarUrl,
+                      cosmetics:
+                          (data?.cosmetics ?? const EquippedCosmetics())
+                              .preview(item),
+                      template: GameConfigService.instance.master,
+                      rankFx: GameConfigService.instance
+                          .effectsForTier(data?.rankTier ?? 'INFORMANT'),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                      renewed
+                          ? 'مُدِّد «${item.nameAr}»'
+                          : 'صار «${item.nameAr}» لك',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontFamily: 'Amiri',
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          color: Tw.amber400,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 4),
+                  Text(
+                    renewed
+                        ? '+${arabicDays(item.durationDays)}${remainingText == null ? '' : ' — المتبقّي الآن $remainingText'}'
+                        : '${remainingText ?? arabicDays(item.durationDays)} — وسيراه كل من في القاعة على الشاشة',
+                    textAlign: TextAlign.center,
+                    style: ar(12, color: Tw.gray400),
+                  ),
+                  const SizedBox(height: 20),
+                  InkWell(
+                    onTap: () => Navigator.of(ctx).pop(),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: const Color(0x1AFFFFFF),
+                        border: Border.all(color: const Color(0x26FFFFFF)),
+                      ),
+                      child: Text('شوف باقي الخزنة',
+                          style: ar(12,
+                              color: Tw.gray300, weight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ]),
       ),
     ),
     transitionBuilder: (_, a, __, child) {
