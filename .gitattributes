@@ -33,6 +33,13 @@
 
 # التطبيق الأصليّ — حسّاس تحديداً
 mobile/ios/**    text eol=lf
+
+# ⚠️ السطر أعلاه يشمل الثنائيّات أيضاً ويُبطل `*.png binary` السابق له
+# (الأخير يفوز في .gitattributes). النتيجة: git يرى الأيقونات نصّاً ويحذف
+# بايتات CR بداخلها عند أول كوميت — أي أيقونات تالفة صامتة. تُعاد هنا.
+mobile/ios/**/*.png binary
+mobile/ios/**/*.jpg binary
+mobile/ios/**/*.pdf binary
 mobile/android/gradlew text eol=lf
 *.pbxproj        text eol=lf -diff
 *.xcconfig       text eol=lf
