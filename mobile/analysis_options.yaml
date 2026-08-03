@@ -9,6 +9,15 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # مذ فُعِّل Swift Package Manager في مسار iOS صار Xcode يستنسخ مستودع
+    # FlutterFire كاملاً داخل build/ios/SourcePackages — فيلتقط المحلّل
+    # اختباراتِ تلك الحزم وأمثلتَها ويغرق الإخراج بآلاف المشاكل التي لا
+    # تخصّنا (١٣١١٧ مشكلة، صفرٌ منها من كودنا). build/ ملفّ مؤقّت ومُتجاهَل
+    # في git أصلاً، فلا شيء فيه يستحقّ التحليل.
+    - build/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
