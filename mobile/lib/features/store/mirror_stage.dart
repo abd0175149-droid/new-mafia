@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/card_fx.dart';
 import '../../models/store.dart';
 import '../cosmetics/card_fx_layer.dart' show FxClock;
-import '../cosmetics/store_item_visual.dart' show EliminationFxView;
+import '../cosmetics/elimination_fx.dart';
 import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════

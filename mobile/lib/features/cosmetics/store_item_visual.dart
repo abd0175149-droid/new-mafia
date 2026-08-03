@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/card_fx.dart';
 import '../../models/store.dart';
 import 'chips_emblems.dart';
+import 'elimination_fx.dart';
 import 'name_fx_text.dart';
 import 'title_plaque_view.dart';
 
@@ -268,36 +269,4 @@ class StoreItemVisual extends StatelessWidget {
           child: Text('🪙', style: TextStyle(fontSize: 18, color: Color(0x80FFFFFF))),
         ),
       );
-}
-
-// ══════════════════════════════════════════════════════
-// 🔥 لهب الإقصاء — مبسَّطٌ إلى ثلاث ألسنة تتراقص
-// ══════════════════════════════════════════════════════
-class EliminationFxView extends StatelessWidget {
-  const EliminationFxView({super.key, this.config, this.animate = true});
-
-  final Map<String, dynamic>? config;
-  final bool animate;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = parseCssColor(
-        (config?['color'] as String?) ?? '#f97316', const Color(0xFFF97316));
-    return IgnorePointer(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.bottomCenter,
-            end: Alignment.topCenter,
-            colors: [
-              c.withValues(alpha: 0.55),
-              c.withValues(alpha: 0.12),
-              Colors.transparent,
-            ],
-          ),
-        ),
-        child: const SizedBox.expand(),
-      ),
-    );
-  }
 }
