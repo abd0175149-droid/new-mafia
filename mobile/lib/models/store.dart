@@ -85,6 +85,8 @@ class StoreItem {
     this.trialEligible = false,
     this.achievementAr,
     this.holderName,
+    this.config,
+    this.emblemId,
   });
 
   final int id;
@@ -94,6 +96,13 @@ class StoreItem {
   final int priceChips, durationDays, owners;
   final bool isPurchasable, closed, owned, isHot, isNew, wasOwned, trialEligible;
   final DateTime? expiresAt;
+
+  /// 🔴 تصميم العنصر — هو **المنتَج نفسه**. المتجر يبيع مظهراً، وإهمال هذا
+  ///    الحقل يجعل كل الإطارات تبدو متطابقة فلا يُميّز اللاعب ما يشتري.
+  final Map<String, dynamic>? config;
+
+  /// شعار SVG يعلو البطاقة — للإطارات التي تحمل شعاراً.
+  final String? emblemId;
 
   bool get isAchievement => rarity == 'achievement' || !isPurchasable;
 
@@ -137,6 +146,10 @@ class StoreItem {
         trialEligible: j['trialEligible'] == true,
         achievementAr: _s(j['achievementAr']),
         holderName: _s(j['holderName']),
+        config: j['config'] is Map
+            ? Map<String, dynamic>.from(j['config'] as Map)
+            : null,
+        emblemId: _s(j['emblemId']),
       );
 }
 
@@ -146,9 +159,35 @@ class StoreItem {
 ///    وكلٌّ منها `{itemId, nameAr, rarity, …}` أو `null`. والأهمّ أنه يعيد
 ///    `null` للخانة إن انتهى إيجارها **ولو بقي المعرّف في عمود اللاعب** —
 ///    فهو المرجع الوحيد لما يُلبَس فعلاً، لا أعمدة `players`.
+/// خانةٌ مُجهَّزة — المعرّف **وتصميمها**، فالمرآة ترسم ما يُلبَس فعلاً.
+class CosmeticSlot {
+  const CosmeticSlot({this.itemId, this.config, this.emblemId, this.nameAr});
+
+  final int? itemId;
+  final Map<String, dynamic>? config;
+  final String? emblemId, nameAr;
+
+  static CosmeticSlot? fromJson(dynamic slot) {
+    if (slot is! Map || slot['itemId'] == null) return null;
+    return CosmeticSlot(
+      itemId: _i(slot['itemId']),
+      config: slot['config'] is Map
+          ? Map<String, dynamic>.from(slot['config'] as Map)
+          : null,
+      emblemId: _s(slot['emblemId']),
+      nameAr: _s(slot['nameAr']),
+    );
+  }
+}
+
 class EquippedCosmetics {
-  const EquippedCosmetics({this.frameId, this.titleId, this.nameFxId});
-  final int? frameId, titleId, nameFxId;
+  const EquippedCosmetics({this.frame, this.title, this.nameFx});
+
+  final CosmeticSlot? frame, title, nameFx;
+
+  int? get frameId => frame?.itemId;
+  int? get titleId => title?.itemId;
+  int? get nameFxId => nameFx?.itemId;
 
   int? forKind(String kind) => switch (kind) {
         'frame' => frameId,
@@ -159,13 +198,29 @@ class EquippedCosmetics {
 
   bool isEquipped(StoreItem i) => forKind(i.kind) == i.id;
 
-  static int? _slotId(dynamic slot) =>
-      slot is Map && slot['itemId'] != null ? _i(slot['itemId']) : null;
+  /// 🪙 المعاينة: العنصر الملموس يحلّ محلّ خانته وحدها، وما عداها يبقى —
+  ///    فيرى اللاعب الإطار الجديد **فوق لقبه الحاليّ** لا بديلاً عنه.
+  EquippedCosmetics preview(StoreItem? item) {
+    if (item == null) return this;
+    final slot = CosmeticSlot(
+      itemId: item.id, config: item.config, emblemId: item.emblemId,
+      nameAr: item.nameAr,
+    );
+    return switch (item.kind) {
+      'frame' => EquippedCosmetics(frame: slot, title: title, nameFx: nameFx),
+      'title' => EquippedCosmetics(frame: frame, title: slot, nameFx: nameFx),
+      'name_fx' => EquippedCosmetics(frame: frame, title: title, nameFx: slot),
+      _ => this,
+    };
+  }
 
+  /// 🔴 الخادم يردّ **كائناً لكل خانة** لا معرّفاً، ويعيد `null` للخانة إن
+  ///    انتهى إيجارها ولو بقي المعرّف في عمود اللاعب — فهو المرجع الوحيد
+  ///    لما يُلبَس فعلاً، لا أعمدة `players`.
   factory EquippedCosmetics.fromJson(Map<String, dynamic> j) => EquippedCosmetics(
-        frameId: _slotId(j['frame']),
-        titleId: _slotId(j['title']),
-        nameFxId: _slotId(j['nameFx']),
+        frame: CosmeticSlot.fromJson(j['frame']),
+        title: CosmeticSlot.fromJson(j['title']),
+        nameFx: CosmeticSlot.fromJson(j['nameFx']),
       );
 }
 

@@ -104,6 +104,7 @@ class _StoreScreenState extends State<StoreScreen> {
       balance: d.balance,
       equipped: d.cosmetics.isEquipped(item),
       busy: _busyItem == item.id,
+      playerName: d.name,
     );
     if (action == null || !mounted) return;
 
@@ -142,7 +143,9 @@ class _StoreScreenState extends State<StoreScreen> {
         // التُقط قبل الطلب فمدّته قديمة.
         final fresh = _data?.items.where((i) => i.id == item.id).firstOrNull;
         await showPurchaseCelebration(context, item,
-            renewed: renewing, remainingText: fresh?.daysLeftText);
+            renewed: renewing,
+            remainingText: fresh?.daysLeftText,
+            playerName: _data?.name ?? '');
         return;
       }
       _error(r is Map ? r['error'] as String? : null);
@@ -363,6 +366,7 @@ class _StoreScreenState extends State<StoreScreen> {
               ),
               itemCount: items.length,
               itemBuilder: (_, i) => StoreGridItem(
+                playerName: d.name,
                 item: items[i],
                 equipped: d.cosmetics.isEquipped(items[i]),
                 onTap: () => _open(items[i]),
@@ -372,9 +376,11 @@ class _StoreScreenState extends State<StoreScreen> {
             for (final it in items)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: StoreRowItem(item: it, onTap: () => _open(it)),
+                child: StoreRowItem(
+                    item: it, onTap: () => _open(it), playerName: d.name),
               ),
-          if (d.closedVault.isNotEmpty) ClosedVault(items: d.closedVault),
+          if (d.closedVault.isNotEmpty)
+            ClosedVault(items: d.closedVault, playerName: d.name),
         ],
       ),
     );

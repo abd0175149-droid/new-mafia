@@ -20,6 +20,7 @@ Future<ItemAction?> showItemSheet(
   required int balance,
   required bool equipped,
   required bool busy,
+  String playerName = 'اسمك',
 }) {
   return showModalBottomSheet<ItemAction>(
     context: context,
@@ -31,7 +32,8 @@ Future<ItemAction?> showItemSheet(
       maxHeight: MediaQuery.sizeOf(context).height * 0.80,
     ),
     builder: (_) => _ItemSheet(
-        item: item, balance: balance, equipped: equipped, busy: busy),
+        item: item, balance: balance, equipped: equipped, busy: busy,
+        playerName: playerName),
   );
 }
 
@@ -41,11 +43,13 @@ class _ItemSheet extends StatelessWidget {
     required this.balance,
     required this.equipped,
     required this.busy,
+    required this.playerName,
   });
 
   final StoreItem item;
   final int balance;
   final bool equipped, busy;
+  final String playerName;
 
   @override
   Widget build(BuildContext context) {
@@ -80,7 +84,7 @@ class _ItemSheet extends StatelessWidget {
                 ),
               ),
             ),
-            Center(child: ItemThumb(item: i, size: 72)),
+            Center(child: ItemThumb(item: i, size: 72, playerName: playerName)),
             const SizedBox(height: 12),
 
             // ① صفّ الندرة
@@ -399,7 +403,7 @@ Future<void> showNeedChips(
 /// 🔴 التجديد ليس اقتناءً: «صار «كذا» لك» لمن يملكه أصلاً كذبةٌ صغيرة
 ///    تُربك — والمشتري يعرف أنه كان يملكه. النصّ ينقسم على `renewed`.
 Future<void> showPurchaseCelebration(BuildContext context, StoreItem item,
-    {bool renewed = false, String? remainingText}) {
+    {bool renewed = false, String? remainingText, String playerName = 'اسمك'}) {
   return showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -423,7 +427,7 @@ Future<void> showPurchaseCelebration(BuildContext context, StoreItem item,
               children: [
                 // 📌 مكان البطاقة الكبيرة بمظهرها الجديد — تصل مع الكرت
                 //    (الملفّ 22). حتى ذلك الحين مصغّرٌ كبير بلون الندرة.
-                ItemThumb(item: item, size: 120),
+                ItemThumb(item: item, size: 120, playerName: playerName),
                 const SizedBox(height: 20),
                 Text(
                     renewed

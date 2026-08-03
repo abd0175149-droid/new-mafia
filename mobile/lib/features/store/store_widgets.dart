@@ -1,43 +1,31 @@
 import 'package:flutter/material.dart';
 
 import '../../models/store.dart';
+import '../cosmetics/store_item_visual.dart';
 import '../profile/profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
 // 🏦 قطع الخزنة — §4.4 و§4.5 و§4.8 في الملفّ 33
 // ══════════════════════════════════════════════════════
-// 📌 المصغّرات الحقيقية (إطار مرسوم، لقب منسّق، تأثير اسم) تأتي مع طبقة
-//    المظهر (الملفّ 34). حتى ذلك الحين يقوم مقامها **رمز النوع** بلون
-//    ندرته — إشارةٌ صادقة لا رسمٌ مخترع يشتري اللاعب على أساسه.
-
-const _kindGlyph = <String, String>{
-  'frame': '🃏', 'title': '🏷️', 'name_fx': '✨', 'entrance': '🚪',
-  'elimination': '🔥', 'victory_sting': '🔊', 'xp_boost': '⚡',
-};
+// 🔴 المصغّرة **هي البضاعة**: كانت رمزاً عامّاً بلون الندرة، فكل الإطارات
+//    تبدو متطابقة ولا يميّز اللاعب «تاج العرّاب» من «رصاص ونحاس» إلّا
+//    بالاسم والسعر. تُرسم الآن من `config` — نفس ما يرسمه الويب.
 
 class ItemThumb extends StatelessWidget {
-  const ItemThumb({super.key, required this.item, required this.size});
+  const ItemThumb({
+    super.key,
+    required this.item,
+    required this.size,
+    this.playerName = 'اسمك',
+  });
 
   final StoreItem item;
   final double size;
+  final String playerName;
 
   @override
-  Widget build(BuildContext context) {
-    final c = rarityColor(item.rarity);
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(size * 0.22),
-        color: c.withValues(alpha: 0.10),
-        border: Border.all(color: c.withValues(alpha: 0.35)),
-      ),
-      child: Center(
-        child: Text(_kindGlyph[item.kind] ?? '🎁',
-            style: TextStyle(fontSize: size * 0.45)),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      StoreItemVisual(item: item, size: size, playerName: playerName);
 }
 
 Widget rarityDot(String rarity, {double size = 6}) => Container(
@@ -67,11 +55,13 @@ class StoreGridItem extends StatelessWidget {
     required this.item,
     required this.equipped,
     required this.onTap,
+    this.playerName = 'اسمك',
   });
 
   final StoreItem item;
   final bool equipped;
   final VoidCallback onTap;
+  final String playerName;
 
   @override
   Widget build(BuildContext context) {
@@ -102,7 +92,7 @@ class StoreGridItem extends StatelessWidget {
               height: 78,
               child: Stack(children: [
                 const Positioned.fill(child: ColoredBox(color: Color(0x40000000))),
-                Center(child: ItemThumb(item: item, size: 54)),
+                Center(child: ItemThumb(item: item, size: 54, playerName: playerName)),
                 PositionedDirectional(
                   top: 6, start: 6, child: rarityDot(item.rarity)),
                 if (equipped)
@@ -174,10 +164,16 @@ class StoreGridItem extends StatelessWidget {
 // §4.5 صفّ — ما يُعرَض ويُسمَع
 // ══════════════════════════════════════════════════════
 class StoreRowItem extends StatelessWidget {
-  const StoreRowItem({super.key, required this.item, required this.onTap});
+  const StoreRowItem({
+    super.key,
+    required this.item,
+    required this.onTap,
+    this.playerName = 'اسمك',
+  });
 
   final StoreItem item;
   final VoidCallback onTap;
+  final String playerName;
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -191,7 +187,7 @@ class StoreRowItem extends StatelessWidget {
             border: Border.all(color: const Color(0x14FFFFFF)),
           ),
           child: Row(children: [
-            ItemThumb(item: item, size: 44),
+            ItemThumb(item: item, size: 44, playerName: playerName),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -234,8 +230,9 @@ class StoreRowItem extends StatelessWidget {
 // §4.8 الخزنة المقفلة
 // ══════════════════════════════════════════════════════
 class ClosedVault extends StatelessWidget {
-  const ClosedVault({super.key, required this.items});
+  const ClosedVault({super.key, required this.items, this.playerName = 'اسمك'});
   final List<StoreItem> items;
+  final String playerName;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -258,7 +255,7 @@ class ClosedVault extends StatelessWidget {
                     border: Border(bottom: BorderSide(color: Color(0x0DFFFFFF))),
                   ),
                   child: Row(children: [
-                    ItemThumb(item: i, size: 32),
+                    ItemThumb(item: i, size: 32, playerName: playerName),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(i.nameAr,
