@@ -9,6 +9,7 @@ import '../../core/storage/session_store.dart';
 import '../../models/game.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'mafia_gallery.dart';
 import 'join_flow.dart';
 import 'lobby_view.dart';
 
@@ -120,6 +121,7 @@ class _GameScreenState extends State<GameScreen> {
         ),
         if (_c.switchConfirm != null) _switchModal(),
         if (_c.joinConfirmation != null) _joinModal(),
+        if (_showGalleryFab) _galleryFab(),
       ]),
     );
   }
@@ -219,6 +221,52 @@ class _GameScreenState extends State<GameScreen> {
       ]);
 
   // ── المودالات ──
+  // ── §4.6 زرّ «التعرّف على المافيا» ──
+  //
+  /// يُعرَض لكلّ من لديه دورٌ — **لا للمافيا وحدهم**. لو ظهر للمافيا فقط
+  /// لكشفَ وجودُه هويّةَ صاحبه لأيّ جارٍ يسترق النظر، ولانهار السرّ من
+  /// الزرّ نفسه قبل أن يُفتح. المواطن يفتحه فيرى «ملفاً استخباراتياً».
+  bool get _showGalleryFab =>
+      _c.assignedRole != null &&
+      _c.gamePhase != GamePhase.gameOver &&
+      (_c.step == GameStep.done || _c.step == GameStep.rejoined);
+
+  Widget _galleryFab() => Positioned(
+        bottom: 110,
+        left: 16,
+        child: SafeArea(
+          child: Material(
+            color: const Color(0xE68A0303),
+            shape: CircleBorder(
+                side: BorderSide(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.5))),
+            elevation: 6,
+            shadowColor: const Color(0x808A0303),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _openGallery,
+              child: const SizedBox(
+                width: 48,
+                height: 48,
+                child: Icon(Icons.groups, size: 24, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  void _openGallery() {
+    // ① الإعلان أوّلاً ② المُقصى لا يرى — التفاصيل في المتحكّم
+    if (!_c.announceGalleryOpen()) return;
+    unawaited(showMafiaGallery(
+      context,
+      team: _c.galleryTeam,
+      sibling: _c.gallerySibling,
+      isAssassin: _c.isAssassin,
+      contracts: _c.assassinContracts,
+    ));
+  }
+
   Widget _switchModal() {
     final s = _c.switchConfirm!;
     return _Modal(

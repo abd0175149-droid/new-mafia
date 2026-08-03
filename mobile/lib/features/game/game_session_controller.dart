@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/socket/socket_service.dart';
+import '../../models/card_template.dart' show kMafiaRoleIds;
 import '../../models/game.dart';
 
 // ══════════════════════════════════════════════════════
@@ -78,11 +79,21 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  List<int> _mafiaTeam = const [];
-  List<int> get mafiaTeam => _mafiaTeam;
+  List<MafiaMate> _mafiaTeam = const [];
+  List<MafiaMate> get mafiaTeam => _mafiaTeam;
 
-  int? _sibling;
-  int? get sibling => _sibling;
+  SiblingInfo? _sibling;
+  SiblingInfo? get sibling => _sibling;
+
+  /// 🔒 بوابة §4.6: الفريق والأخ يُصفَّران ما لم يكن الدور الحاليّ مافياوياً
+  ///    — يمنع تسرّب فريقٍ محفوظٍ من جيمٍ سابق إلى مواطنٍ في الجيم الحالي.
+  ///    (بعد تحوّل الأخ الأصغر يصير دوره مافياوياً فتظهر القائمة طبيعياً.)
+  bool get _mafiaGate =>
+      _assignedRole != null && kMafiaRoleIds.contains(_assignedRole);
+
+  List<MafiaMate> get galleryTeam => _mafiaGate ? _mafiaTeam : const [];
+  SiblingInfo? get gallerySibling => _mafiaGate ? _sibling : null;
+  bool get isAssassin => _assignedRole == 'ASSASSIN';
 
   bool _mafiaChatEnabled = false;
   bool get mafiaChatEnabled => _mafiaChatEnabled;
@@ -105,8 +116,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic>? _gameOverData;
   Map<String, dynamic>? get gameOverData => _gameOverData;
 
-  dynamic _assassinContracts;
-  dynamic get assassinContracts => _assassinContracts;
+  AssassinContracts? _assassinContracts;
+  AssassinContracts? get assassinContracts => _assassinContracts;
 
   bool _isRemote = false;
   bool _allowPlayerInvites = false;
@@ -468,12 +479,16 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _phone = phone ?? _phone;
 
     // 🔒 الفريق والتوأم يُكتبان فقط إن أرسلهما الخادم — الغياب ليس فراغاً
-    if (res.containsKey('mafiaTeam')) _mafiaTeam = _ints(res['mafiaTeam']);
+    if (res.containsKey('mafiaTeam')) {
+      _mafiaTeam = MafiaMate.listOf(res['mafiaTeam']);
+    }
     if (res.containsKey('sibling')) {
-      _sibling = res['sibling'] == null ? null : (res['sibling'] as num).toInt();
+      _sibling = res['sibling'] is Map
+          ? SiblingInfo.fromJson(Map<String, dynamic>.from(res['sibling'] as Map))
+          : null;
     }
     if (res['assassinContracts'] != null) {
-      _assassinContracts = res['assassinContracts'];
+      _assassinContracts = AssassinContracts.fromJson(res['assassinContracts']);
     }
     if (res['mafiaChatEnabled'] is bool) {
       _mafiaChatEnabled = res['mafiaChatEnabled'] as bool;
@@ -610,7 +625,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     if (res['assassinContracts'] != null) {
-      _assassinContracts = res['assassinContracts'];
+      _assassinContracts = AssassinContracts.fromJson(res['assassinContracts']);
     }
     if (res['isRemote'] is bool) _isRemote = res['isRemote'] as bool;
     if (res['allowPlayerInvites'] is bool) {
@@ -722,19 +737,21 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _roleAlert = true;
       _isPlayerDead = false;
       // 🔒 دائماً — الغياب يعني فراغاً هنا لا إبقاءً على القديم
-      _mafiaTeam = _ints(d['mafiaTeam']);
-      _sibling = d['sibling'] == null ? null : (d['sibling'] as num).toInt();
+      _mafiaTeam = MafiaMate.listOf(d['mafiaTeam']);
+      _sibling = d['sibling'] is Map
+          ? SiblingInfo.fromJson(Map<String, dynamic>.from(d['sibling'] as Map))
+          : null;
       notifyListeners();
     });
 
     _on('mafia:team-updated', (d) {
       if (d is! Map) return;
-      _mafiaTeam = _ints(d['mafiaTeam']);
+      _mafiaTeam = MafiaMate.listOf(d['mafiaTeam']);
       notifyListeners();
     });
 
     _on('assassin:contracts-update', (d) {
-      _assassinContracts = d;
+      _assassinContracts = AssassinContracts.fromJson(d);
       notifyListeners();
     });
 
@@ -987,13 +1004,44 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
+  /// بذرةٌ للاختبار فقط — المتحكّم مفردٌ ببانٍ خاصّ، ولا سبيل لفحص
+  /// بوابة التسريب وترتيب الإنذار دون ضبط حالته مباشرةً.
+  @visibleForTesting
+  void primeForTest({
+    String? roomId,
+    String? role,
+    bool? dead,
+    List<MafiaMate>? team,
+    SiblingInfo? sibling,
+  }) {
+    if (roomId != null) _roomId = roomId;
+    if (role != null) _assignedRole = role.isEmpty ? null : role;
+    if (dead != null) _isPlayerDead = dead;
+    if (team != null) _mafiaTeam = team;
+    _sibling = sibling;
+  }
+
+  /// 🔒 إعلانُ فتح معرض المافيا — **الترتيب لا يُبدَّل**:
+  ///
+  ///   ① أرسل الحدث دائماً، **قبل** أيّ فحص. غاية الحدث إنذارُ الليدر،
+  ///      ومحاولةُ لاعبٍ مُقصى هي بالضبط ما يريد الليدر أن يعرفه — فتقديمُ
+  ///      الفحص عليه يُسكت الإنذار عن الحالة الوحيدة التي تستحقّه.
+  ///   ② المُقصى لا يُفتح له المعرض.
+  ///
+  /// الإرسال «أطلق وانسَ»: انتظار ackٍ يؤخّر فتح المودال على شبكةٍ بطيئة،
+  /// وفشلُ الإنذار لا يمنع اللاعب الحيّ من رؤية فريقه.
+  bool announceGalleryOpen() {
+    if (_roomId.isNotEmpty) {
+      SocketService.instance.emit('player:mafia-gallery-open', {
+        'roomId': _roomId,
+      });
+    }
+    return !_isPlayerDead;
+  }
+
   Future<void> _clearSession() async => _prefs?.remove(_kSession);
 
   // ── أدوات ──
-  static List<int> _ints(dynamic v) => v is List
-      ? v.whereType<num>().map((e) => e.toInt()).toList()
-      : const <int>[];
-
   static List<RosterPlayer> _players(dynamic v) => v is List
       ? v
           .whereType<Map>()

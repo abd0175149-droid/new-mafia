@@ -32,6 +32,32 @@ class GameConfigService {
 
   RoleDef? role(String? id) => id == null ? null : _roles[id];
 
+  /// كلّ الأدوار مرتّبةً بأولويّة التوليد — ترتيب موسوعة الأدوار.
+  List<RoleDef> get allRoles =>
+      _roles.values.toList()..sort((a, b) => a.genPriority.compareTo(b.genPriority));
+
+  /// جلبٌ طازج للأدوار — الموسوعة تُحدَّث عند كلّ فتح كما في الويب.
+  ///
+  /// عند فشل الشبكة نسقط على المخزَّن إن وُجد بدل شاشة خطأ: القائمة
+  /// شبه ثابتة، وإخفاؤها لانقطاعٍ لحظيّ خسارةٌ بلا مقابل.
+  Future<List<RoleDef>> fetchRoles() async {
+    try {
+      final r = await ApiClient.instance.get('/api/game-config/roles');
+      final list = (r is Map ? r['data'] : r) as List?;
+      if (list == null) throw StateError('bad shape');
+      final out = <String, RoleDef>{};
+      for (final e in list.whereType<Map>()) {
+        final d = RoleDef.fromJson(Map<String, dynamic>.from(e));
+        if (d.id.isNotEmpty) out[d.id] = d;
+      }
+      if (out.isNotEmpty) _roles = out;
+      return allRoles;
+    } catch (_) {
+      if (_roles.isNotEmpty) return allRoles;
+      rethrow;
+    }
+  }
+
   /// اسم الدور بالعربية — و«مجهول» حين لا تعريف.
   String roleName(String? id) {
     final r = role(id);

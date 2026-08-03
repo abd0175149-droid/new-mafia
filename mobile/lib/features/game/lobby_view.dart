@@ -10,6 +10,7 @@ import '../../models/game.dart';
 import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'roles_info_modal.dart';
 
 // ══════════════════════════════════════════════════════
 // 🕰️ شاشة انتظار اللوبي — §4.11 · §4.12 · §4.13 · §4.14 في الملفّ 21
@@ -194,7 +195,10 @@ class _Toolbar extends StatelessWidget {
   Widget build(BuildContext context) => Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _chip('🃏 الأدوار', _gold, const Color(0xFF2A2A2A), () {}),
+          Builder(
+            builder: (ctx) => _chip('🃏 الأدوار', _gold,
+                const Color(0xFF2A2A2A), () => unawaited(showRolesInfo(ctx))),
+          ),
           if (controller.isRemote && controller.physicalId > 0)
             Text.rich(TextSpan(children: [
               const TextSpan(text: 'مقعدك '),

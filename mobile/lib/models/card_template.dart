@@ -199,14 +199,31 @@ class RoleDef {
   const RoleDef({
     required this.id,
     this.nameAr = '',
+    this.nameEn = '',
     this.team = 'CITIZEN',
     this.cardTemplateId,
     this.iconType,
     this.iconValue,
+    this.description,
+    this.genPriority = 0,
+    this.winConditionType,
+    this.winConditionDescription,
   });
 
-  final String id, nameAr, team;
+  final String id, nameAr, nameEn, team;
   final String? cardTemplateId, iconType, iconValue;
+
+  /// حقولٌ لموسوعة الأدوار (§4.7) — تصل من نفس النقطة.
+  final String? description;
+  final int genPriority;
+  final String? winConditionType, winConditionDescription;
+
+  /// سطر شرط الفوز: الوصف إن وُجد، وإلّا نوعه خاماً (كما يفعل الويب).
+  String? get winLine => winConditionType == null
+      ? null
+      : ((winConditionDescription?.isNotEmpty ?? false)
+          ? winConditionDescription
+          : winConditionType);
 
   bool get isMafia => team == 'MAFIA';
   bool get isNeutral => team == 'NEUTRAL';
@@ -217,7 +234,12 @@ class RoleDef {
     return RoleDef(
       id: '${j['id'] ?? ''}',
       nameAr: '${j['nameAr'] ?? ''}',
+      nameEn: '${j['nameEn'] ?? ''}',
       team: '${j['team'] ?? 'CITIZEN'}',
+      description: j['description'] as String?,
+      genPriority: (j['genPriority'] as num?)?.toInt() ?? 0,
+      winConditionType: j['winConditionType'] as String?,
+      winConditionDescription: j['winConditionDescription'] as String?,
       cardTemplateId: j['cardTemplateId'] as String?,
       iconType: icon is Map ? icon['type'] as String? : null,
       iconValue: icon is Map ? '${icon['value'] ?? icon['url'] ?? ''}' : null,
@@ -226,6 +248,13 @@ class RoleDef {
 }
 
 /// أدوار المافيا حين لا يوجد تعريفٌ من الكتالوج — احتياطيّ الملفّ ٢٢.
+/// 🔴 القائمة الحرفية من `constants.ts` و`backend/game/roles.ts` معاً:
+///    **السفّاح مستقلٌّ لا مافيا** (مع الـJESTER)، و**الأخ الأكبر مافيا**.
+///    قلبُ الاثنين يمنح السفّاح شارة مافيا وقائمة شركاء لا يملكها،
+///    ويحجب عن الأخ الأكبر أخاه وفريقه.
 const kMafiaRoleIds = {
-  'GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR', 'ASSASSIN', 'WITCH',
+  'GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER',
+  'MAFIA_REGULAR',
 };
+
+const kNeutralRoleIds = {'JESTER', 'ASSASSIN'};

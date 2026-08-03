@@ -111,7 +111,15 @@ class SocketService {
 
   void on(String event, void Function(dynamic) handler) => _socket?.on(event, handler);
   void off(String event, [void Function(dynamic)? handler]) => _socket?.off(event, handler);
-  void emit(String event, [dynamic data]) => _socket?.emit(event, data);
+  /// خطّافُ اختبارٍ يلتقط ما يُرسَل بلا سوكِتٍ حقيقيّ. ترتيبُ الإرسال في
+  /// إنذار الغشّ قاعدةٌ أمنية، ولا سبيل للتحقّق منه إلّا برؤية ما خرج.
+  @visibleForTesting
+  static void Function(String event, dynamic data)? emitProbe;
+
+  void emit(String event, [dynamic data]) {
+    emitProbe?.call(event, data);
+    _socket?.emit(event, data);
+  }
 
   /// 🔴 نداءٌ بإشعارٍ راجع ومهلة **١٥ ثانية** — عقد الخادم في كل أحداث
   ///    اللعب: النجاح **فقط** عند `success == true`، والرفض يحمل `error`

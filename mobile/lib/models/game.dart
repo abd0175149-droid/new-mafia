@@ -110,6 +110,144 @@ class RosterPlayer {
       );
 }
 
+/// زميلٌ في فريق المافيا كما يرسله الخادم.
+///
+/// 🔴 الخادم يرسل **كائناً** لا رقماً: `{physicalId, name, role, avatarUrl}`.
+///    اختزاله إلى رقمٍ يفقد كلّ ما يعرضه المعرض — الاسم والدور والصورة —
+///    فتظهر شبكة الشركاء أرقاماً عارية.
+class MafiaMate {
+  const MafiaMate({
+    required this.physicalId,
+    this.name = '',
+    this.role = '',
+    this.avatarUrl,
+  });
+
+  final int physicalId;
+  final String name;
+  final String role;
+  final String? avatarUrl;
+
+  factory MafiaMate.fromJson(Map<String, dynamic> j) => MafiaMate(
+        physicalId: _i(j['physicalId']),
+        name: _s(j['name']),
+        role: _s(j['role']),
+        avatarUrl: (j['avatarUrl'] as String?)?.isEmpty ?? true
+            ? null
+            : j['avatarUrl'] as String,
+      );
+
+  static List<MafiaMate> listOf(Object? v) => v is! List
+      ? const []
+      : v
+          .whereType<Map>()
+          .map((e) => MafiaMate.fromJson(Map<String, dynamic>.from(e)))
+          .toList(growable: false);
+}
+
+/// الأخ في «رابط الدم» — قناةٌ مستقلّة عن فريق المافيا.
+///
+/// التعارف **أحاديّ الاتجاه**: الأكبر (مافيا) يرى الأصغر، والأصغر يلعب
+/// أعمى. لذا `recipientIsMafia` هو true عملياً دائماً، لكنّ النصّ المعروض
+/// يفترق على قيمته فنقرؤها ولا نفترضها.
+class SiblingInfo {
+  const SiblingInfo({
+    required this.physicalId,
+    this.name = '',
+    this.role = '',
+    this.avatarUrl,
+    this.isAlive = true,
+    this.recipientIsMafia = true,
+  });
+
+  final int physicalId;
+  final String name;
+  final String role;
+  final String? avatarUrl;
+  final bool isAlive;
+  final bool recipientIsMafia;
+
+  factory SiblingInfo.fromJson(Map<String, dynamic> j) => SiblingInfo(
+        physicalId: _i(j['physicalId']),
+        name: _s(j['name']),
+        role: _s(j['role']),
+        avatarUrl: (j['avatarUrl'] as String?)?.isEmpty ?? true
+            ? null
+            : j['avatarUrl'] as String,
+        isAlive: j['isAlive'] != false,
+        recipientIsMafia: j['recipientIsMafia'] != false,
+      );
+}
+
+/// عقد اغتيالٍ واحد للسفّاح.
+class AssassinContract {
+  const AssassinContract({
+    required this.id,
+    this.targetRole = '',
+    this.description = '',
+    this.descriptionAr,
+    this.completed = false,
+    this.completedAtRound,
+  });
+
+  final int id;
+  final String targetRole;
+  final String description;
+  final String? descriptionAr;
+  final bool completed;
+  final int? completedAtRound;
+
+  /// العربية أوّلاً — والإنجليزية احتياطاً لعقدٍ قديمٍ بلا ترجمة.
+  String get text =>
+      (descriptionAr?.isNotEmpty ?? false) ? descriptionAr! : description;
+
+  factory AssassinContract.fromJson(Map<String, dynamic> j) => AssassinContract(
+        id: _i(j['id']),
+        targetRole: _s(j['targetRole']),
+        description: _s(j['description']),
+        descriptionAr: j['descriptionAr'] as String?,
+        completed: j['completed'] == true,
+        completedAtRound: j['completedAtRound'] == null
+            ? null
+            : _i(j['completedAtRound']),
+      );
+}
+
+/// حالة عقود السفّاح كاملةً.
+class AssassinContracts {
+  const AssassinContracts({
+    this.contracts = const [],
+    this.currentIndex = 0,
+    this.completedCount = 0,
+    this.totalRequired = 0,
+  });
+
+  final List<AssassinContract> contracts;
+  final int currentIndex;
+  final int completedCount;
+  final int totalRequired;
+
+  /// نسبة الإنجاز في [0,1] — القسمة على صفرٍ تُعطي NaN فتنهار الرسمة.
+  double get progress =>
+      totalRequired <= 0 ? 0 : (completedCount / totalRequired).clamp(0.0, 1.0);
+
+  static AssassinContracts? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final j = Map<String, dynamic>.from(v);
+    return AssassinContracts(
+      contracts: j['contracts'] is! List
+          ? const []
+          : (j['contracts'] as List)
+              .whereType<Map>()
+              .map((e) => AssassinContract.fromJson(Map<String, dynamic>.from(e)))
+              .toList(growable: false),
+      currentIndex: _i(j['currentIndex']),
+      completedCount: _i(j['completedCount']),
+      totalRequired: _i(j['totalRequired']),
+    );
+  }
+}
+
 /// مرشّح في اقتراع النهار.
 class VoteCandidate {
   const VoteCandidate({
