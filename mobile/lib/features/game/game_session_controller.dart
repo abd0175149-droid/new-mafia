@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/haptics/haptics_service.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/card_template.dart' show kMafiaRoleIds;
 import '../../models/game.dart';
@@ -137,6 +138,32 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   int? _votingCountdown;
   int? get votingCountdown => _votingCountdown;
 
+  DateTime? _lastVoteAt;
+  bool _voteSubmitting = false;
+
+  /// 🔴 نافذة تغيير الصوت **عشر ثوانٍ** — في مسار `done` وحده.
+  ///    من عاد بعد انقطاع (`rejoined`) يغيّر بحريّة حتى اكتمال الاقتراع:
+  ///    لأنّه لم يشهد بدء النافذة أصلاً، فحصرُه بها يحرمه صوتاً لم يملك
+  ///    فرصة إعطائه. الفرق سلوكيٌّ مقصود في المصدر — يُنقل كما هو.
+  static const _voteWindow = Duration(seconds: 10);
+
+  bool get voteWindowOpen {
+    final t = _lastVoteAt;
+    return t != null && DateTime.now().difference(t) < _voteWindow;
+  }
+
+  int get voteWindowSecondsLeft {
+    final t = _lastVoteAt;
+    if (t == null) return 0;
+    final left = 10 - DateTime.now().difference(t).inSeconds;
+    return left < 0 ? 0 : left;
+  }
+
+  bool get canVote => _step == GameStep.rejoined
+      ? !_votingComplete
+      : (_myVote == null || voteWindowOpen) &&
+          (_votingCountdown == null || _votingCountdown! > 0);
+
   Map<String, dynamic>? _gameOverData;
   Map<String, dynamic>? get gameOverData => _gameOverData;
 
@@ -151,6 +178,16 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// بيانات المراحل التي ترسمها ملفّات أخرى (٢٤ · ٢٥ · ٢٧).
   Map<String, dynamic> _phaseData = const {};
   Map<String, dynamic> get phaseData => _phaseData;
+
+  List<VoteCandidate> _tied = const [];
+  List<VoteCandidate> get tiedCandidates => _tied;
+
+  List<int> _eliminated = const [];
+  List<int> get eliminated => _eliminated;
+
+  /// 🔴 يبقى فارغاً حتى يكشف الليدر — ظهورُ الدور قبل أمره يفسد الجولة.
+  Map<int, String> _revealedRoles = const {};
+  Map<int, String> get revealedRoles => _revealedRoles;
 
   // ── طبقات على مستوى الجلسة ──
   bool _restoring = false;
@@ -401,8 +438,10 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _voteTicker = null;
     _voting = null;
     _myVote = null;
+    _lastVoteAt = null;
     _votingComplete = false;
     _votingCountdown = null;
+    _tied = const [];
   }
 
   // ══════════════════════════════════════════════════════
@@ -540,8 +579,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// 6.6 شبكة أمانٍ بعد الاستعادة — استطلاعٌ واحد بعد ٥٠٠ms.
   void _armSafetyNet() {
     _safetyNet?.cancel();
-    _safetyNet =
-        Timer(const Duration(milliseconds: 500), () => _pollOnce(rebuildNight: true));
+    _safetyNet = Timer(const Duration(milliseconds: 500), _pollOnce);
   }
 
   // ══════════════════════════════════════════════════════
@@ -568,7 +606,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _pollOnce({bool rebuildNight = false}) async {
+  Future<void> _pollOnce() async {
     if (!_step.inGame || _roomId.isEmpty) return;
     final res = await SocketService.instance.ask('room:get-my-state', {
       'roomId': _roomId,
@@ -578,23 +616,41 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     // أخطاء الاستطلاع تُبتلع — دورةٌ فائتة تُعوَّض بالتالية
     if (res == null || res['success'] != true) return;
     _syncFromState(res);
-    if (rebuildNight) _rebuildNightAfterRejoin(res);
+    _syncNightFromState(res);
   }
 
-  /// §6.8 شبكة الأمان: من عاد منتصف الليل يجب أن تُفتح شاشته من جديد —
-  /// وإلّا ضاعت خطوته صامتةً واختار الخادم عنه عشوائياً.
+  /// 🔴 **الحلّ الجذريّ لضياع شاشة الليل.**
   ///
-  /// تعمل **بعد الاستعادة فقط** لا في كلّ دورة استطلاع: إعادةُ الفتح
-  /// دورياً تصفّر العدّاد كلّ ثلاث ثوانٍ فلا ينزل أبداً.
-  void _rebuildNightAfterRejoin(Map<String, dynamic> res) {
-    if (GamePhase.map(res['phase']) != GamePhase.night) return;
+  /// العرض كان مربوطاً بحدثٍ يُبثّ مرّة واحدة، فمن فاته الحدث بقي على
+  /// الشاشة السلبية بينما تنتظره الطاولة — ولا مخرج إلّا تحديث الصفحة.
+  /// هنا العرض مشتقٌّ من **حالة الخادم**: كلّ دورة استطلاع (٣ ثوانٍ)
+  /// تفتح الشاشة إن كانت ثمّة خطوةٌ حيّة لم يُرسل فيها اللاعب.
+  ///
+  /// لا يُصفَّر عدّادٌ جارٍ: الشرط `_night != null` يخرج مبكراً، فالدالة
+  /// لا تعمل إلّا حين لا تكون هناك شاشةٌ أصلاً.
+  void _syncNightFromState(Map<String, dynamic> res) {
+    if (GamePhase.map(res['phase']) != GamePhase.night) {
+      _nightDoneKey = null;
+      return;
+    }
     if (_night != null || _nightSubmitted) return;
+
     final r = nightFromResume(res['nightState'], _physicalId);
     if (r == null) return;
-    // المتبقّي الدقيق غير محسوبٍ على جهة اللاعب — أرضيّةٌ ٣ ثوانٍ تكفي
-    // لاختيارٍ واعٍ بدل صفرٍ يغلق الشاشة فور فتحها.
-    _openNight(r, math.max(3, r.timeoutSeconds));
+
+    // خطوةٌ أرسلتُ فيها فعلي وأُغلقت شاشتها: لا تُفتح ثانيةً ولو تأخّر
+    // الخادم في تسجيل الإرسال — وإلّا ظهرت القائمة من جديد بعد اختيارٍ
+    // صحيح فظنّ اللاعب أنّ اختياره ضاع.
+    final key = _stepKey(r);
+    if (key == _nightDoneKey) return;
+
+    _openNight(r, math.max(3, r.remainingSeconds()));
   }
+
+  String _stepKey(NightActionRequest r) =>
+      '${r.stepRole}|${r.deadline?.millisecondsSinceEpoch ?? 0}';
+
+  String? _nightDoneKey;
 
   /// مزامنةٌ **ذاتية الشفاء**: المقعد والاسم والدور والحياة والمرحلة.
   void _syncFromState(Map<String, dynamic> res) {
@@ -737,6 +793,40 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     });
     if (res?['success'] == true) {
       _myVote = idx;
+      _lastVoteAt = DateTime.now();
+      notifyListeners();
+    }
+  }
+
+  /// تصويتٌ يدويّ. **بلا تحديثٍ تفاؤليّ**: `myVote` لا يتغيّر إلّا على
+  /// إشعار الخادم — إظهارُ اختيارٍ رفضه الخادم يكذب على اللاعب في أخطر
+  /// لحظات الجولة.
+  ///
+  /// يعيد `true` إن سُجِّل الصوت.
+  Future<bool> castVote(int index) async {
+    final v = _voting;
+    if (v == null || index < 0 || index >= v.candidates.length) return false;
+    if (_isPlayerDead || _voteSubmitting || _myVote == index) return false;
+    if (!canVote) return false;
+    // التصويت للنفس مرفوضٌ صامتاً — لا رسالة، كما في المصدر
+    if (v.candidates[index].targetPhysicalId == _physicalId) return false;
+
+    _voteSubmitting = true;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('player:cast-vote', {
+        'roomId': _roomId,
+        'physicalId': _physicalId,
+        'candidateIndex': index,
+      });
+      if (res?['success'] != true) return false;
+      _myVote = index;
+      // كلّ تصويتٍ يفتح نافذةً جديدة في مسار `done` وحده
+      if (_step != GameStep.rejoined) _lastVoteAt = DateTime.now();
+      unawaited(HapticsService.instance.voteCast());
+      return true;
+    } finally {
+      _voteSubmitting = false;
       notifyListeners();
     }
   }
@@ -900,7 +990,37 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
 
-    _on('day:elimination-pending', (_) {
+    _on('day:tie', (d) {
+      if (d is! Map) return;
+      _tied = (d['tiedCandidates'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => VoteCandidate.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      notifyListeners();
+    });
+
+    _on('day:elimination-revealed', (d) {
+      if (d is! Map) return;
+      final out = <int, String>{};
+      for (final e in (d['revealedRoles'] as List? ?? const []).whereType<Map>()) {
+        final pid = (e['physicalId'] as num?)?.toInt();
+        if (pid != null) out[pid] = '${e['role'] ?? ''}';
+      }
+      _revealedRoles = out;
+      if (_eliminated.contains(_physicalId)) {
+        unawaited(HapticsService.instance.eliminated());
+      }
+      notifyListeners();
+    });
+
+    _on('day:elimination-pending', (d) {
+      if (d is Map && d['eliminated'] is List) {
+        _eliminated = (d['eliminated'] as List)
+            .whereType<num>()
+            .map((e) => e.toInt())
+            .toList();
+        _revealedRoles = const {};
+      }
       _setPhase(GamePhase.eliminationPending, fromSocket: true);
       _clearVoting();
       notifyListeners();
@@ -1070,6 +1190,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   // ══════════════════════════════════════════════════════
 
   void _openNight(NightActionRequest r, int from) {
+    // خطوةٌ جديدة ⇒ وسم الإنجاز القديم لم يعد يخصّها
+    if (_stepKey(r) != _nightDoneKey) _nightDoneKey = null;
     _nightTicker?.cancel();
     _nightClose?.cancel();
     _night = r;
@@ -1084,6 +1206,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         // 🔴 عند الصفر **لا يُرسل العميل شيئاً**: الخادم يختار عشوائياً
         //    بنفسه. إرسالٌ من هنا يزاحم اختياره ويُدخل سباقاً.
         //    ما يُعرَض «تم الإرسال» تجميليٌّ محض.
+        _nightDoneKey = _stepKey(r);
         _nightClose = Timer(const Duration(milliseconds: 2000), () {
           _nightSubmitted = true;
           notifyListeners();
@@ -1114,6 +1237,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     final r = _night;
     if (r == null || _nightSubmitted) return;
     _nightSubmitted = true;
+    _nightDoneKey = _stepKey(r);
     _nightTicker?.cancel();
     notifyListeners();
 

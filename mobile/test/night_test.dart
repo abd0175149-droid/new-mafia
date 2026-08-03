@@ -304,4 +304,73 @@ void main() {
       expect(answer, isFalse);
     });
   });
+
+  // ══════════════════════════════════════════════════════
+  // 🔴 اشتقاق الشاشة من الحالة — الحلّ الجذريّ لضياع القائمة
+  // ══════════════════════════════════════════════════════
+  // شكوى المالك على الويب: «أحداث الليل ما بتظهر قائمة الاختيار، ومضطر
+  // أحدّث الصفحة أحياناً لتظهر». السبب: العرض مربوطٌ بحدثٍ يُبثّ **مرّة
+  // واحدة**؛ من فاته الحدث لا يعلم بالخطوة إطلاقاً. الحلّ: اشتقاق العرض
+  // من حالة الخادم في كلّ دورة استطلاع.
+  group('🔴 الخطوة الحيّة تُشتقّ ولو ضاع الحدث', () {
+    final now = DateTime(2026, 8, 3, 22, 0, 0);
+    Map<String, dynamic> st({
+      bool submitted = false,
+      bool approval = false,
+      int? deadlineOffsetMs = 12000,
+    }) =>
+        {
+          'playerSubmitted': submitted,
+          'autoNightStepApproval': approval,
+          if (deadlineOffsetMs != null)
+            'autoNightStepDeadline': now
+                .add(Duration(milliseconds: deadlineOffsetMs))
+                .millisecondsSinceEpoch,
+          'autoNightPerformerId': 3,
+          'autoNightStepRole': 'GODFATHER',
+          'nightStep': {
+            'availableTargets': [
+              {'physicalId': 7, 'name': 'خالد'}
+            ],
+            'canSkip': false,
+          },
+          'config': {'autoNightTime': 15},
+        };
+
+    test('خطوةٌ حيّة ⇒ تُبنى الشاشة من الحالة وحدها', () {
+      final r = nightFromResume(st(), 3, now: now)!;
+      expect(r.actionType, 'KILL');
+      expect(r.availableTargets.length, 1);
+    });
+
+    test('العدّاد يعكس المتبقّي الحقيقيّ لا مهلةً كاملة', () {
+      // شاشةٌ تُستعاد بعد ٣ ثوانٍ من البدء يجب ألّا تَعِد بـ١٥
+      expect(nightFromResume(st(), 3, now: now)!.remainingSeconds(now: now), 12);
+    });
+
+    test('المتبقّي لا ينزل تحت ٣ ثوانٍ — شاشةٌ تُغلق قبل قراءتها لا تنفع',
+        () {
+      final r = nightFromResume(st(deadlineOffsetMs: 900), 3, now: now)!;
+      expect(r.remainingSeconds(now: now), 3);
+    });
+
+    test('🔒 خطوةٌ مضى موعدها لا تُفتح — الخادم اختار عنه', () {
+      expect(nightFromResume(st(deadlineOffsetMs: -1), 3, now: now), isNull);
+      expect(nightFromResume(st(deadlineOffsetMs: 0), 3, now: now), isNull);
+    });
+
+    test('🔒 خطوةٌ تنتظر موافقة الليدر لا تُفتح — قائمةٌ ميتة', () {
+      expect(nightFromResume(st(approval: true), 3, now: now), isNull);
+    });
+
+    test('🔒 من أرسل فعله لا تُفتح شاشته', () {
+      expect(nightFromResume(st(submitted: true), 3, now: now), isNull);
+    });
+
+    test('بلا موعدٍ (خادم قديم) تبقى المهلة الكاملة — لا انهيار', () {
+      final r = nightFromResume(st(deadlineOffsetMs: null), 3, now: now)!;
+      expect(r.deadline, isNull);
+      expect(r.remainingSeconds(now: now), 15);
+    });
+  });
 }

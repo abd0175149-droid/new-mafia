@@ -41,6 +41,7 @@ class NightActionRequest {
     this.canSkip = false,
     this.stepRole,
     this.isDecoy = false,
+    this.deadline,
   });
 
   final String actionType;
@@ -49,6 +50,19 @@ class NightActionRequest {
   final bool canSkip;
   final String? stepRole;
   final bool isDecoy;
+
+  /// موعد انتهاء مهلة الخادم — يصل مع الحالة لا مع البثّ الحيّ.
+  /// وجودُه يجعل عدّاد الشاشة المُستعادة صادقاً بدل أن يبدأ من جديد.
+  final DateTime? deadline;
+
+  /// الثواني المتبقّية فعلاً — بأرضيّة ٣ ثوانٍ: شاشةٌ تُفتح على ثانيةٍ
+  /// واحدة تُغلق قبل أن يقرأها اللاعب.
+  int remainingSeconds({DateTime? now}) {
+    final d = deadline;
+    if (d == null) return timeoutSeconds;
+    final left = d.difference(now ?? DateTime.now()).inSeconds;
+    return left < 3 ? 3 : (left > timeoutSeconds ? timeoutSeconds : left);
+  }
 
   /// زرّ التخطّي للمُخوَّل غير المموِّه فقط: مموِّهٌ يتخطّى يكشف نفسه فوراً
   /// أمام من يراقب — فهو مُلزَمٌ باختيار أحدٍ لا معنى له.
@@ -107,13 +121,37 @@ String nightInstruction(NightActionRequest r) {
       };
 }
 
-/// إعادة بناء الشاشة بعد الاستعادة — من `nightState` في `room:get-my-state`.
+/// 🔴 اشتقاق الشاشة **من الحالة** — لا من الحدث.
+///
+/// `night:action-required` دفعةٌ واحدة: من لم يكن سوكِته في الغرفة لحظة
+/// بثّها (إعادة اتصال، شاشة مطفأة، تطبيقٌ في الخلفية) لا يعلم بالخطوة
+/// إطلاقاً، ويبقى على الشاشة السلبية بينما ينتظره الجميع. هذه الدالة هي
+/// الحلّ الجذريّ: كلّ دورة استطلاع تسأل الخادم «هل ثمّة خطوةٌ حيّةٌ لم
+/// أُرسل فيها؟» فتُبنى الشاشة من الجواب مهما ضاع الحدث.
+///
+/// تُعيد `null` — أي «لا شاشة» — في أربع حالات، وكلّ واحدة ضرورية:
+///   ① لا حالة ليلٍ أصلاً.
+///   ② أرسلتُ فعلي (`playerSubmitted`).
+///   ③ الخطوة انتهت وتنتظر موافقة الليدر (`autoNightStepApproval`)
+///      — فتحُها هنا يعرض قائمةً ميتة يرفض الخادم كلّ اختيارٍ منها.
+///   ④ مضى موعدها (`autoNightStepDeadline`) — الخادم اختار عشوائياً.
 ///
 /// النوع يُشتقّ من دور الخطوة لا من دور اللاعب، والمموِّه يأخذ `DECOY`
 /// (فرقٌ عن البثّ الحيّ، وبلا أثرٍ مرئيّ: التعليمة تفحص `isDecoy` أوّلاً).
-NightActionRequest? nightFromResume(Object? state, int myPhysicalId) {
+NightActionRequest? nightFromResume(
+  Object? state,
+  int myPhysicalId, {
+  DateTime? now,
+}) {
   if (state is! Map) return null;
   if (state['playerSubmitted'] == true) return null;
+  if (state['autoNightStepApproval'] == true) return null;
+
+  final dl = (state['autoNightStepDeadline'] as num?)?.toInt();
+  if (dl != null && dl > 0) {
+    final at = DateTime.fromMillisecondsSinceEpoch(dl);
+    if (!at.isAfter(now ?? DateTime.now())) return null;
+  }
 
   final performer = (state['autoNightPerformerId'] as num?)?.toInt();
   final role = state['autoNightStepRole'] as String?;
@@ -139,5 +177,8 @@ NightActionRequest? nightFromResume(Object? state, int myPhysicalId) {
     canSkip: step is Map && step['canSkip'] == true,
     stepRole: role,
     isDecoy: !isPerformer,
+    deadline: dl == null || dl <= 0
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(dl),
   );
 }

@@ -1520,6 +1520,86 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [on]);
 
+  // ══════════════════════════════════════════════════════
+  // 🔴 شبكة أمان الليل — اشتقاق الشاشة من الحالة لا من الحدث
+  // ══════════════════════════════════════════════════════
+  // العطل: `night:action-required` يُبثّ **مرّة واحدة** لسوكتات الغرفة
+  // لحظة بدء الخطوة. من لم يكن سوكته موجوداً حينها — إعادة اتصال، شاشة
+  // مقفلة، تبويب في الخلفية، شبكة متذبذبة — لا يعلم بالخطوة إطلاقاً
+  // ويبقى على الشاشة السلبية بينما تنتظره الطاولة كلها. الاستعادة
+  // الوحيدة الموجودة تعمل عند `step === 'rejoined'` فقط، فمن كان في
+  // المسار العادي لا مخرج له إلا تحديث الصفحة يدوياً.
+  //
+  // الحل الجذري: ما دام الطور ليلاً ولا شاشة مفتوحة، اسأل الخادم كل
+  // 3 ثوانٍ «هل ثمة خطوة حية لم أرسل فيها؟» وافتح الشاشة من الجواب.
+  // لا يُصفَّر عداد جارٍ: الشرط يخرج مبكراً متى كانت الشاشة مفتوحة.
+  useEffect(() => {
+    if (gamePhase !== 'NIGHT' || !emit || !roomId) return;
+    // الخروج الوحيد: شاشة مفتوحة فعلاً (كي لا يُصفَّر عدادها). لا نفحص
+    // `nightActionSubmitted` هنا: هي تبقى true بعد إغلاق شاشة الخطوة
+    // السابقة حتى يصل حدث الخطوة التالية — وهو الحدث نفسه الذي قد يضيع.
+    // فحصها كان سيغلق الشبكة أمام الحالة التي بُنيت لأجلها.
+    // المرجع الموثوق للإرسال هو `playerSubmitted` من الخادم: لكل خطوة
+    // على حدة.
+    if (nightActionRequired) return;
+
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
+        const res = await emit('room:get-my-state', {
+          roomId,
+          playerId: playerId || undefined,
+          phone: normalizedPhone || undefined,
+        });
+        if (cancelled || !res?.success || res.phase !== 'NIGHT') return;
+        const ns = res.nightState;
+        if (!ns || ns.playerSubmitted) return;
+        // الخطوة انتهت وتنتظر موافقة الليدر ⇒ قائمة ميتة يرفض الخادم كل
+        // اختيار منها
+        if (ns.autoNightStepApproval) return;
+        // مضى موعدها ⇒ الخادم اختار عشوائياً بالفعل
+        const deadline: number | null = ns.autoNightStepDeadline || null;
+        if (deadline && deadline <= Date.now()) return;
+        const myPhysId = parseInt(physicalId);
+        const isPerformer = myPhysId === ns.autoNightPerformerId;
+        const stepActionType = ns.autoNightStepRole === 'SHERIFF' ? 'INVESTIGATE' :
+          ns.autoNightStepRole === 'DOCTOR' || ns.autoNightStepRole === 'NURSE' ? 'PROTECT' :
+          ns.autoNightStepRole === 'SNIPER' ? 'SNIPE' :
+          ns.autoNightStepRole === 'WITCH' ? 'DISABLE' :
+          ns.autoNightStepRole === 'SILENCER' && !isPerformer ? 'DECOY' : 'KILL';
+
+        setNightActionRequired({
+          actionType: isPerformer ? stepActionType : 'DECOY',
+          availableTargets: ns.nightStep?.availableTargets || [],
+          timeoutSeconds: ns.config?.autoNightTime || 15,
+          canSkip: ns.nightStep?.canSkip || false,
+          stepRole: ns.autoNightStepRole,
+          isDecoy: !isPerformer,
+        });
+        setNightActionSubmitted(false);
+        setSelectedTargetForConfirm(null);
+
+        // العداد من المتبقي الحقيقي — وأرضيته 3 ثوانٍ: شاشة تُفتح على
+        // ثانية واحدة تُغلق قبل أن يقرأها اللاعب
+        const total = ns.config?.autoNightTime || 15;
+        const left = deadline ? Math.ceil((deadline - Date.now()) / 1000) : total;
+        setNightActionCountdown(Math.max(3, Math.min(total, left)));
+        if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
+        nightCountdownRef.current = setInterval(() => {
+          setNightActionCountdown(prev => {
+            if (prev <= 1) { clearInterval(nightCountdownRef.current!); return 0; }
+            return prev - 1;
+          });
+        }, 1000);
+      } catch { /* دورة فائتة تُعوَّض بالتالية */ }
+    };
+
+    check();
+    const id = setInterval(check, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [gamePhase, emit, roomId, playerId, phone, physicalId, nightActionRequired]);
+
 
   // ── الخطوة 1: إدخال كود اللعبة ──
   const handleFindRoom = async (code?: string) => {

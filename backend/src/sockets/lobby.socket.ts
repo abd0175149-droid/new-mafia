@@ -3126,6 +3126,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             autoNightPerformerId: remote ? (isReqPerformer ? player.physicalId : null) : state.autoNightPerformerId,
             config: { autoNightTime: state.config?.autoNightTime || 15 },
             playerSubmitted: state.playerNightActions?.submitted?.[player.physicalId] || false,
+            // 🔴 حقلان يسمحان للعميل باشتقاق الشاشة من الحالة بدل انتظار
+            //    حدث `night:action-required` الذي يُبثّ مرّة واحدة: من لم
+            //    يكن سوكِته في الغرفة لحظة البثّ (إعادة اتصال، شاشة مطفأة،
+            //    تبويب في الخلفية) كان يبقى عالقاً على الشاشة السلبية حتى
+            //    يحدّث الصفحة يدوياً. بهما يعرف العميل أنّ الخطوة ما زالت
+            //    حيّة وكم بقي لها بالضبط.
+            autoNightStepApproval: !!state.autoNightStepApproval,
+            autoNightStepDeadline: (state as any).autoNightStepDeadline || null,
           };
         })() : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)

@@ -54,6 +54,7 @@ dependencies:
   # فيديو الإشعارات الغنية (إعلانات النادي) — تشغيل داخل التطبيق
   video_player: ^2.9.2
   flutter_svg: ^2.3.0
+  vibration: ^3.2.0
 
 dev_dependencies:
   flutter_test:

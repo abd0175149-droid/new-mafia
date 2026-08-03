@@ -252,18 +252,39 @@ class AssassinContracts {
 class VoteCandidate {
   const VoteCandidate({
     required this.targetPhysicalId,
+    this.id,
     this.name = '',
     this.votes = 0,
+    this.type,
+    this.initiatorPhysicalId,
+    this.avatarUrl,
   });
 
   final int targetPhysicalId;
+  final String? id;
   final String name;
   final int votes;
 
+  /// `DEAL` = صفقة إعدامٍ بين مبادرٍ وهدف. التمييز الوحيد المستعمل
+  /// في العرض هو هذه القيمة نفسها.
+  final String? type;
+  final int? initiatorPhysicalId;
+  final String? avatarUrl;
+
+  bool get isDeal => type == 'DEAL';
+
   factory VoteCandidate.fromJson(Map<String, dynamic> j) => VoteCandidate(
         targetPhysicalId: _i(j['targetPhysicalId']),
+        id: j['id'] == null ? null : '${j['id']}',
         name: _s(j['name']),
         votes: _i(j['votes']),
+        type: j['type'] as String?,
+        initiatorPhysicalId: j['initiatorPhysicalId'] == null
+            ? null
+            : _i(j['initiatorPhysicalId']),
+        avatarUrl: (j['avatarUrl'] as String?)?.isEmpty ?? true
+            ? null
+            : j['avatarUrl'] as String,
       );
 }
 
