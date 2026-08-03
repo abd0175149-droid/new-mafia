@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/config.dart';
 import '../../app/router.dart';
+import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/ui/atmosphere.dart';
 import 'bottom_nav.dart';
@@ -31,11 +32,15 @@ class _ShellScreenState extends State<ShellScreen> {
     // صندوق الإشعارات يبدأ مع الغلاف — الجرس في ترويسة الرئيسية يقرأ
     // عدّه، فلا بدّ أن يعمل قبل أوّل بناء لها.
     InboxService.instance.start();
+    // والمظهر كذلك: بطاقة الملفّ الشخصيّ تقرؤه، والبثّ يجب أن يكون
+    // مشترَكاً فيه قبل أن يُجهّز اللاعب عنصراً من الخزنة.
+    CosmeticsService.instance.start();
   }
 
   @override
   void dispose() {
     InboxService.instance.stop();
+    CosmeticsService.instance.stop();
     super.dispose();
   }
 

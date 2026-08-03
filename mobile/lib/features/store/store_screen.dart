@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/router.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/game_config_service.dart';
+import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/store.dart';
 import '../../models/wallet.dart' show groupThousands;
@@ -85,6 +86,9 @@ class _StoreScreenState extends State<StoreScreen> {
       if (!mounted) return;
       if (r is Map && r['success'] == true) {
         final d = StoreData.fromJson(Map<String, dynamic>.from(r));
+        // المتجر جلب المظهر ضمن استجابته — يُمرَّر للمزوّد فتبقى بطاقة
+        // الملفّ الشخصيّ متّسقة بلا نداءٍ ثانٍ.
+        CosmeticsService.instance.adopt(d.cosmetics, d.rankTier);
         setState(() {
           _data = d;
           _loading = false;

@@ -14,6 +14,7 @@ import '../../core/storage/session_store.dart';
 import '../../core/ui/toast.dart';
 import '../../models/profile.dart';
 import '../history/history_screen.dart';
+import 'my_cosmetic_card.dart';
 import '../shell/core_status_screen.dart';
 import 'avatar_cropper.dart';
 import 'profile_palette.dart';
@@ -367,6 +368,10 @@ class ProfileScreenState extends State<ProfileScreen> {
           onGear: _openSettings,
         ),
         const SizedBox(height: 4),
+        // 🪙 «بطاقتي بمظهري» — §4.1 في الملفّ ٣٤. يظهر **فقط** إن وُجد
+        //    إطارٌ أو لقبٌ أو تأثير اسم، ويُقرأ من المزوّد لا من بناءٍ
+        //    مشروط (نفس البنية التي أوقعت الويب في خلل الخطّافات).
+        MyCosmeticCard(player: p.player),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: RankProgressCard(progression: p.progression),
