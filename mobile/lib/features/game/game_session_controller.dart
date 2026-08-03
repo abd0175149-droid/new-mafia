@@ -12,6 +12,7 @@ import '../../core/sound/turn_alert.dart';
 import '../../models/card_template.dart' show kMafiaRoleIds;
 import '../../models/game.dart';
 import '../../models/night.dart';
+import '../../models/notepad.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎮 متحكّم جلسة اللعب — الملفّ 20
@@ -188,6 +189,171 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool _dealBusy = false;
   bool get dealBusy => _dealBusy;
+
+  // ══════════════════════════════════════════════════════
+  // ⚖️ التبرير والانسحاب — §4.3 في الملفّ ٢٥
+  // ══════════════════════════════════════════════════════
+  JustificationData? _justification;
+  JustificationData? get justification => _justification;
+
+  int? _justTimer;
+  int? get justTimer => _justTimer;
+  Timer? _justTicker;
+  DateTime? _justDeadline;
+
+  WithdrawalState _withdrawal = const WithdrawalState();
+  WithdrawalState get withdrawal => _withdrawal;
+
+  bool _withdrawBusy = false;
+  bool get withdrawBusy => _withdrawBusy;
+
+  bool get iWithdrew => _withdrawal.didIWithdraw(_physicalId);
+
+  /// بطاقة السحب تظهر متى **فُتحت النافذة أو انتهى وقت الدفاع**، ولمن
+  /// صوّت على المتهم وحده وهو حيّ. من لم يصوّت ليس له ما يسحبه.
+  bool get canShowWithdrawal {
+    final j = _justification;
+    if (j == null || _isPlayerDead) return false;
+    if (!j.didIVote(_physicalId)) return false;
+    return _withdrawal.active || _justTimer == 0 || j.timerFinished;
+  }
+
+  /// النِّصاب: ما يرسله الخادم، وإلّا نصف المصوّتين مجبوراً لأعلى.
+  int get withdrawalNeeded => _withdrawal.needed > 0
+      ? _withdrawal.needed
+      : ((_justification?.votersForAccused.length ?? 0) + 1) ~/ 2;
+
+  // ══════════════════════════════════════════════════════
+  // 🎩 العمدة — §4.7 في الملفّ ٢٥
+  // ══════════════════════════════════════════════════════
+  MayorPrompt? _mayorPrompt;
+  MayorPrompt? get mayorPrompt => _mayorPrompt;
+
+  int _mayorPromptLeft = 0;
+  int get mayorPromptLeft => _mayorPromptLeft;
+  Timer? _mayorTicker;
+
+  bool _mayorSending = false;
+  bool get mayorSending => _mayorSending;
+
+  MayorReveal? _mayorBanner;
+  MayorReveal? get mayorBanner => _mayorBanner;
+  Timer? _mayorBannerTimer;
+
+  int? _mayorRevealedId;
+  int? get mayorRevealedId => _mayorRevealedId;
+
+  int _mayorWeight = 2;
+  int get mayorWeight => _mayorWeight;
+
+  // ══════════════════════════════════════════════════════
+  // 📝 المفكرة ودردشة المافيا — الملفّ ٢٦
+  // ══════════════════════════════════════════════════════
+  Notepad _notepad = const Notepad();
+  Notepad get notepad => _notepad;
+
+  String get _notesKey => 'mafia_notes_${_roomId}_$_physicalId';
+
+  /// إيموجي الاشتباه لبطاقة الاقتراع — مصدره المفكرة المحلّية وحدها.
+  String? suspicionEmoji(int physicalId) =>
+      _notepad.noteOf(physicalId).suspicion.emoji;
+
+  void saveNote(int physicalId, PlayerNote note) {
+    _notepad = _notepad.withNote(physicalId, note);
+    _persistNotes();
+    notifyListeners();
+  }
+
+  void deleteNote(int physicalId) {
+    _notepad = _notepad.without(physicalId);
+    _persistNotes();
+    notifyListeners();
+  }
+
+  void clearAllNotes() {
+    _notepad = const Notepad();
+    _persistNotes();
+    notifyListeners();
+  }
+
+  void _persistNotes() {
+    if (_roomId.isEmpty) return;
+    unawaited(_prefs?.setString(_notesKey, _notepad.encode()) ?? Future.value());
+  }
+
+  void _loadNotes() {
+    if (_roomId.isEmpty) return;
+    _notepad = Notepad.decode(_prefs?.getString(_notesKey));
+  }
+
+  List<MafiaChatMessage> _chat = const [];
+  List<MafiaChatMessage> get chat => _chat;
+
+  bool _chatUnread = false;
+  bool get chatUnread => _chatUnread;
+
+  bool _chatSending = false;
+  bool get chatSending => _chatSending;
+
+  /// 🔒 شرط ظهور تبويب التشاور — منقولٌ حرفياً.
+  ///
+  /// الشرط الأخير (`|| mafiaTeam.isNotEmpty`) ليس تراخياً: الأخ الأصغر
+  /// بعد تحوّله يصير دورُه مافياوياً ويصله الفريق، وقد يسبق وصولُ الفريق
+  /// تحديثَ دوره المحليّ. والخادم يتحقّق من كلّ رسالةٍ على حدة، فالواجهة
+  /// المتساهلة هنا لا تفتح ثغرة.
+  bool get chatVisible =>
+      _mafiaChatEnabled &&
+      !_isPlayerDead &&
+      (kMafiaRoleIds.contains(_assignedRole ?? '') || _mafiaTeam.isNotEmpty);
+
+  void markChatRead() {
+    if (!_chatUnread) return;
+    _chatUnread = false;
+    notifyListeners();
+  }
+
+  Future<void> loadChatHistory() async {
+    if (!chatVisible || _roomId.isEmpty) return;
+    final res = await SocketService.instance
+        .ask('mafia:chat-history', {'roomId': _roomId});
+    if (res?['success'] != true) return;
+    _chat = MafiaChatMessage.listOf(res!['messages']);
+    notifyListeners();
+  }
+
+  Future<bool> sendChat(String text) async {
+    final t = text.trim();
+    if (t.isEmpty || _chatSending || !chatVisible) return false;
+    _chatSending = true;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('mafia:chat-send', {
+        'roomId': _roomId,
+        // السقف على العميل أيضاً — الخادم يقصّ، والقصّ الصامت يُربك
+        'text': t.length > kChatMaxLen ? t.substring(0, kChatMaxLen) : t,
+      });
+      return res?['success'] == true;
+    } finally {
+      _chatSending = false;
+      notifyListeners();
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // ☀️ أحداث الصباح الشخصية — §4.7 في الملفّ ٢٤
+  // ══════════════════════════════════════════════════════
+  List<MorningEvent> _morning = const [];
+
+  /// 🔒 **الشخصية وحدها**: ما استهدفني أنا. والإسكات والحماية يُستبعدان
+  ///    من القائمة (لهما مساراهما) — كما يفعل المصدر حرفياً.
+  List<MorningEvent> get myMorningEvents => _morning
+      .where((e) =>
+          e.targetPhysicalId == _physicalId &&
+          e.type != 'SILENCE' &&
+          e.type != 'PROTECTION')
+      .toList(growable: false);
+
+  bool get amIKilled => myMorningEvents.any((e) => e.isKill);
 
   VotingState? _voting;
   VotingState? get voting => _voting;
@@ -459,6 +625,9 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _safetyNet?.cancel();
     _nightTicker?.cancel();
     _nightClose?.cancel();
+    _justTicker?.cancel();
+    _mayorTicker?.cancel();
+    _mayorBannerTimer?.cancel();
   }
 
   void _on(String event, void Function(dynamic) handler) {
@@ -507,6 +676,16 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _sibling = null;
       _assignedRole = null;
       _gameOverData = null;
+      _mayorRevealedId = null;
+      _mayorBanner = null;
+      _justification = null;
+      _withdrawal = const WithdrawalState();
+      // 🔒 ملاحظات جيمٍ سابق عن لاعبين بأدوارٍ أخرى تضلّل لا تفيد
+      _notepad = const Notepad();
+      _persistNotes();
+      _chat = const [];
+      _chatUnread = false;
+      _morning = const [];
     }
 
     // 🔒 ببدء اللعب تعود البطاقة إلى **وجهها العلنيّ** (الاسم والصورة
@@ -654,6 +833,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     await _saveSession();
     await _prefs?.remove(_kUserExited);
 
+    _loadNotes();
     _step = GameStep.rejoined;
     notifyListeners();
     _startPolling();
@@ -843,6 +1023,18 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     final rd = (res['round'] as num?)?.toInt();
     if (rd != null && rd > 0) _round = rd;
 
+    // التبرير والانسحاب — نفس علّة الليل: أحداثهما تُبثّ مرّةً واحدة
+    if (res['justificationData'] != null) {
+      final j = JustificationData.fromJson(res['justificationData']);
+      // لا يُمسح `timerFinished` الذي بلغه العدّاد محلياً
+      _justification = j?.copyWith(
+          timerFinished: _justification?.timerFinished ?? false);
+    }
+    if (res['withdrawalState'] != null) {
+      _withdrawal = WithdrawalState.fromJson(res['withdrawalState'],
+          active: _withdrawal.active);
+    }
+
     _phaseData = {
       for (final k in const [
         'justificationData', 'withdrawalState', 'discussionState',
@@ -1008,6 +1200,91 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void _startJustTicker() {
+    _justTicker?.cancel();
+    void tick() {
+      final dl = _justDeadline;
+      if (dl == null) return;
+      final left = dl.difference(DateTime.now()).inSeconds;
+      _justTimer = left < 0 ? 0 : left;
+      if (_justTimer == 0) {
+        _justTicker?.cancel();
+        _justification = _justification?.copyWith(timerFinished: true);
+      }
+      notifyListeners();
+    }
+
+    tick();
+    _justTicker = Timer.periodic(const Duration(seconds: 1), (_) => tick());
+  }
+
+  /// سحب الصوت — **أحاديّ**: من سحب لا يسحب ثانيةً.
+  Future<bool> withdrawVote() async {
+    if (_withdrawBusy || iWithdrew || _isPlayerDead) return false;
+    _withdrawBusy = true;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance
+          .ask('player:withdraw-vote', {'physicalId': _physicalId});
+      if (res?['success'] != true) return false;
+      _withdrawal = WithdrawalState(
+        active: _withdrawal.active,
+        count: _asInt(res!['count']) > 0
+            ? _asInt(res['count'])
+            : _withdrawal.count + 1,
+        needed: _asInt(res['needed']) > 0
+            ? _asInt(res['needed'])
+            : _withdrawal.needed,
+        withdrawn: {..._withdrawal.withdrawn, _physicalId}.toList(),
+      );
+      return true;
+    } finally {
+      _withdrawBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void _startMayorTicker(int from) {
+    _mayorTicker?.cancel();
+    _mayorPromptLeft = from;
+    // 🔴 عدّادٌ **إرشاديّ**: انتهاؤه لا يقرّر شيئاً ولا يغلق المودال —
+    //    الليدر خطّ الرجعة. إغلاقه ذاتياً يسلب العمدة قراره بلا سبب.
+    _mayorTicker = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (_mayorPromptLeft <= 0) {
+        t.cancel();
+        return;
+      }
+      _mayorPromptLeft--;
+      notifyListeners();
+    });
+  }
+
+  void _closeMayorPrompt() {
+    _mayorTicker?.cancel();
+    if (_mayorPrompt == null) return;
+    _mayorPrompt = null;
+    notifyListeners();
+  }
+
+  /// قرار العمدة — الأخطاء تُبتلع: الليدر ينفّذ يدوياً إن لم يصل.
+  Future<void> sendMayorDecision(String decision) async {
+    if (_mayorSending) return;
+    _mayorSending = true;
+    notifyListeners();
+    try {
+      await SocketService.instance
+          .ask('day:mayor-decision', {'roomId': _roomId, 'decision': decision});
+    } catch (_) {
+    } finally {
+      _mayorSending = false;
+      _closeMayorPrompt();
+      _mayorPrompt = null;
+      notifyListeners();
+    }
+  }
+
+  static int _asInt(Object? v) => v is num ? v.toInt() : 0;
+
   void _flashSeatChange() {
     _seatAlertTimer?.cancel();
     _seatChangeAlert = 'تغيّر مقعدك إلى رقم $_physicalId';
@@ -1109,6 +1386,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _on('night:action-required', (d) {
       final r = NightActionRequest.fromJson(d);
       if (r == null) return;
+      // ليلٌ جديد ⇒ ملخّص صباح الأمس لم يعد يخصّني
+      _morning = const [];
       _openNight(r, r.timeoutSeconds);
     });
 
@@ -1134,6 +1413,15 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       }
       notifyListeners();
     }
+
+    _on('mafia:chat-message', (d) {
+      final m = MafiaChatMessage.fromJson(d);
+      if (m == null) return;
+      _chat = [..._chat, m];
+      // رسالتي أنا ليست «غير مقروءة»
+      if (m.physicalId != _physicalId) _chatUnread = true;
+      notifyListeners();
+    });
 
     _on('day:deal-created', applyDeals);
     _on('day:deal-removed', applyDeals);
@@ -1185,6 +1473,105 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
           'playerVotes': d['playerVotes'],
         });
       }
+      notifyListeners();
+    });
+
+    // ── التبرير ──
+    _on('day:justification-started', (d) {
+      _justification = JustificationData.fromJson(d);
+      _withdrawal = const WithdrawalState();
+      _justTicker?.cancel();
+      _justTimer = null;
+      _setPhase(GamePhase.dayJustification, fromSocket: true);
+      notifyListeners();
+      // شبكة أمان: بقيّة الحمولة (المصوّتون والنصاب) تصل مع الحالة
+      unawaited(_pollOnce());
+    });
+
+    _on('day:justification-timer-started', (d) {
+      if (d is! Map) return;
+      final total = (d['timeLimitSeconds'] as num?)?.toInt() ??
+          (d['duration'] as num?)?.toInt() ??
+          0;
+      final startMs = (d['startTime'] as num?)?.toInt();
+      // 🔴 مصحّحُ الانحراف: الموعد يُحسب مرّةً من زمن الخادم، والعدّاد
+      //    يُشتقّ منه في كلّ تكّة. عدّادٌ ينقص محلياً ينحرف عن الليدر
+      //    بثوانٍ في دقيقةٍ واحدة.
+      final start = startMs != null
+          ? DateTime.fromMillisecondsSinceEpoch(startMs)
+          : DateTime.now();
+      _justDeadline = start.add(Duration(seconds: total));
+      _startJustTicker();
+    });
+
+    _on('day:justification-timer-stopped', (_) {
+      _justTicker?.cancel();
+      _justTimer = null;
+      _justDeadline = null;
+      _justification = _justification?.copyWith(timerFinished: true);
+      notifyListeners();
+    });
+
+    // ── الانسحاب ──
+    _on('day:withdrawal-period', (d) {
+      _withdrawal = WithdrawalState(
+        active: true,
+        needed: d is Map ? _asInt(d['needed']) : 0,
+      );
+      notifyListeners();
+    });
+
+    _on('day:withdrawal-update', (d) {
+      _withdrawal = WithdrawalState.fromJson(d, active: _withdrawal.active);
+      notifyListeners();
+    });
+
+    _on('day:withdrawal-result', (_) {
+      _withdrawal = WithdrawalState(
+        count: _withdrawal.count,
+        needed: _withdrawal.needed,
+        withdrawn: _withdrawal.withdrawn,
+      );
+      notifyListeners();
+    });
+
+    // ── العمدة ──
+    _on('day:mayor-window', (d) {
+      // 🔒 البثّ العامّ للّيدر والعرض يصل الجميع؛ المودال للعمدة وحده.
+      //    فتحُه لغيره يكشف أنّ العمدة ليس هو — ويمنحه قراراً لا يملكه.
+      if (d is! Map || d['forMayor'] != true) return;
+      final p = MayorPrompt.fromJson(d);
+      if (p == null) return;
+      _mayorPrompt = p;
+      _mayorWeight = p.voteWeight;
+      _startMayorTicker(p.timeoutSeconds);
+      unawaited(HapticsService.instance.mayorPrompt());
+      notifyListeners();
+    });
+
+    _on('day:mayor-window-closed', (_) => _closeMayorPrompt());
+
+    _on('day:mayor-revealed', (d) {
+      final r = MayorReveal.fromJson(d);
+      _closeMayorPrompt();
+      if (r == null) return;
+      _mayorRevealedId = r.physicalId;
+      _mayorWeight = r.voteWeight;
+      _mayorBanner = r;
+      _mayorBannerTimer?.cancel();
+      _mayorBannerTimer = Timer(const Duration(seconds: 8), () {
+        _mayorBanner = null;
+        notifyListeners();
+      });
+      notifyListeners();
+    });
+
+    _on('display:morning-event', (d) {
+      final e = MorningEvent.fromJson(d is Map ? (d['event'] ?? d) : d);
+      if (e == null) return;
+      // منع التكرار: الليدر قد يعيد البثّ لنفس الحدث
+      if (_morning.any((x) => x.key == e.key)) return;
+      _morning = [..._morning, e];
       notifyListeners();
     });
 

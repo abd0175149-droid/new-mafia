@@ -12,6 +12,8 @@ import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
 import 'deals_sheet.dart';
 import 'discussion_view.dart';
+import 'justification_view.dart';
+import 'morning_gameover_view.dart';
 import 'night_view.dart';
 import 'voting_view.dart';
 import 'roles_info_modal.dart';
@@ -202,6 +204,9 @@ class LobbyView extends StatelessWidget {
             ],
           ]),
         GamePhase.dayVoting => VotingBallot(controller: c),
+        GamePhase.dayJustification => JustificationBody(controller: c),
+        GamePhase.morningRecap => MorningBody(controller: c),
+        GamePhase.gameOver => GameOverBody(controller: c),
         GamePhase.dayTiebreaker => TiebreakerBody(tied: c.tiedCandidates),
         GamePhase.eliminationPending => EliminationBody(
             eliminated: c.eliminated,

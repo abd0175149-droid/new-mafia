@@ -620,3 +620,238 @@ class Deal {
       ? const []
       : v.map(Deal.fromJson).whereType<Deal>().toList(growable: false);
 }
+
+// ══════════════════════════════════════════════════════
+// ⚖️ التبرير والانسحاب — §4.3 في الملفّ ٢٥
+// ══════════════════════════════════════════════════════
+
+class AccusedPlayer {
+  const AccusedPlayer({
+    required this.targetPhysicalId,
+    this.name = '',
+    this.avatarUrl,
+    this.canJustify = false,
+  });
+
+  final int targetPhysicalId;
+  final String name;
+  final String? avatarUrl;
+  final bool canJustify;
+
+  static AccusedPlayer? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final id = v['targetPhysicalId'];
+    if (id is! num) return null;
+    return AccusedPlayer(
+      targetPhysicalId: id.toInt(),
+      name: _s(v['name']),
+      avatarUrl: (v['avatarUrl'] as String?)?.isEmpty ?? true
+          ? null
+          : v['avatarUrl'] as String,
+      canJustify: v['canJustify'] == true,
+    );
+  }
+}
+
+class JustificationData {
+  const JustificationData({
+    this.accused = const [],
+    this.topVotes = 0,
+    this.votersForAccused = const [],
+    this.timerFinished = false,
+  });
+
+  final List<AccusedPlayer> accused;
+  final int topVotes;
+
+  /// 🔴 من صوّت على المتهم — تُقارَن **نصّياً** في المصدر لتحمّل انزياح
+  ///    الأنواع بين الخادم والعميل. نقرأها أرقاماً ونقارن أرقاماً.
+  final List<int> votersForAccused;
+  final bool timerFinished;
+
+  bool didIVote(int myPhysicalId) => votersForAccused.contains(myPhysicalId);
+
+  JustificationData copyWith({bool? timerFinished}) => JustificationData(
+        accused: accused,
+        topVotes: topVotes,
+        votersForAccused: votersForAccused,
+        timerFinished: timerFinished ?? this.timerFinished,
+      );
+
+  static JustificationData? fromJson(Object? v) {
+    if (v is! Map) return null;
+    return JustificationData(
+      accused: (v['accused'] as List? ?? const [])
+          .map(AccusedPlayer.fromJson)
+          .whereType<AccusedPlayer>()
+          .toList(growable: false),
+      topVotes: _i(v['topVotes']),
+      votersForAccused: (v['votersForAccused'] as List? ?? const [])
+          .whereType<num>()
+          .map((e) => e.toInt())
+          .toList(growable: false),
+    );
+  }
+}
+
+class WithdrawalState {
+  const WithdrawalState({
+    this.active = false,
+    this.count = 0,
+    this.needed = 0,
+    this.withdrawn = const [],
+  });
+
+  final bool active;
+  final int count, needed;
+  final List<int> withdrawn;
+
+  bool didIWithdraw(int myPhysicalId) => withdrawn.contains(myPhysicalId);
+
+  static WithdrawalState fromJson(Object? v, {bool active = true}) {
+    if (v is! Map) return WithdrawalState(active: active);
+    return WithdrawalState(
+      active: active,
+      count: _i(v['count']),
+      needed: _i(v['needed']),
+      withdrawn: (v['withdrawn'] as List? ?? const [])
+          .whereType<num>()
+          .map((e) => e.toInt())
+          .toList(growable: false),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 🎩 العمدة — §4.7 في الملفّ ٢٥
+// ══════════════════════════════════════════════════════
+
+class MayorPrompt {
+  const MayorPrompt({
+    this.timeoutSeconds = 30,
+    this.topVotes = 0,
+    this.voteWeight = 2,
+    this.winnerType,
+    this.targetPhysicalId,
+    this.targetName,
+    this.initiatorPhysicalId,
+  });
+
+  final int timeoutSeconds, topVotes, voteWeight;
+  final String? winnerType;
+  final int? targetPhysicalId;
+  final String? targetName;
+  final int? initiatorPhysicalId;
+
+  bool get isDeal => winnerType == 'DEAL';
+
+  /// وصف من سيُعدَم — صفقةٌ أو لاعب.
+  String get victimLine => isDeal
+      ? 'صفقة #$initiatorPhysicalId ← #$targetPhysicalId'
+      : '#$targetPhysicalId ${targetName ?? ''}'.trim();
+
+  static MayorPrompt? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final w = v['winner'];
+    final win = w is Map ? w : const {};
+    return MayorPrompt(
+      timeoutSeconds: (v['timeoutSeconds'] as num?)?.toInt() ?? 30,
+      topVotes: _i(v['topVotes']),
+      voteWeight: (v['voteWeight'] as num?)?.toInt() ?? 2,
+      winnerType: win['type'] as String?,
+      targetPhysicalId: (win['targetPhysicalId'] as num?)?.toInt(),
+      targetName: win['targetName'] as String?,
+      initiatorPhysicalId: (win['initiatorPhysicalId'] as num?)?.toInt(),
+    );
+  }
+}
+
+class MayorReveal {
+  const MayorReveal({
+    required this.physicalId,
+    this.name = '',
+    this.decision = 'PASS',
+    this.voteWeight = 2,
+  });
+
+  final int physicalId;
+  final String name, decision;
+  final int voteWeight;
+
+  /// `PASS` لا يُنتج بانراً أصلاً (لم يكشف نفسه) — والنصّان للكشف وحده.
+  String get decisionLine => decision == 'REVOTE'
+      ? 'أُلغي الإعدام — تصويت جديد على الجميع'
+      : 'أُلغي الإعدام — لا موت اليوم';
+
+  static MayorReveal? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final id = v['physicalId'];
+    if (id is! num) return null;
+    return MayorReveal(
+      physicalId: id.toInt(),
+      name: _s(v['name']),
+      decision: '${v['decision'] ?? 'PASS'}',
+      voteWeight: (v['voteWeight'] as num?)?.toInt() ?? 2,
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// ☀️ ملخّص الصباح الشخصيّ — §4.7 في الملفّ ٢٤
+// ══════════════════════════════════════════════════════
+
+class MorningEvent {
+  const MorningEvent({
+    required this.type,
+    this.targetPhysicalId,
+    this.targetName = '',
+    this.extra = const {},
+  });
+
+  final String type;
+  final int? targetPhysicalId;
+  final String targetName;
+  final Map<String, dynamic> extra;
+
+  /// 🔴 أنواع الموت **الحقيقية** من `night-resolver.ts` نفسه.
+  ///
+  /// الويب يفحص `KILL`/`SNIPE` وهما لا يصلان أبداً — فبطاقة «لقد اُغتلت!»
+  /// مسارٌ ميّت هناك. الخطة نبّهت على التعارض وأمرت بمطابقة الخادم.
+  static const killTypes = {
+    'ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL',
+  };
+
+  bool get isKill => killTypes.contains(type);
+
+  /// أيقونة الحدث ونصّه — الخريطة الحرفية.
+  (String, String) get display => switch (type) {
+        'ASSASSINATION' => ('💀', 'تم اغتيالك!'),
+        'ASSASSINATION_BLOCKED' => ('🛡️', 'تم حمايتك من الاغتيال!'),
+        'SNIPE_MAFIA' || 'SNIPE_CITIZEN' => ('🎯', 'تم قنصك!'),
+        'SILENCED' => ('🤫', 'تم إسكاتك! لا يمكنك التحدث هذه الجولة.'),
+        'SHERIFF_RESULT' => (
+            '🔍',
+            'نتيجة التحقيق: ${extra['result'] == 'MAFIA' ? '🔴 مافيا' : '🟢 مواطن'}'
+          ),
+        'PROTECTION_FAILED' => ('❌', 'فشلت الحماية! الهدف اُغتيل.'),
+        'POLICEWOMAN_REVEAL' => ('👮', 'الشرطية كشفت هويتك!'),
+        _ => ('📋', type),
+      };
+
+  /// مفتاح منع التكرار — الليدر قد يعيد البثّ.
+  String get key => '$targetPhysicalId|$type';
+
+  static MorningEvent? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final t = v['type'];
+    if (t is! String || t.isEmpty) return null;
+    return MorningEvent(
+      type: t,
+      targetPhysicalId: (v['targetPhysicalId'] as num?)?.toInt(),
+      targetName: _s(v['targetName']),
+      extra: v['extra'] is Map
+          ? Map<String, dynamic>.from(v['extra'] as Map)
+          : const {},
+    );
+  }
+}

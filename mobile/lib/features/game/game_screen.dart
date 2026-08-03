@@ -10,7 +10,9 @@ import '../../models/game.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
 import 'mafia_gallery.dart';
+import 'mayor_layers.dart';
 import 'night_view.dart';
+import 'notepad_sheet.dart';
 import 'join_flow.dart';
 import 'lobby_view.dart';
 
@@ -123,8 +125,12 @@ class _GameScreenState extends State<GameScreen> {
         if (_c.switchConfirm != null) _switchModal(),
         if (_c.joinConfirmation != null) _joinModal(),
         if (_showGalleryFab) _galleryFab(),
+        if (_c.step == GameStep.done || _c.step == GameStep.rejoined)
+          _notepadFab(),
         // 🌙 طبقة الليل تعلو كلّ شيء عدا مودال تبديل الغرفة
         Positioned.fill(child: NightLayer(controller: _c)),
+        // 🎩 طبقات العمدة — المودال والبانر والشارة
+        Positioned.fill(child: MayorLayer(controller: _c)),
       ]),
     );
   }
@@ -253,6 +259,46 @@ class _GameScreenState extends State<GameScreen> {
                 height: 48,
                 child: Icon(Icons.groups, size: 24, color: Colors.white),
               ),
+            ),
+          ),
+        ),
+      );
+
+  /// 📝 المفكرة — تظهر لكلّ من دخل الغرفة، بدورٍ أو بلا دور. ظهورها
+  /// المشروط كان سيكشف شيئاً عن صاحبها؛ وهي غطاءُ دردشة المافيا.
+  Widget _notepadFab() => Positioned(
+        bottom: 88,
+        right: 16,
+        child: SafeArea(
+          child: Material(
+            color: const Color(0xFF111111),
+            shape: const CircleBorder(
+                side: BorderSide(color: Color(0xFFC5A059), width: 2)),
+            elevation: 6,
+            shadowColor: const Color(0x4DC5A059),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => unawaited(showNotepad(context, _c)),
+              child: Stack(clipBehavior: Clip.none, children: [
+                const SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(child: Text('📝', style: TextStyle(fontSize: 20))),
+                ),
+                if (_c.chatUnread)
+                  Positioned(
+                    top: 4,
+                    left: 4,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFFEF4444),
+                      ),
+                    ),
+                  ),
+              ]),
             ),
           ),
         ),

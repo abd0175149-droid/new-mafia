@@ -94,6 +94,8 @@ class _VotingBallotState extends State<VotingBallot> {
             disabled: c.isPlayerDead,
             voters: _votersOf(v, i),
             initiatorName: _nameOf(v, v.candidates[i].initiatorPhysicalId),
+            // 🟢🟡🔴 من المفكرة المحلّية — لا يراه أحدٌ سواك
+            suspicion: c.suspicionEmoji(v.candidates[i].targetPhysicalId),
             onTap: () => unawaited(c.castVote(i)),
           ),
         ),
