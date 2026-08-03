@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/game.dart';
 
@@ -35,8 +36,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   // ══════════════════════════════════════════════════════
   // الحالة
   // ══════════════════════════════════════════════════════
-  Step _step = Step.code;
-  Step get step => _step;
+  GameStep _step = GameStep.code;
+  GameStep get step => _step;
 
   String _roomId = '';
   String _roomCode = '';
@@ -150,6 +151,146 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   int get mySeat => _physicalId;
 
   // ══════════════════════════════════════════════════════
+  // مدخلات الدخول وحالته — يقودها تدفّق الملفّ 21
+  // ══════════════════════════════════════════════════════
+  String roomCodeInput = '';
+  String ticketInput = '';
+
+  bool _busy = false;
+  bool get busy => _busy;
+  void setBusy(bool v) {
+    if (_busy == v) return;
+    _busy = v;
+    notifyListeners();
+  }
+
+  int _maxPlayers = 10;
+  bool _requireTicket = false;
+  int get maxPlayers => _maxPlayers;
+  bool get requireTicket => _requireTicket;
+
+  SwitchConfirm? _switchConfirm;
+  SwitchConfirm? get switchConfirm => _switchConfirm;
+
+  String? _joinConfirmation;
+  String? get joinConfirmation => _joinConfirmation;
+
+  /// يُرفَع حين يمنع الخادم الانضمام لاستبياناتٍ معلّقة — الشاشة تحوّل.
+  bool _feedbackRedirect = false;
+  bool get feedbackRedirect => _feedbackRedirect;
+  void requestFeedbackRedirect() {
+    _feedbackRedirect = true;
+    notifyListeners();
+  }
+
+  void consumeFeedbackRedirect() => _feedbackRedirect = false;
+
+  void setStep(GameStep s) {
+    if (_step == s) return;
+    _step = s;
+    notifyListeners();
+  }
+
+  void setApiError(String? e) {
+    _apiError = e;
+    notifyListeners();
+  }
+
+  void applyFoundRoom({
+    required String roomId,
+    required String roomCode,
+    required String gameName,
+    required int maxPlayers,
+    required bool requireTicket,
+  }) {
+    _roomId = roomId;
+    _roomCode = roomCode;
+    _gameName = gameName;
+    _maxPlayers = maxPlayers;
+    _requireTicket = requireTicket;
+    notifyListeners();
+  }
+
+  void openJoinConfirmation(String message) {
+    _joinConfirmation = message;
+    notifyListeners();
+  }
+
+  void closeJoinConfirmation() {
+    _joinConfirmation = null;
+    notifyListeners();
+  }
+
+  void openSwitchConfirm({
+    required String currentRoomId,
+    required String currentRoomName,
+    required String targetRoomId,
+  }) {
+    _switchConfirm = SwitchConfirm(
+      currentRoomId: currentRoomId,
+      currentRoomName: currentRoomName,
+      targetRoomId: targetRoomId,
+    );
+    notifyListeners();
+  }
+
+  void closeSwitchConfirm() {
+    _switchConfirm = null;
+    notifyListeners();
+  }
+
+  /// قبل الانتقال إلى غرفةٍ أخرى: تُمسح الجلسة وتُصفَّر حالة الجولة كي لا
+  /// يحمل اللاعب دورَه القديم إلى الطاولة الجديدة.
+  Future<void> prepareSwitchTo(String targetRoomId) async {
+    await _clearSession();
+    _resetGameState();
+    _roomId = targetRoomId;
+    _physicalId = 0;
+    _switchConfirm = null;
+    notifyListeners();
+  }
+
+  /// بعد نجاح `room:auto-join`.
+  Future<void> applyJoined({
+    required String roomId,
+    required int seat,
+    required String name,
+    required String phone,
+    int? playerId,
+    bool isRemote = false,
+    String gameName = '',
+  }) async {
+    _roomId = roomId;
+    _physicalId = seat;
+    _displayName = name;
+    _phone = phone;
+    _playerId = playerId;
+    _isRemote = isRemote;
+    if (gameName.isNotEmpty) _gameName = gameName;
+    _joinConfirmation = null;
+
+    await _saveSession();
+    await _prefs?.remove(_kUserExited);
+    await _prefs?.remove(_kHeldSeat);
+
+    _step = GameStep.done;
+    notifyListeners();
+    _startPolling();
+  }
+
+  /// غرفةٌ نشطة من `/api/player-auth/me` — المرحلة الثانية من الاستعادة.
+  Future<Map<String, dynamic>?> fetchActiveGame() async {
+    try {
+      final r = await ApiClient.instance.get('/api/player-auth/me');
+      if (r is! Map || r['success'] != true) return null;
+      final g = r['activeGame'];
+      return g is Map ? Map<String, dynamic>.from(g) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
   // الإقلاع والإيقاف
   // ══════════════════════════════════════════════════════
   Future<void> start() async {
@@ -240,15 +381,44 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _restoring = true;
     notifyListeners();
 
-    final ok = await rejoin(
-      roomId: saved.roomId,
-      physicalId: saved.physicalId,
-      phone: saved.phone,
-    );
+    // 🔴 الاستعادة **تنتظر اتصال السوكِت**. على بدءٍ بارد يُنشأ الاتصال
+    //    غير متزامن، ونداءٌ قبله يعود فارغاً فوراً — فتُقرأ الجلسة فاسدةً
+    //    وتُمسح، ويخرج اللاعب من غرفته لأن هاتفه أقلع فحسب.
+    final connected = await _awaitSocket();
 
-    if (!ok) await _clearSession();
+    if (connected) {
+      final r = await rejoinDetailed(
+        roomId: saved.roomId,
+        physicalId: saved.physicalId,
+        phone: saved.phone,
+      );
+      // 🔒 لا تُمسح الجلسة إلّا حين **يقول الخادم صراحةً** إنها لم تعد
+      //    قائمة. تعذُّر الوصول ليس رفضاً.
+      if (r == RejoinResult.rejected) await _clearSession();
+    }
+
     _restoring = false;
     notifyListeners();
+  }
+
+  /// ينتظر اتصال السوكِت بمهلةٍ — ولا يعلّق الشاشة إن لم يأتِ.
+  Future<bool> _awaitSocket(
+      [Duration timeout = const Duration(seconds: 8)]) async {
+    final sig = SocketService.instance.connected;
+    if (sig.value) return true;
+    final c = Completer<bool>();
+    void listener() {
+      if (sig.value && !c.isCompleted) c.complete(true);
+    }
+
+    sig.addListener(listener);
+    final t = Timer(timeout, () {
+      if (!c.isCompleted) c.complete(false);
+    });
+    final ok = await c.future;
+    t.cancel();
+    sig.removeListener(listener);
+    return ok;
   }
 
   /// (أ) الإقلاع · (ب) إعادة الاتصال · (ج) «ابقَ هنا» عند تبديل الغرفة.
@@ -258,13 +428,26 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     required String roomId,
     required int physicalId,
     String? phone,
+  }) async =>
+      await rejoinDetailed(
+          roomId: roomId, physicalId: physicalId, phone: phone) ==
+      RejoinResult.ok;
+
+  /// 🔒 يفرّق **الرفض** (الخادم ردّ `success:false` ⇒ الجلسة لم تعد قائمة)
+  ///    عن **التعذّر** (لا ردّ ⇒ شبكة أو انقطاع). الأوّل وحده يُبرّر مسح
+  ///    الجلسة؛ والثاني يُعاد بعده لا يُعاقَب عليه اللاعب.
+  Future<RejoinResult> rejoinDetailed({
+    required String roomId,
+    required int physicalId,
+    String? phone,
   }) async {
     final res = await SocketService.instance.ask('room:rejoin-player', {
       'roomId': roomId,
       'physicalId': physicalId,
       if (phone != null && phone.isNotEmpty) 'phone': phone,
     });
-    if (res == null || res['success'] != true) return false;
+    if (res == null) return RejoinResult.unreachable;
+    if (res['success'] != true) return RejoinResult.rejected;
 
     _roomId = roomId;
     _gameName = '${res['gameName'] ?? _gameName}';
@@ -306,11 +489,11 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     await _saveSession();
     await _prefs?.remove(_kUserExited);
 
-    _step = Step.rejoined;
+    _step = GameStep.rejoined;
     notifyListeners();
     _startPolling();
     _armSafetyNet();
-    return true;
+    return RejoinResult.ok;
   }
 
   /// 6.6 شبكة أمانٍ بعد الاستعادة — استطلاعٌ واحد بعد ٥٠٠ms.
@@ -685,7 +868,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _isExpelled = true;
       _expulsionReason = reason;
     } else {
-      _step = Step.code;
+      _step = GameStep.code;
       _apiError = 'تم إزالتك من اللعبة من قبل الليدر';
     }
     notifyListeners();
@@ -698,7 +881,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _roomId = '';
       _roomCode = '';
     }
-    _step = Step.code;
+    _step = GameStep.code;
     _apiError = reason ?? 'تم إنهاء الفعالية وإغلاق الغرفة';
     notifyListeners();
   }
@@ -754,7 +937,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _roomId = '';
     _roomCode = '';
     _physicalId = 0;
-    _step = Step.code;
+    _step = GameStep.code;
     notifyListeners();
   }
 

@@ -19,7 +19,9 @@ class GameConfigService {
   static final GameConfigService instance = GameConfigService._();
 
   CardTemplate? _master;
+  final _templates = <String, CardTemplate>{};
   Map<String, RankEffectsDef> _ranks = const {};
+  Map<String, RoleDef> _roles = const {};
   Future<void>? _inflight;
   bool _loaded = false;
 
@@ -27,6 +29,29 @@ class GameConfigService {
 
   /// تأثيرات رتبةٍ بالمعرّف — `INFORMANT` … `GODFATHER`.
   Map<String, dynamic>? effectsForTier(String tier) => _ranks[tier]?.effects;
+
+  RoleDef? role(String? id) => id == null ? null : _roles[id];
+
+  /// اسم الدور بالعربية — و«مجهول» حين لا تعريف.
+  String roleName(String? id) {
+    final r = role(id);
+    if (r != null && r.nameAr.isNotEmpty) return r.nameAr;
+    return id == null || id.isEmpty ? 'مجهول' : id;
+  }
+
+  /// 🔴 نفس قاعدة `getCardForRole`: قالب الدور إن وُجد، وإلّا `master`
+  ///    **لا فارغ** — القيم الاحتياطية في المُصيّر لا تُستعمل عملياً.
+  CardTemplate cardForRole(String? roleId) {
+    final tid = role(roleId)?.cardTemplateId;
+    if (tid != null) {
+      final t = _templates[tid];
+      if (t != null) return t;
+    }
+    return master;
+  }
+
+  bool isMafiaRole(String? id) =>
+      role(id)?.isMafia ?? kMafiaRoleIds.contains(id);
 
   /// 🔴 نداءان متزامنان من شاشتين لا يعنيان جلبين: الطلب الجاري يُشارَك.
   Future<void> ensureLoaded() {
@@ -45,6 +70,10 @@ class GameConfigService {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
       if (maps.isEmpty) return null;
+      for (final e in maps) {
+        final t = CardTemplate.fromJson(e);
+        _templates[t.id] = t;
+      }
       // نفس قاعدة `getCardForRole(null)`: القالب الرئيسيّ ثمّ أوّل متاح
       final m = maps.where((e) => e['id'] == 'master').firstOrNull ?? maps.first;
       return CardTemplate.fromJson(m);
@@ -62,8 +91,21 @@ class GameConfigService {
       return out;
     }).catchError((_) => <String, RankEffectsDef>{});
 
+    final roles = ApiClient.instance
+        .get('/api/game-config/roles')
+        .then<Map<String, RoleDef>>((r) {
+      final list = (r is Map ? r['data'] : r) as List? ?? const [];
+      final out = <String, RoleDef>{};
+      for (final e in list.whereType<Map>()) {
+        final d = RoleDef.fromJson(Map<String, dynamic>.from(e));
+        if (d.id.isNotEmpty) out[d.id] = d;
+      }
+      return out;
+    }).catchError((_) => <String, RoleDef>{});
+
     _master = await tpl;
     _ranks = await ranks;
+    _roles = await roles;
     _loaded = true;
   }
 }

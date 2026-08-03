@@ -88,9 +88,9 @@ void main() {
 
   group('الخطوات', () {
     test('done و rejoined كلتاهما داخل اللعبة', () {
-      expect(Step.done.inGame, isTrue);
-      expect(Step.rejoined.inGame, isTrue);
-      for (final s in [Step.code, Step.phone, Step.login, Step.ticket]) {
+      expect(GameStep.done.inGame, isTrue);
+      expect(GameStep.rejoined.inGame, isTrue);
+      for (final s in [GameStep.code, GameStep.phone, GameStep.login, GameStep.ticket]) {
         expect(s.inGame, isFalse, reason: '$s');
       }
     });

@@ -4,9 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
 import '../features/feedback/feedback_screen.dart';
+import '../features/game/game_screen.dart';
 import '../features/games/games_screen.dart';
 import '../features/home/home_screen.dart';
-import '../features/join/join_screen.dart';
 import '../features/order/order_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/rank/rank_screen.dart';
@@ -121,12 +121,10 @@ GoRouter buildRouter(AppConfig config) {
       ),
 
       // الرابط العميق العاري — خارج الغلاف، بلا شريط تنقّل
+      // 🔴 شاشة اللعب لا شاشةٌ نائبة: هذا ما يفتحه رمز QR على الطاولة
       GoRoute(
         path: '/join/:code',
-        builder: (_, s) => JoinScreen(
-          initialCode: s.pathParameters['code'],
-          bare: true,
-        ),
+        builder: (_, s) => GameScreen(initialRoomCode: s.pathParameters['code']),
       ),
 
       StatefulShellRoute.indexedStack(
@@ -137,11 +135,8 @@ GoRouter buildRouter(AppConfig config) {
                 key: gamesTabKey,
                 focusActivityId: int.tryParse(s.uri.queryParameters['activityId'] ?? ''),
               )),
-          _branch(Routes.join, (_, s) => JoinScreen(
-                initialCode: s.uri.queryParameters['code'],
-                invite: s.uri.queryParameters['invite'] == '1',
-                inviterName: s.uri.queryParameters['by'],
-              )),
+          _branch(Routes.join,
+              (_, s) => GameScreen(initialRoomCode: s.uri.queryParameters['code'])),
           _branch(Routes.rank, (_, __) => RankScreen(key: rankTabKey)),
           _branch(Routes.profile, (_, __) => ProfileScreen(key: profileTabKey, config: config)),
         ],

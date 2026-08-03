@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -5,9 +6,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../models/card_fx.dart';
+import '../../core/api/game_config_service.dart';
 import '../../models/card_template.dart';
 import '../../models/store.dart';
 import '../../models/title_plaque.dart' show kPlaqueBaseMarginTop;
+import '../profile/profile_palette.dart';
 import 'card_fx_layer.dart';
 import 'chips_emblems.dart';
 import 'name_fx_text.dart';
@@ -42,7 +45,7 @@ const _nameMaxLen = <CardSize, int>{CardSize.sm: 10, CardSize.lg: 18};
 const _goldSolid = Color(0xFFC5A059);
 const _violet = Color(0xFFD8B4FE);
 
-class MafiaCardView extends StatelessWidget {
+class MafiaCardView extends StatefulWidget {
   const MafiaCardView({
     super.key,
     required this.playerName,
@@ -54,6 +57,12 @@ class MafiaCardView extends StatelessWidget {
     this.isFemale = false,
     this.animate = true,
     this.template = const CardTemplate(),
+    this.role,
+    this.flippable = false,
+    this.isFlipped,
+    this.onFlip,
+    this.isAlive = true,
+    this.flipDurationMs = 700,
   });
 
   final String playerName;
@@ -71,6 +80,78 @@ class MafiaCardView extends StatelessWidget {
   ///    العناصر وأشكال الغلاف. رسمُها بقيمٍ ثابتة يجعل ما يراه اللاعب في
   ///    التطبيق غير ما يراه على شاشة القاعة.
   final CardTemplate template;
+
+  /// الدور المعيَّن — وجودُه يُنشئ **وجهاً خلفياً** للكشف.
+  final String? role;
+
+  final bool flippable;
+
+  /// مقودةٌ من الخارج حين تُمرَّر — وإلّا تُدار داخلياً.
+  final bool? isFlipped;
+  final VoidCallback? onFlip;
+
+  /// ميتٌ ⇒ شفافية ٣٠٪ ورماديٌّ كامل وتعطيل اللمس.
+  final bool isAlive;
+
+  /// ٧٠٠ms افتراضاً، و١١٠٠ms عند كشف الدور في شاشة اللعب.
+  final int flipDurationMs;
+
+  @override
+  State<MafiaCardView> createState() => _MafiaCardViewState();
+}
+
+class _MafiaCardViewState extends State<MafiaCardView>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _flip = AnimationController(
+    vsync: this,
+    duration: Duration(milliseconds: widget.flipDurationMs),
+  );
+  bool _internalFlip = false;
+
+  bool get _flipped => widget.isFlipped ?? _internalFlip;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_flipped) _flip.value = 1;
+  }
+
+  @override
+  void didUpdateWidget(MafiaCardView old) {
+    super.didUpdateWidget(old);
+    if (_flipped && _flip.status != AnimationStatus.completed) {
+      _flip.forward();
+    } else if (!_flipped && _flip.value != 0) {
+      _flip.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _flip.dispose();
+    super.dispose();
+  }
+
+  void _tap() {
+    if (!widget.flippable) return;
+    if (widget.onFlip != null) {
+      widget.onFlip!();
+      return;
+    }
+    setState(() => _internalFlip = !_internalFlip);
+    _internalFlip ? _flip.forward() : _flip.reverse();
+  }
+
+  // ── اختصاراتٌ لحقول الودجت ──
+  CardSize get size => widget.size;
+  EquippedCosmetics get cosmetics => widget.cosmetics;
+  CardTemplate get template => widget.template;
+  bool get isFemale => widget.isFemale;
+  bool get animate => widget.animate;
+  String? get avatarUrl => widget.avatarUrl;
+  String get playerName => widget.playerName;
+  int get playerNumber => widget.playerNumber;
+  dynamic get rankFx => widget.rankFx;
 
   Size get box => _cardBox[size]!;
 
@@ -94,6 +175,54 @@ class MafiaCardView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 🔴 ميتٌ: شفافية ٣٠٪ ورماديٌّ كامل وتعطيل اللمس — منقولٌ حرفياً
+    Widget card = AnimatedBuilder(
+      animation: _flip,
+      builder: (_, __) {
+        final a = Curves.easeInOutCubicEmphasized.transform(_flip.value);
+        final angle = a * math.pi;
+        // لا `backface-visibility` في Flutter — يُبدَّل الوجه بعد ٩٠°
+        final showBack = a > 0.5;
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.001)
+            ..rotateY(angle),
+          child: showBack
+              // الوجه الخلفيّ مُدارٌ مسبقاً كي يُقرأ معتدلاً
+              ? Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.identity()..rotateY(math.pi),
+                  child: _back(),
+                )
+              : _front(),
+        );
+      },
+    );
+
+    if (widget.flippable) {
+      card = GestureDetector(onTap: _tap, child: card);
+    }
+    if (!widget.isAlive) {
+      card = IgnorePointer(
+        child: Opacity(
+          opacity: 0.3,
+          child: ColorFiltered(
+            colorFilter: const ColorFilter.matrix(<double>[
+              0.2126, 0.7152, 0.0722, 0, 0,
+              0.2126, 0.7152, 0.0722, 0, 0,
+              0.2126, 0.7152, 0.0722, 0, 0,
+              0, 0, 0, 1, 0,
+            ]),
+            child: card,
+          ),
+        ),
+      );
+    }
+    return card;
+  }
+
+  Widget _front() {
     final fx = _fx;
     final emb = emblemIdOf(cosmetics.frame?.emblemId);
     final accent = isFemale ? _violet : _goldSolid;
@@ -228,6 +357,227 @@ class MafiaCardView extends StatelessWidget {
           ),
       ]),
     );
+  }
+
+  // ══════════════════════════════════════════════════════
+  // §4.3 الوجه الخلفيّ — كشف الدور
+  // ══════════════════════════════════════════════════════
+  Widget _back() {
+    final cfg = GameConfigService.instance;
+    final def = cfg.role(widget.role);
+    // قالب الدور إن وُجد، وإلّا `master` — لا فارغ
+    final t = cfg.cardForRole(widget.role);
+    final isMafia = def?.isMafia ?? cfg.isMafiaRole(widget.role);
+    final isNeutral = def?.isNeutral ?? false;
+    final textColor = parseCssColor(t.textColor, const Color(0xFFD4D4D8));
+    final border = t.border;
+
+    final (badgeText, badgeBg, badgeFg, badgeBorder) = isMafia
+        ? ('فريق المافيا 🔴', const Color(0x997F1D1D), const Color(0xFFFCA5A5),
+            const Color(0x4DEF4444))
+        : isNeutral
+            ? ('محايد ⚪', const Color(0x99783C0F), const Color(0xFFFCD34D),
+                const Color(0x4DF59E0B))
+            : ('فريق المدينة 🔵', const Color(0x991E3A8A),
+                const Color(0xFF93C5FD), const Color(0x4D3B82F6));
+
+    return SizedBox(
+      width: box.width,
+      height: box.height,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black,
+          gradient: t.bodyGradient,
+          borderRadius: BorderRadius.circular(kCardRadius),
+          border: Border.all(color: border, width: 2),
+          boxShadow: t.glow == null ? null : [t.glow!],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(children: [
+          // لمعانٌ قطريّ خفيف فوق التدرّج
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomLeft,
+                  end: Alignment.topRight,
+                  colors: [
+                    Colors.transparent,
+                    Color(0x08FFFFFF),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // شارة الفريق
+          Positioned(
+            top: 12,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: badgeBg,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: badgeBorder),
+                ),
+                child: Text(badgeText,
+                    style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 10,
+                        letterSpacing: 1.5,
+                        color: badgeFg)),
+              ),
+            ),
+          ),
+
+          // رقاقة الرقم
+          Positioned(
+            top: 12,
+            right: 12,
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0x66000000),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: border),
+              ),
+              child: Center(
+                child: Text('$playerNumber',
+                    style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: textColor)),
+              ),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _roleIcon(def, border, textColor),
+                const SizedBox(height: 20),
+                Text(cfg.roleName(widget.role),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Amiri',
+                      fontSize: size == CardSize.lg ? 30 : 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0,
+                      color: textColor,
+                    )),
+                const SizedBox(height: 8),
+                Text(playerName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontFamily: 'Amiri',
+                        fontSize: 13,
+                        letterSpacing: 0,
+                        color: Color(0x80FFFFFF))),
+                const SizedBox(height: 16),
+                Container(width: 80, height: 1, color: border),
+                const Spacer(),
+                if (widget.flippable)
+                  Text('اضغط للإخفاء',
+                      style: ar(10, color: const Color(0xFF71717A))),
+              ],
+            ),
+          ),
+
+          // 🔴 أشكال وجه الدور **لا تُزاح**: تبقى مركزةً فقط — بخلاف
+          //    أشكال الغلاف. فرقٌ دقيق منقولٌ حرفياً.
+          for (final sh in t.shapes.where((x) => x.face == 'role'))
+            Positioned(
+              left: box.width / 2 - sh.w / 2,
+              top: box.height / 2 - sh.h / 2,
+              width: sh.w,
+              height: sh.h,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: sh.opacity,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: parseCssColor(sh.bg, const Color(0xFF000000)),
+                      shape: sh.type == 'circle'
+                          ? BoxShape.circle
+                          : BoxShape.rectangle,
+                      borderRadius: sh.type == 'circle'
+                          ? null
+                          : BorderRadius.circular(sh.radius),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _roleIcon(RoleDef? def, Color border, Color textColor) {
+    final iconSize = size == CardSize.lg ? 52.0 : 32.0;
+    Widget inner;
+    if (def?.iconType == 'emoji' && (def?.iconValue ?? '').isNotEmpty) {
+      inner = Text(def!.iconValue!, style: TextStyle(fontSize: iconSize));
+    } else {
+      inner = Icon(_lucide(def?.iconValue, widget.role),
+          size: iconSize, color: textColor);
+    }
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0x66000000),
+        border: Border.all(color: border, width: 2),
+        boxShadow: const [
+          BoxShadow(color: Color(0x4D000000), blurRadius: 20, spreadRadius: -8),
+        ],
+      ),
+      child: Center(child: inner),
+    );
+  }
+
+  /// خريطة أيقونات Lucide المتاحة — وما لا يُعرف يسقط على `User`.
+  static IconData _lucide(String? name, String? roleId) {
+    const byName = <String, IconData>{
+      'User': Icons.person_outline,
+      'HeartPulse': Icons.monitor_heart_outlined,
+      'Shield': Icons.shield_outlined,
+      'Syringe': Icons.vaccines_outlined,
+      'Crosshair': Icons.gps_fixed,
+      'BadgeAlert': Icons.badge_outlined,
+      'Skull': Icons.dangerous_outlined,
+      'Crown': Icons.workspace_premium_outlined,
+      'Drama': Icons.theater_comedy_outlined,
+      'Scissors': Icons.content_cut,
+      'Flame': Icons.local_fire_department_outlined,
+      'Ghost': Icons.blur_on,
+      'Eye': Icons.visibility_outlined,
+      'Zap': Icons.bolt_outlined,
+      'Sword': Icons.hardware_outlined,
+      'Heart': Icons.favorite_outline,
+      'Landmark': Icons.account_balance_outlined,
+    };
+    final direct = byName[name];
+    if (direct != null) return direct;
+    // الخريطة الكلاسيكية حين لا يحمل القالب أيقونةً صالحة
+    const classic = <String, String>{
+      'GODFATHER': 'Crown', 'SILENCER': 'Scissors', 'CHAMELEON': 'Drama',
+      'MAFIA_REGULAR': 'Skull', 'SHERIFF': 'Shield', 'DOCTOR': 'HeartPulse',
+      'SNIPER': 'Crosshair', 'POLICEWOMAN': 'BadgeAlert', 'NURSE': 'Syringe',
+      'MAYOR': 'Landmark', 'CITIZEN': 'User',
+    };
+    return byName[classic[roleId]] ?? Icons.person_outline;
   }
 
   double get _scale => size == CardSize.lg ? 1.4 : 1.0;

@@ -17,7 +17,7 @@ String _s(dynamic v) => v == null ? '' : '$v';
 
 /// 🔴 تُنفَّذ **شاشةً واحدة** بـ`AnimatedSwitcher` لا بـ`Navigator`:
 ///    مستمعات السوكِت يجب أن تبقى حيّةً عبر كل الخطوات.
-enum Step {
+enum GameStep {
   code,
   phone,
   login,
@@ -33,7 +33,7 @@ enum Step {
   rejoined;
 
   /// كلتاهما تعرضان شاشة اللعب، ومعظم المؤثّرات مقيّدة بهما.
-  bool get inGame => this == Step.done || this == Step.rejoined;
+  bool get inGame => this == GameStep.done || this == GameStep.rejoined;
 }
 
 // ══════════════════════════════════════════════════════
@@ -343,4 +343,34 @@ class PhaseGuard {
     _phase = null;
     _at = null;
   }
+}
+
+/// مودال تبديل الغرفة — §4.10 في الملفّ 21.
+///
+/// 🔴 لا انضمام صامتٌ إلى غرفةٍ أخرى: اللاعب قد يكون جالساً على طاولةٍ
+///    الآن، ونقلُه بلا سؤالٍ يفقده مقعده ودورَه.
+class SwitchConfirm {
+  const SwitchConfirm({
+    required this.currentRoomId,
+    required this.currentRoomName,
+    required this.targetRoomId,
+  });
+
+  final String currentRoomId, currentRoomName, targetRoomId;
+}
+
+
+/// نتيجة محاولة استعادة الالتحاق.
+///
+/// 🔴 التفريق بين الاثنين ليس تجميلاً: معاملةُ التعذّر معاملةَ الرفض
+///    تمسح جلسة لاعبٍ ما زال مقعده محجوزاً على الطاولة.
+enum RejoinResult {
+  /// التحق فعلاً.
+  ok,
+
+  /// الخادم ردّ صراحةً بأن لا التحاق — الجلسة لم تعد قائمة.
+  rejected,
+
+  /// لا ردّ: شبكة أو سوكِت غير متّصل. يُعاد لاحقاً.
+  unreachable,
 }

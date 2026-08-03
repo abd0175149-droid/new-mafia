@@ -177,3 +177,42 @@ class RankEffectsDef {
     end: Alignment(math.cos(a), math.sin(a)),
   );
 }
+
+// ══════════════════════════════════════════════════════
+// 🎭 تعريف الدور — من `/api/game-config/roles`
+// ══════════════════════════════════════════════════════
+
+class RoleDef {
+  const RoleDef({
+    required this.id,
+    this.nameAr = '',
+    this.team = 'CITIZEN',
+    this.cardTemplateId,
+    this.iconType,
+    this.iconValue,
+  });
+
+  final String id, nameAr, team;
+  final String? cardTemplateId, iconType, iconValue;
+
+  bool get isMafia => team == 'MAFIA';
+  bool get isNeutral => team == 'NEUTRAL';
+
+  factory RoleDef.fromJson(Map<String, dynamic> j) {
+    final ov = j['cardOverrides'];
+    final icon = (ov is Map) ? ov['icon'] : null;
+    return RoleDef(
+      id: '${j['id'] ?? ''}',
+      nameAr: '${j['nameAr'] ?? ''}',
+      team: '${j['team'] ?? 'CITIZEN'}',
+      cardTemplateId: j['cardTemplateId'] as String?,
+      iconType: icon is Map ? icon['type'] as String? : null,
+      iconValue: icon is Map ? '${icon['value'] ?? icon['url'] ?? ''}' : null,
+    );
+  }
+}
+
+/// أدوار المافيا حين لا يوجد تعريفٌ من الكتالوج — احتياطيّ الملفّ ٢٢.
+const kMafiaRoleIds = {
+  'GODFATHER', 'SILENCER', 'CHAMELEON', 'MAFIA_REGULAR', 'ASSASSIN', 'WITCH',
+};
