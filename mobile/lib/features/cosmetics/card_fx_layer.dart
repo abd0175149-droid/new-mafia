@@ -20,6 +20,48 @@ import 'rank_frames.dart';
 /// نصف قطر البطاقة — `rounded-2xl` أي `1rem`.
 const kCardRadius = 16.0;
 
+/// نطاقُ الساعة — يحمل زمنها إلى كلّ من تحته.
+///
+/// 🔴 بدونه كان كلّ `FxClock` يُنشئ `AnimationController` خاصّاً به،
+///    والتعليق يقول «ساعةٌ واحدة» بينما بطاقةٌ واحدة فيها إطارٌ وشعارٌ
+///    واسمٌ ولقب تُنشئ أربعاً أو خمساً. ستّ بطاقاتٍ ⇒ نحو ثلاثين مؤقّتاً
+///    تتكّ في الإطار الواحد. الآن: أوّل `FxClock` في الشجرة يملك المؤقّت،
+///    وكلّ من تحته يقرأ زمنه.
+class FxClockScope extends InheritedWidget {
+  const FxClockScope({
+    super.key,
+    required this.seconds,
+    required super.child,
+  });
+
+  final double seconds;
+
+  static double? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<FxClockScope>()
+      ?.seconds;
+
+  @override
+  bool updateShouldNotify(FxClockScope old) => old.seconds != seconds;
+}
+
+/// يلفّ شجرةً بساعةٍ واحدة — استعمله حول أيّ شبكةٍ تعرض عدّة بطاقات.
+class FxClockProvider extends StatelessWidget {
+  const FxClockProvider({super.key, required this.child, this.enabled = true});
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    // ساعةُ الأب تكفي — لا داعي لثانية
+    if (FxClockScope.maybeOf(context) != null) return child;
+    return FxClock(
+      enabled: enabled,
+      builder: (_, t) => FxClockScope(seconds: t, child: child),
+    );
+  }
+}
+
 /// ساعةٌ واحدة تُغذّي كل التأثيرات.
 class FxClock extends StatefulWidget {
   const FxClock({super.key, required this.builder, this.enabled = true});
@@ -43,12 +85,16 @@ class _FxClockState extends State<FxClock> with SingleTickerProviderStateMixin {
   ///    وتبقى كلّها **مرئيةً ساكنة** لا مختفية: اللاعب دفع ثمنها.
   bool _reduced = false;
 
-  bool get _shouldRun => widget.enabled && !_reduced;
+  /// سلفٌ يقود ⇒ لا داعٍ لتشغيل مؤقّتنا إطلاقاً.
+  bool _inherited = false;
+
+  bool get _shouldRun => widget.enabled && !_reduced && !_inherited;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _inherited = FxClockScope.maybeOf(context) != null;
     _sync();
   }
 
@@ -73,11 +119,38 @@ class _FxClockState extends State<FxClock> with SingleTickerProviderStateMixin {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (ctx, _) =>
-            widget.builder(ctx, _c.value * _period.inSeconds.toDouble()),
-      );
+  Widget build(BuildContext context) {
+    // 🔴 ساعةُ سلفٍ موجودة ⇒ لا مؤقّت هنا. هذا ما يجعل «ساعةً واحدة»
+    //    صحيحاً فعلاً لا في التعليق وحده.
+    final inherited = FxClockScope.maybeOf(context);
+    if (inherited != null) return widget.builder(context, inherited);
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (ctx, _) =>
+          widget.builder(ctx, _c.value * _period.inSeconds.toDouble()),
+    );
+  }
+}
+
+/// كثافة التأثيرات — تُقلَّل في الشبكات.
+///
+/// «أكثر من ٦ بطاقاتٍ مرئية ⇒ النصف» (§13). المرآة والملفّ الشخصيّ
+/// بطاقةٌ واحدة فلا تقليل فيهما.
+class FxDensity extends InheritedWidget {
+  const FxDensity({super.key, required this.halved, required super.child});
+
+  final bool halved;
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<FxDensity>()?.halved ?? false;
+
+  /// يلفّ شبكةً ويقرّر التقليل من عدد بطاقاتها.
+  static Widget forCount(int count, {required Widget child}) =>
+      FxDensity(halved: count > 6, child: child);
+
+  @override
+  bool updateShouldNotify(FxDensity old) => old.halved != halved;
 }
 
 /// طورٌ من ٠ إلى ١ لمدّةٍ وتأخير.
@@ -115,7 +188,7 @@ class CardFxLayer extends StatelessWidget {
     return IgnorePointer(
       child: FxClock(
         enabled: animate,
-        builder: (_, t) => Stack(
+        builder: (context, t) => Stack(
           clipBehavior: Clip.none,
           children: [
             if (fx.gradientOverlay.enabled) _gradientOverlay(),
@@ -138,7 +211,8 @@ class CardFxLayer extends StatelessWidget {
                 ),
               ),
             if (fx.shimmer.enabled) _shimmer(t),
-            if (fx.particles.enabled) ..._particles(t),
+            if (fx.particles.enabled)
+              ..._particles(t, FxDensity.of(context)),
             if (fx.badge.enabled) _badge(),
             if (fx.floating.enabled) _floating(t),
           ],
@@ -327,10 +401,12 @@ class CardFxLayer extends StatelessWidget {
   }
 
   // ── الجزيئات (z 53) ──
-  List<Widget> _particles(double t) {
+  List<Widget> _particles(double t, bool halved) {
     final pa = fx.particles;
     final out = <Widget>[];
-    for (var i = 0; i < pa.count; i++) {
+    // النصف — وواحدةٌ على الأقلّ كي لا تختفي القناة كلّها
+    final n = halved ? math.max(1, pa.count ~/ 2) : pa.count;
+    for (var i = 0; i < n; i++) {
       out.add(Positioned.fill(
         child: CustomPaint(
           painter: _ParticlePainter(

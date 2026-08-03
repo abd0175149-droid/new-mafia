@@ -9,6 +9,7 @@ import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/socket/socket_service.dart';
 import '../../models/store.dart';
 import '../../models/wallet.dart' show groupThousands;
+import '../cosmetics/card_fx_layer.dart';
 import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'item_sheet.dart';
@@ -426,7 +427,12 @@ class _StoreScreenState extends State<StoreScreen> {
                     style: ar(14, color: Tw.gray600))),
           )
         else if (grid)
-          GridView.builder(
+          // §13.2 و§13.4: ساعةٌ واحدة لكلّ الشبكة، وتقليلُ الجسيمات إلى
+          // النصف حين تتجاوز ستّ عناصر.
+          FxClockProvider(
+            child: FxDensity.forCount(
+              items.length,
+              child: GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -443,9 +449,15 @@ class _StoreScreenState extends State<StoreScreen> {
               onTap: () => _pick(items[i]),
               playerName: d.name,
             ),
+              ),
+            ),
           )
         else
-          for (final it in items) ...[
+          FxClockProvider(
+            child: FxDensity.forCount(
+              items.length,
+              child: Column(children: [
+                for (final it in items) ...[
             StoreRowItem(
               item: it,
               selected: _tryOn?.id == it.id,
@@ -455,6 +467,9 @@ class _StoreScreenState extends State<StoreScreen> {
             ),
             const SizedBox(height: 8),
           ],
+              ]),
+            ),
+          ),
         if (d.closedVault.isNotEmpty)
           ClosedVault(items: d.closedVault, playerName: d.name),
         if (d.earnRates != null) ...[

@@ -56,7 +56,12 @@ class StoreItemVisual extends StatelessWidget {
       );
 
   @override
-  Widget build(BuildContext context) => switch (item.kind) {
+  Widget build(BuildContext context) =>
+      // §13.1: كلّ مصغّرٍ داخل حدّ إعادة رسمٍ خاصّ به — الخزنة شبكةُ
+      // عشراتِ عناصرَ متحرّكة.
+      RepaintBoundary(child: _visual());
+
+  Widget _visual() => switch (item.kind) {
         'frame' => _frame(),
         'title' => _title(),
         'name_fx' => _nameFx(),

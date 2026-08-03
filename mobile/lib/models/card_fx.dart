@@ -358,6 +358,16 @@ const _nameFxEnters = {
 };
 
 NameFx normalizeNameFx(dynamic raw) {
+  if (raw is Map) {
+    final hit = _nameFxMemo[raw];
+    if (hit != null) return hit;
+  }
+  final out = _normalizeNameFx(raw);
+  if (raw is Map) _nameFxMemo[raw] = out;
+  return out;
+}
+
+NameFx _normalizeNameFx(dynamic raw) {
   final n = (raw is Map) ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
   return NameFx(
     enabled: boolOr(n['enabled']),
@@ -395,7 +405,23 @@ const _frameTypes = {
 };
 
 /// يحوّل أيّ مُدخل — ناقصاً أو مشوَّهاً أو `null` — إلى قنوات كاملة آمنة.
+/// 🔴 التطبيع ثقيل: عشر قنواتٍ وعشرات القيم المحصورة، وكان يُعاد في كلّ
+///    `build` — أي **في كلّ إطار** ما دامت الساعة تدور. المفاتيح ضعيفة
+///    (`Expando`) فالخريطة إن ماتت مات معها مدخلها ولا يتراكم شيء.
+final _fxMemo = Expando<FxChannels>('normalizeFx');
+final _nameFxMemo = Expando<NameFx>('normalizeNameFx');
+
 FxChannels normalizeFx(dynamic input) {
+  if (input is Map) {
+    final hit = _fxMemo[input];
+    if (hit != null) return hit;
+  }
+  final out = _normalizeFx(input);
+  if (input is Map) _fxMemo[input] = out;
+  return out;
+}
+
+FxChannels _normalizeFx(dynamic input) {
   final src = (input is Map) ? Map<String, dynamic>.from(input) : <String, dynamic>{};
 
   final b = _group(src, 'border');

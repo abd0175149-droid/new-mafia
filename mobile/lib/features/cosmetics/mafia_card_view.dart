@@ -177,7 +177,26 @@ class _MafiaCardViewState extends State<MafiaCardView>
 
   Size get box => _cardBox[size]!;
 
+  FxChannels? _fxMemo;
+  Object? _fxKey;
+
   FxChannels get _fx {
+    // مفتاحُ هويّة: الخرائط نفسها لا تتغيّر بين الإطارات، فتغيّرها وحده
+    // يستدعي إعادة الدمج.
+    final key = Object.hash(
+      identityHashCode(cosmetics.frame?.config),
+      cosmetics.frame?.emblemId,
+      identityHashCode(rankFx),
+    );
+    final memo = _fxMemo;
+    if (memo != null && _fxKey == key) return memo;
+    final out = _computeFx();
+    _fxKey = key;
+    _fxMemo = out;
+    return out;
+  }
+
+  FxChannels _computeFx() {
     final paid = normalizeFx(cosmetics.frame?.config);
     var base = paid.anyEnabled
         ? mergeFx(rankFx, cosmetics.frame?.config)
@@ -196,7 +215,11 @@ class _MafiaCardViewState extends State<MafiaCardView>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => RepaintBoundary(child: _build(context));
+
+  /// 🔴 `RepaintBoundary` حول كلّ بطاقة (§13.1): بدونه يُعاد رسم الشجرة
+  ///    كلّها — بما فيها بقيّة بطاقات الشبكة — عند كلّ إطارٍ متحرّك.
+  Widget _build(BuildContext context) {
     // 🔴 ميتٌ: شفافية ٣٠٪ ورماديٌّ كامل وتعطيل اللمس — منقولٌ حرفياً
     Widget card = AnimatedBuilder(
       animation: _flip,
