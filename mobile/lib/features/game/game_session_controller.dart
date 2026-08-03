@@ -420,10 +420,26 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _applyPhase(String? phase) {
     if (_gamePhase == phase) return;
+    final was = _gamePhase;
     _gamePhase = phase;
 
-    // نظافة المرحلة — منقولة حرفياً
-    if (GamePhase.isPreGame(phase)) {
+    // ── نظافة المرحلة ──
+    //
+    // 🔴 تُطبَّق على **بدء جولةٍ جديدة** فقط: أي رجوعٍ من طورِ لعبٍ إلى
+    //    ما قبله. الويب يمسح داخل مستمع `game:phase-changed` وحده، فلا
+    //    يمسّ استعادةَ جلسةٍ أبداً.
+    //
+    //    الشرط `was != null` هو الجوهر: على الإقلاع تكون المرحلة مجهولة،
+    //    فالانتقال `null → ROLE_BINDING` ليس «جولةً جديدة» بل «عرفتُ
+    //    المرحلة الحالية». بدونه كانت الاستعادة تكتب الفريق والدور من
+    //    ردّ الخادم ثمّ تمسحهما في السطر التالي من نفس الردّ — فيرى
+    //    المافيويّ الواجهةَ التمويهية بدل شركائه. حدث فعلاً على الطاولة.
+    //
+    //    والشرط `!isPreGame(was)` يمنع مسحاً بلا داعٍ في
+    //    `ROLE_GENERATION → ROLE_BINDING` (لا شيء قديمٌ يُسرَّب بينهما).
+    if (GamePhase.isPreGame(phase) &&
+        was != null &&
+        !GamePhase.isPreGame(was)) {
       _mafiaTeam = const [];
       _sibling = null;
       _assignedRole = null;
@@ -725,6 +741,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     if (res['assassinContracts'] != null) {
       _assassinContracts = AssassinContracts.fromJson(res['assassinContracts']);
+    }
+    // سعة الغرفة — على مسار الاستعادة لا يمرّ العميل بـ`room:find-by-code`
+    // فيبقى على الافتراضي (١٠) لغرفةٍ تتسع ٣٢
+    final cap = (res['maxPlayers'] as num?)?.toInt();
+    if (cap != null && cap > 0 && cap != _maxPlayers) {
+      _maxPlayers = cap;
+      changed = true;
     }
     if (res['isRemote'] is bool) _isRemote = res['isRemote'] as bool;
     if (res['allowPlayerInvites'] is bool) {

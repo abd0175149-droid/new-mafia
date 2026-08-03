@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -102,12 +104,16 @@ class MafiaTeamGallery extends StatelessWidget {
       child: Directionality(
         textDirection: TextDirection.rtl,
         child: Stack(children: [
-          // الحاجز: نقرةٌ عليه تُغلق
+          // الحاجز: ضبابٌ + نقرةٌ تُغلق. بلا الضباب يقرأ العينُ ما خلف
+          // المودال فيزاحم النصَّ — والويب يضع `backdrop-blur-md`.
           Positioned.fill(
             child: GestureDetector(
               onTap: () => Navigator.of(context).maybePop(),
               behavior: HitTestBehavior.opaque,
-              child: const SizedBox.shrink(),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: const ColoredBox(color: Color(0x66000000)),
+              ),
             ),
           ),
           SafeArea(

@@ -3105,6 +3105,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         rolesConfirmed: state.rolesConfirmed || false,
         votingState: votingData,
         maxPenalties: state.config?.maxPenalties || 3,
+        // سعة الغرفة — بدونها يعرض العميل الافتراضي (١٠) لغرفةٍ تتسع ٣٢
+        maxPlayers: state.config?.maxPlayers || 10,
         mafiaChatEnabled: state.config?.mafiaChatEnabled === true,   // 🗣️ علم إعداد عام — لا يكشف هوية
         // بيانات التبرير (لاستعادة الـ UI عند reconnect)
         justificationData: state.phase === 'DAY_JUSTIFICATION' ? state.justificationData || null : null,

@@ -44,4 +44,37 @@ void main() {
       expect(back.playerId, 8);
     });
   });
+
+  group('🔴 نظافة المرحلة لا تمسح ما جلبته الاستعادة', () {
+    // حدث على الطاولة: لاعبٌ مافيا فتح معرض الشركاء فرأى الواجهة
+    // التمويهية. السبب: ردّ `room:rejoin-player` يكتب الفريق والدور، ثم
+    // يُضبط الطور `ROLE_BINDING` من **نفس الردّ** فتمسحه نظافةُ «جولة
+    // جديدة». الويب لا يقع فيه: يمسح داخل مستمع `game:phase-changed`
+    // وحده، ولا يمسّ الاستعادة أبداً.
+
+    /// القاعدة التي يجب أن يطبّقها المتحكّم.
+    bool wipes(String? was, String? now) =>
+        GamePhase.isPreGame(now) && was != null && !GamePhase.isPreGame(was);
+
+    test('إقلاعٌ على طورٍ قبل-لعبيّ لا يمسح', () {
+      expect(wipes(null, GamePhase.roleBinding), isFalse);
+      expect(wipes(null, GamePhase.lobby), isFalse);
+    });
+
+    test('جولةٌ جديدة بعد لعبٍ تمسح', () {
+      expect(wipes(GamePhase.night, GamePhase.roleBinding), isTrue);
+      expect(wipes(GamePhase.gameOver, GamePhase.lobby), isTrue);
+      expect(wipes(GamePhase.dayVoting, GamePhase.roleGeneration), isTrue);
+    });
+
+    test('تنقّلٌ داخل ما قبل اللعب لا يمسح — لا شيء قديمٌ يُسرَّب', () {
+      expect(wipes(GamePhase.roleGeneration, GamePhase.roleBinding), isFalse);
+      expect(wipes(GamePhase.lobby, GamePhase.roleGeneration), isFalse);
+    });
+
+    test('الانتقال إلى طور لعبٍ لا يمسح أصلاً', () {
+      expect(wipes(GamePhase.roleBinding, GamePhase.night), isFalse);
+      expect(wipes(GamePhase.night, GamePhase.dayVoting), isFalse);
+    });
+  });
 }
