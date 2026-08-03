@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -111,6 +112,41 @@ class SocketService {
   void on(String event, void Function(dynamic) handler) => _socket?.on(event, handler);
   void off(String event, [void Function(dynamic)? handler]) => _socket?.off(event, handler);
   void emit(String event, [dynamic data]) => _socket?.emit(event, data);
+
+  /// 🔴 نداءٌ بإشعارٍ راجع ومهلة **١٥ ثانية** — عقد الخادم في كل أحداث
+  ///    اللعب: النجاح **فقط** عند `success == true`، والرفض يحمل `error`
+  ///    و`code` و`requiresConfirmation`.
+  ///
+  /// بلا مهلةٍ يعلّق نداءٌ ضائع الشاشةَ إلى الأبد: السوكِت قد يكون متّصلاً
+  /// شكلاً والخادم لا يردّ. تُعاد `null` عند المهلة أو انقطاع الاتصال —
+  /// والمستدعي يفرّق بينها وبين رفضٍ صريح.
+  Future<Map<String, dynamic>?> ask(
+    String event, [
+    Object? data,
+    Duration timeout = const Duration(seconds: 15),
+  ]) {
+    final s = _socket;
+    if (s == null || !s.connected) return Future.value(null);
+
+    final c = Completer<Map<String, dynamic>?>();
+    Timer? t;
+
+    void finish(Map<String, dynamic>? v) {
+      if (c.isCompleted) return;
+      t?.cancel();
+      c.complete(v);
+    }
+
+    t = Timer(timeout, () => finish(null));
+    try {
+      s.emitWithAck(event, data, ack: (dynamic res) {
+        finish(res is Map ? Map<String, dynamic>.from(res) : null);
+      });
+    } catch (_) {
+      finish(null);
+    }
+    return c.future;
+  }
 
   void dispose() {
     _socket?.dispose();

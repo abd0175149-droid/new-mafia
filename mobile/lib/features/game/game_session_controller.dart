@@ -1,0 +1,820 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/socket/socket_service.dart';
+import '../../models/game.dart';
+
+// ══════════════════════════════════════════════════════
+// 🎮 متحكّم جلسة اللعب — الملفّ 20
+// ══════════════════════════════════════════════════════
+// العمود الفقريّ لتجربة اللعب: يملك الاشتراك المركزيّ في أحداث الحالة،
+// وبروتوكول الاستعادة، وحلقة الاستطلاع، وحارس المرحلة، وكل منطق الصمود.
+//
+// 🔴 لا يُنقل المصدر كـwidget واحد: `PlayerFlow.tsx` ٣٩٦٧ سطراً تجمع
+//    المنطق والرسم. هنا **متحكّم** تقرؤه شاشات المراحل ولا تملكه.
+//
+// 🔒 ثابتٌ أمنيّ: اللاعب **لا يستقبل أبداً أدوار الآخرين**. الروستر
+//    منقّى، والاستعادة والاستطلاع يعيدان دورَه هو وحده.
+
+class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
+  GameSessionController._();
+  static final GameSessionController instance = GameSessionController._();
+
+  // ── مفاتيح التخزين ──
+  static const _kSession = 'mafia_session';
+  static const _kHeldSeat = 'mafia_held_seat';
+  static const _kUserExited = 'mafia_user_exited';
+
+  /// حدثٌ من السوكِت يفوز على الاستطلاع لهذه المدّة، ثمّ يفوز الاستطلاع
+  /// (فيشفي جهازاً فاته حدث الانتقال). بدونه ترتدّ المراحل وتومض.
+  static const _pollEvery = Duration(seconds: 3);
+
+  // ══════════════════════════════════════════════════════
+  // الحالة
+  // ══════════════════════════════════════════════════════
+  Step _step = Step.code;
+  Step get step => _step;
+
+  String _roomId = '';
+  String _roomCode = '';
+  String _gameName = '';
+  String get roomId => _roomId;
+  String get roomCode => _roomCode;
+  String get gameName => _gameName;
+
+  int _physicalId = 0;
+  String _displayName = '';
+  int? _playerId;
+  String? _phone;
+  int get physicalId => _physicalId;
+  String get displayName => _displayName;
+
+  String? _gamePhase;
+  String? get gamePhase => _gamePhase;
+
+  String? _assignedRole;
+  String? get assignedRole => _assignedRole;
+
+  bool _isPlayerDead = false;
+  bool get isPlayerDead => _isPlayerDead;
+
+  bool _cardFlipped = false;
+  bool get cardFlipped => _cardFlipped;
+  set cardFlipped(bool v) {
+    if (_cardFlipped == v) return;
+    _cardFlipped = v;
+    notifyListeners();
+  }
+
+  bool _roleAlert = false;
+  bool get roleAlert => _roleAlert;
+  void dismissRoleAlert() {
+    if (!_roleAlert) return;
+    _roleAlert = false;
+    notifyListeners();
+  }
+
+  List<int> _mafiaTeam = const [];
+  List<int> get mafiaTeam => _mafiaTeam;
+
+  int? _sibling;
+  int? get sibling => _sibling;
+
+  bool _mafiaChatEnabled = false;
+  bool get mafiaChatEnabled => _mafiaChatEnabled;
+
+  List<RosterPlayer> _roster = const [];
+  List<RosterPlayer> get roster => _roster;
+
+  VotingState? _voting;
+  VotingState? get voting => _voting;
+
+  int? _myVote;
+  int? get myVote => _myVote;
+
+  bool _votingComplete = false;
+  bool get votingComplete => _votingComplete;
+
+  int? _votingCountdown;
+  int? get votingCountdown => _votingCountdown;
+
+  Map<String, dynamic>? _gameOverData;
+  Map<String, dynamic>? get gameOverData => _gameOverData;
+
+  dynamic _assassinContracts;
+  dynamic get assassinContracts => _assassinContracts;
+
+  bool _isRemote = false;
+  bool _allowPlayerInvites = false;
+  bool get isRemote => _isRemote;
+  bool get allowPlayerInvites => _allowPlayerInvites;
+
+  /// بيانات المراحل التي ترسمها ملفّات أخرى (٢٤ · ٢٥ · ٢٧).
+  Map<String, dynamic> _phaseData = const {};
+  Map<String, dynamic> get phaseData => _phaseData;
+
+  // ── طبقات على مستوى الجلسة ──
+  bool _restoring = false;
+  bool get restoring => _restoring;
+
+  String? _seatChangeAlert;
+  String? get seatChangeAlert => _seatChangeAlert;
+
+  bool _isExpelled = false;
+  String? _expulsionReason;
+  bool get isExpelled => _isExpelled;
+  String? get expulsionReason => _expulsionReason;
+
+  String? _apiError;
+  String? get apiError => _apiError;
+  void clearApiError() {
+    if (_apiError == null) return;
+    _apiError = null;
+    notifyListeners();
+  }
+
+  // ── داخليّ ──
+  final _guard = PhaseGuard();
+  Timer? _poll;
+  Timer? _voteTicker;
+  Timer? _seatAlertTimer;
+  Timer? _safetyNet;
+  final _subs = <String, void Function(dynamic)>{};
+  bool _started = false;
+  SharedPreferences? _prefs;
+
+  /// يُشغَّل حين يصير `physicalId` معروفاً — تستعمله شاشات المراحل.
+  int get mySeat => _physicalId;
+
+  // ══════════════════════════════════════════════════════
+  // الإقلاع والإيقاف
+  // ══════════════════════════════════════════════════════
+  Future<void> start() async {
+    if (_started) return;
+    _started = true;
+    WidgetsBinding.instance.addObserver(this);
+    _prefs = await SharedPreferences.getInstance();
+    _listen();
+    await _bootRejoin();
+  }
+
+  @override
+  void dispose() {
+    _teardown();
+    super.dispose();
+  }
+
+  /// 🔴 كل اشتراكٍ يُلغى هنا. المصدر يسجّل مستمعَي الليل بلا تنظيف
+  ///    فيتسرّبان عند إعادة التركيب — عيبٌ لا يُنقل.
+  void _teardown() {
+    if (!_started) return;
+    _started = false;
+    WidgetsBinding.instance.removeObserver(this);
+    for (final e in _subs.entries) {
+      SocketService.instance.off(e.key, e.value);
+    }
+    _subs.clear();
+    _poll?.cancel();
+    _voteTicker?.cancel();
+    _seatAlertTimer?.cancel();
+    _safetyNet?.cancel();
+  }
+
+  void _on(String event, void Function(dynamic) handler) {
+    _subs[event] = handler;
+    SocketService.instance.on(event, handler);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 6.5 حارس المرحلة
+  // ══════════════════════════════════════════════════════
+  void _setPhase(String? phase, {required bool fromSocket}) {
+    if (fromSocket) {
+      _guard.arm(phase);
+      _applyPhase(phase);
+      return;
+    }
+    // من الاستطلاع: يُكتب فقط إن سمح الحارس
+    if (_guard.allows(phase)) _applyPhase(phase);
+  }
+
+  bool get _overrideActive => _guard.isActive;
+
+  void _applyPhase(String? phase) {
+    if (_gamePhase == phase) return;
+    _gamePhase = phase;
+
+    // نظافة المرحلة — منقولة حرفياً
+    if (GamePhase.isPreGame(phase)) {
+      _mafiaTeam = const [];
+      _sibling = null;
+      _assignedRole = null;
+      _gameOverData = null;
+    }
+    if (!GamePhase.keepsVoting(phase)) _clearVoting();
+    notifyListeners();
+  }
+
+  void _clearVoting() {
+    _voteTicker?.cancel();
+    _voteTicker = null;
+    _voting = null;
+    _myVote = null;
+    _votingComplete = false;
+    _votingCountdown = null;
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 6.3 بروتوكول الاستعادة
+  // ══════════════════════════════════════════════════════
+  Future<void> _bootRejoin() async {
+    // خرج بإرادته ⇒ لا استعادة
+    if (_prefs?.getString(_kUserExited) == 'true') return;
+
+    final saved = _readSession();
+    if (saved == null || !saved.isUsable) return;
+
+    _restoring = true;
+    notifyListeners();
+
+    final ok = await rejoin(
+      roomId: saved.roomId,
+      physicalId: saved.physicalId,
+      phone: saved.phone,
+    );
+
+    if (!ok) await _clearSession();
+    _restoring = false;
+    notifyListeners();
+  }
+
+  /// (أ) الإقلاع · (ب) إعادة الاتصال · (ج) «ابقَ هنا» عند تبديل الغرفة.
+  ///
+  /// 🔴 `physicalId: 0` يعني **بحثاً بالهاتف** عند الخادم.
+  Future<bool> rejoin({
+    required String roomId,
+    required int physicalId,
+    String? phone,
+  }) async {
+    final res = await SocketService.instance.ask('room:rejoin-player', {
+      'roomId': roomId,
+      'physicalId': physicalId,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+    });
+    if (res == null || res['success'] != true) return false;
+
+    _roomId = roomId;
+    _gameName = '${res['gameName'] ?? _gameName}';
+
+    final p = res['player'];
+    if (p is Map) {
+      final pl = Map<String, dynamic>.from(p);
+      _physicalId = (pl['physicalId'] as num?)?.toInt() ?? _physicalId;
+      _displayName = '${pl['name'] ?? _displayName}';
+      _playerId = (pl['playerId'] as num?)?.toInt() ?? _playerId;
+      if (pl['role'] != null) _assignedRole = '${pl['role']}';
+      // ميتٌ ⇒ بطاقته مكشوفة
+      if (pl['isAlive'] == false) {
+        _isPlayerDead = true;
+        _cardFlipped = true;
+      }
+    }
+    _phone = phone ?? _phone;
+
+    // 🔒 الفريق والتوأم يُكتبان فقط إن أرسلهما الخادم — الغياب ليس فراغاً
+    if (res.containsKey('mafiaTeam')) _mafiaTeam = _ints(res['mafiaTeam']);
+    if (res.containsKey('sibling')) {
+      _sibling = res['sibling'] == null ? null : (res['sibling'] as num).toInt();
+    }
+    if (res['assassinContracts'] != null) {
+      _assassinContracts = res['assassinContracts'];
+    }
+    if (res['mafiaChatEnabled'] is bool) {
+      _mafiaChatEnabled = res['mafiaChatEnabled'] as bool;
+    }
+
+    if (res['phase'] != null) _setPhase(GamePhase.map(res['phase']), fromSocket: false);
+
+    final vs = res['votingState'];
+    if (vs is Map && _gamePhase == GamePhase.dayVoting) {
+      _restoreVoting(Map<String, dynamic>.from(vs));
+    }
+
+    await _saveSession();
+    await _prefs?.remove(_kUserExited);
+
+    _step = Step.rejoined;
+    notifyListeners();
+    _startPolling();
+    _armSafetyNet();
+    return true;
+  }
+
+  /// 6.6 شبكة أمانٍ بعد الاستعادة — استطلاعٌ واحد بعد ٥٠٠ms.
+  void _armSafetyNet() {
+    _safetyNet?.cancel();
+    _safetyNet = Timer(const Duration(milliseconds: 500), _pollOnce);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 6.4 الاستطلاع
+  // ══════════════════════════════════════════════════════
+  void _startPolling() {
+    _poll?.cancel();
+    if (!_step.inGame || _roomId.isEmpty) return;
+    _pollOnce();
+    _poll = Timer.periodic(_pollEvery, (_) => _pollOnce());
+  }
+
+  /// 📌 يتوقّف في الخلفية توفيراً للبطارية، ويُستأنف بنداءٍ فوريّ.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_step.inGame && _roomId.isNotEmpty) {
+        // إعادة الاتصال تُعيد الالتحاق، ثمّ استطلاعٌ فوريّ
+        _startPolling();
+      }
+    } else {
+      _poll?.cancel();
+      _poll = null;
+    }
+  }
+
+  Future<void> _pollOnce() async {
+    if (!_step.inGame || _roomId.isEmpty) return;
+    final res = await SocketService.instance.ask('room:get-my-state', {
+      'roomId': _roomId,
+      if (_playerId != null) 'playerId': _playerId,
+      if (_phone != null && _phone!.isNotEmpty) 'phone': _phone,
+    });
+    // أخطاء الاستطلاع تُبتلع — دورةٌ فائتة تُعوَّض بالتالية
+    if (res == null || res['success'] != true) return;
+    _syncFromState(res);
+  }
+
+  /// مزامنةٌ **ذاتية الشفاء**: المقعد والاسم والدور والحياة والمرحلة.
+  void _syncFromState(Map<String, dynamic> res) {
+    var changed = false;
+
+    if (res['mafiaChatEnabled'] is bool) {
+      final v = res['mafiaChatEnabled'] as bool;
+      if (v != _mafiaChatEnabled) {
+        _mafiaChatEnabled = v;
+        changed = true;
+      }
+    }
+
+    final p = res['player'];
+    if (p is Map) {
+      final pl = Map<String, dynamic>.from(p);
+
+      final seat = (pl['physicalId'] as num?)?.toInt();
+      if (seat != null && seat != _physicalId) {
+        final hadSeat = _physicalId != 0;
+        _physicalId = seat;
+        unawaited(_saveSession());
+        if (hadSeat) _flashSeatChange();
+        changed = true;
+      }
+
+      final name = pl['name'];
+      if (name is String && name.isNotEmpty && name != _displayName) {
+        _displayName = name;
+        changed = true;
+      }
+
+      // 🔒 أوّل وصولٍ للدور فقط — لا يُعاد التنبيه في كل دورة
+      final role = pl['role'];
+      if (role != null && _assignedRole == null) {
+        _assignedRole = '$role';
+        _cardFlipped = false;
+        _roleAlert = true;
+        changed = true;
+      }
+
+      // الحياة بالاتجاهين — الإحياء يعني لعبةً جديدة
+      final alive = pl['isAlive'];
+      if (alive == false && !_isPlayerDead) {
+        _isPlayerDead = true;
+        _cardFlipped = true;
+        changed = true;
+      } else if (alive == true && _isPlayerDead) {
+        _isPlayerDead = false;
+        changed = true;
+      }
+    }
+
+    if (res['rosterInfo'] is List) {
+      _roster = _players(res['rosterInfo']);
+      changed = true;
+    }
+
+    _setPhase(GamePhase.map(res['phase']), fromSocket: false);
+
+    // التصويت — محروسٌ بالحارس نفسه
+    if (!_overrideActive) {
+      final vs = res['votingState'];
+      if (vs is Map && res['phase'] == GamePhase.dayVoting) {
+        _restoreVoting(Map<String, dynamic>.from(vs));
+        changed = true;
+      } else if (res['phase'] != GamePhase.dayVoting && _voting != null) {
+        _clearVoting();
+        changed = true;
+      }
+    }
+
+    if (res['assassinContracts'] != null) {
+      _assassinContracts = res['assassinContracts'];
+    }
+    if (res['isRemote'] is bool) _isRemote = res['isRemote'] as bool;
+    if (res['allowPlayerInvites'] is bool) {
+      _allowPlayerInvites = res['allowPlayerInvites'] as bool;
+    }
+
+    _phaseData = {
+      for (final k in const [
+        'justificationData', 'withdrawalState', 'discussionState',
+        'winner', 'allPlayers', 'pendingResolution', 'nightState',
+      ])
+        if (res[k] != null) k: res[k],
+      'round': (res['round'] as num?)?.toInt() ?? 1,
+    };
+
+    if (changed) notifyListeners();
+  }
+
+  void _restoreVoting(Map<String, dynamic> vs) {
+    final s = VotingState.fromJson(vs);
+    _voting = s;
+    _votingComplete = false;
+    // صوتي أنا — يُقرأ من الخريطة لا يُخمَّن
+    _myVote ??= s.playerVotes[_physicalId];
+    // العدّاد يُستعاد من زمن البدء بدل أن يبدأ من الصفر بعد انقطاع
+    if (_votingCountdown == null) {
+      final left = s.remainingSeconds;
+      if (left != null) _startVoteTicker(left);
+    }
+  }
+
+  void _startVoteTicker(int seconds) {
+    _voteTicker?.cancel();
+    _votingCountdown = seconds;
+    if (seconds <= 0) {
+      _autoVoteIfNeeded();
+      return;
+    }
+    _voteTicker = Timer.periodic(const Duration(seconds: 1), (t) {
+      final c = (_votingCountdown ?? 0) - 1;
+      _votingCountdown = c < 0 ? 0 : c;
+      notifyListeners();
+      if (_votingCountdown == 0) {
+        t.cancel();
+        _autoVoteIfNeeded();
+      }
+    });
+  }
+
+  /// 6.8 تصويتٌ تلقائيّ عند الصفر — **بدونه تعلّق الجولة**.
+  Future<void> _autoVoteIfNeeded() async {
+    if (_myVote != null || _isPlayerDead) return;
+    if (_roomId.isEmpty || _gamePhase != GamePhase.dayVoting) return;
+    final cands = _voting?.candidates ?? const <VoteCandidate>[];
+    if (cands.isEmpty) return;
+
+    var idx = cands.indexWhere((c) => c.targetPhysicalId == _physicalId);
+    // لستُ مرشّحاً (حصرُ تصويتٍ أو صفقة) ⇒ الأوّل، كي لا تتعلّق الجولة
+    if (idx < 0) idx = 0;
+
+    final res = await SocketService.instance.ask('player:cast-vote', {
+      'roomId': _roomId,
+      'physicalId': _physicalId,
+      'candidateIndex': idx,
+      'autoVote': true,
+    });
+    if (res?['success'] == true) {
+      _myVote = idx;
+      notifyListeners();
+    }
+  }
+
+  void _flashSeatChange() {
+    _seatAlertTimer?.cancel();
+    _seatChangeAlert = 'تغيّر مقعدك إلى رقم $_physicalId';
+    _seatAlertTimer = Timer(const Duration(seconds: 5), () {
+      _seatChangeAlert = null;
+      notifyListeners();
+    });
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 7.3 المستمعات
+  // ══════════════════════════════════════════════════════
+  void _listen() {
+    // 🔴 إعادة الاتصال تعطي مُعرّفاً جديداً وتُخرج من غرف الخادم — بلا
+    //    إعادة التحاق **لا يصل أيّ بثّ بعد أوّل انقطاع**.
+    _on('connect', (_) {
+      if (_step.inGame && _roomId.isNotEmpty) {
+        unawaited(rejoin(
+            roomId: _roomId, physicalId: _physicalId, phone: _phone));
+      }
+    });
+
+    _on('player:seat-changed', (d) {
+      if (d is! Map) return;
+      final to = (d['newPhysicalId'] as num?)?.toInt();
+      if (to == null || to == _physicalId) return;
+      _physicalId = to;
+      unawaited(_saveSession());
+      _flashSeatChange();
+      notifyListeners();
+    });
+
+    _on('player:role-assigned', (d) {
+      if (d is! Map) return;
+      _assignedRole = '${d['role']}';
+      _cardFlipped = false;
+      _roleAlert = true;
+      _isPlayerDead = false;
+      // 🔒 دائماً — الغياب يعني فراغاً هنا لا إبقاءً على القديم
+      _mafiaTeam = _ints(d['mafiaTeam']);
+      _sibling = d['sibling'] == null ? null : (d['sibling'] as num).toInt();
+      notifyListeners();
+    });
+
+    _on('mafia:team-updated', (d) {
+      if (d is! Map) return;
+      _mafiaTeam = _ints(d['mafiaTeam']);
+      notifyListeners();
+    });
+
+    _on('assassin:contracts-update', (d) {
+      _assassinContracts = d;
+      notifyListeners();
+    });
+
+    // إعادة الجولة الكاملة — الـreset الوحيد الشامل
+    _on('game:started', (_) {
+      _isPlayerDead = false;
+      _clearVoting();
+      _assassinContracts = null;
+      notifyListeners();
+    });
+
+    _on('game:state-sync', (d) {
+      if (d is! Map) return;
+      if (d['players'] is List) _roster = _players(d['players']);
+      final cfg = d['config'];
+      if (cfg is Map) {
+        if (cfg['isRemote'] is bool) _isRemote = cfg['isRemote'] as bool;
+        if (cfg['allowPlayerInvites'] is bool) {
+          _allowPlayerInvites = cfg['allowPlayerInvites'] as bool;
+        }
+      }
+      notifyListeners();
+    });
+
+    _on('room:config-updated', (d) {
+      if (d is! Map || d['mafiaChatEnabled'] is! bool) return;
+      _mafiaChatEnabled = d['mafiaChatEnabled'] as bool;
+      notifyListeners();
+    });
+
+    // ── المراحل ──
+    _on('game:phase-changed', (d) {
+      if (d is! Map) return;
+      final cfg = d['state'] is Map ? (d['state'] as Map)['config'] : null;
+      if (cfg is Map) {
+        if (cfg['isRemote'] is bool) _isRemote = cfg['isRemote'] as bool;
+        if (cfg['allowPlayerInvites'] is bool) {
+          _allowPlayerInvites = cfg['allowPlayerInvites'] as bool;
+        }
+      }
+      _setPhase(GamePhase.map(d['phase']), fromSocket: true);
+    });
+
+    _on('day:voting-started', (d) {
+      if (d is! Map) return;
+      _setPhase(GamePhase.dayVoting, fromSocket: true);
+      final s = VotingState.fromJson(Map<String, dynamic>.from(d));
+      _voting = s;
+      _votingComplete = false;
+      _myVote = s.playerVotes[_physicalId];
+      _startVoteTicker(s.durationSeconds ?? 0);
+      notifyListeners();
+    });
+
+    _on('day:vote-update', (d) {
+      if (d is! Map || _voting == null) return;
+      final s = VotingState.fromJson({
+        ...Map<String, dynamic>.from(d),
+        'playersInfo': [for (final p in _voting!.playersInfo) {'physicalId': p.physicalId, 'name': p.name}],
+      });
+      _voting = s;
+      // دعم تغيير الصوت — يُقرأ من الخادم لا يُفترض
+      if (s.playerVotes.containsKey(_physicalId)) {
+        _myVote = s.playerVotes[_physicalId];
+      }
+      notifyListeners();
+    });
+
+    _on('day:voting-complete', (_) {
+      _votingComplete = true;
+      notifyListeners();
+    });
+
+    _on('day:justification-started', (d) {
+      _setPhase(GamePhase.dayJustification, fromSocket: true);
+      if (d is Map && d['playerVotes'] != null && _voting != null) {
+        _voting = VotingState.fromJson({
+          'candidates': [
+            for (final c in _voting!.candidates)
+              {'targetPhysicalId': c.targetPhysicalId, 'name': c.name, 'votes': c.votes}
+          ],
+          'playerVotes': d['playerVotes'],
+        });
+      }
+      notifyListeners();
+    });
+
+    _on('day:elimination-pending', (_) {
+      _setPhase(GamePhase.eliminationPending, fromSocket: true);
+      _clearVoting();
+      notifyListeners();
+    });
+
+    _on('game:over', (d) {
+      if (d is Map && d['players'] is List) {
+        _gameOverData = Map<String, dynamic>.from(d);
+      }
+      _setPhase(GamePhase.gameOver, fromSocket: true);
+      _clearVoting();
+      _mafiaTeam = const [];
+      _sibling = null;
+      // 🔒 يبقى الدور وحالة الموت — اللاعب لا بدّ أن يراهما
+      notifyListeners();
+    });
+
+    // ── الإنهاء ──
+    _on('game:closed', (_) => unawaited(_softClose()));
+    _on('game:room-deleted', (_) => unawaited(leaveAndReset('تم إغلاق الغرفة', wipeRoom: true)));
+    _on('game:kicked', (d) => unawaited(leaveAndReset(
+        d is Map ? d['reason'] as String? : null)));
+    _on('event:closed', (d) => unawaited(leaveAndReset(d is Map
+        ? (d['reason'] ?? d['message']) as String?
+        : null)));
+
+    _on('player:kicked-self', (d) => unawaited(_kickedSelf(
+        d is Map ? d['reason'] as String? : null)));
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 6.7 الإنهاء
+  // ══════════════════════════════════════════════════════
+
+  /// طردٌ ذاتيّ: بسببٍ ⇒ شاشة الطرد، وبلا سبب ⇒ عودةٌ للدخول برسالة.
+  Future<void> _kickedSelf(String? reason) async {
+    await _clearSession();
+    await _prefs?.setString(_kUserExited, 'true');
+    _resetGameState();
+    _roomId = '';
+    _physicalId = 0;
+    if (reason != null && reason.isNotEmpty) {
+      _isExpelled = true;
+      _expulsionReason = reason;
+    } else {
+      _step = Step.code;
+      _apiError = 'تم إزالتك من اللعبة من قبل الليدر';
+    }
+    notifyListeners();
+  }
+
+  Future<void> leaveAndReset(String? reason, {bool wipeRoom = false}) async {
+    await _clearSession();
+    _resetGameState();
+    if (wipeRoom) {
+      _roomId = '';
+      _roomCode = '';
+    }
+    _step = Step.code;
+    _apiError = reason ?? 'تم إنهاء الفعالية وإغلاق الغرفة';
+    notifyListeners();
+  }
+
+  /// 🔴 `game:closed` **يُبقي اللاعب على الشاشة**: لا تغيير خطوة، ولا
+  ///    رسالة، ولا مسح للغرفة — فقط تصفير حالة اللعب.
+  Future<void> _softClose() async {
+    await _clearSession();
+    _resetGameState();
+    notifyListeners();
+  }
+
+  void _resetGameState() {
+    _poll?.cancel();
+    _poll = null;
+    _clearVoting();
+    _gamePhase = null;
+    _assignedRole = null;
+    _isPlayerDead = false;
+    _mafiaTeam = const [];
+    _sibling = null;
+    _cardFlipped = false;
+    _roleAlert = false;
+    _gameOverData = null;
+    _assassinContracts = null;
+    _guard.clear();
+  }
+
+  /// خروجٌ بإرادة اللاعب: يُحجز مقعده عشر دقائق ويُعلَم الخادم.
+  Future<void> logout() async {
+    if (_roomCode.isNotEmpty) {
+      await _prefs?.setString(
+        _kHeldSeat,
+        jsonEncode(HeldSeat(
+          roomCode: _roomCode,
+          roomId: _roomId,
+          exitedAt: DateTime.now(),
+          phone: _phone,
+          playerId: _playerId,
+          displayName: _displayName,
+        ).toJson()),
+      );
+    }
+    // إعلامٌ بلا انتظار — الخروج لا ينتظر الشبكة
+    SocketService.instance.emit('room:player-exit', {
+      'roomId': _roomId,
+      'phone': _phone ?? '',
+      if (_playerId != null) 'playerId': _playerId,
+    });
+    await _clearSession();
+    await _prefs?.setString(_kUserExited, 'true');
+    _resetGameState();
+    _roomId = '';
+    _roomCode = '';
+    _physicalId = 0;
+    _step = Step.code;
+    notifyListeners();
+  }
+
+  /// مقعدٌ محجوزٌ لم تنتهِ مهلته — تستعمله شاشة إدخال الرمز (٢١).
+  HeldSeat? readHeldSeat() {
+    final raw = _prefs?.getString(_kHeldSeat);
+    if (raw == null) return null;
+    try {
+      final seat = HeldSeat.fromJson(
+          Map<String, dynamic>.from(jsonDecode(raw) as Map));
+      if (seat == null || !seat.isFresh) {
+        unawaited(_prefs?.remove(_kHeldSeat) ?? Future.value());
+        return null;
+      }
+      return seat;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // التخزين
+  // ══════════════════════════════════════════════════════
+  SavedGameSession? _readSession() {
+    final raw = _prefs?.getString(_kSession);
+    if (raw == null) return null;
+    try {
+      return SavedGameSession.fromJson(
+          Map<String, dynamic>.from(jsonDecode(raw) as Map));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _saveSession() async {
+    if (_roomId.isEmpty) return;
+    await _prefs?.setString(
+      _kSession,
+      jsonEncode(SavedGameSession(
+        roomId: _roomId,
+        roomCode: _roomCode,
+        gameName: _gameName,
+        physicalId: _physicalId,
+        phone: _phone,
+        playerId: _playerId,
+      ).toJson()),
+    );
+  }
+
+  Future<void> _clearSession() async => _prefs?.remove(_kSession);
+
+  // ── أدوات ──
+  static List<int> _ints(dynamic v) => v is List
+      ? v.whereType<num>().map((e) => e.toInt()).toList()
+      : const <int>[];
+
+  static List<RosterPlayer> _players(dynamic v) => v is List
+      ? v
+          .whereType<Map>()
+          .map((e) => RosterPlayer.fromJson(Map<String, dynamic>.from(e)))
+          .toList()
+      : const <RosterPlayer>[];
+}

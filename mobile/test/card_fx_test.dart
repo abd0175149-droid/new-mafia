@@ -229,6 +229,7 @@ void main() {
   });
 
   group('قصّ التوهّج', _glowClipTests);
+  group('تقليل الحركة', _reduceMotionTests);
 }
 
 // ══════════════════════════════════════════════════════
@@ -280,5 +281,45 @@ void _glowClipTests() {
     expect(shadows, isEmpty,
         reason: 'التوهّج يجب أن يُقصّ خارج البطاقة لا أن يُرسم صندوقاً');
     expect(t.takeException(), isNull);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// ♿ «تقليل الحركة» — §12 في الملفّ 34
+// ══════════════════════════════════════════════════════
+// إعدادُ إتاحةٍ لا تفضيل: من يطلبه قد يُصاب بدوارٍ من النبض واللمعان.
+// والتأثيرات تبقى **مرئيةً ساكنة** لا مختفية — اللاعب دفع ثمنها.
+void _reduceMotionTests() {
+  Widget wrap({required bool reduced, required Widget child}) => MediaQuery(
+        data: MediaQueryData(disableAnimations: reduced),
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Center(child: SizedBox(width: 176, height: 240, child: child)),
+        ),
+      );
+
+  final fx = normalizeFx({
+    'border': {'enabled': true, 'style': 'traveling', 'travelSpeed': 1},
+    'glow': {'enabled': true, 'pulseEnabled': true, 'pulseDuration': 1},
+    'particles': {'enabled': true, 'count': 4},
+  });
+
+  testWidgets('عند تقليل الحركة لا تبقى ساعةٌ تدور', (t) async {
+    await t.pumpWidget(wrap(reduced: true, child: CardFxLayer(fx: fx)));
+    await t.pump(const Duration(milliseconds: 100));
+    // لا إطارات معلّقة ⇒ لا شيء يتحرّك
+    expect(t.binding.hasScheduledFrame, isFalse);
+    // والطبقة **مرسومة** لا محذوفة
+    expect(find.byType(CardFxLayer), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+  });
+
+  testWidgets('وبدونه الساعة تدور', (t) async {
+    await t.pumpWidget(wrap(reduced: false, child: CardFxLayer(fx: fx)));
+    await t.pump(const Duration(milliseconds: 100));
+    expect(t.binding.hasScheduledFrame, isTrue);
+    // إيقافها قبل انتهاء الاختبار — وإلّا بقيت الساعة تدور
+    await t.pumpWidget(wrap(reduced: true, child: CardFxLayer(fx: fx)));
+    await t.pump();
   });
 }

@@ -96,7 +96,23 @@ class _EntranceStageViewState extends State<EntranceStageView>
   late final AnimationController _c = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1100),
-  )..forward();
+  );
+
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    // 🔴 «تقليل الحركة»: المشهد يُعرض في صورته النهائية فوراً — لا يُحذف.
+    //    اللاعب يشتري تشريفةً ليراها، فإخفاؤها عقوبةٌ لا تيسير.
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
+      _c.value = 1;
+    } else {
+      _c.forward();
+    }
+  }
 
   @override
   void dispose() {

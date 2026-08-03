@@ -37,18 +37,31 @@ class _FxClockState extends State<FxClock> with SingleTickerProviderStateMixin {
   late final AnimationController _c =
       AnimationController(vsync: this, duration: _period);
 
+  /// 🔴 «تقليل الحركة» إعدادُ إتاحةٍ لا تفضيل: من يطلبه قد يُصاب بدوارٍ من
+  ///    النبض واللمعان. الساعة واحدة، فإيقافها هنا يُسكِن كل التأثيرات —
+  ///    الإطار والتوهّج والجزيئات والشعار واللقب وتأثير الاسم واللهب —
+  ///    وتبقى كلّها **مرئيةً ساكنة** لا مختفية: اللاعب دفع ثمنها.
+  bool _reduced = false;
+
+  bool get _shouldRun => widget.enabled && !_reduced;
+
   @override
-  void initState() {
-    super.initState();
-    if (widget.enabled) _c.repeat();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduced = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _sync();
   }
 
   @override
   void didUpdateWidget(FxClock old) {
     super.didUpdateWidget(old);
-    if (widget.enabled && !_c.isAnimating) {
+    _sync();
+  }
+
+  void _sync() {
+    if (_shouldRun && !_c.isAnimating) {
       _c.repeat();
-    } else if (!widget.enabled && _c.isAnimating) {
+    } else if (!_shouldRun && _c.isAnimating) {
       _c.stop();
     }
   }
