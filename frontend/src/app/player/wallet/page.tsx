@@ -126,7 +126,13 @@ export default function WalletPage() {
 
         <div className="space-y-2">
           {ledger.map((m, i) => {
-            const meta = MOVE[m.reason] || { icon: '•', label: m.reason };
+            // 🔴 admin_adjust يحمل الإشارتين: المكافآت الموسميّة والعيديّة
+            //    كُتبت تاريخياً بسببه فسُمّي «من النادي» 🎁 — لكنّ التصحيح
+            //    السالب بالاسم نفسه يقول للاعب إن النادي أهداه… ثمّ خصم.
+            const meta =
+              m.reason === 'admin_adjust' && m.amount < 0
+                ? { icon: '✏️', label: 'تصحيح' }
+                : MOVE[m.reason] || { icon: '•', label: m.reason };
             const positive = m.amount > 0;
             return (
               <motion.div

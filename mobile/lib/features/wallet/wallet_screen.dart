@@ -296,7 +296,7 @@ class _LedgerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, label) = ledgerReason(entry.reason);
+    final (icon, label) = ledgerReason(entry.reason, entry.amount);
     final note = entry.visibleNote;
 
     return Container(

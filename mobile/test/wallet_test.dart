@@ -41,6 +41,15 @@ void main() {
       expect(ledgerReason('season_bonus'), ('•', 'season_bonus'));
       expect(ledgerReason(''), ('•', ''));
     });
+
+    // 🔴 «من النادي 🎁» على حركةٍ سالبة تقول للاعب إن النادي أهداه… ثمّ خصم
+    test('🔴 التصحيح السالب ليس هديّة', () {
+      expect(ledgerReason('admin_adjust', 50), ('🎁', 'من النادي'));
+      expect(ledgerReason('admin_adjust', 0), ('🎁', 'من النادي'));
+      expect(ledgerReason('admin_adjust', -370), ('✏️', 'تصحيح'));
+      // الإشارة لا تمسّ بقيّة الأسباب — للاستئجار سالبٌ دائماً
+      expect(ledgerReason('rent_item', -35), ('🛒', 'استئجار'));
+    });
   });
 
   group('تنسيق الأرقام', () {

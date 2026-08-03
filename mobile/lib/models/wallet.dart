@@ -97,8 +97,15 @@ const _reasons = <String, (String, String)>{
 
 /// سببٌ مجهول: نقطة + قيمته الخام. الشاشة تبقى صالحة حين يسبق الخادمُ
 /// التطبيقَ بسببٍ جديد.
-(String icon, String label) ledgerReason(String reason) =>
-    _reasons[reason] ?? ('•', reason);
+///
+/// 🔴 `admin_adjust` **يحمل الإشارتين**: المكافآت الموسميّة والعيديّة
+///    كُتبت تاريخياً بسببه، ولذلك سُمّي «من النادي» 🎁. لكنّ التصحيح
+///    السالب بالاسم نفسه يقول للاعب إن النادي أهداه… ثم خصم. الإشارة
+///    وحدها تفصل: الموجب هديّة، والسالب تصحيح.
+(String icon, String label) ledgerReason(String reason, [int amount = 0]) {
+  if (reason == 'admin_adjust' && amount < 0) return ('✏️', 'تصحيح');
+  return _reasons[reason] ?? ('•', reason);
+}
 
 /// فواصل آلاف **إنجليزية** — `1,240` لا `١٬٢٤٠`.
 /// مطابق لـ`toLocaleString('en-US')` في الويب.
