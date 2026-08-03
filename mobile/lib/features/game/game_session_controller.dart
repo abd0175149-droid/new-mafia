@@ -145,6 +145,50 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// آخر متحدّثٍ عُولج — لإطلاق التنبيه على **الانتقال** لا على كلّ مزامنة.
   int? _lastSpeakerSeen;
 
+  // ══════════════════════════════════════════════════════
+  // 🤝 الاتفاقيات — §4.2 في الملفّ ٢٥
+  // ══════════════════════════════════════════════════════
+  List<Deal> _deals = const [];
+  List<Deal> get deals => _deals;
+
+  /// من سجّل اتفاقيةً هذه الجولة أو التي قبلها — يصل من الخادم جاهزاً.
+  List<int> _dealLocked = const [];
+  List<int> get dealLockedPlayers => _dealLocked;
+
+  int _round = 1;
+  int get round => _round;
+
+  Deal? get myDeal => _deals
+      .where((d) => d.initiatorPhysicalId == _physicalId)
+      .firstOrNull;
+
+  /// الأسباب مرتّبةٌ كما يفحصها المحرّك — أوّل مانعٍ هو المعروض.
+  String? get dealBlockReason {
+    if (_isPlayerDead) return 'المُقصى لا يُبرم اتفاقيات';
+    if (_round <= 1) {
+      return 'الاتفاقيات غير متاحة في الجولة الأولى.\n'
+          'سيبدأ تفعيل ميزة الديل تلقائياً بدءاً من الجولة الثانية.';
+    }
+    if (_dealLocked.contains(_physicalId)) {
+      return 'سجّلت اتفاقيةً في جولةٍ قريبة — لا تسجيل في جولتين متتاليتين.';
+    }
+    if (_deals.length >= 3) {
+      return 'تم الوصول للحد الأقصى للاتفاقيات في هذه الجولة (3/3)\n'
+          'لا يمكن إرسال اتفاقيات جديدة حالياً';
+    }
+    return null;
+  }
+
+  /// مستهدفٌ في اتفاقيةٍ قائمة ⇒ لا يُختار (القبول للأسرع).
+  bool isDealTargeted(int physicalId) =>
+      _deals.any((d) => d.targetPhysicalId == physicalId);
+
+  String? _dealError;
+  String? get dealError => _dealError;
+
+  bool _dealBusy = false;
+  bool get dealBusy => _dealBusy;
+
   VotingState? _voting;
   VotingState? get voting => _voting;
 
@@ -783,7 +827,21 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     //    يعلم أنّ الدور صار له — فيصمت الجميع ينتظرونه. الاستطلاع يشفيه.
     if (res['discussionState'] != null) {
       _applyDiscussion(DiscussionState.fromJson(res['discussionState']));
+      // الخادم يدمج الاتفاقيات داخل حالة النقاش في هذا الردّ
+      final ds = res['discussionState'];
+      if (ds is Map) {
+        if (ds.containsKey('deals')) _deals = Deal.listOf(ds['deals']);
+        if (ds['dealLockedPlayers'] is List) {
+          _dealLocked = (ds['dealLockedPlayers'] as List)
+              .whereType<num>()
+              .map((e) => e.toInt())
+              .toList(growable: false);
+        }
+      }
     }
+    // 🔴 الجولة تحكم قفل الجولة الأولى — بدونها تُعرض الاتفاقيات فيها
+    final rd = (res['round'] as num?)?.toInt();
+    if (rd != null && rd > 0) _round = rd;
 
     _phaseData = {
       for (final k in const [
@@ -883,6 +941,71 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _voteSubmitting = false;
       notifyListeners();
     }
+  }
+
+  /// إبرام اتفاقية. الرسالة الراجعة من الخادم تُعرض كما هي: قواعد المنع
+  /// خمسٌ ونصوصها عربيةٌ دقيقة، وإعادةُ صياغتها هنا تُخفي السبب الحقيقيّ.
+  Future<bool> createDeal(int targetPhysicalId) async {
+    if (_dealBusy) return false;
+    _dealBusy = true;
+    _dealError = null;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance.ask('day:create-deal', {
+        'roomId': _roomId,
+        'initiatorPhysicalId': _physicalId,
+        'targetPhysicalId': targetPhysicalId,
+      });
+      if (res == null) {
+        _dealError = 'تعذّر الاتصال — حاول ثانية';
+        return false;
+      }
+      if (res['success'] != true) {
+        _dealError = '${res['error'] ?? 'تعذّر إبرام الاتفاقية'}';
+        return false;
+      }
+      if (res.containsKey('deals')) _deals = Deal.listOf(res['deals']);
+      if (res['dealLockedPlayers'] is List) {
+        _dealLocked = (res['dealLockedPlayers'] as List)
+            .whereType<num>()
+            .map((e) => e.toInt())
+            .toList(growable: false);
+      }
+      return true;
+    } finally {
+      _dealBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> removeDeal(String dealId) async {
+    if (_dealBusy) return false;
+    _dealBusy = true;
+    _dealError = null;
+    notifyListeners();
+    try {
+      final res = await SocketService.instance
+          .ask('day:remove-deal', {'roomId': _roomId, 'dealId': dealId});
+      if (res == null) {
+        _dealError = 'تعذّر الاتصال — حاول ثانية';
+        return false;
+      }
+      if (res['success'] != true) {
+        _dealError = '${res['error'] ?? 'تعذّر إلغاء الاتفاقية'}';
+        return false;
+      }
+      if (res.containsKey('deals')) _deals = Deal.listOf(res['deals']);
+      return true;
+    } finally {
+      _dealBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void clearDealError() {
+    if (_dealError == null) return;
+    _dealError = null;
+    notifyListeners();
   }
 
   void _flashSeatChange() {
@@ -999,6 +1122,21 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _nightStepRoleName = d is Map ? '${d['roleName'] ?? ''}' : '';
       notifyListeners();
     });
+
+    void applyDeals(dynamic d) {
+      if (d is! Map) return;
+      if (d.containsKey('deals')) _deals = Deal.listOf(d['deals']);
+      if (d['dealLockedPlayers'] is List) {
+        _dealLocked = (d['dealLockedPlayers'] as List)
+            .whereType<num>()
+            .map((e) => e.toInt())
+            .toList(growable: false);
+      }
+      notifyListeners();
+    }
+
+    _on('day:deal-created', applyDeals);
+    _on('day:deal-removed', applyDeals);
 
     _on('day:discussion-updated', (d) {
       if (d is! Map) return;

@@ -589,3 +589,34 @@ class DiscussionState {
     );
   }
 }
+
+/// اتفاقية ثنائية («ديل») — §4.2 في الملفّ ٢٥.
+///
+/// الشروط من `deal-engine.ts` حرفياً: من الجولة **الثانية** فصاعداً،
+/// ثلاثٌ كحدٍّ أقصى للجولة، ولا يُستهدف لاعبٌ في اتفاقيتين، ومن سجّل في
+/// جولةٍ لا يسجّل في التي تليها (`dealRegisteredRound`) — **حتى لو حذف**.
+class Deal {
+  const Deal({
+    required this.id,
+    required this.initiatorPhysicalId,
+    required this.targetPhysicalId,
+  });
+
+  final String id;
+  final int initiatorPhysicalId, targetPhysicalId;
+
+  static Deal? fromJson(Object? v) {
+    if (v is! Map) return null;
+    final id = v['id'];
+    if (id == null) return null;
+    return Deal(
+      id: '$id',
+      initiatorPhysicalId: _i(v['initiatorPhysicalId']),
+      targetPhysicalId: _i(v['targetPhysicalId']),
+    );
+  }
+
+  static List<Deal> listOf(Object? v) => v is! List
+      ? const []
+      : v.map(Deal.fromJson).whereType<Deal>().toList(growable: false);
+}

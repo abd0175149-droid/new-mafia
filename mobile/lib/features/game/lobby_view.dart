@@ -10,6 +10,7 @@ import '../../models/game.dart';
 import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'deals_sheet.dart';
 import 'discussion_view.dart';
 import 'night_view.dart';
 import 'voting_view.dart';
@@ -82,11 +83,7 @@ class LobbyView extends StatelessWidget {
   ///
   /// 🔒 القفل مقصود: الكشف كان لثانيةٍ ليعرف اللاعب دوره، لا ليبقى
   ///    معروضاً لكلّ من جلس بجانبه طوال الجولة.
-  Widget _playBody(GameSessionController c) {
-    final me = c.roster.where((p) => p.physicalId == c.physicalId).firstOrNull;
-    final alive = !c.isPlayerDead && (me?.isAlive ?? true);
-
-    return Column(children: [
+  Widget _playBody(GameSessionController c) => Column(children: [
       if (c.isPlayerDead) ...[
         Text('تم إقصاؤك',
             style: const TextStyle(
@@ -97,24 +94,11 @@ class LobbyView extends StatelessWidget {
                 color: Color(0xFFF87171))),
         const SizedBox(height: 12),
       ],
-      MafiaCardView(
-        // مقاسٌ أصغر أثناء اللعب: المرحلة هي الأهمّ على الشاشة
-        size: CardSize.sm,
-        flippable: false,
-        isFlipped: false,
-        isAlive: alive,
-        playerNumber: c.physicalId,
-        playerName: c.displayName.isEmpty ? 'أنت' : c.displayName,
-        avatarUrl: SessionStore.instance.player?.avatarUrl,
-        cosmetics: CosmeticsService.instance.cosmetics,
-        template: GameConfigService.instance.master,
-        rankFx: GameConfigService.instance
-            .effectsForTier(CosmeticsService.instance.rankTier),
-      ),
-      const SizedBox(height: 20),
-      _phaseBody(c),
-    ]);
-  }
+      // 🔴 قرار المالك: البطاقة **تُخفى** ببدء أوّل نقاش. لا فائدة منها
+      //    بعد أن عرف اللاعب دوره، وهي تزاحم المرحلة على الشاشة —
+      //    وبطاقات الاقتراع تحتاج كلّ البكسلات المتاحة.
+        _phaseBody(c),
+      ]);
 
   Widget _waitingBody(GameSessionController c) => Column(children: [
         const _PulsingShield(),
@@ -209,7 +193,14 @@ class LobbyView extends StatelessWidget {
   /// المرحلة باسمها بدل شاشةٍ فارغة تُوهم اللاعب بعطل.
   Widget _phaseBody(GameSessionController c) => switch (c.gamePhase) {
         GamePhase.night => PassiveNightBody(stepRoleName: c.nightStepRoleName),
-        GamePhase.dayDiscussion => DiscussionBody(controller: c),
+        GamePhase.dayDiscussion => Column(children: [
+            DiscussionBody(controller: c),
+            // 🤝 الاتفاقيات للأحياء في النقاش وحده
+            if (!c.isPlayerDead) ...[
+              const SizedBox(height: 20),
+              DealsButton(controller: c),
+            ],
+          ]),
         GamePhase.dayVoting => VotingBallot(controller: c),
         GamePhase.dayTiebreaker => TiebreakerBody(tied: c.tiedCandidates),
         GamePhase.eliminationPending => EliminationBody(
