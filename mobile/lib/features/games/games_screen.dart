@@ -400,7 +400,9 @@ class GamesScreenState extends State<GamesScreen> {
                   () => _expandedBookers = _expandedBookers == a.id ? null : a.id),
               onOpen: () => _openDetails(a),
               onBook: () => _openBooking(a),
-              onEnterRoom: (code) => navigateTo('/join/$code'),
+              // `pushTo` لا `navigateTo`: الغرفة تُفتح من داخل التطبيق فيبقى
+              // الغلاف تحتها ويعود إليه زرّ الرجوع
+              onEnterRoom: (code) => pushTo('/join/$code'),
             ),
           ),
       ],

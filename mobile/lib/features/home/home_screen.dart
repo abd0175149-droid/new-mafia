@@ -2,10 +2,12 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/storage/session_store.dart';
+import '../../models/fnb.dart';
 import '../../models/home.dart';
 import '../notifications/inbox_sheet.dart';
 import '../shell/chips_balance_pill.dart';
@@ -13,14 +15,13 @@ import '../shell/chips_balance_pill.dart';
 // ══════════════════════════════════════════════════════
 // 🏠 الرئيسية — الملفّ 12
 // ══════════════════════════════════════════════════════
-// مبنيّ منها في هذه الدفعة: صف الرأس · بطاقة البروفايل بشريط الخبرة ·
-// شبكة الإحصاءات · الأنشطة القادمة · زرّ التواصل.
+// مبنيّ منها: صف الرأس · بطاقة البروفايل بشريط الخبرة · شبكة الإحصاءات ·
+// الأنشطة القادمة · زرّ التواصل · بطاقة طلب المطعم (§4.11).
 //
-// 📌 مؤجَّل بوعي إلى دفعات M3 التالية، لا منسيّ:
+// 📌 مؤجَّل بوعي، لا منسيّ:
 //    لوحة الموظّف (§4.6) وبطاقة اللعبة النشطة (§4.8) وغرف الحجوزات
-//    (§4.9) وطلب المطعم (§4.11) والاستضافة عن بُعد (§4.12) وخلاصة
-//    الأصدقاء (§4.15). أوّلها يحتاج تنقّلاً إلى واجهات ويب، وثانيها
-//    طبقة اللعب في M4.
+//    (§4.9) والاستضافة عن بُعد (§4.12) وخلاصة الأصدقاء (§4.15).
+//    أوّلها يحتاج تنقّلاً إلى واجهات ويب، وثانيها طبقة اللعب في M4.
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,6 +33,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   HomeProfile? _profile;
   List<UpcomingActivity> _upcoming = const [];
+  FnbContext? _fnbCtx;
   bool _loading = true;
   bool _failed = false;
 
@@ -64,12 +66,23 @@ class _HomeScreenState extends State<HomeScreen> {
         })
         .catchError((_) => <UpcomingActivity>[]);
 
+    // سياق الطلب نداءٌ ثالث مستقلّ: بطاقةٌ مشروطة، وفشلها يعني غيابها
+    // لا سقوط الصفحة.
+    final fnb = ApiClient.instance
+        .get('/api/fnb/context')
+        .then((r) => r is Map && r['context'] is Map
+            ? FnbContext.fromJson(Map<String, dynamic>.from(r['context'] as Map))
+            : null)
+        .catchError((_) => null);
+
     final p = await profile;
     final a = await acts;
+    final f = await fnb;
     if (!mounted) return;
     setState(() {
       _profile = p;
       _upcoming = a;
+      _fnbCtx = f;
       _loading = false;
       _failed = p == null;
     });
@@ -98,6 +111,10 @@ class _HomeScreenState extends State<HomeScreen> {
               if (_upcoming.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 _UpcomingSection(items: _upcoming),
+              ],
+              if (_fnbCtx != null) ...[
+                const SizedBox(height: 20),
+                _FnbCard(ctx: _fnbCtx!),
               ],
             ],
           ],
@@ -471,4 +488,74 @@ class _UpcomingSection extends StatelessWidget {
           style: TextStyle(fontFamily: 'Tajawal', fontSize: 8, color: color, letterSpacing: 0)),
     );
   }
+}
+
+// ══════════════════════════════════════════════════════
+// §4.11 بطاقة طلب F&B — مشروطة بوجود سياق طلبٍ فعّال
+// ══════════════════════════════════════════════════════
+class _FnbCard extends StatelessWidget {
+  const _FnbCard({required this.ctx});
+  final FnbContext ctx;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: () => pushTo(Routes.order),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: [Color(0x2410B981), Color(0xE6050505)],
+            ),
+            border: Border.all(color: const Color(0x4D10B981)),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('🍽️ اطلب من ${ctx.locationName}',
+                      style: const TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF34D399),
+                          letterSpacing: 0)),
+                  const SizedBox(height: 4),
+                  Text('منيو المكان متاح لحجزك — ${ctx.activityName}',
+                      style: const TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 14,
+                          color: Colors.white,
+                          letterSpacing: 0)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: const LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [Color(0xFF10B981), Color(0xFF0D9488)],
+                ),
+              ),
+              child: const Text('اطلب →',
+                  maxLines: 1,
+                  style: TextStyle(
+                      fontFamily: 'Tajawal',
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 0)),
+            ),
+          ]),
+        ),
+      );
 }

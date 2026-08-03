@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/router.dart';
 import '../../app/theme/theme.dart';
 import '../profile/profile_palette.dart';
 
@@ -82,6 +83,10 @@ class JoinScreen extends StatelessWidget {
     );
 
     if (!bare) return body;
-    return Scaffold(backgroundColor: Noir.pitchBlack, body: body);
+    // الرابط العاري قد يُفتح من رمز QR على بدءٍ بارد فلا شيء تحته —
+    // زرّ الرجوع يذهب للرئيسية بدل الخروج من التطبيق.
+    return PopsToHome(
+      child: Scaffold(backgroundColor: Noir.pitchBlack, body: body),
+    );
   }
 }

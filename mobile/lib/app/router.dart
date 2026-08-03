@@ -3,9 +3,11 @@ import 'package:go_router/go_router.dart';
 
 import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
+import '../features/feedback/feedback_screen.dart';
 import '../features/games/games_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/join/join_screen.dart';
+import '../features/order/order_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/rank/rank_screen.dart';
 import '../features/shell/shell_screen.dart';
@@ -31,6 +33,8 @@ abstract final class Routes {
   static const profile = '/player/profile';
   static const wallet = '/player/wallet';
   static const store = '/player/store';
+  static const order = '/player/order';
+  static const feedback = '/player/feedback';
 
   /// عامّة دائماً — لا حارس ولا بوّابة ولا انتظار جلسة.
   static const publicPaths = <String>[login, '/player/debug-push'];
@@ -96,6 +100,19 @@ GoRouter buildRouter(AppConfig config) {
       GoRoute(
         path: Routes.wallet,
         builder: (_, __) => const WalletScreen(),
+      ),
+
+      GoRoute(
+        path: Routes.order,
+        builder: (_, __) => const OrderScreen(),
+      ),
+
+      // `?sessionId=` يصل من نقرة إشعار إغلاق الغرفة فيتجاوز أوّل الطابور
+      GoRoute(
+        path: Routes.feedback,
+        builder: (_, s) => FeedbackScreen(
+          sessionId: int.tryParse(s.uri.queryParameters['sessionId'] ?? ''),
+        ),
       ),
 
       GoRoute(

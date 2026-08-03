@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mafia_club/app/router.dart';
 import 'package:mafia_club/core/routing/destination.dart';
 import 'package:mafia_club/models/notification.dart';
 
@@ -82,5 +84,70 @@ void main() {
 
   test('المضيف المستعمل في المصنّف هو مضيف الإنتاج', () {
     expect(appHost, 'club-mafia.grade.sbs');
+  });
+
+  group('مكدّس شاشات الغطاء', _popsToHomeTests);
+}
+
+// ══════════════════════════════════════════════════════
+// 🔴 الانحدار: زرّ الرجوع العتاديّ كان **يخرج من التطبيق**
+// ══════════════════════════════════════════════════════
+// الخزنة والمحفظة والطلب والغرفة مساراتٌ عليا شقيقة للغلاف. الدخول
+// إليها بـ`go` يستبدل المكدّس فلا يبقى تحتها شيء، فيقرأ أندرويد
+// الرجوعَ خروجاً من التطبيق. حدث فعلاً في الخزنة ثمّ في الغرفة.
+//
+// `PopsToHome` هو خطّ الدفاع الأخير: حتى لو وصلها إشعارٌ على بدءٍ بارد
+// فلا شيء تحتها، يعترض الرجوع بدل أن يُسلّمه للنظام.
+
+void _popsToHomeTests() {
+  // `PopScope` عامّ (generic) ووسيطه يُستنتج من الاستدعاء — البحث بالنوع
+  // الصريح يخطئه. المسند يمسك أيّ تخصيص.
+  bool canPopOf(WidgetTester t) {
+    final w = t.widgetList(find.byWidgetPredicate((w) => w is PopScope)).single;
+    return (w as dynamic).canPop as bool;
+  }
+
+  testWidgets('بلا شيءٍ تحتها: يعترض الرجوع ولا يُسلّمه للنظام', (t) async {
+    await t.pumpWidget(const MaterialApp(
+      home: PopsToHome(child: Scaffold(body: Text('الخزنة'))),
+    ));
+    expect(canPopOf(t), isFalse);
+  });
+
+  testWidgets('فوق شاشةٍ أخرى: يترك الرجوع يعمل طبيعياً', (t) async {
+    final nav = GlobalKey<NavigatorState>();
+    await t.pumpWidget(MaterialApp(
+      navigatorKey: nav,
+      home: const Scaffold(body: Text('الغلاف')),
+    ));
+
+    nav.currentState!.push(MaterialPageRoute(
+      builder: (_) => const PopsToHome(child: Scaffold(body: Text('الخزنة'))),
+    ));
+    await t.pumpAndSettle();
+
+    expect(canPopOf(t), isTrue);
+  });
+
+  testWidgets('popOrHome يعود لما تحتها حين يوجد', (t) async {
+    final nav = GlobalKey<NavigatorState>();
+    await t.pumpWidget(MaterialApp(
+      navigatorKey: nav,
+      home: const Scaffold(body: Text('الغلاف')),
+    ));
+
+    nav.currentState!.push(MaterialPageRoute(
+      builder: (ctx) => Scaffold(
+        body: TextButton(
+          onPressed: () => popOrHome(ctx),
+          child: const Text('رجوع'),
+        ),
+      ),
+    ));
+    await t.pumpAndSettle();
+
+    await t.tap(find.text('رجوع'));
+    await t.pumpAndSettle();
+    expect(find.text('الغلاف'), findsOneWidget);
   });
 }
