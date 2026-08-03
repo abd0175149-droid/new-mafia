@@ -1875,16 +1875,94 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   void primeForTest({
     String? roomId,
+    int? physicalId,
+    String? name,
     String? role,
+    String? phase,
     bool? dead,
     List<MafiaMate>? team,
     SiblingInfo? sibling,
+    List<RosterPlayer>? roster,
+    DiscussionState? discussion,
+    JustificationData? justification,
+    WithdrawalState? withdrawal,
+    int? justTimer,
+    MayorPrompt? mayorPrompt,
+    MayorReveal? mayorBanner,
+    int? mayorRevealedId,
+    List<Deal>? deals,
+    List<int>? dealLocked,
+    int? round,
+    Notepad? notepad,
+    List<MafiaChatMessage>? chat,
+    bool? chatEnabled,
+    List<MorningEvent>? morning,
+    Map<String, dynamic>? gameOver,
+    VotingState? voting,
+    int? myVote,
+    GameStep? step,
   }) {
     if (roomId != null) _roomId = roomId;
+    if (physicalId != null) _physicalId = physicalId;
+    if (name != null) _displayName = name;
     if (role != null) _assignedRole = role.isEmpty ? null : role;
+    if (phase != null) _gamePhase = phase.isEmpty ? null : phase;
     if (dead != null) _isPlayerDead = dead;
     if (team != null) _mafiaTeam = team;
     _sibling = sibling;
+    if (roster != null) _roster = roster;
+    if (discussion != null) _discussion = discussion;
+    if (justification != null) _justification = justification;
+    if (withdrawal != null) _withdrawal = withdrawal;
+    if (justTimer != null) _justTimer = justTimer;
+    _mayorPrompt = mayorPrompt;
+    _mayorBanner = mayorBanner;
+    if (mayorRevealedId != null) _mayorRevealedId = mayorRevealedId;
+    if (deals != null) _deals = deals;
+    if (dealLocked != null) _dealLocked = dealLocked;
+    if (round != null) _round = round;
+    if (notepad != null) _notepad = notepad;
+    if (chat != null) _chat = chat;
+    if (chatEnabled != null) _mafiaChatEnabled = chatEnabled;
+    if (morning != null) _morning = morning;
+    if (gameOver != null) _gameOverData = gameOver;
+    if (voting != null) _voting = voting;
+    if (myVote != null) _myVote = myVote;
+    if (step != null) _step = step;
+  }
+
+  /// يعيد المتحكّم المفرد إلى حالته الأولى — يُنادى بين الاختبارات.
+  @visibleForTesting
+  void resetForTest() {
+    _roomId = '';
+    _physicalId = 0;
+    _displayName = '';
+    _assignedRole = null;
+    _gamePhase = null;
+    _isPlayerDead = false;
+    _mafiaTeam = const [];
+    _sibling = null;
+    _roster = const [];
+    _discussion = null;
+    _lastSpeakerSeen = null;
+    _justification = null;
+    _withdrawal = const WithdrawalState();
+    _justTimer = null;
+    _mayorPrompt = null;
+    _mayorBanner = null;
+    _mayorRevealedId = null;
+    _deals = const [];
+    _dealLocked = const [];
+    _round = 1;
+    _notepad = const Notepad();
+    _chat = const [];
+    _chatUnread = false;
+    _mafiaChatEnabled = false;
+    _morning = const [];
+    _gameOverData = null;
+    _voting = null;
+    _myVote = null;
+    _step = GameStep.code;
   }
 
   /// 🔒 إعلانُ فتح معرض المافيا — **الترتيب لا يُبدَّل**:
