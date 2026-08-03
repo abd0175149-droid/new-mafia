@@ -254,11 +254,10 @@ class _NotepadSheetState extends State<NotepadSheet> {
           maxLines: 5,
           textDirection: TextDirection.rtl,
           style: ar(14, color: const Color(0xFFE5E7EB)),
-          onChanged: (v) {
-            // «@» يفتح المنتقي — نفس اصطلاح الويب
-            final open = v.endsWith('@');
-            if (open != _picking) setState(() => _picking = open);
-          },
+          // 🔴 إعادة بناءٍ على **كلّ** حرف: حالة زرّ الحفظ مشتقّة من نصّ
+          //    الحقل، فبناءٌ مشروط يُبقيه معطّلاً بعد الكتابة — يكتب
+          //    اللاعب ملاحظته ثمّ لا يستطيع حفظها.
+          onChanged: (v) => setState(() => _picking = v.endsWith('@')),
           decoration: InputDecoration(
             hintText: t == null
                 ? 'اكتب ملاحظتك هنا... (اكتب @ لتحديد لاعب)'
