@@ -1,0 +1,5 @@
+// نكهة dev — «Mafia Club Dev»
+// تُدمج فوق Debug/Release.xcconfig (اللذين يستوردان Generated.xcconfig).
+PRODUCT_BUNDLE_IDENTIFIER = sbs.grade.mafiaclub.dev
+APP_DISPLAY_NAME = Mafia Club Dev
+CODE_SIGN_ENTITLEMENTS = Runner/RunnerDev.entitlements

@@ -1,0 +1,5 @@
+// نكهة prod — «نادي المافيا»
+// تُدمج فوق Debug/Release.xcconfig (اللذين يستوردان Generated.xcconfig).
+PRODUCT_BUNDLE_IDENTIFIER = sbs.grade.mafiaclub
+APP_DISPLAY_NAME = نادي المافيا
+CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements

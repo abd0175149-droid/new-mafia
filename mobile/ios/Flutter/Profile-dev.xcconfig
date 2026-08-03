@@ -1,0 +1,6 @@
+// إعدادات Pods الخاصة بهذه الـ configuration — يولّدها pod install
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile-dev.xcconfig"
+// مخرجات أداة Flutter (إلزامي — بلاه ينكسر البناء)
+#include "Generated.xcconfig"
+// هوية النكهة: معرّف الحزمة، الاسم المعروض، ملف الـ entitlements
+#include "flavor-dev.xcconfig"

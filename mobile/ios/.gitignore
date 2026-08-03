@@ -32,3 +32,16 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# ── أسرار: ممنوعة في git إطلاقاً — 93-ios-mac-execution.md §11.3 ──
+# GoogleService-Info.plist يُحقن وقت البناء (91 §6.4)
+**/GoogleService-Info.plist
+config/dev/GoogleService-Info.plist
+config/prod/GoogleService-Info.plist
+# مفتاحا .p8 (APNs وApp Store Connect) وأي شهادة/بروفايل
+AuthKey_*.p8
+*.p8
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
