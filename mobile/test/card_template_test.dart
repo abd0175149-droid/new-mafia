@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mafia_club/features/cosmetics/mafia_card_view.dart';
 import 'package:mafia_club/models/card_template.dart';
 
 // ══════════════════════════════════════════════════════
@@ -113,5 +114,53 @@ void main() {
     expect(t.showPlayerNumber, isTrue);
     expect(t.coverShapes, isEmpty);
     expect(t.border, isNotNull);
+  });
+
+  group('وجه الغلاف', _coverFaceTests);
+}
+
+// ══════════════════════════════════════════════════════
+// 🔴 الانحدار: طبقةُ لونٍ كاملة تغطّي البطاقة
+// ══════════════════════════════════════════════════════
+// `gradient` و`glowEffect` في القالب يخصّان **وجه كشف الدور** وحده. طلاؤهما
+// على وجه الغلاف يطلي البطاقة كلّها بتدرّج القالب — طبقةٌ لا وجود لها في
+// الويب ولا على شاشة القاعة بعد الشراء. حدث فعلاً وشكا منه المالك.
+void _coverFaceTests() {
+  final master = CardTemplate.fromJson({
+    'gradient': 'linear-gradient(to bottom, #936b15, #2c230c)',
+    'glowEffect': '0 0 53px rgba(94, 86, 3, 0.55)',
+    'borderColor': 'rgba(255, 255, 255, 0.35)',
+  });
+
+  testWidgets('وجه الغلاف أسود صرف — بلا تدرّج القالب وبلا توهّجه', (t) async {
+    await t.pumpWidget(MaterialApp(
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(
+          body: Center(
+            child: MafiaCardView(
+              playerName: 'اختبار',
+              template: master,
+              animate: false,
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    // جسم البطاقة: أوّل حاوية بنصف قطر البطاقة وحدٍّ بسُمك ٢
+    final body = t
+        .widgetList<Container>(find.byType(Container))
+        .map((c) => c.decoration)
+        .whereType<BoxDecoration>()
+        .firstWhere((d) => d.border?.top.width == 2);
+
+    expect(body.color, Colors.black, reason: 'وجه الغلاف يجب أن يبقى أسود');
+    expect(body.gradient, isNull,
+        reason: 'تدرّج القالب لوجه الدور — طلاؤه هنا يغطّي البطاقة كلّها');
+    expect(body.boxShadow, anyOf(isNull, isEmpty),
+        reason: 'توهّج القالب لوجه الدور');
+    // ولون الحدّ **يُقرأ** من القالب — هذا لا يُلغى
+    expect(body.border!.top.color.a, closeTo(0.35, 0.01));
   });
 }

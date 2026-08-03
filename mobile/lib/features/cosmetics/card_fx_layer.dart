@@ -175,32 +175,46 @@ class CardFxLayer extends StatelessWidget {
       glowOpacity = gl.opacity +
           (math.min(1.0, gl.opacity * 1.5) - gl.opacity) * e;
     }
-    final shadows = gl.enabled
-        ? [
-            BoxShadow(
-              color: withAlpha(gl.color, glowOpacity),
-              blurRadius: glowSize,
+    // 🔴 التوهّج **خارجيّ فقط**. `box-shadow` في CSS يُقصّ ما تحت العنصر،
+    //    أمّا `BoxShadow` في Flutter فيرسم شكلاً مموّهاً كاملاً لا يُقصّ —
+    //    وطبقة الحدّ بلا حشوٍ يغطّيه، فيسيل ٢٦px كهرمانيّة بشفافية ٠٫٥٥
+    //    على البطاقة كلّها. تلك كانت «الطبقة الكاملة بلون».
+    final glowLayer = gl.enabled
+        ? Positioned(
+            left: b.inset,
+            top: b.inset,
+            right: b.inset,
+            bottom: b.inset,
+            child: CustomPaint(
+              painter: _OuterGlowPainter(
+                color: withAlpha(gl.color, glowOpacity),
+                blur: glowSize,
+                radius: radius,
+              ),
             ),
-          ]
-        : const <BoxShadow>[];
+          )
+        : null;
 
     final inset = b.inset;
 
     if (b.style == BorderStyleFx.solid) {
-      return Positioned(
-        left: inset,
-        top: inset,
-        right: inset,
-        bottom: inset,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(radius),
-            // 🔴 الشفافية ٠٫٥ مكتوبة في المصدر ولا تأتي من الإعداد
-            border: Border.all(color: withAlpha(b.color, 0.5), width: b.width),
-            boxShadow: shadows,
+      return Stack(children: [
+        if (glowLayer != null) glowLayer,
+        Positioned(
+          left: inset,
+          top: inset,
+          right: inset,
+          bottom: inset,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(radius),
+              // 🔴 الشفافية ٠٫٥ مكتوبة في المصدر ولا تأتي من الإعداد
+              border:
+                  Border.all(color: withAlpha(b.color, 0.5), width: b.width),
+            ),
           ),
         ),
-      );
+      ]);
     }
 
     // حلقةٌ متدرّجة بسُمك `width` — قناع CSS `xor` يقابله رسمُ حلقةٍ
@@ -208,16 +222,13 @@ class CardFxLayer extends StatelessWidget {
         ? _phase(t, b.travelSpeed)
         : 0.0;
 
-    return Positioned(
-      left: inset,
-      top: inset,
-      right: inset,
-      bottom: inset,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(radius),
-          boxShadow: shadows,
-        ),
+    return Stack(children: [
+      if (glowLayer != null) glowLayer,
+      Positioned(
+        left: inset,
+        top: inset,
+        right: inset,
+        bottom: inset,
         child: CustomPaint(
           painter: _GradientRingPainter(
             colors: b.colors,
@@ -227,7 +238,7 @@ class CardFxLayer extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ]);
   }
 
   // ── الزوايا (z 51) ──
@@ -599,4 +610,47 @@ class _ParticlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ParticlePainter old) => old.time != time;
+}
+
+/// توهّجٌ **خارجيّ فقط** — مقابل `box-shadow` في CSS.
+///
+/// 🔴 `BoxShadow` في Flutter يرسم شكلاً مموّهاً كاملاً لا يُقصّ ما تحته،
+///    فتوهّجٌ بحجم ٢٦ وشفافية ٠٫٥٥ فوق طبقةٍ بلا حشو يسيل على البطاقة
+///    كلّها ويطليها بلون الإطار. CSS تقصّ داخل الصندوق؛ وهذا يقصّه مثلها.
+class _OuterGlowPainter extends CustomPainter {
+  _OuterGlowPainter({
+    required this.color,
+    required this.blur,
+    required this.radius,
+  });
+
+  final Color color;
+  final double blur, radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (blur <= 0 || color.a == 0) return;
+    final rrect = RRect.fromRectAndRadius(
+        Offset.zero & size, Radius.circular(radius));
+    final pad = blur * 3;
+    final outer = Path()
+      ..addRect(Rect.fromLTRB(
+          -pad, -pad, size.width + pad, size.height + pad));
+    final inner = Path()..addRRect(rrect);
+
+    canvas.save();
+    canvas.clipPath(Path.combine(PathOperation.difference, outer, inner));
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..color = color
+        // نصف قطر التمويه في CSS ≈ ضِعف الانحراف المعياريّ
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur / 2),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OuterGlowPainter old) =>
+      old.color != color || old.blur != blur || old.radius != radius;
 }

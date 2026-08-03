@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -103,13 +105,15 @@ class MafiaCardView extends StatelessWidget {
         // ── الجسم ──
         Positioned.fill(
           child: Container(
+            // 🔴 وجه الغلاف **أسود صرف** بحدٍّ فقط. `gradient` و`glowEffect`
+            //    في القالب يخصّان **وجه كشف الدور** وحده (السطران ٥٢١ و٥٤١
+            //    في `DynamicMafiaCard`) — وطلاؤهما هنا يغطّي البطاقة بطبقة
+            //    لونٍ كاملة لا وجود لها في الويب ولا على شاشة القاعة.
+            //    المتجر لا يعرض وجه الدور أصلاً، فلا يُرسمان في هذه الشاشة.
             decoration: BoxDecoration(
               color: Colors.black,
-              gradient: template.bodyGradient,
               borderRadius: BorderRadius.circular(kCardRadius),
               border: Border.all(color: template.border, width: 2),
-              boxShadow:
-                  template.glow == null ? null : [template.glow!],
             ),
             clipBehavior: Clip.antiAlias,
             child: Column(children: [
@@ -348,15 +352,24 @@ class _EmblemFloat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = DecoratedBox(
-      decoration: const BoxDecoration(
-        boxShadow: [
-          BoxShadow(
-              color: Color(0xA6000000), blurRadius: 10, offset: Offset(0, 5)),
-        ],
+    final emblem = ChipsEmblemView(id: id, size: size, animate: animate);
+    // 🔴 `drop-shadow` يتبع **صورة** الشعار، و`BoxShadow` يرسم مستطيلاً
+    //    مموّهاً بحجم صندوقه — بقعةٌ سوداء خلف التاج. الظلّ هنا نسخةٌ
+    //    مموّهةٌ من الشعار نفسه.
+    final child = Stack(children: [
+      Transform.translate(
+        offset: const Offset(0, 5),
+        child: ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+          child: ColorFiltered(
+            colorFilter: const ColorFilter.mode(
+                Color(0xA6000000), BlendMode.srcATop),
+            child: emblem,
+          ),
+        ),
       ),
-      child: ChipsEmblemView(id: id, size: size, animate: animate),
-    );
+      emblem,
+    ]);
     if (!animate) return child;
     return FxClock(
       builder: (_, t) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mafia_club/features/cosmetics/card_fx_layer.dart';
 import 'package:mafia_club/models/card_fx.dart';
 import 'package:mafia_club/models/title_plaque.dart';
 
@@ -225,5 +226,59 @@ void main() {
       expect(p.text.weight, 900);
       expect(p.border.width, 4);
     });
+  });
+
+  group('قصّ التوهّج', _glowClipTests);
+}
+
+// ══════════════════════════════════════════════════════
+// 🔴 الانحدار: التوهّج يطلي البطاقة كلّها
+// ══════════════════════════════════════════════════════
+// `box-shadow` في CSS يُقصّ ما تحت العنصر فلا يظهر إلّا خارجه. و`BoxShadow`
+// في Flutter يرسم شكلاً مموّهاً كاملاً لا يُقصّ — فتوهّجٌ بحجم ٢٦ وشفافية
+// ٠٫٥٥ فوق طبقة حدٍّ بلا حشو يسيل على البطاقة ويطليها بلون الإطار.
+// شكا المالك من «طبقة كاملة بلون لكل إطار».
+void _glowClipTests() {
+  testWidgets('التوهّج لا يُرسم داخل البطاقة', (t) async {
+    // إعداد «تاج العرّاب» الحقيقيّ: توهّجٌ كبير فوق حدٍّ متدرّج
+    final fx = normalizeFx({
+      'border': {
+        'enabled': true,
+        'style': 'traveling',
+        'width': 3,
+        'gradientColors': ['#b45309', '#fcd34d'],
+      },
+      'glow': {'enabled': true, 'size': 26, 'opacity': 0.55, 'color': '#f59e0b'},
+    });
+    expect(fx.glow.enabled, isTrue);
+
+    await t.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 176,
+            height: 240,
+            child: Stack(children: [
+              // خلفيّة سوداء تمثّل جسم البطاقة
+              const Positioned.fill(child: ColoredBox(color: Colors.black)),
+              Positioned.fill(child: CardFxLayer(fx: fx, animate: false)),
+            ]),
+          ),
+        ),
+      ),
+    ));
+    await t.pump();
+
+    // 🔴 لا `BoxShadow` في أيّ زخرفةٍ داخل الطبقة: وجودها يعني شكلاً
+    //    مموّهاً غير مقصوص فوق البطاقة
+    final shadows = t
+        .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+        .map((d) => d.decoration)
+        .whereType<BoxDecoration>()
+        .expand((d) => d.boxShadow ?? const <BoxShadow>[])
+        .toList();
+    expect(shadows, isEmpty,
+        reason: 'التوهّج يجب أن يُقصّ خارج البطاقة لا أن يُرسم صندوقاً');
+    expect(t.takeException(), isNull);
   });
 }
