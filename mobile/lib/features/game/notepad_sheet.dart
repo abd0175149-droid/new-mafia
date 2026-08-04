@@ -113,7 +113,11 @@ class _NotepadSheetState extends State<NotepadSheet> {
               _tabs(),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  // 🔴 إزاحة لوحة المفاتيح: بدونها يختفي صفّ إرسال التشاور
+                  //    خلفها تماماً فلا يستطيع اللاعب الكتابة — والورقة
+                  //    ملء الشاشة فلا `Scaffold` يعوّض عنها.
+                  padding: EdgeInsets.fromLTRB(
+                      16, 0, 16, 8 + MediaQuery.viewInsetsOf(context).bottom),
                   child: switch (_tab) {
                     _Tab.add => _addTab(),
                     _Tab.view => _viewTab(),
