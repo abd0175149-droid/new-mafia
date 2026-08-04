@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
+import 'glass_material.dart';
 
 // ══════════════════════════════════════════════════════
 // 🫧 شريط التنقّل الزجاجيّ — iOS وحده
@@ -133,26 +134,22 @@ class _GlassCapsule extends StatelessWidget {
           BoxShadow(color: Color(0x99000000), blurRadius: 24, offset: Offset(0, 8)),
         ],
       ),
-      child: ClipRRect(
+      child: GlassSurface(
         borderRadius: BorderRadius.circular(_kRadius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: Container(
-            height: height,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(_kRadius),
-              // زجاجٌ فوق ثيمٍ داكن: بياضٌ خفيف أعلى يخفت أسفل.
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x24FFFFFF), Color(0x0DFFFFFF)],
-              ),
-              // الحافّة اللامعة — أوضح ما يميّز المادّة عن مجرّد ضباب.
-              border: Border.all(color: const Color(0x33FFFFFF), width: 0.8),
-            ),
-            child: child,
-          ),
+        // ضبابٌ أخفّ من الزجاج المُثلَج القديم — الانكسار هو البطل هنا.
+        blurSigma: 10,
+        refract: 26,
+        rimWidth: 22,
+        specular: 0.32,
+        tint: 0.55,
+        // تدرّجٌ خفيفٌ جداً: الشيدر يتكفّل بالكثافة، والإفراط هنا يطمس
+        // الانكسار فيعود اللوح الشفّاف الذي نهرب منه.
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0x14FFFFFF), Color(0x05FFFFFF)],
         ),
+        child: SizedBox(height: height, child: child),
       ),
     );
   }
@@ -264,31 +261,28 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
               const BoxShadow(color: Color(0x80000000), blurRadius: 12, offset: Offset(0, 4)),
             ],
           ),
-          child: ClipOval(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  // الذهب يبقى — لكنه هنا صبغةٌ فوق الزجاج لا تعبئة صمّاء.
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: a
-                        ? const [Color(0xCCFBBF24), Color(0x99B45309)]
-                        : const [Color(0x2EFFFFFF), Color(0x14FFFFFF)],
-                  ),
-                  border: Border.all(
-                    color: a ? const Color(0xCCFBBF24) : const Color(0x59FBBF24),
-                    width: 1.2,
-                  ),
-                ),
-                child: Icon(
-                  a ? Icons.verified_user : Icons.verified_user_outlined,
-                  size: 26,
-                  color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
-                ),
-              ),
+          // دائرةٌ = مستطيلٌ نصف قطره نصف ضلعه، فيسري عليها الشيدر نفسه.
+          // انكسارها أقوى نسبياً: الجسم الصغير المحدّب يحني أكثر.
+          child: GlassSurface(
+            borderRadius: BorderRadius.circular(_kCenterSize / 2),
+            blurSigma: 8,
+            refract: 18,
+            rimWidth: 14,
+            specular: a ? 0.20 : 0.38,
+            tint: 0.35,
+            borderColor: a ? const Color(0xCCFBBF24) : const Color(0x59FBBF24),
+            // الذهب صبغةٌ فوق الزجاج لا تعبئة صمّاء.
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: a
+                  ? const [Color(0xB8FBBF24), Color(0x8FB45309)]
+                  : const [Color(0x1FFFFFFF), Color(0x0AFFFFFF)],
+            ),
+            child: Icon(
+              a ? Icons.verified_user : Icons.verified_user_outlined,
+              size: 26,
+              color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
             ),
           ),
         ),
