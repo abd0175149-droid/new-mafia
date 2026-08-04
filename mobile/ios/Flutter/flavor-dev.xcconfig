@@ -3,3 +3,8 @@
 PRODUCT_BUNDLE_IDENTIFIER = sbs.grade.mafiaclub.dev
 APP_DISPLAY_NAME = Mafia Club Dev
 CODE_SIGN_ENTITLEMENTS = Runner/RunnerDev.entitlements
+
+// تجاوزٌ محلّيّ اختياريّ للتوقيع على جهازٍ حقيقيّ بحسابٍ مجانيّ.
+// يأتي أخيراً كي تفوز قيمُه، وغيابه لا يكسر شيئاً (‎#include?‎ اختياريّ).
+// أنشئه بنسخ local-signing.xcconfig.example — وهو مُتجاهَل في git.
+#include? "local-signing.xcconfig"
