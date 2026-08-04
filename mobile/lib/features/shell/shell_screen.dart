@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/config.dart';
@@ -7,6 +9,7 @@ import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/ui/atmosphere.dart';
 import 'bottom_nav.dart';
+import 'liquid_glass_nav.dart';
 
 // ══════════════════════════════════════════════════════
 // 🏠 الغلاف الطبيعيّ — §4.7 في الملفّ 11
@@ -25,10 +28,39 @@ class ShellScreen extends StatefulWidget {
   State<ShellScreen> createState() => _ShellScreenState();
 }
 
-class _ShellScreenState extends State<ShellScreen> {
+class _ShellScreenState extends State<ShellScreen>
+    with SingleTickerProviderStateMixin {
+  /// الشريط الزجاجيّ على iOS وحده. الأندرويد يبقى على `MafiaBottomNav`
+  /// حرفياً — بلا ضباب وبلا كلفته على تابلتات النادي الضعيفة (11 §13).
+  bool get _glass => defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// 0 ممتدّ ← 1 منكمش.
+  //
+  // 🔴 يُنشأ في initState لا بـ`late final` مؤجَّل. على الأندرويد لا يلمسه
+  //    البناء إطلاقاً (لا شريط زجاجيّ)، فيبقى غير مُهيَّأ حتى ينادَي في
+  //    dispose — وعندها يبحث Ticker عن TickerMode في عنصرٍ مُعطَّل فيرمي
+  //    «Looking up a deactivated widget's ancestor is unsafe». أي انهيارٌ
+  //    على الأندرويد وحده عند مغادرة الغلاف. اصطاده اختبار الأندرويد.
+  late final AnimationController _navCollapse;
+
+  /// التمرير للأسفل يطوي الشريط إلى أيقونات، والصعود يعيد التسميات.
+  bool _onScroll(UserScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n.direction == ScrollDirection.reverse) {
+      _navCollapse.forward();
+    } else if (n.direction == ScrollDirection.forward) {
+      _navCollapse.reverse();
+    }
+    return false; // لا يُبتلع الإشعار — غيره قد يستمع إليه
+  }
+
   @override
   void initState() {
     super.initState();
+    _navCollapse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
     // صندوق الإشعارات يبدأ مع الغلاف — الجرس في ترويسة الرئيسية يقرأ
     // عدّه، فلا بدّ أن يعمل قبل أوّل بناء لها.
     InboxService.instance.start();
@@ -39,6 +71,7 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   void dispose() {
+    _navCollapse.dispose();
     InboxService.instance.stop();
     CosmeticsService.instance.stop();
     super.dispose();
@@ -58,12 +91,29 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = DisplayBg(child: widget.shell);
+
     return Scaffold(
       // المحتوى يمتدّ خلف الشريط، والتبويبات تعطي حشوة سفلية 80
       extendBody: true,
-      body: DisplayBg(child: widget.shell),
-      bottomNavigationBar:
-          MafiaBottomNav(index: widget.shell.currentIndex, onTap: _select),
+      body: _glass
+          // يلتقط تمرير أيّ تبويب من موضع واحد — لا حاجة للمساس
+          // بالشاشات الخمس ولا بمكدّسات تنقّلها.
+          ? NotificationListener<UserScrollNotification>(
+              onNotification: _onScroll,
+              child: body,
+            )
+          : body,
+      bottomNavigationBar: _glass
+          ? AnimatedBuilder(
+              animation: _navCollapse,
+              builder: (_, __) => LiquidGlassNav(
+                index: widget.shell.currentIndex,
+                onTap: _select,
+                collapsed: _navCollapse.value,
+              ),
+            )
+          : MafiaBottomNav(index: widget.shell.currentIndex, onTap: _select),
     );
   }
 }
