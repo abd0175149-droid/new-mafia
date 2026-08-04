@@ -184,4 +184,53 @@ void main() {
       expect(showsCard(phase: null, dead: false), isTrue);
     });
   });
+
+  group('🔴 مرحلةٌ بلا حمولةٍ تعود إلى لافتتها لا إلى خواء', () {
+    // ظهر على الجهاز: من انضمّ إلى غرفةٍ منتهية رأى شاشةً بيضاء تماماً
+    // — لا عنوان ولا رمز غرفة. الحمولة تصل بحدثٍ قد يسبقه دخولُه،
+    // فالغياب حالةٌ طبيعيّة لا خطأ.
+    String body({required String phase, required bool hasData}) {
+      return switch (phase) {
+        GamePhase.dayTiebreaker when hasData => 'tie',
+        GamePhase.eliminationPending when hasData => 'elim',
+        GamePhase.gameOver when hasData => 'over',
+        _ => 'pending',
+      };
+    }
+
+    test('بالحمولة تُرسم المرحلة', () {
+      expect(body(phase: GamePhase.gameOver, hasData: true), 'over');
+      expect(body(phase: GamePhase.dayTiebreaker, hasData: true), 'tie');
+      expect(body(phase: GamePhase.eliminationPending, hasData: true), 'elim');
+    });
+
+    test('وبدونها تُرسم اللافتة', () {
+      for (final p in const [
+        GamePhase.gameOver,
+        GamePhase.dayTiebreaker,
+        GamePhase.eliminationPending,
+      ]) {
+        expect(body(phase: p, hasData: false), 'pending', reason: p);
+      }
+    });
+
+    test('ولكلّ مرحلةٍ لافتةٌ بنصّها — لا فراغ', () {
+      // القائمة الافتراضية تغطّي كلّ الأطوار المعروفة
+      for (final p in const [
+        GamePhase.lobby,
+        GamePhase.roleGeneration,
+        GamePhase.roleBinding,
+        GamePhase.dayDiscussion,
+        GamePhase.dayVoting,
+        GamePhase.dayJustification,
+        GamePhase.dayTiebreaker,
+        GamePhase.night,
+        GamePhase.morningRecap,
+        GamePhase.eliminationPending,
+        GamePhase.gameOver,
+      ]) {
+        expect(GamePhase.map(p), isNotNull, reason: p);
+      }
+    });
+  });
 }

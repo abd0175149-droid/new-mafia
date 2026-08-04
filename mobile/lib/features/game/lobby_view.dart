@@ -225,9 +225,16 @@ class LobbyView extends StatelessWidget {
         GamePhase.dayVoting => VotingBallot(controller: c),
         GamePhase.dayJustification => JustificationBody(controller: c),
         GamePhase.morningRecap => MorningBody(controller: c),
-        GamePhase.gameOver => GameOverBody(controller: c),
-        GamePhase.dayTiebreaker => TiebreakerBody(tied: c.tiedCandidates),
-        GamePhase.eliminationPending => EliminationBody(
+        GamePhase.gameOver when c.gameOverData != null =>
+          GameOverBody(controller: c),
+        // 🔴 مرحلةٌ بلا حمولةٍ بعد تعود إلى لافتة المرحلة — لا إلى خواء.
+        //    من انضمّ إلى غرفةٍ منتهية كان يرى شاشةً بيضاء تماماً: لا
+        //    عنوان ولا رمز غرفة ولا شيء. الحمولة تصل بحدثٍ قد يسبقه
+        //    دخولُه، فالغياب حالةٌ طبيعيّة لا خطأ.
+        GamePhase.dayTiebreaker when c.tiedCandidates.isNotEmpty =>
+          TiebreakerBody(tied: c.tiedCandidates),
+        GamePhase.eliminationPending when c.eliminated.isNotEmpty =>
+          EliminationBody(
             eliminated: c.eliminated,
             revealedRoles: c.revealedRoles,
             myPhysicalId: c.physicalId,
