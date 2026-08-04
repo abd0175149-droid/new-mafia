@@ -26,12 +26,15 @@ import 'native_glass.dart';
 const double _kRadius = 34;
 
 /// ارتفاع محتوى الكبسولة: ممتدّة ← منكمشة.
-const double _kExpanded = 60;
-const double _kCollapsed = 48;
+/// الفارق مقصودٌ أن يُقرأ: ١٦ نقطة تكفي ليبدو الانكماش قراراً لا اهتزازاً.
+const double _kExpanded = 62;
+const double _kCollapsed = 46;
 
 /// قطر الزرّ المركزيّ وارتفاعه فوق الكبسولة.
+/// الارتفاع ٢٠: أقلّ منه يبتلع الاندماجُ الدائرةَ فتصير نتوءاً باهتاً،
+/// وأكثر منه ينفصل الجسمان فيضيع تمازج `UIGlassContainerEffect`.
 const double _kCenterSize = 56;
-const double _kCenterLift = 18;
+const double _kCenterLift = 20;
 
 class LiquidGlassNav extends StatefulWidget {
   const LiquidGlassNav({
@@ -87,6 +90,12 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
             child: SizedBox(
               // الزرّ المركزيّ يعلو الكبسولة، فيُحجز له ارتفاعه هنا
               // وإلا قُصّ — العطل نفسه الموثَّق في الشريط الكلاسيكيّ.
+              //
+              // 🔴 عقدٌ مع Swift: الجانب الأصليّ يشتقّ ارتفاع الكبسولة من
+              //    هذا الإطار (bar = h - centerLift) لأن creationParams لا
+              //    تتحدّث. تغييرُ هذه المعادلة هنا يفصل الزجاج عن محتواه
+              //    صامتاً — ويحرسها اختبارٌ في liquid_glass_nav_test.dart.
+              key: const ValueKey('nav-frame'),
               height: barH + _kCenterLift,
               child: Stack(
                 clipBehavior: Clip.none,
@@ -101,10 +110,11 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                         radius: _kRadius,
                         centerSize: _kCenterSize,
                         centerLift: _kCenterLift,
-                        // الذهب هويّة التطبيق — يبقى صبغةً على الزجاج
-                        // في الحالتين، وتشتدّ حين يكون التبويب نشطاً.
-                        centerTint:
-                            index == kCenterTab ? 0xD9FBBF24 : 0x4DFBBF24,
+                        // بلا صبغة: صبغُ الزجاج بالذهب يعطي كتلةً موحلة
+                        // تبتلع الأيقونة. أزرار أبل الزجاجية نفسها بلا
+                        // صبغة ورمزُها وحده ملوّن. الذهب هنا حلقةٌ حادّة
+                        // يرسمها Flutter فوق الدائرة.
+                        centerTint: null,
                       ),
                     ),
                   _GlassCapsule(
@@ -304,13 +314,26 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
         // مع الزجاج الأصليّ يرسم النظامُ الدائرةَ وصبغتَها، فلا يبقى
         // لـFlutter إلا الأيقونة — أيّ ضبابٍ أو تعبئة هنا يطمسه.
         child: widget.transparent
-            ? SizedBox(
+            // النظام يرسم الدائرة الزجاجيّة؛ ولـFlutter الحلقةُ والرمز.
+            // حلقةٌ رفيعة حادّة تحفظ الهوية الذهبية بلا أن تُوحل الزجاج،
+            // وتغلظ وتلمع حين يكون التبويب نشطاً.
+            ? Container(
                 width: _kCenterSize,
                 height: _kCenterSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: a ? const Color(0xFFFBBF24) : const Color(0x66FBBF24),
+                    width: a ? 1.8 : 1.0,
+                  ),
+                  boxShadow: a
+                      ? const [BoxShadow(color: Color(0x4DFBBF24), blurRadius: 14)]
+                      : null,
+                ),
                 child: Icon(
                   a ? Icons.verified_user : Icons.verified_user_outlined,
                   size: 26,
-                  color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
+                  color: const Color(0xFFFBBF24),
                 ),
               )
             : Container(

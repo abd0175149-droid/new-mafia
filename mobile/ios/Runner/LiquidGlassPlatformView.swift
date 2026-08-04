@@ -32,16 +32,22 @@ final class GlassHostView: UIView {
 
     host?.frame = bounds
 
-    // الكبسولة تحتلّ أسفل الإطار — الهندسة نفسها التي يرسم Flutter
-    // أيقوناته عليها، وإلا انفصل الزجاج عن محتواه.
-    capsule?.frame = CGRect(x: 0, y: h - barHeight, width: w, height: barHeight)
-    capsule?.layer.cornerRadius = radius
+    // 🔴 ارتفاع الكبسولة يُشتقّ من الإطار لا من creationParams.
+    //    المعاملات تُقرأ **مرّة واحدة عند الإنشاء** ولا تتحدّث مع إعادة
+    //    بناء الودجت، فتبقى 60 بينما ينكمش الإطار إلى 66 — فتنزلق
+    //    الكبسولة إلى y=6 بدل 18 وينفصل الزجاج عن محتواه. الإطار وحده
+    //    يتغيّر مع كلّ إطارٍ من الحركة، فهو المصدر الصادق.
+    //    (Flutter يبني الحاوية بارتفاع barHeight + centerLift.)
+    let bar = max(1, h - centerLift)
+
+    capsule?.frame = CGRect(x: 0, y: h - bar, width: w, height: bar)
+    // نصف القطر لا يتجاوز نصف الارتفاع وإلا شُوّهت الكبسولة عند الانكماش.
+    capsule?.layer.cornerRadius = min(radius, bar / 2)
     capsule?.layer.cornerCurve = .continuous
     capsule?.clipsToBounds = true
 
-    // الدائرة ترتفع فوق حافّة الكبسولة العليا بمقدار centerLift.
-    let top = h - barHeight - centerLift
-    circle?.frame = CGRect(x: (w - centerSize) / 2, y: max(0, top),
+    // الدائرة ترتفع فوق حافّة الكبسولة العليا بمقدار centerLift تماماً.
+    circle?.frame = CGRect(x: (w - centerSize) / 2, y: h - bar - centerLift,
                            width: centerSize, height: centerSize)
     circle?.layer.cornerRadius = centerSize / 2
     circle?.clipsToBounds = true
