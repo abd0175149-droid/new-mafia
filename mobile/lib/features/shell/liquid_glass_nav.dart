@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
+import 'native_glass.dart';
 
 // ══════════════════════════════════════════════════════
 // 🫧 شريط التنقّل الزجاجيّ — iOS وحده
@@ -32,7 +33,7 @@ const double _kCollapsed = 48;
 const double _kCenterSize = 56;
 const double _kCenterLift = 18;
 
-class LiquidGlassNav extends StatelessWidget {
+class LiquidGlassNav extends StatefulWidget {
   const LiquidGlassNav({
     super.key,
     required this.index,
@@ -50,8 +51,26 @@ class LiquidGlassNav extends StatelessWidget {
   static const _idle = Color(0xFF9CA3AF);
 
   @override
+  State<LiquidGlassNav> createState() => _LiquidGlassNavState();
+}
+
+class _LiquidGlassNavState extends State<LiquidGlassNav> {
+  /// null = لم يُحسم بعد؛ حتى يُحسم تُستعمل المحاكاة فلا يومض شيء.
+  bool _native = false;
+
+  @override
+  void initState() {
+    super.initState();
+    NativeGlass.isAvailable().then((v) {
+      if (mounted && v != _native) setState(() => _native = v);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final t = 1 - collapsed; // 1 ممتدّة → 0 منكمشة
+    final index = widget.index;
+    final onTap = widget.onTap;
+    final t = 1 - widget.collapsed; // 1 ممتدّة → 0 منكمشة
     final barH = lerpDouble(_kCollapsed, _kExpanded, t)!;
 
     return SafeArea(
@@ -73,8 +92,26 @@ class LiquidGlassNav extends StatelessWidget {
                 clipBehavior: Clip.none,
                 alignment: Alignment.bottomCenter,
                 children: [
+                  // الزجاج الأصليّ يملأ الإطار كلّه (كبسولة + دائرة)،
+                  // ويرسم Flutter أيقوناته فوقه.
+                  if (_native)
+                    Positioned.fill(
+                      child: NativeGlassBackdrop(
+                        barHeight: barH,
+                        radius: _kRadius,
+                        centerSize: _kCenterSize,
+                        centerLift: _kCenterLift,
+                        // الذهب هويّة التطبيق — يبقى صبغةً على الزجاج
+                        // في الحالتين، وتشتدّ حين يكون التبويب نشطاً.
+                        centerTint:
+                            index == kCenterTab ? 0xD9FBBF24 : 0x4DFBBF24,
+                      ),
+                    ),
                   _GlassCapsule(
                     height: barH,
+                    // مع الزجاج الأصليّ تصير كبسولة Flutter شفّافة تماماً:
+                    // وظيفتها التخطيط وحده، والمادّة من النظام.
+                    transparent: _native,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
@@ -101,6 +138,7 @@ class LiquidGlassNav extends StatelessWidget {
                   Positioned(
                     bottom: barH - _kCenterSize + _kCenterLift,
                     child: _GlassCenterTab(
+                      transparent: _native,
                       tab: navTabs[kCenterTab],
                       active: index == kCenterTab,
                       labelT: t,
@@ -119,13 +157,23 @@ class LiquidGlassNav extends StatelessWidget {
 
 /// المادّة الزجاجيّة: ضبابٌ لما خلفها، تدرّجٌ شفّاف، وحافّة لامعة.
 class _GlassCapsule extends StatelessWidget {
-  const _GlassCapsule({required this.height, required this.child});
+  const _GlassCapsule({
+    required this.height,
+    required this.child,
+    this.transparent = false,
+  });
 
   final double height;
   final Widget child;
 
+  /// مع الزجاج الأصليّ: تخطيطٌ بلا مادّة — أي ضبابٍ هنا يطمس زجاج النظام.
+  final bool transparent;
+
   @override
   Widget build(BuildContext context) {
+    if (transparent) {
+      return SizedBox(height: height, child: child);
+    }
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_kRadius),
@@ -221,12 +269,14 @@ class _GlassTab extends StatelessWidget {
 /// الزرّ المركزيّ «ادخل» — زجاجيّ بلمسة ذهبية تُبقيه العنصر الأبرز.
 class _GlassCenterTab extends StatefulWidget {
   const _GlassCenterTab({
+    this.transparent = false,
     required this.tab,
     required this.active,
     required this.labelT,
     required this.onTap,
   });
 
+  final bool transparent;
   final NavTab tab;
   final bool active;
   final double labelT;
@@ -251,7 +301,19 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
       child: AnimatedScale(
         scale: _down ? 0.9 : 1,
         duration: const Duration(milliseconds: 100),
-        child: Container(
+        // مع الزجاج الأصليّ يرسم النظامُ الدائرةَ وصبغتَها، فلا يبقى
+        // لـFlutter إلا الأيقونة — أيّ ضبابٍ أو تعبئة هنا يطمسه.
+        child: widget.transparent
+            ? SizedBox(
+                width: _kCenterSize,
+                height: _kCenterSize,
+                child: Icon(
+                  a ? Icons.verified_user : Icons.verified_user_outlined,
+                  size: 26,
+                  color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
+                ),
+              )
+            : Container(
           width: _kCenterSize,
           height: _kCenterSize,
           decoration: BoxDecoration(
