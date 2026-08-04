@@ -62,6 +62,40 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
 
+  # توليد أيقونة iOS وشاشة الإقلاع — أدوات بناء لا تُشحن مع التطبيق
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.6
+
+# ══════════════════════════════════════════════════════
+# 🎨 أيقونة التطبيق — 91-release-ios.md §11
+# ══════════════════════════════════════════════════════
+# المصدر assets/icon/app_icon.png مشتقّ من frontend/public/mafia_logo.png.
+# الأصل 1000×1200 بقناة ألفا لا 1024×1024 كما يفترض الملف 91 — فحُشِّي
+# إلى مربّع على #050505 (حشوٌ لا تمديد، وإلا انسحق الشعار) ثم صُغِّر.
+# Apple ترفض قناة الألفا في أيقونة المتجر، فتُزال هنا لا هناك.
+flutter_launcher_icons:
+  ios: true
+  android: false # أندرويد مكتمل — لا يُلمس (93 §1.8)
+  image_path: "assets/icon/app_icon.png"
+  remove_alpha_ios: true
+  background_color_ios: "#050505"
+
+# ══════════════════════════════════════════════════════
+# 🚀 شاشة الإقلاع — 93 §6
+# ══════════════════════════════════════════════════════
+flutter_native_splash:
+  color: "#050505"
+  image: assets/icon/splash_logo.png
+  ios: true
+  android: false
+  web: false
+  # ⚠️ fullscreen: true يكتب UIStatusBarHidden=true في Info.plist — وهو
+  # مفتاح دائم يخفي شريط الحالة في التطبيق كلّه لا في شاشة الإقلاع وحدها.
+  # الويب يعرض الشريط، و91 §6.5 تنصّ على SystemUiOverlayStyle.light مع
+  # الرسم تحته عبر SafeArea. فيبقى ظاهراً.
+  fullscreen: false
+  ios_content_mode: center
+
 flutter:
   uses-material-design: true
 
