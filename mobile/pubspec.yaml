@@ -62,6 +62,10 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
 
+  # اختبارات على جهازٍ حقيقيّ: تقيس زمن الإطارات فعلياً
+  integration_test:
+    sdk: flutter
+
   # توليد أيقونة iOS وشاشة الإقلاع — أدوات بناء لا تُشحن مع التطبيق
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.6
