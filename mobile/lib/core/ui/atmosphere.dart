@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../app/theme/colors.dart';
 
@@ -152,16 +153,55 @@ class DisplayBg extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-        decoration: const BoxDecoration(
-          color: Noir.pitchBlack,
-          gradient: RadialGradient(
-            center: Alignment(0, -1),
-            radius: 1.1,
-            colors: [Noir.charcoal, Noir.pitchBlack],
-            stops: [0.0, 0.7],
+  Widget build(BuildContext context) {
+    final base = DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Noir.pitchBlack,
+        gradient: RadialGradient(
+          center: Alignment(0, -1),
+          radius: 1.1,
+          colors: [Noir.charcoal, Noir.pitchBlack],
+          stops: [0.0, 0.7],
+        ),
+      ),
+      child: child,
+    );
+
+    // الأندرويد والويب على السواد كما هو — تكافؤ 11 §4.6 محفوظ.
+    if (defaultTargetPlatform != TargetPlatform.iOS) return base;
+
+    // على iOS وحده: وهجٌ سفليّ خافت خلف الشريط الزجاجيّ.
+    //
+    // السبب قياسٌ لا ذوق: عدسة الزجاج تحني ما خلفها، وخلفها `#050505`
+    // أسودُ صرف — فحنيُ الأسود إلى أسود لا يُنتج شيئاً تراه العين. قِسنا
+    // ذلك على المحاكي: الانكسار ظهر حيث مرّ محتوى ساطع واختفى حيث لم يمرّ.
+    // هذا الوهج يمنح العدسة ما تكسره في كلّ الشاشات لا في الملوّنة وحدها.
+    //
+    // ⚠️ يكسر تكافؤ الويب عمداً (قرار المالك) — ومحصورٌ في iOS.
+    // خافتٌ جداً بقصد: الهوية نوار، والمطلوب مادّةٌ تكسر لا خلفيةٌ تلفت.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        base,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 260,
+          child: const IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Color(0x2EFBBF24), Color(0x0F7C3AED), Color(0x00000000)],
+                  stops: [0.0, 0.45, 1.0],
+                ),
+              ),
+            ),
           ),
         ),
-        child: child,
-      );
+      ],
+    );
+  }
 }

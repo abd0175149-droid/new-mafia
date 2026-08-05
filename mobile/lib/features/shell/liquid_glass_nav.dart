@@ -83,10 +83,14 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 512),
+          // العرض يضيق مع الانكماش أيضاً لا الارتفاع وحده: كبسولةٌ تفقد
+          // ثلث ارتفاعها وتحتفظ بعرضها كاملاً تبدو مقصوصةً لا منكمشة.
+          constraints: BoxConstraints(maxWidth: lerpDouble(452, 512, t)!),
           child: Padding(
-            // هوامش جانبية تجعلها «طافية» لا ملتصقة بالحواف
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            // هوامش جانبية تجعلها «طافية» لا ملتصقة بالحواف، وتتّسع عند
+            // الانكماش فيضيق الشريط بنسبةٍ توازي نقصان ارتفاعه.
+            padding: EdgeInsets.fromLTRB(
+              lerpDouble(38, 16, t)!, 0, lerpDouble(38, 16, t)!, 8),
             child: SizedBox(
               // الزرّ المركزيّ يعلو الكبسولة، فيُحجز له ارتفاعه هنا
               // وإلا قُصّ — العطل نفسه الموثَّق في الشريط الكلاسيكيّ.
@@ -115,6 +119,8 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                         // صبغة ورمزُها وحده ملوّن. الذهب هنا حلقةٌ حادّة
                         // يرسمها Flutter فوق الدائرة.
                         centerTint: null,
+                        // زجاجٌ أشفّ — يُظهر الانكسار على ثيمنا الداكن
+                        clearStyle: true,
                       ),
                     ),
                   _GlassCapsule(

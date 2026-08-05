@@ -78,11 +78,16 @@ class LiquidGlassPlatformView: NSObject, FlutterPlatformView {
       let host = UIVisualEffectView(effect: containerEffect)
       host.backgroundColor = .clear
 
-      let capsuleEffect = UIGlassEffect(style: .regular)
+      // `.clear` أشفّ من `.regular` فيُظهر ما خلفه أكثر — وعلى ثيمٍ داكن
+      // كثيمنا هو الفرق بين زجاجٍ يُرى انكسارُه وزجاجٍ يبدو لوحاً معتماً.
+      let style: UIGlassEffect.Style =
+        (p["clearStyle"] as? Bool ?? false) ? .clear : .regular
+
+      let capsuleEffect = UIGlassEffect(style: style)
       capsuleEffect.isInteractive = interactive
       let capsule = UIVisualEffectView(effect: capsuleEffect)
 
-      let circleEffect = UIGlassEffect(style: .regular)
+      let circleEffect = UIGlassEffect(style: style)
       circleEffect.isInteractive = interactive
       if let argb = tintARGB {
         circleEffect.tintColor = LiquidGlassPlatformView.color(argb)

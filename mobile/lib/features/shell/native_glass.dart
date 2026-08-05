@@ -55,6 +55,7 @@ class NativeGlassBackdrop extends StatelessWidget {
     required this.centerLift,
     this.centerTint,
     this.spacing = 12,
+    this.clearStyle = false,
   });
 
   final double barHeight;
@@ -68,6 +69,9 @@ class NativeGlassBackdrop extends StatelessWidget {
   /// المسافة التي عندها يبدأ العنصران بالاندماج.
   final double spacing;
 
+  /// `.clear` بدل `.regular`: زجاجٌ أشفّ يُظهر انكسارَه على ثيمٍ داكن.
+  final bool clearStyle;
+
   @override
   Widget build(BuildContext context) {
     return UiKitView(
@@ -79,6 +83,7 @@ class NativeGlassBackdrop extends StatelessWidget {
         'centerLift': centerLift,
         'spacing': spacing,
         'interactive': true,
+        'clearStyle': clearStyle,
         if (centerTint != null) 'centerTint': centerTint,
       },
       creationParamsCodec: const StandardMessageCodec(),
