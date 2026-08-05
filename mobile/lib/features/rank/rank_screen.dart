@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/ui/glass.dart';
 
 import 'package:flutter/material.dart';
 
@@ -414,17 +415,20 @@ class RankScreenState extends State<RankScreen>
     return InkWell(
       onTap: () => _switchMode(m),
       borderRadius: BorderRadius.circular(999),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          color: on ? bg : Colors.transparent,
-        ),
-        child: Text(label,
-            style: ar(11,
-                color: on ? fg : const Color(0xFF888888), weight: FontWeight.w700)),
-      ),
+      // زجاجٌ للشريحة النشطة وحدها: زجاجُ الخاملة يساوي ضجيجاً بلا دلالة.
+      child: on
+          ? GlassChip(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              tintColor: bg,
+              borderColor: bg,
+              child: Text(label, style: ar(11, color: fg, weight: FontWeight.w700)),
+            )
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              child: Text(label,
+                  style: ar(11,
+                      color: const Color(0xFF888888), weight: FontWeight.w700)),
+            ),
     );
   }
 
@@ -450,13 +454,10 @@ class RankScreenState extends State<RankScreen>
     return ConstrainedBox(
       // سقف ٥٢٪ من عرض الشاشة يمنع اسم موسمٍ طويل من كسر الصفّ
       constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.52),
-      child: Container(
+      child: GlassChip(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          color: bg,
-          border: Border.all(color: border),
-        ),
+        tintColor: bg,
+        borderColor: border,
         child: DropdownButtonHideUnderline(
           child: DropdownButton<int>(
             value: list.any((s) => s.id == _selectedSeasonId) ? _selectedSeasonId : null,

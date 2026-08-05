@@ -178,24 +178,52 @@ class DisplayBg extends StatelessWidget {
     // هذا الوهج يمنح العدسة ما تكسره في كلّ الشاشات لا في الملوّنة وحدها.
     //
     // ⚠️ يكسر تكافؤ الويب عمداً (قرار المالك) — ومحصورٌ في iOS.
-    // خافتٌ جداً بقصد: الهوية نوار، والمطلوب مادّةٌ تكسر لا خلفيةٌ تلفت.
+    //
+    // الألوان من لغة النوار نفسها لا من خارجها: أحمرُ الدم في الزوايا
+    // (نظير BloodVignette أعلاه) وذهبُ الهوية أسفل الشاشة خلف الشريط.
+    // خافتةٌ جداً بقصد — المطلوب مادّةٌ تكسر لا خلفيةٌ تلفت.
     return Stack(
       fit: StackFit.expand,
       children: [
         base,
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(-1, -0.7),
+                radius: 1.2,
+                colors: [Color(0x1F8A0303), Color(0x00000000)],
+                stops: [0.0, 0.6],
+              ),
+            ),
+          ),
+        ),
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(1, -0.2),
+                radius: 1.1,
+                colors: [Color(0x148A0303), Color(0x00000000)],
+                stops: [0.0, 0.55],
+              ),
+            ),
+          ),
+        ),
+        // وهجٌ ذهبيّ سفليّ — هو ما يمنح عدسة الشريط ما تكسره.
         Positioned(
           left: 0,
           right: 0,
           bottom: 0,
-          height: 260,
+          height: 240,
           child: const IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  colors: [Color(0x2EFBBF24), Color(0x0F7C3AED), Color(0x00000000)],
-                  stops: [0.0, 0.45, 1.0],
+                  colors: [Color(0x2BFBBF24), Color(0x0F8A0303), Color(0x00000000)],
+                  stops: [0.0, 0.5, 1.0],
                 ),
               ),
             ),

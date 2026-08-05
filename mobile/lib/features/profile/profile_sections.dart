@@ -229,9 +229,8 @@ class AnalysisCard extends StatelessWidget {
     // يوحي بأن اللاعب مواطنٌ دائماً بينما لم يلعب شيئاً.
     final mafiaFraction = stats.mafiaGames == 0 ? 0.5 : stats.mafiaGames / total;
 
-    return Container(
+    return GlassCard(
       padding: const EdgeInsets.all(16),
-      decoration: glassCard(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -473,9 +472,8 @@ class _MatchHistoryCardState extends State<MatchHistoryCard> {
   @override
   Widget build(BuildContext context) {
     final rows = widget.matches.take(8).toList();
-    return Container(
+    return GlassCard(
       padding: const EdgeInsets.all(16),
-      decoration: glassCard(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

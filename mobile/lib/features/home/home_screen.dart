@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../core/ui/glass.dart';
 
 import '../../app/router.dart';
 import '../../app/theme/theme.dart';
@@ -171,14 +172,15 @@ class _BellButton extends StatelessWidget {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                Container(
-                  width: 42, height: 42,
-                  decoration: BoxDecoration(
-                    color: const Color(0x14FFFFFF),
-                    borderRadius: NoirRadius.soft,
-                    border: Border.all(color: const Color(0x1FFFFFFF)),
+                // زجاجٌ موحّد مع الشريط السفليّ — ودجت لا Platform View
+                const SizedBox(
+                  width: 42,
+                  height: 42,
+                  child: GlassChip(
+                    radius: 14,
+                    padding: EdgeInsets.zero,
+                    child: Center(child: Text('🔔', style: TextStyle(fontSize: 20))),
                   ),
-                  child: const Center(child: Text('🔔', style: TextStyle(fontSize: 20))),
                 ),
                 if (unread > 0)
                   // 🔴 `Positioned` لا `PositionedDirectional`: الشارة عنصر

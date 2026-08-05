@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/ui/glass.dart';
 
 import 'package:flutter/material.dart';
 
@@ -350,14 +351,12 @@ class GamesScreenState extends State<GamesScreen> {
     return InkWell(
       onTap: () => setState(() => _upcomingTab = upcoming),
       borderRadius: BorderRadius.circular(12),
-      child: Container(
+      // تبويبا «قادمة/سابقة» زجاجيّان — النشط بصبغةٍ ذهبية.
+      child: GlassChip(
+        radius: 12,
         padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          color: on ? const Color(0x26F59E0B) : const Color(0x0DFFFFFF),
-          border: Border.all(
-              color: on ? const Color(0x4DF59E0B) : const Color(0x0DFFFFFF)),
-        ),
+        tintColor: on ? const Color(0xFFF59E0B) : null,
+        borderColor: on ? const Color(0x4DF59E0B) : const Color(0x1FFFFFFF),
         child: Center(
           child: Text(label,
               style: ar(14,
