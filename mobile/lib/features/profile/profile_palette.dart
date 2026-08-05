@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/ui/glass.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎨 لوحة شاشة الملفّ الشخصيّ — §4.0 في الملفّ 13
@@ -244,4 +245,39 @@ class _DonutPainter extends CustomPainter {
   @override
   bool shouldRepaint(_DonutPainter o) =>
       o.percent != percent || o.color != color || o.stroke != stroke;
+}
+
+/// بطاقةٌ زجاجيّة — بديل `Container(decoration: glassCard())`.
+///
+/// `glassCard()` تبقى للحالات التي تحتاج زخرفةً لا ودجت (تركيبها داخل
+/// زخارف أخرى)، لكنها **لون فوق لون** لا زجاج. هذه تعطي المادّة نفسها
+/// التي في الشريط السفليّ: ضبابٌ لما خلفها وانكسارٌ عند حافّتها.
+class GlassCard extends StatelessWidget {
+  const GlassCard({
+    super.key,
+    required this.child,
+    this.radius = 16,
+    this.padding = EdgeInsets.zero,
+  });
+
+  final Widget child;
+  final double radius;
+  final EdgeInsets padding;
+
+@override
+Widget build(BuildContext context) => GlassSurface(
+      borderRadius: BorderRadius.circular(radius),
+      blurSigma: 8,
+      refract: 14,
+      rimWidth: 12,
+      specular: 0.24,
+      tint: 0.40,
+      borderColor: const Color(0x1FFFFFFF),
+      gradient: const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0x14FFFFFF), Color(0x05FFFFFF)],
+      ),
+      child: Padding(padding: padding, child: child),
+    );
 }

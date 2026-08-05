@@ -62,6 +62,10 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^5.0.0
 
+  # اختبارات على جهازٍ حقيقيّ: تقيس زمن الإطارات فعلياً
+  integration_test:
+    sdk: flutter
+
   # توليد أيقونة iOS وشاشة الإقلاع — أدوات بناء لا تُشحن مع التطبيق
   flutter_launcher_icons: ^0.14.4
   flutter_native_splash: ^2.4.6
@@ -105,6 +109,10 @@ flutter:
   # `my_turn.wav`: ثلاث نغمات جيبية صاعدة ٦٦٠→٨٨٠→١١٠٠Hz بإزاحات
   # 0/0.2/0.4s — نظير `WebAudio` في الويب حرفياً. أصلٌ مسبق التوليد بدل
   # تركيبٍ وقت التشغيل: التركيب يحتاج إذناً صوتياً على iOS وقد يصمت.
+  # شيدر الانكسار العدسيّ — يغذّي GlassSurface في core/ui/glass.dart
+  shaders:
+    - shaders/liquid_glass.frag
+
   assets:
     - assets/sounds/
 

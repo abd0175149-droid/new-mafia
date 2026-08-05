@@ -1,0 +1,20 @@
+// ══════════════════════════════════════════════════════
+// توقيعٌ محلّيّ لاختبار جهازٍ حقيقيّ (Personal Team مجاني)
+// ══════════════════════════════════════════════════════
+// انسخ هذا الملفّ إلى local-signing.xcconfig في المجلد نفسه، ثم املأ
+// DEVELOPMENT_TEAM بمعرّف فريقك الشخصيّ (عشرة محارف) من:
+//   Xcode ← Settings ← Accounts ← حسابك ← Manage Certificates
+// أو اتركه فارغاً ودع Xcode يختاره من الواجهة أوّل مرّة.
+//
+// الملفّ مُتجاهَل في git: معرّف الفريق يخصّ جهازك لا المشروع.
+
+// الحساب المجانيّ لا يملك Push ولا Associated Domains — entitlements فارغة.
+CODE_SIGN_ENTITLEMENTS = Runner/RunnerFreeTeam.entitlements
+
+// توقيعٌ تلقائيّ بفريقك الشخصيّ
+CODE_SIGN_STYLE = Automatic
+DEVELOPMENT_TEAM =
+
+// معرّفٌ خاصّ بجهازك: يتجنّب تصادم `sbs.grade.mafiaclub.dev` إن كان
+// مسجَّلاً لحسابٍ آخر. أيّ لاحقة فريدة تكفي.
+PRODUCT_BUNDLE_IDENTIFIER = sbs.grade.mafiaclub.dev.local

@@ -16,3 +16,7 @@ vapid-keys.json
 **/uploads/vapid-keys.json
 testsprite_tests/tmp/
 backend/src/scripts/battery-alert.ts
+
+# نفايات Finder على الماك — لا تخصّ المشروع
+.DS_Store
+**/.DS_Store

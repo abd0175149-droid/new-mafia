@@ -371,11 +371,21 @@ class _Shell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: const Color(0xFF050505),
+        // 🔴 شفّاف لا `#050505` صمّاء: هذه الشاشة تعيش داخل غلافٍ يرسم
+        //    خلفيّته (`DisplayBg`) ويمدّ المحتوى خلف الشريط السفليّ
+        //    (`extendBody`). خلفيةٌ معتمة هنا تُغطّي ذلك كلَّه فيصير الشريط
+        //    كأنه جالسٌ على لوحٍ أسود مستقلّ عن الصفحة — وهو ما رآه المالك.
+        backgroundColor: Colors.transparent,
+        // 🔴 `bottom: false`: SafeArea السفلية كانت تُنهي المحتوى فوق
+        //    الشريط بحدٍّ حادّ فيُقصّ الكارت. المطلوب أن يمرّ المحتوى
+        //    **خلف** الزجاج فيكسره — وهذا شرط أن يُرى الزجاج أصلاً.
         body: SafeArea(
+          bottom: false,
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              // الحشوة السفلية تُبقي آخر المحتوى قابلاً للوصول بالتمرير
+              // رغم مروره خلف الشريط.
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 104),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 448),
                 child: Column(children: [

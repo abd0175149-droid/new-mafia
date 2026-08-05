@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../core/ui/glass.dart';
 
 import 'package:flutter/material.dart';
 
@@ -86,16 +87,12 @@ class _ChipsBalancePillState extends State<ChipsBalancePill> with WidgetsBinding
         InkWell(
           onTap: widget.onTap ?? () => pushTo(Routes.store),
           borderRadius: NoirRadius.soft,
-          child: Container(
+          // زجاجٌ بصبغةٍ ذهبية: الدلالة اللونية تبقى، والمادّة توحَّد.
+          child: GlassChip(
+            radius: 12,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: NoirRadius.soft,
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [Color(0x29F59E0B), Color(0x0DF59E0B)],
-              ),
-              border: Border.all(color: const Color(0x52F59E0B)),
-            ),
+            tintColor: const Color(0xFFF59E0B),
+            borderColor: const Color(0x52F59E0B),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               const Text('🪙', style: TextStyle(fontSize: 14)),
               const SizedBox(width: 6),

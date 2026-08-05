@@ -45,3 +45,6 @@ AuthKey_*.p8
 *.cer
 *.certSigningRequest
 *.mobileprovision
+
+# توقيعٌ محلّيّ لاختبار الأجهزة — يخصّ الجهاز لا المشروع
+Flutter/local-signing.xcconfig

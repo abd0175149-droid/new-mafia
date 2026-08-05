@@ -114,9 +114,7 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: glassCard(),
-      clipBehavior: Clip.antiAlias,
+    return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

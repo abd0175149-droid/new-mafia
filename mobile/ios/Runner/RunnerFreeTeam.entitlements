@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- ══════════════════════════════════════════════════════
+	     اختبارٌ على جهازٍ حقيقيّ بحسابٍ مجانيّ (Personal Team)
+	     ══════════════════════════════════════════════════════
+	     فارغٌ عمداً. الحساب المجانيّ لا يملك قدرتَي Push Notifications
+	     ولا Associated Domains، فإعلانهما هنا يُفشل التوقيع برسالة
+	     «Personal development teams do not support the ... capability».
+
+	     لذلك هذا الملفّ للاختبار وحده — لقياس الأداء واللمس وشكل الزجاج
+	     على الجهاز. الإشعارات والروابط العميقة تحتاج الحساب المدفوع
+	     (المرحلة 7 في 93-ios-mac-execution.md) وتستعمل RunnerDev/Runner.
+
+	     لا يُشار إليه من أيّ configuration؛ يُفعَّل بنسخ
+	     Flutter/local-signing.xcconfig.example ← local-signing.xcconfig
+	     وهو مُتجاهَل في git. -->
+</dict>
+</plist>

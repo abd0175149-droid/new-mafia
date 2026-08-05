@@ -132,6 +132,8 @@ void main() {
     expect(navHeight(), greaterThan(collapsed));
   });
 
+  _contractTests();
+
   testWidgets('لا فيضان تخطيط في أيّ من الحالتين', (tester) async {
     await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
     await tester.pumpAndSettle();
@@ -142,5 +144,42 @@ void main() {
     // العطل التاريخيّ في الشريط الكلاسيكيّ: الزرّ المركزيّ المرتفع
     // يطالب بارتفاعٍ لا يملكه الشريط ⇒ BOTTOM OVERFLOWED.
     expect(tester.takeException(), isNull);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// 🔗 العقد بين Flutter وSwift
+// ══════════════════════════════════════════════════════
+// الجانب الأصليّ (LiquidGlassPlatformView.swift) يشتقّ ارتفاع الكبسولة
+// من إطار العرض: `bar = bounds.height - centerLift`. اضطُرّ إلى ذلك لأن
+// `creationParams` تُقرأ مرّة واحدة عند الإنشاء ولا تتحدّث مع إعادة بناء
+// الودجت — فبقيت 60 بينما ينكمش الإطار، فانزلقت الكبسولة وانفصل الزجاج
+// عن محتواه (رآه المالك على المحاكي).
+//
+// أي أن معادلة ارتفاع الإطار هنا صارت **واجهةً برمجية** لكودٍ أصليّ لا
+// تراه اختبارات Flutter. تغييرها يكسر الزجاج صامتاً على الجهاز وحده،
+// فتُثبَّت هنا.
+void _contractTests() {
+  testWidgets('إطار الشريط = ارتفاع الكبسولة + ارتفاع الزرّ، ويتقلّص بالانكماش',
+      (tester) async {
+    await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
+    await tester.pumpAndSettle();
+
+    final frame = find.byKey(const ValueKey('nav-frame'));
+    expect(frame, findsOneWidget);
+    final expanded = tester.getSize(frame).height;
+
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    final collapsed = tester.getSize(frame).height;
+
+    // الفارق هو فارق ارتفاعَي الكبسولة بالضبط (56 ← 42)، لأن ارتفاع
+    // الزرّ ثابت. إن اختلّ هذا اختلّت هندسة الزجاج الأصليّ معه.
+    //
+    // القيمة مقيَّدة بميزانية الارتفاع في liquid_glass_nav.dart: مجموع
+    // الشريط يجب أن يبقى دون الـ80 التي تحجزها الشاشات.
+    expect(expanded - collapsed, closeTo(14, 0.5),
+        reason: 'Swift يعتمد أن الفارق كلَّه من الكبسولة لا من الزرّ');
+    expect(collapsed, lessThan(expanded));
   });
 }

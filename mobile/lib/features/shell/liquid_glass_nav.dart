@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
+import 'native_glass.dart';
 
 // ══════════════════════════════════════════════════════
 // 🫧 شريط التنقّل الزجاجيّ — iOS وحده
@@ -24,15 +25,24 @@ import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
 /// نصف قطر الحوافّ — كبسولة كاملة الاستدارة.
 const double _kRadius = 34;
 
-/// ارتفاع محتوى الكبسولة: ممتدّة ← منكمشة.
-const double _kExpanded = 60;
-const double _kCollapsed = 48;
+// 🔴 ميزانية الارتفاع مقيَّدة بما تحجزه الشاشات، لا بالذوق:
+//    التبويبات تحجز 80–96 نقطة سفلية (`EdgeInsets.only(bottom: 80)`
+//    وأخواتها)، والشريط الكلاسيكيّ يشغل 64 + SafeArea فيتّسع.
+//    نسختي الأولى شغلت 62+20+8 = 90 فتجاوزت ميزانية الـ80 بعشر نقاط،
+//    فقُصّ المحتوى تحتها في الشاشات التي تحجز 80 (رآه المالك في شاشة
+//    الانضمام). المجموع الآن 56+16+6 = 78 — داخل الميزانية بهامش.
+//    أي زيادة هنا تتطلّب رفع حشوة الشاشات الخمس معها.
+const double _kExpanded = 56;
+const double _kCollapsed = 42;
 
 /// قطر الزرّ المركزيّ وارتفاعه فوق الكبسولة.
-const double _kCenterSize = 56;
-const double _kCenterLift = 18;
+/// الارتفاع ١٦: أقلّ منه يبتلع الاندماجُ الدائرةَ فتصير نتوءاً باهتاً،
+/// وأكثر منه ينفصل الجسمان فيضيع تمازج `UIGlassContainerEffect` —
+/// ويتجاوز ميزانية الارتفاع أعلاه.
+const double _kCenterSize = 52;
+const double _kCenterLift = 16;
 
-class LiquidGlassNav extends StatelessWidget {
+class LiquidGlassNav extends StatefulWidget {
   const LiquidGlassNav({
     super.key,
     required this.index,
@@ -50,8 +60,26 @@ class LiquidGlassNav extends StatelessWidget {
   static const _idle = Color(0xFF9CA3AF);
 
   @override
+  State<LiquidGlassNav> createState() => _LiquidGlassNavState();
+}
+
+class _LiquidGlassNavState extends State<LiquidGlassNav> {
+  /// null = لم يُحسم بعد؛ حتى يُحسم تُستعمل المحاكاة فلا يومض شيء.
+  bool _native = false;
+
+  @override
+  void initState() {
+    super.initState();
+    NativeGlass.isAvailable().then((v) {
+      if (mounted && v != _native) setState(() => _native = v);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final t = 1 - collapsed; // 1 ممتدّة → 0 منكمشة
+    final index = widget.index;
+    final onTap = widget.onTap;
+    final t = 1 - widget.collapsed; // 1 ممتدّة → 0 منكمشة
     final barH = lerpDouble(_kCollapsed, _kExpanded, t)!;
 
     return SafeArea(
@@ -61,20 +89,51 @@ class LiquidGlassNav extends StatelessWidget {
       child: Center(
         heightFactor: 1,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 512),
+          // العرض يضيق مع الانكماش أيضاً لا الارتفاع وحده: كبسولةٌ تفقد
+          // ثلث ارتفاعها وتحتفظ بعرضها كاملاً تبدو مقصوصةً لا منكمشة.
+          constraints: BoxConstraints(maxWidth: lerpDouble(452, 512, t)!),
           child: Padding(
-            // هوامش جانبية تجعلها «طافية» لا ملتصقة بالحواف
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            // هوامش جانبية تجعلها «طافية» لا ملتصقة بالحواف، وتتّسع عند
+            // الانكماش فيضيق الشريط بنسبةٍ توازي نقصان ارتفاعه.
+            padding: EdgeInsets.fromLTRB(
+              lerpDouble(38, 16, t)!, 0, lerpDouble(38, 16, t)!, 8),
             child: SizedBox(
               // الزرّ المركزيّ يعلو الكبسولة، فيُحجز له ارتفاعه هنا
               // وإلا قُصّ — العطل نفسه الموثَّق في الشريط الكلاسيكيّ.
+              //
+              // 🔴 عقدٌ مع Swift: الجانب الأصليّ يشتقّ ارتفاع الكبسولة من
+              //    هذا الإطار (bar = h - centerLift) لأن creationParams لا
+              //    تتحدّث. تغييرُ هذه المعادلة هنا يفصل الزجاج عن محتواه
+              //    صامتاً — ويحرسها اختبارٌ في liquid_glass_nav_test.dart.
+              key: const ValueKey('nav-frame'),
               height: barH + _kCenterLift,
               child: Stack(
                 clipBehavior: Clip.none,
                 alignment: Alignment.bottomCenter,
                 children: [
+                  // الزجاج الأصليّ يملأ الإطار كلّه (كبسولة + دائرة)،
+                  // ويرسم Flutter أيقوناته فوقه.
+                  if (_native)
+                    Positioned.fill(
+                      child: NativeGlassBackdrop(
+                        barHeight: barH,
+                        radius: _kRadius,
+                        centerSize: _kCenterSize,
+                        centerLift: _kCenterLift,
+                        // بلا صبغة: صبغُ الزجاج بالذهب يعطي كتلةً موحلة
+                        // تبتلع الأيقونة. أزرار أبل الزجاجية نفسها بلا
+                        // صبغة ورمزُها وحده ملوّن. الذهب هنا حلقةٌ حادّة
+                        // يرسمها Flutter فوق الدائرة.
+                        centerTint: null,
+                        // زجاجٌ أشفّ — يُظهر الانكسار على ثيمنا الداكن
+                        clearStyle: true,
+                      ),
+                    ),
                   _GlassCapsule(
                     height: barH,
+                    // مع الزجاج الأصليّ تصير كبسولة Flutter شفّافة تماماً:
+                    // وظيفتها التخطيط وحده، والمادّة من النظام.
+                    transparent: _native,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
@@ -101,6 +160,7 @@ class LiquidGlassNav extends StatelessWidget {
                   Positioned(
                     bottom: barH - _kCenterSize + _kCenterLift,
                     child: _GlassCenterTab(
+                      transparent: _native,
                       tab: navTabs[kCenterTab],
                       active: index == kCenterTab,
                       labelT: t,
@@ -119,13 +179,23 @@ class LiquidGlassNav extends StatelessWidget {
 
 /// المادّة الزجاجيّة: ضبابٌ لما خلفها، تدرّجٌ شفّاف، وحافّة لامعة.
 class _GlassCapsule extends StatelessWidget {
-  const _GlassCapsule({required this.height, required this.child});
+  const _GlassCapsule({
+    required this.height,
+    required this.child,
+    this.transparent = false,
+  });
 
   final double height;
   final Widget child;
 
+  /// مع الزجاج الأصليّ: تخطيطٌ بلا مادّة — أي ضبابٍ هنا يطمس زجاج النظام.
+  final bool transparent;
+
   @override
   Widget build(BuildContext context) {
+    if (transparent) {
+      return SizedBox(height: height, child: child);
+    }
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_kRadius),
@@ -221,12 +291,14 @@ class _GlassTab extends StatelessWidget {
 /// الزرّ المركزيّ «ادخل» — زجاجيّ بلمسة ذهبية تُبقيه العنصر الأبرز.
 class _GlassCenterTab extends StatefulWidget {
   const _GlassCenterTab({
+    this.transparent = false,
     required this.tab,
     required this.active,
     required this.labelT,
     required this.onTap,
   });
 
+  final bool transparent;
   final NavTab tab;
   final bool active;
   final double labelT;
@@ -251,7 +323,32 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
       child: AnimatedScale(
         scale: _down ? 0.9 : 1,
         duration: const Duration(milliseconds: 100),
-        child: Container(
+        // مع الزجاج الأصليّ يرسم النظامُ الدائرةَ وصبغتَها، فلا يبقى
+        // لـFlutter إلا الأيقونة — أيّ ضبابٍ أو تعبئة هنا يطمسه.
+        child: widget.transparent
+            // النظام يرسم الدائرة الزجاجيّة؛ ولـFlutter الحلقةُ والرمز.
+            // حلقةٌ رفيعة حادّة تحفظ الهوية الذهبية بلا أن تُوحل الزجاج،
+            // وتغلظ وتلمع حين يكون التبويب نشطاً.
+            ? Container(
+                width: _kCenterSize,
+                height: _kCenterSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: a ? const Color(0xFFFBBF24) : const Color(0x66FBBF24),
+                    width: a ? 1.8 : 1.0,
+                  ),
+                  boxShadow: a
+                      ? const [BoxShadow(color: Color(0x4DFBBF24), blurRadius: 14)]
+                      : null,
+                ),
+                child: Icon(
+                  a ? Icons.verified_user : Icons.verified_user_outlined,
+                  size: 26,
+                  color: const Color(0xFFFBBF24),
+                ),
+              )
+            : Container(
           width: _kCenterSize,
           height: _kCenterSize,
           decoration: BoxDecoration(
