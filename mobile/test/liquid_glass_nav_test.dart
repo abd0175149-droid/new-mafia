@@ -173,9 +173,12 @@ void _contractTests() {
     await tester.pumpAndSettle();
     final collapsed = tester.getSize(frame).height;
 
-    // الفارق هو فارق ارتفاعَي الكبسولة بالضبط (62 ← 46)، لأن ارتفاع
+    // الفارق هو فارق ارتفاعَي الكبسولة بالضبط (56 ← 42)، لأن ارتفاع
     // الزرّ ثابت. إن اختلّ هذا اختلّت هندسة الزجاج الأصليّ معه.
-    expect(expanded - collapsed, closeTo(16, 0.5),
+    //
+    // القيمة مقيَّدة بميزانية الارتفاع في liquid_glass_nav.dart: مجموع
+    // الشريط يجب أن يبقى دون الـ80 التي تحجزها الشاشات.
+    expect(expanded - collapsed, closeTo(14, 0.5),
         reason: 'Swift يعتمد أن الفارق كلَّه من الكبسولة لا من الزرّ');
     expect(collapsed, lessThan(expanded));
   });
