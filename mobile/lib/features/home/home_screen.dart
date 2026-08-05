@@ -109,6 +109,13 @@ class _HomeScreenState extends State<HomeScreen> {
               _ProfileCard(profile: _profile!),
               const SizedBox(height: 16),
               _StatsGrid(stats: _profile!.stats),
+              // 🌐 الاستضافة عن بُعد — يظهر للحسابات المصرّح لها وحدها
+              //    (players.can_host_remote يضبطها الأدمن). الخادم يفرضها
+              //    ثانيةً عند room:create-remote، فإخفاؤه هنا تجربةٌ لا أمان.
+              if (_profile!.canHostRemote) ...[
+                const SizedBox(height: 16),
+                const _HostRoomButton(),
+              ],
               if (_upcoming.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 _UpcomingSection(items: _upcoming),
@@ -560,4 +567,47 @@ class _FnbCard extends StatelessWidget {
           ]),
         ),
       );
+}
+
+/// زرّ إنشاء غرفة عن بُعد — للحسابات المصرّح لها (الملفّ 30 §4.1).
+class _HostRoomButton extends StatelessWidget {
+const _HostRoomButton();
+
+@override
+Widget build(BuildContext context) => GestureDetector(
+      onTap: () => pushTo(Routes.host),
+      behavior: HitTestBehavior.opaque,
+      child: GlassChip(
+        radius: 14,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        tintColor: const Color(0xFFC5A059),
+        borderColor: const Color(0x66C5A059),
+        child: Row(children: [
+          const Text("🌐", style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("استضافة غرفة عن بُعد",
+                    style: TextStyle(
+                        fontFamily: "Tajawal",
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFC5A059),
+                        letterSpacing: 0)),
+                SizedBox(height: 2),
+                Text("أنت المُوجِّه — يشترك أصدقاؤك من أجهزتهم",
+                    style: TextStyle(
+                        fontFamily: "Tajawal",
+                        fontSize: 11,
+                        color: Color(0xFF9A9A9A),
+                        letterSpacing: 0)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_left, color: Color(0xFFC5A059), size: 20),
+        ]),
+      ),
+    );
 }

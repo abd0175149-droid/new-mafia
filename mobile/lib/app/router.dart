@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../features/host/host_screen.dart';
 
 import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
@@ -33,6 +34,7 @@ abstract final class Routes {
   static const profile = '/player/profile';
   static const wallet = '/player/wallet';
   static const store = '/player/store';
+  static const host = '/player/host';
   static const order = '/player/order';
   static const feedback = '/player/feedback';
 
@@ -113,6 +115,13 @@ GoRouter buildRouter(AppConfig config) {
         builder: (_, s) => FeedbackScreen(
           sessionId: int.tryParse(s.uri.queryParameters['sessionId'] ?? ''),
         ),
+      ),
+
+      // 🌐 كونسول المضيف عن بُعد — خارج الغلاف عمداً: المضيف مُوجِّهٌ لا
+      //    لاعب، فلا معنى لشريط تبويبات اللاعب فوق شاشته (الملفّ 30 §1).
+      GoRoute(
+        path: Routes.host,
+        builder: (_, __) => const HostScreen(),
       ),
 
       GoRoute(
