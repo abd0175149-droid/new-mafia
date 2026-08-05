@@ -135,14 +135,18 @@ router.get('/attendance/:activityId', authenticate, async (req: Request, res: Re
       contactName: reservations.contactName, peopleCount: reservations.peopleCount,
       status: reservations.status, attended: reservations.attended, playerId: reservations.playerId,
       pName: players.name, avatarUrl: players.avatarUrl, rankTier: players.rankTier, level: players.level,
+      rankRR: players.rankRR,
     }).from(reservations).leftJoin(players, eq(reservations.playerId, players.id))
       .where(and(eq(reservations.activityId, actId), isNull(reservations.deletedAt)));
 
+    // الترتيب مطابقةٌ حرفيّة لصفحة ترتيب اللاعبين (/api/player-app/leaderboard):
+    // الرتبة ← نقاط RR ← المستوى. أعمدة players.* هي أرقام الموسم الحاليّ
+    // (تُصفَّر عند فتح موسمٍ جديد — season.service)، فالكشف يتبع الموسم تلقائيّاً.
     const members = rows.filter(r => r.playerId).map(r => ({
       name: r.pName || r.contactName, avatarUrl: r.avatarUrl || null,
-      rankTier: r.rankTier || 'INFORMANT', level: r.level || 1,
+      rankTier: r.rankTier || 'INFORMANT', level: r.level || 1, rankRR: r.rankRR || 0,
       peopleCount: r.peopleCount || 1, attended: r.attended === true,
-    })).sort((a, b) => (RANK_ORDER[b.rankTier] || 1) - (RANK_ORDER[a.rankTier] || 1) || (b.level - a.level) || a.name.localeCompare(b.name, 'ar'));
+    })).sort((a, b) => (RANK_ORDER[b.rankTier] || 1) - (RANK_ORDER[a.rankTier] || 1) || (b.rankRR - a.rankRR) || (b.level - a.level) || a.name.localeCompare(b.name, 'ar'));
 
     const guests = rows.filter(r => !r.playerId).map(r => ({
       name: r.contactName, peopleCount: r.peopleCount || 1, attended: r.attended === true,
