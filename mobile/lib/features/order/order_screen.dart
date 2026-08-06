@@ -18,10 +18,58 @@ import 'order_widgets.dart';
 //    التكافؤ = استطلاع كل ٣٠ ثانية في المقدّمة + إشعار FCM.
 
 class OrderScreen extends StatefulWidget {
-  const OrderScreen({super.key});
+  const OrderScreen({super.key, this.embedded = false});
+
+  /// ورقةً داخل شاشة اللعبة بدل صفحةٍ مستقلّة: بلا Scaffold ولا PopsToHome،
+  /// و«الرئيسيّة» تصير «إغلاق». القرار: الطلب يتمّ **من داخل صفحة اللعبة**
+  /// فلا يغادر اللاعب جولته الجارية.
+  final bool embedded;
 
   @override
   State<OrderScreen> createState() => _OrderScreenState();
+}
+
+/// يعرض لوحة الطلب ورقةً منسدلة فوق شاشة اللعبة.
+Future<void> showOrderSheet(BuildContext context) => showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: const Color(0xCC000000),
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxWidth: 512,
+        maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+      ),
+      builder: (_) => const _OrderSheetShell(),
+    );
+
+class _OrderSheetShell extends StatelessWidget {
+  const _OrderSheetShell();
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0B1310), Color(0xFF050505)],
+          ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Color(0x4010B981))),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 48,
+            height: 6,
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0x33FFFFFF),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          const Flexible(child: OrderScreen(embedded: true)),
+        ]),
+      );
 }
 
 class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
@@ -201,21 +249,25 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   // البناء
   // ══════════════════════════════════════════════════════
   @override
-  Widget build(BuildContext context) => PopsToHome(
-        child: Scaffold(
-          backgroundColor: const Color(0xFF050505),
-          // الشريط يرتفع فوق الكيبورد — الويب لا يعالج هذا وفي التطبيق إلزاميّ
-          resizeToAvoidBottomInset: true,
-          body: SafeArea(
-            bottom: false,
-            child: _loading
-                ? _loadingState(context)
-                : _ctx == null
-                    ? _noContext()
-                    : _ready(),
-          ),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final body = _loading
+        ? _loadingState(context)
+        : _ctx == null
+            ? _noContext()
+            : _ready();
+
+    // ورقةً: بلا Scaffold — الورقة نفسها هي السطح، وSafeArea السفليّ يخصّ الشاشة
+    if (widget.embedded) return body;
+
+    return PopsToHome(
+      child: Scaffold(
+        backgroundColor: const Color(0xFF050505),
+        // الشريط يرتفع فوق الكيبورد — الويب لا يعالج هذا وفي التطبيق إلزاميّ
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(bottom: false, child: body),
+      ),
+    );
+  }
 
   Widget _loadingState(BuildContext context) => SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.6,
@@ -248,10 +300,12 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
                     style: ar(14, color: Tw.gray500, height: 1.6)),
                 const SizedBox(height: 24),
                 InkWell(
-                  onTap: () => popOrHome(context),
+                  onTap: () => widget.embedded
+                      ? Navigator.of(context).maybePop()
+                      : popOrHome(context),
                   child: Padding(
                     padding: const EdgeInsets.all(4),
-                    child: Text('← الرئيسيّة',
+                    child: Text(widget.embedded ? 'إغلاق' : '← الرئيسيّة',
                         style: ar(14, color: kEmeraldText).copyWith(
                           decoration: TextDecoration.underline,
                           decorationColor: kEmeraldText,

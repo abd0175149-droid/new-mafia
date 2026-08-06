@@ -14,6 +14,7 @@ import 'mafia_gallery.dart';
 import 'mayor_layers.dart';
 import 'night_view.dart';
 import 'notepad_sheet.dart';
+import '../order/order_screen.dart' show showOrderSheet;
 import 'join_flow.dart';
 import '../voice/remote_voice.dart';
 import '../voice/voice_service.dart';
@@ -338,7 +339,7 @@ class _GameScreenState extends State<GameScreen> {
             shadowColor: const Color(0x5910B981),
             child: InkWell(
               customBorder: const CircleBorder(),
-              onTap: () => pushTo(Routes.order),
+              onTap: () => unawaited(showOrderSheet(context)),
               child: const SizedBox(
                 width: 48,
                 height: 48,

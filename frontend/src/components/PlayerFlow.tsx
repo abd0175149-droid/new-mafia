@@ -20,6 +20,7 @@ import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import PlayerNotepad from './PlayerNotepad';
+import OrderPanel from './OrderPanel';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
@@ -140,6 +141,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [playerToken, setPlayerToken] = useState<string | null>(null);
   // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم
   const [fnbReady, setFnbReady] = useState(false);
+  const [isOrderOpen, setIsOrderOpen] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [isExpelled, setIsExpelled] = useState(false);
@@ -3862,12 +3864,30 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           فلا يزحم الشاشة في الغرف التي لا منيو فيها. */}
       {(step === 'done' || step === 'rejoined') && fnbReady && (
         <button
-          onClick={() => { window.location.href = '/player/order'; }}
+          onClick={() => setIsOrderOpen(true)}
           className="fixed bottom-[152px] right-4 w-12 h-12 bg-[#0d1f18] border-2 border-emerald-500/70 text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] z-[90] hover:scale-105 transition-transform"
           title="اطلب من المكان"
         >
           🍽️
         </button>
+      )}
+
+      {/* 🍽️ ورقة الطلب — تُفتح فوق شاشة اللعبة ولا تغادرها.
+          اللاعب في جولةٍ جارية: مغادرة الصفحة تقطع السوكيت وتعيد الانضمام. */}
+      {isOrderOpen && (
+        <div
+          className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setIsOrderOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg max-h-[88dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border-t sm:border border-emerald-500/25"
+            style={{ background: 'linear-gradient(to bottom, #0b1310, #050505)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto my-3" />
+            <OrderPanel embedded onClose={() => setIsOrderOpen(false)} onEmptyContext={() => setFnbReady(false)} />
+          </div>
+        </div>
       )}
 
 
