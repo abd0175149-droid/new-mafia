@@ -112,6 +112,29 @@ venueRouter.get('/menu-items', authenticate, requireVenuePermission('menu.manage
 
 const MAX_BUNDLE_COMPONENTS = 12;
 
+// يتحقّق أنّ القسم ومجموعات الخيارات تخصّ هذا المكان — ومنعُ ربطِ مجموعةِ مكانٍ
+// آخر ليس تجميلاً: الأسعار والفروق تُقرأ منها عند كلّ طلب.
+async function validateLinks(
+  db: NonNullable<ReturnType<typeof getDB>>, body: any, locId: number, res: Response,
+): Promise<{ categoryId: number | null; optionGroupIds: number[] } | null> {
+  const rawCat = parseInt(body.categoryId);
+  let categoryId: number | null = Number.isFinite(rawCat) ? rawCat : null;
+  if (categoryId !== null) {
+    const [c] = await db.select({ id: menuCategories.id }).from(menuCategories)
+      .where(and(eq(menuCategories.id, categoryId), eq(menuCategories.locationId, locId), isNull(menuCategories.deletedAt))).limit(1);
+    if (!c) { res.status(400).json({ error: 'القسم غير موجود في مكانك' }); return null; }
+  }
+
+  const ids = [...new Set((Array.isArray(body.optionGroupIds) ? body.optionGroupIds : [])
+    .map((x: any) => parseInt(x)).filter(Number.isFinite))] as number[];
+  if (ids.length > 0) {
+    const rows = await db.select({ id: menuOptionGroups.id }).from(menuOptionGroups)
+      .where(and(inArray(menuOptionGroups.id, ids), eq(menuOptionGroups.locationId, locId), isNull(menuOptionGroups.deletedAt)));
+    if (rows.length !== ids.length) { res.status(400).json({ error: 'بعض مجموعات الخيارات غير موجودة في مكانك' }); return null; }
+  }
+  return { categoryId, optionGroupIds: ids };
+}
+
 // تحقّق مشترك لحقول الصنف — يعيد null مع ردّ 400 عند الخلل
 function validateItemBody(body: any, res: Response): { name: string; price: string; clubShare: string } | null {
   const name = String(body.name || '').trim();
@@ -166,7 +189,11 @@ venueRouter.post('/menu-items', authenticate, requireVenuePermission('menu.manag
   try {
     const b = await validateBundleBody(db, req.body, locId, null, res);
     if (!b) return;
+    const links = await validateLinks(db, req.body, locId, res);
+    if (!links) return;
     const [item] = await db.insert(menuItems).values({
+      categoryId: links.categoryId,
+      optionGroupIds: links.optionGroupIds,
       locationId: locId,
       category: String(req.body.category || '').trim().slice(0, 50),
       name: v.name,
@@ -196,8 +223,12 @@ venueRouter.put('/menu-items/:id', authenticate, requireVenuePermission('menu.ma
   try {
     const b = await validateBundleBody(db, req.body, locId, id, res);
     if (!b) return;
+    const links = await validateLinks(db, req.body, locId, res);
+    if (!links) return;
     // صنفٌ عاديّ لا يجوز أن يصبح عاديّاً وهو مكوّنٌ داخل باقة؟ مسموح — الباقة تحفظ لقطتها لحظة الطلب.
     const [item] = await db.update(menuItems).set({
+      categoryId: links.categoryId,
+      optionGroupIds: links.optionGroupIds,
       category: String(req.body.category || '').trim().slice(0, 50),
       name: v.name,
       description: String(req.body.description || '').trim(),

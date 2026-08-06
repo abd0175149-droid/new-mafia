@@ -7,6 +7,7 @@ import '../../app/theme/dimens.dart';
 import '../../core/api/api_client.dart';
 import '../../models/fnb.dart';
 import '../profile/profile_palette.dart';
+import 'option_picker.dart';
 import 'order_widgets.dart';
 
 // ══════════════════════════════════════════════════════
@@ -188,8 +189,21 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   // ══════════════════════════════════════════════════════
   // الأفعال
   // ══════════════════════════════════════════════════════
-  void _setQty(int itemId, int qty) =>
-      setState(() => _cart = _cart.setQty(itemId, qty));
+  /// إضافة صنف: مباشرةً إن كان بلا خيارات، وإلّا تُفتح ورقة الاختيار.
+  Future<void> _addItem(FnbMenuItem it) async {
+    if (!it.needsPicking) {
+      setState(() => _cart = _cart.add(FnbCartLine(
+            key: FnbCartLine.makeKey(it.id, const [], const {}),
+            itemId: it.id, quantity: 1, unitPrice: it.priceValue,
+          )));
+      return;
+    }
+    final line = await showOptionPicker(context, it);
+    if (line != null && mounted) setState(() => _cart = _cart.add(line));
+  }
+
+  void _changeQty(String key, int delta) =>
+      setState(() => _cart = _cart.changeQty(key, delta));
 
   Future<void> _send() async {
     if (_cart.isEmpty || _ctx == null || _sending) return;
@@ -344,6 +358,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
             OrderHeaderCard(ctx: _ctx!),
             const SizedBox(height: 20),
             ..._ordersSection(),
+            ..._cartLines(),
             ..._menuSection(twoColumns: wide),
             if (_err.isNotEmpty) ...[
               const SizedBox(height: 20),
@@ -383,6 +398,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      ..._cartLines(),
                       ..._menuSection(twoColumns: true),
                       if (_err.isNotEmpty) ...[
                         const SizedBox(height: 20),
@@ -418,39 +434,59 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     final out = <Widget>[];
     for (final e in groups.entries) {
       out.add(CategoryHeader(name: e.key));
-      if (twoColumns) {
-        // 🔴 لا `mainAxisExtent` ثابت: صنفٌ بوصفٍ يحتاج ارتفاعاً أكبر من
-        //    صنفٍ بلا وصف، والارتفاع الثابت يقصّ سطر السعر — وهو أهمّ ما
-        //    في الصفّ. صفوفٌ من اثنين داخل `IntrinsicHeight` تأخذ ارتفاع
-        //    الأطول، فتتساوى البطاقتان ولا يفيض شيء.
-        //    ⚠️ `stretch` وحده في سياقٍ بلا ارتفاعٍ محدَّد = فشل تخطيط
-        //    صامت؛ `IntrinsicHeight` هو ما يجعله شرعياً.
-        for (var i = 0; i < e.value.length; i += 2) {
-          final second = i + 1 < e.value.length ? e.value[i + 1] : null;
+      // 🗂️ أقسامٌ فرعيّة داخل القسم (مشروبات ← باردة/ساخنة) بترتيب الخادم
+      final subs = <String>[];
+      for (final m in e.value) {
+        if (!subs.contains(m.subcategory)) subs.add(m.subcategory);
+      }
+      for (final sub in subs) {
+        final inSub = e.value.where((m) => m.subcategory == sub).toList();
+        if (sub.isNotEmpty) {
           out.add(Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(child: _row(e.value[i])),
-                  const SizedBox(width: 8),
-                  Expanded(
-                      child: second == null
-                          ? const SizedBox.shrink()
-                          : _row(second)),
-                ],
-              ),
-            ),
+            padding: const EdgeInsets.only(bottom: 6, right: 4),
+            child: Text('↳ $sub',
+                style: ar(10, color: Tw.gray500, weight: FontWeight.bold)),
           ));
         }
-      } else {
-        for (final m in e.value) {
-          out.add(_row(m));
-          out.add(const SizedBox(height: 8));
-        }
+        out.addAll(_rowsFor(inSub, twoColumns: twoColumns));
       }
       out.add(const SizedBox(height: 12));
+    }
+    return out;
+  }
+
+  /// صفوف قسمٍ فرعيّ واحد — عمودٌ أو عمودان حسب عرض الشاشة.
+  List<Widget> _rowsFor(List<FnbMenuItem> list, {required bool twoColumns}) {
+    final out = <Widget>[];
+    if (!twoColumns) {
+      for (final m in list) {
+        out.add(_row(m));
+        out.add(const SizedBox(height: 8));
+      }
+      return out;
+    }
+    // 🔴 لا `mainAxisExtent` ثابت: صنفٌ بوصفٍ يحتاج ارتفاعاً أكبر من
+    //    صنفٍ بلا وصف، والارتفاع الثابت يقصّ سطر السعر — وهو أهمّ ما
+    //    في الصفّ. صفوفٌ من اثنين داخل `IntrinsicHeight` تأخذ ارتفاع
+    //    الأطول، فتتساوى البطاقتان ولا يفيض شيء.
+    //    ⚠️ `stretch` وحده في سياقٍ بلا ارتفاعٍ محدَّد = فشل تخطيط
+    //    صامت؛ `IntrinsicHeight` هو ما يجعله شرعياً.
+    for (var i = 0; i < list.length; i += 2) {
+      final second = i + 1 < list.length ? list[i + 1] : null;
+      out.add(Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: _row(list[i])),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: second == null ? const SizedBox.shrink() : _row(second)),
+            ],
+          ),
+        ),
+      ));
     }
     return out;
   }
@@ -458,8 +494,30 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   Widget _row(FnbMenuItem m) => MenuItemRow(
         item: m,
         qty: _cart.qtyOf(m.id),
-        onQty: (q) => _setQty(m.id, q),
+        onAdd: () => unawaited(_addItem(m)),
       );
+
+  /// 🛒 سطور السلّة — كلّ توليفةِ خياراتٍ سطرٌ مستقلّ بكمّيته
+  List<Widget> _cartLines() {
+    if (_cart.isEmpty) return const [];
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text('🛒 سلّتك',
+            style: ar(12, color: kEmeraldText, weight: FontWeight.bold)),
+      ),
+      for (final l in _cart.lines)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: CartLineRow(
+            line: l,
+            name: _menu.where((m) => m.id == l.itemId).firstOrNull?.name ?? 'صنف',
+            onQty: (d) => _changeQty(l.key, d),
+          ),
+        ),
+      const SizedBox(height: 12),
+    ];
+  }
 
   // ══════════════════════════════════════════════════════
   // §4.3.5 شريط السلّة العائم
@@ -467,7 +525,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   Widget _cartBar() {
     final insets = MediaQuery.viewInsetsOf(context).bottom;
     final safe = MediaQuery.viewPaddingOf(context).bottom;
-    final total = _cart.totalFor(_menu);
+    final total = _cart.total;
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 350),

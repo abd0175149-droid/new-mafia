@@ -81,35 +81,77 @@ void main() {
   });
 
   group('السلّة', () {
-    test('«+ أضف» يضبط واحداً والنزول لصفرٍ يحذف', () {
-      var c = const FnbCart().setQty(7, 1);
+    /// سطرٌ بلا خيارات — الشكل الشائع.
+    FnbCartLine line(int id, {int qty = 1, double price = 1, List<FnbSelection> opts = const []}) =>
+        FnbCartLine(
+          key: FnbCartLine.makeKey(id, opts, const {}),
+          itemId: id, quantity: qty, unitPrice: price, options: opts,
+        );
+
+    test('«+ أضف» يضيف سطراً والنزول لصفرٍ يحذفه', () {
+      var c = const FnbCart().add(line(7));
       expect(c.qtyOf(7), 1);
-      c = c.setQty(7, 0);
-      expect(c.qtyByItemId.containsKey(7), isFalse);
+      c = c.changeQty(c.lines.first.key, -1);
       expect(c.isEmpty, isTrue);
     });
 
     test('🔴 سقف العشرين صامت — يُقصّ بلا رسالة', () {
-      final c = const FnbCart().setQty(1, 99);
+      final c = const FnbCart().add(line(1, qty: 99));
       expect(c.qtyOf(1), kMaxQtyPerItem);
       expect(kMaxQtyPerItem, 20);
     });
 
-    test('العدّاد مجموع الكمّيات لا عدد الأصناف', () {
-      final c = const FnbCart().setQty(1, 3).setQty(2, 2);
+    test('العدّاد مجموع الكمّيات لا عدد السطور', () {
+      final c = const FnbCart().add(line(1, qty: 3)).add(line(2, qty: 2));
       expect(c.count, 5);
     });
 
-    test('المجموع للعرض فقط — وصنفٌ اختفى من المنيو يساهم بصفر', () {
-      final menu = [m(1, '3.50'), m(2, '1.25')];
-      final c = const FnbCart().setQty(1, 2).setQty(2, 1).setQty(99, 5);
-      expect(c.totalFor(menu), closeTo(8.25, 0.001));
+    test('المجموع من أسعار السطور — للعرض فقط', () {
+      final c = const FnbCart().add(line(1, qty: 2, price: 3.50)).add(line(2, price: 1.25));
+      expect(c.total, closeTo(8.25, 0.001));
     });
 
-    test('الحمولة معرّفٌ وكمّية لكلّ صنف', () {
-      final p = const FnbCart().setQty(4, 2).toPayload();
-      expect(p, [
-        {'menuItemId': 4, 'quantity': 2}
+    test('🔴 توليفتا خياراتٍ مختلفتان = سطران لا سطرٌ بكمّية 2', () {
+      const apple = FnbSelection(groupKey: 'g1', valueKey: 'v1');
+      const grape = FnbSelection(groupKey: 'g1', valueKey: 'v2');
+      final c = const FnbCart()
+          .add(line(5, opts: const [apple]))
+          .add(line(5, opts: const [grape]));
+      expect(c.lines.length, 2, reason: 'لولا ذلك حُضّرت نكهةٌ واحدة مرّتين');
+      expect(c.qtyOf(5), 2);
+    });
+
+    test('نفس التوليفة تُدمج في سطرٍ واحد', () {
+      const apple = FnbSelection(groupKey: 'g1', valueKey: 'v1');
+      final c = const FnbCart()
+          .add(line(5, opts: const [apple]))
+          .add(line(5, opts: const [apple]));
+      expect(c.lines.length, 1);
+      expect(c.lines.first.quantity, 2);
+    });
+
+    test('🔴 ترتيب الاختيارات لا يغيّر المفتاح — وإلّا انقسم السطر بلا سبب', () {
+      const a = FnbSelection(groupKey: 'g1', valueKey: 'v1');
+      const b = FnbSelection(groupKey: 'g2', valueKey: 'v9');
+      expect(FnbCartLine.makeKey(3, const [a, b], const {}),
+          FnbCartLine.makeKey(3, const [b, a], const {}));
+    });
+
+    test('الحمولة تحمل الخيارات وخيارات مكوّنات الباقة', () {
+      final l = FnbCartLine(
+        key: 'k', itemId: 4, quantity: 2, unitPrice: 5,
+        options: const [FnbSelection(groupKey: 'g1', valueKey: 'v1')],
+        componentOptions: const {9: [FnbSelection(groupKey: 'g2', valueKey: 'v7')]},
+      );
+      expect(const FnbCart().add(l).toPayload(), [
+        {
+          'menuItemId': 4,
+          'quantity': 2,
+          'options': [{'group': 'g1', 'value': 'v1'}],
+          'componentOptions': [
+            {'menuItemId': 9, 'options': [{'group': 'g2', 'value': 'v7'}]}
+          ],
+        }
       ]);
     });
   });
@@ -195,11 +237,11 @@ void main() {
                   children: [
                     Expanded(
                         child: MenuItemRow(
-                            item: withDesc, qty: 0, onQty: (_) {})),
+                            item: withDesc, qty: 0, onAdd: () {})),
                     const SizedBox(width: 8),
                     Expanded(
                         child: MenuItemRow(
-                            item: without, qty: 1, onQty: (_) {})),
+                            item: without, qty: 1, onAdd: () {})),
                   ],
                 ),
               ),

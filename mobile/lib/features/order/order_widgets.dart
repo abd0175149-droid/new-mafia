@@ -121,6 +121,10 @@ class MyOrderCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(order.itemsSummary, style: ar(11, color: Tw.gray400, height: 1.5)),
+          // ⚙️ ما اختاره فعلاً — ليتأكّد أنّ طلبه وصل كما أراد
+          for (final line in order.items.where((i) => i.options.isNotEmpty))
+            Text('⚙️ ${line.name}: ${chosenLine(line.options)}',
+                style: ar(10, color: const Color(0xCCFCD34D), height: 1.5)),
           // 🎁 تفصيل الباقات: ما يُحضَّر فعليّاً تحت سطر الملخّص
           for (final line in order.items.where((i) => i.isBundle))
             Text('🎁 ${line.componentsText}',
@@ -168,12 +172,12 @@ class MenuItemRow extends StatelessWidget {
     super.key,
     required this.item,
     required this.qty,
-    required this.onQty,
+    required this.onAdd,
   });
 
   final FnbMenuItem item;
-  final int qty;
-  final ValueChanged<int> onQty;
+  final int qty;          // مجموع كمّياته في السلّة بكلّ توليفاته
+  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -206,13 +210,19 @@ class MenuItemRow extends StatelessWidget {
                       style: ar(10,
                           color: item.isBundle ? kBundleText : Tw.gray600)),
                 const SizedBox(height: 2),
-                ltrText(item.priceText,
-                    num_(11, color: kEmeraldText, weight: FontWeight.bold)),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  ltrText(item.priceText,
+                      num_(11, color: kEmeraldText, weight: FontWeight.bold)),
+                  if (item.needsPicking) ...[
+                    const SizedBox(width: 8),
+                    Text('⚙️ خيارات', style: ar(9, color: const Color(0xE6FBBF24))),
+                  ],
+                ]),
               ],
             ),
           ),
           const SizedBox(width: 12),
-          qty == 0 ? _addButton() : _stepper(),
+          _addButton(),
         ]),
       );
 
@@ -240,8 +250,10 @@ class MenuItemRow extends StatelessWidget {
     );
   }
 
+  /// زرٌّ واحد: «أضف» للصنف العاديّ و«اختر» لذي الخيارات، ويحمل العدّاد
+  /// إن كان الصنف في السلّة (بكلّ توليفاته). التحكّم بالكمّيات صار في سطور السلّة.
   Widget _addButton() => InkWell(
-        onTap: () => onQty(1),
+        onTap: onAdd,
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -250,41 +262,91 @@ class MenuItemRow extends StatelessWidget {
             color: const Color(0x2610B981),
             border: Border.all(color: _borderPicked),
           ),
-          child: Text('+ أضف',
-              style: ar(12, color: kEmeraldText, weight: FontWeight.bold)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (qty > 0) ...[
+              ltrText('$qty', num_(12, weight: FontWeight.bold)),
+              const SizedBox(width: 6),
+            ],
+            Text(item.needsPicking ? 'اختر' : '+ أضف',
+                style: ar(12, color: kEmeraldText, weight: FontWeight.bold)),
+          ]),
         ),
       );
 
-  Widget _stepper() => Row(mainAxisSize: MainAxisSize.min, children: [
-        _stepBtn('−', const Color(0x0DFFFFFF), const Color(0x1AFFFFFF),
-            Colors.white, () => onQty(qty - 1)),
-        const SizedBox(width: 8),
-        SizedBox(
-          width: 20,
-          child: Center(child: ltrText('$qty', num_(14))),
-        ),
-        const SizedBox(width: 8),
-        // السقف صامت: لا رسالة ولا اهتزاز عند بلوغ 20
-        _stepBtn('+', const Color(0x3310B981), const Color(0x6610B981),
-            kEmeraldText, () => onQty(qty + 1)),
-      ]);
+}
 
-  Widget _stepBtn(String glyph, Color bg, Color border, Color fg, VoidCallback onTap) =>
-      InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: bg,
-            border: Border.all(color: border),
-          ),
-          child: Center(
-              child: Text(glyph,
-                  style: ar(14, color: fg, weight: FontWeight.bold))),
+/// زرّ ±: مشتركٌ بين سطور السلّة.
+Widget _stepBtn(String glyph, Color bg, Color border, Color fg, VoidCallback onTap) =>
+    InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: bg,
+          border: Border.all(color: border),
         ),
+        child: Center(
+            child: Text(glyph, style: ar(14, color: fg, weight: FontWeight.bold))),
+      ),
+    );
+
+// ══════════════════════════════════════════════════════
+// 🛒 سطر سلّة — توليفةٌ واحدة بكمّيتها
+// الخيارات المختارة تظهر تحت الاسم: بلا ذلك لا يميّز اللاعب سطرَي
+// «أرجيلة/تفاحتين» و«أرجيلة/عنب» عن بعضهما.
+// ══════════════════════════════════════════════════════
+class CartLineRow extends StatelessWidget {
+  const CartLineRow({
+    super.key,
+    required this.line,
+    required this.name,
+    required this.onQty,
+  });
+
+  final FnbCartLine line;
+  final String name;
+  final ValueChanged<int> onQty;   // ‎+1 أو ‎−1
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: const Color(0x0F10B981),
+          border: Border.all(color: const Color(0x3310B981)),
+        ),
+        child: Row(children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(name,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(12)),
+                if (line.label.isNotEmpty)
+                  Text(line.label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: ar(10, color: const Color(0xE6FCD34D), height: 1.4)),
+                const SizedBox(height: 2),
+                ltrText(jod(line.unitPrice * line.quantity),
+                    num_(10, color: kEmeraldText, weight: FontWeight.bold)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          _stepBtn('−', const Color(0x0DFFFFFF), const Color(0x1AFFFFFF),
+              Colors.white, () => onQty(-1)),
+          const SizedBox(width: 8),
+          SizedBox(width: 20, child: Center(child: ltrText('${line.quantity}', num_(14)))),
+          const SizedBox(width: 8),
+          // السقف صامت: لا رسالة ولا اهتزاز عند بلوغ 20
+          _stepBtn('+', const Color(0x3310B981), const Color(0x6610B981),
+              kEmeraldText, () => onQty(1)),
+        ]),
       );
 }
 

@@ -7,12 +7,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVenue } from '../context';
+import CategoriesModal, { type MenuCategory } from './CategoriesModal';
+import OptionGroupsModal, { type OptionGroup } from './OptionGroupsModal';
 
 interface BundleComponent { menuItemId: number; qty: number }
 
 interface MenuItem {
   id: number;
   category: string;
+  categoryId: number | null;
   name: string;
   description: string;
   price: string;
@@ -22,9 +25,10 @@ interface MenuItem {
   sortOrder: number;
   isBundle: boolean;
   bundleItems: BundleComponent[];
+  optionGroupIds: number[];
 }
 
-const EMPTY_FORM = { name: '', category: '', description: '', price: '', clubShare: '', sortOrder: '0', imageUrl: '', isAvailable: true };
+const EMPTY_FORM = { name: '', category: '', categoryId: '', description: '', price: '', clubShare: '', sortOrder: '0', imageUrl: '', isAvailable: true };
 
 // ══════════════════════════════════════════════════════
 // 👁️ معاينة حيّة — نسخةٌ طبق الأصل من صفّ الصنف في /player/order
@@ -114,6 +118,12 @@ export default function VenueMenuPage() {
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // 🗂️ الأقسام و⚙️ مجموعات الخيارات — تُدار من مودالَين مستقلَّين
+  const [cats, setCats] = useState<MenuCategory[]>([]);
+  const [groups, setGroups] = useState<OptionGroup[]>([]);
+  const [managerModal, setManagerModal] = useState<'cats' | 'groups' | null>(null);
+  // مجموعات الخيارات المربوطة بالصنف قيد التحرير
+  const [linkedGroups, setLinkedGroups] = useState<Set<number>>(new Set());
 
   // للأدمن تُمرَّر locationId صراحةً (تجاوز HQ في requireVenuePermission)
   const locParam = isHQ && locationId ? `locationId=${locationId}` : '';
@@ -122,30 +132,48 @@ export default function VenueMenuPage() {
   const load = useCallback(() => {
     if (!locationId) return;
     setLoading(true);
-    fetch(withLoc('/api/venue/menu-items'), { headers: authHeaders })
-      .then(r => r.json())
-      .then(d => { if (d.success) setItems(d.items); else setErr(d.error || 'فشل التحميل'); })
+    Promise.all([
+      fetch(withLoc('/api/venue/menu-items'), { headers: authHeaders }).then(r => r.json()),
+      fetch(withLoc('/api/venue/categories'), { headers: authHeaders }).then(r => r.json()),
+      fetch(withLoc('/api/venue/option-groups'), { headers: authHeaders }).then(r => r.json()),
+    ])
+      .then(([mi, ct, og]) => {
+        if (mi.success) setItems(mi.items); else setErr(mi.error || 'فشل التحميل');
+        if (ct.success) setCats(ct.categories);
+        if (og.success) setGroups(og.groups);
+      })
       .catch(() => setErr('خطأ في الاتصال'))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId]);
+
+  /// اسم القسم كاملاً للعرض: «مشروبات ← باردة»
+  const catLabel = useCallback((id: number | null | undefined) => {
+    if (!id) return '';
+    const leaf = cats.find(c => c.id === id);
+    if (!leaf) return '';
+    const parent = leaf.parentId ? cats.find(c => c.id === leaf.parentId) : null;
+    return parent ? `${parent.name} ← ${leaf.name}` : leaf.name;
+  }, [cats]);
 
   useEffect(() => { load(); }, [load]);
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
 
   const openAdd = () => {
-    setForm({ ...EMPTY_FORM }); setIsBundle(false); setBundle(new Map());
+    setForm({ ...EMPTY_FORM }); setIsBundle(false); setBundle(new Map()); setLinkedGroups(new Set());
     setEditId(null); setErr(''); setModal('add');
   };
   const openEdit = (it: MenuItem) => {
     setForm({
-      name: it.name, category: it.category || '', description: it.description || '',
+      name: it.name, category: it.category || '', categoryId: it.categoryId ? String(it.categoryId) : '',
+      description: it.description || '',
       price: it.price, clubShare: it.clubShare || '0', sortOrder: String(it.sortOrder ?? 0),
       imageUrl: it.imageUrl || '', isAvailable: it.isAvailable,
     });
     setIsBundle(it.isBundle === true);
     setBundle(new Map((it.bundleItems || []).map(c => [c.menuItemId, c.qty])));
+    setLinkedGroups(new Set(it.optionGroupIds || []));
     setEditId(it.id); setErr(''); setModal('edit');
   };
 
@@ -185,11 +213,15 @@ export default function VenueMenuPage() {
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          // لقطة اسم القسم تُرسل للتوافق، والمصدر الحقيقيّ categoryId
+          category: catLabel(parseInt(form.categoryId) || null).split(' ← ').pop() || '',
+          categoryId: form.categoryId ? parseInt(form.categoryId) : null,
           price: parseFloat(form.price),
           clubShare: form.clubShare === '' ? 0 : parseFloat(form.clubShare),
           sortOrder: parseInt(form.sortOrder) || 0,
           isBundle,
           bundleItems: isBundle ? Array.from(bundle.entries()).map(([menuItemId, qty]) => ({ menuItemId, qty })) : [],
+          optionGroupIds: Array.from(linkedGroups),
         }),
       });
       const d = await r.json();
@@ -241,12 +273,22 @@ export default function VenueMenuPage() {
             {locationName} • {items.length} صنفاً ({availCount} متاح) • يُعدّ مرّةً ويظهر للاعبين في كلّ فعاليّة مفعَّلة
           </p>
         </div>
-        <button
-          onClick={openAdd}
-          className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform shrink-0"
-        >
-          + صنف جديد
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button onClick={() => setManagerModal('cats')} title="أقسام المنيو"
+            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-emerald-500/40 transition-colors">
+            🗂️ الأقسام
+          </button>
+          <button onClick={() => setManagerModal('groups')} title="مجموعات الخيارات"
+            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-amber-500/40 transition-colors">
+            ⚙️ الخيارات
+          </button>
+          <button
+            onClick={openAdd}
+            className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform"
+          >
+            + صنف جديد
+          </button>
+        </div>
       </div>
 
       {/* ── بحث + فئات ── */}
@@ -337,6 +379,11 @@ export default function VenueMenuPage() {
                           حصّة النادي {parseFloat(it.clubShare).toFixed(2)}
                         </span>
                       )}
+                      {(it.optionGroupIds?.length ?? 0) > 0 && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20" title="مجموعات خيارات مربوطة">
+                          ⚙️ {it.optionGroupIds.map(gid => groups.find(g => g.id === gid)?.name).filter(Boolean).join(' · ') || it.optionGroupIds.length}
+                        </span>
+                      )}
                     </div>
                   </div>
                   {/* إتاحة */}
@@ -396,10 +443,24 @@ export default function VenueMenuPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">الفئة</label>
-                  <input value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} list="cat-list"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50" placeholder="مشروبات ساخنة" />
-                  <datalist id="cat-list">{existingCats.map(c => <option key={c} value={c} />)}</datalist>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] text-gray-400">القسم</label>
+                    <button onClick={() => setManagerModal('cats')} className="text-[10px] text-emerald-400">إدارة الأقسام ←</button>
+                  </div>
+                  <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50">
+                    <option value="">بلا قسم</option>
+                    {cats.filter(c => !c.parentId).map(root => {
+                      const kids = cats.filter(k => k.parentId === root.id);
+                      return kids.length === 0
+                        ? <option key={root.id} value={root.id}>{root.name}</option>
+                        : (
+                          <optgroup key={root.id} label={root.name}>
+                            {kids.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
+                          </optgroup>
+                        );
+                    })}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] text-gray-400 mb-1">الترتيب داخل الفئة</label>
@@ -474,6 +535,46 @@ export default function VenueMenuPage() {
                 </div>
               )}
 
+              {/* ── ⚙️ خيارات الصنف: نكهة/حجم/إضافات — مجموعاتٌ مشتركة تُربط بضغطة ── */}
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.04] p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] font-bold text-amber-300">⚙️ خيارات يختارها اللاعب</label>
+                  <button onClick={() => setManagerModal('groups')} className="text-[10px] text-amber-400">إدارة المجموعات ←</button>
+                </div>
+                {groups.length === 0 ? (
+                  <p className="text-[11px] text-gray-500 py-1">
+                    لا مجموعات بعد — أنشئ «نكهة المعسل» أو «الحجم» مرّةً واربطها بكلّ الأصناف التي تحتاجها.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pl-1">
+                    {groups.map(g => {
+                      const on = linkedGroups.has(g.id);
+                      return (
+                        <label key={g.id}
+                          className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border cursor-pointer transition-colors ${on ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/[0.02] border-white/[0.06]'}`}>
+                          <input type="checkbox" checked={on} className="w-3.5 h-3.5 accent-amber-500"
+                            onChange={() => setLinkedGroups(prev => {
+                              const next = new Set(prev);
+                              if (next.has(g.id)) next.delete(g.id); else next.add(g.id);
+                              return next;
+                            })} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs truncate">
+                              {g.name}
+                              {g.isRequired && <span className="text-[9px] text-rose-400 mr-1.5">إلزاميّ</span>}
+                            </p>
+                            <p className="text-[9px] text-gray-500 truncate">
+                              {g.values.map(v => v.name).join(' · ')}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[9px] text-gray-600 mt-2">فروق أسعار الخيارات تُضاف لسعر الصنف وتعود للمكان كاملةً.</p>
+              </div>
+
               {/* صورة */}
               <div>
                 <label className="block text-[11px] text-gray-400 mb-1">صورة الصنف</label>
@@ -526,6 +627,16 @@ export default function VenueMenuPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── مديرا الأقسام والخيارات ── */}
+      {managerModal === 'cats' && (
+        <CategoriesModal authHeaders={authHeaders} withLoc={withLoc}
+          onClose={() => setManagerModal(null)} onChanged={load} />
+      )}
+      {managerModal === 'groups' && (
+        <OptionGroupsModal authHeaders={authHeaders} withLoc={withLoc}
+          onClose={() => setManagerModal(null)} onChanged={load} />
       )}
 
       {/* ── توست ── */}

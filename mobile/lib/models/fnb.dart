@@ -96,15 +96,99 @@ class FnbContextResult {
 // المنيو
 // ══════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════
+// ⚙️ الخيارات — نكهة · حجم · إضافات
+// المفاتيح يولّدها الخادم (g{id}/v{id} للمشتركة، c{i}/c{i}:{j} للخاصّة)
+// ويُعيدها العميل كما هي — لا يحسبها بنفسه.
+// ══════════════════════════════════════════════════════
+
+class FnbOptionValue {
+  const FnbOptionValue({required this.key, required this.name, this.priceDelta = 0});
+  final String key, name;
+  final double priceDelta;
+
+  factory FnbOptionValue.fromJson(Map<String, dynamic> j) => FnbOptionValue(
+        key: _s(j['key']),
+        name: _s(j['name']),
+        priceDelta: parsePrice('${j['priceDelta'] ?? 0}'),
+      );
+
+  /// «كبير +1.00» — الفرق يظهر فقط إن وُجد.
+  String get label => priceDelta > 0 ? '$name +${jod(priceDelta)}' : name;
+}
+
+class FnbOptionGroup {
+  const FnbOptionGroup({
+    required this.key,
+    required this.name,
+    this.selectionType = 'single',
+    this.isRequired = false,
+    this.maxSelect = 1,
+    this.values = const [],
+  });
+
+  final String key, name, selectionType;
+  final bool isRequired;
+  final int maxSelect;
+  final List<FnbOptionValue> values;
+
+  bool get isMulti => selectionType == 'multi';
+
+  factory FnbOptionGroup.fromJson(Map<String, dynamic> j) => FnbOptionGroup(
+        key: _s(j['key']),
+        name: _s(j['name']),
+        selectionType: _s(j['selectionType']) == 'multi' ? 'multi' : 'single',
+        isRequired: j['isRequired'] == true,
+        maxSelect: _i(j['maxSelect']) == 0 ? 1 : _i(j['maxSelect']),
+        values: (j['values'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbOptionValue.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+      );
+}
+
+/// خيارٌ مختار كما يعيده الخادم في لقطة الطلب.
+class FnbChosenOption {
+  const FnbChosenOption({required this.group, required this.value});
+  final String group, value;
+
+  factory FnbChosenOption.fromJson(Map<String, dynamic> j) =>
+      FnbChosenOption(group: _s(j['group']), value: _s(j['value']));
+}
+
+/// «نكهة: تفاحتين · الحجم: كبير»
+String chosenLine(List<FnbChosenOption> opts) =>
+    opts.map((o) => '${o.group}: ${o.value}').join(' · ');
+
 /// 🎁 مكوّن باقة — اسمٌ وكمّية للوحدة الواحدة. بلا سعرٍ مفرد: اللاعب يرى
 /// «ماذا داخل العرض» لا تسعير المكوّنات (الخادم لا يرسله أصلاً).
 class FnbComponent {
-  const FnbComponent({required this.name, this.qty = 1});
+  const FnbComponent({
+    required this.name,
+    this.qty = 1,
+    this.menuItemId,
+    this.optionGroups = const [],
+    this.options = const [],
+  });
   final String name;
   final int qty;
+  final int? menuItemId;
+  final List<FnbOptionGroup> optionGroups;   // في المنيو: ما يجب سؤاله
+  final List<FnbChosenOption> options;       // في الطلب: ما اختير فعلاً
 
-  factory FnbComponent.fromJson(Map<String, dynamic> j) =>
-      FnbComponent(name: _s(j['name']), qty: _i(j['qty']) == 0 ? 1 : _i(j['qty']));
+  factory FnbComponent.fromJson(Map<String, dynamic> j) => FnbComponent(
+        name: _s(j['name']),
+        qty: _i(j['qty']) == 0 ? 1 : _i(j['qty']),
+        menuItemId: j['menuItemId'] == null ? null : _i(j['menuItemId']),
+        optionGroups: (j['optionGroups'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbOptionGroup.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        options: (j['options'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbChosenOption.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+      );
 
   /// «شاي ×2» — وتُسقَط الـ×1 اختصاراً.
   String label([int multiplier = 1]) {
@@ -127,13 +211,22 @@ class FnbMenuItem {
     this.imageUrl,
     this.isBundle = false,
     this.components = const [],
+    this.subcategory = '',
+    this.optionGroups = const [],
   });
 
   final int id;
   final String category, name, description, price;
+  final String subcategory;               // 🗂️ القسم الفرعيّ داخل القسم (قد يكون فارغاً)
   final String? imageUrl;
   final bool isBundle;                    // 🎁 باقة مركَّبة (العرض الكامل)
   final List<FnbComponent> components;
+  final List<FnbOptionGroup> optionGroups;
+
+  /// هل يحتاج سؤالاً قبل الإضافة؟ (خياراته أو خيارات مكوّنات باقته)
+  bool get needsPicking =>
+      optionGroups.isNotEmpty ||
+      components.any((c) => c.optionGroups.isNotEmpty);
 
   double get priceValue => parsePrice(price);
   String get priceText => jod(priceValue);
@@ -152,9 +245,14 @@ class FnbMenuItem {
             ? j['imageUrl'] as String
             : null,
         isBundle: j['isBundle'] == true,
+        subcategory: _s(j['subcategory']),
         components: (j['components'] as List? ?? const [])
             .whereType<Map>()
             .map((e) => FnbComponent.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        optionGroups: (j['optionGroups'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbOptionGroup.fromJson(Map<String, dynamic>.from(e)))
             .toList(),
       );
 }
@@ -182,10 +280,12 @@ class FnbOrderLine {
     this.unitPrice = '0',
     this.quantity = 0,
     this.components = const [],
+    this.options = const [],
   });
   final String name, unitPrice;
   final int quantity;
-  final List<FnbComponent> components;   // 🎁 لقطة مكوّنات الباقة وقت الطلب
+  final List<FnbComponent> components;      // 🎁 لقطة مكوّنات الباقة وقت الطلب
+  final List<FnbChosenOption> options;      // ⚙️ لقطة الخيارات المختارة
 
   bool get isBundle => components.isNotEmpty;
 
@@ -199,6 +299,10 @@ class FnbOrderLine {
         components: (j['components'] as List? ?? const [])
             .whereType<Map>()
             .map((e) => FnbComponent.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        options: (j['options'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbChosenOption.fromJson(Map<String, dynamic>.from(e)))
             .toList(),
       );
 }
@@ -273,42 +377,106 @@ const kMaxQtyPerItem = 20;
 /// حدّ الملاحظة حرفاً؛ الخادم يقصّ إلى العدد نفسه بعد trim.
 const kMaxNoteLength = 300;
 
+/// اختيارٌ واحد بمفاتيح الخادم.
+class FnbSelection {
+  const FnbSelection({required this.groupKey, required this.valueKey});
+  final String groupKey, valueKey;
+  Map<String, String> toJson() => {'group': groupKey, 'value': valueKey};
+}
+
+/// 🛒 سطر سلّة = صنف + توليفة خيارات.
+/// 🔴 توليفتان مختلفتان **سطران**: «أرجيلة/تفاحتين» و«أرجيلة/عنب» لا تندمجان،
+///    وإلّا حُضّرت نكهةٌ واحدة مرّتين.
+class FnbCartLine {
+  const FnbCartLine({
+    required this.key,
+    required this.itemId,
+    required this.quantity,
+    required this.unitPrice,
+    this.label = '',
+    this.options = const [],
+    this.componentOptions = const {},
+  });
+
+  final String key;
+  final int itemId, quantity;
+  final double unitPrice;              // للعرض فقط — الخادم يعيد التسعير
+  final String label;                  // «نكهة: تفاحتين · الحجم: كبير»
+  final List<FnbSelection> options;
+  final Map<int, List<FnbSelection>> componentOptions;
+
+  FnbCartLine copyWith({int? quantity}) => FnbCartLine(
+        key: key, itemId: itemId, quantity: quantity ?? this.quantity,
+        unitPrice: unitPrice, label: label, options: options,
+        componentOptions: componentOptions,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'menuItemId': itemId,
+        'quantity': quantity,
+        'options': options.map((o) => o.toJson()).toList(),
+        'componentOptions': [
+          for (final e in componentOptions.entries)
+            {'menuItemId': e.key, 'options': e.value.map((o) => o.toJson()).toList()},
+        ],
+      };
+
+  /// مفتاحٌ مستقرّ يميّز التوليفة — نفس صياغة الويب.
+  static String makeKey(int itemId, List<FnbSelection> options,
+      Map<int, List<FnbSelection>> componentOptions) {
+    final a = options.map((o) => '${o.groupKey}|${o.valueKey}').toList()..sort();
+    final b = componentOptions.entries
+        .map((e) => '${e.key}:${(e.value.map((o) => '${o.groupKey}|${o.valueKey}').toList()..sort()).join(',')}')
+        .toList()
+      ..sort();
+    return '$itemId#${a.join(',')}#${b.join(';')}';
+  }
+}
+
 class FnbCart {
-  const FnbCart({this.qtyByItemId = const {}});
+  const FnbCart({this.lines = const []});
 
-  final Map<int, int> qtyByItemId;
+  final List<FnbCartLine> lines;
 
-  int qtyOf(int itemId) => qtyByItemId[itemId] ?? 0;
+  int get count => lines.fold(0, (a, l) => a + l.quantity);
 
-  int get count => qtyByItemId.values.fold(0, (a, b) => a + b);
+  bool get isEmpty => lines.isEmpty;
 
-  bool get isEmpty => qtyByItemId.isEmpty;
+  /// كمّية الصنف بكلّ توليفاته — لعدّاد صفّ المنيو.
+  int qtyOf(int itemId) =>
+      lines.where((l) => l.itemId == itemId).fold(0, (a, l) => a + l.quantity);
 
   /// المجموع **للعرض فقط**: الخادم يعيد التسعير من قاعدته داخل معاملة
-  /// ولا يثق بأيّ سعرٍ من العميل. صنفٌ اختفى من المنيو يساهم بصفر.
-  double totalFor(List<FnbMenuItem> menu) {
-    var sum = 0.0;
-    for (final m in menu) {
-      final q = qtyByItemId[m.id];
-      if (q != null) sum += m.priceValue * q;
+  /// ولا يثق بأيّ سعرٍ من العميل.
+  double get total => lines.fold(0.0, (a, l) => a + l.unitPrice * l.quantity);
+
+  /// يزيد سطراً قائماً أو يضيف الجديد — والسقف يُطبَّق في الحالتين.
+  FnbCart add(FnbCartLine line) {
+    final i = lines.indexWhere((l) => l.key == line.key);
+    if (i == -1) {
+      return FnbCart(lines: [
+        ...lines,
+        line.quantity > kMaxQtyPerItem
+            ? line.copyWith(quantity: kMaxQtyPerItem)
+            : line,
+      ]);
     }
-    return sum;
+    final next = [...lines];
+    final q = next[i].quantity + line.quantity;
+    next[i] = next[i].copyWith(quantity: q > kMaxQtyPerItem ? kMaxQtyPerItem : q);
+    return FnbCart(lines: next);
   }
 
-  FnbCart setQty(int itemId, int qty) {
-    final next = Map<int, int>.from(qtyByItemId);
-    if (qty <= 0) {
-      next.remove(itemId);
-    } else {
-      next[itemId] = qty > kMaxQtyPerItem ? kMaxQtyPerItem : qty;
+  FnbCart changeQty(String key, int delta) {
+    final next = <FnbCartLine>[];
+    for (final l in lines) {
+      if (l.key != key) { next.add(l); continue; }
+      final q = l.quantity + delta;
+      if (q <= 0) continue;                    // الصفر يحذف السطر
+      next.add(l.copyWith(quantity: q > kMaxQtyPerItem ? kMaxQtyPerItem : q));
     }
-    return FnbCart(qtyByItemId: next);
+    return FnbCart(lines: next);
   }
 
-  /// حمولة الإرسال — الترتيب لا يهمّ والخادم يدمج المكرّر (ولا مكرّر
-  /// أصلاً: المفتاح `menuItemId`).
-  List<Map<String, int>> toPayload() => [
-        for (final e in qtyByItemId.entries)
-          {'menuItemId': e.key, 'quantity': e.value},
-      ];
+  List<Map<String, dynamic>> toPayload() => lines.map((l) => l.toJson()).toList();
 }

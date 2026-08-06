@@ -19,14 +19,32 @@ interface Ctx {
   locationName: string;
   source: 'live' | 'booking';
 }
-interface Component { name: string; qty: number }
+interface OptionValue { key: string; name: string; priceDelta: number }
+interface OptionGroup {
+  key: string; name: string; selectionType: 'single' | 'multi';
+  isRequired: boolean; maxSelect: number; values: OptionValue[];
+}
+interface Chosen { group: string; value: string }
+interface Component { menuItemId?: number; name: string; qty: number; optionGroups?: OptionGroup[]; options?: Chosen[] }
 interface Item {
-  id: number; category: string; name: string; description: string; price: string; imageUrl: string | null;
-  isBundle?: boolean; components?: Component[];
+  id: number; category: string; subcategory?: string; name: string; description: string; price: string; imageUrl: string | null;
+  isBundle?: boolean; components?: Component[]; optionGroups?: OptionGroup[];
 }
 interface MyOrder {
   id: number; status: string; total: string; note: string; createdAt: string;
-  items: { name: string; unitPrice: string; quantity: number; components?: Component[] }[];
+  items: { name: string; unitPrice: string; quantity: number; components?: Component[]; options?: Chosen[] }[];
+}
+
+/** سطر سلّة = صنف + توليفة خيارات. توليفتان مختلفتان = سطران. */
+interface CartLine {
+  key: string;
+  itemId: number;
+  quantity: number;
+  options: { groupKey: string; valueKey: string }[];
+  componentOptions: { menuItemId: number; options: { groupKey: string; valueKey: string }[] }[];
+  /** للعرض فقط — الخادم يعيد التسعير */
+  unitPrice: number;
+  label: string;
 }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: string }> = {
@@ -35,6 +53,150 @@ const STATUS_META: Record<string, { label: string; color: string; icon: string }
   delivered: { label: 'تمّ التسليم', color: '#22c55e', icon: '✅' },
   cancelled: { label: 'ملغى', color: '#6b7280', icon: '✖️' },
 };
+
+// ══════════════════════════════════════════════════════
+// ⚙️ ورقة اختيار الخيارات — تُسأل قبل دخول الصنف السلّة
+// تشمل خيارات الصنف نفسه **وخيارات مكوّنات الباقة** (قرار: يُسأل اللاعب
+// عند طلب باقةٍ أحد مكوّناتها يحتاج نكهةً أو حجماً).
+// التحقّق هنا للراحة فقط — الخادم يعيد التحقّق والتسعير سيادياً.
+// ══════════════════════════════════════════════════════
+function OptionSheet({
+  item, onCancel, onConfirm,
+}: {
+  item: Item;
+  onCancel: () => void;
+  onConfirm: (line: CartLine) => void;
+}) {
+  // اختياراتٌ لكلّ «مالك»: '' = الصنف نفسه، أو معرّف المكوّن
+  const [sel, setSel] = useState<Record<string, Record<string, string[]>>>({});
+
+  const ownerGroups: { owner: string; title: string; groups: OptionGroup[] }[] = [
+    { owner: '', title: '', groups: item.optionGroups ?? [] },
+    ...(item.components ?? [])
+      .filter(c => (c.optionGroups?.length ?? 0) > 0 && c.menuItemId)
+      .map(c => ({ owner: String(c.menuItemId), title: c.name, groups: c.optionGroups! })),
+  ].filter(o => o.groups.length > 0);
+
+  const pick = (owner: string, g: OptionGroup, valueKey: string) => {
+    setSel(prev => {
+      const cur = prev[owner]?.[g.key] ?? [];
+      let next: string[];
+      if (g.selectionType === 'single') {
+        next = cur[0] === valueKey && !g.isRequired ? [] : [valueKey];
+      } else if (cur.includes(valueKey)) {
+        next = cur.filter(v => v !== valueKey);
+      } else {
+        next = cur.length >= g.maxSelect ? cur : [...cur, valueKey];
+      }
+      return { ...prev, [owner]: { ...(prev[owner] ?? {}), [g.key]: next } };
+    });
+  };
+
+  // كلّ مجموعةٍ إلزاميّة يجب أن تحمل اختياراً — وإلّا رُفض الطلب من الخادم
+  const missing = ownerGroups.flatMap(o =>
+    o.groups.filter(g => g.isRequired && (sel[o.owner]?.[g.key]?.length ?? 0) === 0)
+      .map(g => (o.title ? `${g.name} (${o.title})` : g.name)));
+
+  let delta = 0;
+  const labels: string[] = [];
+  const options: { groupKey: string; valueKey: string }[] = [];
+  const compOptsMap = new Map<number, { groupKey: string; valueKey: string }[]>();
+  for (const o of ownerGroups) {
+    for (const g of o.groups) {
+      for (const vk of (sel[o.owner]?.[g.key] ?? [])) {
+        const v = g.values.find(x => x.key === vk);
+        if (!v) continue;
+        delta += v.priceDelta;
+        labels.push(o.title ? `${o.title}: ${v.name}` : `${g.name}: ${v.name}`);
+        if (o.owner === '') options.push({ groupKey: g.key, valueKey: vk });
+        else {
+          const id = Number(o.owner);
+          compOptsMap.set(id, [...(compOptsMap.get(id) ?? []), { groupKey: g.key, valueKey: vk }]);
+        }
+      }
+    }
+  }
+  const unitPrice = parseFloat(item.price) + delta;
+
+  const confirm = () => {
+    if (missing.length > 0) return;
+    const componentOptions = Array.from(compOptsMap.entries()).map(([menuItemId, opts]) => ({ menuItemId, options: opts }));
+    // المفتاح يجعل التوليفات المختلفة سطوراً مستقلّة في السلّة
+    const key = `${item.id}#${JSON.stringify([
+      options.map(o => `${o.groupKey}|${o.valueKey}`).sort(),
+      componentOptions.map(c => `${c.menuItemId}:${c.options.map(o => `${o.groupKey}|${o.valueKey}`).sort().join(',')}`).sort(),
+    ])}`;
+    onConfirm({ key, itemId: item.id, quantity: 1, options, componentOptions, unitPrice, label: labels.join(' · ') });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[320] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm" onClick={onCancel} dir="rtl">
+      <div
+        className="w-full max-w-lg max-h-[85dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl p-5 border-t sm:border border-amber-500/25"
+        style={{ background: 'linear-gradient(to bottom, #131008, #050505)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
+        <h3 className="text-white text-base font-bold mb-1">{item.name}</h3>
+        <p className="text-gray-500 text-[11px] mb-4">اختر ما يناسبك ثمّ أضفه للسلّة</p>
+
+        {ownerGroups.map(o => (
+          <div key={o.owner || '_self'} className="mb-4">
+            {o.title && (
+              <p className="text-[10px] font-bold mb-2" style={{ color: 'rgba(196,181,253,0.8)' }}>🎁 خيارات {o.title}</p>
+            )}
+            {o.groups.map(g => {
+              const cur = sel[o.owner]?.[g.key] ?? [];
+              return (
+                <div key={g.key} className="mb-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs font-bold text-amber-300">{g.name}</span>
+                    {g.isRequired
+                      ? <span className="text-[9px] text-rose-400">إلزاميّ</span>
+                      : <span className="text-[9px] text-gray-600">اختياريّ</span>}
+                    {g.selectionType === 'multi' && <span className="text-[9px] text-gray-600">حتى {g.maxSelect}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {g.values.map(v => {
+                      const on = cur.includes(v.key);
+                      return (
+                        <button key={v.key} onClick={() => pick(o.owner, g, v.key)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                          style={{
+                            background: on ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.04)',
+                            border: `1px solid ${on ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}`,
+                            color: on ? '#fcd34d' : '#d1d5db',
+                          }}>
+                          {v.name}
+                          {v.priceDelta > 0 && <span className="text-[9px] opacity-80"> +{v.priceDelta.toFixed(2)}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {missing.length > 0 && (
+          <p className="text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">
+            يلزم اختيار: {missing.join(' · ')}
+          </p>
+        )}
+
+        <div className="flex gap-2 sticky bottom-0 pt-2" style={{ background: 'linear-gradient(to top, #050505 60%, transparent)' }}>
+          <button onClick={confirm} disabled={missing.length > 0}
+            className="flex-1 py-3 rounded-xl text-sm font-bold text-white disabled:opacity-40"
+            style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}>
+            أضف للسلّة • {unitPrice.toFixed(2)} د.أ
+          </button>
+          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إلغاء</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function OrderPanel({
   embedded = false,
@@ -52,7 +214,9 @@ export default function OrderPanel({
   const [items, setItems] = useState<Item[]>([]);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [cart, setCart] = useState<Map<number, number>>(new Map());
+  const [cart, setCart] = useState<CartLine[]>([]);
+  // ⚙️ الصنف قيد اختيار خياراته (نكهة/حجم/إضافات) قبل دخوله السلّة
+  const [picking, setPicking] = useState<Item | null>(null);
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
@@ -92,19 +256,44 @@ export default function OrderPanel({
     return () => { clearInterval(iv); document.removeEventListener('visibilitychange', refresh); };
   }, [ctx, loadOrders]);
 
-  const setQty = (id: number, qty: number) => {
+  /// هل يحتاج الصنف سؤالاً قبل الإضافة؟ (خياراته أو خيارات مكوّنات باقته)
+  const needsPicking = (it: Item) =>
+    (it.optionGroups?.length ?? 0) > 0 ||
+    (it.components ?? []).some(c => (c.optionGroups?.length ?? 0) > 0);
+
+  /// إضافة مباشرة لصنفٍ بلا خيارات، أو فتح ورقة الاختيار
+  const addItem = (it: Item) => {
+    if (needsPicking(it)) { setPicking(it); return; }
+    bumpLine(`${it.id}#`, () => ({
+      key: `${it.id}#`, itemId: it.id, quantity: 1, options: [], componentOptions: [],
+      unitPrice: parseFloat(it.price), label: '',
+    }));
+  };
+
+  /// يزيد كمّية سطرٍ قائم أو ينشئه
+  const bumpLine = (key: string, make: () => CartLine) => {
     setCart(prev => {
-      const next = new Map(prev);
-      if (qty <= 0) next.delete(id); else next.set(id, Math.min(qty, 20));
+      const i = prev.findIndex(l => l.key === key);
+      if (i === -1) return [...prev, make()];
+      const next = [...prev];
+      next[i] = { ...next[i], quantity: Math.min(next[i].quantity + 1, 20) };
       return next;
     });
   };
 
-  const cartCount = Array.from(cart.values()).reduce((s, q) => s + q, 0);
-  const cartTotal = Array.from(cart.entries()).reduce((s, [id, q]) => {
-    const it = items.find(i => i.id === id);
-    return s + (it ? parseFloat(it.price) * q : 0);
-  }, 0);
+  const changeQty = (key: string, delta: number) => {
+    setCart(prev => prev.flatMap(l => {
+      if (l.key !== key) return [l];
+      const q = l.quantity + delta;
+      if (q <= 0) return [];
+      return [{ ...l, quantity: Math.min(q, 20) }];
+    }));
+  };
+
+  const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
+  const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+  /// كمّية الصنف في السلّة بكل توليفاته — لعرض العدّاد على صفّ المنيو
+  const qtyOfItem = (id: number) => cart.filter(l => l.itemId === id).reduce((s, l) => s + l.quantity, 0);
 
   const submit = async () => {
     if (cartCount === 0 || !ctx) return;
@@ -114,13 +303,21 @@ export default function OrderPanel({
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: Array.from(cart.entries()).map(([menuItemId, quantity]) => ({ menuItemId, quantity })),
+          items: cart.map(l => ({
+            menuItemId: l.itemId,
+            quantity: l.quantity,
+            options: l.options.map(o => ({ group: o.groupKey, value: o.valueKey })),
+            componentOptions: l.componentOptions.map(c => ({
+              menuItemId: c.menuItemId,
+              options: c.options.map(o => ({ group: o.groupKey, value: o.valueKey })),
+            })),
+          })),
           note: note.trim(),
         }),
       });
       const d = await r.json();
       if (d.success) {
-        setCart(new Map()); setNote(''); setSent(true);
+        setCart([]); setNote(''); setSent(true);
         loadOrders(ctx.activityId);
         setTimeout(() => setSent(false), 2500);
       } else setErr(d.error || 'فشل إرسال الطلب');
@@ -199,6 +396,12 @@ export default function OrderPanel({
                   <p className="text-gray-400 text-[11px] leading-relaxed">
                     {o.items.map(i => `${i.name} ×${i.quantity}`).join(' • ')}
                   </p>
+                  {/* ⚙️ ما اختاره فعلاً — ليتأكّد أنّ طلبه وصل كما أراد */}
+                  {o.items.filter(i => i.options && i.options.length > 0).map((i, ix) => (
+                    <p key={`o${ix}`} className="text-[10px] leading-relaxed text-amber-300/80">
+                      ⚙️ {i.name}: {i.options!.map(x => `${x.group}: ${x.value}`).join(' · ')}
+                    </p>
+                  ))}
                   {o.items.filter(i => i.components && i.components.length > 0).map((i, ix) => (
                     <p key={ix} className="text-[10px] leading-relaxed" style={{ color: 'rgba(196,181,253,0.7)' }}>
                       🎁 {i.name}: {i.components!.map(c => `${c.name} ×${c.qty * i.quantity}`).join(' + ')}
@@ -228,53 +431,99 @@ export default function OrderPanel({
           <p className="text-gray-500 text-sm">المكان لم يضف أصنافاً بعد</p>
         </div>
       ) : (
-        categories.map(cat => (
-          <div key={cat || '_none'}>
-            <h3 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
-              <span>{cat || 'المنيو'}</span>
-              <span className="flex-1 h-px bg-emerald-500/10" />
-            </h3>
-            <div className="space-y-2">
-              {items.filter(i => (i.category || '') === cat).map(it => {
-                const qty = cart.get(it.id) || 0;
-                return (
-                  <div key={it.id} className="rounded-xl p-3 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.03)', border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)' }}>
-                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
-                      {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm truncate">
-                        {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
-                        {it.name}
-                      </p>
-                      {it.isBundle && it.components && it.components.length > 0 ? (
-                        <p className="text-[10px] truncate" style={{ color: 'rgba(196,181,253,0.75)' }}>
-                          {it.components.map(c => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ')}
-                        </p>
-                      ) : it.description ? (
-                        <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
-                      ) : null}
-                      <p className="text-emerald-400 text-[11px] font-bold mt-0.5">{parseFloat(it.price).toFixed(2)} د.أ</p>
-                    </div>
-                    {qty === 0 ? (
-                      <button onClick={() => setQty(it.id, 1)}
-                        className="px-3.5 py-1.5 rounded-lg text-xs font-bold shrink-0"
-                        style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
-                        + أضف
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => setQty(it.id, qty - 1)} className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 text-white text-sm">−</button>
-                        <span className="text-white text-sm font-bold w-5 text-center">{qty}</span>
-                        <button onClick={() => setQty(it.id, qty + 1)} className="w-7 h-7 rounded-lg text-sm font-bold" style={{ background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }}>+</button>
-                      </div>
-                    )}
+        categories.map(cat => {
+          const inCat = items.filter(i => (i.category || '') === cat);
+          // 🗂️ الأقسام الفرعيّة داخل القسم — بترتيب الخادم
+          const subs = Array.from(new Set(inCat.map(i => i.subcategory || '')));
+          return (
+            <div key={cat || '_none'}>
+              <h3 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
+                <span>{cat || 'المنيو'}</span>
+                <span className="flex-1 h-px bg-emerald-500/10" />
+              </h3>
+              {subs.map(sub => (
+                <div key={sub || '_direct'} className="mb-3">
+                  {sub && (
+                    <p className="text-[10px] font-bold text-gray-500 mb-1.5 pr-1">↳ {sub}</p>
+                  )}
+                  <div className="space-y-2">
+                    {inCat.filter(i => (i.subcategory || '') === sub).map(it => {
+                      const qty = qtyOfItem(it.id);
+                      const hasOpts = needsPicking(it);
+                      return (
+                        <div key={it.id} className="rounded-xl p-3 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.03)', border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)' }}>
+                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
+                            {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-sm truncate">
+                              {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
+                              {it.name}
+                            </p>
+                            {it.isBundle && it.components && it.components.length > 0 ? (
+                              <p className="text-[10px] truncate" style={{ color: 'rgba(196,181,253,0.75)' }}>
+                                {it.components.map(c => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ')}
+                              </p>
+                            ) : it.description ? (
+                              <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
+                            ) : null}
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p className="text-emerald-400 text-[11px] font-bold">{parseFloat(it.price).toFixed(2)} د.أ</p>
+                              {hasOpts && (
+                                <span className="text-[9px] text-amber-400/90">⚙️ خيارات</span>
+                              )}
+                            </div>
+                          </div>
+                          <button onClick={() => addItem(it)}
+                            className="px-3.5 py-1.5 rounded-lg text-xs font-bold shrink-0 flex items-center gap-1.5"
+                            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
+                            {qty > 0 && <span className="text-white">{qty}</span>}
+                            {hasOpts ? 'اختر' : '+ أضف'}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
+          );
+        })
+      )}
+
+      {/* ── 🛒 سطور السلّة — كلّ توليفةٍ سطرٌ مستقلّ بكمّيته ── */}
+      {cart.length > 0 && (
+        <div>
+          <h3 className="text-xs font-bold text-emerald-400/80 mb-2">🛒 سلّتك</h3>
+          <div className="space-y-2">
+            {cart.map(l => {
+              const it = items.find(i => i.id === l.itemId);
+              return (
+                <div key={l.key} className="rounded-xl p-2.5 flex items-center gap-3" style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-xs truncate">{it?.name || 'صنف'}</p>
+                    {l.label && <p className="text-[10px] text-amber-300/90 truncate">{l.label}</p>}
+                    <p className="text-emerald-400 text-[10px] font-bold">{(l.unitPrice * l.quantity).toFixed(2)} د.أ</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => changeQty(l.key, -1)} className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 text-white text-sm">−</button>
+                    <span className="text-white text-sm font-bold w-5 text-center">{l.quantity}</span>
+                    <button onClick={() => changeQty(l.key, 1)} className="w-7 h-7 rounded-lg text-sm font-bold" style={{ background: 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }}>+</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))
+        </div>
+      )}
+
+      {/* ── ⚙️ ورقة اختيار الخيارات ── */}
+      {picking && (
+        <OptionSheet
+          item={picking}
+          onCancel={() => setPicking(null)}
+          onConfirm={(line) => { bumpLine(line.key, () => line); setPicking(null); }}
+        />
       )}
 
       {/* ── شريط السلّة ── */}
