@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/socket/socket_service.dart';
 import '../../core/storage/session_store.dart';
+import 'role_generation.dart';
 
 // ══════════════════════════════════════════════════════
 // 🌐 كونسول المضيف عن بُعد — الشريحة الأولى (الملفّ 30)
@@ -115,8 +116,8 @@ class HostRosterPlayer {
       );
 }
 
-/// أطوار الشريحة الأولى. ما بعد اللوبي يُسلَّم للشريحة الثانية.
-enum HostStep { create, lobby }
+/// أطوار الكونسول. ما بعد الإسناد يُسلَّم لشريحة أطوار اللعب.
+enum HostStep { create, lobby, roleGeneration, roleBinding, inGame }
 
 class HostController extends ChangeNotifier {
   HostController._();
@@ -157,6 +158,16 @@ class HostController extends ChangeNotifier {
   String get phase => _phase;
 
   Timer? _poll;
+
+  /// تركيبة الأدوار المحلّية (§4.7).
+  List<String> roles = const [];
+
+  /// 🔴 توقيع آخر حزمةٍ وردت من الخادم. بدونه يعيد استطلاعُ الـ٢٫٥ ثانية
+  ///    بناءَ التركيبة كلّ مرّة فيمحو تعديلات المضيف الجارية — العطل
+  ///    الموصوف حرفياً في §4.8 («poolInitRef»).
+  String? _poolSignature;
+
+  RoleTuning tuning = const RoleTuning();
 
   bool get canStart => players.length >= 6;
 
@@ -223,7 +234,9 @@ class HostController extends ChangeNotifier {
   void _startPolling() {
     _poll?.cancel();
     _poll = Timer.periodic(const Duration(milliseconds: 2500), (_) {
-      if (_step == HostStep.lobby) refreshState();
+      // يستمرّ عبر اللوبي والتوليد والإسناد — لا في اللوبي وحده:
+      // انتقالُ الطور نفسه يصل عبر هذا الاستطلاع.
+      if (_step != HostStep.create) refreshState();
     });
   }
 
@@ -237,24 +250,47 @@ class HostController extends ChangeNotifier {
     _applyState(Map<String, dynamic>.from(state));
   }
 
-  void _applyState(Map<String, dynamic> s) {
-    _phase = (s['phase'] ?? 'LOBBY').toString();
-    _roomCode = (s['roomCode'] ?? s['code'] ?? _roomCode).toString();
+void _applyState(Map<String, dynamic> s) {
+  _phase = (s["phase"] ?? "LOBBY").toString();
 
-    final cfg = s['config'];
-    if (cfg is Map && cfg['maxPlayers'] is num) {
-      _maxPlayers = (cfg['maxPlayers'] as num).toInt();
-    }
+  // 🔴 الطور يُشتقّ من الخادم لا من نقرة المضيف: الاستطلاع قد يكشف
+  //    انتقالاً بدأه ليدرٌ آخر أو استعادةَ جلسةٍ بعد إعادة اتصال،
+  //    والاعتماد على النقر وحده يترك الشاشة متأخّرةً عن الحقيقة.
+  _step = switch (_phase) {
+    "LOBBY" => HostStep.lobby,
+    "ROLE_GENERATION" => HostStep.roleGeneration,
+    "ROLE_BINDING" => HostStep.roleBinding,
+    _ => HostStep.inGame,
+  };
 
-    final list = s['players'];
-    if (list is List) {
-      _players = list
-          .whereType<Map>()
-          .map((e) => HostRosterPlayer.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
+  final pool = s["rolesPool"];
+  if (pool is List) {
+    final next = pool.map((e) => e.toString()).toList();
+    // التوقيع يمنع الاستطلاع من محو تعديلات المضيف الجارية (§4.8).
+    final sig = next.join(",");
+    if (sig != _poolSignature) {
+      _poolSignature = sig;
+      roles = next;
     }
-    notifyListeners();
   }
+
+  _roomCode = (s["roomCode"] ?? s["code"] ?? _roomCode).toString();
+
+  final cfg = s["config"];
+  if (cfg is Map && cfg["maxPlayers"] is num) {
+    _maxPlayers = (cfg["maxPlayers"] as num).toInt();
+  }
+
+  final list = s["players"];
+  if (list is List) {
+    _players = list
+        .whereType<Map>()
+        .map((e) => HostRosterPlayer.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  notifyListeners();
+}
 
   Future<void> setMaxPlayers(int value) async {
     final id = _roomId;
@@ -329,6 +365,118 @@ class HostController extends ChangeNotifier {
     }
     reset();
   }
+
+
+// ── التوليد والإسناد (§4.7 و§4.8) ──
+
+/// يبني التركيبة الأولية من عدد الأحياء إن لم تصل من الخادم بعد.
+void seedRoles() {
+  if (roles.isNotEmpty) return;
+  roles = generateRoles(players.length);
+  notifyListeners();
+}
+
+void setRoleAt(int index, String role) {
+  if (index < 0 || index >= roles.length) return;
+  final next = [...roles];
+  next[index] = role;
+  roles = next;
+  notifyListeners();
+}
+
+void applyRoles(List<String> next) {
+  roles = next;
+  notifyListeners();
+}
+
+void setTuning(RoleTuning t) {
+  tuning = t;
+  notifyListeners();
+}
+
+/// يؤكّد التركيبة ويرسلها — §4.7 CONFIRM.
+Future<bool> confirmRoles() async {
+  final id = _roomId;
+  if (id == null || _busy) return false;
+  _busy = true;
+  _error = null;
+  notifyListeners();
+  final res = await SocketService.instance.ask('setup:roles-confirmed', {
+    'roomId': id,
+    'roles': roles,
+    ...tuning.payloadFor(roles),
+  });
+  _busy = false;
+  notifyListeners();
+  if (res == null || res['success'] != true) {
+    _fail((res?['error'] ?? 'تعذّر تأكيد التركيبة').toString());
+    return false;
+  }
+  await refreshState();
+  return true;
+}
+
+Future<void> bindRole(int physicalId, String role) async {
+  final id = _roomId;
+  if (id == null) return;
+  await SocketService.instance.ask(
+      'setup:bind-role', {'roomId': id, 'physicalId': physicalId, 'role': role});
+  await refreshState();
+}
+
+Future<void> unbindRole(int physicalId) async {
+  final id = _roomId;
+  if (id == null) return;
+  await SocketService.instance
+      .ask('setup:unbind-role', {'roomId': id, 'physicalId': physicalId});
+  await refreshState();
+}
+
+Future<void> randomAssign(List<int> lockedPhysicalIds) async {
+  final id = _roomId;
+  if (id == null || _busy) return;
+  _busy = true;
+  notifyListeners();
+  await SocketService.instance.ask('setup:random-assign',
+      {'roomId': id, 'lockedPhysicalIds': lockedPhysicalIds});
+  _busy = false;
+  await refreshState();
+}
+
+Future<bool> confirmBinding() async {
+  final id = _roomId;
+  if (id == null || _busy) return false;
+  _busy = true;
+  notifyListeners();
+  final res =
+      await SocketService.instance.ask('setup:confirm-roles', {'roomId': id});
+  _busy = false;
+  notifyListeners();
+  if (res == null || res['success'] != true) {
+    _fail((res?['error'] ?? 'تعذّر تأكيد الأدوار').toString());
+    return false;
+  }
+  await refreshState();
+  return true;
+}
+
+/// 🔒 قفل الهويّات وبدء اللعبة.
+Future<bool> lockAndStart() async {
+  final id = _roomId;
+  if (id == null || _busy) return false;
+  _busy = true;
+  notifyListeners();
+  final res =
+      await SocketService.instance.ask('setup:binding-complete', {'roomId': id});
+  _busy = false;
+  notifyListeners();
+  if (res == null || res['success'] != true) {
+    _fail((res?['error'] ?? 'أكّد الأدوار أولاً').toString());
+    return false;
+  }
+  await refreshState();
+  return true;
+}
 
   void reset() {
     _poll?.cancel();

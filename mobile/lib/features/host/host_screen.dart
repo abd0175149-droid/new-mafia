@@ -5,6 +5,7 @@ import '../profile/profile_palette.dart' show ar;
 import 'host_controller.dart';
 import 'host_create_screen.dart';
 import 'host_lobby_screen.dart';
+import 'host_roles_screen.dart';
 
 // ══════════════════════════════════════════════════════
 // 🌐 كونسول المضيف — القشرة (الملفّ 30)
@@ -39,7 +40,7 @@ class _HostScreenState extends State<HostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final inLobby = _c.step == HostStep.lobby;
+    final step = _c.step;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -56,7 +57,13 @@ class _HostScreenState extends State<HostScreen> {
                 ),
                 Expanded(
                   child: Text(
-                    inLobby ? 'لوبي الاستضافة' : 'استضافة عن بُعد',
+                    switch (step) {
+                      HostStep.create => 'استضافة عن بُعد',
+                      HostStep.lobby => 'لوبي الاستضافة',
+                      HostStep.roleGeneration => 'تركيبة الأدوار',
+                      HostStep.roleBinding => 'إسناد الأدوار',
+                      HostStep.inGame => 'إدارة اللعبة',
+                    },
                     textAlign: TextAlign.center,
                     style: ar(15, color: Colors.white, weight: FontWeight.w900),
                   ),
@@ -65,11 +72,47 @@ class _HostScreenState extends State<HostScreen> {
               ]),
             ),
             Expanded(
-              child: inLobby ? const HostLobbyScreen() : const HostCreateScreen(),
+              child: switch (step) {
+                HostStep.create => const HostCreateScreen(),
+                HostStep.lobby => const HostLobbyScreen(),
+                HostStep.roleGeneration => const HostRolesScreen(),
+                // الإسناد وأطوار اللعب شريحةٌ تالية — تُعرض حالةٌ
+                // صريحة بدل شاشةٍ فارغة تُوهم بعطل.
+                _ => const _ComingNext(),
+              },
             ),
           ]),
         ),
       ),
     );
   }
+}
+
+/// طورٌ يتجاوز ما بُني — شاشةٌ صريحة لا فراغ.
+class _ComingNext extends StatelessWidget {
+  const _ComingNext();
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🎴', style: TextStyle(fontSize: 40)),
+              const SizedBox(height: 12),
+              Text('اللعبة انطلقت على الخادم',
+                  textAlign: TextAlign.center,
+                  style: ar(15, color: Colors.white, weight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              Text(
+                'إسناد الأدوار وأطوار اللعب من الكونسول شريحةٌ تالية. '
+                'يمكنك متابعة الجولة من كونسول الويب حتى تصل.',
+                textAlign: TextAlign.center,
+                style: ar(12, color: const Color(0xFF9A9A9A)),
+              ),
+            ],
+          ),
+        ),
+      );
 }
