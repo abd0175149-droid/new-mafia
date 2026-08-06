@@ -2,6 +2,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'glass_tier.dart';
+
 // ══════════════════════════════════════════════════════
 // 🫧 المادّة الزجاجيّة — انكسارٌ عدسيّ لا ضبابٌ وحده
 // ══════════════════════════════════════════════════════
@@ -96,7 +98,11 @@ class _GlassSurfaceState extends State<GlassSurface> {
     super.initState();
     // التحميل لا تزامنيّ: نُعيد البناء عند الجهوز كي يظهر الانكسار
     // بدل الضباب وحده. `mounted` واقٍ من الجهوز بعد التخلّص.
-    if (!GlassShader.isReady && GlassShader.isSupported) {
+    // الدرجتان «ب/ج» لا تستعملان الشيدر فلا تحمّلانه (95 §3 — قرار ق3:
+    // الانكسار على أندرويد بتفضيل «فاخرة» اليدويّ فقط حتى قياس جهاز).
+    if (GlassQuality.tier == GlassTier.full &&
+        !GlassShader.isReady &&
+        GlassShader.isSupported) {
       GlassShader.ensureLoaded().then((_) {
         if (mounted) setState(() {});
       });
@@ -105,18 +111,46 @@ class _GlassSurfaceState extends State<GlassSurface> {
 
   @override
   Widget build(BuildContext context) {
-    final blurSigma = widget.blurSigma;
     final borderRadius = widget.borderRadius;
+    final tier = GlassQuality.tier;
+
+    // الدرجة «ج»: لا قراءة لما خلف السطح إطلاقاً (لا BackdropFilter).
+    // تعبئةٌ داكنة تقوم مقام الضباب في حجب الخلفية، وفوقها تدرّجُ
+    // الهوية وحدُّها نفسه — فيبقى العنصر «من العائلة» شكلاً بلا كلفته.
+    if (tier == GlassTier.lite) {
+      return ClipRRect(
+        borderRadius: borderRadius,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xE0100F0C),
+            borderRadius: borderRadius,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: borderRadius,
+              gradient: widget.gradient,
+              border: Border.all(color: widget.borderColor, width: 0.8),
+            ),
+            child: widget.child,
+          ),
+        ),
+      );
+    }
+
+    final blurSigma = widget.blurSigma;
     final blur = ui.ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma);
     // الشيدر يقيس بالبكسل الفيزيائيّ بينما القيم هنا منطقيّة.
+    // الدرجة «ب» ضبابٌ بلا عدسة — الشيدر للدرجة الكاملة وحدها.
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final lens = GlassShader.filter(
-      radius: borderRadius.topLeft.x * dpr,
-      rimWidth: widget.rimWidth * dpr,
-      refract: widget.refract * dpr,
-      specular: widget.specular,
-      tint: widget.tint,
-    );
+    final lens = tier == GlassTier.full
+        ? GlassShader.filter(
+            radius: borderRadius.topLeft.x * dpr,
+            rimWidth: widget.rimWidth * dpr,
+            refract: widget.refract * dpr,
+            specular: widget.specular,
+            tint: widget.tint,
+          )
+        : null;
 
     // الضباب أولاً ثمّ الانكسار: العدسة تحني صورةً مضبَّبة أصلاً،
     // وهو ترتيب الزجاج الحقيقيّ (السُّمك يشتّت ثمّ السطح يكسر).

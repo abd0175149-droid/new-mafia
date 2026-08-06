@@ -16,6 +16,7 @@ import 'core/api/auth_repository.dart';
 import 'core/push/push_service.dart';
 import 'core/socket/socket_service.dart';
 import 'core/storage/session_store.dart';
+import 'core/ui/glass_tier.dart';
 
 // ══════════════════════════════════════════════════════
 // 🚀 الإقلاع المشترك — §6.1
@@ -35,6 +36,11 @@ Future<void> bootstrap(AppConfig config) async {
 
   // ── التخزين المحليّ ──
   await Hive.initFlutter();
+
+  // ── درجة المادّة الزجاجيّة (95 §3) ──
+  // تُحسم قبل runApp كي لا يومض الشريط من مادّةٍ إلى أخرى بعد أوّل إطار.
+  // الكشف محليّ رخيص (تفضيل محفوظ + device_info) — لا شبكة فيه.
+  await GlassQuality.init();
 
   // تقويم ar_JO — بلا تهيئة يرمي DateFormat على لغة غير الإنجليزية
   await initializeDateFormatting('ar_JO');

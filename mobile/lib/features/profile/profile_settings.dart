@@ -6,6 +6,7 @@ import 'package:intl/intl.dart' show DateFormat;
 
 import '../../core/api/api_client.dart';
 import '../../core/api/auth_repository.dart';
+import '../../core/ui/glass_tier.dart';
 import '../../models/profile.dart';
 import 'profile_palette.dart';
 
@@ -171,6 +172,13 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
             else
               _passwordForm(),
             _divider(),
+            _sectionTitle('🎨 المظهر'),
+            const SizedBox(height: 8),
+            _glassQualityRow(),
+            const SizedBox(height: 6),
+            Text('«خفيفة» تلغي تأثير الزجاج للأجهزة الضعيفة. تُطبَّق فوراً.',
+                style: ar(9, color: Tw.gray600)),
+            _divider(),
             _sectionTitle('🔔 الإشعارات'),
             const SizedBox(height: 8),
             _linkRow('🛠️ تشخيص الإشعارات', Tw.cyan500, widget.onDiagnostics),
@@ -183,6 +191,56 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
 
   Widget _sectionTitle(String t) =>
       Text(t, style: ar(10, color: Tw.gray600, weight: FontWeight.w700));
+
+  /// «جودة الواجهة» — تجاوز سلّم المادّة الزجاجيّة يدوياً (95 §3.1):
+  /// تلقائي (كشف الجهاز) / فاخرة (شيدر الانكسار) / خفيفة (بلا blur).
+  /// iOS لا يعرض الصفّ: مادّته تُدار داخلياً ولا معنى للتجاوز هناك.
+  Widget _glassQualityRow() {
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      return Text('المظهر الزجاجيّ يُدار تلقائياً على iOS.',
+          style: ar(11, color: Tw.gray500));
+    }
+    const options = <(GlassPreference, String)>[
+      (GlassPreference.auto, 'تلقائي'),
+      (GlassPreference.fancy, 'فاخرة'),
+      (GlassPreference.light, 'خفيفة'),
+    ];
+    return Row(
+      children: [
+        Text('جودة الواجهة', style: ar(12, color: Tw.gray500)),
+        const Spacer(),
+        for (final (pref, label) in options) ...[
+          InkWell(
+            onTap: () async {
+              await GlassQuality.setPreference(pref);
+              if (mounted) setState(() {});
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: GlassQuality.preference == pref
+                    ? Tw.amber500.withValues(alpha: 0.12)
+                    : const Color(0x08FFFFFF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: GlassQuality.preference == pref
+                      ? Tw.amber500.withValues(alpha: 0.35)
+                      : const Color(0x0FFFFFFF),
+                ),
+              ),
+              child: Text(label,
+                  style: ar(10,
+                      color: GlassQuality.preference == pref
+                          ? Tw.amber400
+                          : Tw.gray500)),
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ],
+    );
+  }
 
   Widget _divider() => const Padding(
         padding: EdgeInsets.symmetric(vertical: 16),

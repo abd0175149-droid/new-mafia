@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mafia_club/core/ui/glass_tier.dart';
 import 'package:mafia_club/features/shell/bottom_nav.dart';
 import 'package:mafia_club/features/shell/liquid_glass_nav.dart';
 
 // ══════════════════════════════════════════════════════
-// 🫧 شريط التنقّل الزجاجيّ — iOS وحده
+// 🫧 شريط التنقّل الزجاجيّ — المنصّتان بدرجات المادّة
 // ══════════════════════════════════════════════════════
-// الضمانة الأهمّ ليست شكل الزجاج بل **أن الأندرويد لم يتغيّر**: الشريط
-// الزجاجيّ يحمل BackdropFilter، والملفّ 11 §13 رفض الـblur صراحةً لأن
-// تابلتات النادي ضعيفة. تسرّبه إلى الأندرويد يعني سقوط إطاراتٍ في يد
-// كلّ لاعب — عطلٌ لا يظهر في أيّ لقطة شاشة على الماك.
+// الحارس تغيّر مع تعميم الكبسولة (95 §4): لم يعد «أندرويد بلا زجاج» بل
+// **«الدرجة الخفيفة بلا أيّ BackdropFilter»** — هي درجة تابلتات النادي
+// الضعيفة، وقيد 11 §13 يعيش فيها حرفياً. تسرّب ضبابٍ إليها يعني سقوط
+// إطارات في يد كلّ لاعب على تلك الأجهزة — عطلٌ لا تُظهره لقطة شاشة.
+// والهندسة نفسها (الكبسولة والانكماش) صارت ثابت الهوية على المنصّتين.
 
-/// غلافٌ يحاكي ما يفعله ShellScreen: شريطٌ سفليّ يستمع لتمرير الجسم.
+/// غلافٌ يحاكي ما يفعله ShellScreen: كبسولة سفلية تستمع لتمرير الجسم.
 class _Harness extends StatefulWidget {
-  const _Harness({required this.platform});
-  final TargetPlatform platform;
+  const _Harness();
 
   @override
   State<_Harness> createState() => _HarnessState();
@@ -29,8 +30,6 @@ class _HarnessState extends State<_Harness> with SingleTickerProviderStateMixin 
     super.initState();
     _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
   }
-
-  bool get _glass => widget.platform == TargetPlatform.iOS;
 
   bool _onScroll(UserScrollNotification n) {
     if (n.metrics.axis != Axis.vertical) return false;
@@ -59,17 +58,13 @@ class _HarnessState extends State<_Harness> with SingleTickerProviderStateMixin 
         textDirection: TextDirection.rtl,
         child: Scaffold(
           extendBody: true,
-          body: _glass
-              ? NotificationListener<UserScrollNotification>(
-                  onNotification: _onScroll, child: body)
-              : body,
-          bottomNavigationBar: _glass
-              ? AnimatedBuilder(
-                  animation: _c,
-                  builder: (_, __) =>
-                      LiquidGlassNav(index: 0, onTap: (_) {}, collapsed: _c.value),
-                )
-              : MafiaBottomNav(index: 0, onTap: (_) {}),
+          body: NotificationListener<UserScrollNotification>(
+              onNotification: _onScroll, child: body),
+          bottomNavigationBar: AnimatedBuilder(
+            animation: _c,
+            builder: (_, __) =>
+                LiquidGlassNav(index: 0, onTap: (_) {}, collapsed: _c.value),
+          ),
         ),
       ),
     );
@@ -77,37 +72,58 @@ class _HarnessState extends State<_Harness> with SingleTickerProviderStateMixin 
 }
 
 void main() {
-  testWidgets('الأندرويد لا يرى الشريط الزجاجيّ ولا أيّ BackdropFilter',
+  tearDown(() {
+    GlassQuality.overrideForTest(null);
+  });
+
+  testWidgets('الدرجة الخفيفة «ج»: الكبسولة حاضرة وصفر BackdropFilter — حارس التابلتات',
       (tester) async {
-    await tester.pumpWidget(const _Harness(platform: TargetPlatform.android));
+    GlassQuality.overrideForTest(GlassTier.lite);
+    await tester.pumpWidget(const _Harness());
     await tester.pumpAndSettle();
 
-    expect(find.byType(MafiaBottomNav), findsOneWidget);
-    expect(find.byType(LiquidGlassNav), findsNothing);
-    // الضمانة الفعليّة: لا ضباب حيّ في الشجرة كلّها.
+    // الهندسة موحّدة: الكبسولة نفسها لا شريطَ بديلاً.
+    expect(find.byType(LiquidGlassNav), findsOneWidget);
+    // الضمانة الفعليّة: لا ضباب حيّ في الشجرة كلّها (قيد 11 §13).
     expect(find.byType(BackdropFilter), findsNothing);
   });
 
-  testWidgets('iOS يرى الشريط الزجاجيّ ولا يرى الكلاسيكيّ', (tester) async {
-    await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
+  testWidgets('درجة «ب» على أندرويد: الكبسولة بمادّة الضباب', (tester) async {
+    GlassQuality.overrideForTest(GlassTier.mid);
+    await tester.pumpWidget(const _Harness());
     await tester.pumpAndSettle();
 
     expect(find.byType(LiquidGlassNav), findsOneWidget);
-    expect(find.byType(MafiaBottomNav), findsNothing);
     expect(find.byType(BackdropFilter), findsWidgets);
   });
 
-  testWidgets('التبويبات الخمسة وتسمياتها حاضرة ممتدّةً', (tester) async {
-    await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
+  testWidgets('iOS: الكبسولة بمادّتها الكاملة', (tester) async {
+    GlassQuality.overrideForTest(GlassTier.full);
+    await tester.pumpWidget(const _Harness());
     await tester.pumpAndSettle();
 
-    for (final t in navTabs) {
-      expect(find.text(t.label), findsOneWidget);
+    expect(find.byType(LiquidGlassNav), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsWidgets);
+  });
+
+  testWidgets('التبويبات الخمسة وتسمياتها حاضرة ممتدّةً — على الدرجتين',
+      (tester) async {
+    for (final tier in [GlassTier.full, GlassTier.lite]) {
+      GlassQuality.overrideForTest(tier);
+      await tester.pumpWidget(const _Harness());
+      await tester.pumpAndSettle();
+
+      for (final t in navTabs) {
+        expect(find.text(t.label), findsOneWidget,
+            reason: 'التسمية ${t.label} غائبة على درجة $tier');
+      }
+      await tester.pumpWidget(const SizedBox());
     }
   });
 
   testWidgets('التمرير للأسفل يطوي الشريط، والصعود يعيده', (tester) async {
-    await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
+    GlassQuality.overrideForTest(GlassTier.full);
+    await tester.pumpWidget(const _Harness());
     await tester.pumpAndSettle();
 
     double navHeight() => tester.getSize(find.byType(LiquidGlassNav)).height;
@@ -132,10 +148,24 @@ void main() {
     expect(navHeight(), greaterThan(collapsed));
   });
 
+  testWidgets('سلوك الانكماش نفسه على الدرجة الخفيفة — الحركة ثابت هوية',
+      (tester) async {
+    GlassQuality.overrideForTest(GlassTier.lite);
+    await tester.pumpWidget(const _Harness());
+    await tester.pumpAndSettle();
+
+    double navHeight() => tester.getSize(find.byType(LiquidGlassNav)).height;
+    final expanded = navHeight();
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    expect(navHeight(), lessThan(expanded));
+  });
+
   _contractTests();
 
   testWidgets('لا فيضان تخطيط في أيّ من الحالتين', (tester) async {
-    await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
+    GlassQuality.overrideForTest(GlassTier.full);
+    await tester.pumpWidget(const _Harness());
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
@@ -158,11 +188,13 @@ void main() {
 //
 // أي أن معادلة ارتفاع الإطار هنا صارت **واجهةً برمجية** لكودٍ أصليّ لا
 // تراه اختبارات Flutter. تغييرها يكسر الزجاج صامتاً على الجهاز وحده،
-// فتُثبَّت هنا.
+// فتُثبَّت هنا. (قيم الهندسة نفسها صارت في glass_tokens.dart — عقد
+// المواصفة المشترك بين المنصّتين.)
 void _contractTests() {
   testWidgets('إطار الشريط = ارتفاع الكبسولة + ارتفاع الزرّ، ويتقلّص بالانكماش',
       (tester) async {
-    await tester.pumpWidget(const _Harness(platform: TargetPlatform.iOS));
+    GlassQuality.overrideForTest(GlassTier.full);
+    await tester.pumpWidget(const _Harness());
     await tester.pumpAndSettle();
 
     final frame = find.byKey(const ValueKey('nav-frame'));
@@ -176,7 +208,7 @@ void _contractTests() {
     // الفارق هو فارق ارتفاعَي الكبسولة بالضبط (56 ← 42)، لأن ارتفاع
     // الزرّ ثابت. إن اختلّ هذا اختلّت هندسة الزجاج الأصليّ معه.
     //
-    // القيمة مقيَّدة بميزانية الارتفاع في liquid_glass_nav.dart: مجموع
+    // القيمة مقيَّدة بميزانية الارتفاع في glass_tokens.dart: مجموع
     // الشريط يجب أن يبقى دون الـ80 التي تحجزها الشاشات.
     expect(expanded - collapsed, closeTo(14, 0.5),
         reason: 'Swift يعتمد أن الفارق كلَّه من الكبسولة لا من الزرّ');

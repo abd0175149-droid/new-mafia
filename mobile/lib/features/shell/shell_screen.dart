@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:go_router/go_router.dart';
@@ -8,7 +7,7 @@ import '../../app/router.dart';
 import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/ui/atmosphere.dart';
-import 'bottom_nav.dart';
+import '../../core/ui/glass_tier.dart';
 import 'liquid_glass_nav.dart';
 
 // ══════════════════════════════════════════════════════
@@ -30,9 +29,12 @@ class ShellScreen extends StatefulWidget {
 
 class _ShellScreenState extends State<ShellScreen>
     with SingleTickerProviderStateMixin {
-  /// الشريط الزجاجيّ على iOS وحده. الأندرويد يبقى على `MafiaBottomNav`
-  /// حرفياً — بلا ضباب وبلا كلفته على تابلتات النادي الضعيفة (11 §13).
-  bool get _glass => defaultTargetPlatform == TargetPlatform.iOS;
+  // الكبسولة الزجاجيّة صارت **للمنصّتين** (قرار المالك — 95 §4):
+  // الهندسة والحركة واحدة، والمادّة وحدها تتدرّج عبر GlassQuality —
+  // تابلتات النادي الضعيفة تأخذ الدرجة الخفيفة (تعبئة شفيفة بلا أيّ
+  // blur)، فقيد 11 §13 محفوظ حيث وُلد لا كحظرٍ شامل على المنصّة.
+  // الشريط الكلاسيكيّ MafiaBottomNav تقاعد (ق4: شريطان بهندستين =
+  // هوية مشطورة).
 
   /// 0 ممتدّ ← 1 منكمش.
   //
@@ -91,29 +93,28 @@ class _ShellScreenState extends State<ShellScreen>
 
   @override
   Widget build(BuildContext context) {
-    final body = DisplayBg(child: widget.shell);
-
-    return Scaffold(
-      // المحتوى يمتدّ خلف الشريط، والتبويبات تعطي حشوة سفلية 80
-      extendBody: true,
-      body: _glass
-          // يلتقط تمرير أيّ تبويب من موضع واحد — لا حاجة للمساس
-          // بالشاشات الخمس ولا بمكدّسات تنقّلها.
-          ? NotificationListener<UserScrollNotification>(
-              onNotification: _onScroll,
-              child: body,
-            )
-          : body,
-      bottomNavigationBar: _glass
-          ? AnimatedBuilder(
-              animation: _navCollapse,
-              builder: (_, __) => LiquidGlassNav(
-                index: widget.shell.currentIndex,
-                onTap: _select,
-                collapsed: _navCollapse.value,
-              ),
-            )
-          : MafiaBottomNav(index: widget.shell.currentIndex, onTap: _select),
+    // تغيير «جودة الواجهة» من الإعدادات يعيد بناء الغلاف بمن فيه —
+    // حدثٌ نادر، فلا كلفة تُذكر لإعادة البناء الشاملة.
+    return ValueListenableBuilder<GlassTier>(
+      valueListenable: GlassQuality.notifier,
+      builder: (context, _, __) => Scaffold(
+        // المحتوى يمتدّ خلف الشريط، والتبويبات تعطي حشوة سفلية 80
+        extendBody: true,
+        // يلتقط تمرير أيّ تبويب من موضع واحد — لا حاجة للمساس
+        // بالشاشات الخمس ولا بمكدّسات تنقّلها.
+        body: NotificationListener<UserScrollNotification>(
+          onNotification: _onScroll,
+          child: DisplayBg(child: widget.shell),
+        ),
+        bottomNavigationBar: AnimatedBuilder(
+          animation: _navCollapse,
+          builder: (_, __) => LiquidGlassNav(
+            index: widget.shell.currentIndex,
+            onTap: _select,
+            collapsed: _navCollapse.value,
+          ),
+        ),
+      ),
     );
   }
 }

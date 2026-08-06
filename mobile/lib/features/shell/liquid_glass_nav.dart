@@ -2,45 +2,44 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../core/ui/glass_tier.dart';
+import '../../core/ui/glass_tokens.dart';
 import 'bottom_nav.dart' show NavTab, navTabs, kCenterTab;
 import 'native_glass.dart';
 
 // ══════════════════════════════════════════════════════
-// 🫧 شريط التنقّل الزجاجيّ — iOS وحده
+// 🫧 شريط التنقّل الزجاجيّ — المنصّتان معاً، والمادّة بالدرجة
 // ══════════════════════════════════════════════════════
 // كبسولة طافية بمادّة شبيهة بـLiquid Glass في iOS 26، تنكمش عند التمرير
-// للأسفل وتعود عند الصعود. **الأندرويد لا يراها إطلاقاً** — يبقى على
-// `MafiaBottomNav` حرفياً (اختيار المنصّة في shell_screen.dart).
+// للأسفل وتعود عند الصعود. الهندسة والحركة واحدة على المنصّتين (تُقرأ من
+// GlassTokens حصراً)، والمادّة تتدرّج (قرار المالك — 95 §3):
 //
-// ⚠️ ليست مادّة أبل الأصليّة. `UIGlassEffect` تُطبَّق على عناصر UIKit،
-//    وFlutter يرسم واجهته بنفسه فلا يرثها؛ ولا شيء في Flutter 3.44 يوفّرها.
-//    هذه محاكاة: ضبابٌ خلفيّ + تدرّج شفّاف + حافّة لامعة.
+//   iOS            زجاج النظام الأصليّ إن توفّر (26+)، وإلا المحاكاة.
+//   أندرويد أ/ب    المحاكاة: ضبابٌ خلفيّ + تدرّج شفّاف + حافّة لامعة.
+//   أندرويد ج      تعبئة شفيفة بلا أيّ BackdropFilter — نفس الهندسة
+//                  حرفياً؛ درجة تابلتات النادي الضعيفة (قيد 11 §13 يعيش
+//                  هنا لا كحظرٍ على المنصّة).
 //
-// ⚠️ هذا يكسر عمداً تكافؤ الويب الموثَّق في 11-shell-navigation.md §4.6
-//    (الذي ينصّ على «يُستغنى عن الـblur») — قرار المالك، وحُصر في iOS
-//    لأن سبب الرفض هناك كان تابلتات الأندرويد الضعيفة في النادي (§13).
-//    الضباب يعمل هنا لأن `extendBody: true` مضبوطة أصلاً فيمرّ المحتوى
+// ⚠️ المحاكاة ليست مادّة أبل الأصليّة: `UIGlassEffect` تُطبَّق على عناصر
+//    UIKit وFlutter لا يرثها؛ ولا شيء في Flutter 3.44 يوفّرها.
+//    الضباب يعمل لأن `extendBody: true` مضبوطة أصلاً فيمرّ المحتوى
 //    الملوّن (بطاقة الترحيب الذهبية، خلايا الإحصاءات) خلف الشريط فعلاً.
+//
+// ⚠️ كسرُ تكافؤ الويب الموثَّق في 11 §4.6 صار يشمل المنصّتين (95 §4-ق2).
 
-/// نصف قطر الحوافّ — كبسولة كاملة الاستدارة.
-const double _kRadius = 34;
-
-// 🔴 ميزانية الارتفاع مقيَّدة بما تحجزه الشاشات، لا بالذوق:
-//    التبويبات تحجز 80–96 نقطة سفلية (`EdgeInsets.only(bottom: 80)`
-//    وأخواتها)، والشريط الكلاسيكيّ يشغل 64 + SafeArea فيتّسع.
-//    نسختي الأولى شغلت 62+20+8 = 90 فتجاوزت ميزانية الـ80 بعشر نقاط،
-//    فقُصّ المحتوى تحتها في الشاشات التي تحجز 80 (رآه المالك في شاشة
-//    الانضمام). المجموع الآن 56+16+6 = 78 — داخل الميزانية بهامش.
-//    أي زيادة هنا تتطلّب رفع حشوة الشاشات الخمس معها.
-const double _kExpanded = 56;
-const double _kCollapsed = 42;
+// أسماء محليّة قصيرة لعقد المواصفة — القيم وتعليلاتها المقيسة في
+// glass_tokens.dart، وميزانية الارتفاع (78 ≤ 80 التي تحجزها الشاشات)
+// موثَّقة هناك. تغيير أيّ رقم يقع هناك لا هنا.
+const double _kRadius = GlassTokens.navRadius;
+const double _kExpanded = GlassTokens.navExpanded;
+const double _kCollapsed = GlassTokens.navCollapsed;
 
 /// قطر الزرّ المركزيّ وارتفاعه فوق الكبسولة.
 /// الارتفاع ١٦: أقلّ منه يبتلع الاندماجُ الدائرةَ فتصير نتوءاً باهتاً،
 /// وأكثر منه ينفصل الجسمان فيضيع تمازج `UIGlassContainerEffect` —
-/// ويتجاوز ميزانية الارتفاع أعلاه.
-const double _kCenterSize = 52;
-const double _kCenterLift = 16;
+/// ويتجاوز ميزانية الارتفاع.
+const double _kCenterSize = GlassTokens.centerSize;
+const double _kCenterLift = GlassTokens.centerLift;
 
 class LiquidGlassNav extends StatefulWidget {
   const LiquidGlassNav({
@@ -56,8 +55,8 @@ class LiquidGlassNav extends StatefulWidget {
   /// 0 = ممتدّة بتسمياتها، 1 = منكمشة إلى أيقونات وحدها.
   final double collapsed;
 
-  static const _active = Color(0xFFFBBF24);
-  static const _idle = Color(0xFF9CA3AF);
+  static const _active = GlassTokens.active;
+  static const _idle = GlassTokens.idle;
 
   @override
   State<LiquidGlassNav> createState() => _LiquidGlassNavState();
@@ -81,6 +80,9 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
     final onTap = widget.onTap;
     final t = 1 - widget.collapsed; // 1 ممتدّة → 0 منكمشة
     final barH = lerpDouble(_kCollapsed, _kExpanded, t)!;
+    // الدرجة الخفيفة «ج»: نفس الهندسة والحركة، مادّةٌ صلبة شفيفة بلا
+    // أيّ BackdropFilter — يحرسها اختبارٌ في liquid_glass_nav_test.dart.
+    final solid = GlassQuality.tier == GlassTier.lite;
 
     return SafeArea(
       top: false,
@@ -134,6 +136,7 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                     // مع الزجاج الأصليّ تصير كبسولة Flutter شفّافة تماماً:
                     // وظيفتها التخطيط وحده، والمادّة من النظام.
                     transparent: _native,
+                    solid: solid,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
@@ -161,6 +164,7 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
                     bottom: barH - _kCenterSize + _kCenterLift,
                     child: _GlassCenterTab(
                       transparent: _native,
+                      solid: solid,
                       tab: navTabs[kCenterTab],
                       active: index == kCenterTab,
                       labelT: t,
@@ -178,11 +182,13 @@ class _LiquidGlassNavState extends State<LiquidGlassNav> {
 }
 
 /// المادّة الزجاجيّة: ضبابٌ لما خلفها، تدرّجٌ شفّاف، وحافّة لامعة.
+/// وبدرجة «ج» (solid): نفس الكبسولة بتعبئةٍ شفيفة — **بلا BackdropFilter**.
 class _GlassCapsule extends StatelessWidget {
   const _GlassCapsule({
     required this.height,
     required this.child,
     this.transparent = false,
+    this.solid = false,
   });
 
   final double height;
@@ -191,10 +197,32 @@ class _GlassCapsule extends StatelessWidget {
   /// مع الزجاج الأصليّ: تخطيطٌ بلا مادّة — أي ضبابٍ هنا يطمس زجاج النظام.
   final bool transparent;
 
+  /// الدرجة الخفيفة: تعبئة شفيفة معتمة تحجب ما تحتها بنفسها (لا ضباب
+  /// يفعل ذلك عنها)، والحافّة اللامعة نفسها تحفظ الهوية.
+  final bool solid;
+
   @override
   Widget build(BuildContext context) {
     if (transparent) {
       return SizedBox(height: height, child: child);
+    }
+    if (solid) {
+      return Container(
+        height: height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(_kRadius),
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: GlassTokens.navSolidGradient,
+          ),
+          border: Border.all(color: GlassTokens.rimLight, width: 0.8),
+          boxShadow: const [
+            BoxShadow(color: Color(0x99000000), blurRadius: 24, offset: Offset(0, 8)),
+          ],
+        ),
+        child: child,
+      );
     }
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -206,7 +234,8 @@ class _GlassCapsule extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(_kRadius),
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          filter: ImageFilter.blur(
+              sigmaX: GlassTokens.navBlurSigma, sigmaY: GlassTokens.navBlurSigma),
           child: Container(
             height: height,
             decoration: BoxDecoration(
@@ -215,10 +244,10 @@ class _GlassCapsule extends StatelessWidget {
               gradient: const LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [Color(0x24FFFFFF), Color(0x0DFFFFFF)],
+                colors: GlassTokens.navGlassGradient,
               ),
               // الحافّة اللامعة — أوضح ما يميّز المادّة عن مجرّد ضباب.
-              border: Border.all(color: const Color(0x33FFFFFF), width: 0.8),
+              border: Border.all(color: GlassTokens.rimLight, width: 0.8),
             ),
             child: child,
           ),
@@ -292,6 +321,7 @@ class _GlassTab extends StatelessWidget {
 class _GlassCenterTab extends StatefulWidget {
   const _GlassCenterTab({
     this.transparent = false,
+    this.solid = false,
     required this.tab,
     required this.active,
     required this.labelT,
@@ -299,6 +329,9 @@ class _GlassCenterTab extends StatefulWidget {
   });
 
   final bool transparent;
+
+  /// الدرجة الخفيفة: دائرة صلبة بتدرّجها الذهبيّ/الداكن — بلا BackdropFilter.
+  final bool solid;
   final NavTab tab;
   final bool active;
   final double labelT;
@@ -348,7 +381,41 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
                   color: const Color(0xFFFBBF24),
                 ),
               )
-            : Container(
+            : widget.solid
+                // الدرجة الخفيفة: تعبئة صلبة بنفس الهندسة والهوية —
+                // ذهبٌ ممتلئ نشطاً، داكنٌ بحلقة ذهبية خاملاً. لا ضباب.
+                ? Container(
+                    width: _kCenterSize,
+                    height: _kCenterSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: a
+                            ? GlassTokens.centerSolidActive
+                            : GlassTokens.centerSolidIdle,
+                      ),
+                      border: Border.all(
+                        color: a ? const Color(0xCCFBBF24) : const Color(0x59FBBF24),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: a ? const Color(0x66FBBF24) : const Color(0x1FFBBF24),
+                          blurRadius: a ? 20 : 10,
+                        ),
+                        const BoxShadow(
+                            color: Color(0x80000000), blurRadius: 12, offset: Offset(0, 4)),
+                      ],
+                    ),
+                    child: Icon(
+                      a ? Icons.verified_user : Icons.verified_user_outlined,
+                      size: 26,
+                      color: a ? const Color(0xFF1A1206) : const Color(0xFFFBBF24),
+                    ),
+                  )
+                : Container(
           width: _kCenterSize,
           height: _kCenterSize,
           decoration: BoxDecoration(
@@ -363,7 +430,9 @@ class _GlassCenterTabState extends State<_GlassCenterTab> {
           ),
           child: ClipOval(
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              filter: ImageFilter.blur(
+                  sigmaX: GlassTokens.centerBlurSigma,
+                  sigmaY: GlassTokens.centerBlurSigma),
               child: Container(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
