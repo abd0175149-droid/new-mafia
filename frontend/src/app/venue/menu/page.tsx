@@ -26,6 +26,77 @@ interface MenuItem {
 
 const EMPTY_FORM = { name: '', category: '', description: '', price: '', clubShare: '', sortOrder: '0', imageUrl: '', isAvailable: true };
 
+// ══════════════════════════════════════════════════════
+// 👁️ معاينة حيّة — نسخةٌ طبق الأصل من صفّ الصنف في /player/order
+// ⚠️ أيّ تعديل على شكل الصفّ هناك يجب أن يُنقل هنا وإلّا كذبت المعاينة.
+// تعمد استعمال نفس الفئات والأنماط السطريّة حرفيّاً لهذا السبب.
+// ══════════════════════════════════════════════════════
+function PlayerPreview({
+  form, isBundle, components, priceNum,
+}: {
+  form: typeof EMPTY_FORM;
+  isBundle: boolean;
+  components: { name: string; qty: number }[];
+  priceNum: number;
+}) {
+  const name = form.name.trim();
+  const compsLine = components.map(c => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ');
+
+  return (
+    <div className="rounded-2xl border border-gray-700/60 bg-gray-950/60 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[11px] font-bold text-gray-400">👁️ كما يراه اللاعب</p>
+        <span className="text-[9px] text-gray-600">تطبيق اللاعب</span>
+      </div>
+
+      {/* رأس الفئة — كما يبنيه اللاعب: الفئة الفارغة تُعرض «المنيو» */}
+      <h3 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
+        <span>{form.category.trim() || 'المنيو'}</span>
+        <span className="flex-1 h-px bg-emerald-500/10" />
+      </h3>
+
+      {/* صفّ الصنف */}
+      <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
+          {form.imageUrl ? <img src={form.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-sm truncate">
+            {isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
+            {name || <span className="text-gray-600">اسم الصنف…</span>}
+          </p>
+          {isBundle && components.length > 0 ? (
+            <p className="text-[10px] truncate" style={{ color: 'rgba(196,181,253,0.75)' }}>{compsLine}</p>
+          ) : form.description.trim() ? (
+            <p className="text-gray-600 text-[10px] truncate">{form.description.trim()}</p>
+          ) : null}
+          <p className="text-emerald-400 text-[11px] font-bold mt-0.5">{priceNum.toFixed(2)} د.أ</p>
+        </div>
+        <span className="px-3.5 py-1.5 rounded-lg text-xs font-bold shrink-0" style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
+          + أضف
+        </span>
+      </div>
+
+      {/* ملاحظات تشرح ما لا يظهر في الصفّ نفسه */}
+      <div className="mt-2.5 space-y-1">
+        {!form.isAvailable && (
+          <p className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5">
+            ⚠️ «متاح للطلب الآن» مغلق — لن يظهر هذا الصنف للاعبين إطلاقاً.
+          </p>
+        )}
+        {isBundle && components.length === 0 && (
+          <p className="text-[10px] text-violet-300/80">🎁 اختر مكوّنات الباقة لتظهر للاعب مكان الوصف.</p>
+        )}
+        {parseFloat(form.clubShare || '0') > 0 && (
+          <p className="text-[10px] text-gray-500">
+            🔒 حصّة النادي ({parseFloat(form.clubShare).toFixed(2)}) لا تصل تطبيق اللاعب — يرى السعر فقط.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function VenueMenuPage() {
   const { locationId, locationName, authHeaders, can, isHQ } = useVenue();
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -292,12 +363,14 @@ export default function VenueMenuPage() {
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !saving && setModal(null)}>
           <div
-            className="w-full max-w-md bg-gray-900 border border-emerald-500/20 rounded-2xl p-5 max-h-[88vh] overflow-y-auto"
+            className="w-full max-w-md sm:max-w-2xl bg-gray-900 border border-emerald-500/20 rounded-2xl p-5 max-h-[88vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <h3 className="text-base font-bold mb-4">{modal === 'add' ? '➕ صنف جديد' : '✏️ تعديل الصنف'}</h3>
 
-            <div className="space-y-3">
+            {/* المعاينة ملتصقة في الحالتين: فوق الحقول على الجوّال، وعموداً يساراً على الشاشات الواسعة */}
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_280px] gap-4 sm:gap-5 sm:items-start">
+            <div className="space-y-3 order-2 sm:order-1">
               {/* ── 🎁 نوع الصنف: مفرد أم باقة ── */}
               <div className="flex gap-2 p-1 rounded-xl bg-gray-800/60 border border-gray-700">
                 <button
@@ -436,6 +509,20 @@ export default function VenueMenuPage() {
                 <button onClick={() => setModal(null)} disabled={saving}
                   className="px-4 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إلغاء</button>
               </div>
+            </div>
+
+            {/* ── 👁️ المعاينة الحيّة ── */}
+            <div className="order-1 sm:order-2 sticky top-0 z-10 bg-gray-900 pb-2 sm:pb-0">
+              <PlayerPreview
+                form={form}
+                isBundle={isBundle}
+                components={Array.from(bundle.entries()).map(([id, qty]) => ({
+                  name: items.find(i => i.id === id)?.name || 'صنف محذوف',
+                  qty,
+                }))}
+                priceNum={parseFloat(form.price) || 0}
+              />
+            </div>
             </div>
           </div>
         </div>
