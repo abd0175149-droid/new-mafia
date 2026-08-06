@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../app/theme/theme.dart';
 import '../../core/push/push_service.dart';
@@ -86,7 +87,27 @@ class _NotificationGateState extends State<NotificationGate> with WidgetsBinding
                       ),
                     ],
                   ),
-                  child: denied ? _denied() : _prompt(),
+  child: Column(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    denied ? _denied() : _prompt(),
+    // 🔴 قرار R1 (91 §6.7): Apple ترفض اشتراط الإشعارات
+    //    للاستخدام (Guideline 4.5.4). فعلى **iOS حصراً**
+    //    مخرجٌ من البوابة الحاجبة بلا تسجيل توكن.
+    //    أندرويد يبقى محجوباً كما هو — ومعه رمز 1998.
+    //    البوابة تعود في الإقلاع التالي: إزعاجٌ خفيف
+    //    مقابل ألّا يُحبَس المستخدم ولا يُرفَض التطبيق.
+    if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+      const SizedBox(height: 12),
+      _GateButton(
+        label: "لاحقاً",
+        onTap: widget.onResolved,
+        color: const Color(0x0DFFFFFF),
+        textColor: const Color(0xFF9CA3AF),
+      ),
+    ],
+  ],
+),
                 ),
               ),
             ),

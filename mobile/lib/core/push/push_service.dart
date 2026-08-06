@@ -85,6 +85,17 @@ class PushService {
 
       FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
 
+      // تحصينٌ لقرار 91 §4.6: النظام لا يعرض شيئاً في foreground على iOS.
+      // هذه هي القيم الافتراضية، لكن تثبيتها صراحةً يمنع تغيّرها بترقية
+      // حزمة من أن يُعيد البانر المكرَّر صامتاً.
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        await _fcm.setForegroundNotificationPresentationOptions(
+          alert: false,
+          badge: false,
+          sound: false,
+        );
+      }
+
       // إشعار وصل والتطبيق مفتوح: أندرويد لا يعرضه تلقائياً، فنعرضه محلياً.
       FirebaseMessaging.onMessage.listen((m) {
         _showForeground(m);
@@ -153,7 +164,18 @@ class PushService {
   }
 
   /// يفتح إعدادات إشعارات التطبيق في النظام — لمن رفض الإذن نهائياً.
+  ///
+  /// 🔴 المسار يختلف بالمنصّة. النسخة الأولى كانت تستخرج تطبيق أندرويد من
+  ///    flutter_local_notifications وحده، وعلى iOS تُرجع الدالّةُ null
+  ///    **بصمت** فلا يحدث شيء. والبوابة حاجبة: أي أن مستخدم iOS الذي رفض
+  ///    الإذن كان يُحبَس في شاشةٍ زرُّها الوحيد ميت، بلا مخرج ولا رسالة.
+  ///    (الملفّ 94 — F1.)
   Future<void> openSystemSettings() async {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      // نفس مسار `openSettings()` المستعمل في صندوق الوارد.
+      await openSettings();
+      return;
+    }
     try {
       await _local
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
@@ -217,6 +239,11 @@ class PushService {
   }
 
   Future<void> _showForeground(RemoteMessage m) async {
+    // 🔴 iOS: **لا عرض محلّيّ إطلاقاً** — قرارٌ مقفول في 91 §4.6 و06 §6.3.
+    //    النظام يعرض `aps.alert` بنفسه، فأيّ عرضٍ منّا هنا إشعارٌ مكرَّر.
+    //    وإعادةُ جلب الصندوق تسبق هذا النداء في المستمع فلا تتأثّر.
+    if (defaultTargetPlatform == TargetPlatform.iOS) return;
+
     final n = m.notification;
     if (n == null) return;
     await _local.show(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
+import '../core/push/badge_service.dart';
 
 import 'app_state.dart';
 import 'config.dart';
@@ -38,12 +39,15 @@ class _MafiaAppState extends State<MafiaApp> {
     _app.evaluate();
     // وجهة إشعارٍ أقلع منه التطبيق تصل عبر PushService قبل حسم الجلسة
     PushService.instance.pendingRoute.addListener(_onPushRoute);
+    // شارة الأيقونة تُصفَّر عند الإقلاع وكلّ عودة إلى المقدّمة (91 §12)
+    BadgeService.instance.start();
   }
 
   @override
   void dispose() {
     _app.removeListener(_onAppState);
     PushService.instance.pendingRoute.removeListener(_onPushRoute);
+    BadgeService.instance.stop();
     super.dispose();
   }
 
