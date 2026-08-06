@@ -96,6 +96,31 @@ function buildFCMPayload(
       fcmOptions: { link },
     },
 
+    // ── Android الأصليّ (تطبيق Flutter) ──
+    // 🔴 بدون هذه الكتلة لا يظهر أيّ إشعار على تطبيق أندرويد إطلاقاً:
+    //    الرسالة data-only عمداً (الويب يعرضها من sw.js)، وiOS يعرضها
+    //    النظام من `aps.alert` — أمّا أندرويد الأصليّ فكان بلا عارض:
+    //    النظام لا يعرض data-only في الخلفية، ومعالج الخلفية في التطبيق
+    //    لا يعرض، وعارض الواجهة يقرأ `message.notification` الفارغة.
+    //    هذه الكتلة تخصّ **قناة أندرويد وحدها** — متصفّحات كروم (حتى على
+    //    أندرويد) تستلم عبر قناة `webpush` أعلاه، فلا تكرار على الويب.
+    //    في خلفية التطبيق يعرضها النظام بنفسه، وفي واجهته تصل
+    //    `message.notification` معبّأةً فيعرضها العارض المحليّ القائم.
+    android: {
+      priority: 'high' as const,
+      collapseKey: type || 'default',
+      notification: {
+        title,
+        body,
+        // القناة التي ينشئها التطبيق عند التهيئة — إشعارٌ بلا قناة
+        // على أندرويد 8+ يسقط في قناة fallback عامّة بإعدادات مبهمة.
+        channelId: 'mafia_default',
+        sound: 'default',
+        // نفس دلالة apns-collapse-id: إشعارات النوع الواحد تتبادل المكان.
+        tag: type || 'default',
+      },
+    },
+
     // ── APNs (iOS Native + Safari) ──
     apns: {
       headers: {
