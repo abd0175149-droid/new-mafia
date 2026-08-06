@@ -6,6 +6,7 @@ import 'host_controller.dart';
 import 'host_create_screen.dart';
 import 'host_lobby_screen.dart';
 import 'host_binding_screen.dart';
+import 'host_discussion_screen.dart';
 import 'host_roles_screen.dart';
 
 // ══════════════════════════════════════════════════════
@@ -63,7 +64,7 @@ class _HostScreenState extends State<HostScreen> {
                       HostStep.lobby => 'لوبي الاستضافة',
                       HostStep.roleGeneration => 'تركيبة الأدوار',
                       HostStep.roleBinding => 'إسناد الأدوار',
-                      HostStep.inGame => 'إدارة اللعبة',
+                      HostStep.inGame => _c.phase == 'DAY_DISCUSSION' ? 'جولة النقاش' : 'إدارة اللعبة',
                     },
                     textAlign: TextAlign.center,
                     style: ar(15, color: Colors.white, weight: FontWeight.w900),
@@ -78,6 +79,9 @@ class _HostScreenState extends State<HostScreen> {
                 HostStep.lobby => const HostLobbyScreen(),
                 HostStep.roleGeneration => const HostRolesScreen(),
                 HostStep.roleBinding => const HostBindingScreen(),
+                // النقاش أوّل أطوار النهار — ما بعده يُسلَّم لشريحة تالية.
+                HostStep.inGame when _c.phase == 'DAY_DISCUSSION' =>
+                  const HostDiscussionScreen(),
                 // الإسناد وأطوار اللعب شريحةٌ تالية — تُعرض حالةٌ
                 // صريحة بدل شاشةٍ فارغة تُوهم بعطل.
                 _ => const _ComingNext(),

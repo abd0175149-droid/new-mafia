@@ -121,6 +121,46 @@ class HostRosterPlayer {
       );
 }
 
+
+/// حالة جولة النقاش — `DiscussionState` على الخادم (state.ts §86).
+class DiscussionState {
+  const DiscussionState({
+    this.currentSpeakerId,
+    this.timeLimitSeconds = 30,
+    this.timeRemaining = 0,
+    this.startTime,
+    this.status = 'WAITING',
+    this.speakingQueue = const [],
+    this.hasSpoken = const [],
+    this.isFinished = false,
+  });
+
+  final int? currentSpeakerId;
+  final int timeLimitSeconds;
+  final int timeRemaining;
+  final int? startTime;
+  final String status; // WAITING | SPEAKING | PAUSED | …
+  final List<int> speakingQueue;
+  final List<int> hasSpoken;
+  final bool isFinished;
+
+  bool get isSpeaking => status == 'SPEAKING';
+
+  static List<int> _ints(dynamic v) =>
+      v is List ? v.map((e) => (e as num).toInt()).toList() : const [];
+
+  factory DiscussionState.fromJson(Map<String, dynamic> j) => DiscussionState(
+        currentSpeakerId: (j['currentSpeakerId'] as num?)?.toInt(),
+        timeLimitSeconds: (j['timeLimitSeconds'] as num?)?.toInt() ?? 30,
+        timeRemaining: (j['timeRemaining'] as num?)?.toInt() ?? 0,
+        startTime: (j['startTime'] as num?)?.toInt(),
+        status: (j['status'] ?? 'WAITING').toString(),
+        speakingQueue: _ints(j['speakingQueue']),
+        hasSpoken: _ints(j['hasSpoken']),
+        isFinished: j['isFinished'] == true,
+      );
+}
+
 /// أطوار الكونسول. ما بعد الإسناد يُسلَّم لشريحة أطوار اللعب.
 enum HostStep { create, lobby, roleGeneration, roleBinding, inGame }
 
@@ -173,6 +213,9 @@ class HostController extends ChangeNotifier {
   String? _poolSignature;
 
 RoleTuning tuning = const RoleTuning();
+
+  /// حالة النقاش الجارية — `null` قبل بدء الجولة.
+  DiscussionState? discussion;
 
 /// أقفال الإسناد — تُحترم عند التوزيع العشوائيّ (§4.8).
 final Set<int> lockedPhysicalIds = <int>{};
@@ -525,6 +568,69 @@ Future<bool> lockAndStart() async {
   }
   await refreshState();
   return true;
+}
+
+
+// ── النقاش (§4.9) ──
+
+Future<void> startDiscussion(int startPhysicalId, int seconds) async {
+  final id = _roomId;
+  if (id == null || _busy) return;
+  _busy = true;
+  notifyListeners();
+  await SocketService.instance.ask('day:start-discussion', {
+    'roomId': id,
+    'startPhysicalId': startPhysicalId,
+    'timeLimitSeconds': seconds,
+  });
+  _busy = false;
+  await refreshState();
+}
+
+/// START | PAUSE | RESUME | RESET
+Future<void> timerAction(String action) async {
+  final id = _roomId;
+  if (id == null) return;
+  await SocketService.instance
+      .ask('day:timer-action', {'roomId': id, 'action': action});
+  await refreshState();
+}
+
+/// ±10 و±30 — §7.2.
+Future<void> adjustTimer(int delta, {String phase = 'DISCUSSION'}) async {
+  final id = _roomId;
+  if (id == null) return;
+  await SocketService.instance
+      .ask('day:adjust-timer', {'roomId': id, 'phase': phase, 'delta': delta});
+  await refreshState();
+}
+
+Future<void> prevSpeaker() async {
+  final id = _roomId;
+  if (id == null) return;
+  await SocketService.instance.ask('day:prev-speaker', {'roomId': id});
+  await refreshState();
+}
+
+Future<void> nextSpeaker() async {
+  final id = _roomId;
+  if (id == null) return;
+  await SocketService.instance.ask('day:next-speaker', {'roomId': id});
+  await refreshState();
+}
+
+/// `durationSeconds` غائبةً تعني تصويتاً بلا حدّ زمنيّ (§4.9).
+Future<void> startVoting(int? durationSeconds) async {
+  final id = _roomId;
+  if (id == null || _busy) return;
+  _busy = true;
+  notifyListeners();
+  await SocketService.instance.ask('day:start-voting', {
+    'roomId': id,
+    if (durationSeconds != null) 'durationSeconds': durationSeconds,
+  });
+  _busy = false;
+  await refreshState();
 }
 
   void reset() {
