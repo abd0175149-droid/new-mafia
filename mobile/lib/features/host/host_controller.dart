@@ -93,6 +93,7 @@ class HostRosterPlayer {
     this.isConnected = true,
     this.penalties = 0,
     this.seatHeld = false,
+    this.role,
   });
 
   final int physicalId;
@@ -102,6 +103,9 @@ class HostRosterPlayer {
   final bool isConnected;
   final int penalties;
   final bool seatHeld;
+
+  /// الدور المسنَد في طور الإسناد — `player.role` على الخادم.
+  final String? role;
 
   factory HostRosterPlayer.fromJson(Map<String, dynamic> j) => HostRosterPlayer(
         physicalId: (j['physicalId'] as num?)?.toInt() ?? 0,
@@ -113,6 +117,7 @@ class HostRosterPlayer {
         isConnected: j['isConnected'] != false,
         penalties: (j['penalties'] as num?)?.toInt() ?? 0,
         seatHeld: j['seatHeld'] == true,
+        role: j['role'] as String?,
       );
 }
 
@@ -167,7 +172,51 @@ class HostController extends ChangeNotifier {
   ///    الموصوف حرفياً في §4.8 («poolInitRef»).
   String? _poolSignature;
 
-  RoleTuning tuning = const RoleTuning();
+RoleTuning tuning = const RoleTuning();
+
+/// أقفال الإسناد — تُحترم عند التوزيع العشوائيّ (§4.8).
+final Set<int> lockedPhysicalIds = <int>{};
+
+/// هل أُرسلت الأدوار للاعبين؟ أيّ إسنادٍ يدويّ يصفّرها.
+bool rolesConfirmed = false;
+
+/// «المافيا تعرف بعضها» — الأوّليّة `!= false` كما ينصّ §4.8.
+bool allowMafiaReveal = true;
+
+/// الأدوار الخاصّة في التركيبة (كلّ ما ليس مواطناً عاديّاً).
+List<String> get specialRoles =>
+    roles.where((r) => r != 'CITIZEN').toList();
+
+/// خريطة الدور ← اللاعب المسنَد إليه، من حالة الخادم.
+Map<String, int> get assignments {
+  final out = <String, int>{};
+  for (final p in players) {
+    final r = p.role;
+    if (r != null && r.isNotEmpty) out[r] = p.physicalId;
+  }
+  return out;
+}
+
+int get assignedSpecialCount =>
+    specialRoles.where((r) => assignments.containsKey(r)).length;
+
+bool get allSpecialsAssigned =>
+    specialRoles.isNotEmpty && assignedSpecialCount == specialRoles.length;
+
+void toggleLock(int physicalId) {
+  if (!lockedPhysicalIds.remove(physicalId)) lockedPhysicalIds.add(physicalId);
+  notifyListeners();
+}
+
+/// تفاؤليّ + fire-and-forget كما ينصّ §4.8 (الأخطاء مبتلعة).
+void setMafiaReveal(bool value) {
+  allowMafiaReveal = value;
+  notifyListeners();
+  final id = _roomId;
+  if (id == null) return;
+  SocketService.instance
+      .ask('room:update-mafia-reveal', {'roomId': id, 'allowMafiaReveal': value});
+}
 
   bool get canStart => players.length >= 6;
 
@@ -487,6 +536,10 @@ Future<bool> lockAndStart() async {
     _phase = 'LOBBY';
     _error = null;
     _busy = false;
+    roles = const [];
+    _poolSignature = null;
+    lockedPhysicalIds.clear();
+    rolesConfirmed = false;
     _step = HostStep.create;
     notifyListeners();
   }

@@ -5,6 +5,7 @@ import '../profile/profile_palette.dart' show ar;
 import 'host_controller.dart';
 import 'host_create_screen.dart';
 import 'host_lobby_screen.dart';
+import 'host_binding_screen.dart';
 import 'host_roles_screen.dart';
 
 // ══════════════════════════════════════════════════════
@@ -76,6 +77,7 @@ class _HostScreenState extends State<HostScreen> {
                 HostStep.create => const HostCreateScreen(),
                 HostStep.lobby => const HostLobbyScreen(),
                 HostStep.roleGeneration => const HostRolesScreen(),
+                HostStep.roleBinding => const HostBindingScreen(),
                 // الإسناد وأطوار اللعب شريحةٌ تالية — تُعرض حالةٌ
                 // صريحة بدل شاشةٍ فارغة تُوهم بعطل.
                 _ => const _ComingNext(),
