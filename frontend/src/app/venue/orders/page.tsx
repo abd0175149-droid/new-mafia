@@ -21,7 +21,11 @@ interface VOrder {
   physicalId: number | null;
   activityId: number;
   activityName: string;
-  items: { name: string; unitPrice: string; quantity: number; components?: { name: string; qty: number }[] }[];
+  items: {
+    name: string; unitPrice: string; quantity: number;
+    components?: { name: string; qty: number; options?: { group: string; value: string }[] }[];
+    options?: { group: string; value: string }[];
+  }[];
 }
 
 // نغمة تنبيه قصيرة بلا ملفّ صوتيّ (طلب جديد)
@@ -230,10 +234,19 @@ export default function VenueOrdersPage() {
                 </span>
                 <span className="text-gray-500 text-[11px]">{(parseFloat(i.unitPrice) * i.quantity).toFixed(2)}</span>
               </div>
+              {/* ⚙️ الخيارات — بلا هذه يُحضَّر الطلب خطأً (نكهة/حجم مجهولان) */}
+              {i.options && i.options.length > 0 && (
+                <p className="text-[12px] text-amber-300 pr-[26px] leading-snug font-medium">
+                  ⚙️ {i.options.map(o => `${o.group}: ${o.value}`).join(' · ')}
+                </p>
+              )}
               {/* 🎁 مكوّنات الباقة — ما يجب تحضيره فعليّاً (الكمّيات مضروبة بعدد الباقات) */}
               {i.components && i.components.length > 0 && (
                 <p className="text-[11px] text-violet-300/80 pr-[26px] leading-snug">
-                  🎁 {i.components.map(c => `${c.name} ×${c.qty * i.quantity}`).join(' + ')}
+                  🎁 {i.components.map(c => {
+                    const co = (c.options ?? []).map(o => o.value).join('/');
+                    return `${c.name}${co ? ` (${co})` : ''} ×${c.qty * i.quantity}`;
+                  }).join(' + ')}
                 </p>
               )}
             </div>

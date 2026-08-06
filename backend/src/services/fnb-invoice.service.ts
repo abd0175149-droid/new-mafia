@@ -10,10 +10,11 @@ import type { Database } from '../config/db.js';
 import { orders, orderItems, orderInvoices } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations } from '../schemas/admin.schema.js';
 
-export interface InvoiceComponent { name: string; qty: number }
+export interface InvoiceComponent { name: string; qty: number; options?: { group: string; value: string }[] }
 export interface InvoiceLine {
   name: string; quantity: number; unitPrice: number; lineTotal: number;
   components: InvoiceComponent[];   // 🎁 مكوّنات الباقة (لقطة الطلب) — تُطبع مُسنَّنة تحت السطر
+  options: { group: string; value: string }[];   // ⚙️ الخيارات المختارة (نكهة/حجم/إضافات)
 }
 export interface InvoiceData {
   locationId: number;
@@ -59,14 +60,23 @@ export async function buildInvoiceData(
   // دمج البنود المتطابقة (نفس الصنف ونفس سعر اللقطة) عبر كل الطلبات
   const merged = new Map<string, InvoiceLine>();
   for (const it of items) {
-    const key = `${it.nameSnapshot}|${it.unitPriceSnapshot}`;
+    const opts = (Array.isArray(it.optionsSnapshot) ? it.optionsSnapshot as any[] : [])
+      .map(o => ({ group: String(o?.group || ''), value: String(o?.value || '') })).filter(o => o.value);
+    // ⚙️ الخيارات جزءٌ من هويّة السطر: «أرجيلة/تفاحتين» و«أرجيلة/عنب» سطران
+    // منفصلان في الفاتورة وإن تساوى سعرهما — الزبون يجب أن يقرأ ما طلبه.
+    const key = `${it.nameSnapshot}|${it.unitPriceSnapshot}|${opts.map(o => `${o.group}:${o.value}`).join(',')}`;
     const prev = merged.get(key);
     const unitPrice = parseFloat(it.unitPriceSnapshot);
     if (prev) { prev.quantity += it.quantity; prev.lineTotal = prev.quantity * unitPrice; }
     else merged.set(key, {
       name: it.nameSnapshot, quantity: it.quantity, unitPrice, lineTotal: unitPrice * it.quantity,
       components: (Array.isArray(it.componentsSnapshot) ? it.componentsSnapshot as any[] : [])
-        .map(c => ({ name: String(c?.name || ''), qty: Number(c?.qty) || 1 })).filter(c => c.name),
+        .map(c => ({
+          name: String(c?.name || ''), qty: Number(c?.qty) || 1,
+          options: (Array.isArray(c?.options) ? c.options : [])
+            .map((o: any) => ({ group: String(o?.group || ''), value: String(o?.value || '') })).filter((o: any) => o.value),
+        })).filter(c => c.name),
+      options: opts,
     });
   }
   const lines = [...merged.values()];
@@ -162,17 +172,28 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
   const timeStr = d.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
   const actDate = new Date(data.activityDate).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric', weekday: 'short' });
 
-  // سطر الصنف، ويليه سطر مكوّنات إن كان باقةً (الكمّيات مضروبة بعدد الباقات المطلوبة)
-  const rows = data.lines.map(l => `
-    <tr${l.components.length > 0 ? ' class="hascomp"' : ''}>
+  // سطر الصنف، ويليه سطرٌ ثانويّ للخيارات و/أو مكوّنات الباقة.
+  // الكمّيات في المكوّنات مضروبة بعدد الباقات المطلوبة.
+  const rows = data.lines.map(l => {
+    const detail: string[] = [];
+    if (l.options.length > 0) detail.push(l.options.map(o => `${esc(o.group)}: ${esc(o.value)}`).join(' &#183; '));
+    if (l.components.length > 0) {
+      detail.push(l.components.map(c => {
+        const co = (c.options ?? []).map(o => esc(o.value)).join('/');
+        return `${esc(c.name)}${co ? ` (${co})` : ''} &#215;${c.qty * l.quantity}`;
+      }).join(' &#183; '));
+    }
+    return `
+    <tr${detail.length > 0 ? ' class="hascomp"' : ''}>
       <td class="n">${esc(l.name)}</td>
       <td class="c">${l.quantity}</td>
       <td class="c">${fmt(l.unitPrice)}</td>
       <td class="t">${fmt(l.lineTotal)}</td>
-    </tr>` + (l.components.length > 0 ? `
+    </tr>` + (detail.length > 0 ? `
     <tr class="comp">
-      <td class="n" colspan="4">${l.components.map(c => `${esc(c.name)} &#215;${c.qty * l.quantity}`).join(' &#183; ')}</td>
-    </tr>` : '')).join('');
+      <td class="n" colspan="4">${detail.join('<br>')}</td>
+    </tr>` : '');
+  }).join('');
 
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>
   @page { size: A6; margin: 0; }

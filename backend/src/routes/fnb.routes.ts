@@ -15,6 +15,7 @@ import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
 import { buildInvoiceData, issueInvoiceNumber, invoiceHtml } from '../services/fnb-invoice.service.js';
+import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
 import multer from 'multer';
 import path from 'path';
@@ -494,6 +495,7 @@ venueRouter.get('/orders', authenticate, requireVenuePermission('orders.receive'
         items: items.filter(i => i.orderId === o.id).map(i => ({
           name: i.nameSnapshot, unitPrice: i.unitPriceSnapshot, quantity: i.quantity,
           components: Array.isArray(i.componentsSnapshot) ? i.componentsSnapshot : [],
+          options: Array.isArray(i.optionsSnapshot) ? i.optionsSnapshot : [],
         })),
       })),
     });
@@ -856,13 +858,16 @@ playerFnbRouter.get('/context', authenticatePlayer, async (req: Request, res: Re
 // محلولةٌ إلى أسماء (اللاعب يرى «ماذا داخل العرض» بلا أن يرى أسعار المكوّنات).
 // تُستخدم في مسارَين: منيو الفعاليّة (أثناء نافذة الطلب) واستعراض المنيو وقت الحجز.
 export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>, locationId: number) {
-  const rows = await db.select({
-    id: menuItems.id, category: menuItems.category, name: menuItems.name,
-    description: menuItems.description, price: menuItems.price, imageUrl: menuItems.imageUrl,
-    isBundle: menuItems.isBundle, bundleItems: menuItems.bundleItems,
-  }).from(menuItems)
+  const rows = await db.select().from(menuItems)
     .where(and(eq(menuItems.locationId, locationId), eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)))
-    .orderBy(asc(menuItems.category), asc(menuItems.sortOrder), asc(menuItems.id));
+    .orderBy(asc(menuItems.sortOrder), asc(menuItems.id));
+
+  // 🗂️ شجرة الأقسام: القسم الرئيس يجمع، والفرعيّ يرتّب داخله
+  const cats = await db.select().from(menuCategories)
+    .where(and(eq(menuCategories.locationId, locationId), isNull(menuCategories.deletedAt)))
+    .orderBy(asc(menuCategories.sortOrder), asc(menuCategories.id));
+  const catById = new Map(cats.map(c => [c.id, c]));
+  const catOrder = new Map(cats.map((c, i) => [c.id, i]));
 
   // أسماء المكوّنات تُحلّ من كامل أصناف المكان (المكوّن قد يكون مخفيّاً عن الطلب المباشر)
   const nameById = new Map<number, string>();
@@ -872,14 +877,48 @@ export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>,
     for (const a of all) nameById.set(a.id, a.name);
   }
 
-  return rows.map(r => ({
-    id: r.id, category: r.category, name: r.name, description: r.description,
-    price: r.price, imageUrl: r.imageUrl, isBundle: r.isBundle === true,
-    components: r.isBundle === true
-      ? (Array.isArray(r.bundleItems) ? r.bundleItems as any[] : [])
-          .map(c => ({ name: nameById.get(Number(c?.menuItemId)) || '', qty: Number(c?.qty) || 1 }))
-          .filter(c => c.name)
-      : [],
+  // ⚙️ مجموعات الخيارات الفعّالة لكلّ صنف — **بلا حصّة نادٍ** (اللاعب يرى فروق السعر فقط)
+  const groupsByItem = await resolveOptionGroups(db, rows);
+
+  const mapped = rows.map(r => {
+    const leaf = r.categoryId ? catById.get(r.categoryId) : undefined;
+    const parent = leaf?.parentId ? catById.get(leaf.parentId) : undefined;
+    return {
+      id: r.id,
+      // القسم المعروض = الأب إن وُجد، والفرعيّ عنوانٌ داخله
+      category: parent?.name ?? leaf?.name ?? r.category ?? '',
+      subcategory: parent ? leaf!.name : '',
+      name: r.name, description: r.description,
+      price: r.price, imageUrl: r.imageUrl, isBundle: r.isBundle === true,
+      components: r.isBundle === true
+        ? (Array.isArray(r.bundleItems) ? r.bundleItems as any[] : [])
+            .map(c => ({ menuItemId: Number(c?.menuItemId), name: nameById.get(Number(c?.menuItemId)) || '', qty: Number(c?.qty) || 1 }))
+            .filter(c => c.name)
+        : [],
+      optionGroups: groupsByItem.get(r.id) ?? [],
+      _sort: [
+        catOrder.get(parent?.id ?? leaf?.id ?? -1) ?? 9999,
+        catOrder.get(leaf?.id ?? -1) ?? 9999,
+        r.sortOrder ?? 0, r.id,
+      ] as number[],
+    };
+  });
+
+  // ترتيبٌ نهائيّ: قسمٌ رئيس ← فرعيّ ← ترتيب الصنف. الفرز هنا لأنّ الأقسام جدولٌ لا نصّ.
+  mapped.sort((a, b) => {
+    for (let i = 0; i < a._sort.length; i++) {
+      if (a._sort[i] !== b._sort[i]) return a._sort[i] - b._sort[i];
+    }
+    return 0;
+  });
+
+  // 🎁 مكوّنات الباقة قد تحمل خياراتٍ يجب أن يختارها اللاعب (قرار: يُسأل عند الطلب)
+  return mapped.map(({ _sort, ...m }) => ({
+    ...m,
+    components: m.components.map(c => ({
+      ...c,
+      optionGroups: (groupsByItem.get(c.menuItemId) ?? []),
+    })),
   }));
 }
 
@@ -911,16 +950,30 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
   if (rawItems.length === 0) return res.status(400).json({ error: 'أضف صنفاً واحداً على الأقلّ' });
   if (rawItems.length > MAX_ITEMS_PER_ORDER) return res.status(400).json({ error: 'عدد بنود الطلب كبير جدّاً' });
 
-  // تطبيع البنود ودمج المكرَّر
-  const qtyById = new Map<number, number>();
+  // تطبيع البنود ودمج المكرَّر.
+  // ⚙️ المفتاح = الصنف + توليفة خياراته: «أرجيلة/تفاحتين» و«أرجيلة/عنب» بندان
+  // منفصلان لا واحدٌ بكمّية 2 — وإلّا حُضّرت نكهةٌ واحدة مرّتين.
+  interface RawLine { menuItemId: number; quantity: number; options: unknown; componentOptions: unknown }
+  const linesByKey = new Map<string, RawLine>();
   for (const it of rawItems) {
     const id = parseInt(it?.menuItemId);
     const qty = parseInt(it?.quantity);
     if (!Number.isFinite(id) || !Number.isFinite(qty) || qty < 1 || qty > 20) {
       return res.status(400).json({ error: 'بند غير صالح (الكمّية 1-20)' });
     }
-    qtyById.set(id, (qtyById.get(id) || 0) + qty);
+    const opts = Array.isArray(it?.options) ? it.options : [];
+    const compOpts = Array.isArray(it?.componentOptions) ? it.componentOptions : [];
+    const sig = JSON.stringify([
+      opts.map((o: any) => `${o?.group}|${o?.value}`).sort(),
+      compOpts.map((c: any) => `${c?.menuItemId}:${(Array.isArray(c?.options) ? c.options : []).map((o: any) => `${o?.group}|${o?.value}`).sort().join(',')}`).sort(),
+    ]);
+    const key = `${id}#${sig}`;
+    const prev = linesByKey.get(key);
+    if (prev) prev.quantity = Math.min(prev.quantity + qty, 20);
+    else linesByKey.set(key, { menuItemId: id, quantity: qty, options: opts, componentOptions: compOpts });
   }
+  const lines = [...linesByKey.values()];
+  if (lines.length > MAX_ITEMS_PER_ORDER) return res.status(400).json({ error: 'عدد بنود الطلب كبير جدّاً' });
 
   try {
     const ctx = await resolveFnbContext(db, playerId);
@@ -935,33 +988,74 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     }
 
     // التسعير من قاعدة البيانات حصراً (لا نثق بأسعار العميل)
-    const ids = [...qtyById.keys()];
+    const ids = [...new Set(lines.map(l => l.menuItemId))];
     const dbItems = await db.select().from(menuItems)
       .where(and(inArray(menuItems.id, ids), eq(menuItems.locationId, ctx.locationId), eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)));
     if (dbItems.length !== ids.length) {
       return res.status(400).json({ error: 'بعض الأصناف لم تعد متاحة — حدّث المنيو وأعد المحاولة' });
     }
+    const itemById = new Map(dbItems.map(m => [m.id, m]));
+
+    // 🎁 مكوّنات الباقات: أصنافها الفعليّة (قد تحمل خياراتٍ يسألها اللاعب)
+    const compIds = [...new Set(dbItems.filter(m => m.isBundle === true).flatMap(m =>
+      (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : []).map(c => Number(c?.menuItemId)).filter(Number.isFinite)))];
+    const compRows = compIds.length > 0
+      ? await db.select().from(menuItems).where(inArray(menuItems.id, compIds))
+      : [];
+    const compById = new Map(compRows.map(c => [c.id, c]));
+
+    // ⚙️ مجموعات الخيارات الفعّالة للأصناف ولمكوّنات الباقات معاً
+    const groupsByItem = await resolveOptionGroups(db, [...dbItems, ...compRows]);
+
+    // بناء البنود: تحقّقٌ من الخيارات وتسعيرٌ = السعر الأساسيّ + فروق الخيارات.
+    // 💰 حصّة النادي تبقى مبلغ الصنف الثابت — الفروق للمكان (قرار مقفل).
+    interface BuiltLine {
+      item: typeof dbItems[number]; quantity: number; unitPrice: number;
+      options: ChosenOption[]; components: { name: string; qty: number; options?: { group: string; value: string }[] }[];
+    }
+    const built: BuiltLine[] = [];
+    try {
+      for (const l of lines) {
+        const m = itemById.get(l.menuItemId)!;
+        const { chosen, delta } = validateSelections(groupsByItem.get(m.id) ?? [], l.options, m.name);
+
+        // مكوّنات الباقة وخياراتها
+        const compSel = new Map<number, unknown>();
+        for (const c of (Array.isArray(l.componentOptions) ? l.componentOptions as any[] : [])) {
+          const cid = Number(c?.menuItemId);
+          if (Number.isFinite(cid)) compSel.set(cid, c?.options);
+        }
+        const components: BuiltLine['components'] = [];
+        let compDelta = 0;
+        if (m.isBundle === true) {
+          for (const raw of (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : [])) {
+            const cid = Number(raw?.menuItemId);
+            const comp = compById.get(cid);
+            if (!comp) continue;
+            const cGroups = groupsByItem.get(cid) ?? [];
+            const r = validateSelections(cGroups, compSel.get(cid), `${comp.name} (داخل ${m.name})`);
+            compDelta += r.delta;
+            components.push({
+              name: comp.name, qty: Number(raw?.qty) || 1,
+              ...(r.chosen.length > 0 ? { options: r.chosen.map(o => ({ group: o.group, value: o.value })) } : {}),
+            });
+          }
+        }
+
+        built.push({
+          item: m, quantity: l.quantity,
+          unitPrice: parseFloat(m.price) + delta + compDelta,
+          options: chosen, components,
+        });
+      }
+    } catch (e: any) {
+      // رسائل validateSelections عربيّةٌ جاهزة للعرض
+      return res.status(400).json({ error: e.message || 'خيارٌ غير صالح' });
+    }
 
     const [playerRow] = await db.select({ name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
-    const total = dbItems.reduce((s, m) => s + parseFloat(m.price) * qtyById.get(m.id)!, 0);
+    const total = built.reduce((s, b) => s + b.unitPrice * b.quantity, 0);
     const note = String(req.body.note || '').trim().slice(0, 300);
-
-    // 🎁 لقطة مكوّنات الباقات لحظة الطلب — تُطبع في الفاتورة ولا تتأثّر بتعديل الباقة لاحقاً
-    const compsByItem = new Map<number, { name: string; qty: number }[]>();
-    const bundleRows = dbItems.filter(m => m.isBundle === true);
-    if (bundleRows.length > 0) {
-      const compIds = [...new Set(bundleRows.flatMap(m =>
-        (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : []).map(c => Number(c?.menuItemId)).filter(Number.isFinite)))];
-      const compRows = compIds.length > 0
-        ? await db.select({ id: menuItems.id, name: menuItems.name }).from(menuItems).where(inArray(menuItems.id, compIds))
-        : [];
-      const nameById = new Map(compRows.map(c => [c.id, c.name]));
-      for (const m of bundleRows) {
-        compsByItem.set(m.id, (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : [])
-          .map(c => ({ name: nameById.get(Number(c?.menuItemId)) || '', qty: Number(c?.qty) || 1 }))
-          .filter(c => c.name));
-      }
-    }
 
     const order = await db.transaction(async (tx) => {
       const [o] = await tx.insert(orders).values({
@@ -976,22 +1070,23 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
         total: total.toFixed(2),
         note,
       } as any).returning();
-      await tx.insert(orderItems).values(dbItems.map(m => ({
+      await tx.insert(orderItems).values(built.map(b => ({
         orderId: o.id,
-        menuItemId: m.id,
-        nameSnapshot: m.name,
-        unitPriceSnapshot: m.price,
-        clubShareSnapshot: m.clubShare || '0',
-        quantity: qtyById.get(m.id)!,
-        componentsSnapshot: compsByItem.get(m.id) || [],
+        menuItemId: b.item.id,
+        nameSnapshot: b.item.name,
+        unitPriceSnapshot: b.unitPrice.toFixed(2),
+        clubShareSnapshot: b.item.clubShare || '0',
+        quantity: b.quantity,
+        componentsSnapshot: b.components,
+        optionsSnapshot: b.options,
       })) as any);
       return o;
     });
 
     // 📥 إشعار المكان الفوريّ: بثّ لغرفة location:{id} + بوش لحسابات المكان المصرَّح لها
-    const emittedItems = dbItems.map(m => ({
-      name: m.name, unitPrice: m.price, quantity: qtyById.get(m.id)!,
-      components: compsByItem.get(m.id) || [],
+    const emittedItems = built.map(b => ({
+      name: b.item.name, unitPrice: b.unitPrice.toFixed(2), quantity: b.quantity,
+      components: b.components, options: b.options,
     }));
     const io = req.app.get('io');
     if (io) {
@@ -1040,6 +1135,7 @@ playerFnbRouter.get('/my-orders', authenticatePlayer, async (req: Request, res: 
         items: items.filter(i => i.orderId === o.id).map(i => ({
           name: i.nameSnapshot, unitPrice: i.unitPriceSnapshot, quantity: i.quantity,
           components: Array.isArray(i.componentsSnapshot) ? i.componentsSnapshot : [],
+          options: Array.isArray(i.optionsSnapshot) ? i.optionsSnapshot : [],
         })),
       })),
     });
