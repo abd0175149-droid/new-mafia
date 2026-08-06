@@ -672,6 +672,35 @@ async function main() {
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT false NOT NULL`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS paid_by INTEGER`);
+      // ── 🗂️ أقسام المنيو بمستويين + ⚙️ مجموعات الخيارات (2026-08-06) ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_categories (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+        parent_id INTEGER, name VARCHAR(60) NOT NULL, sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, deleted_at TIMESTAMP)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_option_groups (
+        id SERIAL PRIMARY KEY, location_id INTEGER NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+        name VARCHAR(80) NOT NULL, selection_type VARCHAR(10) DEFAULT 'single' NOT NULL,
+        is_required BOOLEAN DEFAULT false NOT NULL, max_select INTEGER DEFAULT 1, sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL, deleted_at TIMESTAMP)`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS menu_option_values (
+        id SERIAL PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES menu_option_groups(id) ON DELETE CASCADE,
+        name VARCHAR(80) NOT NULL, price_delta DECIMAL(10,2) DEFAULT 0 NOT NULL,
+        is_available BOOLEAN DEFAULT true NOT NULL, sort_order INTEGER DEFAULT 0, deleted_at TIMESTAMP)`);
+      await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS category_id INTEGER`);
+      await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS option_group_ids JSONB DEFAULT '[]'::jsonb`);
+      await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS custom_options JSONB DEFAULT '[]'::jsonb`);
+      await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS options_snapshot JSONB DEFAULT '[]'::jsonb`);
+      // ترحيل لمرّة واحدة: كل قيمة category نصّيّة قائمة تصير قسماً رئيساً ويُربط بها أصنافها
+      await db.execute(sql`
+        INSERT INTO menu_categories (location_id, name, sort_order)
+        SELECT DISTINCT m.location_id, TRIM(m.category), 0 FROM menu_items m
+        WHERE m.deleted_at IS NULL AND COALESCE(TRIM(m.category), '') <> ''
+          AND NOT EXISTS (SELECT 1 FROM menu_categories c
+                          WHERE c.location_id = m.location_id AND c.name = TRIM(m.category) AND c.deleted_at IS NULL)`);
+      await db.execute(sql`
+        UPDATE menu_items m SET category_id = c.id FROM menu_categories c
+        WHERE m.category_id IS NULL AND c.location_id = m.location_id
+          AND c.name = TRIM(m.category) AND c.deleted_at IS NULL`);
       // 📱 وسم «تأكّد من التطبيق» على حجوزات المتابعة (+ تعبئة رجعيّة لما أنشأه التطبيق سابقاً)
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS app_confirmed BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS app_confirmed_at TIMESTAMP`);

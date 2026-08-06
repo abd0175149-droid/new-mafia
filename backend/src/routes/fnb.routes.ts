@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, and, ne, desc, asc, isNull, inArray, gte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { menuItems, orders, orderItems, orderInvoices } from '../schemas/fnb.schema.js';
+import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -239,6 +239,219 @@ venueRouter.delete('/menu-items/:id', authenticate, requireVenuePermission('menu
     const [item] = await db.update(menuItems).set({ deletedAt: new Date() } as any)
       .where(and(eq(menuItems.id, id), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt))).returning();
     if (!item) return res.status(404).json({ error: 'الصنف غير موجود' });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════
+// 🗂️ أقسام المنيو — /api/venue/categories (مستويان)
+// ════════════════════════════════════════════
+
+// ── GET /categories — شجرة أقسام المكان ──
+venueRouter.get('/categories', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const rows = await db.select().from(menuCategories)
+      .where(and(eq(menuCategories.locationId, locId), isNull(menuCategories.deletedAt)))
+      .orderBy(asc(menuCategories.sortOrder), asc(menuCategories.id));
+    res.json({ success: true, categories: rows });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /categories — قسمٌ رئيس أو فرعيّ (عمق مستويين فقط) ──
+venueRouter.post('/categories', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const name = String(req.body.name || '').trim();
+  if (!name || name.length > 60) return res.status(400).json({ error: 'اسم القسم مطلوب (حتى 60 حرفاً)' });
+  const parentId = Number.isFinite(parseInt(req.body.parentId)) ? parseInt(req.body.parentId) : null;
+  try {
+    if (parentId !== null) {
+      const [parent] = await db.select({ id: menuCategories.id, parentId: menuCategories.parentId })
+        .from(menuCategories)
+        .where(and(eq(menuCategories.id, parentId), eq(menuCategories.locationId, locId), isNull(menuCategories.deletedAt))).limit(1);
+      if (!parent) return res.status(400).json({ error: 'القسم الأب غير موجود' });
+      // 🔒 مستويان فقط: قسمٌ فرعيّ لا يُنجب فرعيّاً
+      if (parent.parentId !== null) return res.status(400).json({ error: 'الأقسام مستويان فقط — لا قسم داخل قسمٍ فرعيّ' });
+    }
+    const [row] = await db.insert(menuCategories).values({
+      locationId: locId, parentId, name,
+      sortOrder: Number.isFinite(parseInt(req.body.sortOrder)) ? parseInt(req.body.sortOrder) : 0,
+    } as any).returning();
+    res.json({ success: true, category: row });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /categories/:id — إعادة تسمية/ترتيب (مرّةً واحدة لكلّ أصنافه) ──
+venueRouter.put('/categories/:id', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const id = parseInt(req.params.id);
+  const name = String(req.body.name || '').trim();
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  if (!name || name.length > 60) return res.status(400).json({ error: 'اسم القسم مطلوب (حتى 60 حرفاً)' });
+  try {
+    const [row] = await db.update(menuCategories).set({
+      name,
+      sortOrder: Number.isFinite(parseInt(req.body.sortOrder)) ? parseInt(req.body.sortOrder) : 0,
+    } as any).where(and(eq(menuCategories.id, id), eq(menuCategories.locationId, locId), isNull(menuCategories.deletedAt))).returning();
+    if (!row) return res.status(404).json({ error: 'القسم غير موجود' });
+    // لقطة الاسم النصّيّة على الأصناف تبقى متّسقة مع الجدول
+    await db.update(menuItems).set({ category: name } as any)
+      .where(and(eq(menuItems.categoryId, id), eq(menuItems.locationId, locId)));
+    res.json({ success: true, category: row });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /categories/:id — يُرفض ما دام مستعمَلاً (لا أصناف يتيمة) ──
+venueRouter.delete('/categories/:id', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const id = parseInt(req.params.id);
+  try {
+    const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(menuItems)
+      .where(and(eq(menuItems.categoryId, id), isNull(menuItems.deletedAt)));
+    if (cnt > 0) return res.status(400).json({ error: `القسم يحوي ${cnt} صنفاً — انقلها أو احذفها أوّلاً` });
+    const [{ kids }] = await db.select({ kids: sql<number>`count(*)::int` }).from(menuCategories)
+      .where(and(eq(menuCategories.parentId, id), isNull(menuCategories.deletedAt)));
+    if (kids > 0) return res.status(400).json({ error: 'احذف الأقسام الفرعيّة أوّلاً' });
+
+    const [row] = await db.update(menuCategories).set({ deletedAt: new Date() } as any)
+      .where(and(eq(menuCategories.id, id), eq(menuCategories.locationId, locId), isNull(menuCategories.deletedAt))).returning();
+    if (!row) return res.status(404).json({ error: 'القسم غير موجود' });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════
+// ⚙️ مجموعات الخيارات المشتركة — /api/venue/option-groups
+// ════════════════════════════════════════════
+
+// ── GET /option-groups — المجموعات بقيمها ──
+venueRouter.get('/option-groups', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const groups = await db.select().from(menuOptionGroups)
+      .where(and(eq(menuOptionGroups.locationId, locId), isNull(menuOptionGroups.deletedAt)))
+      .orderBy(asc(menuOptionGroups.sortOrder), asc(menuOptionGroups.id));
+    const values = groups.length > 0
+      ? await db.select().from(menuOptionValues)
+          .where(and(inArray(menuOptionValues.groupId, groups.map(g => g.id)), isNull(menuOptionValues.deletedAt)))
+          .orderBy(asc(menuOptionValues.sortOrder), asc(menuOptionValues.id))
+      : [];
+    res.json({
+      success: true,
+      groups: groups.map(g => ({ ...g, values: values.filter(v => v.groupId === g.id) })),
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// يقرأ حقول المجموعة ويطبّعها — القيم تُستبدل كاملةً في كلّ حفظ (أبسط من مزامنة فرديّة)
+function readGroupBody(body: any, res: Response): { name: string; selectionType: string; isRequired: boolean; maxSelect: number; sortOrder: number; values: { name: string; priceDelta: string; sortOrder: number }[] } | null {
+  const name = String(body.name || '').trim();
+  if (!name || name.length > 80) { res.status(400).json({ error: 'اسم المجموعة مطلوب (حتى 80 حرفاً)' }); return null; }
+  const selectionType = body.selectionType === 'multi' ? 'multi' : 'single';
+  const rawValues = Array.isArray(body.values) ? body.values : [];
+  const values: { name: string; priceDelta: string; sortOrder: number }[] = [];
+  for (const [i, v] of rawValues.entries()) {
+    const vn = String(v?.name || '').trim();
+    if (!vn) continue;
+    if (vn.length > 80) { res.status(400).json({ error: 'اسم الخيار طويل (حتى 80 حرفاً)' }); return null; }
+    const d = v?.priceDelta === undefined || v?.priceDelta === '' ? 0 : parseFloat(v.priceDelta);
+    if (!Number.isFinite(d) || d < 0 || d > 9999) { res.status(400).json({ error: `فرق سعر غير صالح في «${vn}»` }); return null; }
+    values.push({ name: vn, priceDelta: d.toFixed(2), sortOrder: i });
+  }
+  if (values.length === 0) { res.status(400).json({ error: 'أضف خياراً واحداً على الأقلّ' }); return null; }
+  const maxSelect = selectionType === 'multi'
+    ? Math.min(Math.max(1, parseInt(body.maxSelect) || 1), values.length)
+    : 1;
+  return {
+    name, selectionType, isRequired: body.isRequired === true, maxSelect,
+    sortOrder: Number.isFinite(parseInt(body.sortOrder)) ? parseInt(body.sortOrder) : 0,
+    values,
+  };
+}
+
+// ── POST /option-groups ──
+venueRouter.post('/option-groups', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const v = readGroupBody(req.body, res);
+  if (!v) return;
+  try {
+    const group = await db.transaction(async (tx) => {
+      const [g] = await tx.insert(menuOptionGroups).values({
+        locationId: locId, name: v.name, selectionType: v.selectionType,
+        isRequired: v.isRequired, maxSelect: v.maxSelect, sortOrder: v.sortOrder,
+      } as any).returning();
+      await tx.insert(menuOptionValues).values(v.values.map(x => ({ groupId: g.id, ...x })) as any);
+      return g;
+    });
+    res.json({ success: true, group });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /option-groups/:id — استبدالٌ كامل للقيم ──
+// القيم القديمة تُحذف ناعماً لا صلباً: لقطات الطلبات السابقة تحفظ أسماءها أصلاً،
+// لكنّ الحذف الناعم يبقي الأثر للتدقيق.
+venueRouter.put('/option-groups/:id', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  const v = readGroupBody(req.body, res);
+  if (!v) return;
+  try {
+    const [exists] = await db.select({ id: menuOptionGroups.id }).from(menuOptionGroups)
+      .where(and(eq(menuOptionGroups.id, id), eq(menuOptionGroups.locationId, locId), isNull(menuOptionGroups.deletedAt))).limit(1);
+    if (!exists) return res.status(404).json({ error: 'المجموعة غير موجودة' });
+
+    const group = await db.transaction(async (tx) => {
+      const [g] = await tx.update(menuOptionGroups).set({
+        name: v.name, selectionType: v.selectionType,
+        isRequired: v.isRequired, maxSelect: v.maxSelect, sortOrder: v.sortOrder,
+      } as any).where(eq(menuOptionGroups.id, id)).returning();
+      await tx.update(menuOptionValues).set({ deletedAt: new Date() } as any)
+        .where(and(eq(menuOptionValues.groupId, id), isNull(menuOptionValues.deletedAt)));
+      await tx.insert(menuOptionValues).values(v.values.map(x => ({ groupId: id, ...x })) as any);
+      return g;
+    });
+    res.json({ success: true, group });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── DELETE /option-groups/:id — يُرفض ما دامت مربوطةً بصنف ──
+venueRouter.delete('/option-groups/:id', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const id = parseInt(req.params.id);
+  try {
+    const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(menuItems)
+      .where(and(eq(menuItems.locationId, locId), isNull(menuItems.deletedAt),
+                 sql`${menuItems.optionGroupIds} @> ${JSON.stringify([id])}::jsonb`));
+    if (cnt > 0) return res.status(400).json({ error: `المجموعة مربوطة بـ${cnt} صنفاً — افصلها عنها أوّلاً` });
+
+    const [row] = await db.update(menuOptionGroups).set({ deletedAt: new Date() } as any)
+      .where(and(eq(menuOptionGroups.id, id), eq(menuOptionGroups.locationId, locId), isNull(menuOptionGroups.deletedAt))).returning();
+    if (!row) return res.status(404).json({ error: 'المجموعة غير موجودة' });
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

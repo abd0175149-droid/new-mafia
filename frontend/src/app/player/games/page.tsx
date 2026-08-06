@@ -608,6 +608,19 @@ function GamesContent() {
                 )}
               </div>
 
+              {/* 🍽️ منيو المكان — يطّلع عليه قبل تأكيد الحجز */}
+              {confirmBooking.hasMenu && (
+                <button
+                  onClick={() => { const a = confirmBooking; setConfirmBooking(null); setSelectedOffer(null); openMenu(a); }}
+                  className="w-full mb-4 p-3 rounded-xl flex items-center gap-3 text-right"
+                  style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}
+                >
+                  <span className="text-xl">🍽️</span>
+                  <span className="flex-1 text-emerald-400 text-xs font-bold">استعرض منيو {confirmBooking.locationName || 'المكان'} قبل الحجز</span>
+                  <span className="text-emerald-400 text-xs">←</span>
+                </button>
+              )}
+
               {/* عروض المكان */}
               {(() => {
                 const offers: any[] = Array.isArray(confirmBooking.locationOffers) ? confirmBooking.locationOffers : [];

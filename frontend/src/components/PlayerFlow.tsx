@@ -138,6 +138,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [playerToken, setPlayerToken] = useState<string | null>(null);
+  // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم
+  const [fnbReady, setFnbReady] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [isExpelled, setIsExpelled] = useState(false);
@@ -449,6 +451,21 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setRejoinLoading(false);
     }
   }, [isConnected, emit, tokenChecked]);
+
+  // ── 🍽️ سياق الطلب: هل يظهر زرّ المنيو داخل الغرفة؟ ──
+  // الخادم وحده يقرّر (حجزٌ إلزاميّ + نافذة الفعاليّة)، فنكتفي بسؤاله مرّةً عند
+  // دخول الغرفة. فشل النداء يعني إخفاء الزرّ — لا رسالة خطأ تزعج اللاعب أثناء اللعب.
+  useEffect(() => {
+    if (step !== 'done' && step !== 'rejoined') return;
+    const t = playerToken || localStorage.getItem('mafia_player_token');
+    if (!t) return;
+    let alive = true;
+    fetch('/api/fnb/context', { headers: { Authorization: `Bearer ${t}` } })
+      .then(r => r.json())
+      .then(d => { if (alive && d?.success && d.context) setFnbReady(true); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [step, playerToken]);
 
   // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
   // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
@@ -3837,6 +3854,19 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           title="مفكرة التحري"
         >
           📝
+        </button>
+      )}
+
+      {/* 🍽️ زرّ الطلب من المكان — داخل الغرفة حيث يطلب اللاعب فعلاً.
+          يظهر فقط إذا أعاد /api/fnb/context سياقاً (حجزٌ + نافذة الطلب)،
+          فلا يزحم الشاشة في الغرف التي لا منيو فيها. */}
+      {(step === 'done' || step === 'rejoined') && fnbReady && (
+        <button
+          onClick={() => { window.location.href = '/player/order'; }}
+          className="fixed bottom-[152px] right-4 w-12 h-12 bg-[#0d1f18] border-2 border-emerald-500/70 text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] z-[90] hover:scale-105 transition-transform"
+          title="اطلب من المكان"
+        >
+          🍽️
         </button>
       )}
 

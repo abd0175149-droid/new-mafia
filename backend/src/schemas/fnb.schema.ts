@@ -14,6 +14,48 @@ import { players } from './player.schema.js';
 
 export const orderStatusEnum = pgEnum('order_status', ['new', 'preparing', 'delivered', 'cancelled']);
 
+// ── أقسام المنيو (مستويان: قسم ← قسم فرعيّ) ──────────
+// 🎯 قرار المالك 2026-08-06: جدولٌ حقيقيّ بدل نصٍّ حرّ — إعادة التسمية والترتيب
+// تتمّ مرّةً واحدة لا على كلّ صنف. المستوى الثاني اختياريّ:
+// «أراجيل» بلا فرعيّ · «مشروبات» ← «باردة» و«ساخنة».
+export const menuCategories = pgTable('menu_categories', {
+  id: serial('id').primaryKey(),
+  locationId: integer('location_id').references(() => locations.id, { onDelete: 'cascade' }).notNull(),
+  parentId: integer('parent_id'),               // null = قسم رئيس (عمقٌ مستويان فقط — يُفرض في الراوت)
+  name: varchar('name', { length: 60 }).notNull(),
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// ── مجموعات الخيارات المشتركة (نكهات · أحجام · إضافات) ──
+// تُعرَّف مرّةً لكلّ مكان وتُربط بعدّة أصناف. «نكهات المعسل» بعشرين نكهة
+// تُدخَل مرّةً وتخدم كلّ الأراجيل — وإضافة نكهة تعديلٌ في مكانٍ واحد.
+export const menuOptionGroups = pgTable('menu_option_groups', {
+  id: serial('id').primaryKey(),
+  locationId: integer('location_id').references(() => locations.id, { onDelete: 'cascade' }).notNull(),
+  name: varchar('name', { length: 80 }).notNull(),
+  selectionType: varchar('selection_type', { length: 10 }).default('single').notNull(), // single | multi
+  isRequired: boolean('is_required').default(false).notNull(),
+  maxSelect: integer('max_select').default(1),   // للمتعدّد فقط — سقف الاختيارات
+  sortOrder: integer('sort_order').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  deletedAt: timestamp('deleted_at'),
+});
+
+// ── قيم الخيارات ─────────────────────────────────────
+// 💰 priceDelta يعود **للمكان كاملاً** (قرار مقفل): حصّة النادي تبقى مبلغاً
+// ثابتاً على الصنف مهما اختار اللاعب — فلا تُحتسب حصّةٌ على فروق الأسعار.
+export const menuOptionValues = pgTable('menu_option_values', {
+  id: serial('id').primaryKey(),
+  groupId: integer('group_id').references(() => menuOptionGroups.id, { onDelete: 'cascade' }).notNull(),
+  name: varchar('name', { length: 80 }).notNull(),
+  priceDelta: decimal('price_delta', { precision: 10, scale: 2 }).default('0').notNull(),
+  isAvailable: boolean('is_available').default(true).notNull(),
+  sortOrder: integer('sort_order').default(0),
+  deletedAt: timestamp('deleted_at'),
+});
+
 // ── أصناف المنيو (لكل مكان) ──────────────────────────
 // 🎯 توحيد 2026-08-06: هذا الجدول هو الكتالوج الوحيد — الباقات (العروض سابقاً) صارت
 // أصنافاً بـ isBundle=true وتركيبة bundleItems. locations.offers مجمَّد للتاريخ فقط.
@@ -31,6 +73,12 @@ export const menuItems = pgTable('menu_items', {
   // 🎁 باقة مركَّبة: سعرها وحصّتها رقمٌ واحد يُدخَل يدويّاً، ومكوّناتها تُطبع في الفاتورة
   isBundle: boolean('is_bundle').default(false).notNull(),
   bundleItems: jsonb('bundle_items').default([]),  // [{ menuItemId, qty }] — أصناف فعليّة من نفس المكان
+  // 🗂️ القسم الجديد (جدول menu_categories). عمود category النصّيّ يبقى محفوظاً
+  // كلقطة اسمٍ للقراءة القديمة، والمصدر الحقيقيّ هو categoryId.
+  categoryId: integer('category_id'),
+  // ⚙️ الخيارات: مجموعاتٌ مشتركة مربوطة + مجموعاتٌ خاصّة بهذا الصنف (القرار: الاثنان معاً)
+  optionGroupIds: jsonb('option_group_ids').default([]),   // [groupId]
+  customOptions: jsonb('custom_options').default([]),      // [{ name, selectionType, isRequired, maxSelect, values:[{name, priceDelta}] }]
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
@@ -63,7 +111,11 @@ export const orderItems = pgTable('order_items', {
   clubShareSnapshot: decimal('club_share_snapshot', { precision: 10, scale: 2 }).default('0'),
   quantity: integer('quantity').default(1).notNull(),
   // 🎁 لقطة مكوّنات الباقة لحظة الطلب — تُطبع مُسنَّنة تحت سطر الباقة في فاتورة A6
-  componentsSnapshot: jsonb('components_snapshot').default([]),  // [{ name, qty }] (qty للوحدة الواحدة)
+  // [{ name, qty, options?: [{ group, value }] }] — الخيارات تظهر حين يختارها اللاعب لمكوّن الباقة
+  componentsSnapshot: jsonb('components_snapshot').default([]),
+  // ⚙️ لقطة خيارات الصنف نفسه — [{ group, value, priceDelta }]. يراها موظّف التحضير
+  // وتُطبع في الفاتورة: بلا هذا يُحضَّر الطلب خطأً (نكهة/حجم مجهولان).
+  optionsSnapshot: jsonb('options_snapshot').default([]),
 });
 
 // ── سجلّ الفواتير (تدقيق + ترقيم تسلسليّ لكل مكان) ────

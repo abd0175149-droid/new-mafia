@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/router.dart';
+import '../../core/api/api_client.dart';
 import '../../core/api/game_config_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/game.dart';
@@ -14,6 +15,8 @@ import 'mayor_layers.dart';
 import 'night_view.dart';
 import 'notepad_sheet.dart';
 import 'join_flow.dart';
+import '../voice/remote_voice.dart';
+import '../voice/voice_service.dart';
 import 'lobby_view.dart';
 
 // ══════════════════════════════════════════════════════
@@ -43,6 +46,9 @@ class _GameScreenState extends State<GameScreen> {
   final _code = TextEditingController();
   final _ticket = TextEditingController();
   bool _booted = false;
+  /// 🍽️ هل للاعب سياق طلبٍ الآن؟ الخادم وحده يقرّر (حجزٌ + نافذة الفعاليّة).
+  bool _fnbReady = false;
+  bool _fnbAsked = false;
 
   @override
   void initState() {
@@ -54,13 +60,51 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void dispose() {
     _c.removeListener(_onChange);
+    unawaited(VoiceService.instance.disconnect());
     _code.dispose();
     _ticket.dispose();
     super.dispose();
   }
 
+  /// 🔒 الصوت للغرف البعيدة وحدها. الخدمة مفردة، و`connect` بنفس المفتاح
+  ///    لا يعيد الاتصال — فاستدعاؤه مع كلّ تغيّرٍ آمن.
+  void _syncVoice() {
+    if (!_c.isRemote || _c.roomId.isEmpty) {
+      unawaited(VoiceService.instance.disconnect());
+      return;
+    }
+    unawaited(VoiceService.instance.connect(
+      roomId: _c.roomId,
+      isHost: false,
+      selfPhysicalId: _c.physicalId,
+      displayName: _c.displayName,
+    ));
+    VoiceService.instance.updateContext(
+      phase: _c.gamePhase,
+      isPlayerDead: _c.isPlayerDead,
+    );
+    VoiceService.instance.seedDiscussion(_c.discussion);
+  }
+
+  /// يُسأل الخادم مرّةً واحدة عند استقرار الدخول — فشلُه يُخفي الزرّ بلا رسالة
+  /// خطأ تقاطع اللاعب أثناء اللعب.
+  Future<void> _checkFnb() async {
+    if (_fnbAsked) return;
+    _fnbAsked = true;
+    try {
+      final d = await ApiClient.instance.get('/api/fnb/context');
+      if (mounted && d is Map && d['context'] != null) {
+        setState(() => _fnbReady = true);
+      }
+    } catch (_) { /* بلا زرّ — لا إزعاج */ }
+  }
+
   void _onChange() {
     if (!mounted) return;
+    _syncVoice();
+    if (_c.step == GameStep.done || _c.step == GameStep.rejoined) {
+      unawaited(_checkFnb());
+    }
     // استبياناتٌ معلّقة تمنع الانضمام — تحويلٌ بعد أن يقرأ اللاعب السبب
     if (_c.feedbackRedirect) {
       _c.consumeFeedbackRedirect();
@@ -127,10 +171,25 @@ class _GameScreenState extends State<GameScreen> {
         if (_showGalleryFab) _galleryFab(),
         if (_c.step == GameStep.done || _c.step == GameStep.rejoined)
           _notepadFab(),
+        if (_fnbReady &&
+            (_c.step == GameStep.done || _c.step == GameStep.rejoined))
+          _orderFab(),
         // 🌙 طبقة الليل تعلو كلّ شيء عدا مودال تبديل الغرفة
         Positioned.fill(child: NightLayer(controller: _c)),
         // 🎩 طبقات العمدة — المودال والبانر والشارة
         Positioned.fill(child: MayorLayer(controller: _c)),
+        // 🎙️ شريط الصوت — **عن بُعد وحده**، ثابتٌ أسفل الشاشة فوق كلّ طور
+        if (_c.isRemote)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: RemoteVoiceBar(
+              enabled: _c.gamePhase != null,
+              service: VoiceService.instance,
+              gamePhase: _c.gamePhase,
+            ),
+          ),
       ]),
     );
   }
@@ -258,6 +317,32 @@ class _GameScreenState extends State<GameScreen> {
                 width: 48,
                 height: 48,
                 child: Icon(Icons.groups, size: 24, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// 🍽️ الطلب من المكان — داخل الغرفة حيث يطلب اللاعب فعلاً.
+  /// يظهر فقط إذا أعاد الخادم سياق طلبٍ (حجزٌ إلزاميّ + نافذة الفعاليّة)،
+  /// فلا يزحم شاشة اللعب في غرفةٍ بلا منيو.
+  Widget _orderFab() => Positioned(
+        bottom: 152,
+        right: 16,
+        child: SafeArea(
+          child: Material(
+            color: const Color(0xFF0D1F18),
+            shape: const CircleBorder(
+                side: BorderSide(color: Color(0xB310B981), width: 2)),
+            elevation: 6,
+            shadowColor: const Color(0x5910B981),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => pushTo(Routes.order),
+              child: const SizedBox(
+                width: 48,
+                height: 48,
+                child: Center(child: Text('🍽️', style: TextStyle(fontSize: 20))),
               ),
             ),
           ),
