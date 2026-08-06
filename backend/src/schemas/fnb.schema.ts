@@ -7,7 +7,7 @@
 
 import {
   pgTable, pgEnum, serial, text, timestamp, integer,
-  boolean, varchar, decimal,
+  boolean, varchar, decimal, jsonb,
 } from 'drizzle-orm/pg-core';
 import { locations, activities } from './admin.schema.js';
 import { players } from './player.schema.js';
@@ -15,7 +15,8 @@ import { players } from './player.schema.js';
 export const orderStatusEnum = pgEnum('order_status', ['new', 'preparing', 'delivered', 'cancelled']);
 
 // ── أصناف المنيو (لكل مكان) ──────────────────────────
-// جدول مستقلّ عمداً — locations.offers jsonb يبقى لعروض الحجز فقط (شكله غير متّسق).
+// 🎯 توحيد 2026-08-06: هذا الجدول هو الكتالوج الوحيد — الباقات (العروض سابقاً) صارت
+// أصنافاً بـ isBundle=true وتركيبة bundleItems. locations.offers مجمَّد للتاريخ فقط.
 export const menuItems = pgTable('menu_items', {
   id: serial('id').primaryKey(),
   locationId: integer('location_id').references(() => locations.id, { onDelete: 'cascade' }).notNull(),
@@ -27,6 +28,9 @@ export const menuItems = pgTable('menu_items', {
   imageUrl: text('image_url'),
   isAvailable: boolean('is_available').default(true),
   sortOrder: integer('sort_order').default(0),
+  // 🎁 باقة مركَّبة: سعرها وحصّتها رقمٌ واحد يُدخَل يدويّاً، ومكوّناتها تُطبع في الفاتورة
+  isBundle: boolean('is_bundle').default(false).notNull(),
+  bundleItems: jsonb('bundle_items').default([]),  // [{ menuItemId, qty }] — أصناف فعليّة من نفس المكان
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
@@ -58,6 +62,8 @@ export const orderItems = pgTable('order_items', {
   unitPriceSnapshot: decimal('unit_price_snapshot', { precision: 10, scale: 2 }).notNull(),
   clubShareSnapshot: decimal('club_share_snapshot', { precision: 10, scale: 2 }).default('0'),
   quantity: integer('quantity').default(1).notNull(),
+  // 🎁 لقطة مكوّنات الباقة لحظة الطلب — تُطبع مُسنَّنة تحت سطر الباقة في فاتورة A6
+  componentsSnapshot: jsonb('components_snapshot').default([]),  // [{ name, qty }] (qty للوحدة الواحدة)
 });
 
 // ── سجلّ الفواتير (تدقيق + ترقيم تسلسليّ لكل مكان) ────
@@ -74,4 +80,9 @@ export const orderInvoices = pgTable('order_invoices', {
   grandTotal: decimal('grand_total', { precision: 10, scale: 2 }).default('0'),
   printedBy: integer('printed_by'),                               // staff.id
   printedAt: timestamp('printed_at').defaultNow().notNull(),
+  // 💵 تحصيل الفاتورة داخل النظام (توحيد 2026-08-06): دفعٌ كاملٌ فقط.
+  // إن حملت سطر رسوم اللعبة يُقلَب حجز اللاعب إلى مدفوع في المعاملة نفسها.
+  isPaid: boolean('is_paid').default(false).notNull(),
+  paidAt: timestamp('paid_at'),
+  paidBy: integer('paid_by'),                                     // staff.id — من حصّل
 });

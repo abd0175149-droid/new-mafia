@@ -30,6 +30,7 @@ import { revenueTrendReport } from './definitions/revenue-trend.report.js';
 import { staffActionAuditReport } from './definitions/staff-action-audit.report.js';
 import { noShowReport } from './definitions/no-show.report.js';
 import { chipsEconomyReport } from './definitions/chips-economy.report.js';
+import { fnbSettlementReport } from './definitions/fnb-settlement.report.js';
 
 export const REPORT_DEFINITIONS: ReportDefinition[] = [
   // مالية
@@ -41,6 +42,7 @@ export const REPORT_DEFINITIONS: ReportDefinition[] = [
   partnerSettlementReport,
   revenueTrendReport,
   chipsEconomyReport,
+  fnbSettlementReport,
   // عمليات
   activitySummaryReport,
   locationPerformanceReport,

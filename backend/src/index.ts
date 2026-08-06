@@ -665,6 +665,13 @@ async function main() {
         game_fee_amount DECIMAL(10,2) DEFAULT 0, grand_total DECIMAL(10,2) DEFAULT 0,
         printed_by INTEGER, printed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'new_order'`);
+      // ── 🎯 توحيد الكتالوج (2026-08-06): الباقات داخل المنيو + تحصيل الفاتورة ──
+      await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS is_bundle BOOLEAN DEFAULT false NOT NULL`);
+      await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS bundle_items JSONB DEFAULT '[]'::jsonb`);
+      await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS components_snapshot JSONB DEFAULT '[]'::jsonb`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT false NOT NULL`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS paid_by INTEGER`);
       // 📱 وسم «تأكّد من التطبيق» على حجوزات المتابعة (+ تعبئة رجعيّة لما أنشأه التطبيق سابقاً)
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS app_confirmed BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS app_confirmed_at TIMESTAMP`);

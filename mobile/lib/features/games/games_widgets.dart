@@ -227,7 +227,7 @@ class ActivityCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       '👥 ${a.bookedCount}/${a.maxPlayers} لاعب'
-                      '${a.isFree ? '' : ' • 💰 ${a.basePrice} ₪'}',
+                      '${a.isFree ? '' : ' • 💰 ${a.basePrice} د.أ'}',
                       style: ar(10, color: Tw.gray600),
                     ),
                     const SizedBox(height: 6),

@@ -4,6 +4,8 @@
 // 🧾 فواتير المنيو — /venue/invoices
 // اختر الفعاليّة → لاعبون بطلبات → فاتورة A6 PDF لكل لاعب (عرض/حفظ/طباعة)
 // الرقم التسلسليّ يثبت من أوّل إصدار؛ إعادة الطباعة لا تستهلك رقماً جديداً
+// 💵 تحصيل (2026-08-06): زرّ «تسجيل الدفع» بصلاحيّة payments.record — دفعٌ كاملٌ فقط،
+// وإن حملت الفاتورة رسوم لعبة يُقلَب حجز اللاعب إلى مدفوع تلقائيّاً.
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from 'react';
@@ -18,6 +20,8 @@ interface Candidate {
   grandTotal: number;
   invoiceNo: number | null;
   printedAt: string | null;
+  isPaid: boolean;
+  paidAt: string | null;
 }
 
 export default function VenueInvoicesPage() {
@@ -28,6 +32,7 @@ export default function VenueInvoicesPage() {
   const [gameFeeEnabled, setGameFeeEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [payingId, setPayingId] = useState<number | null>(null);
   const [toast, setToast] = useState('');
 
   const locParam = isHQ && locationId ? `locationId=${locationId}` : '';
@@ -83,11 +88,35 @@ export default function VenueInvoicesPage() {
     finally { setBusyId(null); }
   };
 
+  // 💵 تحصيل الفاتورة كاملةً — تأكيدٌ صريح لأنّه يقلب حالة الحجز أيضاً
+  const recordPayment = async (c: Candidate) => {
+    if (!actId || c.invoiceNo == null) return;
+    const feeLine = c.gameFee > 0 ? `\nتشمل رسوم لعبة ${c.gameFee.toFixed(2)} د.أ — سيُسجَّل حجز اللاعب مدفوعاً باسمك.` : '';
+    if (!confirm(`تأكيد استلام ${c.grandTotal.toFixed(2)} د.أ من ${c.playerName} كاملةً؟${feeLine}`)) return;
+    setPayingId(c.playerId);
+    try {
+      const r = await fetch(withLoc(`/api/venue/invoices/${actId}/${c.playerId}/pay`), { method: 'POST', headers: authHeaders });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && (d as any).success) {
+        flash((d as any).gameFeeSettled > 0
+          ? `✅ حُصّلت الفاتورة #${c.invoiceNo} — وسُجّل حجز ${c.playerName} مدفوعاً`
+          : `✅ حُصّلت الفاتورة #${c.invoiceNo}`);
+        loadCandidates();
+      } else flash(`❌ ${(d as any).error || 'فشل تسجيل التحصيل'}`);
+    } catch { flash('❌ خطأ في الاتصال'); }
+    finally { setPayingId(null); }
+  };
+
   if (!can('invoices.print')) {
     return <div className="text-center py-16 text-gray-500 text-sm">ليس لدى حسابك صلاحيّة طباعة الفواتير</div>;
   }
 
-  const totals = candidates.reduce((s, c) => ({ orders: s.orders + c.ordersTotal, grand: s.grand + c.grandTotal }), { orders: 0, grand: 0 });
+  const totals = candidates.reduce((s, c) => ({
+    orders: s.orders + c.ordersTotal,
+    grand: s.grand + c.grandTotal,
+    collected: s.collected + (c.isPaid ? c.grandTotal : 0),
+  }), { orders: 0, grand: 0, collected: 0 });
+  const canPay = can('payments.record');
 
   return (
     <div className="space-y-4">
@@ -112,7 +141,8 @@ export default function VenueInvoicesPage() {
 
       {gameFeeEnabled && (
         <p className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-          💰 رسوم اللعبة مفعَّلة لهذه الفعاليّة — تُضاف تلقائيّاً لفاتورة من لم يدفع حجزه (تحصيلها يبقى عبر صفحة الحجوزات)
+          💰 رسوم اللعبة مفعَّلة لهذه الفعاليّة — تُضاف تلقائيّاً لفاتورة من لم يدفع حجزه
+          {canPay ? '، وتسجيل الدفع هنا يُثبّت حجزه مدفوعاً' : ' (التحصيل يحتاج صلاحيّة تسجيل الدفع)'}
         </p>
       )}
 
@@ -132,11 +162,16 @@ export default function VenueInvoicesPage() {
               <div key={c.playerId} className="rounded-xl p-3.5 flex items-center gap-3"
                 style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-white text-sm font-medium truncate">{c.playerName}</p>
                     {c.invoiceNo != null && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shrink-0">
                         فاتورة #{c.invoiceNo}
+                      </span>
+                    )}
+                    {c.isPaid && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                        💵 محصَّلة
                       </span>
                     )}
                   </div>
@@ -148,20 +183,38 @@ export default function VenueInvoicesPage() {
                 <div className="text-left shrink-0">
                   <p className="text-emerald-400 text-sm font-bold">{c.grandTotal.toFixed(2)} د.أ</p>
                 </div>
-                <button
-                  onClick={() => openInvoice(c)}
-                  disabled={busyId === c.playerId}
-                  className="shrink-0 text-[11px] px-3 py-2 rounded-lg font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white disabled:opacity-50"
-                >
-                  {busyId === c.playerId ? '⏳…' : c.invoiceNo != null ? '🖨️ إعادة طباعة' : '🧾 فاتورة PDF'}
-                </button>
+                <div className="flex flex-col gap-1.5 shrink-0">
+                  <button
+                    onClick={() => openInvoice(c)}
+                    disabled={busyId === c.playerId}
+                    className="text-[11px] px-3 py-2 rounded-lg font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white disabled:opacity-50"
+                  >
+                    {busyId === c.playerId ? '⏳…' : c.invoiceNo != null ? '🖨️ إعادة طباعة' : '🧾 فاتورة PDF'}
+                  </button>
+                  {canPay && c.invoiceNo != null && !c.isPaid && (
+                    <button
+                      onClick={() => recordPayment(c)}
+                      disabled={payingId === c.playerId}
+                      className="text-[11px] px-3 py-1.5 rounded-lg font-bold bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 disabled:opacity-50"
+                    >
+                      {payingId === c.playerId ? '⏳…' : '💵 تسجيل الدفع'}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
 
           <div className="rounded-xl p-3.5 flex items-center justify-between"
             style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.2)' }}>
-            <span className="text-gray-300 text-xs">إجماليّ الفعاليّة ({candidates.length} لاعباً)</span>
+            <div>
+              <span className="text-gray-300 text-xs">إجماليّ الفعاليّة ({candidates.length} لاعباً)</span>
+              {canPay && (
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  محصَّل {totals.collected.toFixed(2)} • متبقٍّ <span className="text-amber-400/90">{(totals.grand - totals.collected).toFixed(2)}</span>
+                </p>
+              )}
+            </div>
             <span className="text-emerald-400 text-sm font-bold">
               {totals.grand.toFixed(2)} د.أ
               {totals.grand !== totals.orders && <span className="text-[10px] text-gray-500 font-normal"> (طلبات {totals.orders.toFixed(2)})</span>}

@@ -17,10 +17,14 @@ interface Ctx {
   locationName: string;
   source: 'live' | 'booking';
 }
-interface Item { id: number; category: string; name: string; description: string; price: string; imageUrl: string | null }
+interface Component { name: string; qty: number }
+interface Item {
+  id: number; category: string; name: string; description: string; price: string; imageUrl: string | null;
+  isBundle?: boolean; components?: Component[];   // 🎁 باقة: مكوّناتها بأسماء فقط (بلا أسعار مفردة)
+}
 interface MyOrder {
   id: number; status: string; total: string; note: string; createdAt: string;
-  items: { name: string; unitPrice: string; quantity: number }[];
+  items: { name: string; unitPrice: string; quantity: number; components?: Component[] }[];
 }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: string }> = {
@@ -176,6 +180,12 @@ export default function PlayerOrderPage() {
                   <p className="text-gray-400 text-[11px] leading-relaxed">
                     {o.items.map(i => `${i.name} ×${i.quantity}`).join(' • ')}
                   </p>
+                  {/* 🎁 تفصيل الباقات داخل الطلب */}
+                  {o.items.filter(i => i.components && i.components.length > 0).map((i, ix) => (
+                    <p key={ix} className="text-[10px] leading-relaxed" style={{ color: 'rgba(196,181,253,0.7)' }}>
+                      🎁 {i.name}: {i.components!.map(c => `${c.name} ×${c.qty * i.quantity}`).join(' + ')}
+                    </p>
+                  ))}
                   {o.note && <p className="text-gray-600 text-[10px] mt-1">📝 {o.note}</p>}
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-gray-600 text-[9px]">
@@ -213,8 +223,18 @@ export default function PlayerOrderPage() {
                       {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm truncate">{it.name}</p>
-                      {it.description && <p className="text-gray-600 text-[10px] truncate">{it.description}</p>}
+                      <p className="text-white text-sm truncate">
+                        {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
+                        {it.name}
+                      </p>
+                      {/* 🎁 محتويات العرض — يعرفها اللاعب قبل الطلب */}
+                      {it.isBundle && it.components && it.components.length > 0 ? (
+                        <p className="text-[10px] truncate" style={{ color: 'rgba(196,181,253,0.75)' }}>
+                          {it.components.map(c => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ')}
+                        </p>
+                      ) : it.description ? (
+                        <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
+                      ) : null}
                       <p className="text-emerald-400 text-[11px] font-bold mt-0.5">{parseFloat(it.price).toFixed(2)} د.أ</p>
                     </div>
                     {qty === 0 ? (

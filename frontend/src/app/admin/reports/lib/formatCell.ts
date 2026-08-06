@@ -5,6 +5,8 @@
 import type { CellFormat } from './reportsApi';
 
 const AR = 'ar-IQ';
+// 💵 عملة النظام: الدينار الأردنيّ (مطابق لـ backend render/format.ts — صُحّح 2026-08-06)
+const CURRENCY_AR = 'د.أ';
 
 export function formatCell(value: unknown, format?: CellFormat): string {
   if (value === null || value === undefined || value === '') {
@@ -13,7 +15,7 @@ export function formatCell(value: unknown, format?: CellFormat): string {
   switch (format) {
     case 'currency': {
       const n = Number(value);
-      return `${(Number.isFinite(n) ? n : 0).toLocaleString(AR)} د.ع`;
+      return `${(Number.isFinite(n) ? n : 0).toLocaleString(AR)} ${CURRENCY_AR}`;
     }
     case 'number': {
       const n = Number(value);

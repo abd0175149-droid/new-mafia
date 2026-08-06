@@ -23,8 +23,6 @@ export default function VenueLayout({ children }: { children: React.ReactNode })
   const [me, setMe] = useState<VenueMe | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-  const [pickedLoc, setPickedLoc] = useState<{ id: number; name: string } | null>(null);
-  const [hqLocations, setHqLocations] = useState<{ id: number; name: string }[]>([]);
   const [token, setToken] = useState('');
 
   useEffect(() => {
@@ -36,19 +34,17 @@ export default function VenueLayout({ children }: { children: React.ReactNode })
       .then(async (data) => {
         if (!data.success) { setError(data.error || 'تعذّر التحقّق من الحساب'); return; }
         const m: VenueMe = data.me;
-        setMe(m);
+        // 🏪 الكونسول لحسابات الأماكن حصراً — الإدارة تدير الأماكن من /admin/venues
+        // (قرار المالك 2026-08-06). التوجيه يحافظ على المكان المطلوب إن جاء في الرابط.
         if (m.role === 'admin' || m.role === 'manager') {
-          // HQ: جلب الأماكن لمُنتقي المكان
-          try {
-            const locRes = await fetch('/api/locations', { headers: { Authorization: `Bearer ${t}` } });
-            const locs = await locRes.json();
-            const list = (Array.isArray(locs) ? locs : locs.locations || []).map((l: any) => ({ id: l.id, name: l.name }));
-            setHqLocations(list);
-            const saved = parseInt(localStorage.getItem('venue_loc') || '');
-            const found = list.find((l: any) => l.id === saved);
-            if (found) setPickedLoc(found);
-          } catch { /* بلا أماكن — يظهر المُنتقي فارغاً */ }
-        } else if (!m.location) {
+          const fromUrl = new URLSearchParams(window.location.search).get('locationId');
+          const tail = window.location.pathname.split('/')[2] || 'menu';
+          const section = ['menu', 'orders', 'invoices'].includes(tail) ? tail : 'menu';
+          router.replace(`/admin/venues/${section}${fromUrl ? `?locationId=${fromUrl}` : ''}`);
+          return;
+        }
+        setMe(m);
+        if (!m.location) {
           setError('هذا الحساب غير مرتبط بمكان — تواصل مع الإدارة');
         }
       })
@@ -76,16 +72,16 @@ export default function VenueLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  const isHQ = me.role === 'admin' || me.role === 'manager';
-  const loc = isHQ ? pickedLoc : me.location;
+  // 🔒 حسابات الأماكن حصراً: مكانٌ واحد ثابت، والصلاحيّات تُفرض كما هي بلا تجاوز.
+  const loc = me.location;
   const ctx: VenueCtx = {
     me,
     locationId: loc?.id ?? null,
     locationName: loc?.name || '',
-    setLocation: (id, name) => { setPickedLoc({ id, name }); localStorage.setItem('venue_loc', String(id)); },
-    isHQ,
+    setLocation: () => { /* حساب المكان لا يبدّل مكانه */ },
+    isHQ: false,
     authHeaders: { Authorization: `Bearer ${token}` },
-    can: (perm) => isHQ || me.permissions.includes(perm),
+    can: (perm) => me.permissions.includes(perm),
   };
 
   return (
@@ -98,28 +94,15 @@ export default function VenueLayout({ children }: { children: React.ReactNode })
               <span className="text-2xl">🏪</span>
               <div className="min-w-0">
                 <h1 className="text-sm font-bold truncate">{loc?.name || 'كونسول المكان'}</h1>
-                <p className="text-[10px] text-gray-500 truncate">{me.displayName} • {isHQ ? 'إدارة النادي' : 'حساب المكان'}</p>
+                <p className="text-[10px] text-gray-500 truncate">{me.displayName} • حساب المكان</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {isHQ && (
-                <select
-                  value={loc?.id || ''}
-                  onChange={(e) => {
-                    const l = hqLocations.find(x => x.id === parseInt(e.target.value));
-                    if (l) ctx.setLocation(l.id, l.name);
-                  }}
-                  className="bg-gray-800 border border-gray-700 rounded-lg text-xs px-2 py-1.5 max-w-[130px]"
-                >
-                  <option value="" disabled>اختر المكان…</option>
-                  {hqLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-              )}
               <button
-                onClick={() => { router.push(isHQ ? '/admin' : '/admin/login'); if (!isHQ) { localStorage.removeItem('token'); localStorage.removeItem('user'); } }}
+                onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); router.push('/admin/login'); }}
                 className="text-[11px] px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-white transition-colors"
               >
-                {isHQ ? '← لوحة الإدارة' : 'خروج'}
+                خروج
               </button>
             </div>
           </div>
@@ -146,9 +129,7 @@ export default function VenueLayout({ children }: { children: React.ReactNode })
 
         <main className="max-w-3xl mx-auto px-4 py-5 pb-24 sm:pb-8">
           {!loc ? (
-            <div className="text-center py-16 text-gray-500 text-sm">
-              {isHQ ? 'اختر مكاناً من القائمة أعلاه لإدارة منيوه' : 'الحساب غير مرتبط بمكان'}
-            </div>
+            <div className="text-center py-16 text-gray-500 text-sm">الحساب غير مرتبط بمكان</div>
           ) : children}
         </main>
 

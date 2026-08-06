@@ -1,11 +1,17 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+// ══════════════════════════════════════════════════════
+// 📍 أماكن الفعاليات — /admin/locations
+// 🎯 توحيد 2026-08-06: أُلغي محرّر «عروض المكان» — الكتالوج الوحيد هو منيو المكان
+// (أصنافٌ مفردة + باقات) ويُدار من /venue/menu. locations.offers محفوظ للقراءة فقط
+// كي تُكمل الفعاليّات المفتوحة عليه دورتها.
+// ══════════════════════════════════════════════════════
+
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-const CURRENCY = 'د.أ';
 const PAGE_SIZE = 6;
 
 function getToken() { return typeof window !== 'undefined' ? localStorage.getItem('token') : null; }
@@ -23,7 +29,7 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return res.json();
 }
 
-// توحيد العروض (التوافق مع البيانات القديمة)
+// توحيد شكل العروض القديمة للعرض فقط (بياناتٌ مؤرشفة — لا تُنشأ ولا تُعدَّل)
 function normalizeOffer(o: any, index: number): any {
   if (typeof o === 'string') return { id: `legacy-${index}`, description: o, price: 0, clubShare: 0, venueShare: 0 };
   return {
@@ -35,7 +41,6 @@ function normalizeOffer(o: any, index: number): any {
   };
 }
 
-function generateOfferId() { return `offer-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`; }
 
 export default function LocationsPage() {
   // ── Data ──
@@ -56,12 +61,6 @@ export default function LocationsPage() {
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // ── Offer form ──
-  const [newOfferDesc, setNewOfferDesc] = useState('');
-  const [newOfferPrice, setNewOfferPrice] = useState('');
-  const [newOfferVenueShare, setNewOfferVenueShare] = useState('');
-  const [newOfferClubShare, setNewOfferClubShare] = useState('');
-
   // ── Owner account dialog ──
   const [ownerAccount, setOwnerAccount] = useState<{ username: string; password: string } | null>(null);
 
@@ -79,6 +78,16 @@ export default function LocationsPage() {
     { id: 'orders.manage', label: '🔁 إدارة الطلبات' },
     { id: 'invoices.print', label: '🧾 طباعة الفواتير' },
     { id: 'menu.manage', label: '📋 إدارة المنيو' },
+    { id: 'payments.record', label: '💵 تسجيل التحصيل' },
+  ];
+
+  // 👥 مجموعات صلاحيات جاهزة — أنواع موظّفي المكان (الدور واحد: location_owner)
+  const PERM_PRESETS = [
+    { key: 'owner', label: '👑 صاحب المكان', perms: ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record'] },
+    { key: 'cashier', label: '💵 كاشير', perms: ['invoices.print', 'payments.record'] },
+    { key: 'prep', label: '👨‍🍳 موظّف تحضير', perms: ['orders.receive', 'orders.manage'] },
+    { key: 'kds', label: '📺 شاشة مطبخ', perms: ['orders.receive'] },
+    { key: 'menu', label: '📋 مسؤول المنيو', perms: ['menu.manage'] },
   ];
 
   async function openAccounts(loc: any) {
@@ -167,35 +176,6 @@ export default function LocationsPage() {
     }
   }
 
-  // ══ Offer management ══
-  function handlePriceChange(val: string) {
-    setNewOfferPrice(val);
-    const p = parseFloat(val) || 0;
-    const v = parseFloat(newOfferVenueShare) || 0;
-    setNewOfferClubShare(String(Math.max(0, p - v)));
-  }
-
-  function handleVenueShareChange(val: string) {
-    setNewOfferVenueShare(val);
-    const p = parseFloat(newOfferPrice) || 0;
-    const v = parseFloat(val) || 0;
-    setNewOfferClubShare(String(Math.max(0, p - v)));
-  }
-
-  function handleAddOffer(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newOfferDesc.trim()) return;
-    const price = parseFloat(newOfferPrice) || 0;
-    const venueShare = parseFloat(newOfferVenueShare) || 0;
-    const clubShare = parseFloat(newOfferClubShare) || Math.max(0, price - venueShare);
-    setOffers([...offers, { id: generateOfferId(), description: newOfferDesc.trim(), price, clubShare: Math.max(0, clubShare), venueShare }]);
-    setNewOfferDesc(''); setNewOfferPrice(''); setNewOfferVenueShare(''); setNewOfferClubShare('');
-  }
-
-  function handleRemoveOffer(index: number) {
-    setOffers(offers.filter((_, i) => i !== index));
-  }
-
   // ══ Loading ══
   if (loading) return <div className="flex items-center justify-center h-96"><div className="animate-spin h-8 w-8 border-4 border-amber-500 border-t-transparent rounded-full" /></div>;
 
@@ -206,7 +186,7 @@ export default function LocationsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">📍 أماكن الفعاليات</h1>
-          <p className="text-gray-400 text-sm mt-1">أضف القهاوي والكافيهات التي تقام بها الفعاليات مع عروضها وحصص التقسيم</p>
+          <p className="text-gray-400 text-sm mt-1">أضف القهاوي والكافيهات التي تقام بها الفعاليات وحساباتها — الأسعار والباقات تُدار من منيو كلّ مكان</p>
         </div>
         <button onClick={handleOpenNew} className="px-4 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-gray-800 transition">
           + إضافة مكان جديد
@@ -218,7 +198,7 @@ export default function LocationsPage() {
         <div className="text-center py-16 border-2 border-dashed border-gray-700/30 rounded-2xl">
           <span className="text-4xl block mb-3 opacity-30">📍</span>
           <p className="text-gray-500 font-medium">لا توجد أماكن مضافة بعد</p>
-          <p className="text-gray-600 text-sm mt-1">يمكنك إضافة أماكن وحفظ عروضها</p>
+          <p className="text-gray-600 text-sm mt-1">أضف مكاناً ليُنشأ له حساب ومنيو خاصّ به</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -253,34 +233,35 @@ export default function LocationsPage() {
                     <p className="text-xs text-gray-600">📍 لا يوجد رابط للخريطة</p>
                   )}
 
-                  {/* Offers */}
-                  <div>
-                    <p className="text-[10px] text-gray-500 font-bold uppercase mb-2">
-                      🎁 العروض المتوفرة ({locOffers.length})
-                    </p>
-                    {locOffers.length > 0 ? (
-                      <div className="space-y-1.5">
-                        {locOffers.map((offer: any, i: number) => {
-                          const discount = offer.price > (offer.clubShare + offer.venueShare) ? offer.price - offer.clubShare - offer.venueShare : 0;
-                          return (
-                            <div key={i} className="bg-gray-900/30 border border-gray-700/20 rounded-lg p-2.5">
-                              <p className="text-xs font-bold text-white mb-0.5">{offer.description}</p>
-                              <div className="flex items-center gap-2 text-[10px] flex-wrap">
-                                <span className="text-gray-400">{offer.price} {CURRENCY}</span>
-                                <span className="text-emerald-400">النادي: {offer.clubShare}</span>
-                                <span className="text-blue-400">المكان: {offer.venueShare}</span>
-                                {discount > 0 && <span className="text-amber-400">خصم: {discount.toFixed(2)}</span>}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="border border-dashed border-gray-700/30 rounded-lg p-3 text-center">
-                        <p className="text-xs text-gray-600">لا توجد عروض</p>
-                      </div>
-                    )}
+                  {/* 🍽️ إدارة المكان من لوحة الإدارة مباشرةً — بلا دخول كونسول المكان */}
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <a href={`/admin/venues/menu?locationId=${loc.id}`}
+                      className="bg-emerald-500/[0.06] border border-emerald-500/20 rounded-lg p-2 text-center hover:border-emerald-500/40 transition">
+                      <p className="text-base leading-none mb-1">🍽️</p>
+                      <p className="text-[10px] font-bold text-emerald-400">المنيو</p>
+                    </a>
+                    <a href={`/admin/venues/orders?locationId=${loc.id}`}
+                      className="bg-blue-500/[0.06] border border-blue-500/20 rounded-lg p-2 text-center hover:border-blue-500/40 transition">
+                      <p className="text-base leading-none mb-1">📥</p>
+                      <p className="text-[10px] font-bold text-blue-400">الطلبات</p>
+                    </a>
+                    <a href={`/admin/venues/invoices?locationId=${loc.id}`}
+                      className="bg-amber-500/[0.06] border border-amber-500/20 rounded-lg p-2 text-center hover:border-amber-500/40 transition">
+                      <p className="text-base leading-none mb-1">🧾</p>
+                      <p className="text-[10px] font-bold text-amber-400">الفواتير</p>
+                    </a>
                   </div>
+
+                  {/* 🗄️ عروض قديمة مؤرشفة: تخدم الفعاليّات المفتوحة فقط ولا تُنشأ جديداً */}
+                  {locOffers.length > 0 && (
+                    <div className="border border-dashed border-gray-700/40 rounded-lg p-2.5">
+                      <p className="text-[10px] text-gray-500 font-bold mb-1">🗄️ عروض حجزٍ قديمة ({locOffers.length}) — مؤرشفة</p>
+                      <p className="text-[10px] text-gray-600 leading-relaxed">
+                        {locOffers.map((o: any) => o.description).filter(Boolean).join(' • ') || 'بلا وصف'}
+                      </p>
+                      <p className="text-[9px] text-gray-600 mt-1">تخدم الفعاليّات المفتوحة عليها فقط — الجديد يُبنى كباقة في المنيو.</p>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             );
@@ -327,62 +308,21 @@ export default function LocationsPage() {
                 <input type="text" value={mapUrl} onChange={e => setMapUrl(e.target.value)} placeholder="https://maps.google.com/..." dir="ltr" className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
               </div>
 
-              {/* ── العروض ── */}
+              {/* ── 🍽️ الكتالوج: المنيو ── */}
               <div>
                 <hr className="border-gray-700/30 mb-4" />
-                <p className="text-sm font-bold text-white mb-3">🎁 عروض المكان</p>
-
-                {/* نموذج إضافة عرض */}
-                <form onSubmit={handleAddOffer} className="bg-gray-900/30 border border-gray-700/20 rounded-xl p-4 space-y-3 mb-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2 sm:col-span-1">
-                      <label className="block text-[10px] text-gray-500 mb-1">وصف العرض</label>
-                      <input type="text" value={newOfferDesc} onChange={e => setNewOfferDesc(e.target.value)} placeholder="وصف العرض..." className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
-                    </div>
-                    <div className="col-span-2 sm:col-span-1">
-                      <label className="block text-[10px] text-gray-500 mb-1">السعر ({CURRENCY})</label>
-                      <input type="number" min="0" step="0.01" value={newOfferPrice} onChange={e => handlePriceChange(e.target.value)} dir="ltr" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-1">حصة المكان</label>
-                      <input type="number" min="0" step="0.01" value={newOfferVenueShare} onChange={e => handleVenueShareChange(e.target.value)} dir="ltr" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] text-gray-500 mb-1">حصة النادي</label>
-                      <input type="number" min="0" step="0.01" value={newOfferClubShare} onChange={e => setNewOfferClubShare(e.target.value)} dir="ltr" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30" />
-                    </div>
-                    <div className="flex items-end">
-                      <button type="submit" className="w-full py-2 bg-gray-700/50 text-gray-300 rounded-lg text-sm hover:bg-gray-700 transition">+ إضافة</button>
-                    </div>
-                  </div>
-                </form>
-
-                {/* قائمة العروض */}
-                {offers.length > 0 ? (
-                  <div className="space-y-2">
-                    {offers.map((offer: any, i: number) => {
-                      const discount = offer.price > (offer.clubShare + offer.venueShare) ? offer.price - offer.clubShare - offer.venueShare : 0;
-                      return (
-                        <div key={i} className="flex items-center justify-between p-3 bg-gray-900/30 border border-gray-700/20 rounded-xl">
-                          <div>
-                            <p className="text-xs font-bold text-white">{offer.description}</p>
-                            <div className="flex items-center gap-2 text-[10px] mt-0.5 flex-wrap">
-                              <span className="text-gray-400">الإجمالي: {offer.price} {CURRENCY}</span>
-                              <span className="text-emerald-400">النادي: {offer.clubShare} {CURRENCY}</span>
-                              <span className="text-blue-400">المكان: {offer.venueShare} {CURRENCY}</span>
-                              {discount > 0 && <span className="text-amber-400">خصم: {discount.toFixed(2)} {CURRENCY}</span>}
-                            </div>
-                          </div>
-                          <button onClick={() => handleRemoveOffer(i)} className="p-1.5 text-rose-400/50 hover:text-rose-400 transition">🗑️</button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-center text-xs text-gray-600 py-4 border border-dashed border-gray-700/30 rounded-xl">لا توجد عروض بعد</p>
-                )}
+                <div className="bg-emerald-500/[0.06] border border-emerald-500/20 rounded-xl p-4">
+                  <p className="text-sm font-bold text-emerald-400 mb-1">🍽️ أسعار المكان تُدار من المنيو</p>
+                  <p className="text-xs text-gray-400 leading-relaxed">
+                    الأصناف المفردة والباقات (العروض) وأسعارها وحصّة النادي — من «الأماكن والمنيو ← المنيو والباقات».
+                    {editingLoc && <> افتح <a href={`/admin/venues/menu?locationId=${editingLoc.id}`} className="text-emerald-400 underline">منيو {editingLoc.name}</a>.</>}
+                  </p>
+                  {offers.length > 0 && (
+                    <p className="text-[10px] text-gray-500 mt-2 pt-2 border-t border-gray-700/30">
+                      🗄️ لهذا المكان {offers.length} عرض حجزٍ قديم محفوظ — يخدم الفعاليّات المفتوحة عليه ولا يُعدَّل بعد الآن.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* زر الحفظ */}
@@ -468,6 +408,23 @@ export default function LocationsPage() {
                     <input type="text" value={newAcctName} onChange={e => setNewAcctName(e.target.value)} placeholder="الاسم الظاهر (مثل: موظّف البار)" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm outline-none focus:ring-1 focus:ring-sky-500/30" />
                     <input type="text" value={newAcctUsername} onChange={e => setNewAcctUsername(e.target.value)} placeholder="اسم المستخدم (اختياريّ)" dir="ltr" className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-sm font-mono outline-none focus:ring-1 focus:ring-sky-500/30" />
                   </div>
+
+                  {/* أنواع الموظّفين: اختصارٌ يملأ الصلاحيات — تبقى قابلةً للتعديل يدويّاً */}
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-1.5">نوع الموظّف (يملأ الصلاحيات تلقائيّاً)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PERM_PRESETS.map(p => {
+                        const on = p.perms.length === newAcctPerms.length && p.perms.every(x => newAcctPerms.includes(x));
+                        return (
+                          <button key={p.key} onClick={() => setNewAcctPerms([...p.perms])}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition ${on ? 'bg-sky-500/20 text-sky-300 border-sky-500/40' : 'bg-gray-900/40 text-gray-400 border-gray-700/40 hover:border-gray-600'}`}>
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     {VENUE_PERMS.map(p => (
                       <label key={p.id} className="flex items-center gap-2 cursor-pointer bg-gray-900/40 p-2 rounded-lg border border-gray-700/30">

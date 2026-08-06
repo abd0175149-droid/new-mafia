@@ -20,7 +20,6 @@ const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'ما
 export default function ActivityForm({ locations, onSubmit, onCancel }: ActivityFormProps) {
   const [date, setDate] = useState('');
   const [locationId, setLocationId] = useState<string>('');
-  const [enabledOfferIds, setEnabledOfferIds] = useState<number[]>([]);
   const [basePrice, setBasePrice] = useState('0');
   const [description, setDescription] = useState('');
   const [maxCapacity, setMaxCapacity] = useState('20');
@@ -37,10 +36,6 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
 
 
   const selectedLocation = locations.find(l => l.id === Number(locationId));
-  const locationOffers: any[] = selectedLocation?.offers || [];
-  const hasOffers = enabledOfferIds.length > 0;
-
-  useEffect(() => { setEnabledOfferIds([]); }, [locationId]);
 
   // تحميل قوالب المقاعد
   useEffect(() => {
@@ -81,13 +76,6 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
     return `${locName} ${d.getDate()} ${AR_MONTHS[d.getMonth()]}`.trim();
   }
 
-  function toggleOffer(offerId: number) {
-    setEnabledOfferIds(prev =>
-      prev.includes(offerId) ? prev.filter(id => id !== offerId) : [...prev, offerId]
-    );
-  }
-
-
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -111,9 +99,10 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
       await onSubmit({
         name: generateName() || `نشاط ${d.toLocaleDateString('ar-EG')}`,
         date, description,
-        basePrice: hasOffers ? 0 : Number(basePrice) || 0,
+        // 🎯 توحيد 2026-08-06: سعر التذكرة هو السعر الوحيد — أُلغيت عروض الحجز
+        basePrice: Number(basePrice) || 0,
         locationId: locationId ? Number(locationId) : null,
-        enabledOfferIds: hasOffers ? enabledOfferIds : [],
+        enabledOfferIds: [],
         status: 'planned',
         maxCapacity: Number(maxCapacity) || 20,
         difficulty, driveLink, sendNotification, requireTicket,
@@ -212,21 +201,6 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
                 💡 سيتم استخدام إعدادات القالب (المقاعد المثبتة، المؤخرة، القيود) تلقائياً
               </p>
             )}
-          </div>
-        )}
-
-        {/* Offers */}
-        {locationOffers.length > 0 && (
-          <div className="space-y-2">
-            <label className="block text-xs text-gray-400">العروض المتاحة</label>
-            <div className="flex flex-wrap gap-2">
-              {locationOffers.map((offer: any) => (
-                <button key={offer.id} type="button" onClick={() => toggleOffer(offer.id)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition ${enabledOfferIds.includes(offer.id) ? 'bg-amber-500/20 border-amber-500/30 text-amber-400' : 'border-gray-600/30 text-gray-400 hover:border-gray-500'}`}>
-                  {offer.name} — {offer.price} {CURRENCY}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 

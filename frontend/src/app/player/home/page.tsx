@@ -863,7 +863,7 @@ export default function HomePage() {
                 {selectedActivity.basePrice && selectedActivity.basePrice !== '0' && (
                   <div className="flex items-center gap-2 text-sm text-gray-300">
                     <span>💰</span>
-                    <span>{selectedActivity.basePrice} ₪</span>
+                    <span>{selectedActivity.basePrice} د.أ</span>
                   </div>
                 )}
               </div>
@@ -882,7 +882,7 @@ export default function HomePage() {
                           className="p-2.5 rounded-xl text-xs bg-white/5 border border-white/5 text-gray-300"
                         >
                           <span className="text-amber-400">{offer.name || offer.title || `عرض ${idx + 1}`}</span>
-                          {offer.price && <span className="text-gray-500 mr-2"> • {offer.price} ₪</span>}
+                          {offer.price && <span className="text-gray-500 mr-2"> • {offer.price} د.أ</span>}
                           {offer.description && <p className="text-gray-500 text-[10px] mt-0.5">{offer.description}</p>}
                         </div>
                       ))}

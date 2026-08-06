@@ -48,7 +48,7 @@ export type ReportSection =
   | { type: 'group'; titleAr?: string; children: ReportSection[] };
 
 export interface ReportDocument {
-  header: { titleAr: string; subtitleAr?: string; generatedAt: string; generatedByAr?: string; filtersSummaryAr?: string[]; currency: 'IQD' };
+  header: { titleAr: string; subtitleAr?: string; generatedAt: string; generatedByAr?: string; filtersSummaryAr?: string[]; currency: 'IQD' | 'JOD' };
   sections: ReportSection[];
   totals?: { labelAr: string; value: string | number; format?: CellFormat; tone?: Tone }[];
 }

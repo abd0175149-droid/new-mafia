@@ -123,9 +123,6 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   const selectedTemplate = templates.find(t => t.id === Number(seatTemplateId));
 
   function handleLocationChange(newId: string) { setLocationId(newId); setEnabledOfferIds([]); }
-  function toggleOffer(offerId: number) {
-    setEnabledOfferIds(prev => prev.includes(offerId) ? prev.filter(id => id !== offerId) : [...prev, offerId]);
-  }
 
   const hasChanges = (() => {
     if (name !== (activity.name || '')) return true;
@@ -268,39 +265,34 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
               {locations.map(loc => (<option key={loc.id} value={loc.id}>{loc.name}</option>))}
             </select>
           </div>
-          <AnimatePresence>
-            {locationOffers.length > 0 && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-                <label className="block text-xs text-gray-400 mb-2">العروض المتاحة من المكان</label>
-                <div className="space-y-2">
-                  {locationOffers.map((offer: any, i: number) => (
-                    <label key={offer.id || i}
-                      className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${enabledOfferIds.includes(offer.id || i) ? 'bg-amber-500/10 border-amber-500/30' : 'bg-gray-900/30 border-gray-700/30 hover:border-gray-600/50'}`}>
-                      <input type="checkbox" checked={enabledOfferIds.includes(offer.id || i)} onChange={() => toggleOffer(offer.id || i)} className="mt-1 accent-amber-500" />
-                      <div className="flex-1">
-                        <p className="text-sm text-white">{offer.description || offer.name || `عرض ${i + 1}`}</p>
-                        <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-500">
-                          <span>السعر: <strong className="text-white">{offer.price || 0} {CURRENCY}</strong></span>
-                          {offer.clubShare !== undefined && <span>حصة النادي: <strong className="text-emerald-400">{offer.clubShare} {CURRENCY}</strong></span>}
-                          {offer.venueShare !== undefined && <span>حصة المكان: <strong className="text-blue-400">{offer.venueShare} {CURRENCY}</strong></span>}
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* 🗄️ فعاليّة قديمة قائمة على عروض الحجز: تُعرض للقراءة وتُكمل دورتها (توحيد 2026-08-06) */}
+          {hasOffers && (
+            <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-3 space-y-2">
+              <p className="text-xs text-amber-400 font-bold">🗄️ هذه الفعاليّة قائمة على عروض حجزٍ قديمة</p>
+              <div className="space-y-1">
+                {locationOffers.filter((o: any, i: number) => enabledOfferIds.includes(o.id ?? i)).map((offer: any, i: number) => (
+                  <div key={offer.id || i} className="text-[11px] text-gray-400">
+                    • {offer.description || offer.name || `عرض ${i + 1}`} — <strong className="text-white">{offer.price || 0} {CURRENCY}</strong>
+                    {offer.clubShare !== undefined && <span className="text-emerald-400"> (النادي {offer.clubShare})</span>}
+                    {offer.venueShare !== undefined && <span className="text-blue-400"> (المكان {offer.venueShare})</span>}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                تُكمل دورتها كما هي. الفعاليّات الجديدة تُسعَّر بسعر التذكرة، والأصناف والباقات من منيو المكان.
+              </p>
+              <button type="button" onClick={() => setEnabledOfferIds([])}
+                className="text-[11px] px-3 py-1.5 rounded-lg bg-gray-900/60 border border-gray-600/50 text-gray-300 hover:border-gray-500 transition">
+                إلغاء العروض والانتقال لسعر التذكرة
+              </button>
+            </div>
+          )}
           {!hasOffers && (
             <div>
               <label className="block text-xs text-gray-400 mb-1.5">سعر التذكرة ({CURRENCY})</label>
               <input type="number" min="0" step="0.5" value={basePrice} onChange={e => setBasePrice(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 text-sm" />
-            </div>
-          )}
-          {hasOffers && (
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-400">
-              💡 سعر التذكرة مخفي لأنك فعّلت عروضاً — الأسعار تُحسب تلقائياً من العروض المفعّلة.
+              <p className="text-[10px] text-gray-600 mt-1">🍽️ المأكولات والمشروبات والباقات تُطلب من منيو المكان — لا تُدخل هنا.</p>
             </div>
           )}
         </Section>

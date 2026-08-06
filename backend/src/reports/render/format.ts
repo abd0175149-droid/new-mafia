@@ -6,6 +6,9 @@
 import type { CellFormat } from '../types.js';
 
 const AR = 'ar-IQ';
+// 💵 عملة النظام: الدينار الأردنيّ — كلّ واجهات الإدارة والحجوزات والمنيو والفواتير تستعمله.
+// (كانت التقارير وحدها تطبع «د.ع» خطأً — صُحّح 2026-08-06 مع تقرير تسوية المنيو.)
+export const CURRENCY_AR = 'د.أ';
 
 export function formatCell(value: unknown, format?: CellFormat): string {
   if (value === null || value === undefined || value === '') {
@@ -15,7 +18,7 @@ export function formatCell(value: unknown, format?: CellFormat): string {
   switch (format) {
     case 'currency': {
       const n = Number(value);
-      return `${(Number.isFinite(n) ? n : 0).toLocaleString(AR)} د.ع`;
+      return `${(Number.isFinite(n) ? n : 0).toLocaleString(AR)} ${CURRENCY_AR}`;
     }
     case 'number': {
       const n = Number(value);
@@ -54,7 +57,7 @@ export function resolveVars(text: string, doc: { header: any; totals?: any[] }):
     filters: Array.isArray(h.filtersSummaryAr) ? h.filtersSummaryAr.join(' — ') : '',
     generated_by: h.generatedByAr || '',
     generated_at: generatedAt,
-    currency: 'د.ع',
+    currency: CURRENCY_AR,
   };
   // إجماليات حسب التسمية: {{total:اسم البند}}
   for (const t of doc.totals || []) {
@@ -72,7 +75,7 @@ export function rawNumber(value: unknown): number {
 /** تنسيق أرقام Excel المقابل لكل CellFormat. */
 export function excelNumFmt(format?: CellFormat): string | undefined {
   switch (format) {
-    case 'currency': return '#,##0 "د.ع"';
+    case 'currency': return `#,##0.00 "${CURRENCY_AR}"`;  // كسورٌ مهمّة: أسعار المنيو بخطوة 0.05
     case 'number':   return '#,##0';
     case 'percent':  return '0"%"';
     default:         return undefined;

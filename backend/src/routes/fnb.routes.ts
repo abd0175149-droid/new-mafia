@@ -109,6 +109,8 @@ venueRouter.get('/menu-items', authenticate, requireVenuePermission('menu.manage
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+const MAX_BUNDLE_COMPONENTS = 12;
+
 // تحقّق مشترك لحقول الصنف — يعيد null مع ردّ 400 عند الخلل
 function validateItemBody(body: any, res: Response): { name: string; price: string; clubShare: string } | null {
   const name = String(body.name || '').trim();
@@ -122,6 +124,36 @@ function validateItemBody(body: any, res: Response): { name: string; price: stri
   return { name, price: price.toFixed(2), clubShare: clubShare.toFixed(2) };
 }
 
+// 🎁 تحقّق تركيبة الباقة — أصنافٌ فعليّة من نفس المكان، غير محذوفة، وغير باقاتٍ نفسها (لا تعشيش).
+// يعيد التركيبة المطبَّعة، أو null بعد أن يردّ 400. صنفٌ عاديّ (isBundle=false) يعيد [] دائماً.
+async function validateBundleBody(
+  db: NonNullable<ReturnType<typeof getDB>>, body: any, locId: number, selfId: number | null, res: Response,
+): Promise<{ isBundle: boolean; bundleItems: { menuItemId: number; qty: number }[] } | null> {
+  if (body.isBundle !== true) return { isBundle: false, bundleItems: [] };
+
+  const raw = Array.isArray(body.bundleItems) ? body.bundleItems : [];
+  const qtyById = new Map<number, number>();
+  for (const c of raw) {
+    const id = parseInt(c?.menuItemId);
+    const qty = parseInt(c?.qty);
+    if (!Number.isFinite(id) || !Number.isFinite(qty) || qty < 1 || qty > 20) {
+      res.status(400).json({ error: 'مكوّن غير صالح (الكمّية 1-20)' }); return null;
+    }
+    if (selfId !== null && id === selfId) { res.status(400).json({ error: 'لا يمكن للباقة أن تحتوي نفسها' }); return null; }
+    qtyById.set(id, (qtyById.get(id) || 0) + qty);
+  }
+  if (qtyById.size === 0) { res.status(400).json({ error: 'الباقة تحتاج مكوّناً واحداً على الأقلّ' }); return null; }
+  if (qtyById.size > MAX_BUNDLE_COMPONENTS) { res.status(400).json({ error: `عدد مكوّنات الباقة كبير جدّاً (حتى ${MAX_BUNDLE_COMPONENTS})` }); return null; }
+
+  const ids = [...qtyById.keys()];
+  const rows = await db.select({ id: menuItems.id, isBundle: menuItems.isBundle }).from(menuItems)
+    .where(and(inArray(menuItems.id, ids), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt)));
+  if (rows.length !== ids.length) { res.status(400).json({ error: 'بعض مكوّنات الباقة غير موجودة في منيو مكانك' }); return null; }
+  if (rows.some(r => r.isBundle === true)) { res.status(400).json({ error: 'لا يمكن أن تحتوي الباقة باقةً أخرى' }); return null; }
+
+  return { isBundle: true, bundleItems: ids.map(id => ({ menuItemId: id, qty: qtyById.get(id)! })) };
+}
+
 // ── POST /menu-items — إضافة صنف ──
 venueRouter.post('/menu-items', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
   const db = getDB();
@@ -131,6 +163,8 @@ venueRouter.post('/menu-items', authenticate, requireVenuePermission('menu.manag
   const v = validateItemBody(req.body, res);
   if (!v) return;
   try {
+    const b = await validateBundleBody(db, req.body, locId, null, res);
+    if (!b) return;
     const [item] = await db.insert(menuItems).values({
       locationId: locId,
       category: String(req.body.category || '').trim().slice(0, 50),
@@ -141,6 +175,8 @@ venueRouter.post('/menu-items', authenticate, requireVenuePermission('menu.manag
       imageUrl: req.body.imageUrl ? String(req.body.imageUrl).slice(0, 500) : null,
       isAvailable: req.body.isAvailable !== false,
       sortOrder: Number.isFinite(parseInt(req.body.sortOrder)) ? parseInt(req.body.sortOrder) : 0,
+      isBundle: b.isBundle,
+      bundleItems: b.bundleItems,
     } as any).returning();
     res.json({ success: true, item });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -157,6 +193,9 @@ venueRouter.put('/menu-items/:id', authenticate, requireVenuePermission('menu.ma
   const v = validateItemBody(req.body, res);
   if (!v) return;
   try {
+    const b = await validateBundleBody(db, req.body, locId, id, res);
+    if (!b) return;
+    // صنفٌ عاديّ لا يجوز أن يصبح عاديّاً وهو مكوّنٌ داخل باقة؟ مسموح — الباقة تحفظ لقطتها لحظة الطلب.
     const [item] = await db.update(menuItems).set({
       category: String(req.body.category || '').trim().slice(0, 50),
       name: v.name,
@@ -166,6 +205,8 @@ venueRouter.put('/menu-items/:id', authenticate, requireVenuePermission('menu.ma
       imageUrl: req.body.imageUrl ? String(req.body.imageUrl).slice(0, 500) : null,
       isAvailable: req.body.isAvailable !== false,
       sortOrder: Number.isFinite(parseInt(req.body.sortOrder)) ? parseInt(req.body.sortOrder) : 0,
+      isBundle: b.isBundle,
+      bundleItems: b.bundleItems,
     } as any).where(and(eq(menuItems.id, id), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt))).returning();
     if (!item) return res.status(404).json({ error: 'الصنف غير موجود' });
     res.json({ success: true, item });
@@ -239,6 +280,7 @@ venueRouter.get('/orders', authenticate, requireVenuePermission('orders.receive'
         activityId: o.activityId, activityName: actName.get(o.activityId) || '',
         items: items.filter(i => i.orderId === o.id).map(i => ({
           name: i.nameSnapshot, unitPrice: i.unitPriceSnapshot, quantity: i.quantity,
+          components: Array.isArray(i.componentsSnapshot) ? i.componentsSnapshot : [],
         })),
       })),
     });
@@ -355,8 +397,10 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
           .from(bookings).where(inArray(bookings.id, bookingIds))
       : [];
     const bkById = new Map(bks.map(b => [b.id, b]));
-    const invs = await db.select({ playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt })
-      .from(orderInvoices)
+    const invs = await db.select({
+      playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt,
+      isPaid: orderInvoices.isPaid, paidAt: orderInvoices.paidAt, gameFeeAmount: orderInvoices.gameFeeAmount,
+    }).from(orderInvoices)
       .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
     const invByPlayer = new Map(invs.map(i => [i.playerId, i]));
 
@@ -374,10 +418,13 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
           playerName: r.playerName,
           ordersCount: r.ordersCount,
           ordersTotal,
-          gameFee,
-          grandTotal: ordersTotal + gameFee,
+          // فاتورةٌ محصَّلة تُجمَّد على مبلغ رسومها وقت التحصيل (الحجز صار مدفوعاً بعدها)
+          gameFee: inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee,
+          grandTotal: ordersTotal + (inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee),
           invoiceNo: inv?.invoiceNo ?? null,
           printedAt: inv?.printedAt ?? null,
+          isPaid: inv?.isPaid === true,
+          paidAt: inv?.paidAt ?? null,
         };
       }),
     });
@@ -407,6 +454,66 @@ venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVen
     res.send(pdf);
   } catch (err: any) {
     console.error('❌ fnb invoice pdf:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /invoices/:activityId/:playerId/pay — تحصيل الفاتورة كاملةً ──
+// 🎯 توحيد 2026-08-06 (القرار 4): الدفع الكامل فقط — لا دفعات جزئيّة.
+// إن حملت الفاتورة سطر رسوم اللعبة يُقلَب الحجز إلى مدفوع داخل المعاملة نفسها،
+// فتدخل الرسوم تقارير الإيراد فوراً بلا خطوة يدويّة في صفحة الحجوزات.
+venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+
+  try {
+    const [inv] = await db.select().from(orderInvoices).where(and(
+      eq(orderInvoices.locationId, locId),
+      eq(orderInvoices.activityId, activityId),
+      eq(orderInvoices.playerId, playerId),
+    )).limit(1);
+    if (!inv) return res.status(404).json({ error: 'أصدر الفاتورة أوّلاً ثمّ سجّل التحصيل' });
+    if (inv.isPaid === true) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
+
+    // المجاميع تُعاد من الطلبات الحاليّة — لا نثق بمجاميع مخزّنة قد تكون قديمة (طلبٌ أُضيف بعد الطباعة)
+    const data = await buildInvoiceData(db, locId, activityId, playerId);
+    if ('error' in data) return res.status(404).json({ error: data.error });
+
+    const staffId = req.venueStaff!.id;
+    const receiverName = req.user?.displayName || req.user?.username || '';
+
+    await db.transaction(async (tx) => {
+      await tx.update(orderInvoices).set({
+        ordersTotal: data.ordersTotal.toFixed(2),
+        gameFeeApplied: data.gameFeeApplied,
+        gameFeeAmount: data.gameFeeAmount.toFixed(2),
+        grandTotal: data.grandTotal.toFixed(2),
+        isPaid: true, paidAt: new Date(), paidBy: staffId,
+      } as any).where(eq(orderInvoices.id, inv.id));
+
+      // رسوم اللعبة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان
+      if (data.gameFeeApplied && data.gameFeeAmount > 0 && data.bookingId) {
+        await tx.update(bookings).set({
+          isPaid: true,
+          paidAmount: data.gameFeeAmount.toFixed(2),
+          receivedBy: receiverName,
+        } as any).where(and(eq(bookings.id, data.bookingId), eq(bookings.isPaid, false)));
+      }
+    });
+
+    res.json({
+      success: true,
+      invoiceNo: inv.invoiceNo,
+      grandTotal: data.grandTotal,
+      gameFeeSettled: data.gameFeeApplied ? data.gameFeeAmount : 0,
+    });
+  } catch (err: any) {
+    console.error('❌ fnb invoice pay:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -532,6 +639,37 @@ playerFnbRouter.get('/context', authenticatePlayer, async (req: Request, res: Re
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// 🍽️ منيو اللاعب لمكانٍ ما: المتاح فقط، **بلا حصّة النادي إطلاقاً**، ومكوّنات الباقات
+// محلولةٌ إلى أسماء (اللاعب يرى «ماذا داخل العرض» بلا أن يرى أسعار المكوّنات).
+// تُستخدم في مسارَين: منيو الفعاليّة (أثناء نافذة الطلب) واستعراض المنيو وقت الحجز.
+export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>, locationId: number) {
+  const rows = await db.select({
+    id: menuItems.id, category: menuItems.category, name: menuItems.name,
+    description: menuItems.description, price: menuItems.price, imageUrl: menuItems.imageUrl,
+    isBundle: menuItems.isBundle, bundleItems: menuItems.bundleItems,
+  }).from(menuItems)
+    .where(and(eq(menuItems.locationId, locationId), eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)))
+    .orderBy(asc(menuItems.category), asc(menuItems.sortOrder), asc(menuItems.id));
+
+  // أسماء المكوّنات تُحلّ من كامل أصناف المكان (المكوّن قد يكون مخفيّاً عن الطلب المباشر)
+  const nameById = new Map<number, string>();
+  if (rows.some(r => r.isBundle)) {
+    const all = await db.select({ id: menuItems.id, name: menuItems.name }).from(menuItems)
+      .where(and(eq(menuItems.locationId, locationId), isNull(menuItems.deletedAt)));
+    for (const a of all) nameById.set(a.id, a.name);
+  }
+
+  return rows.map(r => ({
+    id: r.id, category: r.category, name: r.name, description: r.description,
+    price: r.price, imageUrl: r.imageUrl, isBundle: r.isBundle === true,
+    components: r.isBundle === true
+      ? (Array.isArray(r.bundleItems) ? r.bundleItems as any[] : [])
+          .map(c => ({ name: nameById.get(Number(c?.menuItemId)) || '', qty: Number(c?.qty) || 1 }))
+          .filter(c => c.name)
+      : [],
+  }));
+}
+
 // ── GET /menu — منيو مكان الفعاليّة (المتاح فقط، بلا حصّة النادي) ──
 playerFnbRouter.get('/menu', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
@@ -543,13 +681,7 @@ playerFnbRouter.get('/menu', authenticatePlayer, async (req: Request, res: Respo
       .from(activities).where(and(eq(activities.id, activityId), isNull(activities.deletedAt))).limit(1);
     if (!act || !act.enabled || !act.locationId) return res.status(404).json({ error: 'المنيو غير متاح لهذه الفعاليّة' });
 
-    const items = await db.select({
-      id: menuItems.id, category: menuItems.category, name: menuItems.name,
-      description: menuItems.description, price: menuItems.price, imageUrl: menuItems.imageUrl,
-    }).from(menuItems)
-      .where(and(eq(menuItems.locationId, act.locationId), eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)))
-      .orderBy(asc(menuItems.category), asc(menuItems.sortOrder), asc(menuItems.id));
-    res.json({ success: true, items });
+    res.json({ success: true, items: await buildPlayerMenu(db, act.locationId) });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -601,6 +733,23 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     const total = dbItems.reduce((s, m) => s + parseFloat(m.price) * qtyById.get(m.id)!, 0);
     const note = String(req.body.note || '').trim().slice(0, 300);
 
+    // 🎁 لقطة مكوّنات الباقات لحظة الطلب — تُطبع في الفاتورة ولا تتأثّر بتعديل الباقة لاحقاً
+    const compsByItem = new Map<number, { name: string; qty: number }[]>();
+    const bundleRows = dbItems.filter(m => m.isBundle === true);
+    if (bundleRows.length > 0) {
+      const compIds = [...new Set(bundleRows.flatMap(m =>
+        (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : []).map(c => Number(c?.menuItemId)).filter(Number.isFinite)))];
+      const compRows = compIds.length > 0
+        ? await db.select({ id: menuItems.id, name: menuItems.name }).from(menuItems).where(inArray(menuItems.id, compIds))
+        : [];
+      const nameById = new Map(compRows.map(c => [c.id, c.name]));
+      for (const m of bundleRows) {
+        compsByItem.set(m.id, (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : [])
+          .map(c => ({ name: nameById.get(Number(c?.menuItemId)) || '', qty: Number(c?.qty) || 1 }))
+          .filter(c => c.name));
+      }
+    }
+
     const order = await db.transaction(async (tx) => {
       const [o] = await tx.insert(orders).values({
         activityId: ctx.activityId,
@@ -621,12 +770,16 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
         unitPriceSnapshot: m.price,
         clubShareSnapshot: m.clubShare || '0',
         quantity: qtyById.get(m.id)!,
+        componentsSnapshot: compsByItem.get(m.id) || [],
       })) as any);
       return o;
     });
 
     // 📥 إشعار المكان الفوريّ: بثّ لغرفة location:{id} + بوش لحسابات المكان المصرَّح لها
-    const emittedItems = dbItems.map(m => ({ name: m.name, unitPrice: m.price, quantity: qtyById.get(m.id)! }));
+    const emittedItems = dbItems.map(m => ({
+      name: m.name, unitPrice: m.price, quantity: qtyById.get(m.id)!,
+      components: compsByItem.get(m.id) || [],
+    }));
     const io = req.app.get('io');
     if (io) {
       io.to(`location:${ctx.locationId}`).emit('fnb:new-order', {
@@ -673,6 +826,7 @@ playerFnbRouter.get('/my-orders', authenticatePlayer, async (req: Request, res: 
         id: o.id, status: o.status, total: o.total, note: o.note, createdAt: o.createdAt,
         items: items.filter(i => i.orderId === o.id).map(i => ({
           name: i.nameSnapshot, unitPrice: i.unitPriceSnapshot, quantity: i.quantity,
+          components: Array.isArray(i.componentsSnapshot) ? i.componentsSnapshot : [],
         })),
       })),
     });

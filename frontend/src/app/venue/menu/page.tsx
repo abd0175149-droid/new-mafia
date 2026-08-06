@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVenue } from '../context';
 
+interface BundleComponent { menuItemId: number; qty: number }
+
 interface MenuItem {
   id: number;
   category: string;
@@ -18,6 +20,8 @@ interface MenuItem {
   imageUrl: string | null;
   isAvailable: boolean;
   sortOrder: number;
+  isBundle: boolean;
+  bundleItems: BundleComponent[];
 }
 
 const EMPTY_FORM = { name: '', category: '', description: '', price: '', clubShare: '', sortOrder: '0', imageUrl: '', isAvailable: true };
@@ -29,6 +33,9 @@ export default function VenueMenuPage() {
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  // 🎁 تركيبة الباقة — Map(menuItemId → qty). فارغةٌ = صنفٌ عاديّ.
+  const [isBundle, setIsBundle] = useState(false);
+  const [bundle, setBundle] = useState<Map<number, number>>(new Map());
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
@@ -56,15 +63,31 @@ export default function VenueMenuPage() {
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
 
-  const openAdd = () => { setForm({ ...EMPTY_FORM }); setEditId(null); setErr(''); setModal('add'); };
+  const openAdd = () => {
+    setForm({ ...EMPTY_FORM }); setIsBundle(false); setBundle(new Map());
+    setEditId(null); setErr(''); setModal('add');
+  };
   const openEdit = (it: MenuItem) => {
     setForm({
       name: it.name, category: it.category || '', description: it.description || '',
       price: it.price, clubShare: it.clubShare || '0', sortOrder: String(it.sortOrder ?? 0),
       imageUrl: it.imageUrl || '', isAvailable: it.isAvailable,
     });
+    setIsBundle(it.isBundle === true);
+    setBundle(new Map((it.bundleItems || []).map(c => [c.menuItemId, c.qty])));
     setEditId(it.id); setErr(''); setModal('edit');
   };
+
+  // مكوّنات مرشَّحة: أصناف المكان العاديّة فقط (لا تعشيش باقات، ولا الصنف نفسه)
+  const componentChoices = items.filter(i => !i.isBundle && i.id !== editId);
+  const setComp = (id: number, qty: number) => setBundle(prev => {
+    const next = new Map(prev);
+    if (qty <= 0) next.delete(id); else next.set(id, Math.min(qty, 20));
+    return next;
+  });
+  // مجموع المكوّنات بأسعارها المفردة — مرجعٌ استرشاديّ لبيان قيمة الخصم (لا يفرض السعر)
+  const compsSum = Array.from(bundle.entries())
+    .reduce((s, [id, q]) => s + (parseFloat(items.find(i => i.id === id)?.price || '0') * q), 0);
 
   const uploadImage = async (file: File) => {
     setUploading(true); setErr('');
@@ -82,13 +105,21 @@ export default function VenueMenuPage() {
   const save = async () => {
     if (!form.name.trim()) { setErr('اسم الصنف مطلوب'); return; }
     if (!form.price || isNaN(parseFloat(form.price))) { setErr('أدخل سعراً صالحاً'); return; }
+    if (isBundle && bundle.size === 0) { setErr('اختر مكوّناً واحداً على الأقلّ للباقة'); return; }
     setSaving(true); setErr('');
     try {
       const url = modal === 'add' ? withLoc('/api/venue/menu-items') : withLoc(`/api/venue/menu-items/${editId}`);
       const r = await fetch(url, {
         method: modal === 'add' ? 'POST' : 'PUT',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, price: parseFloat(form.price), clubShare: form.clubShare === '' ? 0 : parseFloat(form.clubShare), sortOrder: parseInt(form.sortOrder) || 0 }),
+        body: JSON.stringify({
+          ...form,
+          price: parseFloat(form.price),
+          clubShare: form.clubShare === '' ? 0 : parseFloat(form.clubShare),
+          sortOrder: parseInt(form.sortOrder) || 0,
+          isBundle,
+          bundleItems: isBundle ? Array.from(bundle.entries()).map(([menuItemId, qty]) => ({ menuItemId, qty })) : [],
+        }),
       });
       const d = await r.json();
       if (d.success) { setModal(null); load(); flash(modal === 'add' ? '✅ أُضيف الصنف' : '✅ حُفظت التعديلات'); }
@@ -214,8 +245,20 @@ export default function VenueMenuPage() {
                     {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{it.name}</p>
-                    {it.description && <p className="text-[10px] text-gray-500 truncate">{it.description}</p>}
+                    <p className="text-sm font-medium truncate">
+                      {it.isBundle && <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-300 border border-violet-500/25 ml-1.5">🎁 باقة</span>}
+                      {it.name}
+                    </p>
+                    {it.isBundle ? (
+                      <p className="text-[10px] text-violet-300/70 truncate">
+                        {(it.bundleItems || []).map(c => {
+                          const comp = items.find(x => x.id === c.menuItemId);
+                          return `${comp?.name || 'صنف محذوف'} ×${c.qty}`;
+                        }).join(' + ') || 'بلا مكوّنات'}
+                      </p>
+                    ) : it.description ? (
+                      <p className="text-[10px] text-gray-500 truncate">{it.description}</p>
+                    ) : null}
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11px] font-bold text-emerald-400">{parseFloat(it.price).toFixed(2)} د.أ</span>
                       {parseFloat(it.clubShare || '0') > 0 && (
@@ -255,10 +298,27 @@ export default function VenueMenuPage() {
             <h3 className="text-base font-bold mb-4">{modal === 'add' ? '➕ صنف جديد' : '✏️ تعديل الصنف'}</h3>
 
             <div className="space-y-3">
+              {/* ── 🎁 نوع الصنف: مفرد أم باقة ── */}
+              <div className="flex gap-2 p-1 rounded-xl bg-gray-800/60 border border-gray-700">
+                <button
+                  onClick={() => { setIsBundle(false); setBundle(new Map()); }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${!isBundle ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-gray-500 border border-transparent'}`}
+                >
+                  🍴 صنف مفرد
+                </button>
+                <button
+                  onClick={() => setIsBundle(true)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${isBundle ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30' : 'text-gray-500 border border-transparent'}`}
+                >
+                  🎁 باقة (عرض)
+                </button>
+              </div>
+
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">اسم الصنف *</label>
+                <label className="block text-[11px] text-gray-400 mb-1">{isBundle ? 'اسم الباقة *' : 'اسم الصنف *'}</label>
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50" placeholder="مثال: أرجيلة معسّل" />
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50"
+                  placeholder={isBundle ? 'مثال: عرض السهرة' : 'مثال: أرجيلة معسّل'} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -294,6 +354,52 @@ export default function VenueMenuPage() {
                   <p className="text-[9px] text-gray-600 mt-0.5">من كلّ وحدة تُباع — 0 إن لا حصّة</p>
                 </div>
               </div>
+
+              {/* ── 🎁 مكوّنات الباقة — أصنافٌ فعليّة تُطبع تفاصيلها في فاتورة اللاعب ── */}
+              {isBundle && (
+                <div className="rounded-xl border border-violet-500/25 bg-violet-500/[0.04] p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] font-bold text-violet-300">مكوّنات الباقة *</label>
+                    {bundle.size > 0 && (
+                      <span className="text-[9px] text-gray-500">
+                        مجموع المكوّنات مفردةً {compsSum.toFixed(2)}
+                        {parseFloat(form.price || '0') > 0 && compsSum > parseFloat(form.price) && (
+                          <span className="text-emerald-400"> • خصم {(compsSum - parseFloat(form.price)).toFixed(2)}</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  {componentChoices.length === 0 ? (
+                    <p className="text-[11px] text-gray-500 py-2">أضف أصنافاً مفردة أوّلاً لتتمكّن من تركيب باقة منها.</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pl-1">
+                      {componentChoices.map(c => {
+                        const qty = bundle.get(c.id) || 0;
+                        return (
+                          <div key={c.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border transition-colors ${qty > 0 ? 'bg-violet-500/10 border-violet-500/30' : 'bg-white/[0.02] border-white/[0.06]'}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs truncate">{c.name}</p>
+                              <p className="text-[9px] text-gray-500">{parseFloat(c.price).toFixed(2)} د.أ{!c.isAvailable && ' • مخفيّ عن الطلب المباشر'}</p>
+                            </div>
+                            {qty === 0 ? (
+                              <button onClick={() => setComp(c.id, 1)}
+                                className="text-[11px] px-2.5 py-1 rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/30">+ أضف</button>
+                            ) : (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button onClick={() => setComp(c.id, qty - 1)} className="w-6 h-6 rounded-md bg-white/5 border border-white/10 text-sm leading-none">−</button>
+                                <span className="text-xs font-bold w-4 text-center">{qty}</span>
+                                <button onClick={() => setComp(c.id, qty + 1)} className="w-6 h-6 rounded-md bg-white/5 border border-white/10 text-sm leading-none">+</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="text-[9px] text-gray-600 mt-2">سعر الباقة وحصّتها يُدخلان يدويّاً أعلاه — المجموع أعلاه للاسترشاد فقط.</p>
+                </div>
+              )}
 
               {/* صورة */}
               <div>

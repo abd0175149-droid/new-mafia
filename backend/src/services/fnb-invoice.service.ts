@@ -10,7 +10,11 @@ import type { Database } from '../config/db.js';
 import { orders, orderItems, orderInvoices } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations } from '../schemas/admin.schema.js';
 
-export interface InvoiceLine { name: string; quantity: number; unitPrice: number; lineTotal: number }
+export interface InvoiceComponent { name: string; qty: number }
+export interface InvoiceLine {
+  name: string; quantity: number; unitPrice: number; lineTotal: number;
+  components: InvoiceComponent[];   // 🎁 مكوّنات الباقة (لقطة الطلب) — تُطبع مُسنَّنة تحت السطر
+}
 export interface InvoiceData {
   locationId: number;
   locationName: string;
@@ -59,7 +63,11 @@ export async function buildInvoiceData(
     const prev = merged.get(key);
     const unitPrice = parseFloat(it.unitPriceSnapshot);
     if (prev) { prev.quantity += it.quantity; prev.lineTotal = prev.quantity * unitPrice; }
-    else merged.set(key, { name: it.nameSnapshot, quantity: it.quantity, unitPrice, lineTotal: unitPrice * it.quantity });
+    else merged.set(key, {
+      name: it.nameSnapshot, quantity: it.quantity, unitPrice, lineTotal: unitPrice * it.quantity,
+      components: (Array.isArray(it.componentsSnapshot) ? it.componentsSnapshot as any[] : [])
+        .map(c => ({ name: String(c?.name || ''), qty: Number(c?.qty) || 1 })).filter(c => c.name),
+    });
   }
   const lines = [...merged.values()];
   const ordersTotal = playerOrders.reduce((s, o) => s + parseFloat(o.total), 0);
@@ -154,13 +162,17 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
   const timeStr = d.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
   const actDate = new Date(data.activityDate).toLocaleDateString('ar-JO', { month: 'short', day: 'numeric', weekday: 'short' });
 
+  // سطر الصنف، ويليه سطر مكوّنات إن كان باقةً (الكمّيات مضروبة بعدد الباقات المطلوبة)
   const rows = data.lines.map(l => `
-    <tr>
+    <tr${l.components.length > 0 ? ' class="hascomp"' : ''}>
       <td class="n">${esc(l.name)}</td>
       <td class="c">${l.quantity}</td>
       <td class="c">${fmt(l.unitPrice)}</td>
       <td class="t">${fmt(l.lineTotal)}</td>
-    </tr>`).join('');
+    </tr>` + (l.components.length > 0 ? `
+    <tr class="comp">
+      <td class="n" colspan="4">${l.components.map(c => `${esc(c.name)} &#215;${c.qty * l.quantity}`).join(' &#183; ')}</td>
+    </tr>` : '')).join('');
 
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>
   @page { size: A6; margin: 0; }
@@ -183,6 +195,9 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
   thead th { font-size: 8px; color: #666; border-bottom: 1px solid #bbb; padding: 1mm .5mm; font-weight: 600; }
   td { padding: 1.2mm .5mm; border-bottom: .5px solid #e5e5e5; vertical-align: top; }
   .n { text-align: right; }
+  /* 🎁 مكوّنات الباقة: سطرٌ ثانويّ مُسنَّن يقرأ كتفصيلٍ للسطر أعلاه (الحدّ ينتقل إليه) */
+  tr.hascomp td { border-bottom: none; padding-bottom: 0; }
+  tr.comp td { font-size: 7.5px; color: #666; padding: .3mm 3mm 1.2mm; border-bottom: .5px solid #e5e5e5; }
   .c { text-align: center; white-space: nowrap; width: 12mm; }
   .t { text-align: left; white-space: nowrap; width: 15mm; font-variant-numeric: tabular-nums; }
   .sums { margin-top: 3mm; border-top: 1px solid #bbb; padding-top: 2mm; }

@@ -75,12 +75,18 @@ class Activity {
     this.maxPlayers = 20,
     this.basePrice,
     this.offers = const [],
+    this.locationId,
+    this.hasMenu = false,
   });
 
   final int id;
   final String name;
   final DateTime date;
   final String? description, locationName, locationMapUrl;
+
+  /// 🍽️ للاستعراض قبل الحجز: مكان الفعاليّة ولديه منيو متاح (توحيد 2026-08-06).
+  final int? locationId;
+  final bool hasMenu;
   final String difficulty;
   final int bookedCount, maxPlayers;
 
@@ -110,6 +116,8 @@ class Activity {
             .whereType<Map>()
             .map((e) => LocationOffer.fromJson(Map<String, dynamic>.from(e)))
             .toList(),
+        locationId: j['locationId'] == null ? null : _i(j['locationId']),
+        hasMenu: j['hasMenu'] == true,
       );
 }
 

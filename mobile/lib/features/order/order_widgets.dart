@@ -20,6 +20,29 @@ const _borderIdle = Color(0x0FFFFFFF);
 const _borderPicked = Color(0x5910B981);
 const _cardBg = Color(0x08FFFFFF);
 
+/// 🎁 الباقات (العروض) بنفسجيّة — تمييزٌ عن الزمرديّ حتى لا تُقرأ كصنفٍ مفرد.
+/// مطابقٌ لويب `/player/order` (‎#c4b5fd على خلفيّة ‎rgba(139,92,246,.15)).
+const kBundleText = Color(0xFFC4B5FD);
+const _bundleBg = Color(0x268B5CF6);
+const _bundleBorder = Color(0x4D8B5CF6);
+
+/// شارة «عرض» قبل اسم الباقة.
+class BundleChip extends StatelessWidget {
+  const BundleChip({super.key});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          color: _bundleBg,
+          border: Border.all(color: _bundleBorder),
+        ),
+        child: Text('🎁 عرض',
+            style: ar(9, color: kBundleText, weight: FontWeight.bold)),
+      );
+}
+
 // ══════════════════════════════════════════════════════
 // §4.3.1 بطاقة الترويسة
 // ══════════════════════════════════════════════════════
@@ -98,6 +121,10 @@ class MyOrderCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(order.itemsSummary, style: ar(11, color: Tw.gray400, height: 1.5)),
+          // 🎁 تفصيل الباقات: ما يُحضَّر فعليّاً تحت سطر الملخّص
+          for (final line in order.items.where((i) => i.isBundle))
+            Text('🎁 ${line.componentsText}',
+                style: ar(10, color: kBundleText, height: 1.5)),
           if (order.note.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text('📝 ${order.note}', style: ar(10, color: Tw.gray600)),
@@ -164,13 +191,20 @@ class MenuItemRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(item.name,
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(14)),
-                if (item.description.isNotEmpty)
-                  Text(item.description,
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (item.isBundle) ...[const BundleChip(), const SizedBox(width: 6)],
+                  Flexible(
+                    child: Text(item.name,
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(14)),
+                  ),
+                ]),
+                // مكوّنات الباقة تحلّ محلّ الوصف — اللاعب يعرف محتوى العرض قبل الطلب
+                if (item.subtitle.isNotEmpty)
+                  Text(item.subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: ar(10, color: Tw.gray600)),
+                      style: ar(10,
+                          color: item.isBundle ? kBundleText : Tw.gray600)),
                 const SizedBox(height: 2),
                 ltrText(item.priceText,
                     num_(11, color: kEmeraldText, weight: FontWeight.bold)),

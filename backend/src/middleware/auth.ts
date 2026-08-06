@@ -146,7 +146,7 @@ declare global {
   }
 }
 
-export const VENUE_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage'] as const;
+export const VENUE_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record'] as const;
 
 export function requireVenuePermission(perm: string) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {

@@ -9,6 +9,8 @@ import { getDB } from '../config/db.js';
 import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations, reservations } from '../schemas/admin.schema.js';
+import { menuItems } from '../schemas/fnb.schema.js';
+import { buildPlayerMenu } from './fnb.routes.js';
 import { authenticatePlayer, requireNoPendingFeedback } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
@@ -270,22 +272,31 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       ? rows  // حساب اختبار → يرى كل شيء
       : rows.filter(r => !r.isTestLocation);  // حساب عادي → يخفي أنشطة الاختبار
 
+    // 🍽️ أيّ الأماكن لديها منيو متاح؟ (استعلامٌ واحد — لتمييز الفعاليّات التي يُعرض فيها زرّ المنيو)
+    const menuLocRows = await db.selectDistinct({ locationId: menuItems.locationId })
+      .from(menuItems)
+      .where(and(eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)));
+    const menuLocIds = new Set(menuLocRows.map(r => r.locationId));
+
     // لكل نشاط: عدد الحاجزين
     const enriched = await Promise.all(filtered.map(async (act) => {
       const [countResult] = await db.select({
         total: sql<number>`COALESCE(SUM(${bookings.count}), 0)::int`,
       }).from(bookings).where(and(eq(bookings.activityId, act.id), isNull(bookings.deletedAt)));
 
-      // فلترة العروض: فقط العروض المفعّلة لهذا النشاط
+      // 🎯 توحيد 2026-08-06: العروض مسارٌ مهجور يخدم الفعاليّات القديمة فقط.
+      // لا يُعرض عرضٌ إلا إذا اختاره الأدمن صراحةً — أُلغيت قاعدة «الفارغ = اعرض الكل»
+      // كي لا ترث الفعاليّات الجديدة عروض المكان القديمة (الكتالوج الآن هو المنيو).
       const allOffers: any[] = Array.isArray(act.locationOffers) ? act.locationOffers : [];
       const enabledIds: number[] = Array.isArray(act.enabledOfferIds) ? act.enabledOfferIds : [];
       const activeOffers = enabledIds.length > 0
         ? allOffers.filter((_: any, idx: number) => enabledIds.includes(idx))
-        : allOffers; // إذا لم يُحدد enabledOfferIds → عرض الكل
+        : [];
 
       return {
         ...act,
         locationOffers: activeOffers,
+        hasMenu: act.locationId ? menuLocIds.has(act.locationId) : false,  // 🍽️ للاعب: زرّ استعراض المنيو وقت الحجز
         bookedCount: countResult?.total || 0,
         maxPlayers: act.maxCapacity || 20,
       };
@@ -296,6 +307,23 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
     console.error('❌ activities/upcoming error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── 🍽️ GET /locations/:locId/menu — استعراض منيو المكان وقت الحجز (عرضٌ فقط) ──
+// 🎯 توحيد 2026-08-06: المنيو هو الكتالوج الوحيد، فيراه اللاعب قبل الحجز ليعرف
+// ماذا يقدّم المكان وبكم. **بلا طلب** — الطلب يبقى داخل نافذته (ساعة قبل ← 12 بعد).
+// مفتوحٌ بلا مصادقة كبقيّة مسارات الاستكشاف، ولا يكشف حصّة النادي إطلاقاً.
+router.get('/locations/:locId/menu', async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = parseInt(req.params.locId);
+  if (!Number.isFinite(locId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const [loc] = await db.select({ id: locations.id, name: locations.name })
+      .from(locations).where(and(eq(locations.id, locId), isNull(locations.deletedAt))).limit(1);
+    if (!loc) return res.status(404).json({ error: 'المكان غير موجود' });
+    res.json({ success: true, locationName: loc.name, items: await buildPlayerMenu(db, locId) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ── 👥 GET /activities/:actId/bookers — جميع الحاجزين لنشاط مع تمييز المتابَعين ──

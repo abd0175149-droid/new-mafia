@@ -65,6 +65,16 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    // 🏪 كلّ ما يخصّ الأماكن في مكانٍ واحد — الأدمن لا يحتاج دخول كونسول المكان
+    key: 'venues', icon: '🏪', label: 'الأماكن والمنيو',
+    items: [
+      { href: '/admin/locations', icon: '📍', label: 'الأماكن والحسابات' },
+      { href: '/admin/venues/menu', icon: '🍽️', label: 'المنيو والباقات', roles: ['admin', 'manager'] },
+      { href: '/admin/venues/orders', icon: '📥', label: 'طلبات الأماكن', roles: ['admin', 'manager'] },
+      { href: '/admin/venues/invoices', icon: '🧾', label: 'فواتير وتحصيل', roles: ['admin', 'manager'] },
+    ],
+  },
+  {
     key: 'finance', icon: '💰', label: 'المالية والتقارير',
     items: [
       { href: '/admin/finance', icon: '💰', label: 'المالية' },
@@ -77,7 +87,6 @@ const NAV_GROUPS: NavGroup[] = [
     key: 'system', icon: '🏢', label: 'الإدارة والنظام',
     items: [
       { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
-      { href: '/admin/locations', icon: '📍', label: 'المواقع' },
       { href: '/admin/staff-log', icon: '🕵️', label: 'سجل عمليات الموظفين', roles: ['admin'] },
       { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
     ],

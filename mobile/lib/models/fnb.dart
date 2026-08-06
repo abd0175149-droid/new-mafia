@@ -96,6 +96,27 @@ class FnbContextResult {
 // المنيو
 // ══════════════════════════════════════════════════════
 
+/// 🎁 مكوّن باقة — اسمٌ وكمّية للوحدة الواحدة. بلا سعرٍ مفرد: اللاعب يرى
+/// «ماذا داخل العرض» لا تسعير المكوّنات (الخادم لا يرسله أصلاً).
+class FnbComponent {
+  const FnbComponent({required this.name, this.qty = 1});
+  final String name;
+  final int qty;
+
+  factory FnbComponent.fromJson(Map<String, dynamic> j) =>
+      FnbComponent(name: _s(j['name']), qty: _i(j['qty']) == 0 ? 1 : _i(j['qty']));
+
+  /// «شاي ×2» — وتُسقَط الـ×1 اختصاراً.
+  String label([int multiplier = 1]) {
+    final total = qty * multiplier;
+    return total > 1 ? '$name ×$total' : name;
+  }
+}
+
+/// يصوغ سطر المكوّنات: «أرجيلة + شاي ×2».
+String componentsLine(List<FnbComponent> comps, [int multiplier = 1]) =>
+    comps.map((c) => c.label(multiplier)).join(' + ');
+
 class FnbMenuItem {
   const FnbMenuItem({
     required this.id,
@@ -104,14 +125,22 @@ class FnbMenuItem {
     this.description = '',
     this.price = '0',
     this.imageUrl,
+    this.isBundle = false,
+    this.components = const [],
   });
 
   final int id;
   final String category, name, description, price;
   final String? imageUrl;
+  final bool isBundle;                    // 🎁 باقة مركَّبة (العرض الكامل)
+  final List<FnbComponent> components;
 
   double get priceValue => parsePrice(price);
   String get priceText => jod(priceValue);
+
+  /// السطر الثانويّ: مكوّنات الباقة إن وُجدت، وإلا الوصف.
+  String get subtitle =>
+      isBundle && components.isNotEmpty ? componentsLine(components) : description;
 
   factory FnbMenuItem.fromJson(Map<String, dynamic> j) => FnbMenuItem(
         id: _i(j['id']),
@@ -122,6 +151,11 @@ class FnbMenuItem {
         imageUrl: (j['imageUrl'] is String && '${j['imageUrl']}'.isNotEmpty)
             ? j['imageUrl'] as String
             : null,
+        isBundle: j['isBundle'] == true,
+        components: (j['components'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbComponent.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
       );
 }
 
@@ -143,14 +177,29 @@ Map<String, List<FnbMenuItem>> groupByCategory(List<FnbMenuItem> items) {
 // ══════════════════════════════════════════════════════
 
 class FnbOrderLine {
-  const FnbOrderLine({required this.name, this.unitPrice = '0', this.quantity = 0});
+  const FnbOrderLine({
+    required this.name,
+    this.unitPrice = '0',
+    this.quantity = 0,
+    this.components = const [],
+  });
   final String name, unitPrice;
   final int quantity;
+  final List<FnbComponent> components;   // 🎁 لقطة مكوّنات الباقة وقت الطلب
+
+  bool get isBundle => components.isNotEmpty;
+
+  /// «عرض السهرة: أرجيلة ×2 + شاي ×2» — الكمّيات مضروبة بعدد الباقات.
+  String get componentsText => '$name: ${componentsLine(components, quantity)}';
 
   factory FnbOrderLine.fromJson(Map<String, dynamic> j) => FnbOrderLine(
         name: _s(j['name']),
         unitPrice: _s(j['unitPrice']),
         quantity: _i(j['quantity']),
+        components: (j['components'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbComponent.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
       );
 }
 

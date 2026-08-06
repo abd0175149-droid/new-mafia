@@ -80,7 +80,7 @@ export interface ReportDocument {
     generatedAt: string;              // ISO
     generatedByAr?: string;
     filtersSummaryAr?: string[];
-    currency: 'IQD';
+    currency: 'IQD' | 'JOD';   // 💵 وسمٌ للرأس فقط — الرمز المعروض يأتي من CURRENCY_AR في render/format.ts
   };
   sections: ReportSection[];
   totals?: ReportTotal[];

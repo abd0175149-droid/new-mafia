@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/routing/destination.dart';
 import '../../models/activity.dart';
+import '../order/order_widgets.dart' show kEmeraldText;
 import '../profile/profile_palette.dart';
+import 'location_menu_sheet.dart';
 
 
 // ══════════════════════════════════════════════════════
@@ -94,7 +96,9 @@ class _DetailsSheet extends StatelessWidget {
             if (a.locationName != null) _row('📍', a.locationName!),
             _row('👥', '${a.bookedCount}/${a.maxPlayers} لاعب'),
             _row(d.icon, 'مستوى ${d.label}', color: d.color),
-            if (!a.isFree) _row('💰', '${a.basePrice} ₪'),
+            if (!a.isFree) _row('💰', '${a.basePrice} د.أ'),
+            // 🍽️ منيو المكان — الكتالوج الموحّد، استعراضٌ قبل الحجز
+            if (a.hasMenu && a.locationId != null) _menuButton(context, a),
             if (a.offers.isNotEmpty) _offers(a),
             const SizedBox(height: 20),
             Row(children: [
@@ -154,6 +158,50 @@ class _DetailsSheet extends StatelessWidget {
         ]),
       );
 
+  /// يُغلق ورقة التفاصيل ثمّ يفتح المنيو — ورقتان متراكبتان تحجبان الأزرار.
+  Widget _menuButton(BuildContext context, Activity a) => Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 8),
+        child: InkWell(
+          onTap: () {
+            Navigator.of(context).pop();
+            showLocationMenu(context,
+                locationId: a.locationId!,
+                locationName: a.locationName ?? 'المكان');
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0x1F10B981), Color(0x0F0D9488)],
+              ),
+              border: Border.all(color: const Color(0x4010B981)),
+            ),
+            child: Row(children: [
+              const Text('🍽️', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('استعرض منيو ${a.locationName ?? 'المكان'}',
+                        style: ar(14, color: kEmeraldText, weight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text('الأصناف والعروض وأسعارها — الطلب يفتح قبل موعد الفعاليّة بساعة',
+                        style: ar(10, color: Tw.gray500, height: 1.4)),
+                  ],
+                ),
+              ),
+              Text('←', style: ar(14, color: kEmeraldText)),
+            ]),
+          ),
+        ),
+      );
+
   Widget _offers(Activity a) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -203,7 +251,7 @@ class _DetailsSheet extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   color: const Color(0x1AF59E0B),
                 ),
-                child: Text('${o.price} ₪',
+                child: Text('${o.price} د.أ',
                     style: ar(10, color: Tw.amber500, weight: FontWeight.bold)),
               ),
             ],
@@ -292,7 +340,7 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
             _line('📅 ${_ConfirmSheetState._date(a.date)}'),
             if (a.locationName != null) _line('📍 ${a.locationName}'),
             _line('👥 ${a.bookedCount}/${a.maxPlayers} لاعب'),
-            if (!a.isFree) _line('💰 ${a.basePrice} ₪'),
+            if (!a.isFree) _line('💰 ${a.basePrice} د.أ'),
             if (a.offers.isNotEmpty) _offerPicker(a),
             if (_error) ...[
               const SizedBox(height: 12),
@@ -414,7 +462,7 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
                         weight: on ? FontWeight.bold : FontWeight.w400)),
                 if (o.price != null) ...[
                   const SizedBox(height: 4),
-                  Text('${o.price} ₪',
+                  Text('${o.price} د.أ',
                       style: ar(10, color: const Color(0xCCF59E0B))),
                 ],
               ],

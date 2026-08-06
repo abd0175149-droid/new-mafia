@@ -21,7 +21,7 @@ interface VOrder {
   physicalId: number | null;
   activityId: number;
   activityName: string;
-  items: { name: string; unitPrice: string; quantity: number }[];
+  items: { name: string; unitPrice: string; quantity: number; components?: { name: string; qty: number }[] }[];
 }
 
 // نغمة تنبيه قصيرة بلا ملفّ صوتيّ (طلب جديد)
@@ -222,12 +222,20 @@ export default function VenueOrdersPage() {
         {/* البنود */}
         <div className="rounded-xl px-3 py-2 mb-2.5 space-y-1" style={{ background: 'rgba(0,0,0,0.25)' }}>
           {o.items.map((i, idx) => (
-            <div key={idx} className="flex items-center justify-between text-[13px]">
-              <span className="text-gray-200">
-                <span className="inline-block min-w-[26px] font-bold" style={{ color: accent }}>×{i.quantity}</span>
-                {i.name}
-              </span>
-              <span className="text-gray-500 text-[11px]">{(parseFloat(i.unitPrice) * i.quantity).toFixed(2)}</span>
+            <div key={idx}>
+              <div className="flex items-center justify-between text-[13px]">
+                <span className="text-gray-200">
+                  <span className="inline-block min-w-[26px] font-bold" style={{ color: accent }}>×{i.quantity}</span>
+                  {i.name}
+                </span>
+                <span className="text-gray-500 text-[11px]">{(parseFloat(i.unitPrice) * i.quantity).toFixed(2)}</span>
+              </div>
+              {/* 🎁 مكوّنات الباقة — ما يجب تحضيره فعليّاً (الكمّيات مضروبة بعدد الباقات) */}
+              {i.components && i.components.length > 0 && (
+                <p className="text-[11px] text-violet-300/80 pr-[26px] leading-snug">
+                  🎁 {i.components.map(c => `${c.name} ×${c.qty * i.quantity}`).join(' + ')}
+                </p>
+              )}
             </div>
           ))}
           {o.note && (

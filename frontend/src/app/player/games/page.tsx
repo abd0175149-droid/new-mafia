@@ -32,6 +32,10 @@ function GamesContent() {
   const [confirmBooking, setConfirmBooking] = useState<any>(null);
   const [selectedOffer, setSelectedOffer] = useState<number | null>(null);
   const [offerError, setOfferError] = useState(false);
+  // 🍽️ استعراض منيو المكان وقت الحجز (عرضٌ فقط — الطلب يبقى داخل نافذته)
+  const [menuFor, setMenuFor] = useState<any>(null);
+  const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [menuLoading, setMenuLoading] = useState(false);
   const searchParams = useSearchParams();
   const highlightActivityId = searchParams.get('activityId');
 
@@ -44,6 +48,21 @@ function GamesContent() {
     isOpen: !!confirmBooking,
     onClose: () => { setConfirmBooking(null); setSelectedOffer(null); },
   });
+  const menuModal = useModalScrollLock({
+    isOpen: !!menuFor,
+    onClose: () => setMenuFor(null),
+  });
+
+  // فتح منيو مكان الفعاليّة — نقطة عامّة بلا مصادقة، وبلا حصص النادي
+  const openMenu = (act: any) => {
+    if (!act?.locationId) return;
+    setMenuFor(act); setMenuItems([]); setMenuLoading(true);
+    fetch(`/api/player-app/locations/${act.locationId}/menu`)
+      .then(r => r.json())
+      .then(d => { if (d.success) setMenuItems(d.items || []); })
+      .catch(() => {})
+      .finally(() => setMenuLoading(false));
+  };
 
   useEffect(() => {
     if (!player) return;
@@ -278,7 +297,7 @@ function GamesContent() {
                       )}
                       <p className="text-gray-600 text-[10px] mt-0.5">
                         👥 {act.bookedCount}/{act.maxPlayers || 20} لاعب
-                        {act.basePrice && act.basePrice !== '0' && ` • 💰 ${act.basePrice} ₪`}
+                        {act.basePrice && act.basePrice !== '0' && ` • 💰 ${act.basePrice} د.أ`}
                       </p>
                       {/* Capacity Bar */}
                       <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-1.5 max-w-[140px]">
@@ -477,12 +496,28 @@ function GamesContent() {
                 {selectedActivity.basePrice && selectedActivity.basePrice !== '0' && (
                   <div className="flex items-center gap-2 text-sm text-gray-300">
                     <span>💰</span>
-                    <span>{selectedActivity.basePrice} ₪</span>
+                    <span>{selectedActivity.basePrice} د.أ</span>
                   </div>
                 )}
               </div>
 
-              {/* عروض المكان */}
+              {/* 🍽️ منيو المكان — استعراضٌ قبل الحجز (الكتالوج الموحّد) */}
+              {selectedActivity.hasMenu && (
+                <button
+                  onClick={() => { const a = selectedActivity; setSelectedActivity(null); openMenu(a); }}
+                  className="w-full mb-5 p-3.5 rounded-2xl flex items-center gap-3 text-right"
+                  style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(13,148,136,0.06))', border: '1px solid rgba(16,185,129,0.25)' }}
+                >
+                  <span className="text-2xl">🍽️</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-emerald-400 text-sm font-bold">استعرض منيو {selectedActivity.locationName || 'المكان'}</p>
+                    <p className="text-gray-500 text-[10px] mt-0.5">الأصناف والعروض وأسعارها — الطلب يفتح قبل موعد الفعاليّة بساعة</p>
+                  </div>
+                  <span className="text-emerald-400 text-sm">←</span>
+                </button>
+              )}
+
+              {/* 🗄️ عروض حجزٍ قديمة (فعاليّات ما قبل التوحيد فقط) */}
               {(() => {
                 const offers: any[] = Array.isArray(selectedActivity.locationOffers) ? selectedActivity.locationOffers : [];
                 if (offers.length === 0) return null;
@@ -499,7 +534,7 @@ function GamesContent() {
                           <h4 className="text-amber-400 text-sm font-bold mb-1 relative z-10">{offer.name || offer.title || `عرض ${idx + 1}`}</h4>
                           {offer.price && (
                             <div className="inline-block px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[10px] font-bold mb-2 relative z-10">
-                              {offer.price} ₪
+                              {offer.price} د.أ
                             </div>
                           )}
                           {offer.description && <p className="text-gray-400 text-[10px] leading-relaxed relative z-10">{offer.description}</p>}
@@ -569,7 +604,7 @@ function GamesContent() {
                 {confirmBooking.locationName && <p>📍 {confirmBooking.locationName}</p>}
                 <p>👥 {confirmBooking.bookedCount}/{confirmBooking.maxPlayers || 20} لاعب</p>
                 {confirmBooking.basePrice && confirmBooking.basePrice !== '0' && (
-                  <p>💰 {confirmBooking.basePrice} ₪</p>
+                  <p>💰 {confirmBooking.basePrice} د.أ</p>
                 )}
               </div>
 
@@ -600,7 +635,7 @@ function GamesContent() {
                               <p className={`text-sm font-bold ${isSelected ? 'text-amber-400' : 'text-gray-300'}`}>
                                 {offer.name || offer.title || `عرض ${idx + 1}`}
                               </p>
-                              {offer.price && <p className="text-amber-500/80 text-[10px] mt-1">{offer.price} ₪</p>}
+                              {offer.price && <p className="text-amber-500/80 text-[10px] mt-1">{offer.price} د.أ</p>}
                             </div>
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
                               isSelected ? 'border-amber-500 bg-amber-500/20' : 'border-gray-600 bg-black/50'
@@ -643,6 +678,82 @@ function GamesContent() {
                   {bookingLoading === confirmBooking.id ? '⏳ جاري...' : '✅ تأكيد الحجز'}
                 </button>
               </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ══ 🍽️ منيو المكان — استعراضٌ فقط قبل الحجز ══ */}
+      <AnimatePresence>
+        {menuFor && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+            {...menuModal.backdropProps}
+            style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)', ...menuModal.backdropProps.style }}
+          >
+            <motion.div
+              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-6 max-h-[85vh] overflow-y-auto"
+              style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)', ...menuModal.modalProps.style }}
+              onClick={e => e.stopPropagation()}
+              ref={menuModal.modalContentRef}
+              onTouchStart={menuModal.handleTouchStart}
+              onTouchEnd={menuModal.handleTouchEnd}
+            >
+              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
+              <h3 className="text-white text-lg font-bold">🍽️ منيو {menuFor.locationName || 'المكان'}</h3>
+              <p className="text-gray-500 text-[11px] mt-1 mb-4">
+                للاطّلاع فقط — يفتح الطلب من التطبيق قبل موعد الفعاليّة بساعة ويحتاج حجزاً باسمك.
+              </p>
+
+              {menuLoading ? (
+                <div className="flex justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                </div>
+              ) : menuItems.length === 0 ? (
+                <p className="text-center text-gray-500 text-sm py-12">المكان لم يضف أصنافاً بعد</p>
+              ) : (
+                Array.from(new Set(menuItems.map((i: any) => i.category || ''))).map((cat: any) => (
+                  <div key={cat || '_none'} className="mb-4">
+                    <h4 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
+                      <span>{cat || 'المنيو'}</span>
+                      <span className="flex-1 h-px bg-emerald-500/10" />
+                    </h4>
+                    <div className="space-y-2">
+                      {menuItems.filter((i: any) => (i.category || '') === cat).map((it: any) => (
+                        <div key={it.id} className="rounded-xl p-3 flex items-center gap-3"
+                          style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <div className="w-11 h-11 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
+                            {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span>{it.isBundle ? '🎁' : '🍴'}</span>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-sm truncate">
+                              {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>عرض</span>}
+                              {it.name}
+                            </p>
+                            {it.isBundle && it.components?.length > 0 ? (
+                              <p className="text-[10px]" style={{ color: 'rgba(196,181,253,0.75)' }}>
+                                {it.components.map((c: any) => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ')}
+                              </p>
+                            ) : it.description ? (
+                              <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
+                            ) : null}
+                          </div>
+                          <span className="text-emerald-400 text-sm font-bold shrink-0">{parseFloat(it.price).toFixed(2)} د.أ</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+
+              <button onClick={() => setMenuFor(null)}
+                className="w-full mt-2 py-3 rounded-xl text-sm text-gray-400"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                إغلاق
+              </button>
             </motion.div>
           </motion.div>
         )}
