@@ -62,6 +62,8 @@ export default function VenueOrdersPage() {
   const [live, setLive] = useState(false);
   const [toast, setToast] = useState('');
   const [pushState, setPushState] = useState<'idle' | 'granted' | 'busy'>('idle');
+  const [isIOS, setIsIOS] = useState(false);
+  const [pushStatus, setPushStatus] = useState<{ totalDevices: number; accountsWithoutDevice: number } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -127,8 +129,18 @@ export default function VenueOrdersPage() {
     const onUpdated = (data: { orderId: number; status: string }) => {
       setOrdersList(prev => prev.map(o => o.id === data.orderId ? { ...o, status: data.status } : o));
     };
+    // ⏰ الخادم يذكّر بطلبٍ تجاوز ٥ دقائق في مرحلته — نُبرزه ونُصوّت
+    // في الكونسول المفتوح (الشاشة المفتوحة لا تحتاج إشعار هاتف)
+    const onStalled = (data: { orderId: number; minutes: number }) => {
+      flashRef.current.add(data.orderId);
+      setOrdersList(p => [...p]);
+      setTimeout(() => { flashRef.current.delete(data.orderId); setOrdersList(p => [...p]); }, 8000);
+      if (!mutedRef.current) playDing();
+      flash(`⏰ طلبٌ متأخّر منذ ${data.minutes} دقيقة`);
+    };
     s.on('fnb:new-order', onNew);
     s.on('fnb:order-updated', onUpdated);
+    s.on('fnb:order-stalled', onStalled);
 
     // مسح احتياطيّ كل 30 ثانية + عند العودة للتبويب (لو فات بثّ)
     const refresh = () => { if (document.visibilityState === 'visible') load(); };
@@ -139,19 +151,31 @@ export default function VenueOrdersPage() {
       s.off('connect', join);
       s.off('fnb:new-order', onNew);
       s.off('fnb:order-updated', onUpdated);
+      s.off('fnb:order-stalled', onStalled);
       clearInterval(iv);
       document.removeEventListener('visibilitychange', refresh);
       setLive(false);
     };
   }, [locationId, load]);
 
-  // ── بوش: تسجيل جهاز المكان ──
+  // ── بوش: تسجيل جهاز المكان + كشف الأجهزة المسجّلة ──
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
         && localStorage.getItem('venue_push_registered') === '1') {
       setPushState('granted');
     }
+    if (typeof navigator !== 'undefined') setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
   }, []);
+
+  // كم حساباً في هذا المكان بلا جهازٍ مسجَّل؟ (ينهي الفشل الصامت)
+  useEffect(() => {
+    if (!locationId) return;
+    fetch(withLoc('/api/venue/push-status'), { headers: authHeaders })
+      .then(r => r.json())
+      .then(d => { if (d.success) setPushStatus(d); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId, pushState]);
 
   const enablePush = async () => {
     setPushState('busy');
@@ -293,6 +317,24 @@ export default function VenueOrdersPage() {
 
   return (
     <div className="space-y-5">
+      {/* 🔇 تحذير الصمت: هذا الجهاز لن يستقبل إشعاراً — يجب أن يُرى لا أن يُخمَّن.
+          وعلى iOS لا يعمل الإشعار إلّا من كونسولٍ مضاف للشاشة الرئيسيّة. */}
+      {pushState !== 'granted' && (
+        <div className="rounded-xl px-3.5 py-2.5 text-[11px] leading-relaxed"
+          style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+          <b>🔕 إشعارات هذا الجهاز غير مفعّلة</b> — ستصلك الطلبات على هذه الشاشة فقط ما دامت مفتوحة.
+          فعّلها من زرّ «🔔 إشعارات الجهاز» أعلاه.
+          {isIOS && <span className="block mt-1 text-amber-300/80">🍎 على الآيفون: أضف الكونسول إلى الشاشة الرئيسيّة أوّلاً وافتحه من أيقونته — Safari العاديّ لا يستقبل إشعارات.</span>}
+        </div>
+      )}
+      {pushStatus && pushStatus.accountsWithoutDevice > 0 && (
+        <div className="rounded-xl px-3.5 py-2.5 text-[11px]"
+          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}>
+          ⚠️ {pushStatus.accountsWithoutDevice} من حسابات المكان بلا جهازٍ مسجَّل — لن تصلهم إشعارات الطلبات.
+          <span className="text-gray-500"> (أجهزة مسجّلة: {pushStatus.totalDevices})</span>
+        </div>
+      )}
+
       {/* ── الترويسة: الحالة اللحظيّة + أدوات الجهاز ── */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">

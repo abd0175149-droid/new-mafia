@@ -451,24 +451,45 @@ export async function sendPushToStaff(
     .from(staffFcmTokens)
     .where(and(eq(staffFcmTokens.staffId, staffId), eq(staffFcmTokens.isActive, true)));
 
-  if (tokens.length === 0) return;
-
-  try {
-    const staffData = { ...data, url: data.url || '/admin' };
-    const response = await messaging.sendEachForMulticast(
-      buildFCMPayload(tokens.map(t => t.token), title, body, type, staffData)
-    );
-
-    response.responses.forEach((r, i) => {
-      if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
-        db.delete(staffFcmTokens).where(eq(staffFcmTokens.fcmToken, tokens[i].token)).catch(() => {});
-      }
-    });
-
-    console.log(`🔔 Push sent to staff #${staffId}: ${response.successCount}/${tokens.length}`);
-  } catch (err: any) {
-    console.error(`❌ Push to staff #${staffId}:`, err.message);
+  if (tokens.length === 0) {
+    // 🔇 حسابٌ بلا جهازٍ مسجَّل — كان يخرج بصمتٍ تامّ فيظنّ المكان أنّ الإشعارات
+    //    تعمل وهي معطّلة. السجلّ هنا هو ما يكشف طلباتٍ تضيع بلا أثر.
+    console.warn(`🔕 لا أجهزة مسجّلة للموظّف #${staffId} — لم يُرسَل إشعار «${title}»`);
+    return;
   }
+
+  // 🍎 نفس تقسيم مسار اللاعب: توكن يبدأ بـ WEBPUSH:: هو اشتراك Safari/iOS
+  //    لا توكن FCM. تمريره لـFCM كما كان يفشل دائماً — وهو سبب صمت الآيفون.
+  const { fcmTokens, webpushSubs } = splitTokens(tokens);
+  const staffData = { ...data, url: data.url || '/admin' };
+  let ok = 0;
+
+  if (fcmTokens.length > 0) {
+    try {
+      const response = await messaging.sendEachForMulticast(
+        buildFCMPayload(fcmTokens, title, body, type, staffData)
+      );
+      ok += response.successCount;
+      response.responses.forEach((r, i) => {
+        if (!r.success && r.error?.code === 'messaging/registration-token-not-registered') {
+          db.delete(staffFcmTokens).where(eq(staffFcmTokens.fcmToken, fcmTokens[i])).catch(() => {});
+        }
+      });
+    } catch (err: any) {
+      console.error(`❌ FCM push to staff #${staffId}:`, err.message);
+    }
+  }
+
+  for (const wp of webpushSubs) {
+    if (await sendWebPush(wp.sub, title, body, type, staffData)) {
+      ok++;
+    } else {
+      // اشتراكٌ منتهٍ (المستخدم أزال التطبيق أو أوقف الإذن) — يُنظَّف
+      db.delete(staffFcmTokens).where(eq(staffFcmTokens.fcmToken, wp.token)).catch(() => {});
+    }
+  }
+
+  console.log(`🔔 Push to staff #${staffId}: ${ok}/${tokens.length} (fcm ${fcmTokens.length} · webpush ${webpushSubs.length})`);
 }
 
 // ── إرسال Push حسب الصلاحية ──────────────────────────

@@ -690,6 +690,8 @@ async function main() {
       await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS option_group_ids JSONB DEFAULT '[]'::jsonb`);
       await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS custom_options JSONB DEFAULT '[]'::jsonb`);
       await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS options_snapshot JSONB DEFAULT '[]'::jsonb`);
+      await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`);
+      await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0 NOT NULL`);
       // ترحيل لمرّة واحدة: كل قيمة category نصّيّة قائمة تصير قسماً رئيساً ويُربط بها أصنافها
       await db.execute(sql`
         INSERT INTO menu_categories (location_id, name, sort_order)
@@ -1732,6 +1734,12 @@ async function main() {
     const { startReminderScheduler } = await import('./services/whatsapp-reminder.service.js');
     startReminderScheduler();
   } catch (e: any) { console.warn('⚠️ reminder scheduler init:', e.message); }
+
+  // ── ⏰ ماسح الطلبات المتأخّرة — تذكير موظّفي المكان كل 5 دقائق (سقف 3) ──
+  try {
+    const { startStalledOrderScheduler } = await import('./services/fnb-reminder.service.js');
+    startStalledOrderScheduler(io);
+  } catch (e: any) { console.warn('⚠️ fnb reminder scheduler init:', e.message); }
 
   // ── 🎂 مجدول عيديّة الميلاد — ماسح كل 30 دقيقة بتوقيت الأردن ──
   // المنح محروس بمفتاح دفتر سنوي، فتكرار الفحص لا يمنح مرتين أبداً.

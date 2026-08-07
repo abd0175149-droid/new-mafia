@@ -11,6 +11,7 @@ import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptio
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
+import { staffFcmTokens } from '../schemas/notification.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
@@ -53,6 +54,54 @@ venueRouter.get('/me', authenticate, async (req: Request, res: Response) => {
         permissions: Array.isArray(row.permissions) ? row.permissions : [],
         location,
       },
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /push-status — من سيصله إشعار الطلب فعلاً؟ ──
+// 🔇 ينهي الفشل الصامت: حسابٌ بلا جهازٍ مسجّل كان يبتلع الإشعار بلا أثر،
+// فيظنّ المكان أنّ النظام يعمل وهو معطّل. هنا يُرى الواقع بالأرقام.
+venueRouter.get('/push-status', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const accounts = await db.select({
+      id: staff.id, displayName: staff.displayName, permissions: staff.permissions,
+    }).from(staff).where(and(
+      eq(staff.locationId, locId),
+      eq(staff.role, 'location_owner' as any),
+      eq(staff.isActive, true),
+      isNull(staff.deletedAt),
+    ));
+
+    const ids = accounts.map(a => a.id);
+    const toks = ids.length > 0
+      ? await db.select({ staffId: staffFcmTokens.staffId, token: staffFcmTokens.fcmToken })
+          .from(staffFcmTokens)
+          .where(and(inArray(staffFcmTokens.staffId, ids), eq(staffFcmTokens.isActive, true)))
+      : [];
+
+    const rows = accounts
+      .filter(a => (Array.isArray(a.permissions) ? a.permissions as string[] : []).includes('orders.receive'))
+      .map(a => {
+        const mine = toks.filter(t => t.staffId === a.id);
+        return {
+          staffId: a.id,
+          displayName: a.displayName,
+          devices: mine.length,
+          // WEBPUSH:: = آيفون/سفاري · وغيره توكن FCM (أندرويد/سطح مكتب)
+          ios: mine.filter(t => t.token.startsWith('WEBPUSH::')).length,
+          other: mine.filter(t => !t.token.startsWith('WEBPUSH::')).length,
+        };
+      });
+
+    res.json({
+      success: true,
+      accounts: rows,
+      totalDevices: rows.reduce((s, r) => s + r.devices, 0),
+      accountsWithoutDevice: rows.filter(r => r.devices === 0).length,
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -567,6 +616,9 @@ venueRouter.put('/orders/:id/status', authenticate, requireVenuePermission('orde
 
     const [updated] = await db.update(orders).set({
       status, statusChangedBy: req.venueStaff!.id, statusChangedAt: new Date(),
+      // ⏰ المرحلة الجديدة تبدأ بعدّاد تذكيرٍ نظيف — من بدأ التحضير الآن
+      // لا يُذكَّر لأنّ الطلب قديم، ويُمنح ٥ دقائق كاملة لمرحلته
+      reminderSentAt: null, reminderCount: 0,
     } as any).where(eq(orders.id, id)).returning();
 
     // بثّ لحظيّ لبقيّة أجهزة المكان

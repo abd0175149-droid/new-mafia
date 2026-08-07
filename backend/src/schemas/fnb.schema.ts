@@ -98,6 +98,10 @@ export const orders = pgTable('orders', {
   note: text('note').default(''),
   statusChangedBy: integer('status_changed_by'),                  // staff.id
   statusChangedAt: timestamp('status_changed_at'),
+  // ⏰ تذكير الطلب المتأخّر: يُقاس عمر **المرحلة الحاليّة** لا عمر الطلب.
+  // العمودان يمنعان التكرار عبر إعادة تشغيل الخادم، ويُصفَّران عند كلّ انتقال حالة.
+  reminderSentAt: timestamp('reminder_sent_at'),
+  reminderCount: integer('reminder_count').default(0).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
