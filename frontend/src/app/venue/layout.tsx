@@ -14,6 +14,7 @@ import { VenueContext, type VenueCtx, type VenueMe } from './context';
 const TABS: { href: string; icon: string; label: string; shortLabel?: string; perm: string }[] = [
   { href: '/venue/orders', icon: '📥', label: 'الطلبات', perm: 'orders.receive' },
   { href: '/venue/invoices', icon: '🧾', label: 'الفواتير', perm: 'invoices.print' },
+  { href: '/venue/revenue', icon: '💰', label: 'الدخل والحصص', shortLabel: 'الدخل', perm: 'invoices.print' },
   { href: '/venue/menu', icon: '⚙️', label: 'إعدادات المنيو', shortLabel: 'المنيو', perm: 'menu.manage' },
 ];
 

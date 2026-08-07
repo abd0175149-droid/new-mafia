@@ -5,7 +5,7 @@
 // ══════════════════════════════════════════════════════
 
 import { Router, type Request, type Response } from 'express';
-import { eq, and, ne, desc, asc, isNull, inArray, gte, sql } from 'drizzle-orm';
+import { eq, and, ne, desc, asc, isNull, inArray, gte, lte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
@@ -14,7 +14,7 @@ import { players } from '../schemas/player.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
-import { buildInvoiceData, issueInvoiceNumber, invoiceHtml } from '../services/fnb-invoice.service.js';
+import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages } from '../services/fnb-invoice.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
 import multer from 'multer';
@@ -677,6 +677,47 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /invoices/:activityId/:playerId — تفاصيل الفاتورة للعرض (بلا إصدار رقم) ──
+// القراءة لا تستهلك رقماً ولا تختم طباعةً — لذا تُفتح التفاصيل بحرّية.
+venueRouter.get('/invoices/:activityId/:playerId', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+  try {
+    const data = await buildInvoiceData(db, locId, activityId, playerId);
+    if ('error' in data) return res.status(404).json({ error: data.error });
+
+    const [inv] = await db.select().from(orderInvoices).where(and(
+      eq(orderInvoices.locationId, locId),
+      eq(orderInvoices.activityId, activityId),
+      eq(orderInvoices.playerId, playerId),
+    )).limit(1);
+
+    // حالة الحجز — تشرح سبب وجود/غياب سطر رسوم اللعبة
+    const [bk] = data.bookingId
+      ? await db.select({ isPaid: bookings.isPaid, isFree: bookings.isFree })
+          .from(bookings).where(eq(bookings.id, data.bookingId)).limit(1)
+      : [undefined as any];
+
+    res.json({
+      success: true,
+      invoice: {
+        ...data,
+        invoiceNo: inv?.invoiceNo ?? null,
+        printedAt: inv?.printedAt ?? null,
+        isPaid: inv?.isPaid === true,
+        paidAt: inv?.paidAt ?? null,
+        bookingIsPaid: bk?.isPaid === true,
+        bookingIsFree: bk?.isFree === true,
+      },
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /invoices/:activityId/:playerId/pdf — إصدار/إعادة طباعة فاتورة A6 (inline PDF) ──
 // يثبّت الرقم التسلسليّ ويسجّل التدقيق ثم يعيد الـPDF مباشرة.
 venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
@@ -700,6 +741,131 @@ venueRouter.post('/invoices/:activityId/:playerId/pdf', authenticate, requireVen
     res.send(pdf);
   } catch (err: any) {
     console.error('❌ fnb invoice pdf:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════
+// 💰 الدخل والحصص — /api/venue/revenue
+// ════════════════════════════════════════════
+
+// ── GET /revenue?from=&to= — دخل المكان مقسوماً بدقّة ──
+// 🔢 المصدر الوحيد للحقيقة: لقطات بنود الطلبات — لا أسعار المنيو الحاليّة.
+//    حصّة النادي = Σ(club_share_snapshot × qty) · حصّة المكان = المبيعات − حصّة النادي
+//    (فروق الخيارات داخل unit_price_snapshot وتعود للمكان — قرار مقفل).
+// «محصَّل» يعني فاتورةً وُسمت مدفوعة؛ وما عداه مستحقّ.
+venueRouter.get('/revenue', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+
+  const parseDay = (v: unknown, fallback: Date) => {
+    const d = new Date(String(v || ''));
+    return Number.isNaN(d.getTime()) ? fallback : d;
+  };
+  const to = parseDay(req.query.to, new Date());
+  to.setHours(23, 59, 59, 999);
+  const from = parseDay(req.query.from, new Date(Date.now() - 30 * 24 * 3600_000));
+  from.setHours(0, 0, 0, 0);
+
+  try {
+    const scope = and(
+      eq(orders.locationId, locId),
+      ne(orders.status, 'cancelled'),
+      isNull(activities.deletedAt),
+      gte(activities.date, from),
+      lte(activities.date, to),
+    );
+
+    // إجماليّات + تفصيل لكل فعاليّة في استعلامٍ واحد
+    const rows = await db.select({
+      activityId: activities.id,
+      activityName: activities.name,
+      activityDate: activities.date,
+      gross: sql<string>`COALESCE(SUM(${orderItems.unitPriceSnapshot}::numeric * ${orderItems.quantity}), 0)::text`,
+      club: sql<string>`COALESCE(SUM(${orderItems.clubShareSnapshot}::numeric * ${orderItems.quantity}), 0)::text`,
+      ordersCount: sql<number>`COUNT(DISTINCT ${orders.id})::int`,
+      playersCount: sql<number>`COUNT(DISTINCT ${orders.playerId})::int`,
+    }).from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(activities, eq(orders.activityId, activities.id))
+      .where(scope)
+      .groupBy(activities.id, activities.name, activities.date)
+      .orderBy(desc(activities.date));
+
+    // حالة تحصيل الفواتير لنفس الفترة
+    const invRows = await db.select({
+      activityId: orderInvoices.activityId,
+      issued: sql<number>`COUNT(*)::int`,
+      paid: sql<number>`COALESCE(SUM(CASE WHEN ${orderInvoices.isPaid} = true THEN 1 ELSE 0 END), 0)::int`,
+      paidTotal: sql<string>`COALESCE(SUM(CASE WHEN ${orderInvoices.isPaid} = true THEN ${orderInvoices.grandTotal}::numeric ELSE 0 END), 0)::text`,
+      unpaidTotal: sql<string>`COALESCE(SUM(CASE WHEN ${orderInvoices.isPaid} = false THEN ${orderInvoices.grandTotal}::numeric ELSE 0 END), 0)::text`,
+      gameFees: sql<string>`COALESCE(SUM(CASE WHEN ${orderInvoices.isPaid} = true THEN ${orderInvoices.gameFeeAmount}::numeric ELSE 0 END), 0)::text`,
+    }).from(orderInvoices)
+      .innerJoin(activities, eq(orderInvoices.activityId, activities.id))
+      .where(and(
+        eq(orderInvoices.locationId, locId),
+        isNull(activities.deletedAt),
+        gte(activities.date, from),
+        lte(activities.date, to),
+      ))
+      .groupBy(orderInvoices.activityId);
+    const invByAct = new Map(invRows.map(i => [i.activityId, i]));
+
+    // أكثر الأصناف دخلاً (اسم اللقطة — الصنف قد يكون حُذف)
+    const topItems = await db.select({
+      name: orderItems.nameSnapshot,
+      qty: sql<number>`COALESCE(SUM(${orderItems.quantity}), 0)::int`,
+      gross: sql<string>`COALESCE(SUM(${orderItems.unitPriceSnapshot}::numeric * ${orderItems.quantity}), 0)::text`,
+      club: sql<string>`COALESCE(SUM(${orderItems.clubShareSnapshot}::numeric * ${orderItems.quantity}), 0)::text`,
+    }).from(orderItems)
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(activities, eq(orders.activityId, activities.id))
+      .where(scope)
+      .groupBy(orderItems.nameSnapshot)
+      .orderBy(desc(sql`SUM(${orderItems.unitPriceSnapshot}::numeric * ${orderItems.quantity})`))
+      .limit(20);
+
+    const n = (x: unknown) => { const v = parseFloat(String(x ?? '0')); return Number.isFinite(v) ? v : 0; };
+    const activitiesOut = rows.map(r => {
+      const gross = n(r.gross), club = n(r.club);
+      const inv = invByAct.get(r.activityId);
+      return {
+        activityId: r.activityId, activityName: r.activityName, activityDate: r.activityDate,
+        gross, club, venue: gross - club,
+        ordersCount: r.ordersCount, playersCount: r.playersCount,
+        invoicesIssued: inv?.issued ?? 0,
+        invoicesPaid: inv?.paid ?? 0,
+        collected: n(inv?.paidTotal), outstanding: n(inv?.unpaidTotal),
+        gameFeesCollected: n(inv?.gameFees),
+      };
+    });
+
+    const sum = (k: keyof typeof activitiesOut[number]) =>
+      activitiesOut.reduce((s, a) => s + (a[k] as number), 0);
+
+    const [loc] = await db.select({ name: locations.name }).from(locations).where(eq(locations.id, locId)).limit(1);
+
+    res.json({
+      success: true,
+      locationName: loc?.name || '',
+      range: { from: from.toISOString(), to: to.toISOString() },
+      totals: {
+        gross: sum('gross'), club: sum('club'), venue: sum('venue'),
+        ordersCount: sum('ordersCount'),
+        collected: sum('collected'), outstanding: sum('outstanding'),
+        gameFeesCollected: sum('gameFeesCollected'),
+        invoicesIssued: sum('invoicesIssued'), invoicesPaid: sum('invoicesPaid'),
+      },
+      activities: activitiesOut,
+      topItems: topItems.map(t => ({
+        name: t.name, qty: t.qty,
+        gross: n(t.gross), club: n(t.club), venue: n(t.gross) - n(t.club),
+      })),
+    });
+  } catch (err: any) {
+    console.error('❌ fnb revenue:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -764,6 +930,95 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
   }
 });
 
+// ── POST /invoices/:activityId/:playerId/waive-fee — إسقاط رسوم اللعبة ──
+// يجعل حجز اللاعب **مجّانيّاً لهذه الفعاليّة تحديداً** (bookings.is_free)، فيسقط
+// سطر الرسوم من فاتورته ولا يظهر كمستحقٍّ في التقارير. عمليّة مرئيّة تُسجَّل
+// باسم من نفّذها — لذا تتطلّب صلاحيّة التحصيل لا مجرّد الطباعة.
+venueRouter.post('/invoices/:activityId/:playerId/waive-fee', authenticate, requireVenuePermission('payments.record'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  const playerId = parseInt(req.params.playerId);
+  const waive = req.body?.waive !== false;   // افتراضاً إسقاط، و false يعيدها
+  if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
+
+  try {
+    // الحجز يُستخرج من طلبات اللاعب في هذه الفعاليّة (نفس مصدر الفاتورة)
+    const [row] = await db.select({ bookingId: orders.bookingId }).from(orders)
+      .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), eq(orders.playerId, playerId)))
+      .limit(1);
+    if (!row?.bookingId) return res.status(404).json({ error: 'لا حجز مرتبط بطلبات هذا اللاعب' });
+
+    const [bk] = await db.select({ isPaid: bookings.isPaid }).from(bookings)
+      .where(eq(bookings.id, row.bookingId)).limit(1);
+    if (!bk) return res.status(404).json({ error: 'الحجز غير موجود' });
+    if (waive && bk.isPaid === true) {
+      return res.status(400).json({ error: 'الحجز مدفوع مسبقاً — لا يمكن جعله مجّانيّاً' });
+    }
+
+    await db.update(bookings).set({
+      isFree: waive,
+      // مجّانيّ = لا مبلغ مستحقّ؛ وإلغاء المجّانيّة يعيده غير مدفوع
+      ...(waive ? { paidAmount: '0' } : {}),
+    } as any).where(eq(bookings.id, row.bookingId));
+
+    // فاتورةٌ صادرة تُحدَّث مجاميعها لتوافق الحالة الجديدة
+    const [inv] = await db.select({ id: orderInvoices.id, isPaid: orderInvoices.isPaid }).from(orderInvoices)
+      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId), eq(orderInvoices.playerId, playerId)))
+      .limit(1);
+    if (inv && inv.isPaid !== true) {
+      const data = await buildInvoiceData(db, locId, activityId, playerId);
+      if (!('error' in data)) {
+        await db.update(orderInvoices).set({
+          gameFeeApplied: data.gameFeeApplied,
+          gameFeeAmount: data.gameFeeAmount.toFixed(2),
+          grandTotal: data.grandTotal.toFixed(2),
+        } as any).where(eq(orderInvoices.id, inv.id));
+      }
+    }
+
+    res.json({ success: true, waived: waive });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /invoices/:activityId/print-all — كل فواتير الفعاليّة في PDF واحد ──
+// A6 لكل لاعب متتاليةً — يُطبع دفعةً واحدة بدل فتح فاتورةٍ فاتورة.
+// يثبّت أرقام من لم تُصدَر فاتورته بعد (نفس قفل الترقيم).
+venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const activityId = parseInt(req.params.activityId);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  try {
+    const rows = await db.selectDistinct({ playerId: orders.playerId }).from(orders)
+      .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')));
+    if (rows.length === 0) return res.status(404).json({ error: 'لا فواتير لهذه الفعاليّة' });
+
+    const printedByName = req.user?.displayName || req.user?.username || '';
+    const pages: string[] = [];
+    for (const r of rows) {
+      const data = await buildInvoiceData(db, locId, activityId, r.playerId);
+      if ('error' in data) continue;
+      const no = await issueInvoiceNumber(db, data, req.venueStaff!.id);
+      pages.push(invoiceHtml(data, no, printedByName));
+    }
+    if (pages.length === 0) return res.status(404).json({ error: 'لا فواتير لهذه الفعاليّة' });
+
+    const pdf = await renderRawHtmlPdf(mergeInvoicePages(pages), { format: 'A6' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(`invoices-activity-${activityId}`)}.pdf`);
+    res.send(pdf);
+  } catch (err: any) {
+    console.error('❌ fnb print-all:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ════════════════════════════════════════════
 // 📱 playerFnbRouter — /api/fnb (تطبيق اللاعب)
 // ════════════════════════════════════════════
@@ -791,6 +1046,58 @@ interface FnbContext {
 async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, playerId: number): Promise<FnbContext | { error: string } | null> {
   const now = Date.now();
 
+  // ── (أ) غرفةٌ حيّة أوّلاً — **بلا شرطٍ زمنيّ** ──────────────────
+  // 🔴 القاعدة: الغرفة الحيّة هي الحدث. إن بدأ القائد اللعبة فاللاعبون
+  //    جالسون في المكان الآن مهما قال الموعد المجدول. كان الشرط الزمنيّ
+  //    يُطبَّق حتى على الغرف الحيّة، فغرفةٌ بدأت قبل موعدها بساعتين تُحرَم
+  //    الطلب — وهو ما يناقض «الطلب داخل الفعاليّة» أصلاً.
+  //    الحجز يبقى إلزاميّاً (قرار مقفل).
+  const liveRows = await db.select({
+    sessionId: sessions.id,
+    physicalId: sessionPlayers.physicalId,
+    activityId: activities.id,
+    activityName: activities.name,
+    activityDate: activities.date,
+    locationId: activities.locationId,
+    bookingId: bookings.id,
+  }).from(sessionPlayers)
+    .innerJoin(sessions, eq(sessionPlayers.sessionId, sessions.id))
+    .innerJoin(activities, eq(sessions.activityId, activities.id))
+    .innerJoin(bookings, and(
+      eq(bookings.activityId, activities.id),
+      eq(bookings.playerId, playerId),
+      isNull(bookings.deletedAt),
+    ))
+    .where(and(
+      eq(sessionPlayers.playerId, playerId),
+      eq(sessions.status, 'active'),
+      isNull(sessions.deletedAt),
+      isNull(activities.deletedAt),
+      eq(activities.menuOrderingEnabled, true),
+      ne(activities.status, 'cancelled'),
+    ))
+    .orderBy(desc(sessionPlayers.joinedAt))
+    .limit(1);
+
+  if (liveRows.length > 0 && liveRows[0].locationId != null) {
+    const r = liveRows[0];
+    const [loc] = await db.select({ id: locations.id, name: locations.name })
+      .from(locations).where(eq(locations.id, r.locationId!)).limit(1);
+    if (loc) {
+      return {
+        activityId: r.activityId,
+        activityName: r.activityName,
+        activityDate: r.activityDate,
+        locationId: loc.id,
+        locationName: loc.name,
+        bookingId: r.bookingId,
+        sessionId: r.sessionId,
+        physicalId: r.physicalId,
+        source: 'live',
+      };
+    }
+  }
+
   // حجوزات اللاعب لفعاليّات مفعَّلة المنيو ضمن النافذة الزمنيّة
   const bookingRows = await db.select({
     bookingId: bookings.id,
@@ -810,38 +1117,14 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
     ))
     .orderBy(asc(activities.date));
 
-  const inWindow = bookingRows.filter(b =>
-    b.activityStatus !== 'completed' && b.activityStatus !== 'cancelled' &&
-    b.locationId != null &&
-    b.activityDate.getTime() - ORDER_WINDOW_BEFORE_MS <= now
-  );
+  const usable = bookingRows.filter(b =>
+    b.activityStatus !== 'completed' && b.activityStatus !== 'cancelled' && b.locationId != null);
+  const inWindow = usable.filter(b => b.activityDate.getTime() - ORDER_WINDOW_BEFORE_MS <= now);
 
-  // (أ) غرفة حيّة: جلسة نشطة مرتبطة بإحدى فعاليّات اللاعب المحجوزة
-  const bookedActIds = inWindow.map(b => b.activityId);
-  let live: { sessionId: number; physicalId: number; activityId: number } | null = null;
-  if (bookedActIds.length > 0) {
-    const liveRows = await db.select({
-      sessionId: sessions.id,
-      physicalId: sessionPlayers.physicalId,
-      activityId: sessions.activityId,
-    }).from(sessionPlayers)
-      .innerJoin(sessions, eq(sessionPlayers.sessionId, sessions.id))
-      .where(and(
-        eq(sessionPlayers.playerId, playerId),
-        eq(sessions.status, 'active'),
-        isNull(sessions.deletedAt),
-        inArray(sessions.activityId, bookedActIds),
-      ))
-      .orderBy(desc(sessionPlayers.joinedAt))
-      .limit(1);
-    if (liveRows.length > 0 && liveRows[0].activityId != null) {
-      live = { sessionId: liveRows[0].sessionId, physicalId: liveRows[0].physicalId, activityId: liveRows[0].activityId };
-    }
-  }
-
-  const chosen = live ? inWindow.find(b => b.activityId === live!.activityId)! : inWindow[0];
+  const chosen = inWindow[0];
   if (!chosen) {
-    // لاعب داخل غرفة حيّة لفعاليّة مفعَّلة لكن بلا حجز؟ → رسالة أوضح من «لا شيء»
+    // لا سياق — نُفصح **لماذا** بدل الصمت: الغموض هنا كلّف تشخيصاً خاطئاً مرّتين.
+    // لاعب داخل غرفة حيّة لفعاليّة مفعَّلة لكن بلا حجز؟
     const liveNoBooking = await db.select({ actId: sessions.activityId })
       .from(sessionPlayers)
       .innerJoin(sessions, eq(sessionPlayers.sessionId, sessions.id))
@@ -853,6 +1136,14 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
         eq(activities.menuOrderingEnabled, true),
       )).limit(1);
     if (liveNoBooking.length > 0) return { error: 'الطلب متاح للحاجزين فقط — لا يوجد حجز باسمك لهذه الفعاليّة' };
+
+    // حجزٌ قائم لكنّ النافذة لم تُفتح بعد → أعطِ الموعد بدل رسالةٍ عامّة
+    const soonest = usable[0];
+    if (soonest) {
+      const opensAt = new Date(soonest.activityDate.getTime() - ORDER_WINDOW_BEFORE_MS);
+      const t = opensAt.toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' });
+      return { error: `يفتح الطلب من «${soonest.activityName}» الساعة ${t} (قبل الموعد بساعة) — أو فور بدء الغرفة` };
+    }
     return null;
   }
 
@@ -867,9 +1158,9 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
     locationId: loc.id,
     locationName: loc.name,
     bookingId: chosen.bookingId,
-    sessionId: live?.sessionId ?? null,
-    physicalId: live?.physicalId ?? null,
-    source: live ? 'live' : 'booking',
+    sessionId: null,          // الغرفة الحيّة عولجت أعلاه — هذا مسار الحجز قبل بدئها
+    physicalId: null,
+    source: 'booking',
   };
 }
 

@@ -162,6 +162,27 @@ export async function issueInvoiceNumber(
   });
 }
 
+/**
+ * يدمج فواتير A6 في مستندٍ واحد للطباعة الجماعيّة.
+ * يأخذ `<style>` أوّل فاتورة (كلّها بالقالب نفسه) ويضمّ أجسادها في صفحاتٍ
+ * متتالية بفاصل `page-break-after` — فتخرج كلّ فاتورة على ورقتها.
+ */
+export function mergeInvoicePages(pages: string[]): string {
+  const styleMatch = pages[0]?.match(/<style>([\s\S]*?)<\/style>/);
+  const style = styleMatch ? styleMatch[1] : '';
+  const bodies = pages.map(p => {
+    const m = p.match(/<body>([\s\S]*?)<\/body>/);
+    return m ? m[1] : '';
+  });
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>
+  ${style}
+  /* كلّ فاتورة على ورقةٍ مستقلّة — الأخيرة بلا فاصلٍ زائد يُنتج ورقةً فارغة */
+  .sheet { width: 105mm; min-height: 148mm; padding: 6mm 6mm 5mm; display: flex; flex-direction: column; page-break-after: always; }
+  .sheet:last-child { page-break-after: auto; }
+  body { width: auto; min-height: 0; padding: 0; display: block; }
+  </style></head><body>${bodies.map(b => `<div class="sheet">${b}</div>`).join('')}</body></html>`;
+}
+
 const esc = (s: string) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const fmt = (n: number) => n.toFixed(2);
 
