@@ -18,6 +18,9 @@ function generateUsername(name: string): string {
 }
 
 // Helper: كلمة مرور عشوائيّة قويّة (لا نكرّر نمط username+'123' الضعيف)
+// صلاحيّات صاحب المكان الكاملة — مطابقة لـVENUE_PERMISSIONS في middleware/auth.ts
+const OWNER_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record'];
+
 function generatePassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!#%';
   return Array.from(crypto.randomBytes(12)).map(b => chars[b % chars.length]).join('');
@@ -61,7 +64,8 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
   const existing = await db.select({ id: staff.id }).from(staff).where(eq(staff.username, finalUsername)).limit(1);
   if (existing.length > 0) finalUsername = finalUsername + locationId;
 
-  const password = finalUsername + '123';
+  // 🔑 كلمة مرور عشوائيّة — كانت `username+'123'` أي مخمَّنةٌ من اسم المكان العلنيّ
+  const password = generatePassword();
   const hash = await bcrypt.hash(password, 10);
   const staffResult = await db.insert(staff).values({
     username: finalUsername,
@@ -69,7 +73,9 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
     displayName: name,
     role: 'location_owner',
     locationId,
-    permissions: [],
+    // 🔴 كانت [] — فالحساب المُنشأ تلقائيّاً يُسلَّم لصاحب المكان وهو **معطّل
+    // كليّاً**: بلا تبويبات وكلّ نداء يردّ 403، رغم عرض بيانات دخوله كأنّه جاهز.
+    permissions: OWNER_PERMISSIONS,
   } as any).returning();
 
   await db.insert(userSettings).values({ userId: staffResult[0].id } as any).onConflictDoNothing();
@@ -98,15 +104,16 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, region, mapUrl, offers, isActive, isTestLocation } = req.body;
+  const { name, region, mapUrl, isActive, isTestLocation } = req.body;
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
 
-  // الحقول غير المُرسَلة تبقى كما هي — لا تُصفَّر بالسهو
+  // 🔴 `offers` لا يُكتَب هنا إطلاقاً: أرشيفٌ مقروءٌ فقط تخدمه الفعاليّات
+  // المفتوحة عليه. كان التعديل يعيد كتابته من شكلٍ فاقدٍ في الواجهة فيُتلفه.
+  // الحقول غير المُرسَلة تبقى كما هي — لا تُصفَّر بالسهو.
   const patch: Record<string, unknown> = {
     name,
     region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
-    offers: Array.isArray(offers) ? offers : [],
   };
   if (isActive !== undefined) patch.isActive = isActive !== false;
   if (isTestLocation !== undefined) patch.isTestLocation = isTestLocation === true;
@@ -144,7 +151,7 @@ router.delete('/:id', authenticate, managerOrAbove, async (req: Request, res: Re
 // ── 🍽️ الحسابات المرتبطة بالمكان ──────────────────────
 
 // GET /api/locations/:id/staff — قائمة الحسابات المرتبطة (admin only)
-router.get('/:id/staff', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.get('/:id/staff', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
@@ -162,13 +169,14 @@ router.get('/:id/staff', authenticate, adminOnly, async (req: Request, res: Resp
 
 // POST /api/locations/:id/staff — إنشاء حساب مرتبط إضافيّ (admin only)
 // كلمة مرور عشوائيّة تُعاد مرّة واحدة فقط في الاستجابة.
-router.post('/:id/staff', authenticate, adminOnly, async (req: Request, res: Response) => {
+router.post('/:id/staff', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
-  const [loc] = await db.select({ id: locations.id, name: locations.name }).from(locations).where(eq(locations.id, id)).limit(1);
+  const [loc] = await db.select({ id: locations.id, name: locations.name }).from(locations)
+    .where(and(eq(locations.id, id), isNull(locations.deletedAt))).limit(1);
   if (!loc) return res.status(404).json({ error: 'المكان غير موجود' });
 
   const { username, displayName, permissions } = req.body || {};

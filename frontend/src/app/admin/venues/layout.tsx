@@ -21,6 +21,7 @@ export default function AdminVenuesLayout({ children }: { children: ReactNode })
   const [locations, setLocations] = useState<{ id: number; name: string }[]>([]);
   const [picked, setPicked] = useState<{ id: number; name: string } | null>(null);
   const [error, setError] = useState('');
+  const [urlWarn, setUrlWarn] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,10 +49,18 @@ export default function AdminVenuesLayout({ children }: { children: ReactNode })
         // 🔗 مكانٌ في الرابط يطغى على المحفوظ (روابط بطاقات صفحة الأماكن)
         const fromUrl = parseInt(new URLSearchParams(window.location.search).get('locationId') || '');
         const target = Number.isFinite(fromUrl) ? fromUrl : parseInt(localStorage.getItem(LOC_KEY) || '');
-        const found = list.find((l: any) => l.id === target) || list[0] || null;
-        if (found) {
-          setPicked(found);
-          localStorage.setItem(LOC_KEY, String(found.id));
+        const found = list.find((l: any) => l.id === target) || null;
+
+        // 🔴 لا سقوطَ صامتٍ على أوّل مكان: رابطٌ لمكانٍ محذوفٍ أو خاطئ كان يفتح
+        //    **مكاناً آخر** بلا تنبيه، فيعدّل الأدمن منيو مكانٍ ظانّاً أنّه المقصود.
+        // تحذيرٌ لا حجب: تبقى القائمة متاحة ليختار المكان الصحيح بنفسه
+        if (!found && Number.isFinite(fromUrl)) {
+          setUrlWarn('المكان المطلوب في الرابط غير موجود أو محذوف — اخترْ مكاناً من القائمة');
+        }
+        const pick = found || (Number.isFinite(fromUrl) ? null : list[0]) || null;
+        if (pick) {
+          setPicked(pick);
+          localStorage.setItem(LOC_KEY, String(pick.id));
         }
       })
       .catch(() => setError('خطأ في الاتصال بالسيرفر'))
@@ -125,6 +134,13 @@ export default function AdminVenuesLayout({ children }: { children: ReactNode })
             {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
+
+        {urlWarn && (
+          <p className="text-[11px] rounded-xl px-3.5 py-2.5"
+            style={{ background: 'rgba(224,73,43,0.08)', border: '1px solid rgba(224,73,43,0.25)', color: '#F08163' }}>
+            ⚠️ {urlWarn}
+          </p>
+        )}
 
         {picked ? children : (
           <p className="text-center text-gray-500 text-sm py-16">اختر مكاناً للبدء</p>

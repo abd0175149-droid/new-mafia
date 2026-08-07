@@ -71,6 +71,7 @@ export default function StaffManagementPage() {
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('manager');
   const [isPartner, setIsPartner] = useState(false);
+  const [isActive, setIsActive] = useState(true);
   const [permissions, setPermissions] = useState<string[]>(['activities', 'bookings', 'finances', 'locations']);
   // 🍽️ ربط حساب المكان
   const [locationId, setLocationId] = useState<string>('');
@@ -106,6 +107,7 @@ export default function StaffManagementPage() {
     setPassword('');
     setRole('manager');
     setIsPartner(false);
+    setIsActive(true);
     setPermissions(['activities', 'bookings', 'finances', 'locations']);
     setLocationId('');
     setIsDialogOpen(true);
@@ -119,6 +121,7 @@ export default function StaffManagementPage() {
     setPassword(''); // فارغ ليختار التحديث أم لا
     setRole(userItem.role || 'manager');
     setIsPartner(!!userItem.isPartner);
+    setIsActive(userItem.isActive !== false);
     setLocationId(userItem.locationId ? String(userItem.locationId) : '');
     try {
       const parsedPerms = typeof userItem.permissions === 'string' 
@@ -158,7 +161,7 @@ export default function StaffManagementPage() {
         // تحديث
         await apiFetch(`/api/staff/${editingUser.id}`, {
           method: 'PUT',
-          body: JSON.stringify({ displayName, phone, role, isPartner, permissions, locationId: locationId ? Number(locationId) : null }),
+          body: JSON.stringify({ displayName, phone, role, isPartner, isActive, permissions, locationId: locationId ? Number(locationId) : null }),
         });
         // تحديث كلمة المرور إن وُجدت
         if (password.trim() !== '') {
@@ -357,7 +360,13 @@ export default function StaffManagementPage() {
                   </div>
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">الدور <span className="text-rose-400">*</span></label>
-                    <select value={role} onChange={e => setRole(e.target.value)} className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/30">
+                    <select value={role} onChange={e => {
+                      const next = e.target.value;
+                      setRole(next);
+                      // 🔴 نموذجا الصلاحيّات مختلفان تماماً؛ إبقاؤها عند التبديل
+                      //    كان يمنح حساب المكان صلاحيّات HQ مثل «finances».
+                      setPermissions(next === 'location_owner' ? ['orders.receive'] : ['activities', 'bookings']);
+                    }} className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500/30">
                       <option value="manager">مدير (Manager)</option>
                       <option value="leader">قائد لعبة (Leader)</option>
                       <option value="accountant">محاسب (Accountant)</option>
@@ -379,6 +388,15 @@ export default function StaffManagementPage() {
                   </div>
                 )}
 
+                {editingUser && (
+                  <label className="flex items-center gap-2.5 p-3 rounded-xl bg-gray-900/40 border border-gray-700/30 cursor-pointer mb-3">
+                    <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="accent-emerald-500 w-4 h-4 cursor-pointer" />
+                    <span>
+                      <span className="block text-xs text-white font-bold">الحساب فعّال</span>
+                      <span className="block text-[10px] text-gray-500 mt-0.5">الحساب الموقوف لا يستطيع الدخول ولا تصله إشعارات — يُوقَف تلقائيّاً عند حذف مكانه</span>
+                    </span>
+                  </label>
+                )}
                 <div className="flex items-center gap-2 px-1">
                   <input type="checkbox" id="isPartnerCheck" checked={isPartner} onChange={e => setIsPartner(e.target.checked)} className="accent-amber-500 w-4 h-4 cursor-pointer" />
                   <label htmlFor="isPartnerCheck" className="text-sm text-gray-300 cursor-pointer">هذا المستخدم شريك بالمشروع (مالياً)</label>

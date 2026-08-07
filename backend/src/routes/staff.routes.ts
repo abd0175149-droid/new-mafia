@@ -120,18 +120,25 @@ router.put('/:id', authenticate, adminOnly, async (req: Request, res: Response) 
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { displayName, phone, role, permissions, isPartner, locationId } = req.body;
+  const { displayName, phone, role, permissions, isPartner, locationId, isActive } = req.body;
   if (!displayName) return res.status(400).json({ error: 'الاسم مطلوب' });
 
-  await db.update(staff).set({
+  const patch: Record<string, unknown> = {
     displayName,
     phone: phone || '',
     role: role || 'manager',
-    permissions: permissions || ['activities', 'bookings', 'finances', 'locations'],
+    // 🔴 صلاحيّاتٌ غير مُرسَلة كانت تُمنح صلاحيات HQ الأربع صامتةً — حتى لحساب
+    //    مكان. الصمت الآن يعني «لا تغيير» لا «امنح الافتراضيّ».
+    ...(permissions !== undefined ? { permissions } : {}),
     isPartner: isPartner || false,
     // 🍽️ ربط/فكّ ربط الحساب بمكان — location_owner فقط، وإلّا يُصفَّر
     locationId: (role === 'location_owner' && locationId) ? parseInt(locationId) : null,
-  } as any).where(eq(staff.id, id));
+  };
+  // ⏯️ التفعيل/الإيقاف: العمود مفروضٌ في المصادقة وفي إشعارات المكان، وكان
+  //    يُكتَب عند حذف المكان — وبلا هذا المسار تبقى حساباته موقوفةً للأبد.
+  if (isActive !== undefined) patch.isActive = isActive !== false;
+
+  await db.update(staff).set(patch as any).where(eq(staff.id, id));
 
   res.json({ success: true });
 });

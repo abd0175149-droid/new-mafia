@@ -154,7 +154,10 @@ export default function LocationsPage() {
   async function handleSave() {
     if (!name.trim()) return;
     setSaving(true);
-    const payload = { name: name.trim(), region: region.trim(), mapUrl, offers, isActive, isTestLocation, ownerUsername: ownerUsername.trim() || undefined };
+    // 🔴 `offers` لا يُرسَل إطلاقاً: normalizeOffer عرضٌ فقط وهو **فاقد** — يُسقط
+    // اسم العرض ويُصفّر سعر العروض النصّيّة القديمة. إعادة إرساله كانت تجعل
+    // تغيير اسم المكان يُتلف الأرشيف ويُعطّل بوّابة سعر التذكرة في اللوبي.
+    const payload = { name: name.trim(), region: region.trim(), mapUrl, isActive, isTestLocation, ownerUsername: ownerUsername.trim() || undefined };
 
     try {
       if (editingLoc) {
@@ -244,7 +247,7 @@ export default function LocationsPage() {
                   )}
 
                   {/* 🍽️ إدارة المكان من لوحة الإدارة مباشرةً — بلا دخول كونسول المكان */}
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                     <a href={`/admin/venues/menu?locationId=${loc.id}`}
                       className="bg-emerald-500/[0.06] border border-emerald-500/20 rounded-lg p-2 text-center hover:border-emerald-500/40 transition">
                       <p className="text-base leading-none mb-1">🍽️</p>
@@ -259,6 +262,11 @@ export default function LocationsPage() {
                       className="bg-amber-500/[0.06] border border-amber-500/20 rounded-lg p-2 text-center hover:border-amber-500/40 transition">
                       <p className="text-base leading-none mb-1">🧾</p>
                       <p className="text-[10px] font-bold text-amber-400">الفواتير</p>
+                    </a>
+                    <a href={`/admin/venues/revenue?locationId=${loc.id}`}
+                      className="bg-violet-500/[0.06] border border-violet-500/20 rounded-lg p-2 text-center hover:border-violet-500/40 transition">
+                      <p className="text-base leading-none mb-1">💰</p>
+                      <p className="text-[10px] font-bold text-violet-400">الدخل</p>
                     </a>
                   </div>
 
