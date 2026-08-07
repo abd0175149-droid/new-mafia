@@ -15,6 +15,9 @@ import VenueShell from './VenueShell';
 export const metadata: Metadata = {
   title: 'كونسول المكان — نادي المافيا',
   manifest: '/venue-manifest.json',
+  // 🔥 أيقونة لهبٍ مختلفة عن قناع اللاعب — أيقونتان متطابقتان على شاشةٍ واحدة
+  //    تعني نقرةً خاطئة كلّ ليلة. iOS يقرأ apple-touch-icon لا أيقونات manifest.
+  icons: { apple: '/icons/venue-192x192.png', icon: '/icons/venue-192x192.png' },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

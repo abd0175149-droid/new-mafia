@@ -7,6 +7,9 @@ export const metadata: Metadata = {
   description: 'نظام متطور لإدارة ألعاب المافيا الهجينة - يدمج بين التواجد الفعلي والإدارة الرقمية اللحظية (Dark Noir Edition)',
   keywords: ['mafia', 'game', 'phygital', 'مافيا', 'لعبة'],
   manifest: '/manifest.json',
+  // 🎭 أيقونة الشاشة الرئيسيّة — عبر metadata لا وسمٍ ثابت في <head>، لأنّ الوسم
+  //    الثابت يظهر في **كلّ** صفحة فيتعذّر على /venue استبداله بأيقونته.
+  icons: { apple: '/icons/icon-192x192.png' },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -33,7 +36,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta httpEquiv="Expires" content="0" />
         <meta name="version" content={APP_VERSION} />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;700;900&family=Tajawal:wght@400;700&family=Noto+Kufi+Arabic:wght@400;700&family=Reem+Kufi:wght@400;700&display=swap" rel="stylesheet" />

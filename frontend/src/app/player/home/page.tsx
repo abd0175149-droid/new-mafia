@@ -10,6 +10,7 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { ChipsBalancePill } from '@/components/ChipsBalancePill';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
+import InstallGuide from '@/components/InstallGuide';
 
 // مجموعة الواتساب ليست حساب أعمال — رابط دعوة عاديّ لا يمسّه إجراء ميتا، فيبقى.
 const WHATSAPP_GROUP_URL = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
@@ -148,6 +149,11 @@ export default function HomePage() {
       <a href="/player/debug-push" style={{ display: 'block', textAlign: 'center', padding: 8, background: '#1a1a2e', borderRadius: 8, color: '#f59e0b', fontSize: 12, textDecoration: 'none' }}>
         🔧 تشخيص الإشعارات
       </a>
+
+      {/* 📲 التثبيت من صفحة اللاعب — الجذر يعلن start_url=/player فتُنشأ
+          أيقونة تطبيق اللاعب. تختفي البطاقة فور التثبيت (standalone). */}
+      <InstallGuide app="player" />
+
       {/* ── الجرس + زر التحكم (للموظفين) ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: -8 }}>
         {/* أزرار التحكم — تظهر فقط إذا الحساب مرتبط بموظف */}

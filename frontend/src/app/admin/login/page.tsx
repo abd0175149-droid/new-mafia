@@ -138,6 +138,15 @@ export default function AdminLoginPage() {
           </form>
         </div>
 
+        {/* ⚠️ فخّ التثبيت: هذه الصفحة تحت الجذر، وmanifest الجذر يفتح **تطبيق
+            اللاعب**. من يضيف الأيقونة من هنا يخرج بواجهةٍ خاطئة، وإشعارات iOS
+            مربوطةٌ بنطاق التطبيق المثبَّت فلا تصله الطلبات. الإضافة بعد الدخول. */}
+        <p className="text-center text-[11px] mt-6 leading-relaxed rounded-xl px-3 py-2.5 mx-2"
+          style={{ background: 'rgba(217,138,43,0.08)', border: '1px solid rgba(217,138,43,0.25)', color: '#C9A063' }}>
+          📲 لا تُضِف هذه الصفحة إلى الشاشة الرئيسيّة — سجّل الدخول أوّلاً،
+          ثمّ أضِفْ من داخل الكونسول لتصلك إشعارات الطلبات.
+        </p>
+
         {/* Footer */}
         <p className="text-center text-gray-600 text-xs mt-6">
           Unified Mafia Platform v2.0

@@ -50,17 +50,22 @@ function normalizePhoneIntl(raw: string): string | null {
 function normPhoneKey(p: string): string {
   return String(p || '').replace(/\D/g, '').replace(/^0+/, '');
 }
-// 📍 المكان والمنطقة ضمن نصّ التأكيد: اسم الفعاليّة وحده لا يدلّ على موقعها،
-// ومن لا يعرف الكافيه يحتاج المنطقة قبل أن يوافق.
+// 📍 المكان والمنطقة ورابط الخريطة ضمن نصّ التأكيد: اسم الفعاليّة وحده لا يدلّ
+// على موقعها، ومن لا يعرف الكافيه يحتاج المنطقة قبل أن يوافق — والرابط يغنيه
+// عن السؤال «وين بالضبط؟». الرابط مخزَّنٌ في بيانات المكان (locations.map_url).
 function confirmMessage(
   name: string, activityName: string, count: number,
-  locationName?: string, region?: string, when?: string,
+  locationName?: string, region?: string, when?: string, mapUrl?: string,
 ): string {
   const ppl = count === 1 ? 'شخص واحد' : count === 2 ? 'شخصين' : `${count} أشخاص`;
   const place = [locationName, region].filter(Boolean).join(' — ');
+  // رابطٌ بلا بروتوكول لا يُصبح قابلاً للنقر في واتساب — نُكمله
+  const raw = String(mapUrl || '').trim();
+  const link = raw && !/^https?:\/\//i.test(raw) ? `https://${raw}` : raw;
   return `مرحباً ${name || ''} 👋\n`
     + `نؤكّد حجزك في «${activityName}» لعدد ${ppl}.\n`
     + (place ? `📍 المكان: ${place}\n` : '')
+    + (link ? `🗺️ الموقع على الخريطة: ${link}\n` : '')
     + (when ? `🗓️ الموعد: ${when}\n` : '')
     + `\nيُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭`;
 }
@@ -876,7 +881,7 @@ export default function ReservationsPage() {
                               : '';
                             const msg = confirmMessage(
                               r.contactName, getActivityName(r.activityId), r.peopleCount || 1,
-                              loc?.name, loc?.region, when,
+                              loc?.name, loc?.region, when, loc?.mapUrl,
                             );
                             window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
                           }}

@@ -13,6 +13,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { VenueContext, type VenueCtx, type VenueMe } from './context';
 import { EM } from './ember';
+import InstallGuide from '../../components/InstallGuide';
 
 // ترتيبٌ حسب تواتر الاستخدام: الطلبات (كلّ ليلة) ← المال ← الإعداد النادر
 const TABS: { href: string; icon: string; label: string; short?: string; perm: string }[] = [
@@ -140,7 +141,14 @@ export default function VenueShell({ children }: { children: React.ReactNode }) 
         <main className={`max-w-3xl mx-auto px-4 py-5 ${tabs.length > 1 ? 'pb-24 sm:pb-8' : 'pb-8'}`}>
           {!loc ? (
             <div className="text-center py-16 text-sm" style={{ color: EM.faint }}>الحساب غير مرتبط بمكان</div>
-          ) : children}
+          ) : (
+            <>
+              {/* 📲 هنا موضع التثبيت الصحيح: هذه الصفحة تحت /venue فتعلن manifest
+                  الكونسول. الإضافة من صفحة الدخول (تحت الجذر) تُنتج تطبيق اللاعب. */}
+              <InstallGuide app="venue" />
+              {children}
+            </>
+          )}
         </main>
 
         {/* ── شريط سفليّ للجوال — أهداف لمسٍ كبيرة ليدٍ مستعجلة ── */}
