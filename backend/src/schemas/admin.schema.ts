@@ -27,6 +27,9 @@ export const notificationTypeEnum = pgEnum('notification_type', [
 export const locations = pgTable('locations', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
+  // 📍 المنطقة (الشميساني · عبدون · …) — تُذكر في رسالة تأكيد الحجز وتُعرض للاعب،
+  // فاسم الكافيه وحده لا يكفي من لا يعرف موقعه.
+  region: varchar('region', { length: 80 }).default(''),
   mapUrl: text('map_url').default(''),
   offers: jsonb('offers').default([]),
   isTestLocation: boolean('is_test_location').default(false),

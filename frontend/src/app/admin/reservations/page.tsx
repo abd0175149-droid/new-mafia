@@ -50,9 +50,19 @@ function normalizePhoneIntl(raw: string): string | null {
 function normPhoneKey(p: string): string {
   return String(p || '').replace(/\D/g, '').replace(/^0+/, '');
 }
-function confirmMessage(name: string, activityName: string, count: number): string {
+// 📍 المكان والمنطقة ضمن نصّ التأكيد: اسم الفعاليّة وحده لا يدلّ على موقعها،
+// ومن لا يعرف الكافيه يحتاج المنطقة قبل أن يوافق.
+function confirmMessage(
+  name: string, activityName: string, count: number,
+  locationName?: string, region?: string, when?: string,
+): string {
   const ppl = count === 1 ? 'شخص واحد' : count === 2 ? 'شخصين' : `${count} أشخاص`;
-  return `مرحباً ${name || ''} 👋\nنؤكّد حجزك في «${activityName}» لعدد ${ppl}.\nيُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭`;
+  const place = [locationName, region].filter(Boolean).join(' — ');
+  return `مرحباً ${name || ''} 👋\n`
+    + `نؤكّد حجزك في «${activityName}» لعدد ${ppl}.\n`
+    + (place ? `📍 المكان: ${place}\n` : '')
+    + (when ? `🗓️ الموعد: ${when}\n` : '')
+    + `\nيُرجى الردّ على هذه الرسالة لتثبيت الحجز بشكلٍ نهائيّ. بانتظارك! 🎭`;
 }
 
 export default function ReservationsPage() {
@@ -61,6 +71,7 @@ export default function ReservationsPage() {
   // ── Data ──
   const [reservations, setReservations] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // ── 🖨️ كشف الحاجزين (PDF/Excel عبر نظام التقارير) ──
@@ -104,12 +115,14 @@ export default function ReservationsPage() {
   // ══ Data Fetching ══
   const fetchAll = useCallback(async () => {
     try {
-      const [res, acts] = await Promise.all([
+      const [res, acts, locs] = await Promise.all([
         apiFetch('/api/reservations'),
         apiFetch('/api/activities'),
+        apiFetch('/api/locations').catch(() => []),
       ]);
       setReservations(res);
       setActivities(acts);
+      setLocations(Array.isArray(locs) ? locs : []);
     } catch (err) {
       console.error('Fetch error:', err);
     } finally {
@@ -856,7 +869,15 @@ export default function ReservationsPage() {
                           onClick={() => {
                             const intl = normalizePhoneIntl(r.phone);
                             if (!intl) return;
-                            const msg = confirmMessage(r.contactName, getActivityName(r.activityId), r.peopleCount || 1);
+                            const act = activities.find(a => a.id === r.activityId);
+                            const loc = act ? locations.find(l => l.id === act.locationId) : null;
+                            const when = act?.date
+                              ? new Date(act.date).toLocaleString('ar-JO', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+                              : '';
+                            const msg = confirmMessage(
+                              r.contactName, getActivityName(r.activityId), r.peopleCount || 1,
+                              loc?.name, loc?.region, when,
+                            );
                             window.open(`https://wa.me/${intl}?text=${encodeURIComponent(msg)}`, '_blank');
                           }}
                           className="w-9 h-9 rounded-full flex items-center justify-center bg-green-500/15 border border-green-500/30 text-green-400 hover:bg-green-500/25 transition shrink-0"

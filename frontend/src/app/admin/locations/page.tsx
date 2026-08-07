@@ -57,6 +57,7 @@ export default function LocationsPage() {
   // ── Form fields ──
   const [name, setName] = useState('');
   const [mapUrl, setMapUrl] = useState('');
+  const [region, setRegion] = useState('');
   const [ownerUsername, setOwnerUsername] = useState('');
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -129,7 +130,7 @@ export default function LocationsPage() {
   // ══ Open New ══
   function handleOpenNew() {
     setEditingLoc(null);
-    setName(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
+    setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
     setIsDialogOpen(true);
   }
 
@@ -137,6 +138,7 @@ export default function LocationsPage() {
   function handleOpenEdit(loc: any) {
     setEditingLoc(loc);
     setName(loc.name || '');
+    setRegion(loc.region || '');
     setMapUrl(loc.mapUrl || '');
     const parsed = (loc.offers || []).map((o: any, i: number) => normalizeOffer(o, i));
     setOffers(parsed);
@@ -147,7 +149,7 @@ export default function LocationsPage() {
   async function handleSave() {
     if (!name.trim()) return;
     setSaving(true);
-    const payload = { name: name.trim(), mapUrl, offers, ownerUsername: ownerUsername.trim() || undefined };
+    const payload = { name: name.trim(), region: region.trim(), mapUrl, offers, ownerUsername: ownerUsername.trim() || undefined };
 
     try {
       if (editingLoc) {
@@ -214,7 +216,10 @@ export default function LocationsPage() {
               >
                 {/* Header */}
                 <div className="p-4 pb-2 flex items-center justify-between">
-                  <h3 className="text-base font-bold text-white">{loc.name}</h3>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-white truncate">{loc.name}</h3>
+                    {loc.region && <p className="text-[11px] text-gray-500">📍 {loc.region}</p>}
+                  </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => openAccounts(loc)} className="p-1.5 rounded-lg text-gray-500 hover:text-sky-400 hover:bg-sky-500/10 transition" title="الحسابات المرتبطة">👥</button>
                     <button onClick={() => handleOpenEdit(loc)} className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 transition" title="تعديل">✏️</button>
@@ -303,6 +308,12 @@ export default function LocationsPage() {
               )}
 
               {/* رابط الخريطة */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">المنطقة (الشميساني، عبدون، …)</label>
+                <input type="text" value={region} onChange={e => setRegion(e.target.value)} placeholder="مثال: الشميساني" className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+                <p className="text-[10px] text-gray-500 mt-1">تظهر للاعب وتُذكر في رسالة تأكيد الحجز.</p>
+              </div>
+
               <div>
                 <label className="block text-xs text-gray-400 mb-1">رابط جوجل ماب (اختياري)</label>
                 <input type="text" value={mapUrl} onChange={e => setMapUrl(e.target.value)} placeholder="https://maps.google.com/..." dir="ltr" className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />

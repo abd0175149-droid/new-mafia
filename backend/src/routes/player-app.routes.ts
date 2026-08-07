@@ -248,6 +248,7 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       difficulty: activities.difficulty,
       enabledOfferIds: activities.enabledOfferIds,
       locationName: locations.name,
+      locationRegion: locations.region,
       locationMapUrl: locations.mapUrl,
       locationOffers: locations.offers,
       isTestLocation: locations.isTestLocation,

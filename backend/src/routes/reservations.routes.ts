@@ -12,6 +12,8 @@ import { authenticate } from '../middleware/auth.js';
 
 const RANK_ORDER: Record<string, number> = { GODFATHER: 5, UNDERBOSS: 4, CAPO: 3, SOLDIER: 2, INFORMANT: 1 };
 
+import { ensureBookingForReservation, removeBookingForReservation } from '../services/reservation-booking.service.js';
+
 const router = Router();
 
 // يطبّع الهاتف ويعيد لاعباً مطابقاً تماماً (بصفرٍ بادئ أو بدونه) — لربط الحجز بحساب مسجّل تلقائياً
@@ -99,7 +101,30 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (playerId !== undefined) updates.playerId = playerId === null ? null : Number(playerId);
 
   const result = await db.update(reservations).set(updates).where(eq(reservations.id, id)).returning();
-  res.json(result[0]);
+  const row = result[0];
+
+  // 🔗 التثبيت يُنشئ حجزاً فعليّاً في الفعاليّة — وإلّا بقي وسماً بلا أثر:
+  // اللاعب يُخبَر أنّ حجزه مؤكَّد ثمّ لا يجده في تطبيقه ولا في قائمة الفعاليّة.
+  // «مثبّت» يشمل paid_all القديمة (تُعامَل كمثبّت في كلّ النظام).
+  const wasConfirmed = existing[0].status === 'confirmed' || existing[0].status === 'paid_all';
+  const nowConfirmed = row.status === 'confirmed' || row.status === 'paid_all';
+  let bookingSync: string | null = null;
+  try {
+    if (nowConfirmed && !wasConfirmed) {
+      bookingSync = await ensureBookingForReservation(db, row as any);
+    } else if (!nowConfirmed && wasConfirmed) {
+      bookingSync = (await removeBookingForReservation(db, row as any)) ? 'removed' : 'kept';
+    } else if (nowConfirmed) {
+      // تعديلُ عددٍ أو ربطُ حساب على حجزٍ مثبَّتٍ أصلاً ينعكس على الحجز
+      bookingSync = await ensureBookingForReservation(db, row as any);
+    }
+  } catch (err: any) {
+    // الفشل هنا لا يُبطل التثبيت — لكنّه يُسجَّل ويُعاد للواجهة كي لا يمرّ صامتاً
+    console.error('❌ reservation→booking sync:', err.message);
+    bookingSync = 'error';
+  }
+
+  res.json({ ...row, bookingSync });
 });
 
 // DELETE /api/reservations/:id (soft delete)
@@ -114,6 +139,56 @@ router.delete('/:id', authenticate, async (req: Request, res: Response) => {
 
   await db.update(reservations).set({ deletedAt: new Date() } as any).where(eq(reservations.id, id));
   res.json({ success: true });
+});
+
+// ── GET /roster-groups/:activityId — مجموعات قائمة حجوزات الفعاليّة ──
+// 🔢 صفّ الحجز يحمل صاحبه وحده (اتّفاقيّة العدّ)، فالمرافقون والضيوف غير المربوطين
+// لا صفوف لهم — يُشتقّون من حجوزات المتابعة ويُعرضان مجمَّعَين:
+//   • «لاعبون جدد»  = مجموع أشخاص الحجوزات المثبَّتة غير المربوطة بحساب
+//   • «مرافقو لاعبين» = مجموع (العدد − 1) للحجوزات المثبَّتة المربوطة بحساب
+// الحساب هنا لا في الواجهة كي يبقى مطابقاً لصيغة المقاعد في seatAvailability.
+router.get('/roster-groups/:activityId', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+  const activityId = parseInt(req.params.activityId);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  try {
+    const rows = await db.select({
+      id: reservations.id,
+      contactName: reservations.contactName,
+      phone: reservations.phone,
+      peopleCount: reservations.peopleCount,
+      playerId: reservations.playerId,
+      status: reservations.status,
+    }).from(reservations)
+      .where(and(eq(reservations.activityId, activityId), isNull(reservations.deletedAt)));
+
+    // المثبَّت فقط — «قائمة الانتظار» وغير المثبَّت لا يُحجز لهما مقعد
+    const confirmed = rows.filter(r => r.status === 'confirmed' || r.status === 'paid_all');
+
+    const newcomers = confirmed.filter(r => !r.playerId);
+    const linked = confirmed.filter(r => r.playerId);
+
+    const newcomersCount = newcomers.reduce((s, r) => s + Math.max(1, r.peopleCount ?? 1), 0);
+    const companionsCount = linked.reduce((s, r) => s + Math.max(0, (r.peopleCount ?? 1) - 1), 0);
+
+    res.json({
+      success: true,
+      newcomers: {
+        count: newcomersCount,
+        entries: newcomers.map(r => ({
+          id: r.id, name: r.contactName, phone: r.phone, people: Math.max(1, r.peopleCount ?? 1),
+        })),
+      },
+      companions: {
+        count: companionsCount,
+        entries: linked.filter(r => (r.peopleCount ?? 1) > 1).map(r => ({
+          id: r.id, name: r.contactName, people: (r.peopleCount ?? 1) - 1,
+        })),
+      },
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ── GET /attendance/:activityId — بيانات «كشف الحضور المصوّر» (بطاقات) ──

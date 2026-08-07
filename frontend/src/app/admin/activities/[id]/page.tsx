@@ -1068,6 +1068,8 @@ export default function ActivityDetailPage() {
 
   const [activity, setActivity] = useState<any>(null);
   const [bookings, setBookings] = useState<any[]>([]);
+  // 👥 مجموعات القائمة: لاعبون جدد (بلا حساب) + مرافقو اللاعبين — تُشتقّ من المتابعة
+  const [rosterGroups, setRosterGroups] = useState<{ newcomers: any; companions: any } | null>(null);
   const [playerGames, setPlayerGames] = useState<any[]>([]); // عدد الألعاب لكل لاعب في هذا النشاط
   const [costs, setCosts] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -1088,13 +1090,14 @@ export default function ActivityDetailPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [act, bks, csts, locs, stf, pg] = await Promise.all([
+        const [act, bks, csts, locs, stf, pg, groups] = await Promise.all([
           apiFetch(`/api/activities/${activityId}`),
           apiFetch(`/api/bookings?activityId=${activityId}`),
           apiFetch(`/api/costs?activityId=${activityId}`),
           apiFetch('/api/locations'),
           apiFetch('/api/staff/names').catch(() => []),   // أسماء العرض وحدها — متاحة لكل موظّف
           apiFetch(`/api/activities/${activityId}/games-per-player`).catch(() => ({ players: [] })),
+          apiFetch(`/api/reservations/roster-groups/${activityId}`).catch(() => null),
         ]);
         setActivity(act);
         setBookings(bks);
@@ -1102,6 +1105,7 @@ export default function ActivityDetailPage() {
         setLocations(locs);
         setStaffList(stf);
         setPlayerGames(pg?.players || []);
+        if (groups?.success) setRosterGroups({ newcomers: groups.newcomers, companions: groups.companions });
       } catch (err) {
         console.error(err);
       } finally {
@@ -1140,7 +1144,10 @@ export default function ActivityDetailPage() {
   const revenue = actBookings.reduce((s: number, b: any) => s + (b.isPaid ? Number(b.paidAmount || 0) : 0), 0);
   const expense = actCosts.reduce((s: number, c: any) => s + Number(c.amount || 0), 0);
   const profit = revenue - expense;
-  const totalAttendees = actBookings.reduce((s: number, b: any) => s + (b.count || 1), 0);
+  // 🔢 الحضور = صفوف الحجز + المجمَّعون (لاعبون جدد + مرافقون) — نفس صيغة المقاعد
+  //    في seatAvailability. قبل ذلك كانت السعة تُحسب ناقصةً بمن لا صفَّ حجزٍ له.
+  const groupedExtra = (rosterGroups?.newcomers?.count ?? 0) + (rosterGroups?.companions?.count ?? 0);
+  const totalAttendees = actBookings.reduce((s: number, b: any) => s + (b.count || 1), 0) + groupedExtra;
   const paidAttendees = actBookings.filter((b: any) => b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
   const freeAttendees = actBookings.filter((b: any) => b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
   const unpaidAttendees = actBookings.filter((b: any) => !b.isPaid && !b.isFree).reduce((s: number, b: any) => s + (b.count || 1), 0);
@@ -1640,6 +1647,45 @@ export default function ActivityDetailPage() {
                           </td>
                         </tr>
                       ))}
+
+                      {/* 👥 بنودٌ مجمَّعة: من لا صفَّ حجزٍ لهم — يُشتقّون من متابعة الحجوزات.
+                          «لاعب جديد» بلا حساب في التطبيق، و«مرافق» يرافق لاعباً حاجزاً. */}
+                      {(rosterGroups?.newcomers?.count ?? 0) > 0 && (
+                        <tr className="border-t border-gray-700/20 bg-sky-500/[0.04]">
+                          <td className="py-3 px-2" />
+                          <td className="py-3 px-2 text-gray-600">—</td>
+                          <td className="py-3 px-2">
+                            <span className="text-sky-300 font-bold">🆕 لاعبون جدد</span>
+                            <p className="text-[11px] text-gray-500 mt-0.5">
+                              {rosterGroups!.newcomers.entries.map((e: any) => `${e.name}${e.people > 1 ? ` (${e.people})` : ''}`).join(' · ')}
+                            </p>
+                          </td>
+                          <td className="py-3 px-2 text-gray-600">—</td>
+                          <td className="py-3 px-2 text-center font-bold text-sky-300">{rosterGroups!.newcomers.count}</td>
+                          <td className="py-3 px-2 text-gray-600">—</td>
+                          <td className="py-3 px-2 text-[11px] text-gray-500" colSpan={6}>
+                            حجوزات مثبَّتة بلا حساب لاعب — تُحتسب من السعة ولا تظهر في التطبيق
+                          </td>
+                        </tr>
+                      )}
+                      {(rosterGroups?.companions?.count ?? 0) > 0 && (
+                        <tr className="border-t border-gray-700/20 bg-violet-500/[0.04]">
+                          <td className="py-3 px-2" />
+                          <td className="py-3 px-2 text-gray-600">—</td>
+                          <td className="py-3 px-2">
+                            <span className="text-violet-300 font-bold">👥 مرافقو لاعبين حاجزين</span>
+                            <p className="text-[11px] text-gray-500 mt-0.5">
+                              {rosterGroups!.companions.entries.map((e: any) => `مع ${e.name} (${e.people})`).join(' · ')}
+                            </p>
+                          </td>
+                          <td className="py-3 px-2 text-gray-600">—</td>
+                          <td className="py-3 px-2 text-center font-bold text-violet-300">{rosterGroups!.companions.count}</td>
+                          <td className="py-3 px-2 text-gray-600">—</td>
+                          <td className="py-3 px-2 text-[11px] text-gray-500" colSpan={6}>
+                            أشخاصٌ مع لاعبٍ حاجز — صفّ الحجز يحمل صاحبه وحده
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

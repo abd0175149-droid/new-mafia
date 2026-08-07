@@ -37,11 +37,12 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, mapUrl, offers, ownerUsername } = req.body;
+  const { name, region, mapUrl, offers, ownerUsername } = req.body;
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
 
   const result = await db.insert(locations).values({
     name,
+    region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
   } as any).returning();
@@ -90,11 +91,12 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, mapUrl, offers } = req.body;
+  const { name, region, mapUrl, offers } = req.body;
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
 
   await db.update(locations).set({
     name,
+    region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
   } as any).where(eq(locations.id, id));
