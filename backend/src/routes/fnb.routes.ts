@@ -570,6 +570,8 @@ venueRouter.get('/orders', authenticate, requireVenuePermission('orders.receive'
       success: true,
       orders: rows.map(o => ({
         id: o.id, status: o.status, total: o.total, note: o.note, createdAt: o.createdAt,
+        // ⏱️ مرجع حرارة التذكرة: عمر **المرحلة** لا عمر الطلب (نفس مرجع التذكير)
+        statusChangedAt: o.statusChangedAt,
         playerName: o.playerName, physicalId: o.physicalId,
         activityId: o.activityId, activityName: actName.get(o.activityId) || '',
         items: items.filter(i => i.orderId === o.id).map(i => ({

@@ -47,10 +47,12 @@ function PlayerPreview({
   const compsLine = components.map(c => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ');
 
   return (
-    <div className="rounded-2xl border border-gray-700/60 bg-gray-950/60 p-3">
+    // ⚠️ ألوان هذه البطاقة **ليست** من لوحة «الجمرة» عمداً: هي نسخةٌ من شاشة
+    // اللاعب (زمرديّة) — لو صبغناها بألوان الكونسول لكذبت المعاينة.
+    <div className="rounded-2xl border border-[#232B27]/60 p-3" style={{ background: 'rgba(3,7,5,0.6)' }}>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] font-bold text-gray-400">👁️ كما يراه اللاعب</p>
-        <span className="text-[9px] text-gray-600">تطبيق اللاعب</span>
+        <p className="text-[11px] font-bold text-[#8B9A92]">👁️ كما يراه اللاعب</p>
+        <span className="text-[9px] text-[#5A6862]">تطبيق اللاعب</span>
       </div>
 
       {/* رأس الفئة — كما يبنيه اللاعب: الفئة الفارغة تُعرض «المنيو» */}
@@ -61,18 +63,18 @@ function PlayerPreview({
 
       {/* صفّ الصنف */}
       <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-        <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
+        <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#1B211D] flex items-center justify-center shrink-0">
           {form.imageUrl ? <img src={form.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-white text-sm truncate">
             {isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
-            {name || <span className="text-gray-600">اسم الصنف…</span>}
+            {name || <span className="text-[#5A6862]">اسم الصنف…</span>}
           </p>
           {isBundle && components.length > 0 ? (
             <p className="text-[10px] truncate" style={{ color: 'rgba(196,181,253,0.75)' }}>{compsLine}</p>
           ) : form.description.trim() ? (
-            <p className="text-gray-600 text-[10px] truncate">{form.description.trim()}</p>
+            <p className="text-[#5A6862] text-[10px] truncate">{form.description.trim()}</p>
           ) : null}
           <p className="text-emerald-400 text-[11px] font-bold mt-0.5">{priceNum.toFixed(2)} د.أ</p>
         </div>
@@ -92,7 +94,7 @@ function PlayerPreview({
           <p className="text-[10px] text-violet-300/80">🎁 اختر مكوّنات الباقة لتظهر للاعب مكان الوصف.</p>
         )}
         {parseFloat(form.clubShare || '0') > 0 && (
-          <p className="text-[10px] text-gray-500">
+          <p className="text-[10px] text-[#8B9A92]">
             🔒 حصّة النادي ({parseFloat(form.clubShare).toFixed(2)}) لا تصل تطبيق اللاعب — يرى السعر فقط.
           </p>
         )}
@@ -248,7 +250,7 @@ export default function VenueMenuPage() {
   };
 
   if (!can('menu.manage')) {
-    return <div className="text-center py-16 text-gray-500 text-sm">ليس لدى حسابك صلاحيّة إدارة المنيو</div>;
+    return <div className="text-center py-16 text-[#8B9A92] text-sm">ليس لدى حسابك صلاحيّة إدارة المنيو</div>;
   }
 
   // تجميع بالفئة + بحث/تصفية (صفحة إعدادٍ تُزار نادراً لكن يجب أن يكون إيجاد الصنف فوريّاً)
@@ -269,13 +271,13 @@ export default function VenueMenuPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold">⚙️ إعدادات المنيو</h2>
-          <p className="text-[11px] text-gray-500 mt-0.5">
+          <p className="text-[11px] text-[#8B9A92] mt-0.5">
             {locationName} • {items.length} صنفاً ({availCount} متاح) • يُعدّ مرّةً ويظهر للاعبين في كلّ فعاليّة مفعَّلة
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <button onClick={() => setManagerModal('cats')} title="أقسام المنيو"
-            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-emerald-500/40 transition-colors">
+            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-[#D98A2B]/45 transition-colors">
             🗂️ الأقسام
           </button>
           <button onClick={() => setManagerModal('groups')} title="مجموعات الخيارات"
@@ -284,7 +286,7 @@ export default function VenueMenuPage() {
           </button>
           <button
             onClick={openAdd}
-            className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/20 active:scale-95 transition-transform"
+            className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white shadow-lg shadow-black/40 active:scale-95 transition-transform"
           >
             + صنف جديد
           </button>
@@ -298,14 +300,14 @@ export default function VenueMenuPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="🔎 ابحث باسم الصنف…"
-            className="w-full bg-gray-800/70 border border-gray-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-gray-600"
+            className="w-full bg-[#1B211D] border border-[#232B27] rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#D98A2B]/50 placeholder:text-[#5A6862]"
           />
           {existingCats.length > 1 && (
             <div className="flex gap-1.5 overflow-x-auto pb-1">
               <button
                 onClick={() => setCatFilter(null)}
                 className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors ${
-                  catFilter === null ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-transparent'
+                  catFilter === null ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-[#8B9A92] border border-transparent'
                 }`}
               >
                 الكل ({items.length})
@@ -315,7 +317,7 @@ export default function VenueMenuPage() {
                   key={c || '_none'}
                   onClick={() => setCatFilter(prev => prev === c ? null : c)}
                   className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors ${
-                    catFilter === c ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400 border border-transparent'
+                    catFilter === c ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-[#8B9A92] border border-transparent'
                   }`}
                 >
                   {c || 'بلا فئة'} ({items.filter(i => (i.category || '') === c).length})
@@ -328,17 +330,17 @@ export default function VenueMenuPage() {
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" />
         </div>
       ) : items.length === 0 ? (
-        <div className="text-center py-16 rounded-2xl border border-dashed border-gray-700">
+        <div className="text-center py-16 rounded-2xl border border-dashed border-[#232B27]">
           <div className="text-4xl mb-3">🍽️</div>
-          <p className="text-gray-400 text-sm mb-1">المنيو فارغ</p>
-          <p className="text-gray-600 text-xs">أضف أوّل صنف ليظهر للاعبين الحاجزين أثناء الفعاليّات</p>
+          <p className="text-[#8B9A92] text-sm mb-1">المنيو فارغ</p>
+          <p className="text-[#5A6862] text-xs">أضف أوّل صنف ليظهر للاعبين الحاجزين أثناء الفعاليّات</p>
         </div>
       ) : visibleItems.length === 0 ? (
-        <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
-          <p className="text-gray-500 text-sm">لا نتائج لبحثك</p>
+        <div className="text-center py-12 rounded-2xl border border-dashed border-[#232B27]">
+          <p className="text-[#8B9A92] text-sm">لا نتائج لبحثك</p>
           <button onClick={() => { setSearch(''); setCatFilter(null); }} className="text-emerald-400 text-xs underline mt-2">مسح البحث والتصفية</button>
         </div>
       ) : (
@@ -354,7 +356,7 @@ export default function VenueMenuPage() {
                   key={it.id}
                   className={`rounded-xl p-3 flex items-center gap-3 border transition-opacity ${it.isAvailable ? 'bg-white/[0.03] border-white/[0.07]' : 'bg-white/[0.01] border-white/[0.04] opacity-50'}`}
                 >
-                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#1B211D] flex items-center justify-center shrink-0">
                     {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -370,7 +372,7 @@ export default function VenueMenuPage() {
                         }).join(' + ') || 'بلا مكوّنات'}
                       </p>
                     ) : it.description ? (
-                      <p className="text-[10px] text-gray-500 truncate">{it.description}</p>
+                      <p className="text-[10px] text-[#8B9A92] truncate">{it.description}</p>
                     ) : null}
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11px] font-bold text-emerald-400">{parseFloat(it.price).toFixed(2)} د.أ</span>
@@ -410,7 +412,7 @@ export default function VenueMenuPage() {
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !saving && setModal(null)}>
           <div
-            className="w-full max-w-md sm:max-w-2xl bg-gray-900 border border-emerald-500/20 rounded-2xl p-5 max-h-[88vh] overflow-y-auto"
+            className="w-full max-w-md sm:max-w-2xl bg-[#161B18] border border-[#232B27] rounded-2xl p-5 max-h-[88vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <h3 className="text-base font-bold mb-4">{modal === 'add' ? '➕ صنف جديد' : '✏️ تعديل الصنف'}</h3>
@@ -419,36 +421,36 @@ export default function VenueMenuPage() {
             <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_280px] gap-4 sm:gap-5 sm:items-start">
             <div className="space-y-3 order-2 sm:order-1">
               {/* ── 🎁 نوع الصنف: مفرد أم باقة ── */}
-              <div className="flex gap-2 p-1 rounded-xl bg-gray-800/60 border border-gray-700">
+              <div className="flex gap-2 p-1 rounded-xl bg-[#1B211D] border border-[#232B27]">
                 <button
                   onClick={() => { setIsBundle(false); setBundle(new Map()); }}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${!isBundle ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-gray-500 border border-transparent'}`}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${!isBundle ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-[#8B9A92] border border-transparent'}`}
                 >
                   🍴 صنف مفرد
                 </button>
                 <button
                   onClick={() => setIsBundle(true)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${isBundle ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30' : 'text-gray-500 border border-transparent'}`}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${isBundle ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30' : 'text-[#8B9A92] border border-transparent'}`}
                 >
                   🎁 باقة (عرض)
                 </button>
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">{isBundle ? 'اسم الباقة *' : 'اسم الصنف *'}</label>
+                <label className="block text-[11px] text-[#8B9A92] mb-1">{isBundle ? 'اسم الباقة *' : 'اسم الصنف *'}</label>
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50"
+                  className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50"
                   placeholder={isBundle ? 'مثال: عرض السهرة' : 'مثال: أرجيلة معسّل'} />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] text-gray-400">القسم</label>
+                    <label className="text-[11px] text-[#8B9A92]">القسم</label>
                     <button onClick={() => setManagerModal('cats')} className="text-[10px] text-emerald-400">إدارة الأقسام ←</button>
                   </div>
                   <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50">
+                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50">
                     <option value="">بلا قسم</option>
                     {cats.filter(c => !c.parentId).map(root => {
                       const kids = cats.filter(k => k.parentId === root.id);
@@ -463,29 +465,29 @@ export default function VenueMenuPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">الترتيب داخل الفئة</label>
+                  <label className="block text-[11px] text-[#8B9A92] mb-1">الترتيب داخل الفئة</label>
                   <input type="number" value={form.sortOrder} onChange={e => setForm(f => ({ ...f, sortOrder: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50" />
+                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">وصف قصير</label>
+                <label className="block text-[11px] text-[#8B9A92] mb-1">وصف قصير</label>
                 <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50" placeholder="اختياريّ" />
+                  className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50" placeholder="اختياريّ" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">السعر (د.أ) *</label>
+                  <label className="block text-[11px] text-[#8B9A92] mb-1">السعر (د.أ) *</label>
                   <input type="number" step="0.05" min="0" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50" placeholder="3.50" />
+                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#D98A2B]/50" placeholder="3.50" />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">حصّة النادي (د.أ)</label>
+                  <label className="block text-[11px] text-[#8B9A92] mb-1">حصّة النادي (د.أ)</label>
                   <input type="number" step="0.05" min="0" value={form.clubShare} onChange={e => setForm(f => ({ ...f, clubShare: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500/50" placeholder="0 = لا حصّة" />
-                  <p className="text-[9px] text-gray-600 mt-0.5">من كلّ وحدة تُباع — 0 إن لا حصّة</p>
+                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500/50" placeholder="0 = لا حصّة" />
+                  <p className="text-[9px] text-[#5A6862] mt-0.5">من كلّ وحدة تُباع — 0 إن لا حصّة</p>
                 </div>
               </div>
 
@@ -495,7 +497,7 @@ export default function VenueMenuPage() {
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[11px] font-bold text-violet-300">مكوّنات الباقة *</label>
                     {bundle.size > 0 && (
-                      <span className="text-[9px] text-gray-500">
+                      <span className="text-[9px] text-[#8B9A92]">
                         مجموع المكوّنات مفردةً {compsSum.toFixed(2)}
                         {parseFloat(form.price || '0') > 0 && compsSum > parseFloat(form.price) && (
                           <span className="text-emerald-400"> • خصم {(compsSum - parseFloat(form.price)).toFixed(2)}</span>
@@ -505,7 +507,7 @@ export default function VenueMenuPage() {
                   </div>
 
                   {componentChoices.length === 0 ? (
-                    <p className="text-[11px] text-gray-500 py-2">أضف أصنافاً مفردة أوّلاً لتتمكّن من تركيب باقة منها.</p>
+                    <p className="text-[11px] text-[#8B9A92] py-2">أضف أصنافاً مفردة أوّلاً لتتمكّن من تركيب باقة منها.</p>
                   ) : (
                     <div className="space-y-1.5 max-h-52 overflow-y-auto pl-1">
                       {componentChoices.map(c => {
@@ -514,7 +516,7 @@ export default function VenueMenuPage() {
                           <div key={c.id} className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 border transition-colors ${qty > 0 ? 'bg-violet-500/10 border-violet-500/30' : 'bg-white/[0.02] border-white/[0.06]'}`}>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs truncate">{c.name}</p>
-                              <p className="text-[9px] text-gray-500">{parseFloat(c.price).toFixed(2)} د.أ{!c.isAvailable && ' • مخفيّ عن الطلب المباشر'}</p>
+                              <p className="text-[9px] text-[#8B9A92]">{parseFloat(c.price).toFixed(2)} د.أ{!c.isAvailable && ' • مخفيّ عن الطلب المباشر'}</p>
                             </div>
                             {qty === 0 ? (
                               <button onClick={() => setComp(c.id, 1)}
@@ -531,7 +533,7 @@ export default function VenueMenuPage() {
                       })}
                     </div>
                   )}
-                  <p className="text-[9px] text-gray-600 mt-2">سعر الباقة وحصّتها يُدخلان يدويّاً أعلاه — المجموع أعلاه للاسترشاد فقط.</p>
+                  <p className="text-[9px] text-[#5A6862] mt-2">سعر الباقة وحصّتها يُدخلان يدويّاً أعلاه — المجموع أعلاه للاسترشاد فقط.</p>
                 </div>
               )}
 
@@ -542,7 +544,7 @@ export default function VenueMenuPage() {
                   <button onClick={() => setManagerModal('groups')} className="text-[10px] text-amber-400">إدارة المجموعات ←</button>
                 </div>
                 {groups.length === 0 ? (
-                  <p className="text-[11px] text-gray-500 py-1">
+                  <p className="text-[11px] text-[#8B9A92] py-1">
                     لا مجموعات بعد — أنشئ «نكهة المعسل» أو «الحجم» مرّةً واربطها بكلّ الأصناف التي تحتاجها.
                   </p>
                 ) : (
@@ -563,7 +565,7 @@ export default function VenueMenuPage() {
                               {g.name}
                               {g.isRequired && <span className="text-[9px] text-rose-400 mr-1.5">إلزاميّ</span>}
                             </p>
-                            <p className="text-[9px] text-gray-500 truncate">
+                            <p className="text-[9px] text-[#8B9A92] truncate">
                               {g.values.map(v => v.name).join(' · ')}
                             </p>
                           </div>
@@ -572,14 +574,14 @@ export default function VenueMenuPage() {
                     })}
                   </div>
                 )}
-                <p className="text-[9px] text-gray-600 mt-2">فروق أسعار الخيارات تُضاف لسعر الصنف وتعود للمكان كاملةً.</p>
+                <p className="text-[9px] text-[#5A6862] mt-2">فروق أسعار الخيارات تُضاف لسعر الصنف وتعود للمكان كاملةً.</p>
               </div>
 
               {/* صورة */}
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">صورة الصنف</label>
+                <label className="block text-[11px] text-[#8B9A92] mb-1">صورة الصنف</label>
                 <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
+                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-[#1B211D] flex items-center justify-center shrink-0">
                     {form.imageUrl ? <img src={form.imageUrl} alt="" className="w-full h-full object-cover" /> : <span>🍴</span>}
                   </div>
                   <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
@@ -597,23 +599,23 @@ export default function VenueMenuPage() {
               <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input type="checkbox" checked={form.isAvailable} onChange={e => setForm(f => ({ ...f, isAvailable: e.target.checked }))}
                   className="w-4 h-4 accent-emerald-500" />
-                <span className="text-xs text-gray-300">متاح للطلب الآن</span>
+                <span className="text-xs text-[#E8EFEA]">متاح للطلب الآن</span>
               </label>
 
               {err && <p className="text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 rounded-lg p-2">{err}</p>}
 
               <div className="flex gap-2 pt-2">
                 <button onClick={save} disabled={saving || uploading}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white disabled:opacity-50">
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white disabled:opacity-50">
                   {saving ? '⏳ يحفظ…' : modal === 'add' ? 'إضافة الصنف' : 'حفظ التعديلات'}
                 </button>
                 <button onClick={() => setModal(null)} disabled={saving}
-                  className="px-4 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إلغاء</button>
+                  className="px-4 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-[#8B9A92]">إلغاء</button>
               </div>
             </div>
 
             {/* ── 👁️ المعاينة الحيّة ── */}
-            <div className="order-1 sm:order-2 sticky top-0 z-10 bg-gray-900 pb-2 sm:pb-0">
+            <div className="order-1 sm:order-2 sticky top-0 z-10 bg-[#161B18] pb-2 sm:pb-0">
               <PlayerPreview
                 form={form}
                 isBundle={isBundle}
@@ -641,7 +643,7 @@ export default function VenueMenuPage() {
 
       {/* ── توست ── */}
       {toast && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl">
           {toast}
         </div>
       )}

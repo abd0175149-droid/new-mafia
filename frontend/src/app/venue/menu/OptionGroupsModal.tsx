@@ -104,12 +104,12 @@ export default function OptionGroupsModal({
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-lg bg-gray-900 border border-amber-500/20 rounded-2xl p-5 max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-lg bg-[#161B18] border border-[#232B27] rounded-2xl p-5 max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-bold">⚙️ مجموعات الخيارات</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>
+          <button onClick={onClose} className="text-[#8B9A92] hover:text-white">✕</button>
         </div>
-        <p className="text-[11px] text-gray-500 mb-4">
+        <p className="text-[11px] text-[#8B9A92] mb-4">
           تُعرَّف مرّةً وتُربط بعدّة أصناف — «نكهات المعسل» تخدم كلّ الأراجيل. فرق السعر يعود للمكان.
         </p>
 
@@ -118,31 +118,31 @@ export default function OptionGroupsModal({
         {editorOpen ? (
           <div className="space-y-3">
             <div>
-              <label className="block text-[11px] text-gray-400 mb-1">اسم المجموعة *</label>
+              <label className="block text-[11px] text-[#8B9A92] mb-1">اسم المجموعة *</label>
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="مثال: نكهة المعسل"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500/50" />
+                className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500/50" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] text-gray-400 mb-1">نوع الاختيار</label>
-                <div className="flex gap-1.5 p-1 rounded-lg bg-gray-800/60 border border-gray-700">
+                <label className="block text-[11px] text-[#8B9A92] mb-1">نوع الاختيار</label>
+                <div className="flex gap-1.5 p-1 rounded-lg bg-[#1B211D]/60 border border-[#232B27]">
                   <button onClick={() => setForm(f => ({ ...f, selectionType: 'single' }))}
-                    className={`flex-1 py-1.5 rounded-md text-[11px] font-bold ${form.selectionType === 'single' ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500'}`}>
+                    className={`flex-1 py-1.5 rounded-md text-[11px] font-bold ${form.selectionType === 'single' ? 'bg-amber-500/20 text-amber-300' : 'text-[#8B9A92]'}`}>
                     واحد فقط
                   </button>
                   <button onClick={() => setForm(f => ({ ...f, selectionType: 'multi' }))}
-                    className={`flex-1 py-1.5 rounded-md text-[11px] font-bold ${form.selectionType === 'multi' ? 'bg-amber-500/20 text-amber-300' : 'text-gray-500'}`}>
+                    className={`flex-1 py-1.5 rounded-md text-[11px] font-bold ${form.selectionType === 'multi' ? 'bg-amber-500/20 text-amber-300' : 'text-[#8B9A92]'}`}>
                     متعدّد
                   </button>
                 </div>
               </div>
               {form.selectionType === 'multi' && (
                 <div>
-                  <label className="block text-[11px] text-gray-400 mb-1">الحدّ الأقصى</label>
+                  <label className="block text-[11px] text-[#8B9A92] mb-1">الحدّ الأقصى</label>
                   <input type="number" min="1" value={form.maxSelect} onChange={e => setForm(f => ({ ...f, maxSelect: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-sm" />
                 </div>
               )}
             </div>
@@ -154,17 +154,17 @@ export default function OptionGroupsModal({
             </label>
 
             <div>
-              <label className="block text-[11px] text-gray-400 mb-1.5">الخيارات وفروق أسعارها</label>
+              <label className="block text-[11px] text-[#8B9A92] mb-1.5">الخيارات وفروق أسعارها</label>
               <div className="space-y-1.5 max-h-56 overflow-y-auto pl-1">
                 {form.values.map((v, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <input value={v.name} onChange={e => setVal(i, { name: e.target.value })}
                       placeholder={`خيار ${i + 1}`}
-                      className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1.5 text-xs" />
+                      className="flex-1 bg-[#1B211D] border border-[#232B27] rounded-lg px-2.5 py-1.5 text-xs" />
                     <div className="flex items-center gap-1 shrink-0">
-                      <span className="text-[10px] text-gray-600">+</span>
+                      <span className="text-[10px] text-[#5A6862]">+</span>
                       <input type="number" step="0.05" min="0" value={v.priceDelta} onChange={e => setVal(i, { priceDelta: e.target.value })}
-                        className="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-center" />
+                        className="w-16 bg-[#1B211D] border border-[#232B27] rounded-lg px-2 py-1.5 text-xs text-center" />
                     </div>
                     <button onClick={() => delVal(i)} disabled={form.values.length === 1}
                       className="text-[11px] text-rose-400 px-1 disabled:opacity-30">🗑️</button>
@@ -172,7 +172,7 @@ export default function OptionGroupsModal({
                 ))}
               </div>
               <button onClick={addVal} className="mt-2 text-[11px] px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">+ خيار آخر</button>
-              <p className="text-[9px] text-gray-600 mt-1.5">اترك الفرق 0 إن لم يغيّر الخيار السعر (النكهات عادةً).</p>
+              <p className="text-[9px] text-[#5A6862] mt-1.5">اترك الفرق 0 إن لم يغيّر الخيار السعر (النكهات عادةً).</p>
             </div>
 
             <div className="flex gap-2 pt-1">
@@ -181,14 +181,14 @@ export default function OptionGroupsModal({
                 {busy ? '⏳ يحفظ…' : editId ? 'حفظ التعديلات' : 'إضافة المجموعة'}
               </button>
               <button onClick={() => setEditorOpen(false)} disabled={busy}
-                className="px-4 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">رجوع</button>
+                className="px-4 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-[#8B9A92]">رجوع</button>
             </div>
           </div>
         ) : loading ? (
-          <div className="flex justify-center py-10"><div className="w-7 h-7 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-10"><div className="w-7 h-7 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" /></div>
         ) : (
           <div className="space-y-2">
-            {groups.length === 0 && <p className="text-xs text-gray-500 text-center py-6">لا مجموعات بعد — أنشئ «نكهة المعسل» أو «الحجم».</p>}
+            {groups.length === 0 && <p className="text-xs text-[#8B9A92] text-center py-6">لا مجموعات بعد — أنشئ «نكهة المعسل» أو «الحجم».</p>}
             {groups.map(g => (
               <div key={g.id} className="rounded-xl px-3 py-2.5 bg-white/[0.03] border border-white/[0.07]">
                 <div className="flex items-center gap-2">
@@ -200,7 +200,7 @@ export default function OptionGroupsModal({
                   <button onClick={() => openEdit(g)} className="text-[11px] px-1">✏️</button>
                   <button onClick={() => remove(g)} disabled={busy} className="text-[11px] text-rose-400 px-1">🗑️</button>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1 truncate">
+                <p className="text-[10px] text-[#8B9A92] mt-1 truncate">
                   {g.values.map(v => {
                     const d = parseFloat(String(v.priceDelta)) || 0;
                     return d > 0 ? `${v.name} (+${d.toFixed(2)})` : v.name;

@@ -1,15 +1,18 @@
 'use client';
 
 // ══════════════════════════════════════════════════════
-// 📥 صندوق الطلبات — الصفحة التشغيليّة الرئيسيّة لحساب المكان
-// فلسفة: طابور عملٍ لا قائمة. الجديد أوّلاً وأكبر، إجراء رئيسيّ واحد لكل بطاقة،
-// عدّاد انتظارٍ يتلوّن مع التأخّر، والسجلّ المنجز مطويّ بعيداً عن العين.
-// وصول لحظيّ (سوكيت) + نغمة (قابلة للكتم) + بوش + مسح احتياطيّ.
+// 📥 سكّة الطلبات — الشاشة التشغيليّة الرئيسيّة · تصميم «الجمرة»
+// تذكرةٌ لكلّ طلب على سكّة كما في المطابخ الحقيقيّة، وشريط حرارةٍ على حافّتها
+// يبرد ويسخن مع عمر **المرحلة** — فتُقرأ الحالة قبل أن تصل العين للرقم.
+// 🔴 الترتيب: الأقدم أوّلاً — عكس الشائع، لأنّ الأقدم هو الأخطر والسكّة
+//    تُفرَّغ من رأسها.
+// وصولٌ لحظيّ (سوكيت) + نغمة + إشعار + تذكير الخادم + مسحٌ احتياطيّ.
 // ══════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVenue } from '../context';
 import { getSocket } from '@/lib/socket';
+import { EM, MONO, STALL_SEC, heat, ageText, jod } from '../ember';
 
 interface VOrder {
   id: number;
@@ -17,6 +20,7 @@ interface VOrder {
   total: string;
   note: string;
   createdAt: string;
+  statusChangedAt?: string | null;
   playerName: string;
   physicalId: number | null;
   activityId: number;
@@ -28,7 +32,7 @@ interface VOrder {
   }[];
 }
 
-// نغمة تنبيه قصيرة بلا ملفّ صوتيّ (طلب جديد)
+// نغمة تنبيه قصيرة بلا ملفّ صوتيّ
 function playDing() {
   try {
     const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -47,13 +51,9 @@ function playDing() {
   } catch { /* بلا صوت */ }
 }
 
-// عمر الطلب بالدقائق + لون الاستعجال (للجديد وقيد التحضير)
-function ageInfo(createdAt: string, now: number) {
-  const mins = Math.max(0, Math.floor((now - new Date(createdAt).getTime()) / 60000));
-  const color = mins >= 10 ? '#ef4444' : mins >= 5 ? '#f59e0b' : '#6b7280';
-  const label = mins === 0 ? 'الآن' : `منذ ${mins} د`;
-  return { mins, color, label };
-}
+/** عمر المرحلة الحاليّة بالثواني — نفس مرجع زمن تذكير الخادم. */
+const stageAge = (o: VOrder, now: number) =>
+  Math.max(0, Math.floor((now - new Date(o.statusChangedAt || o.createdAt).getTime()) / 1000));
 
 export default function VenueOrdersPage() {
   const { locationId, authHeaders, can, isHQ } = useVenue();
@@ -75,9 +75,9 @@ export default function VenueOrdersPage() {
   const withLoc = (url: string) => locParam ? `${url}${url.includes('?') ? '&' : '?'}${locParam}` : url;
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
-  // ⏱️ تحديث عدّادات الانتظار كل 30 ثانية
+  // ⏱️ نبضة كلّ ١٠ ثوانٍ: الحرارة تتدرّج أمام العين بدل قفزةٍ كلّ نصف دقيقة
   useEffect(() => {
-    const iv = setInterval(() => setNow(Date.now()), 30000);
+    const iv = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(iv);
   }, []);
 
@@ -111,14 +111,11 @@ export default function VenueOrdersPage() {
     if (!locationId) return;
     const s = getSocket();
 
-    const join = () => {
-      s.emit('venue:join', { locationId }, (res: any) => setLive(!!res?.success));
-    };
-    if (s.connected) join();
+    const join = () => { s.emit('venue:join', { locationId }, (res: any) => setLive(!!res?.success)); };
+    join();
     s.on('connect', join);
 
     const onNew = (data: { order: VOrder }) => {
-      if (!data?.order) return;
       setOrdersList(prev => [data.order, ...prev.filter(o => o.id !== data.order.id)]);
       flashRef.current.add(data.order.id);
       setTimeout(() => { flashRef.current.delete(data.order.id); setOrdersList(p => [...p]); }, 6000);
@@ -127,10 +124,11 @@ export default function VenueOrdersPage() {
       flash(`🍽️ طلب جديد من ${data.order.playerName}`);
     };
     const onUpdated = (data: { orderId: number; status: string }) => {
-      setOrdersList(prev => prev.map(o => o.id === data.orderId ? { ...o, status: data.status } : o));
+      // الوقت يُصفَّر محليّاً كما يفعل الخادم — التذكرة تبرد فور انتقالها
+      setOrdersList(prev => prev.map(o => o.id === data.orderId
+        ? { ...o, status: data.status, statusChangedAt: new Date().toISOString() } : o));
     };
-    // ⏰ الخادم يذكّر بطلبٍ تجاوز ٥ دقائق في مرحلته — نُبرزه ونُصوّت
-    // في الكونسول المفتوح (الشاشة المفتوحة لا تحتاج إشعار هاتف)
+    // ⏰ الخادم يذكّر بطلبٍ تجاوز ٥ دقائق في مرحلته
     const onStalled = (data: { orderId: number; minutes: number }) => {
       flashRef.current.add(data.orderId);
       setOrdersList(p => [...p]);
@@ -142,7 +140,6 @@ export default function VenueOrdersPage() {
     s.on('fnb:order-updated', onUpdated);
     s.on('fnb:order-stalled', onStalled);
 
-    // مسح احتياطيّ كل 30 ثانية + عند العودة للتبويب (لو فات بثّ)
     const refresh = () => { if (document.visibilityState === 'visible') load(); };
     const iv = setInterval(refresh, 30000);
     document.addEventListener('visibilitychange', refresh);
@@ -158,7 +155,7 @@ export default function VenueOrdersPage() {
     };
   }, [locationId, load]);
 
-  // ── بوش: تسجيل جهاز المكان + كشف الأجهزة المسجّلة ──
+  // ── بوش: حالة الجهاز + كشف الحسابات بلا أجهزة ──
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
         && localStorage.getItem('venue_push_registered') === '1') {
@@ -167,7 +164,6 @@ export default function VenueOrdersPage() {
     if (typeof navigator !== 'undefined') setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
   }, []);
 
-  // كم حساباً في هذا المكان بلا جهازٍ مسجَّل؟ (ينهي الفشل الصامت)
   useEffect(() => {
     if (!locationId) return;
     fetch(withLoc('/api/venue/push-status'), { headers: authHeaders })
@@ -202,271 +198,278 @@ export default function VenueOrdersPage() {
       body: JSON.stringify({ status }),
     }).then(x => x.json()).catch(() => ({ success: false, error: 'خطأ في الاتصال' }));
     setBusyId(null);
-    if (r.success) setOrdersList(prev => prev.map(x => x.id === o.id ? { ...x, status } : x));
-    else flash(`❌ ${r.error || 'فشل تغيير الحالة'}`);
+    if (r.success) {
+      setOrdersList(prev => prev.map(x => x.id === o.id
+        ? { ...x, status, statusChangedAt: new Date().toISOString() } : x));
+    } else flash(`❌ ${r.error || 'فشل تغيير الحالة'}`);
   };
 
   if (!can('orders.receive')) {
-    return <div className="text-center py-16 text-gray-500 text-sm">ليس لدى حسابك صلاحيّة استقبال الطلبات</div>;
+    return <div className="text-center py-16 text-sm" style={{ color: EM.faint }}>ليس لدى حسابك صلاحيّة استقبال الطلبات</div>;
   }
 
   const canManage = can('orders.manage');
-  const newOrders = ordersList.filter(o => o.status === 'new');
-  const preparing = ordersList.filter(o => o.status === 'preparing');
-  const done = ordersList.filter(o => o.status === 'delivered' || o.status === 'cancelled');
-  const salesToday = ordersList.filter(o => o.status !== 'cancelled').reduce((s, o) => s + parseFloat(o.total), 0);
-  const deliveredCount = ordersList.filter(o => o.status === 'delivered').length;
+  // 📺 شاشة مطبخ: عرضٌ لا تفاعل — خطٌّ أكبر يُقرأ من مترين، وبلا أزرار فلا لمس ولا خطأ
+  const kds = !canManage;
 
-  // ── بطاقة طلب نشط (جديد/تحضير) — إجراء رئيسيّ واحد كبير ──
-  const ActiveCard = ({ o }: { o: VOrder }) => {
+  const byAge = (a: VOrder, b: VOrder) => stageAge(b, now) - stageAge(a, now); // الأقدم أوّلاً
+  const newOrders = ordersList.filter(o => o.status === 'new').sort(byAge);
+  const preparing = ordersList.filter(o => o.status === 'preparing').sort(byAge);
+  const done = ordersList.filter(o => o.status === 'delivered' || o.status === 'cancelled');
+  const sales = ordersList.filter(o => o.status !== 'cancelled').reduce((s, o) => s + parseFloat(o.total), 0);
+  const lateCount = [...newOrders, ...preparing].filter(o => stageAge(o, now) >= STALL_SEC).length;
+
+  // ── تذكرة ──
+  const Ticket = ({ o }: { o: VOrder }) => {
+    const sec = stageAge(o, now);
+    const ht = heat(sec);
+    const flashing = flashRef.current.has(o.id);
     const isNew = o.status === 'new';
-    const age = ageInfo(o.createdAt, now);
-    const isFlashing = flashRef.current.has(o.id);
-    const accent = isNew ? '#3b82f6' : '#f59e0b';
+
     return (
-      <div
-        className={`rounded-2xl p-4 border transition-all ${isFlashing ? 'animate-pulse' : ''}`}
+      <div className="relative rounded-2xl overflow-hidden mb-2.5 transition-all"
         style={{
-          background: isFlashing ? 'rgba(59,130,246,0.10)' : 'rgba(255,255,255,0.03)',
-          borderColor: `${accent}45`,
-          borderRightWidth: 4,
+          background: EM.card,
+          border: `1px solid ${ht.hot ? 'rgba(224,73,43,0.45)' : EM.line}`,
+          boxShadow: ht.hot ? '0 0 0 1px rgba(224,73,43,0.18), 0 6px 22px rgba(224,73,43,0.08)'
+            : flashing ? `0 0 0 1px ${EM.warm}` : 'none',
         }}
       >
-        {/* الترويسة: مَن + متى + بكم */}
-        <div className="flex items-start justify-between gap-2 mb-2.5">
-          <div className="min-w-0">
-            <p className="text-white text-[15px] font-bold truncate leading-tight">{o.playerName}</p>
-            <p className="text-[10px] text-gray-500 mt-0.5 truncate">
-              {o.physicalId != null && <span className="text-gray-400">مقعد {o.physicalId} • </span>}
-              {o.activityName}
-            </p>
-          </div>
-          <div className="text-left shrink-0">
-            <p className="text-emerald-400 text-[15px] font-bold leading-tight">{parseFloat(o.total).toFixed(2)} <span className="text-[10px] font-normal">د.أ</span></p>
-            <p className="text-[10px] font-bold mt-0.5" style={{ color: age.color }}>⏱ {age.label}</p>
-          </div>
-        </div>
+        {/* شريط الحرارة على الحافّة — يُقرأ قبل النصّ */}
+        <span className="absolute top-0 bottom-0 right-0"
+          style={{ width: 4, background: ht.color, transition: 'background .6s' }} />
 
-        {/* البنود */}
-        <div className="rounded-xl px-3 py-2 mb-2.5 space-y-1" style={{ background: 'rgba(0,0,0,0.25)' }}>
-          {o.items.map((i, idx) => (
-            <div key={idx}>
-              <div className="flex items-center justify-between text-[13px]">
-                <span className="text-gray-200">
-                  <span className="inline-block min-w-[26px] font-bold" style={{ color: accent }}>×{i.quantity}</span>
-                  {i.name}
-                </span>
-                <span className="text-gray-500 text-[11px]">{(parseFloat(i.unitPrice) * i.quantity).toFixed(2)}</span>
-              </div>
-              {/* ⚙️ الخيارات — بلا هذه يُحضَّر الطلب خطأً (نكهة/حجم مجهولان) */}
-              {i.options && i.options.length > 0 && (
-                <p className="text-[12px] text-amber-300 pr-[26px] leading-snug font-medium">
-                  ⚙️ {i.options.map(o => `${o.group}: ${o.value}`).join(' · ')}
-                </p>
-              )}
-              {/* 🎁 مكوّنات الباقة — ما يجب تحضيره فعليّاً (الكمّيات مضروبة بعدد الباقات) */}
-              {i.components && i.components.length > 0 && (
-                <p className="text-[11px] text-violet-300/80 pr-[26px] leading-snug">
-                  🎁 {i.components.map(c => {
-                    const co = (c.options ?? []).map(o => o.value).join('/');
-                    return `${c.name}${co ? ` (${co})` : ''} ×${c.qty * i.quantity}`;
-                  }).join(' + ')}
-                </p>
-              )}
+        <div className={kds ? 'p-5 pr-6' : 'p-4 pr-5'}>
+          {/* مَن · أين · منذ متى */}
+          <div className="flex items-start gap-2.5">
+            {o.physicalId != null && (
+              <span className="rounded-lg px-2 py-1 shrink-0 font-bold"
+                style={{ ...({ fontFamily: MONO } as any), fontSize: kds ? 13 : 11, background: 'rgba(255,255,255,0.06)', border: `1px solid ${EM.line2}`, color: EM.dim }}>
+                {o.physicalId}
+              </span>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="font-bold truncate leading-tight" style={{ fontSize: kds ? 20 : 15 }}>{o.playerName}</p>
+              <p className="truncate" style={{ fontSize: kds ? 12 : 10.5, color: EM.faint }}>
+                #{o.id} · {o.activityName}
+              </p>
             </div>
-          ))}
-          {o.note && (
-            <p className="text-amber-300 text-[12px] pt-1 border-t border-white/5">📝 {o.note}</p>
+            <div className="text-left shrink-0">
+              <p className="font-bold leading-none"
+                style={{ ...({ fontFamily: MONO } as any), fontSize: kds ? 17 : 13, color: ht.color }}>
+                {ageText(sec)}
+              </p>
+              <p style={{ fontSize: 9, color: EM.faint }}>{isNew ? 'بانتظار' : 'تحضير'}</p>
+            </div>
+          </div>
+
+          {/* البنود */}
+          <div className="mt-2.5 pt-2.5" style={{ borderTop: `1px dashed ${EM.line2}` }}>
+            {o.items.map((i, idx) => (
+              <div key={idx} className="py-0.5">
+                <div className="flex gap-2 items-baseline" style={{ fontSize: kds ? 16 : 13 }}>
+                  <span className="font-bold shrink-0" style={{ ...({ fontFamily: MONO } as any), color: EM.warm, minWidth: 26 }}>
+                    ×{i.quantity}
+                  </span>
+                  <span className="flex-1">{i.name}</span>
+                  {!kds && (
+                    <span style={{ ...({ fontFamily: MONO } as any), fontSize: 11, color: EM.faint }}>
+                      {(parseFloat(i.unitPrice) * i.quantity).toFixed(2)}
+                    </span>
+                  )}
+                </div>
+                {/* ⚙️ الخيارات — إغفالها يعني تحضيراً خاطئاً، فلها أبرز لون */}
+                {i.options && i.options.length > 0 && (
+                  <p style={{ fontSize: kds ? 14 : 11.5, color: EM.opt, paddingRight: 30, lineHeight: 1.5 }}>
+                    ⚙️ {i.options.map(x => `${x.group}: ${x.value}`).join(' · ')}
+                  </p>
+                )}
+                {i.components && i.components.length > 0 && (
+                  <p style={{ fontSize: kds ? 13 : 11, color: EM.bundle, paddingRight: 30, lineHeight: 1.5 }}>
+                    🎁 {i.components.map(c => {
+                      const co = (c.options ?? []).map(x => x.value).join('/');
+                      return `${c.name}${co ? ` (${co})` : ''} ×${c.qty * i.quantity}`;
+                    }).join(' + ')}
+                  </p>
+                )}
+              </div>
+            ))}
+            {o.note && (
+              <p className="mt-1.5 rounded-lg px-2.5 py-1.5"
+                style={{ fontSize: kds ? 14 : 11.5, color: EM.warm, background: 'rgba(217,138,43,0.1)' }}>
+                📝 {o.note}
+              </p>
+            )}
+          </div>
+
+          {/* الإجراءات — رئيسيّ واحد عريض لهدف لمسٍ كبير */}
+          {canManage && (
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => changeStatus(o, isNew ? 'preparing' : 'delivered')}
+                disabled={busyId === o.id}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-transform active:scale-[0.98] disabled:opacity-50"
+                style={{
+                  background: isNew ? `linear-gradient(140deg, ${EM.warm}, #C2751F)` : `linear-gradient(140deg, ${EM.go}, #1A9E70)`,
+                  color: isNew ? '#1A1208' : '#04231A',
+                }}
+              >
+                {busyId === o.id ? '⏳…' : isNew ? '👨‍🍳 بدء التحضير' : '✅ تسليم'}
+              </button>
+              {isNew && (
+                <button onClick={() => changeStatus(o, 'delivered')} disabled={busyId === o.id}
+                  title="تسليم مباشر بلا تحضير"
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                  style={{ background: 'rgba(37,192,138,0.12)', border: `1px solid rgba(37,192,138,0.3)`, color: EM.go }}>
+                  ✅
+                </button>
+              )}
+              <button onClick={() => changeStatus(o, 'cancelled')} disabled={busyId === o.id}
+                title="إلغاء الطلب"
+                className="px-3.5 py-2.5 rounded-xl text-sm disabled:opacity-50"
+                style={{ background: 'rgba(224,73,43,0.08)', border: `1px solid rgba(224,73,43,0.22)`, color: '#F08163' }}>
+                ✖️
+              </button>
+            </div>
           )}
         </div>
-
-        {/* الإجراءات: رئيسيّ واحد كبير + إلغاء صغير */}
-        {canManage && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => changeStatus(o, isNew ? 'preparing' : 'delivered')}
-              disabled={busyId === o.id}
-              className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white transition-transform active:scale-[0.98] disabled:opacity-50"
-              style={{ background: isNew ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#10b981,#0d9488)' }}
-            >
-              {busyId === o.id ? '⏳…' : isNew ? '👨‍🍳 بدء التحضير' : '✅ تسليم'}
-            </button>
-            {isNew && (
-              <button
-                onClick={() => changeStatus(o, 'delivered')}
-                disabled={busyId === o.id}
-                title="تسليم مباشر بلا تحضير"
-                className="px-3.5 py-2.5 rounded-xl text-sm font-bold bg-emerald-500/12 border border-emerald-500/30 text-emerald-400 disabled:opacity-50"
-              >
-                ✅
-              </button>
-            )}
-            <button
-              onClick={() => changeStatus(o, 'cancelled')}
-              disabled={busyId === o.id}
-              title="إلغاء الطلب"
-              className="px-3.5 py-2.5 rounded-xl text-sm bg-rose-500/8 border border-rose-500/20 text-rose-400/80 disabled:opacity-50"
-            >
-              ✖️
-            </button>
-          </div>
-        )}
       </div>
     );
   };
 
+  const Rail = ({ title, list }: { title: string; list: VOrder[] }) => (
+    <>
+      <div className="flex items-center gap-2.5 mt-5 mb-2.5">
+        <b className="text-[12.5px]">{title}</b>
+        <span className="flex-1 h-px" style={{ background: EM.line }} />
+        <span style={{ ...({ fontFamily: MONO } as any), fontSize: 12, color: EM.faint }}>{list.length}</span>
+      </div>
+      {list.map(o => <Ticket key={o.id} o={o} />)}
+    </>
+  );
+
   return (
-    <div className="space-y-5">
-      {/* 🔇 تحذير الصمت: هذا الجهاز لن يستقبل إشعاراً — يجب أن يُرى لا أن يُخمَّن.
-          وعلى iOS لا يعمل الإشعار إلّا من كونسولٍ مضاف للشاشة الرئيسيّة. */}
+    <div>
+      {/* 🔇 لا صمت: جهازٌ بلا إشعارات يجب أن يُرى لا أن يُخمَّن */}
       {pushState !== 'granted' && (
-        <div className="rounded-xl px-3.5 py-2.5 text-[11px] leading-relaxed"
-          style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+        <div className="rounded-xl px-3.5 py-2.5 text-[11px] leading-relaxed mb-3"
+          style={{ background: 'rgba(217,138,43,0.1)', border: `1px solid rgba(217,138,43,0.3)`, color: EM.warm }}>
           <b>🔕 إشعارات هذا الجهاز غير مفعّلة</b> — ستصلك الطلبات على هذه الشاشة فقط ما دامت مفتوحة.
-          فعّلها من زرّ «🔔 إشعارات الجهاز» أعلاه.
-          {isIOS && <span className="block mt-1 text-amber-300/80">🍎 على الآيفون: أضف الكونسول إلى الشاشة الرئيسيّة أوّلاً وافتحه من أيقونته — Safari العاديّ لا يستقبل إشعارات.</span>}
+          {isIOS && <span className="block mt-1" style={{ color: 'rgba(217,138,43,0.85)' }}>
+            🍎 على الآيفون: أضف الكونسول إلى الشاشة الرئيسيّة أوّلاً وافتحه من أيقونته — Safari العاديّ لا يستقبل إشعارات.
+          </span>}
         </div>
       )}
       {pushStatus && pushStatus.accountsWithoutDevice > 0 && (
-        <div className="rounded-xl px-3.5 py-2.5 text-[11px]"
-          style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#fca5a5' }}>
+        <div className="rounded-xl px-3.5 py-2.5 text-[11px] mb-3"
+          style={{ background: 'rgba(224,73,43,0.08)', border: `1px solid rgba(224,73,43,0.25)`, color: '#F08163' }}>
           ⚠️ {pushStatus.accountsWithoutDevice} من حسابات المكان بلا جهازٍ مسجَّل — لن تصلهم إشعارات الطلبات.
-          <span className="text-gray-500"> (أجهزة مسجّلة: {pushStatus.totalDevices})</span>
+          <span style={{ color: EM.faint }}> (أجهزة مسجّلة: {pushStatus.totalDevices})</span>
         </div>
       )}
 
-      {/* ── الترويسة: الحالة اللحظيّة + أدوات الجهاز ── */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <h2 className="text-base font-bold">📥 الطلبات</h2>
-          <span
-            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border ${
-              live ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/8' : 'text-gray-500 border-gray-700 bg-gray-800/50'
-            }`}
-            title={live ? 'متّصل — الطلبات تصل فوراً' : 'غير متّصل — يعمل المسح كل ٣٠ ثانية'}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full ${live ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-            {live ? 'مباشر' : 'مسح دوريّ'}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={toggleMute}
+      {/* ── الحالة اللحظيّة + أدوات الجهاز ── */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full"
+          style={{
+            background: live ? 'rgba(37,192,138,0.14)' : 'rgba(255,255,255,0.04)',
+            color: live ? EM.go : EM.faint,
+          }}
+          title={live ? 'متّصل — الطلبات تصل فوراً' : 'غير متّصل — يعمل المسح كل ٣٠ ثانية'}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${live ? 'animate-pulse' : ''}`}
+            style={{ background: live ? EM.go : EM.faint }} />
+          {live ? 'مباشر' : 'مسح دوريّ'}
+        </span>
+
+        <div className="flex items-center gap-1.5 mr-auto">
+          <button onClick={toggleMute}
             title={muted ? 'الصوت مكتوم — اضغط للتفعيل' : 'نغمة الطلب الجديد مفعّلة'}
-            className={`w-9 h-9 rounded-xl border text-base ${muted ? 'bg-gray-800/60 border-gray-700 text-gray-500' : 'bg-emerald-500/8 border-emerald-500/25 text-emerald-400'}`}
-          >
+            className="w-9 h-9 rounded-xl text-base"
+            style={{
+              background: muted ? 'rgba(255,255,255,0.04)' : 'rgba(217,138,43,0.12)',
+              border: `1px solid ${muted ? EM.line2 : 'rgba(217,138,43,0.3)'}`,
+              color: muted ? EM.faint : EM.warm,
+            }}>
             {muted ? '🔇' : '🔊'}
           </button>
           {pushState !== 'granted' && (
             <button onClick={enablePush} disabled={pushState === 'busy'}
-              className="text-[11px] px-3 h-9 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-400 disabled:opacity-50">
+              className="text-[11px] px-3 py-2 rounded-xl font-bold disabled:opacity-50"
+              style={{ background: 'rgba(217,138,43,0.12)', border: `1px solid rgba(217,138,43,0.3)`, color: EM.warm }}>
               {pushState === 'busy' ? '⏳…' : '🔔 إشعارات الجهاز'}
             </button>
           )}
         </div>
       </div>
 
-      {/* ── نظرة الليلة: ٤ أرقام تُقرأ بلمحة ── */}
+      {/* ── المؤشّرات ── */}
       <div className="grid grid-cols-4 gap-2">
-        {[
-          { label: 'بالانتظار', value: newOrders.length, color: '#3b82f6', hot: newOrders.length > 0 },
-          { label: 'قيد التحضير', value: preparing.length, color: '#f59e0b', hot: false },
-          { label: 'سُلّم', value: deliveredCount, color: '#22c55e', hot: false },
-          { label: 'مبيعات (د.أ)', value: salesToday.toFixed(2), color: '#10b981', hot: false },
-        ].map((k, i) => (
-          <div key={i} className={`rounded-xl px-2 py-2.5 text-center border ${k.hot ? 'animate-pulse' : ''}`}
-            style={{ background: `${k.color}0d`, borderColor: `${k.color}30` }}>
-            <div className="text-base font-bold leading-tight" style={{ color: k.color, fontVariantNumeric: 'tabular-nums' }}>{k.value}</div>
-            <div className="text-[9px] text-gray-500 mt-0.5">{k.label}</div>
-          </div>
-        ))}
+        <Kpi n={newOrders.length} label="بانتظار" color={EM.cool} pulse={newOrders.length > 0} />
+        <Kpi n={preparing.length} label="قيد التحضير" color={EM.warm} />
+        <Kpi n={lateCount} label="متأخّر ٥ د+" color={lateCount ? EM.hot : EM.faint} pulse={lateCount > 0} />
+        <Kpi n={sales} label="مبيعات د.أ" color={EM.text} money />
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+        <div className="flex justify-center py-20">
+          <div className="w-8 h-8 rounded-full animate-spin"
+            style={{ border: `2px solid ${EM.line2}`, borderTopColor: EM.warm }} />
+        </div>
+      ) : newOrders.length === 0 && preparing.length === 0 ? (
+        <div className="text-center py-16" style={{ color: EM.faint }}>
+          <div className="text-4xl mb-3 opacity-50">😌</div>
+          <p className="text-sm" style={{ color: EM.dim }}>السكّة فارغة</p>
+          <p className="text-xs mt-1">أبقِ هذه الشاشة مفتوحة — الطلب الجديد يظهر فوراً مع تنبيهٍ صوتيّ</p>
         </div>
       ) : (
         <>
-          {/* ── ١) بانتظار القبول — الأعلى والأبرز ── */}
-          {newOrders.length > 0 && (
-            <section>
-              <h3 className="text-xs font-bold text-blue-400 mb-2 flex items-center gap-2">
-                🕐 بانتظار القبول ({newOrders.length})
-                <span className="flex-1 h-px bg-blue-500/15" />
-              </h3>
-              <div className="space-y-2.5">
-                {newOrders.map(o => <ActiveCard key={o.id} o={o} />)}
-              </div>
-            </section>
-          )}
-
-          {/* ── ٢) قيد التحضير ── */}
-          {preparing.length > 0 && (
-            <section>
-              <h3 className="text-xs font-bold text-amber-400 mb-2 flex items-center gap-2">
-                👨‍🍳 قيد التحضير ({preparing.length})
-                <span className="flex-1 h-px bg-amber-500/15" />
-              </h3>
-              <div className="space-y-2.5">
-                {preparing.map(o => <ActiveCard key={o.id} o={o} />)}
-              </div>
-            </section>
-          )}
-
-          {/* لا طلبات نشطة */}
-          {newOrders.length === 0 && preparing.length === 0 && (
-            <div className="text-center py-14 rounded-2xl border border-dashed border-gray-700">
-              <div className="text-4xl mb-3">😌</div>
-              <p className="text-gray-400 text-sm">لا طلبات نشطة حاليّاً</p>
-              <p className="text-gray-600 text-xs mt-1">أبقِ هذه الصفحة مفتوحة — الطلب الجديد يظهر فوراً مع تنبيه صوتيّ</p>
-            </div>
-          )}
-
-          {/* ── ٣) السجلّ المنجز — مطويّ افتراضيّاً ── */}
-          {done.length > 0 && (
-            <section>
-              <button
-                onClick={() => setShowHistory(v => !v)}
-                className="w-full flex items-center gap-2 text-xs text-gray-500 hover:text-gray-300 transition-colors py-1"
-              >
-                <span>{showHistory ? '▾' : '◂'}</span>
-                <span>السجلّ — {deliveredCount} سُلّم{done.length - deliveredCount > 0 ? ` • ${done.length - deliveredCount} ملغى` : ''} (آخر 24 ساعة)</span>
-                <span className="flex-1 h-px bg-gray-800" />
-              </button>
-              {showHistory && (
-                <div className="space-y-1.5 mt-2">
-                  {done.map(o => {
-                    const delivered = o.status === 'delivered';
-                    return (
-                      <div key={o.id} className={`rounded-xl px-3 py-2 flex items-center gap-3 border border-white/5 ${delivered ? 'bg-white/[0.02]' : 'bg-white/[0.01] opacity-60'}`}>
-                        <span className="text-sm shrink-0">{delivered ? '✅' : '✖️'}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-gray-300 text-[12px] truncate">
-                            {o.playerName}
-                            <span className="text-gray-600"> — {o.items.map(i => `${i.name} ×${i.quantity}`).join('، ')}</span>
-                          </p>
-                        </div>
-                        <span className={`text-[11px] font-bold shrink-0 ${delivered ? 'text-gray-400' : 'text-gray-600 line-through'}`}>
-                          {parseFloat(o.total).toFixed(2)}
-                        </span>
-                        <span className="text-gray-600 text-[10px] shrink-0">
-                          {new Date(o.createdAt).toLocaleTimeString('ar-JO', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          )}
+          {newOrders.length > 0 && <Rail title="🕐 بانتظار القبول" list={newOrders} />}
+          {preparing.length > 0 && <Rail title="👨‍🍳 قيد التحضير" list={preparing} />}
         </>
       )}
 
+      {/* ── السجلّ — مطويّ بعيداً عن العين ── */}
+      {done.length > 0 && !kds && (
+        <div className="mt-6">
+          <button onClick={() => setShowHistory(v => !v)}
+            className="w-full flex items-center gap-2.5 text-[12px] py-2" style={{ color: EM.faint }}>
+            <span>{showHistory ? '▼' : '◀'}</span>
+            <span>السجلّ — {done.filter(o => o.status === 'delivered').length} سُلّم · {done.filter(o => o.status === 'cancelled').length} ملغى</span>
+            <span className="flex-1 h-px" style={{ background: EM.line }} />
+          </button>
+          {showHistory && done.map(o => (
+            <div key={o.id} className="flex justify-between text-[12px] py-2"
+              style={{ color: EM.faint, borderBottom: `1px dashed ${EM.line}` }}>
+              <span>{o.status === 'delivered' ? '✅' : '✖️'} #{o.id} — {o.playerName}</span>
+              <span style={{ fontFamily: MONO }}>{jod(parseFloat(o.total))}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {toast && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl whitespace-nowrap">
+        <div className="fixed bottom-24 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] rounded-xl px-4 py-2 text-sm max-w-[92vw] text-center"
+          style={{ background: EM.card, border: `1px solid ${EM.warm}`, color: EM.text, boxShadow: '0 8px 32px rgba(0,0,0,.6)' }}>
           {toast}
         </div>
+      )}
+    </div>
+  );
+}
+
+function Kpi({ n, label, color, pulse, money }: { n: number; label: string; color: string; pulse?: boolean; money?: boolean }) {
+  return (
+    <div className="rounded-xl px-2 py-2.5 text-center relative overflow-hidden"
+      style={{ background: EM.card, border: `1px solid ${EM.line}` }}>
+      <b className="block leading-tight"
+        style={{ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: money ? 18 : 23, color }}>
+        {money ? n.toFixed(2) : n}
+      </b>
+      <span className="text-[10.5px] font-bold" style={{ color: EM.faint }}>{label}</span>
+      {pulse && (
+        <span className="absolute inset-0 rounded-xl pointer-events-none animate-pulse"
+          style={{ border: `1px solid ${color}`, opacity: 0.5 }} />
       )}
     </div>
   );

@@ -185,7 +185,7 @@ export default function VenueInvoicesPage() {
   };
 
   if (!can('invoices.print')) {
-    return <div className="text-center py-16 text-gray-500 text-sm">ليس لدى حسابك صلاحيّة طباعة الفواتير</div>;
+    return <div className="text-center py-16 text-[#8B9A92] text-sm">ليس لدى حسابك صلاحيّة طباعة الفواتير</div>;
   }
 
   const canPay = can('payments.record');
@@ -204,12 +204,12 @@ export default function VenueInvoicesPage() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-base font-bold">🧾 الفواتير والتحصيل</h2>
-          <p className="text-[11px] text-gray-500 mt-0.5">فاتورة A6 لكل لاعب — اضغط البطاقة لتفاصيلها</p>
+          <p className="text-[11px] text-[#8B9A92] mt-0.5">فاتورة A6 لكل لاعب — اضغط البطاقة لتفاصيلها</p>
         </div>
         <select
           value={actId ?? ''}
           onChange={e => { setActId(parseInt(e.target.value) || null); setOpenFor(null); }}
-          className="bg-gray-800 border border-gray-700 rounded-lg text-xs px-3 py-2 max-w-[220px]"
+          className="bg-[#1B211D] border border-[#232B27] rounded-lg text-xs px-3 py-2 max-w-[220px]"
         >
           {acts.length === 0 && <option value="">لا فعاليّات مفعَّلة المنيو مؤخّراً</option>}
           {acts.map(a => (
@@ -243,12 +243,12 @@ export default function VenueInvoicesPage() {
           <input
             value={search} onChange={e => setSearch(e.target.value)}
             placeholder="🔎 ابحث باسم اللاعب…"
-            className="flex-1 bg-gray-800/70 border border-gray-700 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50 placeholder:text-gray-600"
+            className="flex-1 bg-[#1B211D] border border-[#232B27] rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#D98A2B]/50 placeholder:text-[#5A6862]"
           />
           <button
             onClick={printAll} disabled={printingAll}
             title="طباعة كل فواتير الفعاليّة في مستندٍ واحد"
-            className="px-3.5 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-emerald-500/40 transition-colors disabled:opacity-50 shrink-0"
+            className="px-3.5 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-[#D98A2B]/45 transition-colors disabled:opacity-50 shrink-0"
           >
             {printingAll ? '⏳…' : '🖨️ طباعة الكل'}
           </button>
@@ -257,16 +257,16 @@ export default function VenueInvoicesPage() {
 
       {loading ? (
         <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" />
         </div>
       ) : candidates.length === 0 ? (
-        <div className="text-center py-16 rounded-2xl border border-dashed border-gray-700">
+        <div className="text-center py-16 rounded-2xl border border-dashed border-[#232B27]">
           <div className="text-4xl mb-3">🧾</div>
-          <p className="text-gray-400 text-sm">لا طلبات في هذه الفعاليّة بعد</p>
+          <p className="text-[#8B9A92] text-sm">لا طلبات في هذه الفعاليّة بعد</p>
         </div>
       ) : visible.length === 0 ? (
-        <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
-          <p className="text-gray-500 text-sm">لا لاعب بهذا الاسم</p>
+        <div className="text-center py-12 rounded-2xl border border-dashed border-[#232B27]">
+          <p className="text-[#8B9A92] text-sm">لا لاعب بهذا الاسم</p>
           <button onClick={() => setSearch('')} className="text-emerald-400 text-xs underline mt-2">مسح البحث</button>
         </div>
       ) : (
@@ -285,20 +285,20 @@ export default function VenueInvoicesPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="text-white text-sm font-medium truncate">{c.playerName}</p>
                   {c.invoiceNo != null && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-gray-400 border border-white/10 shrink-0">#{c.invoiceNo}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-[#8B9A92] border border-white/10 shrink-0">#{c.invoiceNo}</span>
                   )}
                   {c.isPaid
                     ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">💵 محصَّلة</span>
                     : <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/25 shrink-0">بانتظار التحصيل</span>}
                 </div>
-                <p className="text-[10px] text-gray-500 mt-0.5">
+                <p className="text-[10px] text-[#8B9A92] mt-0.5">
                   {c.ordersCount} {c.ordersCount === 1 ? 'طلب' : 'طلبات'} • {jod(c.ordersTotal)}
                   {c.gameFee > 0 && <span className="text-amber-400/90"> + رسوم {jod(c.gameFee)}</span>}
                 </p>
               </div>
               <div className="text-left shrink-0">
                 <p className="text-emerald-400 text-sm font-bold">{jod(c.grandTotal)}</p>
-                <p className="text-[9px] text-gray-600">التفاصيل ←</p>
+                <p className="text-[9px] text-[#5A6862]">التفاصيل ←</p>
               </div>
             </button>
           ))}
@@ -310,31 +310,31 @@ export default function VenueInvoicesPage() {
         <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={() => setOpenFor(null)}>
           <div
-            className="w-full max-w-lg bg-gray-900 border-t sm:border border-emerald-500/20 rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-lg bg-[#161B18] border-t sm:border border-[#232B27] rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
               <div className="min-w-0">
                 <h3 className="text-base font-bold truncate">{openFor.playerName}</h3>
                 {detail && (
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-[#8B9A92]">
                     {detail.activityName} • {detail.ordersCount} {detail.ordersCount === 1 ? 'طلب' : 'طلبات'}
                     {detail.invoiceNo != null && <span> • فاتورة #{detail.invoiceNo}</span>}
                   </p>
                 )}
               </div>
-              <button onClick={() => setOpenFor(null)} className="text-gray-500 hover:text-white shrink-0">✕</button>
+              <button onClick={() => setOpenFor(null)} className="text-[#8B9A92] hover:text-white shrink-0">✕</button>
             </div>
 
             {detailLoading || !detail ? (
               <div className="flex justify-center py-12">
-                <div className="w-7 h-7 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+                <div className="w-7 h-7 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" />
               </div>
             ) : (
               <>
                 {/* بنود الفاتورة */}
                 <div className="rounded-xl border border-white/[0.07] overflow-hidden mb-3">
-                  <div className="flex text-[10px] text-gray-500 bg-white/[0.04] px-3 py-1.5">
+                  <div className="flex text-[10px] text-[#8B9A92] bg-white/[0.04] px-3 py-1.5">
                     <span className="flex-1">الصنف</span>
                     <span className="w-10 text-center">كمّية</span>
                     <span className="w-14 text-center">السعر</span>
@@ -345,7 +345,7 @@ export default function VenueInvoicesPage() {
                       <div className="flex text-xs items-start">
                         <span className="flex-1 min-w-0 pl-1">{l.name}</span>
                         <span className="w-10 text-center tabular-nums">{l.quantity}</span>
-                        <span className="w-14 text-center tabular-nums text-gray-400">{l.unitPrice.toFixed(2)}</span>
+                        <span className="w-14 text-center tabular-nums text-[#8B9A92]">{l.unitPrice.toFixed(2)}</span>
                         <span className="w-16 text-left tabular-nums font-bold">{l.lineTotal.toFixed(2)}</span>
                       </div>
                       {l.options.length > 0 && (
@@ -374,7 +374,7 @@ export default function VenueInvoicesPage() {
                 </div>
 
                 {/* حالة الحجز ورسوم اللعبة */}
-                <div className="text-[11px] text-gray-500 mb-3 space-y-1">
+                <div className="text-[11px] text-[#8B9A92] mb-3 space-y-1">
                   {detail.bookingIsFree && <p className="text-emerald-400">🎁 حجز اللاعب مجّانيّ في هذه الفعاليّة — لا رسوم لعبة</p>}
                   {detail.bookingIsPaid && !detail.bookingIsFree && <p>✅ حجز اللاعب مدفوع مسبقاً — الرسوم حُصّلت من مسارها</p>}
                   {detail.isPaid && <p className="text-emerald-400">💵 حُصّلت الفاتورة{detail.paidAt ? ` — ${new Date(detail.paidAt).toLocaleString('ar-JO', { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}` : ''}</p>}
@@ -385,7 +385,7 @@ export default function VenueInvoicesPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => openPdf(openFor)} disabled={busyId === openFor.playerId}
-                      className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white disabled:opacity-50"
+                      className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white disabled:opacity-50"
                     >
                       {busyId === openFor.playerId ? '⏳…' : detail.invoiceNo != null ? '🖨️ إعادة طباعة' : '🧾 إصدار فاتورة PDF'}
                     </button>
@@ -403,7 +403,7 @@ export default function VenueInvoicesPage() {
                   {canPay && !detail.isPaid && !detail.bookingIsPaid && (
                     detail.bookingIsFree ? (
                       <button onClick={() => waiveFee(openFor, false)} disabled={payingId === openFor.playerId}
-                        className="w-full py-2 rounded-xl text-xs bg-white/5 border border-white/10 text-gray-400 disabled:opacity-50">
+                        className="w-full py-2 rounded-xl text-xs bg-white/5 border border-white/10 text-[#8B9A92] disabled:opacity-50">
                         ↩️ إعادة احتساب رسوم اللعبة
                       </button>
                     ) : gameFeeEnabled && detail.gameFeeApplied ? (
@@ -421,7 +421,7 @@ export default function VenueInvoicesPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-gray-800 border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl max-w-[92vw] text-center">
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl max-w-[92vw] text-center">
           {toast}
         </div>
       )}
@@ -434,7 +434,7 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone: 'blue
   return (
     <div className="rounded-xl px-3 py-2 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
       <p className="text-sm font-bold tabular-nums" style={{ color }}>{value}</p>
-      <p className="text-[10px] text-gray-500 mt-0.5">{label}</p>
+      <p className="text-[10px] text-[#8B9A92] mt-0.5">{label}</p>
     </div>
   );
 }
@@ -442,8 +442,8 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone: 'blue
 function Row({ label, value, tone }: { label: string; value: string; tone?: 'amber' }) {
   return (
     <div className="flex justify-between text-xs">
-      <span className="text-gray-400">{label}</span>
-      <span className={`tabular-nums ${tone === 'amber' ? 'text-amber-400' : 'text-gray-200'}`}>{value}</span>
+      <span className="text-[#8B9A92]">{label}</span>
+      <span className={`tabular-nums ${tone === 'amber' ? 'text-amber-400' : 'text-[#E8EFEA]'}`}>{value}</span>
     </div>
   );
 }

@@ -88,15 +88,15 @@ export default function CategoriesModal({
         <>
           <input autoFocus value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
             onKeyDown={e => { if (e.key === 'Enter') rename(); if (e.key === 'Escape') setEditing(null); }}
-            className="flex-1 bg-gray-800 border border-emerald-500/40 rounded-md px-2 py-1 text-xs" />
+            className="flex-1 bg-[#1B211D] border border-emerald-500/40 rounded-md px-2 py-1 text-xs" />
           <button onClick={rename} disabled={busy} className="text-[11px] text-emerald-400 px-1.5">حفظ</button>
-          <button onClick={() => setEditing(null)} className="text-[11px] text-gray-500 px-1.5">إلغاء</button>
+          <button onClick={() => setEditing(null)} className="text-[11px] text-[#8B9A92] px-1.5">إلغاء</button>
         </>
       ) : (
         <>
           <span className="flex-1 text-xs truncate">{child ? '↳ ' : '🗂️ '}{c.name}</span>
-          <button onClick={() => move(c, -1)} disabled={busy} title="أعلى" className="text-[11px] text-gray-500 px-1">▲</button>
-          <button onClick={() => move(c, 1)} disabled={busy} title="أسفل" className="text-[11px] text-gray-500 px-1">▼</button>
+          <button onClick={() => move(c, -1)} disabled={busy} title="أعلى" className="text-[11px] text-[#8B9A92] px-1">▲</button>
+          <button onClick={() => move(c, 1)} disabled={busy} title="أسفل" className="text-[11px] text-[#8B9A92] px-1">▼</button>
           <button onClick={() => setEditing({ id: c.id, name: c.name })} className="text-[11px] px-1">✏️</button>
           <button
             onClick={() => { if (confirm(`حذف القسم «${c.name}»؟`)) call(`/api/venue/categories/${c.id}`, 'DELETE'); }}
@@ -108,22 +108,22 @@ export default function CategoriesModal({
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-lg bg-gray-900 border border-emerald-500/20 rounded-2xl p-5 max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-lg bg-[#161B18] border border-[#232B27] rounded-2xl p-5 max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-bold">🗂️ أقسام المنيو</h3>
-          <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>
+          <button onClick={onClose} className="text-[#8B9A92] hover:text-white">✕</button>
         </div>
-        <p className="text-[11px] text-gray-500 mb-4">
+        <p className="text-[11px] text-[#8B9A92] mb-4">
           مستويان: قسمٌ رئيس وداخله أقسامٌ فرعيّة. مثال: «مشروبات» ← «باردة» و«ساخنة».
         </p>
 
         {err && <p className="text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 rounded-lg p-2 mb-3">{err}</p>}
 
         {loading ? (
-          <div className="flex justify-center py-10"><div className="w-7 h-7 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-10"><div className="w-7 h-7 border-2 border-[#2E3833] border-t-[#D98A2B] rounded-full animate-spin" /></div>
         ) : (
           <div className="space-y-3">
-            {roots.length === 0 && <p className="text-xs text-gray-500 text-center py-6">لا أقسام بعد — أضف أوّل قسم أدناه.</p>}
+            {roots.length === 0 && <p className="text-xs text-[#8B9A92] text-center py-6">لا أقسام بعد — أضف أوّل قسم أدناه.</p>}
             {roots.map(r => (
               <div key={r.id} className="space-y-1.5">
                 {row(r, false)}
@@ -134,7 +134,7 @@ export default function CategoriesModal({
                     onChange={e => setNewChild(p => ({ ...p, [r.id]: e.target.value }))}
                     onKeyDown={e => { if (e.key === 'Enter') addChild(r.id); }}
                     placeholder={`+ قسم فرعيّ داخل «${r.name}»`}
-                    className="flex-1 bg-gray-800/60 border border-gray-700 rounded-md px-2 py-1.5 text-[11px] placeholder:text-gray-600" />
+                    className="flex-1 bg-[#1B211D]/60 border border-[#232B27] rounded-md px-2 py-1.5 text-[11px] placeholder:text-[#5A6862]" />
                   <button onClick={() => addChild(r.id)} disabled={busy} className="text-[11px] px-2.5 rounded-md bg-white/5 border border-white/10">إضافة</button>
                 </div>
               </div>
@@ -145,7 +145,7 @@ export default function CategoriesModal({
                 value={newRoot} onChange={e => setNewRoot(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') addRoot(); }}
                 placeholder="+ قسم رئيس جديد (مثال: أراجيل)"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs placeholder:text-gray-600" />
+                className="flex-1 bg-[#1B211D] border border-[#232B27] rounded-lg px-3 py-2 text-xs placeholder:text-[#5A6862]" />
               <button onClick={addRoot} disabled={busy}
                 className="px-4 rounded-lg text-xs font-bold bg-gradient-to-l from-emerald-500 to-teal-600 text-white disabled:opacity-50">إضافة</button>
             </div>
