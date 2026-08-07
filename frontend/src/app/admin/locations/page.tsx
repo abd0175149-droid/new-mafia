@@ -58,6 +58,8 @@ export default function LocationsPage() {
   const [name, setName] = useState('');
   const [mapUrl, setMapUrl] = useState('');
   const [region, setRegion] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  const [isTestLocation, setIsTestLocation] = useState(false);
   const [ownerUsername, setOwnerUsername] = useState('');
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -131,6 +133,7 @@ export default function LocationsPage() {
   function handleOpenNew() {
     setEditingLoc(null);
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
+    setIsActive(true); setIsTestLocation(false);
     setIsDialogOpen(true);
   }
 
@@ -139,6 +142,8 @@ export default function LocationsPage() {
     setEditingLoc(loc);
     setName(loc.name || '');
     setRegion(loc.region || '');
+    setIsActive(loc.isActive !== false);
+    setIsTestLocation(loc.isTestLocation === true);
     setMapUrl(loc.mapUrl || '');
     const parsed = (loc.offers || []).map((o: any, i: number) => normalizeOffer(o, i));
     setOffers(parsed);
@@ -149,7 +154,7 @@ export default function LocationsPage() {
   async function handleSave() {
     if (!name.trim()) return;
     setSaving(true);
-    const payload = { name: name.trim(), region: region.trim(), mapUrl, offers, ownerUsername: ownerUsername.trim() || undefined };
+    const payload = { name: name.trim(), region: region.trim(), mapUrl, offers, isActive, isTestLocation, ownerUsername: ownerUsername.trim() || undefined };
 
     try {
       if (editingLoc) {
@@ -317,6 +322,24 @@ export default function LocationsPage() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1">رابط جوجل ماب (اختياري)</label>
                 <input type="text" value={mapUrl} onChange={e => setMapUrl(e.target.value)} placeholder="https://maps.google.com/..." dir="ltr" className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+              </div>
+
+              {/* ── حالة المكان ── */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-gray-900/40 border border-gray-700/30 cursor-pointer">
+                  <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} className="mt-0.5 w-4 h-4 accent-emerald-500" />
+                  <span>
+                    <span className="block text-xs text-white font-bold">مكان فعّال</span>
+                    <span className="block text-[10px] text-gray-500 mt-0.5">بوت واتساب يذكر الأماكن الفعّالة فقط</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-gray-900/40 border border-gray-700/30 cursor-pointer">
+                  <input type="checkbox" checked={isTestLocation} onChange={e => setIsTestLocation(e.target.checked)} className="mt-0.5 w-4 h-4 accent-amber-500" />
+                  <span>
+                    <span className="block text-xs text-white font-bold">مكان اختبار 🧪</span>
+                    <span className="block text-[10px] text-gray-500 mt-0.5">فعاليّاته تظهر لحسابات الاختبار فقط</span>
+                  </span>
+                </label>
               </div>
 
               {/* ── 🍽️ الكتالوج: المنيو ── */}

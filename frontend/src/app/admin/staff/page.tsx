@@ -44,11 +44,14 @@ const AVAILABLE_PERMISSIONS = [
 ];
 
 // 🍽️ صلاحيّات حساب المكان (تظهر لدور «مالك مكان» فقط)
+// ⚠️ يجب أن تطابق VENUE_PERMISSIONS في backend/src/middleware/auth.ts —
+// صلاحيّةٌ ناقصة هنا لا يمكن منحها ولا سحبها من أيّ حساب.
 const VENUE_PERMISSIONS = [
   { id: 'orders.receive', label: '📥 استقبال الطلبات' },
   { id: 'orders.manage', label: '🔁 إدارة الطلبات' },
   { id: 'invoices.print', label: '🧾 طباعة الفواتير' },
   { id: 'menu.manage', label: '📋 إدارة المنيو' },
+  { id: 'payments.record', label: '💵 تسجيل التحصيل' },
 ];
 
 export default function StaffManagementPage() {

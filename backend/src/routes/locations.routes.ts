@@ -28,7 +28,10 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const rows = await db.select().from(locations).orderBy(desc(locations.id));
+  // المحذوف ناعماً لا يُعرض — العمود كان موجوداً وغير مستعمل، فكان الحذف صلباً
+  const rows = await db.select().from(locations)
+    .where(isNull(locations.deletedAt))
+    .orderBy(desc(locations.id));
   res.json(rows);
 });
 
@@ -37,7 +40,7 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, region, mapUrl, offers, ownerUsername } = req.body;
+  const { name, region, mapUrl, offers, ownerUsername, isActive, isTestLocation } = req.body;
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
 
   const result = await db.insert(locations).values({
@@ -45,6 +48,10 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
     region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
+    // 🔌 فعّال: بوت واتساب يذكر الأماكن الفعّالة فقط
+    isActive: isActive !== false,
+    // 🧪 مكان اختبار: فعاليّاته لا تظهر إلّا لحسابات الاختبار
+    isTestLocation: isTestLocation === true,
   } as any).returning();
 
   const locationId = result[0].id;
@@ -91,15 +98,20 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, region, mapUrl, offers } = req.body;
+  const { name, region, mapUrl, offers, isActive, isTestLocation } = req.body;
   if (!name) return res.status(400).json({ error: 'الاسم مطلوب' });
 
-  await db.update(locations).set({
+  // الحقول غير المُرسَلة تبقى كما هي — لا تُصفَّر بالسهو
+  const patch: Record<string, unknown> = {
     name,
     region: String(region || '').trim().slice(0, 80),
     mapUrl: mapUrl || '',
     offers: Array.isArray(offers) ? offers : [],
-  } as any).where(eq(locations.id, id));
+  };
+  if (isActive !== undefined) patch.isActive = isActive !== false;
+  if (isTestLocation !== undefined) patch.isTestLocation = isTestLocation === true;
+
+  await db.update(locations).set(patch as any).where(eq(locations.id, id));
 
   res.json({ success: true });
 });
@@ -110,8 +122,23 @@ router.delete('/:id', authenticate, managerOrAbove, async (req: Request, res: Re
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  await db.delete(locations).where(eq(locations.id, id));
-  res.json({ success: true });
+  if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  // 🔴 كان حذفاً صلباً — و menu_items / menu_categories / menu_option_groups
+  // كلّها ON DELETE CASCADE، فحذف مكانٍ كان **يمحو منيوه وأقسامه وخياراته نهائيّاً**
+  // بلا إنذار (أو يفشل بخطأ مفتاحٍ أجنبيّ إن كانت له طلبات). الآن حذفٌ ناعم:
+  // البيانات تبقى، والمكان يختفي من القوائم، وحساباته تُوقَف فلا تدخل مكاناً ميّتاً.
+  const [existing] = await db.select({ id: locations.id, name: locations.name })
+    .from(locations).where(and(eq(locations.id, id), isNull(locations.deletedAt))).limit(1);
+  if (!existing) return res.status(404).json({ error: 'المكان غير موجود' });
+
+  await db.update(locations).set({ deletedAt: new Date() } as any).where(eq(locations.id, id));
+  const stopped = await db.update(staff).set({ isActive: false } as any)
+    .where(and(eq(staff.locationId, id), eq(staff.role, 'location_owner'), isNull(staff.deletedAt)))
+    .returning({ id: staff.id });
+
+  console.log(`🗑️ Location #${id} (${existing.name}) soft-deleted — ${stopped.length} venue account(s) deactivated`);
+  res.json({ success: true, deactivatedAccounts: stopped.length });
 });
 
 // ── 🍽️ الحسابات المرتبطة بالمكان ──────────────────────
