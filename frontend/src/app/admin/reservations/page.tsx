@@ -202,6 +202,14 @@ export default function ReservationsPage() {
     return Object.values(stats).reduce((s, v) => s + v.people, 0);
   }, [stats]);
 
+  // صفوف غير المثبَّت للفعاليّة المختارة — مصدر التحذير والتثبيت الجماعيّ.
+  // مستقلٌّ عن فلاتر العرض: التحذير عن واقع الفعاليّة لا عمّا يُعرض الآن.
+  const pendingRows = useMemo(() => {
+    if (!filterActivity) return [] as any[];
+    const data = filterActivity === 'all' ? reservations : reservations.filter(r => r.activityId === Number(filterActivity));
+    return data.filter(r => !isConfirmed(r) && r.status !== 'waitlist');
+  }, [reservations, filterActivity]);
+
   // ══ Attendance Stats ══
   // فصل المتوقَّع عن الفعليّ: «متوقَّع» = مجموع الأشخاص (peopleCount) للتخطيط والصورة،
   // أمّا «حضر/لعب فعليّاً» فكلّ حجز = لاعبٌ واحد فعليّ (المرافقون لا يحجزون من التطبيق ولا يدخلون اللعبة).
@@ -387,14 +395,46 @@ export default function ReservationsPage() {
     const newStatus = isConfirmed(r) ? 'pending' : 'confirmed';
     setReservations(prev => prev.map(x => x.id === r.id ? { ...x, status: newStatus } : x));
     try {
-      await apiFetch(`/api/reservations/${r.id}`, {
+      const res = await apiFetch(`/api/reservations/${r.id}`, {
         method: 'PUT',
         body: JSON.stringify({ status: newStatus }),
       });
+      // نتيجة مزامنة الحجز كانت تُعاد ثمّ تُهمَل — فيظنّ الموظّف أنّ حجزاً أُنشئ
+      // بينما الرقم غير مربوطٍ بحساب (فيُعرض مجمَّعاً «لاعبون جدد» لا صفّاً)
+      if (res?.bookingSync === 'unlinked') {
+        alert('ثُبّت الحجز ✅\n\nلكنّ الرقم غير مربوطٍ بحساب لاعب، فلا يظهر صفٌّ باسمه —\nيُحتسب ضمن «لاعبون جدد» في تفاصيل الفعاليّة.');
+      } else if (res?.bookingSync === 'error') {
+        alert('⚠️ ثُبّت الحجز لكنْ تعذّر إنشاء حجز الفعاليّة. راجع تفاصيل الفعاليّة.');
+      }
     } catch (err: any) {
       alert('فشل تغيير الحالة: ' + err.message);
       await fetchAll();
     }
+  }
+
+  // ══ تثبيت جماعيّ ══
+  // 🔴 السبب الذي أوجب هذا: التثبيت صار هو ما يُنشئ حجز الفعاليّة، لكنّ إدخال
+  //    الأسماء وتثبيتها فعلان منفصلان في الواجهة — فكان الموظّف يُدخل عشرات
+  //    الأسماء ولا يظهر منها أحدٌ في تفاصيل الفعاليّة ولا في تطبيق اللاعب.
+  //    الزرّ يُغلق الفجوة بضغطةٍ واحدة، والتتابع (لا التوازي) يحمي ترقيم الحجوزات.
+  const [bulkBusy, setBulkBusy] = useState(false);
+  async function confirmAllPending(rows: any[]) {
+    if (!rows.length || bulkBusy) return;
+    const people = rows.reduce((s, r) => s + (r.peopleCount || 1), 0);
+    if (!window.confirm(`تثبيت ${rows.length} حجزاً (${people} شخصاً)؟\n\nسيُسجَّل لكلّ حسابٍ مربوطٍ حجزٌ في الفعاليّة يظهر له في التطبيق.`)) return;
+    setBulkBusy(true);
+    let ok = 0; const failed: string[] = [];
+    for (const r of rows) {
+      try {
+        await apiFetch(`/api/reservations/${r.id}`, { method: 'PUT', body: JSON.stringify({ status: 'confirmed' }) });
+        ok++;
+      } catch { failed.push(r.contactName || `#${r.id}`); }
+    }
+    setBulkBusy(false);
+    await fetchAll();
+    alert(failed.length
+      ? `ثُبّت ${ok} — وتعذّر ${failed.length}: ${failed.slice(0, 5).join('، ')}`
+      : `✅ ثُبّت ${ok} حجزاً`);
   }
 
   // ══ Attendance Toggle ══
@@ -621,6 +661,31 @@ export default function ReservationsPage() {
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* ══════ تحذير: غير المثبَّت لا يظهر في الفعاليّة ══════ */}
+          {pendingRows.length > 0 && (
+            <div className="rounded-xl px-3.5 py-3 flex items-start gap-3 flex-wrap"
+              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)' }}>
+              <span className="text-lg leading-none mt-0.5">⚠️</span>
+              <div className="flex-1 min-w-[200px]">
+                <p className="text-[12px] font-bold text-amber-300">
+                  {pendingRows.length} حجزاً غير مثبَّت ({pendingRows.reduce((s, r) => s + (r.peopleCount || 1), 0)} شخصاً)
+                </p>
+                <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                  غير المثبَّت لا يظهر في قائمة حجوزات الفعاليّة ولا في تطبيق اللاعب.
+                  التثبيت هو ما يُنشئ الحجز الفعليّ.
+                </p>
+              </div>
+              <button
+                onClick={() => confirmAllPending(pendingRows)}
+                disabled={bulkBusy}
+                className="px-3 py-2 rounded-lg text-[11px] font-bold border transition-all active:scale-95 disabled:opacity-50 shrink-0"
+                style={{ background: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)', color: '#6EE7B7' }}
+              >
+                {bulkBusy ? '… جارٍ التثبيت' : `✅ تثبيت الكلّ (${pendingRows.length})`}
+              </button>
             </div>
           )}
 
