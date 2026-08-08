@@ -324,6 +324,57 @@ venueRouter.delete('/menu-items/:id', authenticate, requireVenuePermission('menu
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── POST /menu-items/bulk-club-share — ضبط حصّة النادي على دفعةٍ من الأصناف ──
+// 💰 لماذا مسارٌ خاصّ: الحصّة رقمُ عملٍ يُتّفق عليه مع المكان ويتغيّر بالتفاوض،
+//    وضبطه صنفاً صنفاً على منيو ٧٠ صنفاً عملٌ يُؤجَّل فلا يُنجَز — فتُشغَّل
+//    ليلةٌ كاملة بحصّةٍ صفر. هنا يُضبط لكلّ المنيو أو لقسمٍ واحد بضغطة.
+// وضعان: مبلغٌ ثابت لكلّ صنف، أو نسبةٌ من سعره تُقرَّب لأقرب قرش.
+// 🔒 السقف مفروضٌ صنفاً صنفاً: حصّةٌ تتجاوز السعر تعني مكاناً يدفع للنادي.
+venueRouter.post('/menu-items/bulk-club-share', authenticate, requireVenuePermission('menu.manage'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+
+  const mode = req.body.mode === 'percent' ? 'percent' : 'fixed';
+  const value = parseFloat(req.body.value);
+  if (!Number.isFinite(value) || value < 0) return res.status(400).json({ error: 'القيمة غير صالحة' });
+  if (mode === 'percent' && value > 100) return res.status(400).json({ error: 'النسبة لا تتجاوز ١٠٠٪' });
+
+  // قسمٌ بعينه أو كامل المنيو. القسم الأب يشمل فروعه — وإلّا كان اختيار
+  // «المأكولات» يصيب صفر صنفٍ لأنّ الأصناف معلَّقة على الفروع لا على الأب.
+  const rawCat = req.body.categoryId;
+  const categoryId = rawCat === undefined || rawCat === null || rawCat === '' ? null : parseInt(String(rawCat));
+  if (categoryId !== null && !Number.isFinite(categoryId)) return res.status(400).json({ error: 'قسمٌ غير صالح' });
+
+  try {
+    let catIds: number[] | null = null;
+    if (categoryId !== null) {
+      const cats = await db.select({ id: menuCategories.id, parentId: menuCategories.parentId })
+        .from(menuCategories).where(and(eq(menuCategories.locationId, locId), isNull(menuCategories.deletedAt)));
+      if (!cats.some(c => c.id === categoryId)) return res.status(404).json({ error: 'القسم غير موجود' });
+      catIds = [categoryId, ...cats.filter(c => c.parentId === categoryId).map(c => c.id)];
+    }
+
+    const rows = await db.select({ id: menuItems.id, price: menuItems.price, categoryId: menuItems.categoryId })
+      .from(menuItems)
+      .where(and(eq(menuItems.locationId, locId), isNull(menuItems.deletedAt)));
+    const targets = rows.filter(r => !catIds || (r.categoryId !== null && catIds.includes(r.categoryId)));
+
+    let changed = 0, capped = 0;
+    for (const r of targets) {
+      const price = parseFloat(r.price);
+      let share = mode === 'percent' ? (price * value) / 100 : value;
+      // التقريب قبل السقف: نسبةٌ تُنتج 2.996 على سعر 3.00 تُقرَّب إلى 3.00 لا تُقصّ
+      share = Math.round(share * 100) / 100;
+      if (share > price) { share = price; capped++; }
+      await db.update(menuItems).set({ clubShare: share.toFixed(2) } as any).where(eq(menuItems.id, r.id));
+      changed++;
+    }
+    res.json({ success: true, changed, capped, scanned: rows.length });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ════════════════════════════════════════════
 // 🗂️ أقسام المنيو — /api/venue/categories (مستويان)
 // ════════════════════════════════════════════

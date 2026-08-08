@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVenue } from '../context';
 import CategoriesModal, { type MenuCategory } from './CategoriesModal';
 import OptionGroupsModal, { type OptionGroup } from './OptionGroupsModal';
+import ClubShareModal from './ClubShareModal';
 
 interface BundleComponent { menuItemId: number; qty: number }
 
@@ -123,7 +124,7 @@ export default function VenueMenuPage() {
   // 🗂️ الأقسام و⚙️ مجموعات الخيارات — تُدار من مودالَين مستقلَّين
   const [cats, setCats] = useState<MenuCategory[]>([]);
   const [groups, setGroups] = useState<OptionGroup[]>([]);
-  const [managerModal, setManagerModal] = useState<'cats' | 'groups' | null>(null);
+  const [managerModal, setManagerModal] = useState<'cats' | 'groups' | 'share' | null>(null);
   // مجموعات الخيارات المربوطة بالصنف قيد التحرير
   const [linkedGroups, setLinkedGroups] = useState<Set<number>>(new Set());
 
@@ -283,6 +284,11 @@ export default function VenueMenuPage() {
           <button onClick={() => setManagerModal('groups')} title="مجموعات الخيارات"
             className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-amber-500/40 transition-colors">
             ⚙️ الخيارات
+          </button>
+          {/* 💰 الحصّة رقمُ عملٍ يتغيّر بالتفاوض — ضبطها صنفاً صنفاً عملٌ يُؤجَّل فلا يُنجَز */}
+          <button onClick={() => setManagerModal('share')} title="حصّة النادي على دفعة أصناف"
+            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-amber-500/40 transition-colors">
+            💰 الحصّة
           </button>
           <button
             onClick={openAdd}
@@ -639,6 +645,24 @@ export default function VenueMenuPage() {
       {managerModal === 'groups' && (
         <OptionGroupsModal authHeaders={authHeaders} withLoc={withLoc}
           onClose={() => setManagerModal(null)} onChanged={load} />
+      )}
+      {managerModal === 'share' && (
+        <ClubShareModal
+          items={items.map(i => ({ id: i.id, name: i.name, price: i.price, clubShare: i.clubShare || '0', categoryId: i.categoryId ?? null }))}
+          cats={cats.map(c => ({ id: c.id, name: c.name, parentId: c.parentId ?? null }))}
+          onClose={() => setManagerModal(null)}
+          onApply={async (body) => {
+            const r = await fetch(withLoc('/api/venue/menu-items/bulk-club-share'), {
+              method: 'POST',
+              headers: { ...authHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+            const d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.error || 'فشل التطبيق');
+            flash(`💰 ضُبطت حصّة النادي على ${d.changed} صنفاً`);
+            load();
+          }}
+        />
       )}
 
       {/* ── توست ── */}
