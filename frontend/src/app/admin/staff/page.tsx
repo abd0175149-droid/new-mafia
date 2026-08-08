@@ -52,6 +52,9 @@ const VENUE_PERMISSIONS = [
   { id: 'invoices.print', label: '🧾 طباعة الفواتير' },
   { id: 'menu.manage', label: '📋 إدارة المنيو' },
   { id: 'payments.record', label: '💵 تسجيل التحصيل' },
+  // 💨 مستقلّة عن الطلبات: مسؤول الأراجيل قد لا يكون مسؤول المطبخ،
+  //    ودمجهما يعني إشعار فحمٍ لكلّ من يحضّر الطعام.
+  { id: 'service.shisha', label: '💨 خدمة الأرجيلة' },
 ];
 
 export default function StaffManagementPage() {

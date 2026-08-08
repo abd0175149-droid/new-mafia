@@ -58,6 +58,10 @@ const stageAge = (o: VOrder, now: number) =>
 export default function VenueOrdersPage() {
   const { locationId, authHeaders, can, isHQ } = useVenue();
   const [ordersList, setOrdersList] = useState<VOrder[]>([]);
+  const [svcList, setSvcList] = useState<{
+    id: number; kind: string; playerName: string; note: string;
+    physicalId: number | null; createdAt: string;
+  }[]>([]);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
   const [toast, setToast] = useState('');
@@ -104,7 +108,23 @@ export default function VenueOrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId]);
 
-  useEffect(() => { load(); }, [load]);
+  // 💨 طلبات خدمة الأرجيلة — صلاحيّةٌ مستقلّة، فمن لا يملكها لا يُحمَّل نداءها
+  const loadSvc = useCallback(() => {
+    if (!locationId || !can('service.shisha')) return;
+    fetch(withLoc('/api/venue/service'), { headers: authHeaders })
+      .then(r => r.json())
+      .then(d => { if (d.success) setSvcList(d.requests); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
+
+  const resolveSvc = async (id: number) => {
+    setSvcList(prev => prev.filter(s => s.id !== id));   // تفاؤليّ — الشاشة لا تنتظر
+    await fetch(withLoc(`/api/venue/service/${id}/done`), { method: 'PUT', headers: authHeaders })
+      .catch(() => loadSvc());
+  };
+
+  useEffect(() => { load(); loadSvc(); }, [load, loadSvc]);
 
   // ── سوكيت: انضمام لغرفة المكان + استقبال لحظيّ ──
   useEffect(() => {
@@ -136,11 +156,21 @@ export default function VenueOrdersPage() {
       if (!mutedRef.current) playDing();
       flash(`⏰ طلبٌ متأخّر منذ ${data.minutes} دقيقة`);
     };
+    // 💨 طلب خدمة: نفس الجرس والوميض — الانتظار بأرجيلةٍ تبرد لا يقلّ إلحاحاً
+    const onSvc = (r: any) => {
+      setSvcList(prev => [...prev.filter(x => x.id !== r.id), r]);
+      if (!mutedRef.current) playDing();
+      flash(`💨 ${r.label || 'خدمة أرجيلة'} — ${r.playerName}`);
+    };
+    const onSvcDone = (d: { id: number }) => setSvcList(prev => prev.filter(x => x.id !== d.id));
+
     s.on('fnb:new-order', onNew);
     s.on('fnb:order-updated', onUpdated);
     s.on('fnb:order-stalled', onStalled);
+    s.on('fnb:service-request', onSvc);
+    s.on('fnb:service-done', onSvcDone);
 
-    const refresh = () => { if (document.visibilityState === 'visible') load(); };
+    const refresh = () => { if (document.visibilityState === 'visible') { load(); loadSvc(); } };
     const iv = setInterval(refresh, 30000);
     document.addEventListener('visibilitychange', refresh);
 
@@ -149,6 +179,8 @@ export default function VenueOrdersPage() {
       s.off('fnb:new-order', onNew);
       s.off('fnb:order-updated', onUpdated);
       s.off('fnb:order-stalled', onStalled);
+      s.off('fnb:service-request', onSvc);
+      s.off('fnb:service-done', onSvcDone);
       clearInterval(iv);
       document.removeEventListener('visibilitychange', refresh);
       setLive(false);
@@ -350,6 +382,42 @@ export default function VenueOrdersPage() {
 
   return (
     <div>
+      {/* ── 💨 طلبات خدمة الأرجيلة — فوق الطلبات: بلا سعرٍ لكنّها أعجل ──
+          من طلب فحماً ينتظر بأرجيلةٍ تبرد، وتأخيره أظهر من تأخير طلبٍ لم يبدأ. */}
+      {can('service.shisha') && svcList.length > 0 && (
+        <div className="rounded-2xl p-3 mb-3"
+          style={{ background: 'rgba(224,73,43,0.08)', border: '1px solid rgba(224,73,43,0.3)' }}>
+          <div className="flex items-center gap-2 mb-2.5">
+            <span className="text-base">💨</span>
+            <b className="text-[12.5px] flex-1" style={{ color: '#F08163' }}>خدمة أرجيلة ({svcList.length})</b>
+          </div>
+          {svcList.map(s => {
+            const mins = Math.max(0, Math.floor((now - new Date(s.createdAt).getTime()) / 60000));
+            const late = mins >= 5;
+            return (
+              <div key={s.id} className="flex items-center gap-2.5 rounded-xl px-3 py-2.5 mb-1.5"
+                style={{ background: EM.card, border: `1px solid ${late ? 'rgba(224,73,43,0.45)' : EM.line}` }}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] font-bold truncate">
+                    {s.kind === 'coal' ? '🔥 فحم' : '🔧 تزبيط'} — {s.playerName}
+                    {s.physicalId ? <span style={{ color: EM.dim }}> · مقعد {s.physicalId}</span> : null}
+                  </p>
+                  {s.note && <p className="text-[10.5px] truncate" style={{ color: EM.dim }}>📝 {s.note}</p>}
+                  <p className="text-[10px]" style={{ ...({ fontFamily: MONO } as any), color: late ? '#F08163' : EM.faint }}>
+                    منذ {mins} دقيقة{late ? ' — متأخّر' : ''}
+                  </p>
+                </div>
+                <button onClick={() => resolveSvc(s.id)}
+                  className="px-3 py-2 rounded-lg text-[11.5px] font-bold shrink-0"
+                  style={{ background: 'rgba(37,192,138,0.15)', border: '1px solid rgba(37,192,138,0.4)', color: EM.go }}>
+                  ✓ تمّ
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* 🔇 لا صمت: جهازٌ بلا إشعارات يجب أن يُرى لا أن يُخمَّن */}
       {pushState !== 'granted' && (
         <div className="rounded-xl px-3.5 py-2.5 text-[11px] leading-relaxed mb-3"

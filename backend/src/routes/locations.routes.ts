@@ -19,7 +19,7 @@ function generateUsername(name: string): string {
 
 // Helper: كلمة مرور عشوائيّة قويّة (لا نكرّر نمط username+'123' الضعيف)
 // صلاحيّات صاحب المكان الكاملة — مطابقة لـVENUE_PERMISSIONS في middleware/auth.ts
-const OWNER_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record'];
+const OWNER_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record', 'service.shisha'];
 
 function generatePassword(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!#%';
