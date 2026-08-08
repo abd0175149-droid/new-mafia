@@ -36,6 +36,9 @@ function GamesContent() {
   const [menuFor, setMenuFor] = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [menuLoading, setMenuLoading] = useState(false);
+  const [browseQ, setBrowseQ] = useState('');
+  // بحثٌ عالق من فتحةٍ سابقة يجعل المنيو يبدو ناقصاً عند الفتح التالي
+  useEffect(() => { if (!menuFor) setBrowseQ(''); }, [menuFor]);
   const searchParams = useSearchParams();
   const highlightActivityId = searchParams.get('activityId');
 
@@ -708,18 +711,45 @@ function GamesContent() {
             <motion.div
               initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl p-6 max-h-[85vh] overflow-y-auto"
+              // 🔴 الشريط السفليّ للتطبيق ثابتٌ فوق كلّ شيء، فزرّ الإغلاق في ذيل
+              //    المحتوى كان يقف تحته ولا يُضغَط — ومنيو ٦٢ صنفاً يجعل الوصول
+              //    إليه رحلة تمريرٍ كاملة. الإغلاق صار لاصقاً في الترويسة،
+              //    والحشوة السفليّة تُخلّص آخر صنفٍ من تحت الشريط.
+              className="w-full max-w-lg rounded-t-3xl sm:rounded-2xl px-5 pt-4 pb-24 sm:pb-6 max-h-[85vh] overflow-y-auto"
               style={{ background: 'linear-gradient(to bottom, #111827, #000)', borderTop: '1px solid rgba(255,255,255,0.1)', ...menuModal.modalProps.style }}
               onClick={e => e.stopPropagation()}
               ref={menuModal.modalContentRef}
               onTouchStart={menuModal.handleTouchStart}
               onTouchEnd={menuModal.handleTouchEnd}
             >
-              <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-4" />
-              <h3 className="text-white text-lg font-bold">🍽️ منيو {menuFor.locationName || 'المكان'}</h3>
-              <p className="text-gray-500 text-[11px] mt-1 mb-4">
-                للاطّلاع فقط — يفتح الطلب من التطبيق قبل موعد الفعاليّة بساعة ويحتاج حجزاً باسمك.
-              </p>
+              <div className="sticky -top-4 z-20 -mx-5 px-5 pt-4 pb-3"
+                style={{ background: 'linear-gradient(to bottom, #111827 80%, rgba(17,24,39,0))' }}>
+                <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto mb-3" />
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-white text-lg font-bold truncate">🍽️ منيو {menuFor.locationName || 'المكان'}</h3>
+                    <p className="text-gray-500 text-[11px] mt-1">
+                      للاطّلاع فقط — يفتح الطلب قبل موعد الفعاليّة بساعة ويحتاج حجزاً باسمك.
+                    </p>
+                  </div>
+                  <button onClick={() => setMenuFor(null)} aria-label="إغلاق"
+                    className="shrink-0 w-9 h-9 rounded-full text-gray-300 text-sm flex items-center justify-center"
+                    style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                    ✕
+                  </button>
+                </div>
+                {menuItems.length > 8 && (
+                  <div className="relative mt-3">
+                    <input
+                      value={browseQ} onChange={e => setBrowseQ(e.target.value)}
+                      placeholder="ابحث في المنيو…"
+                      className="w-full rounded-xl py-2 pr-9 pl-3 text-sm text-white placeholder:text-gray-600 focus:outline-none"
+                      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔎</span>
+                  </div>
+                )}
+              </div>
 
               {menuLoading ? (
                 <div className="flex justify-center py-12">
@@ -728,14 +758,26 @@ function GamesContent() {
               ) : menuItems.length === 0 ? (
                 <p className="text-center text-gray-500 text-sm py-12">المكان لم يضف أصنافاً بعد</p>
               ) : (
-                Array.from(new Set(menuItems.map((i: any) => i.category || ''))).map((cat: any) => (
+                (() => {
+                  const q = browseQ.trim();
+                  const list = q
+                    ? menuItems.filter((i: any) => i.name.includes(q) || (i.description || '').includes(q))
+                    : menuItems;
+                  if (list.length === 0) {
+                    return <p className="text-center text-gray-500 text-sm py-12">لا صنف يطابق «{q}»</p>;
+                  }
+                  return Array.from(new Set(list.map((i: any) => i.category || ''))).map((cat: any) => (
                   <div key={cat || '_none'} className="mb-4">
                     <h4 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
                       <span>{cat || 'المنيو'}</span>
                       <span className="flex-1 h-px bg-emerald-500/10" />
                     </h4>
+                    {/* القسم الفرعيّ عنوانٌ داخل القسم — بدونه صار الأربعون مشروباً كتلةً واحدة */}
+                    {Array.from(new Set(list.filter((i: any) => (i.category || '') === cat).map((i: any) => i.subcategory || ''))).map((sub: any) => (
+                    <div key={sub || '_direct'} className="mb-3">
+                      {sub && <p className="text-[10px] font-bold text-gray-500 mb-1.5 pr-1">↳ {sub}</p>}
                     <div className="space-y-2">
-                      {menuItems.filter((i: any) => (i.category || '') === cat).map((it: any) => (
+                      {list.filter((i: any) => (i.category || '') === cat && (i.subcategory || '') === sub).map((it: any) => (
                         <div key={it.id} className="rounded-xl p-3 flex items-center gap-3"
                           style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                           <div className="w-11 h-11 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
@@ -754,12 +796,15 @@ function GamesContent() {
                               <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
                             ) : null}
                           </div>
-                          <span className="text-emerald-400 text-sm font-bold shrink-0">{parseFloat(it.price).toFixed(2)} د.أ</span>
+                          <span className="text-emerald-400 text-sm font-bold shrink-0 tabular-nums">{parseFloat(it.price).toFixed(2)} د.أ</span>
                         </div>
                       ))}
                     </div>
+                    </div>
+                    ))}
                   </div>
-                ))
+                  ));
+                })()
               )}
 
               <button onClick={() => setMenuFor(null)}

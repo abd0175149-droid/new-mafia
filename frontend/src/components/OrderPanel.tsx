@@ -217,6 +217,10 @@ export default function OrderPanel({
   const [cart, setCart] = useState<CartLine[]>([]);
   // ⚙️ الصنف قيد اختيار خياراته (نكهة/حجم/إضافات) قبل دخوله السلّة
   const [picking, setPicking] = useState<Item | null>(null);
+  // 🧭 حالة التصفّح — نوع المنيو والقسم والبحث
+  const [rootTab, setRootTab] = useState('');
+  const [subTab, setSubTab] = useState('');
+  const [search, setSearch] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
@@ -260,6 +264,17 @@ export default function OrderPanel({
   const needsPicking = (it: Item) =>
     (it.optionGroups?.length ?? 0) > 0 ||
     (it.components ?? []).some(c => (c.optionGroups?.length ?? 0) > 0);
+
+  /// ملخّصٌ لما سيُسأل عنه — «⚙️ خيارات» وحدها لا تُنبئ إن كان السؤال حجماً أم نكهة
+  const optionHint = (it: Item) => {
+    const names = [
+      ...(it.optionGroups ?? []).map(g => g.name),
+      ...(it.components ?? []).flatMap(c => (c.optionGroups ?? []).map(g => g.name)),
+    ];
+    if (names.length === 0) return 'خيارات';
+    if (names.length <= 2) return names.join(' · ');
+    return `${names[0]} +${names.length - 1}`;
+  };
 
   /// إضافة مباشرة لصنفٍ بلا خيارات، أو فتح ورقة الاختيار
   const addItem = (it: Item) => {
@@ -359,6 +374,27 @@ export default function OrderPanel({
   const categories = Array.from(new Set(items.map(i => i.category || '')));
   const activeOrders = myOrders.filter(o => o.status !== 'cancelled');
 
+  // 🧭 التصفّح: منيو من ٦٢ صنفاً في خمسة عشر قسماً لا يُتصفَّح بالتمرير وحده.
+  // الشريط اللاصق يقسّم الرحلة: نوع المنيو (مشروبات/مأكولات) ثمّ القسم، والبحث
+  // يتجاوزهما معاً حين يعرف اللاعب ما يريد. القسم المختار يُعرض وحده — إظهار
+  // الأربعين صنفاً دفعةً واحدة هو نفسه المشكلة التي جاء الشريط ليحلّها.
+  const roots = categories.filter(Boolean);
+  const activeRoot = roots.includes(rootTab) ? rootTab : (roots[0] || '');
+  const inRoot = items.filter(i => (i.category || '') === activeRoot);
+  const subs = Array.from(new Set(inRoot.map(i => i.subcategory || ''))).filter(Boolean);
+
+  const query = search.trim();
+  const searching = query.length > 0;
+  const shown = searching
+    // البحث يمسح المنيو كلّه لا القسم المعروض — من يكتب «برغر» وهو في المشروبات يريد البرغر
+    ? items.filter(i => i.name.includes(query) || (i.description || '').includes(query))
+    : subTab && subs.includes(subTab)
+      ? inRoot.filter(i => (i.subcategory || '') === subTab)
+      : inRoot;
+
+  // تجميع المعروض تحت عناوين أقسامه الفرعيّة
+  const shownSubs = Array.from(new Set(shown.map(i => i.subcategory || '')));
+
   return (
     <div
       className={embedded ? 'space-y-5 px-4 pt-2 pb-40' : 'max-w-lg mx-auto px-4 pt-6 space-y-5 pb-32'}
@@ -425,25 +461,90 @@ export default function OrderPanel({
 
       {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2">{err}</p>}
 
+      {/* ── 🧭 شريط التصفّح اللاصق ── */}
+      {items.length > 0 && (
+        <div className="sticky top-0 z-30 -mx-4 px-4 pt-1 pb-2 space-y-2"
+          style={{ background: 'linear-gradient(to bottom, #050505 78%, rgba(5,5,5,0))' }}>
+          <div className="relative">
+            <input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="ابحث في المنيو…"
+              className="w-full rounded-xl py-2.5 pr-9 pl-8 text-sm text-white placeholder:text-gray-600 focus:outline-none"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔎</span>
+            {searching && (
+              <button onClick={() => setSearch('')} aria-label="مسح البحث"
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white/10 text-gray-400 text-[11px] leading-none">✕</button>
+            )}
+          </div>
+
+          {!searching && roots.length > 1 && (
+            <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
+              {roots.map(r => (
+                <button key={r} onClick={() => { setRootTab(r); setSubTab(''); }}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold transition-colors"
+                  style={r === activeRoot
+                    ? { background: 'rgba(16,185,129,0.18)', color: '#34d399', border: '1px solid rgba(16,185,129,0.35)' }
+                    : { color: '#6b7280', border: '1px solid transparent' }}>
+                  {r}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!searching && subs.length > 1 && (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+              <button onClick={() => setSubTab('')}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0 transition-colors"
+                style={!subTab
+                  ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
+                  : { background: 'rgba(255,255,255,0.04)', color: '#6b7280', border: '1px solid transparent' }}>
+                الكل ({inRoot.length})
+              </button>
+              {subs.map(s => {
+                const n = inRoot.filter(i => (i.subcategory || '') === s).length;
+                return (
+                  <button key={s} onClick={() => setSubTab(subTab === s ? '' : s)}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0 transition-colors"
+                    style={subTab === s
+                      ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
+                      : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af', border: '1px solid transparent' }}>
+                    {s} <span className="opacity-60">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── المنيو ── */}
       {items.length === 0 ? (
         <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
           <p className="text-gray-500 text-sm">المكان لم يضف أصنافاً بعد</p>
         </div>
+      ) : shown.length === 0 ? (
+        <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
+          <p className="text-gray-500 text-sm">لا صنف يطابق «{query}»</p>
+          <button onClick={() => setSearch('')} className="text-emerald-400 text-xs underline mt-2">امسح البحث</button>
+        </div>
       ) : (
-        categories.map(cat => {
-          const inCat = items.filter(i => (i.category || '') === cat);
-          // 🗂️ الأقسام الفرعيّة داخل القسم — بترتيب الخادم
-          const subs = Array.from(new Set(inCat.map(i => i.subcategory || '')));
+        [''].map(() => {
+          const cat = searching ? '' : activeRoot;
+          const inCat = shown;
+          const subsHere = shownSubs;
           return (
             <div key={cat || '_none'}>
-              <h3 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
-                <span>{cat || 'المنيو'}</span>
-                <span className="flex-1 h-px bg-emerald-500/10" />
-              </h3>
-              {subs.map(sub => (
+              {!searching && !subTab && (
+                <h3 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
+                  <span>{cat || 'المنيو'}</span>
+                  <span className="flex-1 h-px bg-emerald-500/10" />
+                </h3>
+              )}
+              {subsHere.map(sub => (
                 <div key={sub || '_direct'} className="mb-3">
-                  {sub && (
+                  {sub && !subTab && (
                     <p className="text-[10px] font-bold text-gray-500 mb-1.5 pr-1">↳ {sub}</p>
                   )}
                   <div className="space-y-2">
@@ -451,36 +552,56 @@ export default function OrderPanel({
                       const qty = qtyOfItem(it.id);
                       const hasOpts = needsPicking(it);
                       return (
-                        <div key={it.id} className="rounded-xl p-3 flex items-center gap-3" style={{ background: 'rgba(255,255,255,0.03)', border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)' }}>
-                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800 flex items-center justify-center shrink-0">
-                            {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
+                        // البطاقة كلّها هدف لمس: إصبعٌ في غرفةٍ معتمة لا تُصيب زرّاً بعرض
+                        // ٧٠ بكسل. الزرّ يبقى مرئيّاً كإشارةٍ لا كهدفٍ وحيد.
+                        <button
+                          key={it.id} onClick={() => addItem(it)}
+                          className="w-full text-right rounded-2xl p-3 flex items-center gap-3 transition-colors active:scale-[0.99]"
+                          style={{
+                            background: qty > 0 ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.03)',
+                            border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)',
+                          }}
+                        >
+                          <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-800/80 flex items-center justify-center shrink-0 relative">
+                            {it.imageUrl
+                              ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" />
+                              : <span className="text-xl opacity-70">{it.isBundle ? '🎁' : '🍴'}</span>}
+                            {qty > 0 && (
+                              <span className="absolute -top-1 -right-1 min-w-[19px] h-[19px] px-1 rounded-full text-[10px] font-black flex items-center justify-center text-black"
+                                style={{ background: '#34d399' }}>{qty}</span>
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-white text-sm truncate">
-                              {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
+                            <p className="text-white text-sm font-medium truncate leading-snug">
+                              {it.isBundle && <span className="text-[9px] px-1.5 py-0.5 rounded-md ml-1.5 align-middle" style={{ background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', color: '#c4b5fd' }}>🎁 عرض</span>}
                               {it.name}
                             </p>
                             {it.isBundle && it.components && it.components.length > 0 ? (
-                              <p className="text-[10px] truncate" style={{ color: 'rgba(196,181,253,0.75)' }}>
+                              <p className="text-[10.5px] truncate mt-0.5" style={{ color: 'rgba(196,181,253,0.75)' }}>
                                 {it.components.map(c => `${c.name}${c.qty > 1 ? ` ×${c.qty}` : ''}`).join(' + ')}
                               </p>
                             ) : it.description ? (
-                              <p className="text-gray-600 text-[10px] truncate">{it.description}</p>
+                              <p className="text-gray-500 text-[10.5px] truncate mt-0.5">{it.description}</p>
                             ) : null}
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <p className="text-emerald-400 text-[11px] font-bold">{parseFloat(it.price).toFixed(2)} د.أ</p>
-                              {hasOpts && (
-                                <span className="text-[9px] text-amber-400/90">⚙️ خيارات</span>
-                              )}
-                            </div>
+                            {hasOpts && (
+                              <span className="inline-block text-[9.5px] mt-1 px-1.5 py-0.5 rounded-md"
+                                style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#fcd34d' }}>
+                                ⚙️ {optionHint(it)}
+                              </span>
+                            )}
                           </div>
-                          <button onClick={() => addItem(it)}
-                            className="px-3.5 py-1.5 rounded-lg text-xs font-bold shrink-0 flex items-center gap-1.5"
-                            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
-                            {qty > 0 && <span className="text-white">{qty}</span>}
-                            {hasOpts ? 'اختر' : '+ أضف'}
-                          </button>
-                        </div>
+                          <div className="shrink-0 flex flex-col items-end gap-1.5">
+                            {/* السعر أبرز عنصرٍ في البطاقة: هو ما يُقارَن بين الأصناف */}
+                            <p className="text-emerald-400 text-[15px] font-black leading-none tabular-nums">
+                              {parseFloat(it.price).toFixed(2)}
+                              <span className="text-[9px] font-bold text-emerald-400/60"> د.أ</span>
+                            </p>
+                            <span className="px-2.5 py-1 rounded-lg text-[10.5px] font-bold"
+                              style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
+                              {hasOpts ? 'اختر' : '+ أضف'}
+                            </span>
+                          </div>
+                        </button>
                       );
                     })}
                   </div>

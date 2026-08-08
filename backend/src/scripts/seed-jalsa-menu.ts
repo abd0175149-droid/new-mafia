@@ -40,11 +40,16 @@ const SPEC: MenuSpec = {
     { key: 'cupSize', name: 'الحجم', isRequired: true, values: [
       { name: 'سنجل' }, { name: 'دبل', priceDelta: 0.5 },
     ] },
-    { key: 'mojito', name: 'نكهة الموهيتو', isRequired: true, values: [
+    // الموهيتو اختيارٌ على مستويين: الأساس ثمّ النكهة — وهما مجموعتان لا واحدة.
+    // 🔴 الأساس أوّلاً في optionGroupIds: ترتيب العرض يتبع ترتيب المصفوفة على
+    //    الصنف (resolveOptionGroups)، ومن يختار النكهة قبل الأساس يرى السعر يقفز بعدها.
+    { key: 'mojitoBase', name: 'الأساس', isRequired: true, values: [
+      { name: 'مشروب غازي' },                    // بلا فرق
+      { name: 'مشروب طاقة', priceDelta: 1 },     // 2.50 + 1.00 = 3.50 كما في المنيو
+    ] },
+    { key: 'mojito', name: 'النكهة', isRequired: true, values: [
       { name: 'ليمون ونعنع' }, { name: 'فراولة' }, { name: 'باشن فروت' }, { name: 'بلو بيري' },
       { name: 'مانجا' }, { name: 'رمان' }, { name: 'بلو كوراكاو' }, { name: 'سموك' },
-      // سطرٌ مستقلّ في الملفّ بـ٣٫٥٠ — هنا نكهةٌ بفارق ١٫٠٠ فتُعطي السعر نفسه
-      { name: 'إنرجي درينك', priceDelta: 1 },
     ] },
     { key: 'smoothie', name: 'نكهة السموذي', isRequired: true, values: [
       { name: 'باشن فروت' }, { name: 'بينا كولادا' }, { name: 'تروبيكال' }, { name: 'مكس بيري' },
@@ -89,7 +94,7 @@ const SPEC: MenuSpec = {
         { name: 'آيس شوكليت', price: 3 },
         { name: 'آيس تي', price: 2.5 },
       ] },
-      { name: 'موهيتو', items: [{ name: 'موهيتو', price: 2.5, groups: ['mojito'] }] },
+      { name: 'موهيتو', items: [{ name: 'موهيتو', price: 2.5, groups: ['mojitoBase', 'mojito'] }] },
       { name: 'سموذي', items: [{ name: 'سموذي', price: 3.5, groups: ['smoothie'] }] },
       { name: 'ميلك شيك', items: [{ name: 'ميلك شيك', price: 3, groups: ['shake'] }] },
       { name: 'عصائر طبيعية', items: [
