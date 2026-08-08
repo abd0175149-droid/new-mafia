@@ -146,7 +146,9 @@ declare global {
   }
 }
 
-export const VENUE_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record'] as const;
+// 💨 service.shisha منفصلةٌ عن الطلبات عمداً: مسؤول الأراجيل قد لا يكون
+//    مسؤول المطبخ، ودمجهما يعني إشعار فحمٍ لكلّ من يحضّر الطعام.
+export const VENUE_PERMISSIONS = ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record', 'service.shisha'] as const;
 
 export function requireVenuePermission(perm: string) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {

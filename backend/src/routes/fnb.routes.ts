@@ -7,7 +7,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, and, ne, desc, asc, isNull, inArray, gte, lte, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues } from '../schemas/fnb.schema.js';
+import { menuItems, orders, orderItems, orderInvoices, menuCategories, menuOptionGroups, menuOptionValues, serviceRequests } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations, staff } from '../schemas/admin.schema.js';
 import { sessions, sessionPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
@@ -17,6 +17,7 @@ import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
 import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages } from '../services/fnb-invoice.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
+import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
 import multer from 'multer';
 import path from 'path';
@@ -201,30 +202,25 @@ function validateItemBody(body: any, res: Response): { name: string; price: stri
 // يعيد التركيبة المطبَّعة، أو null بعد أن يردّ 400. صنفٌ عاديّ (isBundle=false) يعيد [] دائماً.
 async function validateBundleBody(
   db: NonNullable<ReturnType<typeof getDB>>, body: any, locId: number, selfId: number | null, res: Response,
-): Promise<{ isBundle: boolean; bundleItems: { menuItemId: number; qty: number }[] } | null> {
+): Promise<{ isBundle: boolean; bundleItems: any[] } | null> {
   if (body.isBundle !== true) return { isBundle: false, bundleItems: [] };
 
-  const raw = Array.isArray(body.bundleItems) ? body.bundleItems : [];
-  const qtyById = new Map<number, number>();
-  for (const c of raw) {
-    const id = parseInt(c?.menuItemId);
-    const qty = parseInt(c?.qty);
-    if (!Number.isFinite(id) || !Number.isFinite(qty) || qty < 1 || qty > 20) {
-      res.status(400).json({ error: 'مكوّن غير صالح (الكمّية 1-20)' }); return null;
-    }
-    if (selfId !== null && id === selfId) { res.status(400).json({ error: 'لا يمكن للباقة أن تحتوي نفسها' }); return null; }
-    qtyById.set(id, (qtyById.get(id) || 0) + qty);
-  }
-  if (qtyById.size === 0) { res.status(400).json({ error: 'الباقة تحتاج مكوّناً واحداً على الأقلّ' }); return null; }
-  if (qtyById.size > MAX_BUNDLE_COMPONENTS) { res.status(400).json({ error: `عدد مكوّنات الباقة كبير جدّاً (حتى ${MAX_BUNDLE_COMPONENTS})` }); return null; }
+  // كلّ صنفٍ قد تشير إليه خانة — ثابتاً كان أو أحد خيارات خانة اختيار
+  const slots = readSlots(body.bundleItems);
+  const ids = slotItemIds(slots);
+  if (ids.length === 0) { res.status(400).json({ error: 'الباقة تحتاج خانةً واحدة على الأقلّ' }); return null; }
 
-  const ids = [...qtyById.keys()];
   const rows = await db.select({ id: menuItems.id, isBundle: menuItems.isBundle }).from(menuItems)
     .where(and(inArray(menuItems.id, ids), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt)));
-  if (rows.length !== ids.length) { res.status(400).json({ error: 'بعض مكوّنات الباقة غير موجودة في منيو مكانك' }); return null; }
-  if (rows.some(r => r.isBundle === true)) { res.status(400).json({ error: 'لا يمكن أن تحتوي الباقة باقةً أخرى' }); return null; }
+  const simple = new Set(rows.filter(r => r.isBundle !== true).map(r => r.id));
 
-  return { isBundle: true, bundleItems: ids.map(id => ({ menuItemId: id, qty: qtyById.get(id)! })) };
+  try {
+    // التحقّق نفسه يخدم الشكلين — والباقات القديمة تمرّ منه بلا ترحيل
+    return { isBundle: true, bundleItems: validateSlotsInput(body.bundleItems, selfId, (id) => simple.has(id)) };
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || 'خانةٌ غير صالحة' });
+    return null;
+  }
 }
 
 // ── POST /menu-items — إضافة صنف ──
@@ -1296,13 +1292,19 @@ export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>,
   const catById = new Map(cats.map(c => [c.id, c]));
   const catOrder = new Map(cats.map((c, i) => [c.id, i]));
 
-  // أسماء المكوّنات تُحلّ من كامل أصناف المكان (المكوّن قد يكون مخفيّاً عن الطلب المباشر)
-  const nameById = new Map<number, string>();
+  // أصناف المكوّنات تُحلّ من كامل أصناف المكان (المكوّن قد يكون مخفيّاً عن الطلب المباشر)
+  const compById = new Map<number, { id: number; name: string; price: string; optionGroupIds: unknown; customOptions: unknown }>();
   if (rows.some(r => r.isBundle)) {
-    const all = await db.select({ id: menuItems.id, name: menuItems.name }).from(menuItems)
-      .where(and(eq(menuItems.locationId, locationId), isNull(menuItems.deletedAt)));
-    for (const a of all) nameById.set(a.id, a.name);
+    const all = await db.select({
+      id: menuItems.id, name: menuItems.name, price: menuItems.price,
+      optionGroupIds: menuItems.optionGroupIds, customOptions: menuItems.customOptions,
+    }).from(menuItems).where(and(eq(menuItems.locationId, locationId), isNull(menuItems.deletedAt)));
+    for (const a of all) compById.set(a.id, a);
   }
+  // خيارات المكوّنات تُحلّ مع خيارات الأصناف نفسها في نداءٍ واحد
+  const compGroups = compById.size > 0
+    ? await resolveOptionGroups(db, [...compById.values()])
+    : new Map();
 
   // ⚙️ مجموعات الخيارات الفعّالة لكلّ صنف — **بلا حصّة نادٍ** (اللاعب يرى فروق السعر فقط)
   const groupsByItem = await resolveOptionGroups(db, rows);
@@ -1317,10 +1319,28 @@ export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>,
       subcategory: parent ? leaf!.name : '',
       name: r.name, description: r.description,
       price: r.price, imageUrl: r.imageUrl, isBundle: r.isBundle === true,
-      components: r.isBundle === true
-        ? (Array.isArray(r.bundleItems) ? r.bundleItems as any[] : [])
-            .map(c => ({ menuItemId: Number(c?.menuItemId), name: nameById.get(Number(c?.menuItemId)) || '', qty: Number(c?.qty) || 1 }))
-            .filter(c => c.name)
+      // 🎁 خانات الباقة: الثابتة باسمها، والاختياريّة بمرشّحيها وخياراتهم —
+      //    كي يهيّئ اللاعب الباقة كاملةً في ورقةٍ واحدة بلا نداءٍ إضافيّ
+      slots: r.isBundle === true
+        ? readSlots(r.bundleItems).map((s, i) => {
+            if (s.kind === 'choice') {
+              return {
+                i, kind: 'choice' as const, label: s.label, note: s.note, qty: s.qty,
+                from: s.from.map(id => {
+                  const c = compById.get(id);
+                  return c ? { menuItemId: id, name: c.name, optionGroups: compGroups.get(id) ?? [] } : null;
+                }).filter(Boolean),
+              };
+            }
+            const c = compById.get(s.menuItemId);
+            const groups = (compGroups.get(s.menuItemId) ?? []) as { name: string }[];
+            return {
+              i, kind: 'fixed' as const, menuItemId: s.menuItemId, name: c?.name || '', qty: s.qty,
+              lockedOptions: s.lockedOptions,
+              // المقفلة تُعرض للعلم ولا تُسأل — فتُستبعَد من مجموعات السؤال
+              optionGroups: groups.filter(g => !(g.name in s.lockedOptions)),
+            };
+          }).filter((s: any) => s.kind === 'choice' ? s.from.length > 0 : s.name)
         : [],
       optionGroups: groupsByItem.get(r.id) ?? [],
       _sort: [
@@ -1339,14 +1359,8 @@ export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>,
     return 0;
   });
 
-  // 🎁 مكوّنات الباقة قد تحمل خياراتٍ يجب أن يختارها اللاعب (قرار: يُسأل عند الطلب)
-  return mapped.map(({ _sort, ...m }) => ({
-    ...m,
-    components: m.components.map(c => ({
-      ...c,
-      optionGroups: (groupsByItem.get(c.menuItemId) ?? []),
-    })),
-  }));
+  // الخانات جاهزةٌ بخياراتها من الأعلى — لا حاجة لمرورٍ ثانٍ
+  return mapped.map(({ _sort, ...m }) => m);
 }
 
 // ── GET /menu — منيو مكان الفعاليّة (المتاح فقط، بلا حصّة النادي) ──
@@ -1380,7 +1394,7 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
   // تطبيع البنود ودمج المكرَّر.
   // ⚙️ المفتاح = الصنف + توليفة خياراته: «أرجيلة/تفاحتين» و«أرجيلة/عنب» بندان
   // منفصلان لا واحدٌ بكمّية 2 — وإلّا حُضّرت نكهةٌ واحدة مرّتين.
-  interface RawLine { menuItemId: number; quantity: number; options: unknown; componentOptions: unknown }
+  interface RawLine { menuItemId: number; quantity: number; options: unknown; componentOptions: unknown; slots: unknown }
   const linesByKey = new Map<string, RawLine>();
   for (const it of rawItems) {
     const id = parseInt(it?.menuItemId);
@@ -1390,14 +1404,18 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     }
     const opts = Array.isArray(it?.options) ? it.options : [];
     const compOpts = Array.isArray(it?.componentOptions) ? it.componentOptions : [];
+    // 🔑 خانات الباقة داخل بصمة الدمج: باقتان بنكهتين مختلفتين سطران مستقلّان،
+    //    وبدونها كانتا تُدمجان في سطرٍ بكمّية ٢ فيضيع أحد الاختيارين.
+    const slots = Array.isArray(it?.slots) ? it.slots : null;
     const sig = JSON.stringify([
       opts.map((o: any) => `${o?.group}|${o?.value}`).sort(),
       compOpts.map((c: any) => `${c?.menuItemId}:${(Array.isArray(c?.options) ? c.options : []).map((o: any) => `${o?.group}|${o?.value}`).sort().join(',')}`).sort(),
+      (slots ?? []).map((s: any) => `${s?.i}:${s?.menuItemId ?? ''}:${(Array.isArray(s?.options) ? s.options : []).map((o: any) => `${o?.group}|${o?.value}`).sort().join(',')}`),
     ]);
     const key = `${id}#${sig}`;
     const prev = linesByKey.get(key);
     if (prev) prev.quantity = Math.min(prev.quantity + qty, 20);
-    else linesByKey.set(key, { menuItemId: id, quantity: qty, options: opts, componentOptions: compOpts });
+    else linesByKey.set(key, { menuItemId: id, quantity: qty, options: opts, componentOptions: compOpts, slots });
   }
   const lines = [...linesByKey.values()];
   if (lines.length > MAX_ITEMS_PER_ORDER) return res.status(400).json({ error: 'عدد بنود الطلب كبير جدّاً' });
@@ -1423,9 +1441,9 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     }
     const itemById = new Map(dbItems.map(m => [m.id, m]));
 
-    // 🎁 مكوّنات الباقات: أصنافها الفعليّة (قد تحمل خياراتٍ يسألها اللاعب)
-    const compIds = [...new Set(dbItems.filter(m => m.isBundle === true).flatMap(m =>
-      (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : []).map(c => Number(c?.menuItemId)).filter(Number.isFinite)))];
+    // 🎁 مكوّنات الباقات: كلّ صنفٍ قد تشير إليه خانة — ثابتاً أو مرشَّحاً لاختيار
+    const compIds = [...new Set(dbItems.filter(m => m.isBundle === true)
+      .flatMap(m => slotItemIds(readSlots(m.bundleItems))))];
     const compRows = compIds.length > 0
       ? await db.select().from(menuItems).where(inArray(menuItems.id, compIds))
       : [];
@@ -1446,27 +1464,28 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
         const m = itemById.get(l.menuItemId)!;
         const { chosen, delta } = validateSelections(groupsByItem.get(m.id) ?? [], l.options, m.name);
 
-        // مكوّنات الباقة وخياراتها
-        const compSel = new Map<number, unknown>();
-        for (const c of (Array.isArray(l.componentOptions) ? l.componentOptions as any[] : [])) {
-          const cid = Number(c?.menuItemId);
-          if (Number.isFinite(cid)) compSel.set(cid, c?.options);
-        }
-        const components: BuiltLine['components'] = [];
+        // 🎁 خانات الباقة: الثابتة تُحلّ وحدها، والاختياريّة من `slots` التي أرسلها
+        //    اللاعب. الشكل القديم `componentOptions` (مفتاحه menuItemId) يبقى مقبولاً
+        //    للنسخ التي لم تُحدَّث بعد — أندرويد وiOS منها.
+        let components: BuiltLine['components'] = [];
         let compDelta = 0;
         if (m.isBundle === true) {
-          for (const raw of (Array.isArray(m.bundleItems) ? m.bundleItems as any[] : [])) {
-            const cid = Number(raw?.menuItemId);
-            const comp = compById.get(cid);
-            if (!comp) continue;
-            const cGroups = groupsByItem.get(cid) ?? [];
-            const r = validateSelections(cGroups, compSel.get(cid), `${comp.name} (داخل ${m.name})`);
-            compDelta += r.delta;
-            components.push({
-              name: comp.name, qty: Number(raw?.qty) || 1,
-              ...(r.chosen.length > 0 ? { options: r.chosen.map(o => ({ group: o.group, value: o.value })) } : {}),
-            });
+          const slots = readSlots(m.bundleItems);
+          let picks = Array.isArray(l.slots) ? l.slots : null;
+          if (!picks) {
+            // ترجمةُ الشكل القديم: خياراتٌ بمعرّف الصنف ⇐ خاناتٌ بالفهرس
+            const byId = new Map<number, unknown>();
+            for (const c of (Array.isArray(l.componentOptions) ? l.componentOptions as any[] : [])) {
+              const cid = Number(c?.menuItemId);
+              if (Number.isFinite(cid)) byId.set(cid, c?.options);
+            }
+            picks = slots.map((s, i) => s.kind === 'fixed'
+              ? { i, options: byId.get(s.menuItemId) }
+              : { i });
           }
+          const r = resolveOrderSlots(slots, picks, m.name, compById as any, groupsByItem);
+          components = r.components;
+          compDelta = r.delta;
         }
 
         built.push({
@@ -1581,6 +1600,148 @@ playerFnbRouter.post('/orders/:id/cancel', authenticatePlayer, async (req: Reque
       .where(and(eq(orders.id, id), eq(orders.playerId, playerId), eq(orders.status, 'new')))
       .returning();
     if (!o) return res.status(400).json({ error: 'لا يمكن إلغاء الطلب — بدأ تحضيره أو غير موجود' });
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ════════════════════════════════════════════
+// 💨 خدمة الأرجيلة — فحمٌ أو تزبيط
+// ليست طلباً: بلا سعرٍ ولا فاتورةٍ ولا أثرٍ في تقارير الدخل. إشارةٌ تصل
+// مسؤول الأراجيل وتُغلَق حين يستجيب.
+// ════════════════════════════════════════════
+
+const SERVICE_KINDS: Record<string, string> = { coal: 'فحم', fix: 'تزبيط الأرجيلة' };
+
+/** هل استلم اللاعب أرجيلةً في هذه الفعاليّة؟ الخدمة بلا أرجيلةٍ بلا معنى. */
+async function hasDeliveredShisha(
+  db: NonNullable<ReturnType<typeof getDB>>, activityId: number, playerId: number,
+): Promise<boolean> {
+  // الاسم الملقوط لحظة الطلب هو المرجع — الصنف قد يُعاد تسميته أو يُحذف لاحقاً،
+  // وبنود الباقة تحمل الأرجيلة داخل components_snapshot لا كصنفٍ مستقلّ.
+  const [row] = await db.select({ n: sql<number>`count(*)::int` })
+    .from(orderItems)
+    .innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(and(
+      eq(orders.activityId, activityId),
+      eq(orders.playerId, playerId),
+      eq(orders.status, 'delivered'),
+      sql`(${orderItems.nameSnapshot} LIKE '%رجيل%'
+           OR ${orderItems.componentsSnapshot}::text LIKE '%رجيل%')`,
+    ));
+  return (row?.n ?? 0) > 0;
+}
+
+// ── GET /service/state — هل تُعرض البطاقة، وهل ثمّة طلبٌ معلَّق؟ ──
+playerFnbRouter.get('/service/state', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const playerId = req.playerAccount!.playerId;
+  try {
+    const ctx = await resolveFnbContext(db, playerId);
+    if (!ctx || 'error' in ctx) return res.json({ success: true, available: false, pending: null });
+
+    const [pending] = await db.select({
+      id: serviceRequests.id, kind: serviceRequests.kind, createdAt: serviceRequests.createdAt,
+    }).from(serviceRequests)
+      .where(and(
+        eq(serviceRequests.activityId, ctx.activityId),
+        eq(serviceRequests.playerId, playerId),
+        eq(serviceRequests.status, 'open'),
+      )).limit(1);
+
+    res.json({
+      success: true,
+      available: await hasDeliveredShisha(db, ctx.activityId, playerId),
+      pending: pending || null,
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── POST /service — طلب فحمٍ أو تزبيط ──
+playerFnbRouter.post('/service', authenticatePlayer, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const playerId = req.playerAccount!.playerId;
+
+  const kind = String(req.body?.kind || '');
+  if (!SERVICE_KINDS[kind]) return res.status(400).json({ error: 'نوع الخدمة غير معروف' });
+  const note = String(req.body?.note || '').trim().slice(0, 120);
+
+  try {
+    const ctx = await resolveFnbContext(db, playerId);
+    if (!ctx) return res.status(403).json({ error: 'لا يوجد نشاط متاح الآن' });
+    if ('error' in ctx) return res.status(403).json({ error: ctx.error });
+
+    if (!(await hasDeliveredShisha(db, ctx.activityId, playerId))) {
+      return res.status(400).json({ error: 'لا توجد أرجيلةٌ مُسلَّمة باسمك في هذه الفعاليّة' });
+    }
+
+    // 🔒 طلبٌ معلَّقٌ واحد: خمس ضغطاتٍ متلاحقة كانت خمسة إشعاراتٍ لموظّفٍ واحد
+    const [open] = await db.select({ id: serviceRequests.id }).from(serviceRequests)
+      .where(and(
+        eq(serviceRequests.activityId, ctx.activityId),
+        eq(serviceRequests.playerId, playerId),
+        eq(serviceRequests.status, 'open'),
+      )).limit(1);
+    if (open) return res.status(429).json({ error: 'طلبك السابق ما زال قيد التنفيذ — الموظّف في الطريق' });
+
+    const [p] = await db.select({ name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
+    const [row] = await db.insert(serviceRequests).values({
+      activityId: ctx.activityId, locationId: ctx.locationId, playerId,
+      playerName: p?.name || 'لاعب', kind, note, physicalId: ctx.physicalId,
+    } as any).returning();
+
+    const label = SERVICE_KINDS[kind];
+    const io = req.app.get('io');
+    if (io) io.to(`location:${ctx.locationId}`).emit('fnb:service-request', { ...row, label });
+    sendPushToLocationStaff(
+      ctx.locationId, 'service.shisha', `💨 ${label}`,
+      `${p?.name || 'لاعب'}${ctx.physicalId ? ` — مقعد ${ctx.physicalId}` : ''}${note ? ` · ${note}` : ''}`,
+      'service_request', { requestId: String(row.id) },
+    ).catch(() => {});
+
+    res.status(201).json({ success: true, request: row });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /service — الطلبات المفتوحة لفعاليّة (شاشة المكان) ──
+venueRouter.get('/service', authenticate, requireVenuePermission('service.shisha'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const rows = await db.select().from(serviceRequests)
+      .where(and(eq(serviceRequests.locationId, locId), eq(serviceRequests.status, 'open')))
+      .orderBy(asc(serviceRequests.createdAt));
+    res.json({ success: true, requests: rows.map(r => ({ ...r, label: SERVICE_KINDS[r.kind] || r.kind })) });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── PUT /service/:id/done — إغلاق الطلب ──
+venueRouter.put('/service/:id/done', authenticate, requireVenuePermission('service.shisha'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  const id = parseInt(req.params.id);
+  try {
+    const [row] = await db.update(serviceRequests)
+      .set({ status: 'done', resolvedBy: req.user!.id, resolvedAt: new Date() } as any)
+      .where(and(eq(serviceRequests.id, id), eq(serviceRequests.locationId, locId), eq(serviceRequests.status, 'open')))
+      .returning();
+    if (!row) return res.status(404).json({ error: 'الطلب غير موجود أو أُغلق' });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`location:${locId}`).emit('fnb:service-done', { id: row.id });
+      // اللاعب يرى بطاقته تعود قابلةً للضغط بلا تحديثٍ يدويّ
+      io.to(`player:${row.playerId}`).emit('fnb:service-done', { id: row.id });
+    }
+    sendPushToPlayer(
+      row.playerId, '💨 تمّت خدمة أرجيلتك',
+      SERVICE_KINDS[row.kind] || 'تمّ', 'service_done',
+    ).catch(() => {});
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

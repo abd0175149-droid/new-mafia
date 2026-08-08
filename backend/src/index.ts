@@ -693,6 +693,21 @@ async function main() {
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS region VARCHAR(80) DEFAULT ''`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0 NOT NULL`);
+      // ── 💨 طلبات خدمة الأرجيلة (2026-08-08) — فحمٌ أو تزبيط، بلا سعرٍ ولا فاتورة ──
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS service_requests (
+        id SERIAL PRIMARY KEY,
+        activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+        location_id INTEGER NOT NULL REFERENCES locations(id),
+        player_id INTEGER NOT NULL REFERENCES players(id),
+        player_name VARCHAR(100) NOT NULL,
+        kind VARCHAR(20) NOT NULL, note TEXT DEFAULT '',
+        physical_id INTEGER, status VARCHAR(12) DEFAULT 'open' NOT NULL,
+        resolved_by INTEGER, resolved_at TIMESTAMP,
+        reminder_sent_at TIMESTAMP, reminder_count INTEGER DEFAULT 0 NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
+      // فهرسٌ للاستعلام الساخن: المفتوح لكلّ فعاليّة (شاشة المكان + الماسح كلّ دقيقة)
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_service_requests_open
+        ON service_requests (activity_id, status)`);
       // ترحيل لمرّة واحدة: كل قيمة category نصّيّة قائمة تصير قسماً رئيساً ويُربط بها أصنافها
       await db.execute(sql`
         INSERT INTO menu_categories (location_id, name, sort_order)

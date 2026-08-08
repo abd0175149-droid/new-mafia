@@ -122,6 +122,30 @@ export const orderItems = pgTable('order_items', {
   optionsSnapshot: jsonb('options_snapshot').default([]),
 });
 
+// ── 💨 طلبات خدمة الأرجيلة ──────────────────────────
+// فحمٌ أو تزبيط: **ليست طلباً** ولا تدخل الفاتورة ولا تُحتسب في الدخل — إشارةٌ
+// تصل مسؤول الأراجيل وتُغلَق حين يستجيب. لذلك جدولٌ مستقلّ لا صنفٌ بسعر صفر:
+// صنفٌ بصفر كان سيظهر في المنيو وفي الفاتورة وفي تقارير المبيعات بلا معنى.
+// 🔒 طلبٌ معلَّقٌ واحدٌ لكلّ لاعب لكلّ فعاليّة — يُفرض في المسار: خمس ضغطاتٍ
+//    متلاحقة كانت خمسة إشعاراتٍ لموظّفٍ واحد.
+export const serviceRequests = pgTable('service_requests', {
+  id: serial('id').primaryKey(),
+  activityId: integer('activity_id').references(() => activities.id, { onDelete: 'cascade' }).notNull(),
+  locationId: integer('location_id').references(() => locations.id).notNull(),
+  playerId: integer('player_id').references(() => players.id).notNull(),
+  playerName: varchar('player_name', { length: 100 }).notNull(),  // لقطة وقت الطلب
+  kind: varchar('kind', { length: 20 }).notNull(),                // coal | fix
+  note: text('note').default(''),
+  physicalId: integer('physical_id'),                             // المقعد إن كان داخل غرفة
+  status: varchar('status', { length: 12 }).default('open').notNull(), // open | done | cancelled
+  resolvedBy: integer('resolved_by'),                             // staff.id
+  resolvedAt: timestamp('resolved_at'),
+  // ⏰ تذكيرٌ إن لم يُستجَب — نفس آليّة الطلبات المتأخّرة
+  reminderSentAt: timestamp('reminder_sent_at'),
+  reminderCount: integer('reminder_count').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ── سجلّ الفواتير (تدقيق + ترقيم تسلسليّ لكل مكان) ────
 export const orderInvoices = pgTable('order_invoices', {
   id: serial('id').primaryKey(),

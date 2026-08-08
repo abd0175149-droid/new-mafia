@@ -44,10 +44,19 @@ export interface SpecItem {
   groups?: string[];
   /** مجموعاتٌ تخصّ هذا الصنف وحده */
   options?: SpecGroup[];
-  /** باقة: مكوّناتٌ **بالاسم** تُحلّ إلى معرّفاتٍ بعد إدخال كلّ الأصناف */
-  bundle?: { name: string; qty?: number }[];
+  /**
+   * باقة: خاناتٌ تُكتب **بأسماء الأصناف** وتُحلّ إلى معرّفاتٍ بعد إدخال الجميع.
+   *   { item }                     ← ثابتة
+   *   { item, lock:{مجموعة:قيمة} } ← ثابتة بخيارٍ مقفل لا يُسأل عنه
+   *   { choice:{label, from:[…]} } ← اختيارٌ واحدٌ من مجموعة
+   */
+  bundle?: SpecSlot[];
   isAvailable?: boolean;
 }
+
+export type SpecSlot =
+  | { item: string; qty?: number; lock?: Record<string, string> }
+  | { choice: { label: string; note?: string; from: string[] }; qty?: number };
 
 export interface SpecSection {
   name: string;
@@ -103,13 +112,17 @@ export function validateSpec(spec: MenuSpec): string[] {
   };
   walk(spec.sections, 0);
 
-  // مكوّنات الباقات يجب أن تكون أصنافاً في الوصف نفسه
+  // مكوّنات الباقات يجب أن تكون أصنافاً في الوصف نفسه — والاسم هو الرابط
   const walkB = (secs: SpecSection[]) => {
     for (const s of secs) {
       for (const it of s.items ?? []) {
         for (const c of it.bundle ?? []) {
-          if (!names.has(c.name)) errs.push(`باقة «${it.name}»: المكوّن «${c.name}» غير موجود في الوصف`);
-          if (c.name === it.name) errs.push(`باقة «${it.name}» تحتوي نفسها`);
+          const refs = 'choice' in c ? c.choice.from : [c.item];
+          if ('choice' in c && (!c.choice.from?.length)) errs.push(`باقة «${it.name}»: خانة اختيارٍ بلا مرشّحين`);
+          for (const n of refs) {
+            if (!names.has(n)) errs.push(`باقة «${it.name}»: المكوّن «${n}» غير موجود في الوصف`);
+            if (n === it.name) errs.push(`باقة «${it.name}» تحتوي نفسها`);
+          }
         }
       }
       if (s.sections) walkB(s.sections);
@@ -178,7 +191,7 @@ export async function applyMenuSpec(
 
   // ── الأقسام والأصناف ──
   const itemId = new Map<string, number>();
-  const pendingBundles: { id: number; parts: { name: string; qty: number }[] }[] = [];
+  const pendingBundles: { id: number; parts: SpecSlot[] }[] = [];
 
   const insertItems = async (items: SpecItem[], catId: number, catName: string) => {
     for (const [ii, it] of items.entries()) {
@@ -198,7 +211,7 @@ export async function applyMenuSpec(
       } as any).returning({ id: menuItems.id });
       itemId.set(it.name, row.id);
       res.items++;
-      if (it.bundle) pendingBundles.push({ id: row.id, parts: it.bundle.map(c => ({ name: c.name, qty: c.qty ?? 1 })) });
+      if (it.bundle) pendingBundles.push({ id: row.id, parts: it.bundle });
     }
   };
 
@@ -224,7 +237,15 @@ export async function applyMenuSpec(
   for (const b of pendingBundles) {
     await db.update(menuItems).set({
       isBundle: true,
-      bundleItems: b.parts.map(p => ({ menuItemId: itemId.get(p.name)!, qty: p.qty })),
+      bundleItems: b.parts.map(p => 'choice' in p
+        ? { qty: p.qty ?? 1, choice: {
+            label: p.choice.label, note: p.choice.note ?? '',
+            from: p.choice.from.map(n => itemId.get(n)!),
+          } }
+        : {
+            menuItemId: itemId.get(p.item)!, qty: p.qty ?? 1,
+            ...(p.lock ? { lockedOptions: p.lock } : {}),
+          }),
     } as any).where(eq(menuItems.id, b.id));
     res.bundles++;
   }

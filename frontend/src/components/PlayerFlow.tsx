@@ -21,6 +21,7 @@ import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import PlayerNotepad from './PlayerNotepad';
 import OrderPanel from './OrderPanel';
+import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
@@ -142,6 +143,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم
   const [fnbReady, setFnbReady] = useState(false);
   const [isOrderOpen, setIsOrderOpen] = useState(false);
+  // 🔴 قفل تمرير الخلفيّة: ورقة الطلب كانت تُفتح بلا قفلٍ فتتحرّك شاشة اللعبة
+  //    تحتها. الهوك نفسه المستعمَل في نافذة استعراض المنيو.
+  const orderModal = useModalScrollLock({ isOpen: isOrderOpen, onClose: () => setIsOrderOpen(false) });
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [isExpelled, setIsExpelled] = useState(false);
@@ -3877,14 +3881,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {isOrderOpen && (
         <div
           className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm"
+          {...orderModal.backdropProps}
           onClick={() => setIsOrderOpen(false)}
         >
+          {/* 🔴 ارتفاعٌ ثابتٌ بلا تمريرٍ هنا: اللوحة تدير تمريرها الداخليّ بين
+              ترويسةٍ وشريطٍ ثابتَين. تمريرٌ خارجيٌّ هنا كان يُخفي شريط السلّة. */}
           <div
-            className="w-full max-w-lg max-h-[88dvh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border-t sm:border border-emerald-500/25"
-            style={{ background: 'linear-gradient(to bottom, #0b1310, #050505)' }}
+            className="w-full max-w-lg h-[88dvh] overflow-hidden rounded-t-3xl sm:rounded-2xl border-t sm:border border-emerald-500/25"
+            style={{ background: '#050505' }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="w-12 h-1.5 rounded-full bg-white/20 mx-auto my-3" />
             <OrderPanel embedded onClose={() => setIsOrderOpen(false)} onEmptyContext={() => setFnbReady(false)} />
           </div>
         </div>

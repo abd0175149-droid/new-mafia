@@ -15,7 +15,7 @@
 
 import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { orders } from '../schemas/fnb.schema.js';
+import { orders, serviceRequests } from '../schemas/fnb.schema.js';
 import { locations } from '../schemas/admin.schema.js';
 import { sendPushToLocationStaff } from './fcm.service.js';
 
@@ -108,12 +108,62 @@ export async function runStalledOrderScan(io?: any): Promise<void> {
   }
 }
 
+// ══════════════════════════════════════════════════════
+// 💨 تذكير طلبات خدمة الأرجيلة — نفس العتبة والسقف
+// من طلب فحماً ولم يصله شيءٌ خلال خمس دقائق لن يطلب ثانيةً: يقوم ويبحث عن
+// موظّف. التذكير هنا يمنع ذلك.
+// ══════════════════════════════════════════════════════
+export async function runStalledServiceScan(io?: any): Promise<void> {
+  const db = getDB();
+  if (!db) return;
+  const now = Date.now();
+  const cutoff = new Date(now - STALL_MS);
+
+  const rows = await db.select({
+    id: serviceRequests.id, locationId: serviceRequests.locationId,
+    playerName: serviceRequests.playerName, kind: serviceRequests.kind,
+    physicalId: serviceRequests.physicalId, createdAt: serviceRequests.createdAt,
+    reminderCount: serviceRequests.reminderCount,
+  }).from(serviceRequests)
+    .where(and(
+      eq(serviceRequests.status, 'open'),
+      lt(serviceRequests.createdAt, cutoff),
+      sql`${serviceRequests.createdAt} > ${new Date(now - LOOKBACK_MS)}`,
+      lt(serviceRequests.reminderCount, MAX_REMINDERS),
+      or(isNull(serviceRequests.reminderSentAt), lt(serviceRequests.reminderSentAt, cutoff)),
+    ))
+    .limit(50);
+
+  for (const r of rows) {
+    const mins = Math.max(5, Math.round((now - new Date(r.createdAt).getTime()) / 60000));
+    const nth = (r.reminderCount ?? 0) + 1;
+    const label = r.kind === 'coal' ? 'فحم' : 'تزبيط أرجيلة';
+    const seat = r.physicalId ? ` — مقعد ${r.physicalId}` : '';
+    try {
+      // الوسم قبل الإرسال — كما في تذكير الطلبات
+      await db.update(serviceRequests).set({
+        reminderSentAt: new Date(), reminderCount: nth,
+      } as any).where(eq(serviceRequests.id, r.id));
+
+      await sendPushToLocationStaff(
+        r.locationId, 'service.shisha', `⏰ ${label} بانتظارك`,
+        `طلب ${r.playerName} منذ ${mins} دقيقة${seat}`,
+        'service_request', { url: '/venue/orders', requestId: String(r.id), reminder: '1' },
+      );
+      if (io) io.to(`location:${r.locationId}`).emit('fnb:service-stalled', { id: r.id, minutes: mins });
+    } catch (err: any) {
+      console.warn(`⚠️ تذكير خدمة ${r.id}:`, err.message);
+    }
+  }
+}
+
 let started = false;
 export function startStalledOrderScheduler(io?: any): void {
   if (started) return;
   started = true;
   setInterval(() => {
     runStalledOrderScan(io).catch(e => console.warn('⚠️ fnb stalled scan:', e.message));
+    runStalledServiceScan(io).catch(e => console.warn('⚠️ service stalled scan:', e.message));
   }, SCAN_EVERY_MS);
   console.log(`⏰ ماسح الطلبات المتأخّرة بدأ (كل ${SCAN_EVERY_MS / 1000}ث · عتبة ${STALL_MS / 60000}د · سقف ${MAX_REMINDERS})`);
 }
