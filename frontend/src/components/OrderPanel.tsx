@@ -399,6 +399,7 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const [tab, setTab] = useState<'pkg' | 'menu' | 'ord'>('menu');
   const [cartOpen, setCartOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [rootTab, setRootTab] = useState('');
   const [chip, setChip] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
@@ -564,15 +565,27 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const packages = items.filter(i => i.isBundle);
   const plain = items.filter(i => !i.isBundle);
   const roots = Array.from(new Set(plain.map(i => i.category || ''))).filter(Boolean);
+  // 🧭 التنقّل مستويان كالشجرة: نوع المنيو أوّلاً ثمّ قسمه.
+  // 🔴 كان شريطاً واحداً يجمع أقسام المشروبات والمأكولات معاً (١٣ شريحة
+  //    مختلطة)، و**قسمٌ رئيسٌ بلا فروع — كالأراجيل — لم يكن له شريحة أصلاً**
+  //    فلا يُوصَل إليه إلّا بالتمرير. الجذر تبويبٌ الآن، وفروعه شرائحه.
+  const activeRoot = roots.includes(rootTab) ? rootTab : (roots[0] || '');
+  const inRoot = plain.filter(i => (i.category || '') === activeRoot);
+  const subs = Array.from(new Set(inRoot.map(i => i.subcategory || ''))).filter(Boolean);
+
   const query = search.trim();
   const shown = query
-    // البحث يمسح المنيو كلّه — من يكتب «برغر» وهو في المشروبات يريد البرغر
-    ? plain.filter(i => i.name.includes(query) || (i.description || '').includes(query))
+    // البحث يمسح المنيو كلّه — من يكتب «برغر» وهو في المشروبات يريد البرغر.
+    // ويشمل القسم والنكهات: من يكتب «نخلة» أو «باربكيو» يقصد صنفاً يحملها خياراً.
+    ? plain.filter(i =>
+        i.name.includes(query)
+        || (i.description || '').includes(query)
+        || (i.subcategory || '').includes(query)
+        || (i.category || '').includes(query)
+        || (i.optionGroups ?? []).some(g => g.values.some(v => v.name.includes(query))))
     : chip
-      ? plain.filter(i => (i.subcategory || i.category || '') === chip)
-      : plain;
-  const subs = chip || query ? [] : roots.flatMap(r =>
-    Array.from(new Set(plain.filter(i => (i.category || '') === r).map(i => i.subcategory || ''))).filter(Boolean));
+      ? inRoot.filter(i => (i.subcategory || '') === chip)
+      : inRoot;
   const groupsShown = Array.from(new Set(shown.map(i => `${i.category || ''}|${i.subcategory || ''}`)));
 
   return (
@@ -676,6 +689,23 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
               )}
             </div>
 
+            {!query && roots.length > 1 && (
+              <div className="flex gap-1 p-1 rounded-xl mb-2" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                {roots.map(r => {
+                  const on = r === activeRoot;
+                  return (
+                    <button key={r} onClick={() => { setRootTab(r); setChip(''); }}
+                      className="flex-1 py-2 rounded-lg text-[11.5px] font-bold transition-colors"
+                      style={on
+                        ? { background: 'rgba(16,185,129,0.18)', color: '#34d399', border: '1px solid rgba(16,185,129,0.35)' }
+                        : { color: '#6b7280', border: '1px solid transparent' }}>
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {!query && subs.length > 1 && (
               <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3" style={{ scrollbarWidth: 'none' }}>
                 <button onClick={() => setChip('')}
@@ -683,7 +713,7 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
                   style={!chip
                     ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
                     : { background: 'rgba(255,255,255,0.04)', color: '#6b7280', border: '1px solid transparent' }}>
-                  الكل ({plain.length})
+                  الكل ({inRoot.length})
                 </button>
                 {subs.map(s => (
                   <button key={s} onClick={() => setChip(chip === s ? '' : s)}
@@ -691,7 +721,7 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
                     style={chip === s
                       ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
                       : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af', border: '1px solid transparent' }}>
-                    {s} <span className="opacity-60">{plain.filter(i => (i.subcategory || i.category || '') === s).length}</span>
+                    {s} <span className="opacity-60">{inRoot.filter(i => (i.subcategory || '') === s).length}</span>
                   </button>
                 ))}
               </div>
