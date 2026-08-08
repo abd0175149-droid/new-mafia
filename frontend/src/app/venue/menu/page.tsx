@@ -352,8 +352,10 @@ export default function VenueMenuPage() {
       ) : (
         categories.map(cat => (
           <div key={cat || '_none'}>
+            {/* المسار كاملاً «مشروبات ← ساخنة»: عمود category نصُّ الورقة وحده،
+                و«ساخنة» مجرَّدةً لا تُميّز منيو المشروبات من منيو المأكولات */}
             <h3 className="text-xs font-bold text-emerald-400/80 mb-2 flex items-center gap-2">
-              <span>{cat || 'بلا فئة'}</span>
+              <span>{catLabel(visibleItems.find(i => (i.category || '') === cat)?.categoryId) || cat || 'بلا فئة'}</span>
               <span className="flex-1 h-px bg-emerald-500/10" />
             </h3>
             <div className="space-y-2">
