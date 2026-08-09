@@ -1374,9 +1374,32 @@ playerFnbRouter.get('/menu', authenticatePlayer, async (req: Request, res: Respo
       .from(activities).where(and(eq(activities.id, activityId), isNull(activities.deletedAt))).limit(1);
     if (!act || !act.enabled || !act.locationId) return res.status(404).json({ error: 'المنيو غير متاح لهذه الفعاليّة' });
 
-    res.json({ success: true, items: await buildPlayerMenu(db, act.locationId) });
+    res.json({ success: true, items: await buildPlayerMenu(db, await effectiveMenuLocation(db, act.locationId)) });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
+
+// ══════════════════════════════════════════════════════
+// 🧪 استعارة المنيو — موقع الاختبار يعرض منيو مكانٍ آخر ويُسعّر منه
+// الغاية: تجربة منيو أيّ مكانٍ بفعاليّةٍ على Test Location بلا فتح فعاليّةٍ
+// حقيقيّة عنده. **العرض والتسعير** وحدهما يُستعاران — الطلبات والفواتير
+// والإشعارات تبقى على موقع الاختبار، فلا يصل موظّفي المكان الحقيقيّ شيء
+// ولا تدخل تجربةٌ في حساباته.
+// 🔒 تُحترم القيمة لمواقع الاختبار حصراً: مكانٌ حقيقيٌّ يستعير منيو غيره
+//    يعني تسعيراً بأسعارِ سواه — بابُ خطأٍ ماليٍّ يُغلَق هنا لا في الواجهة.
+// ══════════════════════════════════════════════════════
+async function effectiveMenuLocation(
+  db: NonNullable<ReturnType<typeof getDB>>, locationId: number,
+): Promise<number> {
+  const [loc] = await db.select({
+    isTest: locations.isTestLocation,
+    src: locations.menuSourceLocationId,
+  }).from(locations).where(eq(locations.id, locationId)).limit(1);
+  if (!loc || loc.isTest !== true || !loc.src) return locationId;
+  // المصدر يجب أن يكون قائماً وغير محذوف — وإلّا عاد الموقع لمنيوه
+  const [src] = await db.select({ id: locations.id }).from(locations)
+    .where(and(eq(locations.id, loc.src), isNull(locations.deletedAt))).limit(1);
+  return src ? src.id : locationId;
+}
 
 const MAX_OPEN_ORDERS_PER_ACTIVITY = 10;
 const MAX_ITEMS_PER_ORDER = 30;
@@ -1434,8 +1457,11 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
 
     // التسعير من قاعدة البيانات حصراً (لا نثق بأسعار العميل)
     const ids = [...new Set(lines.map(l => l.menuItemId))];
+    // 🧪 التسعير من المنيو الفعّال (قد يكون مستعاراً لموقع اختبار) — الطلب نفسه
+    //    يبقى على ctx.locationId فتصل إشعاراته وفواتيره لموقع الاختبار لا للمصدر
+    const menuLocId = await effectiveMenuLocation(db, ctx.locationId);
     const dbItems = await db.select().from(menuItems)
-      .where(and(inArray(menuItems.id, ids), eq(menuItems.locationId, ctx.locationId), eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)));
+      .where(and(inArray(menuItems.id, ids), eq(menuItems.locationId, menuLocId), eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)));
     if (dbItems.length !== ids.length) {
       return res.status(400).json({ error: 'بعض الأصناف لم تعد متاحة — حدّث المنيو وأعد المحاولة' });
     }

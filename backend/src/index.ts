@@ -691,6 +691,8 @@ async function main() {
       await db.execute(sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS custom_options JSONB DEFAULT '[]'::jsonb`);
       await db.execute(sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS options_snapshot JSONB DEFAULT '[]'::jsonb`);
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS region VARCHAR(80) DEFAULT ''`);
+      // 🧪 استعارة منيو لمواقع الاختبار (2026-08-09)
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS menu_source_location_id INTEGER`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0 NOT NULL`);
       // ── 💨 طلبات خدمة الأرجيلة (2026-08-08) — فحمٌ أو تزبيط، بلا سعرٍ ولا فاتورة ──

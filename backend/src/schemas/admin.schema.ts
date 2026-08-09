@@ -33,6 +33,10 @@ export const locations = pgTable('locations', {
   mapUrl: text('map_url').default(''),
   offers: jsonb('offers').default([]),
   isTestLocation: boolean('is_test_location').default(false),
+  // 🧪 استعارة منيو: موقع الاختبار يعرض منيو المكان المُشار إليه في واجهة اللاعب
+  // ويُسعّر منه — والطلبات تبقى معزولةً في موقع الاختبار فلا تصل موظّفي المكان
+  // الحقيقيّ ولا تدخل حساباته. تُحترم القيمة لمواقع الاختبار حصراً (فرضٌ في الخادم).
+  menuSourceLocationId: integer('menu_source_location_id'),
   isActive: boolean('is_active').default(true).notNull(), // 💬 يجيب بوت واتساب عن الأماكن الفعالة فقط
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

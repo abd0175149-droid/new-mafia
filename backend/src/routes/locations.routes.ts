@@ -55,6 +55,9 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
     isActive: isActive !== false,
     // 🧪 مكان اختبار: فعاليّاته لا تظهر إلّا لحسابات الاختبار
     isTestLocation: isTestLocation === true,
+    // 🧪 استعارة منيو منذ الإنشاء — تُحترم لمواقع الاختبار حصراً في effectiveMenuLocation
+    menuSourceLocationId: Number.isFinite(parseInt(String(req.body.menuSourceLocationId)))
+      ? parseInt(String(req.body.menuSourceLocationId)) : null,
   } as any).returning();
 
   const locationId = result[0].id;
@@ -117,6 +120,23 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
   };
   if (isActive !== undefined) patch.isActive = isActive !== false;
   if (isTestLocation !== undefined) patch.isTestLocation = isTestLocation === true;
+
+  // 🧪 استعارة منيو (لمواقع الاختبار): null يفكّها، ورقمٌ يجب أن يكون مكاناً
+  //    قائماً غير المكان نفسه. الفرضُ الفعليّ في effectiveMenuLocation.
+  if (req.body.menuSourceLocationId !== undefined) {
+    const raw = req.body.menuSourceLocationId;
+    if (raw === null || raw === '') {
+      patch.menuSourceLocationId = null;
+    } else {
+      const srcId = parseInt(String(raw));
+      if (!Number.isFinite(srcId)) return res.status(400).json({ error: 'مصدر المنيو غير صالح' });
+      if (srcId === id) return res.status(400).json({ error: 'لا يمكن للمكان أن يستعير منيو نفسه' });
+      const [src] = await db.select({ id: locations.id }).from(locations)
+        .where(and(eq(locations.id, srcId), isNull(locations.deletedAt))).limit(1);
+      if (!src) return res.status(400).json({ error: 'مصدر المنيو غير موجود' });
+      patch.menuSourceLocationId = srcId;
+    }
+  }
 
   await db.update(locations).set(patch as any).where(eq(locations.id, id));
 

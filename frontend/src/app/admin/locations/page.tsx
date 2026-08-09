@@ -60,6 +60,8 @@ export default function LocationsPage() {
   const [region, setRegion] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [isTestLocation, setIsTestLocation] = useState(false);
+  // 🧪 استعارة منيو — معرّف المكان المصدر كسلسلة ('' = بلا استعارة)
+  const [menuSource, setMenuSource] = useState('');
   const [ownerUsername, setOwnerUsername] = useState('');
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -133,7 +135,7 @@ export default function LocationsPage() {
   function handleOpenNew() {
     setEditingLoc(null);
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
-    setIsActive(true); setIsTestLocation(false);
+    setIsActive(true); setIsTestLocation(false); setMenuSource('');
     setIsDialogOpen(true);
   }
 
@@ -144,6 +146,7 @@ export default function LocationsPage() {
     setRegion(loc.region || '');
     setIsActive(loc.isActive !== false);
     setIsTestLocation(loc.isTestLocation === true);
+    setMenuSource(loc.menuSourceLocationId ? String(loc.menuSourceLocationId) : '');
     setMapUrl(loc.mapUrl || '');
     const parsed = (loc.offers || []).map((o: any, i: number) => normalizeOffer(o, i));
     setOffers(parsed);
@@ -157,7 +160,12 @@ export default function LocationsPage() {
     // 🔴 `offers` لا يُرسَل إطلاقاً: normalizeOffer عرضٌ فقط وهو **فاقد** — يُسقط
     // اسم العرض ويُصفّر سعر العروض النصّيّة القديمة. إعادة إرساله كانت تجعل
     // تغيير اسم المكان يُتلف الأرشيف ويُعطّل بوّابة سعر التذكرة في اللوبي.
-    const payload = { name: name.trim(), region: region.trim(), mapUrl, isActive, isTestLocation, ownerUsername: ownerUsername.trim() || undefined };
+    const payload = {
+      name: name.trim(), region: region.trim(), mapUrl, isActive, isTestLocation,
+      // الاستعارة تُرسَل null عند الفكّ أو حين لا يكون الموقع اختباريّاً
+      menuSourceLocationId: isTestLocation && menuSource ? parseInt(menuSource) : null,
+      ownerUsername: ownerUsername.trim() || undefined,
+    };
 
     try {
       if (editingLoc) {
@@ -349,6 +357,27 @@ export default function LocationsPage() {
                   </span>
                 </label>
               </div>
+
+              {/* ── 🧪 استعارة منيو — لمواقع الاختبار حصراً ── */}
+              {isTestLocation && (
+                <div className="bg-amber-500/[0.06] border border-amber-500/25 rounded-xl p-4">
+                  <label className="block text-xs font-bold text-amber-400 mb-1">🍽️ اختبار منيو مكانٍ آخر</label>
+                  <p className="text-[10.5px] text-gray-500 leading-relaxed mb-2.5">
+                    فعاليّات هذا الموقع تعرض المنيو المختار للاعبين وتُسعّر منه — والطلبات تبقى
+                    معزولةً هنا فلا تصل موظّفي المكان الحقيقيّ ولا تدخل حساباته.
+                  </p>
+                  <select
+                    value={menuSource}
+                    onChange={e => setMenuSource(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30"
+                  >
+                    <option value="">منيو هذا الموقع نفسه (بلا استعارة)</option>
+                    {locations.filter(l => l.id !== editingLoc?.id && !l.isTestLocation).map(l => (
+                      <option key={l.id} value={l.id}>منيو {l.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* ── 🍽️ الكتالوج: المنيو ── */}
               <div>
