@@ -680,12 +680,14 @@ export function registerDayEvents(io: Server, socket: Socket) {
       const accusedIds = justData.accused.map((a: any) => a.targetPhysicalId);
       const playerVotes = state.votingState?.playerVotes || {};
 
-      // حساب: من صوّت على أحد المتهمين؟
+      // 🎩 حساب **أصواتٍ** لا رؤوس: صوت العمدة المكشوف دخل عدّاد المتّهم بوزنه،
+      //    فسحبُه يُحسب بالوزن نفسه — وإلّا احتاج المتّهم سحبَ غيره ليُنقذ ممّا
+      //    رجّحه صوتُ العمدة وحده.
       let votersForAccused = 0;
-      for (const [, targetIdx] of Object.entries(playerVotes)) {
+      for (const [voterId, targetIdx] of Object.entries(playerVotes)) {
         const candidate = state.votingState?.candidates?.[targetIdx as number];
         if (candidate && accusedIds.includes(candidate.targetPhysicalId)) {
-          votersForAccused++;
+          votersForAccused += mayorVoteWeight(state, parseInt(voterId));
         }
       }
 
@@ -720,9 +722,10 @@ export function registerDayEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Did not vote for accused' });
       }
 
-      // إنشاء withdrawalState تلقائياً إن لم يكن موجوداً
+      // إنشاء withdrawalState تلقائياً إن لم يكن موجوداً — بمجموع **الأوزان** لا الرؤوس
       if (!state.withdrawalState) {
-        const total = justData.votersForAccused.length;
+        const total = justData.votersForAccused
+          .reduce((s: number, id: number) => s + mayorVoteWeight(state, id), 0);
         const needed = Math.ceil(total / 2); // نصف أو أكثر
         state.withdrawalState = { count: 0, needed, withdrawn: [], accusedIds: justData.accused.map((a: any) => a.targetPhysicalId), total };
       }
@@ -731,7 +734,9 @@ export function registerDayEvents(io: Server, socket: Socket) {
       if (ws.withdrawn.includes(data.physicalId)) return callback({ success: false, error: 'Already withdrawn' });
 
       ws.withdrawn.push(data.physicalId);
-      ws.count = ws.withdrawn.length;
+      // 🎩 السحب بوزن صاحبه: العمدة المكشوف يسحب أصواته الثلاثة (أو ما حدّده
+      //    الليدر) كما أدخلها — يُعاد الجمع من القائمة فيبقى العدّ صحيحاً دائماً
+      ws.count = ws.withdrawn.reduce((s: number, id: number) => s + mayorVoteWeight(state, id), 0);
       await setGameState(roomId, state);
 
       io.to(roomId).emit('day:withdrawal-update', { count: ws.count, needed: ws.needed, total: ws.total, withdrawn: ws.withdrawn });
@@ -759,13 +764,13 @@ export function registerDayEvents(io: Server, socket: Socket) {
           const accusedIds = justData.accused.map((a: any) => a.targetPhysicalId);
           const playerVotes = state.votingState?.playerVotes || {};
 
-          // حساب: من صوّت على أحد المتهمين
+          // حساب: من صوّت على أحد المتهمين — بمجموع **الأوزان** (🎩 العمدة بوزنه)
           let votersForAccused = 0;
           const votersList: number[] = [];
           for (const [voterId, targetIdx] of Object.entries(playerVotes)) {
             const candidate = state.votingState?.candidates?.[targetIdx as unknown as number];
             if (candidate && accusedIds.includes(candidate.targetPhysicalId)) {
-              votersForAccused++;
+              votersForAccused += mayorVoteWeight(state, parseInt(voterId));
               votersList.push(parseInt(voterId));
             }
           }
