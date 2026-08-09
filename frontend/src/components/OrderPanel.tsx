@@ -81,8 +81,23 @@ const LONG_DESC = 40;
 function OptionSheet({ item, onCancel, onConfirm }: {
   item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void;
 }) {
-  const [sel, setSel] = useState<Record<string, string[]>>({});
-  const groups = item.optionGroups ?? [];
+  // الإلزاميّ أوّلاً: «وزن القطعة» قبل ترقية الوجبة — ما يمنع الإرسال يتصدّر
+  const groups = useMemo(() => [...(item.optionGroups ?? [])]
+    .sort((a, b) => Number(b.isRequired) - Number(a.isRequired)), [item]);
+  // ✅ «عادي» يُحدَّد مبدئيّاً: مجموعةٌ إلزاميّةٌ قيمتها الغالبة صفريّة الفرق
+  //    (الدرجة على الساندويشات) كانت نقرةً مفروضةً على كلّ طلب. من يريد الحارّ
+  //    يبدّل بنقرة، ومن لا يريد شيئاً يمرّ بلا توقّف. النكهات لا تُمسّ —
+  //    القاعدة تلتقط القيمة المسمّاة «عادي» حصراً فلا تُرسَل نكهةٌ لم تُقصَد.
+  const [sel, setSel] = useState<Record<string, string[]>>(() => {
+    const init: Record<string, string[]> = {};
+    for (const g of item.optionGroups ?? []) {
+      if (g.isRequired && g.selectionType === 'single') {
+        const normal = g.values.find(v => v.name === 'عادي' && v.priceDelta === 0);
+        if (normal) init[g.key] = [normal.key];
+      }
+    }
+    return init;
+  });
 
   const pick = (g: OptionGroup, vk: string) => setSel(prev => {
     const cur = prev[g.key] ?? [];
@@ -523,6 +538,20 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
     return out;
   }, [items]);
 
+  // 🎁 الأصناف التي تحويها باقة — لشارة «ضمن عرض»: من يتصفّح البرغر يعرف أنّ
+  //    عرضاً يضمّه بسعرٍ أفضل بدل أن يكتشفه بالصدفة
+  const inPackageIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const p of items) {
+      if (!p.isBundle) continue;
+      for (const s of p.slots ?? []) {
+        if (s.kind === 'fixed') ids.add(s.menuItemId);
+        else s.from.forEach(f => ids.add(f.menuItemId));
+      }
+    }
+    return ids;
+  }, [items]);
+
   const query = search.trim();
   // البحث يمسح المنيو كلّه — الاسم والوصف والقسم وقيم الخيارات (نكهة «نخلة» تُرجع الأرجيلة)
   const results = useMemo(() => !query ? [] : items.filter(i =>
@@ -697,12 +726,20 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
         <div className="flex-1 min-w-0">
           <p className="text-white text-[13px] font-semibold truncate leading-snug">{it.name}</p>
           {it.description && <p className="text-gray-500 text-[10px] truncate mt-0.5">{it.description}</p>}
-          {hasOpts && (
-            <span className="inline-block text-[9px] mt-1 px-1.5 py-0.5 rounded-md"
-              style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#fcd34d' }}>
-              ⚙️ {optionHint(it)}
-            </span>
-          )}
+          <span className="flex items-center gap-1 mt-1">
+            {hasOpts && (
+              <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-md"
+                style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#fcd34d' }}>
+                ⚙️ {optionHint(it)}
+              </span>
+            )}
+            {inPackageIds.has(it.id) && (
+              <span className="inline-block text-[9px] px-1.5 py-0.5 rounded-md"
+                style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.28)', color: '#c4b5fd' }}>
+                🎁 ضمن عرض
+              </span>
+            )}
+          </span>
         </div>
         <div className="shrink-0 flex flex-col items-end gap-1">
           <p className="text-emerald-400 text-[14px] font-black leading-none tabular-nums">
