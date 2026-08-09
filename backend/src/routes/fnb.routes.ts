@@ -780,7 +780,9 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
 
 // ── GET /invoices/:activityId/:playerId — تفاصيل الفاتورة للعرض (بلا إصدار رقم) ──
 // القراءة لا تستهلك رقماً ولا تختم طباعةً — لذا تُفتح التفاصيل بحرّية.
-venueRouter.get('/invoices/:activityId/:playerId', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
+// 🔴 القيد الرقميّ (\d+) ضروريّ: بدونه يلتقط هذا المسار «print-all» كمعرّف لاعبٍ
+//    — فكان زرّ طباعة كلّ الفواتير يعيد 400 دائماً (اكتشفه الفحص الشامل 2026-08-10)
+venueRouter.get('/invoices/:activityId/:playerId(\\d+)', authenticate, requireVenuePermission('invoices.print'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
   const locId = resolveVenueLocation(req, res);
