@@ -984,26 +984,48 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
         )}
       </div>
 
-      {/* ══ شريط السلّة الثابت — يفتح الدرج من أيّ موضع ══ */}
+      {/* ══ شريط السلّة الثابت — يفتح الدرج من أيّ موضع ══
+          🔴 كهرمانيٌّ نابضٌ لا أخضر هادئ: الأخضر يقول «تمّ» والسلّة لم تُرسَل —
+          لاعبٌ أضاف وانشغل باللعبة يظنّ طلبه وصل الكافيه وهو لم يغادر جيبه. */}
       <AnimatePresence>
         {cartCount > 0 && (
           <motion.button
-            initial={{ y: 70 }} animate={{ y: 0 }} exit={{ y: 70 }}
-            transition={{ type: 'spring', damping: 26, stiffness: 320 }}
+            initial={{ y: 70 }}
+            animate={{
+              y: 0,
+              boxShadow: [
+                '0 -2px 14px rgba(245,158,11,0.10)',
+                '0 -6px 26px rgba(245,158,11,0.32)',
+                '0 -2px 14px rgba(245,158,11,0.10)',
+              ],
+            }}
+            exit={{ y: 70 }}
+            transition={{
+              y: { type: 'spring', damping: 26, stiffness: 320 },
+              boxShadow: { duration: 1.6, repeat: Infinity, ease: 'easeInOut' },
+            }}
             onClick={() => setCartOpen(true)}
             className="shrink-0 w-full px-3 py-2.5 flex items-center gap-2.5 border-t"
-            style={{ background: 'rgba(6,20,14,0.97)', borderColor: 'rgba(16,185,129,0.32)' }}
+            style={{ background: 'rgba(28,19,5,0.97)', borderColor: 'rgba(245,158,11,0.5)' }}
           >
             <span className="w-9 h-9 rounded-xl flex items-center justify-center text-sm font-black shrink-0"
-              style={{ background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.4)', color: '#34d399' }}>
+              style={{ background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.45)', color: '#fcd34d' }}>
               {cartCount}
             </span>
             <div className="flex-1 min-w-0 text-right">
-              <b className="block text-[13px] font-black text-emerald-400 tabular-nums">{money(cartTotal)} د.أ</b>
-              <span className="text-[10px] text-gray-500">اضغط لعرض السلّة وتعديلها</span>
+              <b className="flex items-center gap-1.5 text-[12.5px] font-black" style={{ color: '#fcd34d' }}>
+                <motion.span
+                  animate={{ opacity: [1, 0.25, 1] }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                  className="w-2 h-2 rounded-full shrink-0" style={{ background: '#f59e0b' }} />
+                لم يُرسَل بعد — <span className="tabular-nums">{money(cartTotal)} د.أ</span>
+              </b>
+              <span className="text-[10px]" style={{ color: 'rgba(252,211,77,0.55)' }}>
+                طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال
+              </span>
             </div>
             <span className="px-4 py-2.5 rounded-xl text-[12.5px] font-bold text-white shrink-0"
-              style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}>السلّة ←</span>
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}>راجع وأرسل ←</span>
           </motion.button>
         )}
       </AnimatePresence>
@@ -1012,7 +1034,8 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
       {cartOpen && cart.length > 0 && (
         <Sheet
           title="🛒 سلّتك"
-          subtitle="عدّل أو احذف من هنا — بلا تمرير"
+          subtitle="لم تُرسَل بعد — راجعها ثمّ اضغط زرّ الإرسال بالأسفل"
+          subtitleWarn
           onClose={() => setCartOpen(false)}
           footer={
             <>
