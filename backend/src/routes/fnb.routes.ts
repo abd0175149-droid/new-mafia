@@ -1387,7 +1387,7 @@ playerFnbRouter.get('/menu', authenticatePlayer, async (req: Request, res: Respo
 // 🔒 تُحترم القيمة لمواقع الاختبار حصراً: مكانٌ حقيقيٌّ يستعير منيو غيره
 //    يعني تسعيراً بأسعارِ سواه — بابُ خطأٍ ماليٍّ يُغلَق هنا لا في الواجهة.
 // ══════════════════════════════════════════════════════
-async function effectiveMenuLocation(
+export async function effectiveMenuLocation(
   db: NonNullable<ReturnType<typeof getDB>>, locationId: number,
 ): Promise<number> {
   const [loc] = await db.select({

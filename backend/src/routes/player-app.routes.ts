@@ -10,7 +10,7 @@ import { players, playerFollows } from '../schemas/player.schema.js';
 import { matchPlayers, matches, sessions } from '../schemas/game.schema.js';
 import { bookings, activities, locations, reservations } from '../schemas/admin.schema.js';
 import { menuItems } from '../schemas/fnb.schema.js';
-import { buildPlayerMenu } from './fnb.routes.js';
+import { buildPlayerMenu, effectiveMenuLocation } from './fnb.routes.js';
 import { authenticatePlayer, requireNoPendingFeedback } from '../middleware/player-auth.middleware.js';
 import { buildDisplayBreakdown } from '../services/progression.service.js';
 import { getProgressionConfig } from './progression-settings.routes.js';
@@ -278,6 +278,12 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       .from(menuItems)
       .where(and(eq(menuItems.isAvailable, true), isNull(menuItems.deletedAt)));
     const menuLocIds = new Set(menuLocRows.map(r => r.locationId));
+    // 🧪 الاستعارة تنعكس هنا أيضاً: موقع اختبارٍ بلا أصنافٍ خاصّة كان يفقد زرّ
+    //    المنيو أصلاً — فيبدو الاختبار «معطّلاً» وهو يعمل. خريطة استعارةٍ واحدة.
+    const borrowRows = await db.select({ id: locations.id, src: locations.menuSourceLocationId })
+      .from(locations)
+      .where(and(eq(locations.isTestLocation, true), isNull(locations.deletedAt)));
+    const borrowMap = new Map(borrowRows.filter(r => r.src).map(r => [r.id, r.src as number]));
 
     // لكل نشاط: عدد الحاجزين
     const enriched = await Promise.all(filtered.map(async (act) => {
@@ -297,7 +303,8 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
       return {
         ...act,
         locationOffers: activeOffers,
-        hasMenu: act.locationId ? menuLocIds.has(act.locationId) : false,  // 🍽️ للاعب: زرّ استعراض المنيو وقت الحجز
+        // 🍽️ للاعب: زرّ استعراض المنيو وقت الحجز — بالمنيو الفعّال (قد يكون مستعاراً)
+        hasMenu: act.locationId ? menuLocIds.has(borrowMap.get(act.locationId) ?? act.locationId) : false,
         bookedCount: countResult?.total || 0,
         maxPlayers: act.maxCapacity || 20,
       };
@@ -323,7 +330,15 @@ router.get('/locations/:locId/menu', async (req: Request, res: Response) => {
     const [loc] = await db.select({ id: locations.id, name: locations.name })
       .from(locations).where(and(eq(locations.id, locId), isNull(locations.deletedAt))).limit(1);
     if (!loc) return res.status(404).json({ error: 'المكان غير موجود' });
-    res.json({ success: true, locationName: loc.name, items: await buildPlayerMenu(db, locId) });
+    // 🧪 الاستعارة: موقع الاختبار يعرض منيو مصدره — وباسم المصدر ليصدُق العنوان
+    const effLocId = await effectiveMenuLocation(db, locId);
+    let displayName = loc.name;
+    if (effLocId !== locId) {
+      const [src] = await db.select({ name: locations.name }).from(locations)
+        .where(eq(locations.id, effLocId)).limit(1);
+      if (src) displayName = `${src.name} (تجربة)`;
+    }
+    res.json({ success: true, locationName: displayName, items: await buildPlayerMenu(db, effLocId) });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
