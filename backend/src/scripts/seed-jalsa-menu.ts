@@ -102,9 +102,13 @@ const SPEC: MenuSpec = {
         { name: 'آيس شوكليت', price: 3 },
         { name: 'آيس تي', price: 2.5 },
       ] },
-      { name: 'موهيتو', items: [{ name: 'موهيتو', price: 2.5, groups: ['mojitoBase', 'mojito'] }] },
-      { name: 'سموذي', items: [{ name: 'سموذي', price: 3.5, groups: ['smoothie'] }] },
-      { name: 'ميلك شيك', items: [{ name: 'ميلك شيك', price: 3, groups: ['shake'] }] },
+      // قسمٌ مدموج (قرار 2026-08-09): ثلاثة أقسامٍ بصنفٍ واحد كانت عناوين
+      // تكرّر أسماء بطاقاتها حرفيّاً — البطاقة هنا «عائلة» تخفي نكهاتها خلفها.
+      { name: 'مخفوقات وموهيتو', items: [
+        { name: 'موهيتو', price: 2.5, groups: ['mojitoBase', 'mojito'] },
+        { name: 'سموذي', price: 3.5, groups: ['smoothie'] },
+        { name: 'ميلك شيك', price: 3, groups: ['shake'] },
+      ] },
       { name: 'عصائر طبيعية', items: [
         { name: 'عصير ليمون', price: 3 },
         { name: 'عصير ليمون ونعنع', price: 3 },
@@ -185,8 +189,7 @@ const SPEC: MenuSpec = {
         //    باقةٌ مركَّبة لا صنفاً مسطَّحاً — فتُطبع مكوّناتها مُسنَّنةً في الفاتورة.
         { name: 'حوّلها إلى وجبة', price: 1, description: 'بطاطا مقلية + مشروب غازي — بدل 1.10 منفصلَين',
           bundle: [{ item: 'بطاطا مقلية' }, { item: 'مشروب غازي' }] },
-      ] },
-      { name: 'صوصات', items: [
+        // قسم «صوصات» أُدمج هنا (قرار 2026-08-09) — كان قسماً لصنفٍ واحد
         { name: 'صوص', price: 0.4, groups: ['sauce'], description: 'علبة — سعرٌ موحَّد لكلّ الأنواع' },
       ] },
     ] },

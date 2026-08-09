@@ -2,23 +2,24 @@
 
 // ══════════════════════════════════════════════════════
 // 🍽️ لوحة طلب اللاعب — المنيو والعروض والسلّة
-// إعادة بناء 2026-08-08 على بنيةٍ ثلاثيّة: **ثابتٌ · متمرّرٌ · ثابت**.
-// المشاكل التي أوجبتها (تشخيصٌ من الاستعمال الفعليّ على منيو ٦٧ صنفاً):
-//   ① السلّة كانت كتلةً في ذيل التمرير — لحذف صنفٍ يُنزَل تحت المنيو كلّه.
-//      صارت **درجاً** يفتحه الشريط السفليّ الثابت من أيّ موضع.
-//   ② «طلباتي» و«المنيو» و«السلّة» في عمودٍ واحد — من عنده طلباتٌ سابقة يمرّ
-//      عليها قبل أوّل صنف. صارت **تبويبات**، كلٌّ مهمّةٌ واحدة.
-//   ③ لا شيء يقود العين عبر عشرات البطاقات المتشابهة — تدرّجٌ صريح الآن:
-//      الاسم، ثمّ السعر بوزنٍ وحجمٍ مختلفَين، والباقي رماديٌّ صغير.
-//   ④ العروض كانت تُدفَن بين الأصناف رغم أنّها أعلى قيمةٍ وأسهل قرار — صارت
-//      التبويب الأوّل ببطاقةٍ بنفسجيّة تختلف شكلاً لا لوناً فقط.
+// بنيةٌ ثلاثيّة: **ثابتٌ · متمرّرٌ · ثابت** — الإغلاق والتنقّل والسلّة لا تغيب.
 //
-// 🎁 الباقة صارت **خانات**: ثابتة · ثابتة بخيارٍ مقفل · اختيارٌ من مجموعة.
-//    والسعر ثابتٌ إلّا فرقاً معلَناً على خيارٍ اختاره اللاعب (تفاحتين نخلة +١).
+// 🧭 التنقّل (قرار 2026-08-09 بعد موازنة ثلاثة سيناريوهات):
+//   كان تبويباتٍ + تبويبَي جذرٍ + شرائحَ تصفية — ثلاث طبقاتٍ قبل أوّل صنف،
+//   والتصفية تُخفي بقيّة المنيو. صار **قائمةً واحدةً متّصلة** بكلّ الأقسام
+//   وشريطَ شرائحَ لاصقاً يعمل قفزاً لا تصفية: يضيء على القسم الظاهر أثناء
+//   التمرير (scroll-spy) وينقل إليه بنقرة. النمط الذي اعتاده الجميع من
+//   تطبيقات التوصيل: تصفّحٌ بصفر نقرات، وقفزٌ لأيّ قسمٍ بنقرة.
+//   والعروض صارت أوّل قسمٍ في القائمة نفسها — فالتبويبات اثنان لا ثلاثة.
+//
+// 🎁 الباقة خانات: ثابتة · ثابتة بخيارٍ مقفل · اختيارٌ من مجموعة. السعر ثابتٌ
+//    إلّا فرقاً معلَناً على خيارٍ اختاره اللاعب (تفاحتين نخلة +١) — يمرّ ويُعرض.
+// 📖 الوصف الطويل (مكوّنات البرغر) لم يعد يُبتر: صنفٌ بلا خياراتٍ ووصفُه طويل
+//    يفتح ورقة تفصيلٍ كاملة، وذو الخيارات يعرض وصفه كاملاً داخل ورقته.
 // 💨 خدمة الأرجيلة تسكن «طلباتي» لأنّها متعلّقةٌ بطلبٍ وصل لا صنفٌ يُشترى.
 // ══════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 
@@ -71,6 +72,8 @@ const STATUS_META: Record<string, { label: string; color: string; icon: string }
 };
 
 const money = (n: number) => n.toFixed(2);
+/** وصفٌ أطول من هذا لا يُقرأ في سطر البطاقة المبتور — يستحقّ ورقة تفصيل */
+const LONG_DESC = 40;
 
 // ══════════════════════════════════════════════════════
 // ⚙️ ورقة خيارات صنفٍ مفرد
@@ -128,6 +131,12 @@ function OptionSheet({ item, onCancel, onConfirm }: {
         </>
       }
     >
+      {/* 📖 الوصف كاملاً — البطاقة تبتره والقرار يحتاجه (مكوّنات البرغر) */}
+      {item.description && (
+        <p className="text-[11.5px] text-gray-400 leading-relaxed mb-3 pb-3 border-b border-dashed border-white/10">
+          {item.description}
+        </p>
+      )}
       {groups.map((g, gi) => {
         const cur = sel[g.key] ?? [];
         const done = cur.length > 0;
@@ -162,7 +171,6 @@ function PackageSheet({ item, onCancel, onConfirm }: {
   item: Item; onCancel: () => void; onConfirm: (line: CartLine) => void;
 }) {
   const slots = item.slots ?? [];
-  // اختيار الصنف لكلّ خانة + قيم مجموعاته
   const [chosen, setChosen] = useState<Record<number, number | undefined>>(() => {
     const init: Record<number, number | undefined> = {};
     slots.forEach(s => { if (s.kind === 'fixed') init[s.i] = s.menuItemId; });
@@ -188,7 +196,8 @@ function PackageSheet({ item, onCancel, onConfirm }: {
   const doneCount = slots.filter(slotDone).length;
   const ready = doneCount === slots.length;
 
-  // 💰 فرقٌ يمرّ عبر الباقة — يُعرض قبل الإضافة لا يُبتلع صامتاً
+  // 💰 فرقٌ يمرّ عبر الباقة — يُعرض قبل الإضافة لا يُبتلع صامتاً (قرار المالك:
+  //    الحجم والنكهة الفاخرة زيادةٌ معلَنة فوق سعر العرض)
   let extra = 0;
   for (const s of slots) {
     for (const g of groupsOf(s)) {
@@ -224,7 +233,7 @@ function PackageSheet({ item, onCancel, onConfirm }: {
     <Sheet
       title={`🎁 ${item.name}`}
       subtitle={extra > 0
-        ? `${money(parseFloat(item.price))} + ${money(extra)} فرق نكهة = ${money(unitPrice)} د.أ • اكتمل ${doneCount} من ${slots.length}`
+        ? `${money(parseFloat(item.price))} + ${money(extra)} زيادة اختيارك = ${money(unitPrice)} د.أ • اكتمل ${doneCount} من ${slots.length}`
         : `سعرٌ ثابت ${money(parseFloat(item.price))} د.أ • اكتمل ${doneCount} من ${slots.length}`}
       subtitleWarn={extra > 0}
       onClose={onCancel}
@@ -242,6 +251,9 @@ function PackageSheet({ item, onCancel, onConfirm }: {
         </>
       }
     >
+      {item.description && (
+        <p className="text-[11.5px] text-gray-400 leading-relaxed mb-3">{item.description}</p>
+      )}
       {slots.map((s, si) => {
         const ok = slotDone(s);
         const groups = groupsOf(s);
@@ -316,8 +328,38 @@ function PackageSheet({ item, onCancel, onConfirm }: {
         );
       })}
       <p className="text-[10px] text-gray-600 text-center mt-2">
-        اختياراتك لا تغيّر السعر — إلّا ما عليه فرقٌ معلَن
+        اختياراتك لا تغيّر السعر — إلّا ما عليه زيادةٌ معلَنة
       </p>
+    </Sheet>
+  );
+}
+
+// ══════════════════════════════════════════════════════
+// 📖 ورقة تفصيل صنفٍ بلا خيارات — الوصف الطويل يُقرأ هنا كاملاً
+// ══════════════════════════════════════════════════════
+function DetailSheet({ item, onCancel, onAdd }: {
+  item: Item; onCancel: () => void; onAdd: () => void;
+}) {
+  return (
+    <Sheet
+      title={item.name}
+      subtitle={`${money(parseFloat(item.price))} د.أ`}
+      onClose={onCancel}
+      footer={
+        <>
+          <button onClick={onAdd}
+            className="flex-1 py-3 rounded-xl text-sm font-bold text-white"
+            style={{ background: 'linear-gradient(135deg, #10b981, #0d9488)' }}>
+            أضف للسلّة • {money(parseFloat(item.price))} د.أ
+          </button>
+          <button onClick={onCancel} className="px-4 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-gray-400">إغلاق</button>
+        </>
+      }
+    >
+      {item.imageUrl && (
+        <img src={item.imageUrl} alt="" className="w-full h-40 object-cover rounded-2xl mb-3" />
+      )}
+      <p className="text-[13px] text-gray-300 leading-relaxed">{item.description}</p>
     </Sheet>
   );
 }
@@ -381,6 +423,9 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer }: {
   );
 }
 
+/** قسمٌ في القائمة المتّصلة — العروض أوّلاً ثمّ الأقسام بترتيب الخادم */
+interface Section { key: string; chip: string; title: string; isPkg: boolean; items: Item[] }
+
 // ══════════════════════════════════════════════════════
 export default function OrderPanel({ embedded = false, onClose, onEmptyContext }: {
   embedded?: boolean;
@@ -396,11 +441,11 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [picking, setPicking] = useState<Item | null>(null);
-  const [tab, setTab] = useState<'pkg' | 'menu' | 'ord'>('menu');
+  const [viewing, setViewing] = useState<Item | null>(null);
+  const [tab, setTab] = useState<'menu' | 'ord'>('menu');
   const [cartOpen, setCartOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [rootTab, setRootTab] = useState('');
-  const [chip, setChip] = useState('');
+  const [activeSec, setActiveSec] = useState('');
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
@@ -408,6 +453,13 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   // 💨 خدمة الأرجيلة
   const [svc, setSvc] = useState<{ available: boolean; pending: { id: number; kind: string } | null }>({ available: false, pending: null });
   const [svcBusy, setSvcBusy] = useState(false);
+
+  // 🧭 مراجع القفز والرصد — القائمة المتّصلة
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickyRef = useRef<HTMLDivElement>(null);
+  const secRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const tickRef = useRef(false);
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${player?.token || ''}` }), [player?.token]);
 
@@ -431,11 +483,7 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
         if (!d.success || !d.context) { setReason(d.reason || ''); onEmptyContext?.(); return; }
         setCtx(d.context);
         const menuRes = await fetch(`/api/fnb/menu?activityId=${d.context.activityId}`, { headers }).then(r => r.json());
-        if (menuRes.success) {
-          setItems(menuRes.items);
-          // العروض تبويبٌ افتتاحيّ حين توجد — أعلى قيمةٍ وأسهل قرار
-          if ((menuRes.items as Item[]).some(i => i.isBundle)) setTab('pkg');
-        }
+        if (menuRes.success) setItems(menuRes.items);
         loadOrders(d.context.activityId);
         loadSvc();
       })
@@ -454,6 +502,64 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
     document.addEventListener('visibilitychange', refresh);
     return () => { clearInterval(iv); document.removeEventListener('visibilitychange', refresh); };
   }, [ctx, loadOrders, loadSvc]);
+
+  // ── الأقسام: العروض أوّلاً (أعلى قيمة وأسهل قرار) ثمّ ترتيب الخادم ──
+  const sections = useMemo<Section[]>(() => {
+    const out: Section[] = [];
+    const packages = items.filter(i => i.isBundle);
+    if (packages.length) out.push({ key: '_pkg', chip: '🎁 العروض', title: '🎁 العروض', isPkg: true, items: packages });
+    const idx = new Map<string, Section>();
+    for (const it of items) {
+      if (it.isBundle) continue;
+      const cat = it.category || '', sub = it.subcategory || '';
+      const key = `${cat}|${sub}`;
+      let s = idx.get(key);
+      if (!s) {
+        s = { key, chip: sub || cat || 'المنيو', title: sub ? `${cat} ← ${sub}` : (cat || 'المنيو'), isPkg: false, items: [] };
+        idx.set(key, s); out.push(s);
+      }
+      s.items.push(it);
+    }
+    return out;
+  }, [items]);
+
+  const query = search.trim();
+  // البحث يمسح المنيو كلّه — الاسم والوصف والقسم وقيم الخيارات (نكهة «نخلة» تُرجع الأرجيلة)
+  const results = useMemo(() => !query ? [] : items.filter(i =>
+    i.name.includes(query)
+    || (i.description || '').includes(query)
+    || (i.subcategory || '').includes(query)
+    || (i.category || '').includes(query)
+    || (i.optionGroups ?? []).some(g => g.values.some(v => v.name.includes(query)))
+  ), [items, query]);
+
+  // ── 🧭 الرصد: أيّ قسمٍ تحت العين الآن؟ (rAF — لا حسابَ في كلّ حدث تمرير) ──
+  const onBodyScroll = () => {
+    if (tickRef.current || query || tab !== 'menu') return;
+    tickRef.current = true;
+    requestAnimationFrame(() => {
+      tickRef.current = false;
+      const c = scrollRef.current;
+      if (!c) return;
+      const top = c.scrollTop + (stickyRef.current?.offsetHeight ?? 90) + 24;
+      let cur = sections[0]?.key ?? '';
+      for (const s of sections) {
+        const el = secRefs.current[s.key];
+        if (el && el.offsetTop <= top) cur = s.key;
+      }
+      setActiveSec(p => (p === cur ? p : cur));
+    });
+  };
+  const jump = (key: string) => {
+    const c = scrollRef.current, el = secRefs.current[key];
+    if (!c || !el) return;
+    c.scrollTo({ top: el.offsetTop - (stickyRef.current?.offsetHeight ?? 90) - 4, behavior: 'smooth' });
+    setActiveSec(key);
+  };
+  // الشريحة المضيئة تلاحق التمرير — تبقى مرئيّةً في شريطها الأفقيّ
+  useEffect(() => {
+    chipRefs.current[activeSec]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, [activeSec]);
 
   // ── السلّة ──
   const bumpLine = (line: CartLine) => setCart(prev => {
@@ -478,19 +584,24 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
     it.isBundle === true || (it.optionGroups?.length ?? 0) > 0;
 
   const optionHint = (it: Item) => {
-    const names = (it.optionGroups ?? []).map(g => g.name);
-    if (names.length === 0) return 'خيارات';
-    if (names.length <= 2) return names.join(' · ');
-    return `${names[0]} +${names.length - 1}`;
+    const gs = it.optionGroups ?? [];
+    if (gs.length === 0) return 'خيارات';
+    // مجموعةٌ واحدة ⇒ العدد أنفع من الاسم: «٧ نكهات» تُخبر أكثر من «النكهة»
+    if (gs.length === 1) return `${gs[0].values.length} ${gs[0].name}`;
+    if (gs.length === 2) return gs.map(g => g.name).join(' · ');
+    return `${gs[0].name} +${gs.length - 1}`;
   };
 
   const addItem = (it: Item) => {
     if (needsPicking(it)) { setPicking(it); return; }
-    bumpLine({
-      key: `${it.id}#`, itemId: it.id, name: it.name, quantity: 1,
-      options: [], slots: [], unitPrice: parseFloat(it.price), label: '', isBundle: false,
-    });
+    // 📖 وصفٌ طويل بلا خيارات (كرسبي · وجبات الأطفال): يُقرأ قبل أن يُشترى
+    if ((it.description || '').length > LONG_DESC) { setViewing(it); return; }
+    addSimple(it);
   };
+  const addSimple = (it: Item) => bumpLine({
+    key: `${it.id}#`, itemId: it.id, name: it.name, quantity: 1,
+    options: [], slots: [], unitPrice: parseFloat(it.price), label: '', isBundle: false,
+  });
 
   const submit = async () => {
     if (cartCount === 0 || !ctx) return;
@@ -562,31 +673,84 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
     );
   }
 
-  const packages = items.filter(i => i.isBundle);
-  const plain = items.filter(i => !i.isBundle);
-  const roots = Array.from(new Set(plain.map(i => i.category || ''))).filter(Boolean);
-  // 🧭 التنقّل مستويان كالشجرة: نوع المنيو أوّلاً ثمّ قسمه.
-  // 🔴 كان شريطاً واحداً يجمع أقسام المشروبات والمأكولات معاً (١٣ شريحة
-  //    مختلطة)، و**قسمٌ رئيسٌ بلا فروع — كالأراجيل — لم يكن له شريحة أصلاً**
-  //    فلا يُوصَل إليه إلّا بالتمرير. الجذر تبويبٌ الآن، وفروعه شرائحه.
-  const activeRoot = roots.includes(rootTab) ? rootTab : (roots[0] || '');
-  const inRoot = plain.filter(i => (i.category || '') === activeRoot);
-  const subs = Array.from(new Set(inRoot.map(i => i.subcategory || ''))).filter(Boolean);
+  // ── بطاقتا الصنف والعرض — تُستعملان في الأقسام وفي نتائج البحث ──
+  const ItemCard = (it: Item) => {
+    const qty = qtyOfItem(it.id);
+    const hasOpts = (it.optionGroups?.length ?? 0) > 0;
+    const longDesc = !hasOpts && (it.description || '').length > LONG_DESC;
+    return (
+      <button key={it.id} onClick={() => addItem(it)}
+        className="w-full text-right rounded-2xl p-2.5 flex items-center gap-2.5 active:scale-[0.99] transition-transform"
+        style={{
+          background: qty > 0 ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.03)',
+          border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)',
+        }}>
+        <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-800/75 flex items-center justify-center shrink-0 relative">
+          {it.imageUrl
+            ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" />
+            : <span className="text-lg opacity-70">🍴</span>}
+          {qty > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[9.5px] font-black flex items-center justify-center text-black"
+              style={{ background: '#34d399' }}>{qty}</span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-[13px] font-semibold truncate leading-snug">{it.name}</p>
+          {it.description && <p className="text-gray-500 text-[10px] truncate mt-0.5">{it.description}</p>}
+          {hasOpts && (
+            <span className="inline-block text-[9px] mt-1 px-1.5 py-0.5 rounded-md"
+              style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#fcd34d' }}>
+              ⚙️ {optionHint(it)}
+            </span>
+          )}
+        </div>
+        <div className="shrink-0 flex flex-col items-end gap-1">
+          <p className="text-emerald-400 text-[14px] font-black leading-none tabular-nums">
+            {money(parseFloat(it.price))}<span className="text-[8.5px] font-bold opacity-60"> د.أ</span>
+          </p>
+          <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold"
+            style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
+            {hasOpts ? 'اختر' : longDesc ? 'التفاصيل' : '+ أضف'}
+          </span>
+        </div>
+      </button>
+    );
+  };
 
-  const query = search.trim();
-  const shown = query
-    // البحث يمسح المنيو كلّه — من يكتب «برغر» وهو في المشروبات يريد البرغر.
-    // ويشمل القسم والنكهات: من يكتب «نخلة» أو «باربكيو» يقصد صنفاً يحملها خياراً.
-    ? plain.filter(i =>
-        i.name.includes(query)
-        || (i.description || '').includes(query)
-        || (i.subcategory || '').includes(query)
-        || (i.category || '').includes(query)
-        || (i.optionGroups ?? []).some(g => g.values.some(v => v.name.includes(query))))
-    : chip
-      ? inRoot.filter(i => (i.subcategory || '') === chip)
-      : inRoot;
-  const groupsShown = Array.from(new Set(shown.map(i => `${i.category || ''}|${i.subcategory || ''}`)));
+  const PkgCard = (p: Item) => {
+    const n = qtyOfItem(p.id);
+    return (
+      <button key={p.id} onClick={() => setPicking(p)}
+        className="w-full text-right rounded-2xl p-3.5 active:scale-[0.99] transition-transform"
+        style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.13), rgba(255,255,255,0.02))', border: '1px solid rgba(139,92,246,0.3)' }}>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold shrink-0"
+            style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.35)', color: '#c4b5fd' }}>🎁 عرض</span>
+          <h3 className="text-white text-[13.5px] font-bold flex-1 min-w-0 truncate">{p.name}</h3>
+          <span className="text-[16px] font-black tabular-nums shrink-0" style={{ color: '#c4b5fd' }}>
+            {money(parseFloat(p.price))}<span className="text-[9px] opacity-65"> د.أ</span>
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {(p.slots ?? []).map(s => (
+            <span key={s.i} className="text-[10px] px-2 py-0.5 rounded-lg"
+              style={s.kind === 'choice'
+                ? { background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(52,211,153,0.35)', color: '#6ee7b7' }
+                : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#d1d5db' }}>
+              {s.kind === 'choice'
+                ? `◇ ${s.from.map(f => f.name).slice(0, 3).join(' / ')}${s.from.length > 3 ? ' …' : ''}`
+                : `${s.name}${Object.values(s.lockedOptions)[0] ? ` ${Object.values(s.lockedOptions)[0]}` : ''}`}
+            </span>
+          ))}
+        </div>
+        <p className="text-[10px] mt-2" style={{ color: n > 0 ? '#6ee7b7' : '#6b7280' }}>
+          {n > 0 ? `✓ في السلّة ×${n} — اضغط لإضافة توليفةٍ أخرى` : 'اضغط لاختيار مكوّناتك'}
+        </p>
+      </button>
+    );
+  };
+
+  const ordersBadge = myOrders.filter(o => o.status === 'new' || o.status === 'preparing').length;
 
   return (
     <div className={embedded ? 'flex flex-col h-full' : 'flex flex-col h-[100dvh] max-w-lg mx-auto'} dir="rtl"
@@ -609,17 +773,13 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
         )}
       </div>
 
-      {/* ══ تبويبات ثابتة ══ */}
+      {/* ══ تبويبان — المهمّتان الحقيقيّتان: أطلبُ · أتابعُ ══ */}
       <div className="shrink-0 flex border-b border-white/7" style={{ background: '#0a0f0d' }}>
-        {([
-          ...(packages.length ? [['pkg', `🎁 العروض`] as const] : []),
-          ['menu', '🍽️ المنيو'] as const,
-          ['ord', '🧾 طلباتي'] as const,
-        ]).map(([k, label]) => {
+        {([['menu', '🍽️ المنيو والعروض'], ['ord', '🧾 طلباتي']] as const).map(([k, label]) => {
           const on = tab === k;
-          const badge = k === 'ord' ? myOrders.filter(o => o.status === 'new' || o.status === 'preparing').length : 0;
+          const badge = k === 'ord' ? ordersBadge : 0;
           return (
-            <button key={k} onClick={() => setTab(k as any)}
+            <button key={k} onClick={() => setTab(k)}
               className="flex-1 py-2.5 text-[11.5px] font-bold transition-colors"
               style={{ color: on ? '#34d399' : '#6b7280', borderBottom: `2px solid ${on ? '#34d399' : 'transparent'}` }}>
               {label}
@@ -633,168 +793,82 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
       </div>
 
       {/* ══ جسمٌ واحدٌ يتمرّر ══ */}
-      <div className="flex-1 overflow-y-auto px-4 py-3.5">
-        {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
-        {sent && <p className="text-emerald-300 text-xs bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2 mb-3">✅ وصل طلبك للمكان</p>}
-
-        {/* ── 🎁 العروض ── */}
-        {tab === 'pkg' && (
-          packages.length === 0
-            ? <p className="text-center text-gray-500 text-sm py-12">لا عروض حاليّاً</p>
-            : packages.map(p => {
-              const n = qtyOfItem(p.id);
-              return (
-                <button key={p.id} onClick={() => setPicking(p)}
-                  className="w-full text-right rounded-2xl p-3.5 mb-2.5 active:scale-[0.99] transition-transform"
-                  style={{ background: 'linear-gradient(135deg, rgba(139,92,246,0.13), rgba(255,255,255,0.02))', border: '1px solid rgba(139,92,246,0.3)' }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold shrink-0"
-                      style={{ background: 'rgba(139,92,246,0.2)', border: '1px solid rgba(139,92,246,0.35)', color: '#c4b5fd' }}>🎁 عرض</span>
-                    <h3 className="text-white text-[13.5px] font-bold flex-1 min-w-0 truncate">{p.name}</h3>
-                    <span className="text-[16px] font-black tabular-nums shrink-0" style={{ color: '#c4b5fd' }}>
-                      {money(parseFloat(p.price))}<span className="text-[9px] opacity-65"> د.أ</span>
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(p.slots ?? []).map(s => (
-                      <span key={s.i} className="text-[10px] px-2 py-0.5 rounded-lg"
-                        style={s.kind === 'choice'
-                          ? { background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(52,211,153,0.35)', color: '#6ee7b7' }
-                          : { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#d1d5db' }}>
-                        {s.kind === 'choice'
-                          ? `◇ ${s.from.map(f => f.name).slice(0, 3).join(' / ')}${s.from.length > 3 ? ' …' : ''}`
-                          : `${s.name}${Object.values(s.lockedOptions)[0] ? ` ${Object.values(s.lockedOptions)[0]}` : ''}`}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-[10px] mt-2" style={{ color: n > 0 ? '#6ee7b7' : '#6b7280' }}>
-                    {n > 0 ? `✓ في السلّة ×${n} — اضغط لإضافة توليفةٍ أخرى` : 'اضغط لاختيار مكوّناتك'}
-                  </p>
-                </button>
-              );
-            })
-        )}
-
-        {/* ── 🍽️ المنيو ── */}
+      <div ref={scrollRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto px-4 pb-4 relative">
         {tab === 'menu' && (
           <>
-            <div className="relative mb-2.5">
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث في المنيو…"
-                className="w-full rounded-xl py-2.5 pr-9 pl-8 text-sm text-white placeholder:text-gray-600 focus:outline-none"
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }} />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔎</span>
-              {query && (
-                <button onClick={() => setSearch('')} aria-label="مسح"
-                  className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white/10 text-gray-400 text-[11px] leading-none">✕</button>
+            {/* 🧭 الشريط اللاصق: بحث + شرائح قفزٍ تضيء مع التمرير */}
+            <div ref={stickyRef} className="sticky top-0 z-30 -mx-4 px-4 pt-3 pb-2"
+              style={{ background: 'linear-gradient(to bottom, #050505 84%, rgba(5,5,5,0))' }}>
+              <div className="relative">
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث في المنيو…"
+                  className="w-full rounded-xl py-2.5 pr-9 pl-8 text-sm text-white placeholder:text-gray-600 focus:outline-none"
+                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }} />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 text-sm">🔎</span>
+                {query && (
+                  <button onClick={() => setSearch('')} aria-label="مسح"
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white/10 text-gray-400 text-[11px] leading-none">✕</button>
+                )}
+              </div>
+              {!query && sections.length > 1 && (
+                <div className="flex gap-1.5 overflow-x-auto pt-2 pb-0.5" style={{ scrollbarWidth: 'none' }}>
+                  {sections.map(s => {
+                    const on = (activeSec || sections[0]?.key) === s.key;
+                    return (
+                      <button key={s.key} ref={el => { chipRefs.current[s.key] = el; }}
+                        onClick={() => jump(s.key)}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0 transition-colors"
+                        style={on
+                          ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
+                          : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af', border: '1px solid transparent' }}>
+                        {s.chip} <span className="opacity-55">{s.items.length}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
 
-            {!query && roots.length > 1 && (
-              <div className="flex gap-1 p-1 rounded-xl mb-2" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                {roots.map(r => {
-                  const on = r === activeRoot;
-                  return (
-                    <button key={r} onClick={() => { setRootTab(r); setChip(''); }}
-                      className="flex-1 py-2 rounded-lg text-[11.5px] font-bold transition-colors"
-                      style={on
-                        ? { background: 'rgba(16,185,129,0.18)', color: '#34d399', border: '1px solid rgba(16,185,129,0.35)' }
-                        : { color: '#6b7280', border: '1px solid transparent' }}>
-                      {r}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
 
-            {!query && subs.length > 1 && (
-              <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3" style={{ scrollbarWidth: 'none' }}>
-                <button onClick={() => setChip('')}
-                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0"
-                  style={!chip
-                    ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
-                    : { background: 'rgba(255,255,255,0.04)', color: '#6b7280', border: '1px solid transparent' }}>
-                  الكل ({inRoot.length})
-                </button>
-                {subs.map(s => (
-                  <button key={s} onClick={() => setChip(chip === s ? '' : s)}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap shrink-0"
-                    style={chip === s
-                      ? { background: 'rgba(16,185,129,0.15)', color: '#34d399', border: '1px solid rgba(16,185,129,0.3)' }
-                      : { background: 'rgba(255,255,255,0.04)', color: '#9ca3af', border: '1px solid transparent' }}>
-                    {s} <span className="opacity-60">{inRoot.filter(i => (i.subcategory || '') === s).length}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {shown.length === 0 ? (
+            {items.length === 0 ? (
               <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
-                <p className="text-gray-500 text-sm">لا صنف يطابق «{query}»</p>
-                <button onClick={() => setSearch('')} className="text-emerald-400 text-xs underline mt-2">امسح البحث</button>
+                <p className="text-gray-500 text-sm">المكان لم يضف أصنافاً بعد</p>
               </div>
-            ) : groupsShown.map(gk => {
-              const [cat, sub] = gk.split('|');
-              const list = shown.filter(i => `${i.category || ''}|${i.subcategory || ''}` === gk);
-              return (
-                <div key={gk} className="mb-3">
-                  {!chip && (
-                    <h3 className="text-[11px] font-bold text-emerald-400/75 mb-2 flex items-center gap-2">
-                      <span>{sub ? `${cat} ← ${sub}` : cat || 'المنيو'}</span>
-                      <span className="flex-1 h-px bg-emerald-500/12" />
-                    </h3>
-                  )}
+            ) : query ? (
+              results.length === 0 ? (
+                <div className="text-center py-12 rounded-2xl border border-dashed border-gray-800">
+                  <p className="text-gray-500 text-sm">لا صنف يطابق «{query}»</p>
+                  <button onClick={() => setSearch('')} className="text-emerald-400 text-xs underline mt-2">امسح البحث</button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {results.map(it => it.isBundle ? PkgCard(it) : ItemCard(it))}
+                </div>
+              )
+            ) : (
+              // القائمة المتّصلة: كلّ الأقسام تحت بعضها — التصفّح تمريرٌ والقفز نقرة
+              sections.map(sec => (
+                <div key={sec.key} ref={el => { secRefs.current[sec.key] = el; }} className="mb-4">
+                  <h3 className="text-[11px] font-bold text-emerald-400/75 mb-2 flex items-center gap-2">
+                    <span>{sec.title}</span>
+                    <span className="flex-1 h-px bg-emerald-500/12" />
+                    <span className="text-gray-600 tabular-nums">{sec.items.length}</span>
+                  </h3>
                   <div className="space-y-2">
-                    {list.map(it => {
-                      const qty = qtyOfItem(it.id);
-                      const hasOpts = (it.optionGroups?.length ?? 0) > 0;
-                      return (
-                        <button key={it.id} onClick={() => addItem(it)}
-                          className="w-full text-right rounded-2xl p-2.5 flex items-center gap-2.5 active:scale-[0.99] transition-transform"
-                          style={{
-                            background: qty > 0 ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.03)',
-                            border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)',
-                          }}>
-                          <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-800/75 flex items-center justify-center shrink-0 relative">
-                            {it.imageUrl
-                              ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" />
-                              : <span className="text-lg opacity-70">🍴</span>}
-                            {qty > 0 && (
-                              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[9.5px] font-black flex items-center justify-center text-black"
-                                style={{ background: '#34d399' }}>{qty}</span>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white text-[13px] font-semibold truncate leading-snug">{it.name}</p>
-                            {it.description && <p className="text-gray-500 text-[10px] truncate mt-0.5">{it.description}</p>}
-                            {hasOpts && (
-                              <span className="inline-block text-[9px] mt-1 px-1.5 py-0.5 rounded-md"
-                                style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#fcd34d' }}>
-                                ⚙️ {optionHint(it)}
-                              </span>
-                            )}
-                          </div>
-                          <div className="shrink-0 flex flex-col items-end gap-1">
-                            <p className="text-emerald-400 text-[14px] font-black leading-none tabular-nums">
-                              {money(parseFloat(it.price))}<span className="text-[8.5px] font-bold opacity-60"> د.أ</span>
-                            </p>
-                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold"
-                              style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.35)', color: '#34d399' }}>
-                              {hasOpts ? 'اختر' : '+ أضف'}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
+                    {sec.items.map(it => sec.isPkg ? PkgCard(it) : ItemCard(it))}
                   </div>
                 </div>
-              );
-            })}
+              ))
+            )}
           </>
         )}
 
         {/* ── 🧾 طلباتي + 💨 خدمة الأرجيلة ── */}
         {tab === 'ord' && (
-          <>
+          <div className="pt-3.5">
+            {err && <p className="text-rose-300 text-xs bg-rose-500/10 border border-rose-500/25 rounded-lg px-3 py-2 mb-3">{err}</p>}
+            {sent && <p className="text-emerald-300 text-xs bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-3 py-2 mb-3">✅ وصل طلبك للمكان</p>}
+
             {svc.available && (
               <div className="rounded-2xl p-3.5 mb-3"
                 style={{ background: 'linear-gradient(135deg, rgba(224,73,43,0.14), rgba(255,255,255,0.02))', border: '1px solid rgba(224,73,43,0.32)' }}>
@@ -857,7 +931,7 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
                 </div>
               );
             })}
-          </>
+          </div>
         )}
       </div>
 
@@ -928,12 +1002,16 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
         </Sheet>
       )}
 
-      {/* ══ ورقة الخيارات / مُهيّئ الباقة ══ */}
+      {/* ══ الأوراق: خيارات / باقة / تفصيل ══ */}
       {picking && (picking.isBundle
         ? <PackageSheet item={picking} onCancel={() => setPicking(null)}
             onConfirm={line => { bumpLine(line); setPicking(null); }} />
         : <OptionSheet item={picking} onCancel={() => setPicking(null)}
             onConfirm={line => { bumpLine(line); setPicking(null); }} />
+      )}
+      {viewing && (
+        <DetailSheet item={viewing} onCancel={() => setViewing(null)}
+          onAdd={() => { addSimple(viewing); setViewing(null); }} />
       )}
     </div>
   );
