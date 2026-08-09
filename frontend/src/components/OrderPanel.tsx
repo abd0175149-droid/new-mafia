@@ -475,6 +475,11 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const secRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const tickRef = useRef(false);
+  // 🔴 أثناء القفز البرمجيّ يُكتم الرصدُ وملاحقةُ الشريحة معاً: scrollIntoView
+  //    على الشريحة — ولو بلا حركةٍ فعليّة — **يُلغي** التمرير الناعم الجاري في
+  //    الحاوية نفسها، فكانت نقرة القسم تتحرّك مليمتراتٍ ثمّ تتجمّد.
+  const jumpingRef = useRef(false);
+  const jumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${player?.token || ''}` }), [player?.token]);
 
@@ -564,7 +569,7 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
 
   // ── 🧭 الرصد: أيّ قسمٍ تحت العين الآن؟ (rAF — لا حسابَ في كلّ حدث تمرير) ──
   const onBodyScroll = () => {
-    if (tickRef.current || query || tab !== 'menu') return;
+    if (tickRef.current || jumpingRef.current || query || tab !== 'menu') return;
     tickRef.current = true;
     requestAnimationFrame(() => {
       tickRef.current = false;
@@ -582,13 +587,19 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const jump = (key: string) => {
     const c = scrollRef.current, el = secRefs.current[key];
     if (!c || !el) return;
-    c.scrollTo({ top: el.offsetTop - (stickyRef.current?.offsetHeight ?? 90) - 4, behavior: 'smooth' });
+    jumpingRef.current = true;
+    if (jumpTimer.current) clearTimeout(jumpTimer.current);
+    // الشريحة المنقورة أمام العين أصلاً — لا حاجة لملاحقتها، والكتم يحمي التمرير
+    jumpTimer.current = setTimeout(() => { jumpingRef.current = false; }, 800);
     setActiveSec(key);
+    c.scrollTo({ top: el.offsetTop - (stickyRef.current?.offsetHeight ?? 90) - 4, behavior: 'smooth' });
   };
-  // الشريحة المضيئة تلاحق التمرير — تبقى مرئيّةً في شريطها الأفقيّ
+  // الشريحة المضيئة تلاحق التمرير **اليدويّ** وحده — تبقى مرئيّةً في شريطها الأفقيّ
   useEffect(() => {
+    if (jumpingRef.current) return;
     chipRefs.current[activeSec]?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, [activeSec]);
+  useEffect(() => () => { if (jumpTimer.current) clearTimeout(jumpTimer.current); }, []);
 
   // ── السلّة ──
   const bumpLine = (line: CartLine) => setCart(prev => {
@@ -830,7 +841,8 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
       </div>
 
       {/* ══ جسمٌ واحدٌ يتمرّر ══ */}
-      <div ref={scrollRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto px-4 pb-4 relative">
+      {/* overscroll-contain: التمرير لا يتسرّب لصفحة اللعبة خلف الورقة */}
+      <div ref={scrollRef} onScroll={onBodyScroll} className="flex-1 overflow-y-auto overscroll-contain px-4 pb-4 relative">
         {tab === 'menu' && (
           <>
             {/* 🧭 الشريط اللاصق: بحث + شرائح قفزٍ تضيء مع التمرير */}

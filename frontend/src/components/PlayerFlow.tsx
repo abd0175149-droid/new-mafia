@@ -21,7 +21,6 @@ import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
 import PlayerNotepad from './PlayerNotepad';
 import OrderPanel from './OrderPanel';
-import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
@@ -143,9 +142,21 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم
   const [fnbReady, setFnbReady] = useState(false);
   const [isOrderOpen, setIsOrderOpen] = useState(false);
-  // 🔴 قفل تمرير الخلفيّة: ورقة الطلب كانت تُفتح بلا قفلٍ فتتحرّك شاشة اللعبة
-  //    تحتها. الهوك نفسه المستعمَل في نافذة استعراض المنيو.
-  const orderModal = useModalScrollLock({ isOpen: isOrderOpen, onClose: () => setIsOrderOpen(false) });
+  // 🔴 قفل تمرير الخلفيّة — قفلُ الجسد وحده، لا useModalScrollLock:
+  //    الهوك يمنع كلّ لمسٍ خارج عنصرٍ مرجعيٍّ واحد، ولوحة الطلب فيها عدّة
+  //    حاوياتِ تمريرٍ داخليّة (الجسم، الأوراق، السلّة) — فكان يمنعها جميعاً
+  //    ويتجمّد المنيو. اللوحة تدير تمريرها بنفسها (overscroll-contain).
+  useEffect(() => {
+    if (!isOrderOpen) return;
+    const y = window.scrollY;
+    document.body.classList.add('modal-open');
+    document.body.style.top = `-${y}px`;
+    return () => {
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, y);
+    };
+  }, [isOrderOpen]);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [seatChangeAlert, setSeatChangeAlert] = useState<string | null>(null);
   const [isExpelled, setIsExpelled] = useState(false);
@@ -3881,7 +3892,6 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       {isOrderOpen && (
         <div
           className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm"
-          {...orderModal.backdropProps}
           onClick={() => setIsOrderOpen(false)}
         >
           {/* 🔴 ارتفاعٌ ثابتٌ بلا تمريرٍ هنا: اللوحة تدير تمريرها الداخليّ بين
