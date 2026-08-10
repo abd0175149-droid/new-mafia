@@ -6,6 +6,7 @@ import 'package:mafia_club/models/game.dart';
 // ══════════════════════════════════════════════════════
 
 void main() {
+  _votesArTests();
   group('⚖️ بيانات التبرير', () {
     final j = JustificationData.fromJson(const {
       'accused': [
@@ -183,5 +184,23 @@ void main() {
       expect(MayorReveal.fromJson(const {'decision': 'PASS'}), isNull);
       expect(MayorReveal.fromJson(null), isNull);
     });
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// 🔢 صيغة العدد — «(1 أصوات)» ظهرت على الجهاز في جولة ٤ أغسطس
+// ══════════════════════════════════════════════════════
+void _votesArTests() {
+  group('صيغة الأصوات العربية', () {
+    test('المفرد والمثنّى لا يُجمعان', () {
+      expect(votesAr(1), 'صوت واحد');
+      expect(votesAr(2), 'صوتان');
+    });
+    test('جمع القلّة حتى العشرة', () {
+      expect(votesAr(3), '3 أصوات');
+      expect(votesAr(10), '10 أصوات');
+    });
+    test('🔴 وبعد العشرة تمييزٌ مفرد', () => expect(votesAr(11), '11 صوتاً'));
+    test('والصفر لا يُقال «0 صوت»', () => expect(votesAr(0), 'بلا أصوات'));
   });
 }

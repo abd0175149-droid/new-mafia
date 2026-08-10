@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../models/game.dart';
+import '../../models/profile.dart' show roleNameAr;
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
 
@@ -502,7 +503,7 @@ class TiebreakerBody extends StatelessWidget {
                             weight: FontWeight.w900)),
                     if (t.name.isNotEmpty)
                       Text(t.name, style: ar(12)),
-                    Text('${t.votes} صوت',
+                    Text(votesAr(t.votes),
                         style: ar(12,
                             color: const Color(0xFFFACC15),
                             weight: FontWeight.bold)),
@@ -619,8 +620,10 @@ class EliminationBody extends StatelessWidget {
           AnimatedOpacity(
             opacity: 1,
             duration: const Duration(milliseconds: 400),
-            child: Text(role,
-                style: mono(14, color: _gold).copyWith(letterSpacing: 1.5)),
+            // 🔴 كان يُعرض المفتاح خاماً: «GODFATHER» أمام لاعبٍ عربيّ،
+            //    بينما شاشة النهاية تعرّبه. نفس المعجم في الموضعين.
+            child: Text(roleNameAr(role),
+                style: ar(14, color: _gold, weight: FontWeight.bold)),
           ),
         ],
       ]),

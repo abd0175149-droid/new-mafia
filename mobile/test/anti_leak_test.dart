@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mafia_club/features/game/game_session_controller.dart';
+import 'package:mafia_club/features/game/morning_gameover_view.dart';
 import 'package:mafia_club/features/game/voting_view.dart';
 import 'package:mafia_club/models/game.dart';
 
@@ -68,13 +69,27 @@ void main() {
 
     testWidgets('وبعد أمره يظهر — من `day:elimination-revealed` وحده',
         (t) async {
+      // 🔴 الخادم يبعث المفتاح خاماً (`GODFATHER`) لا اسماً عربيّاً، وكان
+      //    يُعرض كما هو أمام لاعبٍ عربيّ بينما شاشة النهاية تعرّبه. جولةُ
+      //    ٤ أغسطس أظهرتها على الجهاز — يُحرس المعجم هنا.
       await t.pumpWidget(_wrap(const EliminationBody(
         eliminated: [7],
         names: {7: 'خالد'},
-        revealedRoles: {7: 'الطبيب'},
+        revealedRoles: {7: 'GODFATHER'},
         myPhysicalId: 3,
       )));
-      expect(find.text('الطبيب'), findsOneWidget);
+      expect(find.text('شيخ المافيا'), findsOneWidget);
+      expect(find.text('GODFATHER'), findsNothing);
+    });
+
+    testWidgets('ومفتاحٌ لا يعرفه المعجم يُعرض خاماً لا فارغاً', (t) async {
+      await t.pumpWidget(_wrap(const EliminationBody(
+        eliminated: [7],
+        names: {7: 'خالد'},
+        revealedRoles: {7: 'NEW_ROLE'},
+        myPhysicalId: 3,
+      )));
+      expect(find.text('NEW_ROLE'), findsOneWidget);
     });
 
     testWidgets('🔒 بطاقات الاقتراع لا تحمل دوراً — ولو حملته الحمولة',
@@ -172,6 +187,47 @@ void main() {
       c.primeForTest(dead: true);
       // الميت خارج الطابور أصلاً؛ والحارس يمنع التنبيه لو تسلّل
       expect(c.isMyTurnToSpeak, isFalse);
+    });
+  });
+
+  group('④ نتائج المحايدين تُنمذَج ولا تُرسَم', () {
+    const payload = {
+      'winner': 'JESTER',
+      'players': [
+        {'physicalId': 7, 'name': 'خالد', 'role': 'JESTER', 'isAlive': true},
+      ],
+      'neutralResults': [
+        {
+          'physicalId': 7,
+          'playerName': 'خالد',
+          'roleId': 'JESTER',
+          'roleNameAr': 'المهرج',
+          'won': true,
+          'conditionType': 'LYNCHED',
+          'conditionDescription': 'شرطُ فوزٍ سرّيّ لا يُعرَض',
+        }
+      ],
+    };
+
+    testWidgets('🔒 شرط الفوز لا يظهر في شاشة النهاية', (t) async {
+      c.primeForTest(gameOver: payload, physicalId: 3);
+      await t.pumpWidget(_wrap(GameOverBody(controller: c)));
+      // الفائز وشبكة الأدوار تُرسَم — وهذا مسموح، الجيم انتهى
+      expect(find.text('فوز المهرج!'), findsOneWidget);
+      // أمّا شرط الفوز فشاشة العرض الكبيرة وحدها ترسمه
+      expect(find.textContaining('شرطُ فوزٍ سرّيّ'), findsNothing);
+      expect(find.textContaining('LYNCHED'), findsNothing);
+    });
+
+    test('لكنّها محفوظةٌ في النموذج — تكافؤاً مع الويب', () {
+      c.primeForTest(gameOver: payload);
+      expect(c.gameOver!.neutralResults.single.conditionType, 'LYNCHED');
+    });
+
+    test('وتُمسَح مع بقيّة حالة الجيم', () {
+      c.primeForTest(gameOver: payload);
+      c.resetForTest();
+      expect(c.gameOver, isNull);
     });
   });
 }

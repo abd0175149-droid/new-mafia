@@ -88,6 +88,7 @@ class RosterPlayer {
     this.playerId,
     this.penalties = 0,
     this.gender,
+    this.avatarUrl,
   });
 
   final int physicalId;
@@ -96,6 +97,9 @@ class RosterPlayer {
   final int? playerId;
   final int penalties;
   final String? gender;
+
+  /// الصورة عامّة — تظهر في اللوبي وعلى الطاولة. ليست تسريباً.
+  final String? avatarUrl;
 
   bool get isFemale => gender == 'FEMALE';
 
@@ -106,6 +110,7 @@ class RosterPlayer {
         isAlive: j['isAlive'] != false,
         playerId: j['playerId'] == null ? null : _i(j['playerId']),
         penalties: _i(j['penalties']),
+        avatarUrl: j['avatarUrl'] == null ? null : _s(j['avatarUrl']),
         gender: j['gender'] as String?,
       );
 }
@@ -854,4 +859,310 @@ class MorningEvent {
           : const {},
     );
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🔢 صيغة العدد العربيّة
+// ══════════════════════════════════════════════════════
+// «(1 أصوات)» في نافذة العمدة كانت تُقرأ ركيكةً على الجهاز. العربية
+// تميّز المفرد والمثنّى والجمع، والجمع نفسه ينقلب بعد العشرة إلى تمييزٍ
+// مفرد منصوب («11 صوتاً»). هذه الدالّة تلزم القاعدة بلا حزمة تدويل.
+String votesAr(int n) {
+  if (n == 0) return 'بلا أصوات';
+  if (n == 1) return 'صوت واحد';
+  if (n == 2) return 'صوتان';
+  if (n <= 10) return '$n أصوات';
+  return '$n صوتاً';
+}
+
+// ══════════════════════════════════════════════════════
+// 🏁 نهاية الجيم — §8 في الملفّ ٢٧
+// ══════════════════════════════════════════════════════
+
+enum WinnerType { mafia, citizen, assassin, jester }
+
+WinnerType? winnerTypeOf(String? raw) => switch (raw) {
+      'MAFIA' => WinnerType.mafia,
+      'CITIZEN' => WinnerType.citizen,
+      'ASSASSIN' => WinnerType.assassin,
+      'JESTER' => WinnerType.jester,
+      _ => null,
+    };
+
+class GameOverPlayer {
+  const GameOverPlayer({
+    required this.physicalId,
+    this.name,
+    this.role,
+    this.isAlive = true,
+  });
+
+  final int physicalId;
+  final String? name;
+
+  /// مصدر شبكة الكشف وألوانها. الكشف هنا مسموحٌ لأنّ الجيم انتهى.
+  final String? role;
+  final bool isAlive;
+
+  static GameOverPlayer fromJson(Map j) => GameOverPlayer(
+        physicalId: _i(j['physicalId']),
+        name: j['name'] == null ? null : _s(j['name']),
+        role: j['role'] == null ? null : _s(j['role']),
+        isAlive: j['isAlive'] != false,
+      );
+}
+
+/// نتيجة دورٍ محايد — **شاشة العرض الكبيرة وحدها ترسمها**.
+///
+/// 🔴 تُنمذَج ولا تُرسَم (§12 في الملفّ ٢٧). حملُها في النموذج تكافؤٌ مع
+///    الويب الذي يستقبلها ويهملها؛ ورسمُها في التطبيق تسريبٌ لشرط فوزٍ
+///    لم يكن اللاعب ليعرفه.
+class NeutralResult {
+  const NeutralResult({
+    required this.physicalId,
+    required this.playerName,
+    required this.roleId,
+    required this.roleNameAr,
+    required this.won,
+    required this.conditionType,
+    required this.conditionDescription,
+  });
+
+  final int physicalId;
+  final String playerName;
+  final String roleId;
+  final String roleNameAr;
+  final bool won;
+  final String conditionType;
+  final String conditionDescription;
+
+  static NeutralResult fromJson(Map j) => NeutralResult(
+        physicalId: _i(j['physicalId']),
+        playerName: _s(j['playerName']),
+        roleId: _s(j['roleId']),
+        roleNameAr: _s(j['roleNameAr']),
+        won: j['won'] == true,
+        conditionType: _s(j['conditionType']),
+        conditionDescription: _s(j['conditionDescription']),
+      );
+}
+
+class GameOverReveal {
+  const GameOverReveal({
+    this.winner,
+    this.matchId,
+    this.players = const [],
+    this.neutralResults = const [],
+    this.reason,
+  });
+
+  final WinnerType? winner;
+
+  /// الخادم يبعثه عدداً؛ نحفظه نصّاً لأنّه معرّفٌ لا كمّية.
+  final String? matchId;
+  final List<GameOverPlayer> players;
+  final List<NeutralResult> neutralResults;
+
+  /// `TIMEOUT` أو `AUTO_REVEAL_TIMEOUT` أو غياب.
+  final String? reason;
+
+  static GameOverReveal fromJson(Map j) => GameOverReveal(
+        winner: winnerTypeOf(j['winner'] as String?),
+        matchId: j['matchId'] == null ? null : _s(j['matchId']),
+        players: (j['players'] as List? ?? j['allPlayers'] as List? ?? const [])
+            .whereType<Map>()
+            .map(GameOverPlayer.fromJson)
+            .toList(growable: false),
+        neutralResults: (j['neutralResults'] as List? ?? const [])
+            .whereType<Map>()
+            .map(NeutralResult.fromJson)
+            .toList(growable: false),
+        reason: j['reason'] == null ? null : _s(j['reason']),
+      );
+}
+
+// ══════════════════════════════════════════════════════
+// 🎁 سحب الهدايا — عقدٌ فقط، لا رسم
+// ══════════════════════════════════════════════════════
+// `luckyDraw` حدثُ لوبي لا حدثُ نهاية جيم (الخادم يقبله في LOBBY وحدها).
+// الويب يستقبله ولا يرسمه، والتطبيق يطابقه: نُنمذجه كي لا تُخترع له واجهة.
+
+class LuckyDrawEvent {
+  const LuckyDrawEvent({
+    this.winners = const [],
+    this.pool = const [],
+    this.spinMs = 4500,
+  });
+
+  final List<int> winners;
+  final List<int> pool;
+  final int spinMs;
+
+  static LuckyDrawEvent fromJson(Map j) => LuckyDrawEvent(
+        winners: (j['winners'] as List? ?? const []).map(_i).toList(),
+        pool: (j['pool'] as List? ?? const []).map(_i).toList(),
+        spinMs: _i(j['spinMs'], 4500),
+      );
+}
+
+class LuckyDrawState {
+  const LuckyDrawState({
+    this.status = '',
+    this.count = 0,
+    this.winners = const [],
+    this.pool = const [],
+    this.revealedAt,
+  });
+
+  /// `drawn` لا يصل اللاعب أصلاً؛ `revealed` يصل ويُهمَل.
+  final String status;
+  final int count;
+  final List<int> winners;
+  final List<int> pool;
+  final int? revealedAt;
+
+  static LuckyDrawState fromJson(Map j) => LuckyDrawState(
+        status: _s(j['status']),
+        count: _i(j['count']),
+        winners: (j['winners'] as List? ?? const []).map(_i).toList(),
+        pool: (j['pool'] as List? ?? const []).map(_i).toList(),
+        revealedAt:
+            j['revealedAt'] == null ? null : _i(j['revealedAt']),
+      );
+}
+
+// ══════════════════════════════════════════════════════
+// 🎬 طاولة الحلقة — §8 في الملفّ ٢٧
+// ══════════════════════════════════════════════════════
+
+enum SpectatorMode { focus, overview }
+
+/// مقعدٌ على الحلقة. الدور `null` لكلّ حيّ — الروستر يصل منقّى، والحقل
+/// لا يُملأ إلا من مصادر الكشف الخمسة (§4.7).
+class SpectatorSeat {
+  const SpectatorSeat({
+    required this.physicalId,
+    this.name,
+    this.avatarUrl,
+    this.isFemale = false,
+    this.role,
+    this.isAlive = true,
+  });
+
+  final int physicalId;
+  final String? name;
+  final String? avatarUrl;
+  final bool isFemale;
+  final String? role;
+  final bool isAlive;
+
+  SpectatorSeat copyWith({String? role, bool? isAlive}) => SpectatorSeat(
+        physicalId: physicalId,
+        name: name,
+        avatarUrl: avatarUrl,
+        isFemale: isFemale,
+        role: role ?? this.role,
+        isAlive: isAlive ?? this.isAlive,
+      );
+
+  static SpectatorSeat fromRoster(RosterPlayer p) => SpectatorSeat(
+        physicalId: p.physicalId,
+        name: p.name.isEmpty ? null : p.name,
+        avatarUrl: p.avatarUrl,
+        isFemale: p.isFemale,
+        // 🔒 لا `role` هنا عمداً — `RosterPlayer` لا يحمله أصلاً
+        isAlive: p.isAlive,
+      );
+}
+
+/// ساعة الجيم في شريط الرأس.
+class GameTimerSnapshot {
+  const GameTimerSnapshot({
+    required this.totalSeconds,
+    required this.startedAtMs,
+    this.expired = false,
+  });
+
+  final int totalSeconds;
+  final int startedAtMs;
+  final bool expired;
+
+  int remaining({DateTime? now}) {
+    if (expired) return 0;
+    final elapsed =
+        ((now ?? DateTime.now()).millisecondsSinceEpoch - startedAtMs) ~/ 1000;
+    final left = totalSeconds - elapsed;
+    return left < 0 ? 0 : left;
+  }
+
+  static GameTimerSnapshot? fromJson(dynamic v) {
+    if (v is! Map) return null;
+    final total = _i(v['totalSeconds']);
+    if (total <= 0) return null;
+    return GameTimerSnapshot(
+      totalSeconds: total,
+      startedAtMs: _i(v['startedAt']),
+      expired: v['expired'] == true,
+    );
+  }
+}
+
+/// بانر الصباح على الطاولة — الحماية وحدها، لا كشف أدوار.
+class MorningBanner {
+  const MorningBanner({required this.saved, this.name});
+
+  /// `true` ⇒ 🛡️ «فشل الاغتيال»؛ `false` ⇒ ⚠️ «لم تنفع الحماية».
+  final bool saved;
+  final String? name;
+}
+
+/// تسميات الأطوار على شريط رأس الطاولة (§4.1).
+const kTablePhaseLabels = <String, String>{
+  'DAY_DISCUSSION': 'نقاش النهار',
+  'DAY_JUSTIFICATION': 'مرحلة الدفاع',
+  'DAY_ELIMINATION': 'كشف الإقصاء',
+  'ELIMINATION_PENDING': 'كشف الإقصاء',
+  'DAY_TIEBREAKER': 'كسر التعادل',
+  'NIGHT': 'الليل',
+  'MORNING_RECAP': 'أحداث الصباح',
+  'LOBBY': 'غرفة الانتظار',
+  'ROLE_GENERATION': 'تجهيز الأدوار',
+  'ROLE_BINDING': 'توزيع الأدوار',
+  'DAY_VOTING': 'التصويت',
+};
+
+/// أحداث صباحٍ **لا تُعرَض على الحلقة إطلاقاً** (§4.7 بند ٣).
+///
+/// 🔒 عرضُ أيّها يكشف دور من نجا أو تأثّر: «أُسكِت #4» تقول إنّ في اللعبة
+///    قصّ مافيا وإنّه استهدف #4، و«نتيجة الشريف» تكشف الشريف نفسه.
+const kNonDeathMorningTypes = <String>{
+  'SILENCED', 'SILENCE', 'SHERIFF_RESULT', 'INVESTIGATION',
+  'ABILITY_DISABLED', 'DISABLE_ABILITY', 'TRANSFORM', 'TWIN_TRANSFORM',
+  'ASSASSINATION_ATTEMPT', 'ELIMINATE_ALL', 'SINGLE_WINNER', 'TIE',
+  'ELIMINATION',
+};
+
+/// أنواع الحماية التي تُنتج بانر الصباح.
+const kProtectionBlockedTypes = <String>{
+  'ASSASSINATION_BLOCKED', 'PROTECTED', 'SAVED',
+};
+const kProtectionFailedTypes = <String>{
+  'PROTECTION_FAILED', 'HEAL_FAILED',
+};
+
+/// عدّاد الفريقين يصل بأسماء مفاتيح متعدّدة (§6.4) — تحليلٌ متسامح.
+({int? citizens, int? mafia}) parseTeamCounts(dynamic v) {
+  if (v is! Map) return (citizens: null, mafia: null);
+  int? pick(List<String> keys) {
+    for (final k in keys) {
+      final x = v[k];
+      if (x is num) return x.toInt();
+    }
+    return null;
+  }
+
+  return (
+    citizens: pick(const ['citizenAlive', 'citizens', 'citizen', 'town']),
+    mafia: pick(const ['mafiaAlive', 'mafia', 'mafiaCount']),
+  );
 }

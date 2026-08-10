@@ -91,7 +91,7 @@ class _MayorPromptModal extends StatelessWidget {
                               color: const Color(0xFFFF6B64),
                               weight: FontWeight.bold),
                         ),
-                        TextSpan(text: ' (${p.topVotes} أصوات)'),
+                        TextSpan(text: ' (${votesAr(p.topVotes)})'),
                       ]),
                       textAlign: TextAlign.center,
                       style: ar(11, color: const Color(0xFF9A8F7D)),

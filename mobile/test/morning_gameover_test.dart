@@ -6,6 +6,7 @@ import 'package:mafia_club/models/game.dart';
 // ══════════════════════════════════════════════════════
 
 void main() {
+  _gameOverModelTests();
   group('🔴 أنواع الموت تطابق الخادم', () {
     // الويب يفحص `KILL`/`SNIPE` — وهما لا يصلان أبداً، فبطاقة «لقد
     // اُغتلت!» مسارٌ ميّت هناك. الخطة أمرت بمطابقة `night-resolver.ts`.
@@ -121,6 +122,95 @@ void main() {
     test('حدثٌ بلا نوعٍ يُرفض', () {
       expect(MorningEvent.fromJson(const {'targetPhysicalId': 3}), isNull);
       expect(MorningEvent.fromJson(null), isNull);
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// 🏁 حمولة نهاية الجيم — §8 و§12 في الملفّ ٢٧
+// ══════════════════════════════════════════════════════
+void _gameOverModelTests() {
+  const raw = {
+    'winner': 'JESTER',
+    'matchId': 565,
+    'reason': 'AUTO_REVEAL_TIMEOUT',
+    'players': [
+      {'physicalId': 1, 'name': 'أحمد', 'role': 'MAYOR', 'isAlive': false},
+      {'physicalId': 2, 'name': 'خالد', 'role': 'JESTER', 'isAlive': true},
+    ],
+    'neutralResults': [
+      {
+        'physicalId': 2,
+        'playerName': 'خالد',
+        'roleId': 'JESTER',
+        'roleNameAr': 'المهرج',
+        'won': true,
+        'conditionType': 'LYNCHED',
+        'conditionDescription': 'أُقصي بالتصويت',
+      }
+    ],
+  };
+
+  group('🏁 GameOverReveal', () {
+    test('الفائز يُشتقّ من النصّ — والمجهول null لا تعطُّل', () {
+      expect(GameOverReveal.fromJson(raw).winner, WinnerType.jester);
+      expect(GameOverReveal.fromJson(const {'winner': 'SOMETHING'}).winner,
+          isNull);
+      expect(GameOverReveal.fromJson(const {}).winner, isNull);
+    });
+
+    test('matchId عددٌ من الخادم يُحفَظ نصّاً — فهو معرّف لا كمّية', () {
+      expect(GameOverReveal.fromJson(raw).matchId, '565');
+    });
+
+    test('السبب يُنقَل كما هو', () {
+      expect(GameOverReveal.fromJson(raw).reason, 'AUTO_REVEAL_TIMEOUT');
+      expect(GameOverReveal.fromJson(const {'players': []}).reason, isNull);
+    });
+
+    test('allPlayers مقبولٌ بديلاً عن players', () {
+      final g = GameOverReveal.fromJson(const {
+        'allPlayers': [
+          {'physicalId': 3, 'role': 'CITIZEN'}
+        ]
+      });
+      expect(g.players.single.physicalId, 3);
+      expect(g.players.single.isAlive, isTrue); // الغياب = حيّ
+    });
+
+    test('🔒 neutralResults تُنمذَج بكلّ حقولها السبعة', () {
+      final n = GameOverReveal.fromJson(raw).neutralResults.single;
+      expect(n.physicalId, 2);
+      expect(n.roleNameAr, 'المهرج');
+      expect(n.won, isTrue);
+      expect(n.conditionDescription, 'أُقصي بالتصويت');
+    });
+
+    test('وغيابها لا يُسقط الحمولة', () {
+      expect(GameOverReveal.fromJson(const {'winner': 'MAFIA'}).neutralResults,
+          isEmpty);
+    });
+  });
+
+  group('🎁 عقد سحب الهدايا — نمذجةٌ بلا رسم', () {
+    test('spinMs الافتراضيّ 4500', () {
+      expect(LuckyDrawEvent.fromJson(const {}).spinMs, 4500);
+      expect(
+          LuckyDrawEvent.fromJson(const {'spinMs': 3000}).spinMs, 3000);
+    });
+
+    test('الحالة تُقرأ بحقولها الخمسة', () {
+      final s = LuckyDrawState.fromJson(const {
+        'status': 'revealed',
+        'count': 2,
+        'winners': [4, 9],
+        'pool': [4, 9, 11],
+        'revealedAt': 1730000000000,
+      });
+      expect(s.status, 'revealed');
+      expect(s.winners, [4, 9]);
+      expect(s.pool.length, 3);
+      expect(s.revealedAt, 1730000000000);
     });
   });
 }

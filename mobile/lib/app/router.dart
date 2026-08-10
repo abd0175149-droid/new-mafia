@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../features/host/host_screen.dart';
 
 import '../core/routing/destination.dart';
 import '../features/auth/auth_screen.dart';
 import '../features/feedback/feedback_screen.dart';
+import '../features/host/host_screen.dart';
 import '../features/game/game_screen.dart';
 import '../features/games/games_screen.dart';
 import '../features/home/home_screen.dart';
@@ -127,6 +127,13 @@ GoRouter buildRouter(AppConfig config) {
       GoRoute(
         path: Routes.login,
         builder: (_, __) => const AuthScreen(),
+      ),
+
+      // 🔴 بلا شريط تنقّل: المضيف يقود اللعبة، وأيّ تبويبٍ يزاحمه على
+      //    البكسلات أو يسحبه بعيداً في منتصف الليل.
+      GoRoute(
+        path: Routes.host,
+        builder: (_, __) => const HostScreen(),
       ),
 
       // الرابط العميق العاري — خارج الغلاف، بلا شريط تنقّل

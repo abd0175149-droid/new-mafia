@@ -17,6 +17,9 @@ import 'morning_gameover_view.dart';
 import 'night_view.dart';
 import 'voting_view.dart';
 import 'roles_info_modal.dart';
+import '../voice/confrontation_controls.dart';
+import '../voice/voice_service.dart';
+import 'spectator_table.dart';
 
 // ══════════════════════════════════════════════════════
 // 🕰️ شاشة انتظار اللوبي — §4.11 · §4.12 · §4.13 · §4.14 في الملفّ 21
@@ -57,6 +60,24 @@ class LobbyView extends StatelessWidget {
         _SeatBanner(seat: c.physicalId),
         const SizedBox(height: 12),
       ],
+
+      // ⚔️ المواجهة الثنائية — عن بُعد وأثناء النقاش وحده
+      if (c.isRemote)
+        ConfrontationControls(
+          service: VoiceService.instance,
+          isHost: false,
+          myPid: c.physicalId,
+          gamePhase: c.gamePhase,
+          players: [
+            for (final p in c.roster)
+              (physicalId: p.physicalId, name: p.name, isAlive: p.isAlive),
+          ],
+        ),
+
+      // 🎬 حلقة الطاولة — **عن بُعد وحده** (٢٧ §6.1). في القاعة الطاولة
+      //    أمام اللاعب فعلاً، فرسمُ نسخةٍ رقمية منها زحامٌ بلا فائدة.
+      //    تُركَّب فوق جسم المرحلة في كلّ الأطوار، وتطوي نفسها بالتصويت.
+      if (c.isRemote) RemoteSpectatorTable(controller: c),
 
       // 🔴 ثلاث حالات لا حالتان. كان الشرط `assignedRole != null` يعرض
       //    البطاقة **إلى الأبد**، فما إن يصل الدور حتى تتجمّد الشاشة عليه

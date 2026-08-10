@@ -396,6 +396,50 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic>? _gameOverData;
   Map<String, dynamic>? get gameOverData => _gameOverData;
 
+  // ══════════════════════════════════════════════════════
+  // 🎬 حالة طاولة الحلقة — §7.2 في الملفّ ٢٧
+  // ══════════════════════════════════════════════════════
+  // الطاولة **لا تُصدر emits ولا تشترك بالسوكِت بنفسها**: المتحكّم يملك
+  // القناة الوحيدة، والطاولة ويدجت خالصة تُغذّى بالخصائص. هذا يمنع
+  // ازدواج المستمعات عند تركيبها في شاشتين (اللاعب والمضيف).
+
+  Set<int> _silencedPids = const {};
+  Set<int> get silencedPids => _silencedPids;
+
+  GameTimerSnapshot? _gameTimer;
+  GameTimerSnapshot? get gameTimer => _gameTimer;
+
+  int? _teamCitizens, _teamMafia;
+  int? get teamCitizens => _teamCitizens;
+  int? get teamMafia => _teamMafia;
+
+  /// عدّادٌ يتزايد مع كلّ `day:elimination-revealed` — الطاولة تراقبه
+  /// لتشغيل سلسلة الكشف مرّةً واحدة لكلّ بثّ.
+  int _revealTicket = 0;
+  int get revealTicket => _revealTicket;
+
+  /// بانر الصباح المشتقّ من أحداث الحماية وحدها (§4.9).
+  MorningBanner? _tableBanner;
+  MorningBanner? get tableBanner => _tableBanner;
+  void dismissTableBanner() {
+    if (_tableBanner == null) return;
+    _tableBanner = null;
+    notifyListeners();
+  }
+
+  void _readTeamCounts(dynamic v) {
+    final t = parseTeamCounts(v);
+    if (t.citizens != null) _teamCitizens = t.citizens;
+    if (t.mafia != null) _teamMafia = t.mafia;
+  }
+
+  /// النسخة المُنمذَجة من نفس الحمولة (§8 في الملفّ ٢٧).
+  ///
+  /// 🔒 `neutralResults` تعيش هنا ولا تُرسَم في أيّ ويدجت — شاشة العرض
+  ///    الكبيرة وحدها تعرضها. نمذجتها تمنع اختراع واجهةٍ لها لاحقاً.
+  GameOverReveal? _gameOver;
+  GameOverReveal? get gameOver => _gameOver;
+
   AssassinContracts? _assassinContracts;
   AssassinContracts? get assassinContracts => _assassinContracts;
 
@@ -675,7 +719,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _mafiaTeam = const [];
       _sibling = null;
       _assignedRole = null;
-      _gameOverData = null;
+      _gameOverData = null; _gameOver = null;
       _mayorRevealedId = null;
       _mayorBanner = null;
       _justification = null;
@@ -691,6 +735,19 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       //    الآن — تسريبٌ وتضليلٌ معاً.
       _revealedRoles = const {};
       _eliminated = const [];
+      // الثابت السادس يشمل حالة الطاولة كذلك (٢٧ §4.7 بند ٦)
+      _silencedPids = const {};
+      _tableBanner = null;
+      _gameTimer = null;
+      _teamCitizens = null;
+      _teamMafia = null;
+    }
+
+    // 🔇 الإسكات يدوم يوماً واحداً: يُمسَح ببدء الليل (٢٧ §4.7 بند ٥).
+    //    إبقاؤه يجعل شارة «مُسكَت» تلاحق اللاعب جولاتٍ بعد انقضائها.
+    if (phase == GamePhase.night && was != phase) {
+      _silencedPids = const {};
+      _tableBanner = null;
     }
 
     // 🔒 ببدء اللعب تعود البطاقة إلى **وجهها العلنيّ** (الاسم والصورة
@@ -1384,6 +1441,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
           _allowPlayerInvites = cfg['allowPlayerInvites'] as bool;
         }
       }
+      _readTeamCounts(d['teamCounts']);
       _setPhase(GamePhase.map(d['phase']), fromSocket: true);
     });
 
@@ -1577,6 +1635,29 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       // منع التكرار: الليدر قد يعيد البثّ لنفس الحدث
       if (_morning.any((x) => x.key == e.key)) return;
       _morning = [..._morning, e];
+      // 🔒 بانر الطاولة من أحداث الحماية وحدها؛ قائمة NON_DEATH لا تُعرَض
+      //    إطلاقاً لأنّها تكشف دور من نجا أو من أثّر فيه.
+      if (!kNonDeathMorningTypes.contains(e.type)) {
+        if (kProtectionBlockedTypes.contains(e.type)) {
+          _tableBanner = MorningBanner(saved: true, name: e.targetName);
+        } else if (kProtectionFailedTypes.contains(e.type)) {
+          _tableBanner = MorningBanner(saved: false, name: e.targetName);
+        }
+      }
+      notifyListeners();
+    });
+
+    _on('day:show-silenced', (d) {
+      final pid = d is Map ? (d['physicalId'] as num?)?.toInt() : null;
+      if (pid == null) return;
+      _silencedPids = {..._silencedPids, pid};
+      notifyListeners();
+    });
+
+    _on('game:timer-adjusted', (d) {
+      final t = GameTimerSnapshot.fromJson(d is Map ? d['gameTimer'] : null);
+      if (t == null) return;
+      _gameTimer = t;
       notifyListeners();
     });
 
@@ -1597,6 +1678,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         if (pid != null) out[pid] = '${e['role'] ?? ''}';
       }
       _revealedRoles = out;
+      _readTeamCounts(d['teamCounts']);
+      if (out.isNotEmpty) _revealTicket++;
       if (_eliminated.contains(_physicalId)) {
         unawaited(HapticsService.instance.eliminated());
       }
@@ -1619,6 +1702,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _on('game:over', (d) {
       if (d is Map && d['players'] is List) {
         _gameOverData = Map<String, dynamic>.from(d);
+        _gameOver = GameOverReveal.fromJson(d);
       }
       _setPhase(GamePhase.gameOver, fromSocket: true);
       _clearVoting();
@@ -1693,7 +1777,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _sibling = null;
     _cardFlipped = false;
     _roleAlert = false;
-    _gameOverData = null;
+    _gameOverData = null; _gameOver = null;
     _assassinContracts = null;
     _guard.clear();
   }
@@ -1930,7 +2014,10 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     if (chat != null) _chat = chat;
     if (chatEnabled != null) _mafiaChatEnabled = chatEnabled;
     if (morning != null) _morning = morning;
-    if (gameOver != null) _gameOverData = gameOver;
+    if (gameOver != null) {
+      _gameOverData = gameOver;
+      _gameOver = GameOverReveal.fromJson(gameOver);
+    }
     if (voting != null) _voting = voting;
     if (myVote != null) _myVote = myVote;
     if (step != null) _step = step;
@@ -1978,7 +2065,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _chatUnread = false;
     _mafiaChatEnabled = false;
     _morning = const [];
-    _gameOverData = null;
+    _gameOverData = null; _gameOver = null;
     _voting = null;
     _myVote = null;
     _step = GameStep.code;
