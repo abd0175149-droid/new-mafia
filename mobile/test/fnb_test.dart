@@ -84,8 +84,8 @@ void main() {
     /// سطرٌ بلا خيارات — الشكل الشائع.
     FnbCartLine line(int id, {int qty = 1, double price = 1, List<FnbSelection> opts = const []}) =>
         FnbCartLine(
-          key: FnbCartLine.makeKey(id, opts, const {}),
-          itemId: id, quantity: qty, unitPrice: price, options: opts,
+          key: FnbCartLine.makeKey(id, opts, const []),
+          itemId: id, name: 'صنف $id', quantity: qty, unitPrice: price, options: opts,
         );
 
     test('«+ أضف» يضيف سطراً والنزول لصفرٍ يحذفه', () {
@@ -133,26 +133,38 @@ void main() {
     test('🔴 ترتيب الاختيارات لا يغيّر المفتاح — وإلّا انقسم السطر بلا سبب', () {
       const a = FnbSelection(groupKey: 'g1', valueKey: 'v1');
       const b = FnbSelection(groupKey: 'g2', valueKey: 'v9');
-      expect(FnbCartLine.makeKey(3, const [a, b], const {}),
-          FnbCartLine.makeKey(3, const [b, a], const {}));
+      expect(FnbCartLine.makeKey(3, const [a, b], const []),
+          FnbCartLine.makeKey(3, const [b, a], const []));
     });
 
-    test('الحمولة تحمل الخيارات وخيارات مكوّنات الباقة', () {
+    test('الحمولة تحمل الخيارات واختيارات خانات الباقة', () {
       final l = FnbCartLine(
-        key: 'k', itemId: 4, quantity: 2, unitPrice: 5,
+        key: 'k', itemId: 4, name: 'باقة', quantity: 2, unitPrice: 5,
+        isBundle: true,
         options: const [FnbSelection(groupKey: 'g1', valueKey: 'v1')],
-        componentOptions: const {9: [FnbSelection(groupKey: 'g2', valueKey: 'v7')]},
+        slots: const [
+          FnbSlotPick(i: 0, options: [FnbSelection(groupKey: 'g2', valueKey: 'v7')]),
+          FnbSlotPick(i: 1, menuItemId: 9),
+        ],
       );
       expect(const FnbCart().add(l).toPayload(), [
         {
           'menuItemId': 4,
           'quantity': 2,
           'options': [{'group': 'g1', 'value': 'v1'}],
-          'componentOptions': [
-            {'menuItemId': 9, 'options': [{'group': 'g2', 'value': 'v7'}]}
+          'slots': [
+            {'i': 0, 'options': [{'group': 'g2', 'value': 'v7'}]},
+            {'i': 1, 'menuItemId': 9, 'options': []},
           ],
         }
       ]);
+    });
+
+    test('🎁 باقتان بتوليفتين مختلفتين سطران — بصمة الخانات ضمن المفتاح', () {
+      const p1 = [FnbSlotPick(i: 0, options: [FnbSelection(groupKey: 'g', valueKey: 'v1')])];
+      const p2 = [FnbSlotPick(i: 0, options: [FnbSelection(groupKey: 'g', valueKey: 'v2')])];
+      expect(FnbCartLine.makeKey(4, const [], p1),
+          isNot(FnbCartLine.makeKey(4, const [], p2)));
     });
   });
 

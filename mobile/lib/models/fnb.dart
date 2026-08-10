@@ -190,16 +190,102 @@ class FnbComponent {
             .toList(),
       );
 
-  /// «شاي ×2» — وتُسقَط الـ×1 اختصاراً.
+  /// «شاي ×2» — وتُسقَط الـ×1 اختصاراً، وخيارات المكوّن بين قوسين.
   String label([int multiplier = 1]) {
     final total = qty * multiplier;
-    return total > 1 ? '$name ×$total' : name;
+    final base = total > 1 ? '$name ×$total' : name;
+    if (options.isEmpty) return base;
+    return '$base (${options.map((o) => o.value).join(' · ')})';
   }
 }
 
 /// يصوغ سطر المكوّنات: «أرجيلة + شاي ×2».
 String componentsLine(List<FnbComponent> comps, [int multiplier = 1]) =>
     comps.map((c) => c.label(multiplier)).join(' + ');
+
+/// 🎁 مرشّحٌ داخل خانة اختيار — صنفٌ حقيقيّ بمجموعات خياراته.
+class FnbSlotCandidate {
+  const FnbSlotCandidate({
+    required this.menuItemId,
+    required this.name,
+    this.optionGroups = const [],
+  });
+  final int menuItemId;
+  final String name;
+  final List<FnbOptionGroup> optionGroups;
+
+  factory FnbSlotCandidate.fromJson(Map<String, dynamic> j) => FnbSlotCandidate(
+        menuItemId: _i(j['menuItemId']),
+        name: _s(j['name']),
+        optionGroups: (j['optionGroups'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbOptionGroup.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+      );
+}
+
+/// 🎁 خانة باقة كما يبنيها الخادم (2026-08-08):
+///   `fixed`  — صنفٌ محدَّد، وقد يحمل خياراتٍ مقفلة (تُعرض ولا تُسأل) وأخرى تُسأل.
+///   `choice` — اختيارُ صنفٍ واحد من مرشّحين، ثمّ خياراتُ المُنتقى إن وُجدت.
+/// 💰 فرق خيارٍ يختاره اللاعب يُضرب في كمّية الخانة — مطابقةً لحساب الخادم.
+class FnbSlot {
+  const FnbSlot({
+    required this.i,
+    required this.kind,
+    this.menuItemId,
+    this.name = '',
+    this.qty = 1,
+    this.lockedOptions = const {},
+    this.optionGroups = const [],
+    this.label = '',
+    this.note = '',
+    this.from = const [],
+  });
+
+  final int i;
+  final String kind;                       // fixed | choice
+  final int? menuItemId;                   // fixed
+  final String name;                       // fixed
+  final int qty;
+  final Map<String, String> lockedOptions; // fixed — مجموعة ← قيمة محدَّدة في العرض
+  final List<FnbOptionGroup> optionGroups; // fixed — ما يُسأل عنه
+  final String label, note;                // choice
+  final List<FnbSlotCandidate> from;       // choice
+
+  bool get isChoice => kind == 'choice';
+
+  factory FnbSlot.fromJson(Map<String, dynamic> j) => FnbSlot(
+        i: _i(j['i']),
+        kind: _s(j['kind']) == 'choice' ? 'choice' : 'fixed',
+        menuItemId: j['menuItemId'] == null ? null : _i(j['menuItemId']),
+        name: _s(j['name']),
+        qty: _i(j['qty']) == 0 ? 1 : _i(j['qty']),
+        lockedOptions: j['lockedOptions'] is Map
+            ? Map<String, String>.from((j['lockedOptions'] as Map)
+                .map((k, v) => MapEntry('$k', '$v')))
+            : const {},
+        optionGroups: (j['optionGroups'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbOptionGroup.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        label: _s(j['label']),
+        note: _s(j['note']),
+        from: (j['from'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbSlotCandidate.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+      );
+
+  /// شريحة الملخّص على بطاقة العرض: «◇ شاي / قهوة / غازي» أو «أرجيلة 150غم».
+  String get summary {
+    if (isChoice) {
+      final names = from.take(3).map((c) => c.name).join(' / ');
+      return '◇ $names${from.length > 3 ? ' …' : ''}';
+    }
+    final lock = lockedOptions.values.isEmpty ? '' : ' ${lockedOptions.values.first}';
+    return qty > 1 ? '$name ×$qty$lock' : '$name$lock';
+  }
+}
 
 class FnbMenuItem {
   const FnbMenuItem({
@@ -213,6 +299,7 @@ class FnbMenuItem {
     this.components = const [],
     this.subcategory = '',
     this.optionGroups = const [],
+    this.slots = const [],
   });
 
   final int id;
@@ -222,18 +309,35 @@ class FnbMenuItem {
   final bool isBundle;                    // 🎁 باقة مركَّبة (العرض الكامل)
   final List<FnbComponent> components;
   final List<FnbOptionGroup> optionGroups;
+  final List<FnbSlot> slots;              // 🎁 خانات الباقة (المصدر منذ 2026-08-08)
 
-  /// هل يحتاج سؤالاً قبل الإضافة؟ (خياراته أو خيارات مكوّنات باقته)
-  bool get needsPicking =>
-      optionGroups.isNotEmpty ||
-      components.any((c) => c.optionGroups.isNotEmpty);
+  /// هل يحتاج سؤالاً قبل الإضافة؟ الباقة تفتح مُهيّئها دائماً، والصنف بخياراته.
+  bool get needsPicking => isBundle || optionGroups.isNotEmpty;
+
+  /// 📖 وصفٌ أطول من هذا لا يُقرأ في سطر البطاقة — يفتح ورقة تفصيل.
+  bool get hasLongDescription =>
+      !isBundle && optionGroups.isEmpty && description.length > 40;
+
+  /// ملخّص ما سيُسأل عنه: مجموعةٌ واحدة ⇒ «7 النكهة» (العدد أنفع من الاسم).
+  String get optionHint {
+    if (optionGroups.isEmpty) return 'خيارات';
+    if (optionGroups.length == 1) {
+      final g = optionGroups.first;
+      return '${g.values.length} ${g.name}';
+    }
+    if (optionGroups.length == 2) {
+      return optionGroups.map((g) => g.name).join(' · ');
+    }
+    return '${optionGroups.first.name} +${optionGroups.length - 1}';
+  }
 
   double get priceValue => parsePrice(price);
   String get priceText => jod(priceValue);
 
-  /// السطر الثانويّ: مكوّنات الباقة إن وُجدت، وإلا الوصف.
-  String get subtitle =>
-      isBundle && components.isNotEmpty ? componentsLine(components) : description;
+  /// السطر الثانويّ: خانات الباقة إن وُجدت، وإلا الوصف.
+  String get subtitle => isBundle && slots.isNotEmpty
+      ? slots.map((s) => s.summary).join(' + ')
+      : description;
 
   factory FnbMenuItem.fromJson(Map<String, dynamic> j) => FnbMenuItem(
         id: _i(j['id']),
@@ -253,6 +357,10 @@ class FnbMenuItem {
         optionGroups: (j['optionGroups'] as List? ?? const [])
             .whereType<Map>()
             .map((e) => FnbOptionGroup.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        slots: (j['slots'] as List? ?? const [])
+            .whereType<Map>()
+            .map((e) => FnbSlot.fromJson(Map<String, dynamic>.from(e)))
             .toList(),
       );
 }
@@ -384,6 +492,23 @@ class FnbSelection {
   Map<String, String> toJson() => {'group': groupKey, 'value': valueKey};
 }
 
+/// 🎁 اختيار خانةٍ واحدة كما يُرسَل للخادم: `{i, menuItemId?, options}`.
+class FnbSlotPick {
+  const FnbSlotPick({required this.i, this.menuItemId, this.options = const []});
+  final int i;
+  final int? menuItemId;                 // لخانة الاختيار فقط
+  final List<FnbSelection> options;
+
+  Map<String, dynamic> toJson() => {
+        'i': i,
+        if (menuItemId != null) 'menuItemId': menuItemId,
+        'options': options.map((o) => o.toJson()).toList(),
+      };
+
+  String get signature =>
+      '$i:${menuItemId ?? ''}:${(options.map((o) => '${o.groupKey}|${o.valueKey}').toList()..sort()).join(',')}';
+}
+
 /// 🛒 سطر سلّة = صنف + توليفة خيارات.
 /// 🔴 توليفتان مختلفتان **سطران**: «أرجيلة/تفاحتين» و«أرجيلة/عنب» لا تندمجان،
 ///    وإلّا حُضّرت نكهةٌ واحدة مرّتين.
@@ -391,44 +516,44 @@ class FnbCartLine {
   const FnbCartLine({
     required this.key,
     required this.itemId,
+    required this.name,
     required this.quantity,
     required this.unitPrice,
     this.label = '',
+    this.isBundle = false,
     this.options = const [],
-    this.componentOptions = const {},
+    this.slots = const [],
   });
 
   final String key;
   final int itemId, quantity;
+  final String name;                   // لقطة الاسم — الدرج لا يبحث في المنيو
   final double unitPrice;              // للعرض فقط — الخادم يعيد التسعير
   final String label;                  // «نكهة: تفاحتين · الحجم: كبير»
+  final bool isBundle;
   final List<FnbSelection> options;
-  final Map<int, List<FnbSelection>> componentOptions;
+  final List<FnbSlotPick> slots;       // 🎁 اختيارات خانات الباقة
 
   FnbCartLine copyWith({int? quantity}) => FnbCartLine(
-        key: key, itemId: itemId, quantity: quantity ?? this.quantity,
-        unitPrice: unitPrice, label: label, options: options,
-        componentOptions: componentOptions,
+        key: key, itemId: itemId, name: name,
+        quantity: quantity ?? this.quantity,
+        unitPrice: unitPrice, label: label, isBundle: isBundle,
+        options: options, slots: slots,
       );
 
   Map<String, dynamic> toJson() => {
         'menuItemId': itemId,
         'quantity': quantity,
         'options': options.map((o) => o.toJson()).toList(),
-        'componentOptions': [
-          for (final e in componentOptions.entries)
-            {'menuItemId': e.key, 'options': e.value.map((o) => o.toJson()).toList()},
-        ],
+        'slots': slots.map((s) => s.toJson()).toList(),
       };
 
-  /// مفتاحٌ مستقرّ يميّز التوليفة — نفس صياغة الويب.
-  static String makeKey(int itemId, List<FnbSelection> options,
-      Map<int, List<FnbSelection>> componentOptions) {
+  /// مفتاحٌ مستقرّ يميّز التوليفة — بصمة الخانات ضمنه كما في الخادم:
+  /// باقتان بنكهتين مختلفتين سطران لا سطرٌ بكمّية ٢.
+  static String makeKey(
+      int itemId, List<FnbSelection> options, List<FnbSlotPick> slots) {
     final a = options.map((o) => '${o.groupKey}|${o.valueKey}').toList()..sort();
-    final b = componentOptions.entries
-        .map((e) => '${e.key}:${(e.value.map((o) => '${o.groupKey}|${o.valueKey}').toList()..sort()).join(',')}')
-        .toList()
-      ..sort();
+    final b = slots.map((s) => s.signature).toList();
     return '$itemId#${a.join(',')}#${b.join(';')}';
   }
 }

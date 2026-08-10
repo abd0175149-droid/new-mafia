@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show Random;
 
 import 'package:flutter/material.dart';
 
@@ -11,19 +12,22 @@ import 'option_picker.dart';
 import 'order_widgets.dart';
 
 // ══════════════════════════════════════════════════════
-// 🍽️ اطلب من المكان — الملفّ 17
+// 🍽️ اطلب من المكان — نقل بنية الويب كاملةً (2026-08-10)
 // ══════════════════════════════════════════════════════
-// 📌 لا واجهة فاتورة هنا إطلاقاً: إصدار فاتورة A6 وظيفة **جهاز المكان**
-//    عبر `/api/venue/invoices/*`. اللاعب يرى إجمالي طلبه فقط.
-// 📌 ولا سوكِت: لا توجد غرفة player-facing لحالة الطلب في الخادم.
-//    التكافؤ = استطلاع كل ٣٠ ثانية في المقدّمة + إشعار FCM.
+// البنية ثلاثيّة: **ثابتٌ · متمرّرٌ · ثابت** — مطابقة OrderPanel.tsx:
+//   • تبويبان: «المنيو والعروض» و«طلباتي» — المهمّتان الحقيقيّتان.
+//   • قائمةٌ واحدة متّصلة بكلّ الأقسام (العروض أوّلاً) وشريطُ شرائحَ يعمل
+//     قفزاً لا تصفية: يضيء على القسم الظاهر أثناء التمرير وينقل إليه بنقرة.
+//   • شريط سلّةٍ **كهرمانيّ نابض** يقول «لم يُرسَل بعد» — الأخضر لون «تمّ»
+//     والسلّة لم تصل الكافيه. يفتح درجاً فيه التعديل والحذف والإرسال.
+//   • 💨 خدمة الأرجيلة (فحم/تزبيط) في «طلباتي» — متعلّقةٌ بطلبٍ وصل.
+//   • 🔁 مفتاح تكرار (clientKey): الردّ الضائع لا يصير طلباً ثانياً يُفوتَر.
+// 📌 لا سوكِت: استطلاع كل ٣٠ ثانية في المقدّمة + إشعار FCM — قرارٌ قائم.
 
 class OrderScreen extends StatefulWidget {
   const OrderScreen({super.key, this.embedded = false});
 
-  /// ورقةً داخل شاشة اللعبة بدل صفحةٍ مستقلّة: بلا Scaffold ولا PopsToHome،
-  /// و«الرئيسيّة» تصير «إغلاق». القرار: الطلب يتمّ **من داخل صفحة اللعبة**
-  /// فلا يغادر اللاعب جولته الجارية.
+  /// ورقةً داخل شاشة اللعبة بدل صفحةٍ مستقلّة — الطلب لا يغادر الجولة.
   final bool embedded;
 
   @override
@@ -48,32 +52,39 @@ class _OrderSheetShell extends StatelessWidget {
   const _OrderSheetShell();
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0B1310), Color(0xFF050505)],
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: Color(0xFF050505),
+            border: Border(top: BorderSide(color: Color(0x4010B981))),
           ),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: Color(0x4010B981))),
+          // الورقة بارتفاعٍ ثابت واللوحة تدير تمريرها الداخليّ — تمريرٌ خارجيّ
+          // هنا كان سيُخفي شريط السلّة (نفس درس الويب)
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.88,
+            child: const OrderScreen(embedded: true),
+          ),
         ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            width: 48,
-            height: 6,
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0x33FFFFFF),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-          const Flexible(child: OrderScreen(embedded: true)),
-        ]),
       );
 }
 
-class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
+/// قسمٌ في القائمة المتّصلة.
+class _Section {
+  const _Section({
+    required this.key,
+    required this.chip,
+    required this.title,
+    required this.isPkg,
+    required this.items,
+  });
+  final String key, chip, title;
+  final bool isPkg;
+  final List<FnbMenuItem> items;
+}
+
+class _OrderScreenState extends State<OrderScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   bool _loading = true;
   FnbContextResult _ctxResult = const FnbContextResult();
   List<FnbMenuItem> _menu = const [];
@@ -81,11 +92,36 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
 
   FnbCart _cart = const FnbCart();
   final _noteCtrl = TextEditingController();
-  final _scroll = ScrollController();
+  final _searchCtrl = TextEditingController();
 
+  int _tab = 0; // 0 = المنيو والعروض · 1 = طلباتي
   bool _sending = false;
   bool _sent = false;
   String _err = '';
+
+  // 💨 خدمة الأرجيلة
+  bool _svcAvailable = false;
+  Map<String, dynamic>? _svcPending;
+  bool _svcBusy = false;
+
+  // 🔁 مفتاح التكرار — يتجدّد مع أيّ تغييرٍ في السلّة ويثبت عبر إعادة المحاولة
+  String? _clientKey;
+
+  // 🧭 القفز والرصد
+  final _scroll = ScrollController();
+  final _scrollAreaKey = GlobalKey();
+  final _secKeys = <String, GlobalKey>{};
+  final _chipKeys = <String, GlobalKey>{};
+  String _activeSec = '';
+  bool _jumping = false;
+  Timer? _jumpTimer;
+  bool _spyTick = false;
+
+  // نبض شريط السلّة الكهرمانيّ
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat(reverse: true);
 
   Timer? _poll;
   Timer? _toastTimer;
@@ -96,6 +132,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scroll.addListener(_onScrollSpy);
     _boot();
   }
 
@@ -104,17 +141,19 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _toastTimer?.cancel();
+    _jumpTimer?.cancel();
+    _pulse.dispose();
     _noteCtrl.dispose();
+    _searchCtrl.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
-  /// الاستطلاع يتوقّف كلّياً خارج المقدّمة، والعودة تُحدِّث فوراً — يعوّض
-  /// ما فات دورة الثلاثين ثانية.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _loadOrders();
+      _loadService();
       _startPolling();
     } else {
       _poll?.cancel();
@@ -122,7 +161,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   }
 
   // ══════════════════════════════════════════════════════
-  // الإقلاع
+  // الإقلاع والتحميل
   // ══════════════════════════════════════════════════════
   Future<void> _boot() async {
     try {
@@ -131,9 +170,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
       if (r is Map && r['success'] == true) {
         _ctxResult = FnbContextResult.fromJson(Map<String, dynamic>.from(r));
       }
-    } catch (_) {
-      // تكافؤ: الويب يبتلع الخطأ ويُظهر الحالة المبوّبة بالنصّ الافتراضيّ
-    }
+    } catch (_) {}
 
     final c = _ctx;
     if (c == null) {
@@ -141,7 +178,7 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
       return;
     }
 
-    await Future.wait([_loadMenu(c.activityId), _loadOrders()]);
+    await Future.wait([_loadMenu(c.activityId), _loadOrders(), _loadService()]);
     if (!mounted) return;
     setState(() => _loading = false);
     _startPolling();
@@ -150,7 +187,10 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
   void _startPolling() {
     _poll?.cancel();
     if (_ctx == null) return;
-    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _loadOrders());
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) {
+      _loadOrders();
+      _loadService();
+    });
   }
 
   Future<void> _loadMenu(int activityId) async {
@@ -164,12 +204,9 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
             .map((e) => FnbMenuItem.fromJson(Map<String, dynamic>.from(e)))
             .toList();
       });
-    } catch (_) {
-      // فشل المنيو بعد سياقٍ ناجح ⇒ «المكان لم يضف أصنافاً بعد» — تكافؤ
-    }
+    } catch (_) {}
   }
 
-  /// فشل تحديث الطلبات **صامت** — تكافؤ.
   Future<void> _loadOrders() async {
     final c = _ctx;
     if (c == null) return;
@@ -186,24 +223,170 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  // ══════════════════════════════════════════════════════
-  // الأفعال
-  // ══════════════════════════════════════════════════════
-  /// إضافة صنف: مباشرةً إن كان بلا خيارات، وإلّا تُفتح ورقة الاختيار.
-  Future<void> _addItem(FnbMenuItem it) async {
-    if (!it.needsPicking) {
-      setState(() => _cart = _cart.add(FnbCartLine(
-            key: FnbCartLine.makeKey(it.id, const [], const {}),
-            itemId: it.id, quantity: 1, unitPrice: it.priceValue,
-          )));
-      return;
-    }
-    final line = await showOptionPicker(context, it);
-    if (line != null && mounted) setState(() => _cart = _cart.add(line));
+  /// 💨 هل تُعرض بطاقة الخدمة، وهل ثمّة طلبٌ معلَّق؟
+  Future<void> _loadService() async {
+    if (_ctx == null) return;
+    try {
+      final r = await ApiClient.instance.get('/api/fnb/service/state');
+      if (!mounted || r is! Map || r['success'] != true) return;
+      setState(() {
+        _svcAvailable = r['available'] == true;
+        _svcPending =
+            r['pending'] is Map ? Map<String, dynamic>.from(r['pending']) : null;
+      });
+    } catch (_) {}
   }
 
-  void _changeQty(String key, int delta) =>
-      setState(() => _cart = _cart.changeQty(key, delta));
+  // ══════════════════════════════════════════════════════
+  // الأقسام والبحث
+  // ══════════════════════════════════════════════════════
+  List<_Section> get _sections {
+    final out = <_Section>[];
+    final packages = _menu.where((m) => m.isBundle).toList();
+    if (packages.isNotEmpty) {
+      out.add(_Section(
+          key: '_pkg', chip: '🎁 العروض', title: '🎁 العروض',
+          isPkg: true, items: packages));
+    }
+    final idx = <String, List<FnbMenuItem>>{};
+    final order = <String>[];
+    for (final m in _menu) {
+      if (m.isBundle) continue;
+      final k = '${m.category}|${m.subcategory}';
+      if (!idx.containsKey(k)) {
+        idx[k] = [];
+        order.add(k);
+      }
+      idx[k]!.add(m);
+    }
+    for (final k in order) {
+      final parts = k.split('|');
+      final cat = parts[0], sub = parts.length > 1 ? parts[1] : '';
+      out.add(_Section(
+        key: k,
+        chip: sub.isNotEmpty ? sub : (cat.isNotEmpty ? cat : kUncategorized),
+        title: sub.isNotEmpty ? '$cat ← $sub' : (cat.isNotEmpty ? cat : kUncategorized),
+        isPkg: false,
+        items: idx[k]!,
+      ));
+    }
+    return out;
+  }
+
+  /// 🎁 الأصناف التي تحويها باقة — لشارة «ضمن عرض».
+  Set<int> get _inPackageIds {
+    final ids = <int>{};
+    for (final p in _menu.where((m) => m.isBundle)) {
+      for (final s in p.slots) {
+        if (s.isChoice) {
+          ids.addAll(s.from.map((c) => c.menuItemId));
+        } else if (s.menuItemId != null) {
+          ids.add(s.menuItemId!);
+        }
+      }
+    }
+    return ids;
+  }
+
+  /// البحث يمسح المنيو كلّه — الاسم والوصف والقسم وقيم الخيارات
+  /// (من يكتب «نخلة» يقصد صنفاً يحملها خياراً).
+  List<FnbMenuItem> get _searchResults {
+    final q = _searchCtrl.text.trim();
+    if (q.isEmpty) return const [];
+    return _menu
+        .where((m) =>
+            m.name.contains(q) ||
+            m.description.contains(q) ||
+            m.category.contains(q) ||
+            m.subcategory.contains(q) ||
+            m.optionGroups.any((g) => g.values.any((v) => v.name.contains(q))))
+        .toList();
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 🧭 الرصد والقفز — مطابقة scroll-spy الويب
+  // ══════════════════════════════════════════════════════
+  void _onScrollSpy() {
+    if (_spyTick || _jumping || _searchCtrl.text.trim().isNotEmpty || _tab != 0) {
+      return;
+    }
+    _spyTick = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _spyTick = false;
+      if (!mounted) return;
+      final areaBox =
+          _scrollAreaKey.currentContext?.findRenderObject() as RenderBox?;
+      if (areaBox == null) return;
+      final areaTop = areaBox.localToGlobal(Offset.zero).dy;
+      String? cur;
+      for (final sec in _sections) {
+        final ctx = _secKeys[sec.key]?.currentContext;
+        final box = ctx?.findRenderObject() as RenderBox?;
+        if (box == null) continue;
+        final dy = box.localToGlobal(Offset.zero).dy - areaTop;
+        if (dy <= 28) cur = sec.key;
+      }
+      cur ??= _sections.isEmpty ? '' : _sections.first.key;
+      if (cur != _activeSec) {
+        setState(() => _activeSec = cur!);
+        // الشريحة المضيئة تلاحق التمرير اليدويّ — تبقى مرئيّةً في شريطها
+        final chipCtx = _chipKeys[cur]?.currentContext;
+        if (chipCtx != null) {
+          Scrollable.ensureVisible(chipCtx,
+              duration: const Duration(milliseconds: 250),
+              alignment: 0.5,
+              curve: Curves.easeOut);
+        }
+      }
+    });
+  }
+
+  void _jump(String key) {
+    final ctx = _secKeys[key]?.currentContext;
+    if (ctx == null) return;
+    // 🔴 أثناء القفز يُكتم الرصد: تحديث الشريحة في منتصفه كان يقطع الانزلاق
+    _jumping = true;
+    _jumpTimer?.cancel();
+    _jumpTimer = Timer(const Duration(milliseconds: 800), () => _jumping = false);
+    setState(() => _activeSec = key);
+    Scrollable.ensureVisible(ctx,
+        duration: const Duration(milliseconds: 400),
+        alignment: 0,
+        curve: Curves.easeOutCubic);
+  }
+
+  // ══════════════════════════════════════════════════════
+  // السلّة والأفعال
+  // ══════════════════════════════════════════════════════
+  void _mutateCart(FnbCart next) {
+    _clientKey = null; // سلّةٌ تغيّرت = محاولةُ إرسالٍ جديدة
+    setState(() => _cart = next);
+  }
+
+  Future<void> _addItem(FnbMenuItem it) async {
+    if (it.isBundle) {
+      final line = await showPackageSheet(context, it);
+      if (line != null && mounted) _mutateCart(_cart.add(line));
+      return;
+    }
+    if (it.optionGroups.isNotEmpty) {
+      final line = await showOptionPicker(context, it);
+      if (line != null && mounted) _mutateCart(_cart.add(line));
+      return;
+    }
+    // 📖 وصفٌ طويل بلا خيارات: يُقرأ قبل أن يُشترى
+    if (it.hasLongDescription) {
+      final add = await showDetailSheet(context, it);
+      if (add != true || !mounted) return;
+    }
+    _mutateCart(_cart.add(FnbCartLine(
+      key: FnbCartLine.makeKey(it.id, const [], const []),
+      itemId: it.id,
+      name: it.name,
+      quantity: 1,
+      unitPrice: it.priceValue,
+    )));
+  }
 
   Future<void> _send() async {
     if (_cart.isEmpty || _ctx == null || _sending) return;
@@ -211,17 +394,23 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
       _sending = true;
       _err = '';
     });
+    // 🔁 يثبت عبر إعادة المحاولة: الردّ الضائع ⇒ الخادم يعيد الطلب الأوّل
+    _clientKey ??=
+        'm${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF)}';
     try {
       final r = await ApiClient.instance.post('/api/fnb/orders', body: {
         'items': _cart.toPayload(),
         'note': _noteCtrl.text.trim(),
+        'clientKey': _clientKey,
       });
       if (!mounted) return;
       if (r is Map && r['success'] == true) {
+        _clientKey = null;
         setState(() {
           _cart = const FnbCart();
           _noteCtrl.clear();
           _sent = true;
+          _tab = 1; // كما في الويب: بعد الإرسال يرى حالة طلبه
         });
         _toastTimer?.cancel();
         _toastTimer = Timer(const Duration(milliseconds: 2500),
@@ -229,9 +418,8 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
         await _loadOrders();
         return;
       }
-      // رسائل الخادم عربية ومكتوبة للاعب — تُعرض حرفياً
-      setState(() => _err = (r is Map ? r['error'] as String? : null) ??
-          'فشل إرسال الطلب');
+      setState(() => _err =
+          (r is Map ? r['error'] as String? : null) ?? 'فشل إرسال الطلب');
     } on ApiException catch (e) {
       if (mounted) setState(() => _err = e.message);
     } catch (_) {
@@ -241,7 +429,6 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// بلا حوار تأكيد — تكافؤ مع الويب.
   Future<void> _cancel(FnbMyOrder o) async {
     try {
       final r = await ApiClient.instance.post('/api/fnb/orders/${o.id}/cancel');
@@ -259,6 +446,31 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     }
   }
 
+  /// 💨 طلب فحمٍ أو تزبيط — طلبٌ معلَّقٌ واحد، والخادم يفرضه أيضاً.
+  Future<void> _askService(String kind) async {
+    if (_svcBusy || _svcPending != null) return;
+    setState(() => _svcBusy = true);
+    try {
+      final r = await ApiClient.instance
+          .post('/api/fnb/service', body: {'kind': kind});
+      if (!mounted) return;
+      if (r is Map && r['success'] == true) {
+        setState(() => _svcPending = r['request'] is Map
+            ? Map<String, dynamic>.from(r['request'])
+            : {'kind': kind});
+      } else {
+        setState(() => _err =
+            (r is Map ? r['error'] as String? : null) ?? 'تعذّر إرسال الطلب');
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _err = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _err = 'خطأ في الاتصال');
+    } finally {
+      if (mounted) setState(() => _svcBusy = false);
+    }
+  }
+
   // ══════════════════════════════════════════════════════
   // البناء
   // ══════════════════════════════════════════════════════
@@ -270,13 +482,11 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
             ? _noContext()
             : _ready();
 
-    // ورقةً: بلا Scaffold — الورقة نفسها هي السطح، وSafeArea السفليّ يخصّ الشاشة
     if (widget.embedded) return body;
 
     return PopsToHome(
       child: Scaffold(
         backgroundColor: const Color(0xFF050505),
-        // الشريط يرتفع فوق الكيبورد — الويب لا يعالج هذا وفي التطبيق إلزاميّ
         resizeToAvoidBottomInset: true,
         body: SafeArea(bottom: false, child: body),
       ),
@@ -294,7 +504,6 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
         ),
       );
 
-  // §4.2 — مبوّب خارجاً
   Widget _noContext() => Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 64, 20, 40),
@@ -332,37 +541,309 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
         ),
       );
 
+  /// ثابتٌ (ترويسة + تبويبات + بحث/شرائح) · متمرّرٌ (الجسم) · ثابت (شريط السلّة)
   Widget _ready() {
-    final expanded = context.sizeClass == WindowSizeClass.expanded;
+    final searching = _searchCtrl.text.trim().isNotEmpty;
     return Stack(children: [
-      Positioned.fill(child: expanded ? _twoPane() : _singleColumn()),
-      _cartBar(),
-      if (_sent)
-        const Positioned.fill(
-          child: _ToastFade(child: OrderSentToast()),
+      Column(children: [
+        _header(),
+        _tabs(),
+        if (_tab == 0) _searchAndChips(searching),
+        Expanded(
+          child: KeyedSubtree(
+            key: _scrollAreaKey,
+            child: _tab == 0 ? _menuBody(searching) : _ordersBody(),
+          ),
         ),
+        _cartBar(),
+      ]),
+      if (_sent)
+        const Positioned.fill(child: _ToastFade(child: OrderSentToast())),
     ]);
   }
 
-  // compact/medium — عمود واحد
-  Widget _singleColumn() {
-    final wide = context.sizeClass != WindowSizeClass.compact;
+  Widget _header() {
+    final c = _ctx!;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFF0A0F0D),
+        border: Border(bottom: BorderSide(color: Color(0x12FFFFFF))),
+      ),
+      child: Row(children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: const LinearGradient(
+              colors: [Color(0x4010B981), Color(0x0F10B981)],
+            ),
+            border: Border.all(color: const Color(0x4D10B981)),
+          ),
+          child: const Center(child: Text('🍽️', style: TextStyle(fontSize: 16))),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(c.locationName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: ar(14, weight: FontWeight.bold)),
+              Text(c.isLive ? '🎮 أنت داخل اللعبة' : '🎟️ حجزك مؤكّد للطلب',
+                  style: ar(10, color: Tw.gray500)),
+            ],
+          ),
+        ),
+        if (widget.embedded)
+          InkWell(
+            onTap: () => Navigator.of(context).maybePop(),
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0x12FFFFFF),
+                border: Border.all(color: const Color(0x1FFFFFFF)),
+              ),
+              child: Center(child: Text('✕', style: ar(12, color: Tw.gray400))),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  Widget _tabs() {
+    final badge = _orders.where((o) => o.status == 'new' || o.status == 'preparing').length;
+    Widget tab(int i, String label, {int count = 0}) {
+      final on = _tab == i;
+      return Expanded(
+        child: InkWell(
+          onTap: () => setState(() => _tab = i),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                    width: 2,
+                    color: on ? const Color(0xFF34D399) : Colors.transparent),
+              ),
+            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(label,
+                  style: ar(11.5,
+                      color: on ? const Color(0xFF34D399) : Tw.gray500,
+                      weight: FontWeight.bold)),
+              if (count > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    color: const Color(0xFF34D399),
+                  ),
+                  child: Text('$count',
+                      style: const TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.black)),
+                ),
+              ],
+            ]),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF0A0F0D),
+        border: Border(bottom: BorderSide(color: Color(0x12FFFFFF))),
+      ),
+      child: Row(children: [
+        tab(0, '🍽️ المنيو والعروض'),
+        tab(1, '🧾 طلباتي', count: badge),
+      ]),
+    );
+  }
+
+  Widget _searchAndChips(bool searching) {
+    final secs = _sections;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      color: const Color(0xFF050505),
+      child: Column(children: [
+        SizedBox(
+          height: 40,
+          child: TextField(
+            controller: _searchCtrl,
+            onChanged: (_) => setState(() {}),
+            style: ar(13),
+            cursorColor: kEmeraldText,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'ابحث في المنيو…',
+              hintStyle: ar(13, color: Tw.gray600),
+              prefixIcon: const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Text('🔎', textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13)),
+              ),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 36, minHeight: 0),
+              suffixIcon: searching
+                  ? IconButton(
+                      icon: const Icon(Icons.close, size: 16, color: Colors.grey),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        setState(() {});
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: const Color(0x0DFFFFFF),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0x17FFFFFF)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0x6610B981)),
+              ),
+            ),
+          ),
+        ),
+        if (!searching && secs.length > 1) ...[
+          const SizedBox(height: 8),
+          // Row داخل تمريرٍ أفقيّ لا ListView كسول: الشريحة خارج نافذة العرض
+          // كانت بلا عنصرٍ مبنيّ فلا يجد ensureVisible سياقها ولا يلاحقها
+          SizedBox(
+            height: 32,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                for (final s in secs)
+                  Padding(
+                    key: _chipKeys[s.key] ??= GlobalKey(),
+                    padding: const EdgeInsets.only(left: 6),
+                    child: _chip(s),
+                  ),
+              ]),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _chip(_Section s) {
+    final on = (_activeSec.isEmpty ? _sections.first.key : _activeSec) == s.key;
+    return InkWell(
+      onTap: () => _jump(s.key),
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(9),
+          color: on ? const Color(0x2610B981) : const Color(0x0AFFFFFF),
+          border: Border.all(
+              color: on ? const Color(0x4D10B981) : Colors.transparent),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(s.chip,
+              style: ar(11,
+                  color: on ? const Color(0xFF34D399) : Tw.gray400,
+                  weight: FontWeight.bold)),
+          const SizedBox(width: 4),
+          Text('${s.items.length}',
+              style: TextStyle(
+                  fontSize: 9,
+                  color: (on ? const Color(0xFF34D399) : Tw.gray400)
+                      .withValues(alpha: 0.6))),
+        ]),
+      ),
+    );
+  }
+
+  // ── جسم المنيو: قائمةٌ متّصلة أو نتائج البحث ──
+  Widget _menuBody(bool searching) {
+    if (_menu.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: const [EmptyMenuCard()],
+      );
+    }
+    if (searching) {
+      final results = _searchResults;
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        children: [
+          if (_err.isNotEmpty) ...[
+            OrderErrorBanner(message: _err),
+            const SizedBox(height: 10),
+          ],
+          if (results.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 48),
+              child: Center(
+                child: Text('لا صنف يطابق «${_searchCtrl.text.trim()}»',
+                    style: ar(13, color: Tw.gray500)),
+              ),
+            )
+          else
+            for (final m in results) ...[
+              _itemOrPkgRow(m),
+              const SizedBox(height: 8),
+            ],
+        ],
+      );
+    }
+
+    final secs = _sections;
     return SingleChildScrollView(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 128),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       child: ContentConstraint(
-        maxWidth: wide ? 640 : 512,
+        maxWidth: 640,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            OrderHeaderCard(ctx: _ctx!),
-            const SizedBox(height: 20),
-            ..._ordersSection(),
-            ..._cartLines(),
-            ..._menuSection(twoColumns: wide),
             if (_err.isNotEmpty) ...[
-              const SizedBox(height: 20),
               OrderErrorBanner(message: _err),
+              const SizedBox(height: 10),
+            ],
+            for (final sec in secs) ...[
+              KeyedSubtree(
+                key: _secKeys[sec.key] ??= GlobalKey(),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  child: Row(children: [
+                    Text(sec.title,
+                        style: ar(11,
+                            color: const Color(0xBF34D399),
+                            weight: FontWeight.bold)),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: SizedBox(
+                          height: 1,
+                          child: ColoredBox(color: Color(0x1F10B981))),
+                    ),
+                    const SizedBox(width: 8),
+                    Text('${sec.items.length}',
+                        style: ar(10, color: Tw.gray600)),
+                  ]),
+                ),
+              ),
+              for (final m in sec.items) ...[
+                _itemOrPkgRow(m),
+                const SizedBox(height: 8),
+              ],
             ],
           ],
         ),
@@ -370,251 +851,197 @@ class _OrderScreenState extends State<OrderScreen> with WidgetsBindingObserver {
     );
   }
 
-  // expanded — لوح جانبيّ (ترويسة + طلباتي) ولوح منيو
-  Widget _twoPane() => Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 960),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 320,
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 8, 128),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      OrderHeaderCard(ctx: _ctx!),
-                      const SizedBox(height: 20),
-                      ..._ordersSection(),
-                    ],
-                  ),
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _scroll,
-                  padding: const EdgeInsets.fromLTRB(8, 24, 16, 128),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ..._cartLines(),
-                      ..._menuSection(twoColumns: true),
-                      if (_err.isNotEmpty) ...[
-                        const SizedBox(height: 20),
-                        OrderErrorBanner(message: _err),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
+  Widget _itemOrPkgRow(FnbMenuItem m) => m.isBundle
+      ? PackageCard(
+          item: m,
+          qty: _cart.qtyOf(m.id),
+          onTap: () => unawaited(_addItem(m)),
+        )
+      : MenuItemRow(
+          item: m,
+          qty: _cart.qtyOf(m.id),
+          inPackage: _inPackageIds.contains(m.id),
+          onAdd: () => unawaited(_addItem(m)),
+        );
+
+  // ── طلباتي + 💨 خدمة الأرجيلة ──
+  Widget _ordersBody() => ListView(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+        children: [
+          if (_err.isNotEmpty) ...[
+            OrderErrorBanner(message: _err),
+            const SizedBox(height: 10),
+          ],
+          if (_svcAvailable) ...[
+            ShishaServiceCard(
+              pending: _svcPending != null,
+              busy: _svcBusy,
+              onAsk: (kind) => unawaited(_askService(kind)),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (_orders.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 48),
+              child: Center(
+                  child: Text('لا طلبات بعد', style: ar(13, color: Tw.gray500))),
+            )
+          else
+            for (final o in _orders) ...[
+              MyOrderCard(order: o, onCancel: () => _cancel(o)),
+              const SizedBox(height: 8),
             ],
-          ),
-        ),
+        ],
       );
-
-  List<Widget> _ordersSection() {
-    if (_orders.isEmpty) return const [];
-    return [
-      Text('📋 طلباتي (${openOrdersCount(_orders)})',
-          style: ar(14, weight: FontWeight.w600)),
-      const SizedBox(height: 8),
-      for (final o in _orders) ...[
-        MyOrderCard(order: o, onCancel: () => _cancel(o)),
-        const SizedBox(height: 8),
-      ],
-      const SizedBox(height: 12),
-    ];
-  }
-
-  List<Widget> _menuSection({required bool twoColumns}) {
-    if (_menu.isEmpty) return const [EmptyMenuCard()];
-
-    final groups = groupByCategory(_menu);
-    final out = <Widget>[];
-    for (final e in groups.entries) {
-      out.add(CategoryHeader(name: e.key));
-      // 🗂️ أقسامٌ فرعيّة داخل القسم (مشروبات ← باردة/ساخنة) بترتيب الخادم
-      final subs = <String>[];
-      for (final m in e.value) {
-        if (!subs.contains(m.subcategory)) subs.add(m.subcategory);
-      }
-      for (final sub in subs) {
-        final inSub = e.value.where((m) => m.subcategory == sub).toList();
-        if (sub.isNotEmpty) {
-          out.add(Padding(
-            padding: const EdgeInsets.only(bottom: 6, right: 4),
-            child: Text('↳ $sub',
-                style: ar(10, color: Tw.gray500, weight: FontWeight.bold)),
-          ));
-        }
-        out.addAll(_rowsFor(inSub, twoColumns: twoColumns));
-      }
-      out.add(const SizedBox(height: 12));
-    }
-    return out;
-  }
-
-  /// صفوف قسمٍ فرعيّ واحد — عمودٌ أو عمودان حسب عرض الشاشة.
-  List<Widget> _rowsFor(List<FnbMenuItem> list, {required bool twoColumns}) {
-    final out = <Widget>[];
-    if (!twoColumns) {
-      for (final m in list) {
-        out.add(_row(m));
-        out.add(const SizedBox(height: 8));
-      }
-      return out;
-    }
-    // 🔴 لا `mainAxisExtent` ثابت: صنفٌ بوصفٍ يحتاج ارتفاعاً أكبر من
-    //    صنفٍ بلا وصف، والارتفاع الثابت يقصّ سطر السعر — وهو أهمّ ما
-    //    في الصفّ. صفوفٌ من اثنين داخل `IntrinsicHeight` تأخذ ارتفاع
-    //    الأطول، فتتساوى البطاقتان ولا يفيض شيء.
-    //    ⚠️ `stretch` وحده في سياقٍ بلا ارتفاعٍ محدَّد = فشل تخطيط
-    //    صامت؛ `IntrinsicHeight` هو ما يجعله شرعياً.
-    for (var i = 0; i < list.length; i += 2) {
-      final second = i + 1 < list.length ? list[i + 1] : null;
-      out.add(Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: _row(list[i])),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: second == null ? const SizedBox.shrink() : _row(second)),
-            ],
-          ),
-        ),
-      ));
-    }
-    return out;
-  }
-
-  Widget _row(FnbMenuItem m) => MenuItemRow(
-        item: m,
-        qty: _cart.qtyOf(m.id),
-        onAdd: () => unawaited(_addItem(m)),
-      );
-
-  /// 🛒 سطور السلّة — كلّ توليفةِ خياراتٍ سطرٌ مستقلّ بكمّيته
-  List<Widget> _cartLines() {
-    if (_cart.isEmpty) return const [];
-    return [
-      Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text('🛒 سلّتك',
-            style: ar(12, color: kEmeraldText, weight: FontWeight.bold)),
-      ),
-      for (final l in _cart.lines)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: CartLineRow(
-            line: l,
-            name: _menu.where((m) => m.id == l.itemId).firstOrNull?.name ?? 'صنف',
-            onQty: (d) => _changeQty(l.key, d),
-          ),
-        ),
-      const SizedBox(height: 12),
-    ];
-  }
 
   // ══════════════════════════════════════════════════════
-  // §4.3.5 شريط السلّة العائم
+  // 🟠 شريط السلّة الكهرمانيّ — «لم يُرسَل بعد» — يفتح الدرج
   // ══════════════════════════════════════════════════════
   Widget _cartBar() {
-    final insets = MediaQuery.viewInsetsOf(context).bottom;
-    final safe = MediaQuery.viewPaddingOf(context).bottom;
-    final total = _cart.total;
-
-    return AnimatedPositioned(
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutBack,
-      left: 16,
-      right: 16,
-      // فوق شريط التنقّل، وفوق الكيبورد حين يُفتح حقل الملاحظة
-      bottom: _cart.isEmpty ? -160 : (insets > 0 ? insets + 12 : 80 + safe),
-      child: ContentConstraint(
-        maxWidth: context.sizeClass == WindowSizeClass.compact ? 512 : 640,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: const Color(0xF2061410),
-            border: Border.all(color: const Color(0x6610B981)),
-            boxShadow: const [
-              BoxShadow(color: Color(0x99000000), blurRadius: 32, offset: Offset(0, 8)),
-            ],
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(
-              controller: _noteCtrl,
-              maxLength: kMaxNoteLength,
-              style: ar(12),
-              cursorColor: kEmeraldText,
-              decoration: InputDecoration(
-                counterText: '',
-                isDense: true,
-                hintText: 'ملاحظة للمكان (اختياريّ)…',
-                hintStyle: ar(12, color: Tw.gray600),
-                filled: true,
-                fillColor: const Color(0x0DFFFFFF),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0x1AFFFFFF)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: Color(0x6610B981)),
-                ),
-              ),
+    if (_cart.isEmpty) return const SizedBox.shrink();
+    final safe = widget.embedded ? 8.0 : MediaQuery.viewPaddingOf(context).bottom;
+    return InkWell(
+      onTap: _openCartDrawer,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(12, 10, 12, 10 + safe),
+        decoration: const BoxDecoration(
+          color: Color(0xF71C1305),
+          border: Border(top: BorderSide(color: Color(0x80F59E0B))),
+        ),
+        child: Row(children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: const Color(0x2EF59E0B),
+              border: Border.all(color: const Color(0x73F59E0B)),
             ),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(
-                child: Opacity(
-                  opacity: _sending ? 0.6 : 1,
-                  child: InkWell(
-                    onTap: _sending ? null : _send,
-                    borderRadius: BorderRadius.circular(12),
+            child: Center(child: ltrText('${_cart.count}', num_(14, color: const Color(0xFFFCD34D), weight: FontWeight.w900))),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(children: [
+                  FadeTransition(
+                    opacity: Tween(begin: 1.0, end: 0.25).animate(
+                        CurvedAnimation(parent: _pulse, curve: Curves.easeInOut)),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        gradient: const LinearGradient(
-                          begin: Alignment.topRight,
-                          end: Alignment.bottomLeft,
-                          colors: [kEmerald, Color(0xFF0D9488)],
-                        ),
-                      ),
-                      child: Center(
-                        child: _sending
-                            ? Text('⏳ يُرسل…', style: ar(14, weight: FontWeight.bold))
-                            : Text.rich(
-                                TextSpan(children: [
-                                  const TextSpan(text: 'إرسال الطلب • '),
-                                  TextSpan(text: ltrRun(jod(total))),
-                                ]),
-                                style: ar(14, weight: FontWeight.bold),
-                              ),
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Color(0xFFF59E0B),
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text.rich(
+                      TextSpan(children: [
+                        const TextSpan(text: 'لم يُرسَل بعد — '),
+                        TextSpan(text: ltrRun(jod(_cart.total))),
+                      ]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ar(12.5,
+                          color: const Color(0xFFFCD34D),
+                          weight: FontWeight.w900),
+                    ),
+                  ),
+                ]),
+                Text('طلبك لم يصل الكافيه · اضغط للمراجعة والإرسال',
+                    style: ar(9.5, color: const Color(0x8CFCD34D))),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
               ),
-              const SizedBox(width: 12),
-              Column(mainAxisSize: MainAxisSize.min, children: [
-                ltrText('${_cart.count}', num_(14)),
-                Text('أصناف', style: ar(9, color: Tw.gray500)),
-              ]),
-            ]),
-          ]),
-        ),
+            ),
+            child: Text('راجع وأرسل ←',
+                style: ar(12, weight: FontWeight.bold)),
+          ),
+        ]),
       ),
     );
   }
+
+  /// 🛒 درج السلّة: التعديل والحذف والملاحظة والإرسال — من أيّ موضعٍ بلا تمرير.
+  Future<void> _openCartDrawer() => showModalBottomSheet<void>(
+        context: context,
+        useRootNavigator: false,
+        backgroundColor: Colors.transparent,
+        barrierColor: const Color(0xCC000000),
+        isScrollControlled: true,
+        constraints: BoxConstraints(
+          maxWidth: 512,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+        ),
+        builder: (sheetCtx) {
+          // 🔴 حارس الإغلاق الأحاديّ: إعادة بناء الدرج أثناء حركة خروجه (~200م‌ث)
+          //    كانت تعيد جدولة pop فتُغلق **ورقة الطلب كلّها** خلف الدرج —
+          //    اللاعب يُقذف خارج الشاشة فور إرساله ولا يرى التوست ولا طلباته
+          var popped = false;
+          void popDrawerOnce(BuildContext ctx) {
+            if (popped) return;
+            popped = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (ctx.mounted && (ModalRoute.of(ctx)?.isCurrent ?? false)) {
+                Navigator.of(ctx).pop();
+              }
+            });
+          }
+
+          return StatefulBuilder(
+            builder: (ctx, setSheet) {
+              void both(VoidCallback fn) {
+                setState(fn);
+                setSheet(() {});
+              }
+
+              // آخر سطرٍ حُذف — الدرج بلا موضوع (مرّةً واحدة، والحارس يتحقّق
+              // أنّ الدرج ما يزال المسار الأعلى قبل الإغلاق)
+              if (_cart.isEmpty) popDrawerOnce(ctx);
+
+              return CartDrawer(
+                cart: _cart,
+                noteCtrl: _noteCtrl,
+                sending: _sending,
+                error: _err,
+                onQty: (key, d) => both(() {
+                  _clientKey = null;
+                  _cart = _cart.changeQty(key, d);
+                }),
+                onRemove: (key) => both(() {
+                  _clientKey = null;
+                  _cart = FnbCart(
+                      lines: _cart.lines.where((l) => l.key != key).toList());
+                }),
+                onSend: () async {
+                  await _send();
+                  if (!ctx.mounted) return;
+                  if (_sent) {
+                    // نجاح: إغلاقٌ واحدٌ محروس — ولا setSheet بعده
+                    popDrawerOnce(ctx);
+                    return;
+                  }
+                  // فشل: يبقى الدرج مفتوحاً ويُعاد بناؤه ليعرض لافتة الخطأ
+                  setSheet(() {});
+                },
+              );
+            },
+          );
+        },
+      );
 }
 
 /// ظهورٌ بتلاشٍ وتكبير — 250ms دخولاً و200ms خروجاً.

@@ -173,11 +173,15 @@ class MenuItemRow extends StatelessWidget {
     required this.item,
     required this.qty,
     required this.onAdd,
+    this.inPackage = false,
   });
 
   final FnbMenuItem item;
   final int qty;          // مجموع كمّياته في السلّة بكلّ توليفاته
   final VoidCallback onAdd;
+
+  /// 🎁 صنفٌ تحويه باقة — يعرف اللاعب أنّ عرضاً يضمّه بسعرٍ أفضل
+  final bool inPackage;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -213,9 +217,19 @@ class MenuItemRow extends StatelessWidget {
                 Row(mainAxisSize: MainAxisSize.min, children: [
                   ltrText(item.priceText,
                       num_(11, color: kEmeraldText, weight: FontWeight.bold)),
-                  if (item.needsPicking) ...[
+                  if (item.optionGroups.isNotEmpty) ...[
                     const SizedBox(width: 8),
-                    Text('⚙️ خيارات', style: ar(9, color: const Color(0xE6FBBF24))),
+                    // «7 النكهة» أنفع من «خيارات» على بطاقةِ عائلةٍ تخفي نكهاتها
+                    Flexible(
+                      child: Text('⚙️ ${item.optionHint}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: ar(9, color: const Color(0xE6FBBF24))),
+                    ),
+                  ],
+                  if (inPackage) ...[
+                    const SizedBox(width: 8),
+                    Text('🎁 ضمن عرض', style: ar(9, color: kBundleText)),
                   ],
                 ]),
               ],
@@ -267,7 +281,12 @@ class MenuItemRow extends StatelessWidget {
               ltrText('$qty', num_(12, weight: FontWeight.bold)),
               const SizedBox(width: 6),
             ],
-            Text(item.needsPicking ? 'اختر' : '+ أضف',
+            Text(
+                item.needsPicking
+                    ? 'اختر'
+                    : item.hasLongDescription
+                        ? 'التفاصيل'
+                        : '+ أضف',
                 style: ar(12, color: kEmeraldText, weight: FontWeight.bold)),
           ]),
         ),
@@ -302,13 +321,13 @@ class CartLineRow extends StatelessWidget {
   const CartLineRow({
     super.key,
     required this.line,
-    required this.name,
     required this.onQty,
+    required this.onRemove,
   });
 
   final FnbCartLine line;
-  final String name;
   final ValueChanged<int> onQty;   // ‎+1 أو ‎−1
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -324,7 +343,7 @@ class CartLineRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(name,
+                Text('${line.isBundle ? '🎁 ' : ''}${line.name}',
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: ar(12)),
                 if (line.label.isNotEmpty)
                   Text(line.label,
@@ -338,6 +357,9 @@ class CartLineRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
+          _stepBtn('🗑', const Color(0x1FF43F5E), const Color(0x4DF43F5E),
+              const Color(0xFFFB7185), onRemove),
+          const SizedBox(width: 8),
           _stepBtn('−', const Color(0x0DFFFFFF), const Color(0x1AFFFFFF),
               Colors.white, () => onQty(-1)),
           const SizedBox(width: 8),
@@ -415,6 +437,362 @@ class OrderErrorBanner extends StatelessWidget {
           border: Border.all(color: const Color(0x33F43F5E)),
         ),
         child: Text(message, style: ar(12, color: Tw.rose400)),
+      );
+}
+
+// ══════════════════════════════════════════════════════
+// 🎁 بطاقة عرضٍ (باقة) — بنفسجيّة بعرضٍ كامل، تختلف شكلاً لا لوناً فقط
+// ══════════════════════════════════════════════════════
+class PackageCard extends StatelessWidget {
+  const PackageCard({
+    super.key,
+    required this.item,
+    required this.qty,
+    required this.onTap,
+  });
+
+  final FnbMenuItem item;
+  final int qty;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: const LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: [Color(0x218B5CF6), Color(0x05FFFFFF)],
+            ),
+            border: Border.all(color: _bundleBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                const BundleChip(),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(item.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: ar(13.5, weight: FontWeight.bold)),
+                ),
+                ltrText(item.priceText,
+                    num_(15, color: kBundleText, weight: FontWeight.w900)),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 5, runSpacing: 5, children: [
+                for (final s in item.slots)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: s.isChoice
+                          ? const Color(0x1410B981)
+                          : const Color(0x0DFFFFFF),
+                      border: Border.all(
+                          color: s.isChoice
+                              ? const Color(0x5934D399)
+                              : const Color(0x14FFFFFF)),
+                    ),
+                    child: Text(s.summary,
+                        style: ar(10,
+                            color: s.isChoice
+                                ? const Color(0xFF6EE7B7)
+                                : Tw.gray300)),
+                  ),
+              ]),
+              const SizedBox(height: 8),
+              Text(
+                qty > 0
+                    ? '✓ في السلّة ×$qty — اضغط لإضافة توليفةٍ أخرى'
+                    : 'اضغط لاختيار مكوّناتك',
+                style: ar(10,
+                    color: qty > 0 ? const Color(0xFF6EE7B7) : Tw.gray500),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+// ══════════════════════════════════════════════════════
+// 💨 بطاقة خدمة الأرجيلة — فحمٌ أو تزبيط، طلبٌ بلا سعر
+// ══════════════════════════════════════════════════════
+class ShishaServiceCard extends StatelessWidget {
+  const ShishaServiceCard({
+    super.key,
+    required this.pending,
+    required this.busy,
+    required this.onAsk,
+  });
+
+  final bool pending, busy;
+  final ValueChanged<String> onAsk;   // 'coal' | 'fix'
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: const LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: [Color(0x24E0492B), Color(0x05FFFFFF)],
+          ),
+          border: Border.all(color: const Color(0x52E0492B)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              const Text('💨', style: TextStyle(fontSize: 20)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('أرجيلتك وصلت — تحتاج شيئاً؟',
+                    style: ar(13, weight: FontWeight.bold)),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Text('طلبٌ بلا سعر، يصل مسؤول الأراجيل مباشرةً ولا يدخل فاتورتك.',
+                style: ar(10.5, color: Tw.gray400)),
+            const SizedBox(height: 10),
+            if (pending)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0x1A10B981),
+                  border: Border.all(color: const Color(0x4710B981)),
+                ),
+                child: Center(
+                  child: Text('✅ وصل طلبك — الموظّف في الطريق',
+                      style: ar(11, color: const Color(0xFF6EE7B7))),
+                ),
+              )
+            else
+              Row(children: [
+                Expanded(child: _svcBtn('🔥 أحتاج فحماً', () => onAsk('coal'))),
+                const SizedBox(width: 8),
+                Expanded(
+                    child: _svcBtn('🔧 تزبيط الأرجيلة', () => onAsk('fix'))),
+              ]),
+          ],
+        ),
+      );
+
+  Widget _svcBtn(String label, VoidCallback onTap) => Opacity(
+        opacity: busy ? 0.45 : 1,
+        child: InkWell(
+          onTap: busy ? null : onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: const Color(0x29E0492B),
+              border: Border.all(color: const Color(0x66E0492B)),
+            ),
+            child: Center(
+              child: Text(label,
+                  style: ar(12,
+                      color: const Color(0xFFF8A08C),
+                      weight: FontWeight.bold)),
+            ),
+          ),
+        ),
+      );
+}
+
+// ══════════════════════════════════════════════════════
+// 🛒 درج السلّة — التعديل والحذف والملاحظة والإرسال في مكانٍ واحد
+// ترويسةٌ وذيلٌ ثابتان وجسمٌ متمرّر — لا يغيب زرّ الإرسال مهما طالت السلّة.
+// ══════════════════════════════════════════════════════
+class CartDrawer extends StatelessWidget {
+  const CartDrawer({
+    super.key,
+    required this.cart,
+    required this.noteCtrl,
+    required this.sending,
+    required this.onQty,
+    required this.onRemove,
+    required this.onSend,
+    this.error = '',
+  });
+
+  final FnbCart cart;
+  final TextEditingController noteCtrl;
+  final bool sending;
+
+  /// رفض الخادم يظهر **داخل** الدرج — لافتة الشاشة الخلفيّة محجوبةٌ بالحاجز
+  final String error;
+  final void Function(String key, int delta) onQty;
+  final ValueChanged<String> onRemove;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: const BoxDecoration(
+          color: Color(0xFF0B0E0D),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Color(0x1FFFFFFF))),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 44,
+            height: 6,
+            margin: const EdgeInsets.only(top: 12, bottom: 10),
+            decoration: BoxDecoration(
+              color: const Color(0x33FFFFFF),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Row(children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('🛒 سلّتك', style: ar(15, weight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text('لم تُرسَل بعد — راجعها ثمّ اضغط زرّ الإرسال بالأسفل',
+                        style: ar(10.5, color: const Color(0xFFFCD34D))),
+                  ],
+                ),
+              ),
+              InkWell(
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0x12FFFFFF),
+                    border: Border.all(color: const Color(0x1FFFFFFF)),
+                  ),
+                  child:
+                      Center(child: Text('✕', style: ar(12, color: Tw.gray400))),
+                ),
+              ),
+            ]),
+          ),
+          const Divider(height: 1, color: Color(0x12FFFFFF)),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (error.isNotEmpty) ...[
+                    OrderErrorBanner(message: error),
+                    const SizedBox(height: 10),
+                  ],
+                  for (final l in cart.lines) ...[
+                    CartLineRow(
+                      line: l,
+                      onQty: (d) => onQty(l.key, d),
+                      onRemove: () => onRemove(l.key),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: noteCtrl,
+                    maxLength: kMaxNoteLength,
+                    style: ar(12),
+                    cursorColor: kEmeraldText,
+                    decoration: InputDecoration(
+                      counterText: '',
+                      isDense: true,
+                      hintText: 'ملاحظة للمكان (اختياريّ)…',
+                      hintStyle: ar(12, color: Tw.gray600),
+                      filled: true,
+                      fillColor: const Color(0x0DFFFFFF),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: Color(0x1AFFFFFF)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            const BorderSide(color: Color(0x6610B981)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1, color: Color(0x12FFFFFF)),
+          Padding(
+            padding: EdgeInsets.fromLTRB(20, 12, 20,
+                14 + MediaQuery.viewPaddingOf(context).bottom +
+                    MediaQuery.viewInsetsOf(context).bottom),
+            child: Row(children: [
+              Expanded(
+                child: Opacity(
+                  opacity: sending ? 0.5 : 1,
+                  child: InkWell(
+                    onTap: sending ? null : onSend,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF10B981), Color(0xFF0D9488)],
+                        ),
+                      ),
+                      child: Center(
+                        child: sending
+                            ? Text('⏳ يُرسل…',
+                                style: ar(13.5, weight: FontWeight.bold))
+                            : Text.rich(
+                                TextSpan(children: [
+                                  const TextSpan(text: 'إرسال الطلب • '),
+                                  TextSpan(text: ltrRun(jod(cart.total))),
+                                ]),
+                                style: ar(13.5, weight: FontWeight.bold),
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0x0DFFFFFF),
+                    border: Border.all(color: const Color(0x1AFFFFFF)),
+                  ),
+                  child: Text('متابعة', style: ar(13.5, color: Tw.gray400)),
+                ),
+              ),
+            ]),
+          ),
+        ]),
       );
 }
 
