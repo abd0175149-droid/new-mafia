@@ -739,10 +739,14 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
           background: qty > 0 ? 'rgba(16,185,129,0.07)' : 'rgba(255,255,255,0.03)',
           border: qty > 0 ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(255,255,255,0.06)',
         }}>
-        <div className="w-12 h-12 rounded-xl overflow-hidden bg-gray-800/75 flex items-center justify-center shrink-0 relative">
-          {it.imageUrl
-            ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" />
-            : <span className="text-lg opacity-70">🍴</span>}
+        {/* القصّ على غلاف الصورة الداخليّ وحده — كان على الإطار الحامل للشارة
+            فيقتصّ ركن رقم الكمّيّة المعلّق خارج حدوده (-top-1 -right-1) */}
+        <div className="w-12 h-12 shrink-0 relative">
+          <div className="w-full h-full rounded-xl overflow-hidden bg-gray-800/75 flex items-center justify-center">
+            {it.imageUrl
+              ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" />
+              : <span className="text-lg opacity-70">🍴</span>}
+          </div>
           {qty > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full text-[9.5px] font-black flex items-center justify-center text-black"
               style={{ background: '#34d399' }}>{qty}</span>

@@ -16,6 +16,7 @@ interface Candidate {
   playerName: string;
   ordersCount: number;
   ordersTotal: number;
+  minTopup: number;
   gameFee: number;
   grandTotal: number;
   invoiceNo: number | null;
@@ -33,7 +34,7 @@ interface InvoiceLine {
 interface InvoiceDetail {
   locationName: string; activityName: string; activityDate: string;
   playerName: string; lines: InvoiceLine[];
-  ordersCount: number; ordersTotal: number;
+  ordersCount: number; ordersTotal: number; minTopup: number;
   gameFeeApplied: boolean; gameFeeAmount: number; grandTotal: number;
   invoiceNo: number | null; printedAt: string | null;
   isPaid: boolean; paidAt: string | null;
@@ -293,6 +294,7 @@ export default function VenueInvoicesPage() {
                 </div>
                 <p className="text-[10px] text-[#8B9A92] mt-0.5">
                   {c.ordersCount} {c.ordersCount === 1 ? 'طلب' : 'طلبات'} • {jod(c.ordersTotal)}
+                  {c.minTopup > 0 && <span className="text-sky-400/90"> + حدّ أدنى {jod(c.minTopup)}</span>}
                   {c.gameFee > 0 && <span className="text-amber-400/90"> + رسوم {jod(c.gameFee)}</span>}
                 </p>
               </div>
@@ -366,6 +368,7 @@ export default function VenueInvoicesPage() {
                 {/* المجاميع */}
                 <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] p-3 space-y-1.5 mb-3">
                   <Row label="مجموع الطلبات" value={jod(detail.ordersTotal)} />
+                  {detail.minTopup > 0 && <Row label="حدّ أدنى للاستهلاك" value={jod(detail.minTopup)} tone="amber" />}
                   {detail.gameFeeApplied && <Row label="رسوم اللعبة" value={jod(detail.gameFeeAmount)} tone="amber" />}
                   <div className="border-t border-white/10 pt-1.5 flex justify-between">
                     <span className="text-sm font-bold">الإجماليّ</span>

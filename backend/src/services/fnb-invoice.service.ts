@@ -9,6 +9,7 @@ import { eq, and, ne, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../config/db.js';
 import { orders, orderItems, orderInvoices } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations } from '../schemas/admin.schema.js';
+import { players } from '../schemas/player.schema.js';
 
 export interface InvoiceComponent { name: string; qty: number; options?: { group: string; value: string }[] }
 export interface InvoiceLine {
@@ -28,9 +29,35 @@ export interface InvoiceData {
   lines: InvoiceLine[];
   ordersCount: number;
   ordersTotal: number;
+  /** 💳 تكملة الحدّ الأدنى للاستهلاك — صفر إن كان معطّلاً أو الطلبات بلغته أو اللاعب لم يلعب */
+  minTopup: number;
   gameFeeApplied: boolean;
   gameFeeAmount: number;
   grandTotal: number;
+}
+
+/** هل لعب اللاعب جولةً واحدة على الأقلّ في هذه الفعاليّة؟ (شرط استحقاق الحدّ الأدنى) */
+export async function playedInActivity(db: Database, activityId: number, playerId: number): Promise<boolean> {
+  const r: any = await db.execute(sql`
+    SELECT 1 FROM match_players mp
+    JOIN matches m ON m.id = mp.match_id
+    JOIN sessions s ON s.id = m.session_id
+    WHERE s.activity_id = ${activityId} AND mp.player_id = ${playerId}
+    LIMIT 1
+  `);
+  return Boolean(r?.rows?.[0] ?? r?.[0]);
+}
+
+/** لاعبو الفعاليّة الذين لعبوا جولةً على الأقلّ (معرّفاتهم المميّزة) */
+export async function playersWhoPlayed(db: Database, activityId: number): Promise<number[]> {
+  const r: any = await db.execute(sql`
+    SELECT DISTINCT mp.player_id FROM match_players mp
+    JOIN matches m ON m.id = mp.match_id
+    JOIN sessions s ON s.id = m.session_id
+    WHERE s.activity_id = ${activityId} AND mp.player_id IS NOT NULL
+  `);
+  const rows: any[] = r?.rows ?? r ?? [];
+  return rows.map(x => Number(x.player_id)).filter(Number.isFinite);
 }
 
 // يجمع بيانات فاتورة لاعبٍ واحد لفعاليّة واحدة (بلا كتابة)
@@ -44,7 +71,11 @@ export async function buildInvoiceData(
   }).from(activities).where(and(eq(activities.id, activityId), isNull(activities.deletedAt))).limit(1);
   if (!act || act.locationId !== locationId) return { error: 'الفعاليّة غير موجودة لهذا المكان' };
 
-  const [loc] = await db.select({ name: locations.name }).from(locations).where(eq(locations.id, locationId)).limit(1);
+  const [loc] = await db.select({
+    name: locations.name,
+    minChargeEnabled: locations.minChargeEnabled,
+    minimumCharge: locations.minimumCharge,
+  }).from(locations).where(eq(locations.id, locationId)).limit(1);
 
   const playerOrders = await db.select().from(orders).where(and(
     eq(orders.activityId, activityId),
@@ -52,10 +83,26 @@ export async function buildInvoiceData(
     eq(orders.playerId, playerId),
     ne(orders.status, 'cancelled'),
   ));
-  if (playerOrders.length === 0) return { error: 'لا طلبات لهذا اللاعب في هذه الفعاليّة' };
 
-  const items = await db.select().from(orderItems)
-    .where(inArray(orderItems.orderId, playerOrders.map(o => o.id)));
+  // 💳 الحدّ الأدنى: يستحقّه من لعب جولةً على الأقلّ — فحضورٌ بلا لعبٍ ليس زبون طاولة
+  const minCharge = loc?.minChargeEnabled === true ? parseFloat(loc.minimumCharge || '0') : 0;
+  const played = minCharge > 0 ? await playedInActivity(db, activityId, playerId) : false;
+
+  if (playerOrders.length === 0 && !(minCharge > 0 && played)) {
+    // فاتورةٌ سبق إصدارها (تكملة حدٍّ أدنى مثلاً) تبقى قابلةً للعرض وإعادة
+    // الطباعة ولو عُطّلت الميزة لاحقاً — المحصَّلة تُقرأ من لقطتها المجمّدة
+    const [inv] = await db.select({ id: orderInvoices.id }).from(orderInvoices).where(and(
+      eq(orderInvoices.locationId, locationId),
+      eq(orderInvoices.activityId, activityId),
+      eq(orderInvoices.playerId, playerId),
+    )).limit(1);
+    if (!inv) return { error: 'لا طلبات لهذا اللاعب في هذه الفعاليّة' };
+  }
+
+  const items = playerOrders.length > 0
+    ? await db.select().from(orderItems)
+        .where(inArray(orderItems.orderId, playerOrders.map(o => o.id)))
+    : [];
 
   // دمج البنود المتطابقة (نفس الصنف ونفس سعر اللقطة) عبر كل الطلبات
   const merged = new Map<string, InvoiceLine>();
@@ -82,11 +129,26 @@ export async function buildInvoiceData(
   const lines = [...merged.values()];
   const ordersTotal = playerOrders.reduce((s, o) => s + parseFloat(o.total), 0);
 
+  // 💳 التكملة: من لعب وطلباته دون الحدّ تُرفع فاتورته إليه — رسوم اللعبة خارج المقارنة
+  const minTopup = minCharge > 0 && played ? Math.max(0, minCharge - ordersTotal) : 0;
+
+  // هويّة اللاعب وحجزه: من الطلبات إن وُجدت، وإلا من حسابه وحجزه في الفعاليّة
+  let playerName = playerOrders[0]?.playerName || '';
+  let bookingId: number | null = playerOrders[0]?.bookingId ?? null;
+  if (playerOrders.length === 0) {
+    const [p] = await db.select({ name: players.name }).from(players)
+      .where(eq(players.id, playerId)).limit(1);
+    playerName = p?.name || `لاعب #${playerId}`;
+    const [bk] = await db.select({ id: bookings.id }).from(bookings)
+      .where(and(eq(bookings.activityId, activityId), eq(bookings.playerId, playerId), isNull(bookings.deletedAt)))
+      .limit(1);
+    bookingId = bk?.id ?? null;
+  }
+
   // رسوم اللعبة: مفعَّلة على الفعاليّة + للحجز غير المدفوع فقط (المدفوع حُصّل من مساره)
-  const bookingId = playerOrders[0].bookingId;
   let gameFeeApplied = false;
   let gameFeeAmount = 0;
-  if (act.addGameFee === true) {
+  if (act.addGameFee === true && bookingId) {
     const [bk] = await db.select({ isPaid: bookings.isPaid, isFree: bookings.isFree })
       .from(bookings).where(eq(bookings.id, bookingId)).limit(1);
     if (bk && bk.isPaid !== true && bk.isFree !== true) {
@@ -102,14 +164,15 @@ export async function buildInvoiceData(
     activityName: act.name,
     activityDate: act.date,
     playerId,
-    playerName: playerOrders[0].playerName,
+    playerName,
     bookingId,
     lines,
     ordersCount: playerOrders.length,
     ordersTotal,
+    minTopup,
     gameFeeApplied,
     gameFeeAmount,
-    grandTotal: ordersTotal + gameFeeAmount,
+    grandTotal: ordersTotal + minTopup + gameFeeAmount,
   };
 }
 
@@ -137,6 +200,7 @@ export async function issueInvoiceNumber(
         // الورقة المطبوعة تعكس اللقطة المجمَّدة لا الحساب المُعاد — data تُمرَّر
         // بالمرجع فيقرأ منها invoiceHtml في المسارَين (pdf و print-all)
         data.ordersTotal = parseFloat(existing.ordersTotal || '0');
+        data.minTopup = parseFloat(existing.minTopup || '0');
         data.gameFeeApplied = existing.gameFeeApplied === true;
         data.gameFeeAmount = parseFloat(existing.gameFeeAmount || '0');
         data.grandTotal = parseFloat(existing.grandTotal || '0');
@@ -145,6 +209,7 @@ export async function issueInvoiceNumber(
       // إعادة طباعة فاتورةٍ غير محصَّلة: نحدّث المجاميع والختم بلا رقم جديد
       await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
+        minTopup: data.minTopup.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -167,6 +232,7 @@ export async function issueInvoiceNumber(
       playerId: data.playerId,
       bookingId: data.bookingId,
       ordersTotal: data.ordersTotal.toFixed(2),
+      minTopup: data.minTopup.toFixed(2),
       gameFeeApplied: data.gameFeeApplied,
       gameFeeAmount: data.gameFeeAmount.toFixed(2),
       grandTotal: data.grandTotal.toFixed(2),
@@ -280,6 +346,7 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
     </table>
     <div class="sums">
       <div class="sum"><span>مجموع الطلبات</span><span>${fmt(data.ordersTotal)} د.أ</span></div>
+      ${data.minTopup > 0 ? `<div class="sum fee"><span>حدّ أدنى للاستهلاك</span><span>${fmt(data.minTopup)} د.أ</span></div>` : ''}
       ${data.gameFeeApplied ? `<div class="sum fee"><span>رسوم اللعبة</span><span>${fmt(data.gameFeeAmount)} د.أ</span></div>` : ''}
       <div class="sum grand"><span>الإجماليّ</span><span>${fmt(data.grandTotal)} د.أ</span></div>
     </div>

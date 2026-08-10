@@ -67,7 +67,14 @@ export default function VenueOrdersPage() {
   const [toast, setToast] = useState('');
   const [pushState, setPushState] = useState<'idle' | 'granted' | 'busy'>('idle');
   const [isIOS, setIsIOS] = useState(false);
-  const [pushStatus, setPushStatus] = useState<{ totalDevices: number; accountsWithoutDevice: number } | null>(null);
+  const [pushStatus, setPushStatus] = useState<{
+    totalDevices: number; accountsWithoutDevice: number;
+    accounts?: { staffId: number; displayName: string; devices: number }[];
+  } | null>(null);
+  // 🔇 المتصفّح يمنع الصوت قبل أوّل إيماءة — نكشف القفل ونعرض زرّ فكّه
+  const [audioLocked, setAudioLocked] = useState(false);
+  // 🔕 تحذير الخادم: طلبٌ وصل ولا جهاز يستلم إشعارات المكان
+  const [blackout, setBlackout] = useState('');
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -88,6 +95,21 @@ export default function VenueOrdersPage() {
   useEffect(() => {
     const m = localStorage.getItem('venue_sound_muted') === '1';
     setMuted(m); mutedRef.current = m;
+  }, []);
+
+  // 🔊 سياسة autoplay: AudioContext يولد «suspended» قبل أوّل إيماءةٍ للصفحة —
+  //    شاشةٌ فُتحت وتُركت بلا لمسٍ لا تُصدر نغمة الطلب. نكشف الحالة ونعرض زرّاً،
+  //    وأيّ نقرةٍ في الصفحة تفكّ القفل تلقائيّاً.
+  useEffect(() => {
+    try {
+      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      const probe = new AC();
+      if (probe.state === 'suspended') setAudioLocked(true);
+      probe.close();
+    } catch { /* لا صوت أصلاً */ }
+    const unlock = () => setAudioLocked(false);
+    window.addEventListener('pointerdown', unlock, { once: true });
+    return () => window.removeEventListener('pointerdown', unlock);
   }, []);
   const toggleMute = () => {
     setMuted(prev => {
@@ -175,12 +197,17 @@ export default function VenueOrdersPage() {
       loadSvc();
     };
 
+    // 🔕 الخادم اكتشف أنّ الإشعار لم يصل أيّ جهاز — لافتة حمراء ثابتة
+    const onBlackout = (d: { message?: string }) =>
+      setBlackout(d?.message || 'طلبٌ وصل ولا جهاز مسجّل يستلم إشعارات المكان — فعّلوا الإشعارات');
+
     s.on('fnb:new-order', onNew);
     s.on('fnb:order-updated', onUpdated);
     s.on('fnb:order-stalled', onStalled);
     s.on('fnb:service-request', onSvc);
     s.on('fnb:service-done', onSvcDone);
     s.on('fnb:service-stalled', onSvcStalled);
+    s.on('fnb:push-blackout', onBlackout);
 
     const refresh = () => { if (document.visibilityState === 'visible') { load(); loadSvc(); } };
     const iv = setInterval(refresh, 30000);
@@ -194,6 +221,7 @@ export default function VenueOrdersPage() {
       s.off('fnb:service-request', onSvc);
       s.off('fnb:service-done', onSvcDone);
       s.off('fnb:service-stalled', onSvcStalled);
+      s.off('fnb:push-blackout', onBlackout);
       clearInterval(iv);
       document.removeEventListener('visibilitychange', refresh);
       setLive(false);
@@ -202,11 +230,28 @@ export default function VenueOrdersPage() {
 
   // ── بوش: حالة الجهاز + كشف الحسابات بلا أجهزة ──
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
-        && localStorage.getItem('venue_push_registered') === '1') {
-      setPushState('granted');
+    // 🔁 الإذن ممنوح؟ يُعاد تسجيل التوكن **للحساب الحاليّ** في كلّ فتحة —
+    //    التسجيل يتبع من يسجّله آخِراً: تسجيلُ دخولٍ بحسابٍ آخر على نفس الجهاز
+    //    كان يُبقي التوكن مملوكاً للحساب السابق (علمُ localStorage عامٌّ للجهاز)
+    //    فتضيع إشعارات الحساب الجديد بصمتٍ تامّ — وهذا ما حدث في مزاج ١٠/٠٨.
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      (async () => {
+        try {
+          const { requestNotificationPermission } = await import('@/lib/firebase');
+          const token = await requestNotificationPermission();
+          if (!token) { setPushState('idle'); return; }
+          const r = await fetch('/api/staff-notifications/register-token', {
+            method: 'POST',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, deviceInfo: 'venue-console' }),
+          }).then(x => x.json());
+          if (r.success) { localStorage.setItem('venue_push_registered', '1'); setPushState('granted'); }
+          else setPushState('idle');
+        } catch { setPushState('idle'); }
+      })();
     }
     if (typeof navigator !== 'undefined') setIsIOS(/iPad|iPhone|iPod/.test(navigator.userAgent));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -441,12 +486,40 @@ export default function VenueOrdersPage() {
           </span>}
         </div>
       )}
+      {blackout && (
+        <div className="rounded-xl px-3.5 py-2.5 text-[11.5px] mb-3 flex items-start gap-2"
+          style={{ background: 'rgba(224,43,43,0.14)', border: '1.5px solid rgba(224,43,43,0.45)', color: '#F87171' }}>
+          <span className="flex-1"><b>🔕 {blackout}</b></span>
+          <button onClick={() => setBlackout('')} className="shrink-0 opacity-70">✕</button>
+        </div>
+      )}
       {pushStatus && pushStatus.accountsWithoutDevice > 0 && (
         <div className="rounded-xl px-3.5 py-2.5 text-[11px] mb-3"
           style={{ background: 'rgba(224,73,43,0.08)', border: `1px solid rgba(224,73,43,0.25)`, color: '#F08163' }}>
           ⚠️ {pushStatus.accountsWithoutDevice} من حسابات المكان بلا جهازٍ مسجَّل — لن تصلهم إشعارات الطلبات.
           <span style={{ color: EM.faint }}> (أجهزة مسجّلة: {pushStatus.totalDevices})</span>
+          {/* 🧾 بالاسم لا بالعدد: «من الأصمّ؟» هو السؤال الذي تجيب عنه هذه اللوحة */}
+          {(pushStatus.accounts?.length ?? 0) > 0 && (
+            <span className="flex flex-wrap gap-1.5 mt-1.5">
+              {pushStatus.accounts!.map(a => (
+                <span key={a.staffId} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                  style={a.devices > 0
+                    ? { background: 'rgba(37,192,138,0.12)', color: EM.go }
+                    : { background: 'rgba(224,73,43,0.14)', color: '#F08163' }}>
+                  {a.devices > 0 ? '🔔' : '🔕'} {a.displayName}
+                  {a.devices > 0 ? ` (${a.devices})` : ' — بلا جهاز'}
+                </span>
+              ))}
+            </span>
+          )}
         </div>
+      )}
+      {audioLocked && !muted && (
+        <button onClick={() => { setAudioLocked(false); playDing(); }}
+          className="w-full rounded-xl px-3.5 py-2.5 text-[11.5px] mb-3 text-right font-bold"
+          style={{ background: 'rgba(217,138,43,0.12)', border: '1px solid rgba(217,138,43,0.35)', color: EM.warm }}>
+          🔊 اضغط لتفعيل صوت تنبيه الطلبات — المتصفّح يكتم الصوت قبل أوّل لمسة
+        </button>
       )}
 
       {/* ── الحالة اللحظيّة + أدوات الجهاز ── */}

@@ -37,6 +37,11 @@ export const locations = pgTable('locations', {
   // ويُسعّر منه — والطلبات تبقى معزولةً في موقع الاختبار فلا تصل موظّفي المكان
   // الحقيقيّ ولا تدخل حساباته. تُحترم القيمة لمواقع الاختبار حصراً (فرضٌ في الخادم).
   menuSourceLocationId: integer('menu_source_location_id'),
+  // 💳 الحدّ الأدنى للاستهلاك: يُفعَّل ويُطفأ من الداشبورد، ويسري على كلّ لاعبٍ
+  // لعب جولةً واحدة على الأقلّ في الفعاليّة — من طلب أقلّ من الحدّ (أو لم يطلب)
+  // تُكمَّل فاتورته إليه. رسوم اللعبة خارج المقارنة وتُضاف فوقه.
+  minChargeEnabled: boolean('min_charge_enabled').default(false),
+  minimumCharge: decimal('minimum_charge', { precision: 10, scale: 2 }).default('2.00'),
   isActive: boolean('is_active').default(true).notNull(), // 💬 يجيب بوت واتساب عن الأماكن الفعالة فقط
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),

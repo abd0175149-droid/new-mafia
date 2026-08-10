@@ -14,8 +14,8 @@ import { players } from '../schemas/player.schema.js';
 import { staffFcmTokens } from '../schemas/notification.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
-import { sendPushToPlayer, sendPushToLocationStaff } from '../services/fcm.service.js';
-import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages } from '../services/fnb-invoice.service.js';
+import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../services/fcm.service.js';
+import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed } from '../services/fnb-invoice.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
@@ -636,6 +636,9 @@ venueRouter.delete('/option-groups/:id', authenticate, requireVenuePermission('m
 
 const ORDERS_LOOKBACK_HOURS = 24;
 
+// 🔕 آخر تصعيدٍ للأدمن عن مكانٍ إشعاراته لا تصل أحداً — ساعةٌ بين التحذيرين
+const pushBlackoutWarnedAt = new Map<number, number>();
+
 // ── GET /orders — طلبات المكان (آخر 24 ساعة افتراضاً، أو فعاليّة محدّدة) ──
 venueRouter.get('/orders', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
   const db = getDB();
@@ -776,15 +779,50 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
       .where(and(eq(activities.id, activityId), eq(activities.locationId, locId), isNull(activities.deletedAt))).limit(1);
     if (!act) return res.status(404).json({ error: 'الفعاليّة غير موجودة لهذا المكان' });
 
-    const rows = await db.select({
-      playerId: orders.playerId,
-      playerName: sql<string>`max(${orders.playerName})`,
-      bookingId: sql<number>`max(${orders.bookingId})`,
-      ordersCount: sql<number>`count(*)::int`,
-      ordersTotal: sql<string>`sum(${orders.total})::text`,
-    }).from(orders)
-      .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')))
-      .groupBy(orders.playerId);
+    const rows: { playerId: number; playerName: string; bookingId: number | null; ordersCount: number; ordersTotal: string }[] =
+      await db.select({
+        playerId: orders.playerId,
+        playerName: sql<string>`max(${orders.playerName})`,
+        bookingId: sql<number>`max(${orders.bookingId})`,
+        ordersCount: sql<number>`count(*)::int`,
+        ordersTotal: sql<string>`sum(${orders.total})::text`,
+      }).from(orders)
+        .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')))
+        .groupBy(orders.playerId);
+
+    // 💳 الحدّ الأدنى: من لعب جولةً على الأقلّ يدخل الفوترة ولو بلا طلبات —
+    //    تكملته تظهر هنا كما ستظهر في فاتورته
+    const [locRow] = await db.select({
+      minChargeEnabled: locations.minChargeEnabled, minimumCharge: locations.minimumCharge,
+    }).from(locations).where(eq(locations.id, locId)).limit(1);
+    const minCharge = locRow?.minChargeEnabled === true ? parseFloat(locRow.minimumCharge || '0') : 0;
+    const playedIds = minCharge > 0 ? new Set(await playersWhoPlayed(db, activityId)) : new Set<number>();
+
+    // 🧾 ومن له فاتورةٌ مُصدَرة يبقى مرشّحاً دائماً — فاتورة تكملةٍ محصَّلة
+    //    للاعبٍ بلا طلبات كانت ستختفي من الشاشة لو عُطّل الحدّ لاحقاً
+    const invoicedIds = (await db.select({ playerId: orderInvoices.playerId }).from(orderInvoices)
+      .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId))))
+      .map(i => i.playerId);
+
+    const zeroOrderPlayed = [...new Set([...playedIds, ...invoicedIds])]
+      .filter(pid => !rows.some(r => r.playerId === pid));
+    if (zeroOrderPlayed.length > 0) {
+      const names = await db.select({ id: players.id, name: players.name })
+        .from(players).where(inArray(players.id, zeroOrderPlayed));
+      const bks0 = await db.select({ id: bookings.id, playerId: bookings.playerId })
+        .from(bookings).where(and(
+          eq(bookings.activityId, activityId), inArray(bookings.playerId, zeroOrderPlayed), isNull(bookings.deletedAt)));
+      const bkByPlayer = new Map(bks0.map(b => [b.playerId, b.id]));
+      for (const pid of zeroOrderPlayed) {
+        rows.push({
+          playerId: pid,
+          playerName: names.find(n => n.id === pid)?.name || `لاعب #${pid}`,
+          bookingId: bkByPlayer.get(pid) ?? null,
+          ordersCount: 0,
+          ordersTotal: '0',
+        });
+      }
+    }
 
     // حالة دفع الحجوزات (لسطر رسوم اللعبة) + الفواتير المُصدَرة سابقاً
     const bookingIds = rows.map(r => Number(r.bookingId)).filter(Boolean);
@@ -796,6 +834,7 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
     const invs = await db.select({
       playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt,
       isPaid: orderInvoices.isPaid, paidAt: orderInvoices.paidAt, gameFeeAmount: orderInvoices.gameFeeAmount,
+      minTopup: orderInvoices.minTopup,
     }).from(orderInvoices)
       .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
     const invByPlayer = new Map(invs.map(i => [i.playerId, i]));
@@ -803,20 +842,27 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
     res.json({
       success: true,
       gameFeeEnabled: act.addGameFee === true,
+      minChargeEnabled: minCharge > 0,
+      minimumCharge: minCharge,
       candidates: rows.map(r => {
         const bk = bkById.get(Number(r.bookingId));
         const gameFee = act.addGameFee === true && bk && bk.isPaid !== true && bk.isFree !== true
           ? parseFloat(act.basePrice || '0') : 0;
         const ordersTotal = parseFloat(r.ordersTotal || '0');
         const inv = invByPlayer.get(r.playerId);
+        // فاتورةٌ محصَّلة تُجمَّد على لقطتها (رسوماً وتكملةً) — الحيّ يُحسب للبقيّة
+        const minTopup = inv?.isPaid
+          ? parseFloat(inv.minTopup || '0')
+          : (playedIds.has(r.playerId) ? Math.max(0, minCharge - ordersTotal) : 0);
+        const feeShown = inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee;
         return {
           playerId: r.playerId,
           playerName: r.playerName,
           ordersCount: r.ordersCount,
           ordersTotal,
-          // فاتورةٌ محصَّلة تُجمَّد على مبلغ رسومها وقت التحصيل (الحجز صار مدفوعاً بعدها)
-          gameFee: inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee,
-          grandTotal: ordersTotal + (inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee),
+          minTopup,
+          gameFee: feeShown,
+          grandTotal: ordersTotal + minTopup + feeShown,
           invoiceNo: inv?.invoiceNo ?? null,
           printedAt: inv?.printedAt ?? null,
           isPaid: inv?.isPaid === true,
@@ -1057,6 +1103,7 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
     await db.transaction(async (tx) => {
       const [row] = await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
+        minTopup: data.minTopup.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -1155,6 +1202,20 @@ venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePer
   try {
     const rows = await db.selectDistinct({ playerId: orders.playerId }).from(orders)
       .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')));
+    // 💳 مع الحدّ الأدنى: من لعب بلا طلباتٍ له فاتورة تكملةٍ تُطبع مع البقيّة —
+    //    ومن له فاتورةٌ مُصدَرة يُطبع دائماً (لقطته محفوظة ولو تغيّرت الإعدادات)
+    const [locMin] = await db.select({ en: locations.minChargeEnabled })
+      .from(locations).where(eq(locations.id, locId)).limit(1);
+    const extraIds = new Set<number>(
+      (await db.select({ playerId: orderInvoices.playerId }).from(orderInvoices)
+        .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId))))
+        .map(i => i.playerId));
+    if (locMin?.en === true) {
+      for (const pid of await playersWhoPlayed(db, activityId)) extraIds.add(pid);
+    }
+    for (const pid of extraIds) {
+      if (!rows.some(r => r.playerId === pid)) rows.push({ playerId: pid });
+    }
     if (rows.length === 0) return res.status(404).json({ error: 'لا فواتير لهذه الفعاليّة' });
 
     const printedByName = req.user?.displayName || req.user?.username || '';
@@ -1669,7 +1730,24 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
       `🍽️ طلب جديد من ${order.playerName}`,
       `${summary} — ${total.toFixed(2)} د.أ${note ? ` • ${note}` : ''}`,
       'new_order', { url: '/venue/orders', orderId: String(order.id) },
-    ).catch(err => console.error('❌ new_order push:', err.message));
+    ).then(reachable => {
+      // 🔊 صفر مستلمين = الإشعار ضاع في الفراغ: تحذيرٌ على الشاشة المفتوحة
+      //    وتصعيدٌ للأدمن (مرّة بالساعة لكلّ مكان كي لا يغرق)
+      if (reachable > 0) return;
+      if (io) {
+        io.to(`location:${ctx.locationId}`).emit('fnb:push-blackout', {
+          message: `طلبٌ وصل ولا جهاز مسجّل يستلم إشعارات «${ctx.locationName}» — فعّلوا الإشعارات من شاشة الطلبات`,
+        });
+      }
+      const last = pushBlackoutWarnedAt.get(ctx.locationId) || 0;
+      if (Date.now() - last > 3600_000) {
+        pushBlackoutWarnedAt.set(ctx.locationId, Date.now());
+        sendPushToAdmins('🔕 إشعارات مكانٍ لا تصل أحداً',
+          `«${ctx.locationName}»: طلباتٌ تصل ولا حساب مكانٍ لديه جهازٌ مسجّل — راجعوا شاشة الطلبات وفعّلوا الإشعارات`,
+          'push_blackout', { url: '/venue/orders' },
+        ).catch(() => {});
+      }
+    }).catch(err => console.error('❌ new_order push:', err.message));
 
     res.json({ success: true, order });
   } catch (err: any) {

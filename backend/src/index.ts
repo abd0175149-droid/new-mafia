@@ -693,6 +693,10 @@ async function main() {
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS region VARCHAR(80) DEFAULT ''`);
       // 🧪 استعارة منيو لمواقع الاختبار (2026-08-09)
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS menu_source_location_id INTEGER`);
+      // 💳 الحدّ الأدنى للاستهلاك (2026-08-10) — تفعيلٌ ومبلغٌ لكلّ مكان، وتكملته تتجمّد في لقطة الفاتورة
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS min_charge_enabled BOOLEAN DEFAULT FALSE`);
+      await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS minimum_charge DECIMAL(10,2) DEFAULT 2.00`);
+      await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS min_topup DECIMAL(10,2) DEFAULT 0`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0 NOT NULL`);
       // ── 💨 طلبات خدمة الأرجيلة (2026-08-08) — فحمٌ أو تزبيط، بلا سعرٍ ولا فاتورة ──

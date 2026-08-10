@@ -529,6 +529,8 @@ export async function sendPushToStaffByPermission(
 
 // ── 🏪 إرسال Push لحسابات مكان محدّد (حسب الصلاحيّة) ──
 // لا يشمل الأدمن — إشعارات المكان تخصّ حساباته المرتبطة فقط.
+// 🔊 تعيد عدد الحسابات التي تملك جهازاً مسجَّلاً فعلاً — صفرٌ يعني أنّ
+//    الإشعار ضاع في الفراغ ويستحقّ تصعيداً لا صمتاً.
 export async function sendPushToLocationStaff(
   locationId: number,
   permission: string,
@@ -536,9 +538,9 @@ export async function sendPushToLocationStaff(
   body: string,
   type: string,
   data: Record<string, any> = {},
-) {
+): Promise<number> {
   const db = getDB();
-  if (!db) return;
+  if (!db) return 0;
 
   const rows = await db.select({ id: staff.id, permissions: staff.permissions })
     .from(staff)
@@ -549,11 +551,21 @@ export async function sendPushToLocationStaff(
       isNull(staff.deletedAt),
     ));
 
-  for (const s of rows) {
-    const perms = (s.permissions as string[]) || [];
-    if (!perms.includes(permission)) continue;
+  const eligible = rows.filter(s => ((s.permissions as string[]) || []).includes(permission));
+  const withDevices = eligible.length > 0
+    ? await db.select({ staffId: staffFcmTokens.staffId })
+        .from(staffFcmTokens)
+        .where(and(
+          inArray(staffFcmTokens.staffId, eligible.map(s => s.id)),
+          eq(staffFcmTokens.isActive, true),
+        ))
+    : [];
+  const reachable = new Set(withDevices.map(t => t.staffId));
+
+  for (const s of eligible) {
     await sendPushToStaff(s.id, title, body, type, data);
   }
+  return reachable.size;
 }
 
 // ── إرسال Push لكل الأدمنز ───────────────────────────

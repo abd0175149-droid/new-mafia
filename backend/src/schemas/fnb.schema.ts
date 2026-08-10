@@ -158,6 +158,8 @@ export const orderInvoices = pgTable('order_invoices', {
   playerId: integer('player_id').notNull(),
   bookingId: integer('booking_id'),
   ordersTotal: decimal('orders_total', { precision: 10, scale: 2 }).default('0'),
+  // 💳 تكملة الحدّ الأدنى للاستهلاك (لقطة وقت الإصدار — لا تُعاد بعد الدفع)
+  minTopup: decimal('min_topup', { precision: 10, scale: 2 }).default('0'),
   gameFeeApplied: boolean('game_fee_applied').default(false),
   gameFeeAmount: decimal('game_fee_amount', { precision: 10, scale: 2 }).default('0'),
   grandTotal: decimal('grand_total', { precision: 10, scale: 2 }).default('0'),

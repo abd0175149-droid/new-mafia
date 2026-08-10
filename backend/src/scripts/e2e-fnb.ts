@@ -44,6 +44,14 @@ async function main() {
       await q(sql`DELETE FROM activities WHERE id = ${a.id}`);
     }
     await q(sql`DELETE FROM players WHERE phone = '0700000999'`);
+    // 💳 تجهيزات قسم الحدّ الأدنى (٩): غرفة ومباراة موسومتان + لاعبان إضافيّان
+    const ms = await q(sql`SELECT id FROM matches WHERE game_name LIKE ${'%' + E2E_TAG + '%'}`);
+    for (const m of ms) await q(sql`DELETE FROM match_players WHERE match_id = ${m.id}`);
+    await q(sql`DELETE FROM matches WHERE game_name LIKE ${'%' + E2E_TAG + '%'}`);
+    const ss = await q(sql`SELECT id FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
+    for (const s of ss) await q(sql`DELETE FROM session_players WHERE session_id = ${s.id}`);
+    await q(sql`DELETE FROM sessions WHERE session_name LIKE ${'%' + E2E_TAG + '%'}`);
+    await q(sql`DELETE FROM players WHERE phone IN ('0700000998', '0700000996')`);
   }
   await cleanup();
 
@@ -349,6 +357,75 @@ async function main() {
   // طباعة كلّ الفواتير
   const all = await fetch(BASE + vURL(`/api/venue/invoices/${act.id}/print-all`), { headers: A });
   ok('طباعة فواتير الفعاليّة كاملةً تعمل', all.status === 200, `status=${all.status}`);
+
+  // ══ ٩ · الحدّ الأدنى للاستهلاك ══
+  section('٩ · الحدّ الأدنى للاستهلاك');
+  // إعدادات المكان تُحفظ وتُعاد في النهاية — الفحص لا يترك أثراً
+  const [minSaved] = await q(sql`SELECT min_charge_enabled AS en, minimum_charge AS val FROM locations WHERE id = ${LOC_TEST}`);
+  await q(sql`UPDATE locations SET min_charge_enabled = true, minimum_charge = 3.00 WHERE id = ${LOC_TEST}`);
+
+  // فعاليّة نظيفة (بلا رسوم لعبة — عزل الحساب) + ثلاثة لاعبين:
+  //   999: لعب وطلب 1.50 → تكملة 1.50 · 998: لعب بلا طلبات → تكملة 3.00
+  //   996: طلب 1.50 ولم يلعب → لا تكملة
+  const [act9] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' minChg'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, false) RETURNING id`);
+  const [p998] = await q(sql`INSERT INTO players (phone, name, password_hash) VALUES ('0700000998', 'لاعبٌ لعب بلا طلبات', 'x') RETURNING id, phone, name`);
+  const [p996] = await q(sql`INSERT INTO players (phone, name, password_hash) VALUES ('0700000996', 'طلب ولم يلعب', 'x') RETURNING id, phone, name`);
+  await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act9.id}, ${player.name}, ${player.phone}, 1, ${player.id}, 'e2e', false, false),
+           (${act9.id}, ${p996.name}, ${p996.phone}, 1, ${p996.id}, 'e2e', false, false)`);
+  // «لعب جولةً» = صفّ match_players عبر sessions(activity_id) — نفس ما يكتبه binding-complete
+  const [sess9] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id)
+    VALUES ('E2E9CH', ${E2E_TAG + ' room'}, ${act9.id}) RETURNING id`);
+  // 999 يجلس في الغرفة الحيّة → سياق طلبه يتحدّد على فعاليّة هذا القسم حتماً
+  // (قاعدة «الغرفة الحيّة هي الحدث») لا على حجزه الأقدم في فعاليّة الأقسام السابقة
+  await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name)
+    VALUES (${sess9.id}, ${player.id}, 1, ${player.name})`);
+  const [m9] = await q(sql`INSERT INTO matches (session_id, room_id, room_code, game_name, player_count)
+    VALUES (${sess9.id}, 'e2e-room', 'E2E9CH', ${E2E_TAG + ' game'}, 2) RETURNING id`);
+  await q(sql`INSERT INTO match_players (match_id, player_id, physical_id, player_name, role)
+    VALUES (${m9.id}, ${player.id}, 1, ${player.name}, 'citizen'),
+           (${m9.id}, ${p998.id}, 2, ${p998.name}, 'mafia')`);
+
+  // طلبا الشاي (1.50): من 999 (لعب) ومن 996 (لم يلعب)
+  const p996Tok = generatePlayerToken({ playerId: p996.id, phone: p996.phone, name: p996.name });
+  for (const tok of [pTok, p996Tok]) {
+    r = await api('/api/fnb/orders', { method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activityId: act9.id, items: [{ menuItemId: tea.id, quantity: 1 }] }) });
+    if (r.body?.success !== true) ok('طلب شاي فعاليّة الحدّ الأدنى', false, JSON.stringify(r.body));
+  }
+
+  const cand9 = await api(vURL(`/api/venue/invoices/candidates?activityId=${act9.id}`), { headers: A });
+  const cs: any[] = cand9.body?.candidates ?? [];
+  const c999 = cs.find(c => c.playerId === player.id);
+  const c998 = cs.find(c => c.playerId === p998.id);
+  const c996 = cs.find(c => c.playerId === p996.id);
+  ok('الحدّ مفعَّل في الاستجابة', cand9.body?.minChargeEnabled === true && cand9.body?.minimumCharge === 3);
+  ok('لَعِبَ وطلب 1.50 → تكملة 1.50 وإجماليّ 3.00', c999?.minTopup === 1.5 && c999?.grandTotal === 3, JSON.stringify(c999));
+  ok('لَعِبَ بلا طلبات → مرشّحٌ بتكملة 3.00', c998?.ordersCount === 0 && c998?.minTopup === 3 && c998?.grandTotal === 3, JSON.stringify(c998));
+  ok('طلب ولم يلعب → بلا تكملة', c996?.minTopup === 0 && c996?.grandTotal === 1.5, JSON.stringify(c996));
+
+  // فاتورة من لم يطلب: سطر التكملة وحده — والإصدار يجمّدها
+  r = await api(vURL(`/api/venue/invoices/${act9.id}/${p998.id}/pdf`), { method: 'POST', headers: A });
+  ok('فاتورة التكملة وحدها تصدر', r.status === 200, `status=${r.status}`);
+  let [inv9] = await q(sql`SELECT orders_total, min_topup, grand_total FROM order_invoices WHERE activity_id=${act9.id} AND player_id=${p998.id}`);
+  ok('لقطتها: طلبات 0 + تكملة 3.00 = 3.00', inv9?.orders_total === '0.00' && inv9?.min_topup === '3.00' && inv9?.grand_total === '3.00', JSON.stringify(inv9));
+
+  r = await api(vURL(`/api/venue/invoices/${act9.id}/${p998.id}/pay`), { method: 'POST', headers: A });
+  ok('تحصيل فاتورة التكملة يُقبل', r.body?.success === true, JSON.stringify(r.body));
+
+  // تعطيل الحدّ بعد التحصيل: المحصَّلة تبقى بلقطتها، والحيّة تفقد تكملتها
+  await q(sql`UPDATE locations SET min_charge_enabled = false WHERE id = ${LOC_TEST}`);
+  const cand9b = await api(vURL(`/api/venue/invoices/candidates?activityId=${act9.id}`), { headers: A });
+  const cs2: any[] = cand9b.body?.candidates ?? [];
+  const b998 = cs2.find(c => c.playerId === p998.id);
+  const b999 = cs2.find(c => c.playerId === player.id);
+  ok('بعد التعطيل: المحصَّلة مجمَّدة على 3.00', b998?.isPaid === true && b998?.minTopup === 3 && b998?.grandTotal === 3, JSON.stringify(b998));
+  ok('بعد التعطيل: غير المحصَّلة بلا تكملة', b999?.minTopup === 0 && b999?.grandTotal === 1.5, JSON.stringify(b999));
+  r = await api(vURL(`/api/venue/invoices/${act9.id}/print-all`), { headers: A });
+  ok('طباعة الكلّ تشمل فاتورة التكملة المؤرشفة', r.status === 200, `status=${r.status}`);
+
+  await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved.en === true}, minimum_charge = ${minSaved.val} WHERE id = ${LOC_TEST}`);
 
   // ══ ٨ · الخلاصة والتنظيف ══
   section('النتيجة');

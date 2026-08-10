@@ -58,6 +58,10 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
     // 🧪 استعارة منيو منذ الإنشاء — تُحترم لمواقع الاختبار حصراً في effectiveMenuLocation
     menuSourceLocationId: Number.isFinite(parseInt(String(req.body.menuSourceLocationId)))
       ? parseInt(String(req.body.menuSourceLocationId)) : null,
+    // 💳 الحدّ الأدنى للاستهلاك — الافتراضيّ 2.00 معطَّلاً حتى يُفعَّل من هنا
+    minChargeEnabled: req.body.minChargeEnabled === true,
+    minimumCharge: Number.isFinite(parseFloat(String(req.body.minimumCharge))) && parseFloat(String(req.body.minimumCharge)) >= 0
+      ? parseFloat(String(req.body.minimumCharge)).toFixed(2) : '2.00',
   } as any).returning();
 
   const locationId = result[0].id;
@@ -136,6 +140,14 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
       if (!src) return res.status(400).json({ error: 'مصدر المنيو غير موجود' });
       patch.menuSourceLocationId = srcId;
     }
+  }
+
+  // 💳 الحدّ الأدنى للاستهلاك: تفعيلٌ ومبلغٌ — غير المُرسَل يبقى كما هو
+  if (req.body.minChargeEnabled !== undefined) patch.minChargeEnabled = req.body.minChargeEnabled === true;
+  if (req.body.minimumCharge !== undefined) {
+    const v = parseFloat(String(req.body.minimumCharge));
+    if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: 'الحدّ الأدنى غير صالح' });
+    patch.minimumCharge = v.toFixed(2);
   }
 
   await db.update(locations).set(patch as any).where(eq(locations.id, id));

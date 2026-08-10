@@ -62,6 +62,9 @@ export default function LocationsPage() {
   const [isTestLocation, setIsTestLocation] = useState(false);
   // 🧪 استعارة منيو — معرّف المكان المصدر كسلسلة ('' = بلا استعارة)
   const [menuSource, setMenuSource] = useState('');
+  // 💳 الحدّ الأدنى للاستهلاك — لمن لعب جولةً على الأقلّ في الفعاليّة
+  const [minChargeEnabled, setMinChargeEnabled] = useState(false);
+  const [minimumCharge, setMinimumCharge] = useState('2.00');
   const [ownerUsername, setOwnerUsername] = useState('');
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -136,6 +139,7 @@ export default function LocationsPage() {
     setEditingLoc(null);
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
     setIsActive(true); setIsTestLocation(false); setMenuSource('');
+    setMinChargeEnabled(false); setMinimumCharge('2.00');
     setIsDialogOpen(true);
   }
 
@@ -147,6 +151,8 @@ export default function LocationsPage() {
     setIsActive(loc.isActive !== false);
     setIsTestLocation(loc.isTestLocation === true);
     setMenuSource(loc.menuSourceLocationId ? String(loc.menuSourceLocationId) : '');
+    setMinChargeEnabled(loc.minChargeEnabled === true);
+    setMinimumCharge(loc.minimumCharge ? String(parseFloat(loc.minimumCharge)) : '2.00');
     setMapUrl(loc.mapUrl || '');
     const parsed = (loc.offers || []).map((o: any, i: number) => normalizeOffer(o, i));
     setOffers(parsed);
@@ -164,6 +170,9 @@ export default function LocationsPage() {
       name: name.trim(), region: region.trim(), mapUrl, isActive, isTestLocation,
       // الاستعارة تُرسَل null عند الفكّ أو حين لا يكون الموقع اختباريّاً
       menuSourceLocationId: isTestLocation && menuSource ? parseInt(menuSource) : null,
+      // 💳 الحدّ الأدنى: تفعيلٌ ومبلغ — التحقّق النهائيّ في الخادم
+      minChargeEnabled,
+      minimumCharge: parseFloat(minimumCharge) >= 0 ? parseFloat(minimumCharge) : 2,
       ownerUsername: ownerUsername.trim() || undefined,
     };
 
@@ -356,6 +365,28 @@ export default function LocationsPage() {
                     <span className="block text-[10px] text-gray-500 mt-0.5">فعاليّاته تظهر لحسابات الاختبار فقط</span>
                   </span>
                 </label>
+              </div>
+
+              {/* ── 💳 الحدّ الأدنى للاستهلاك ── */}
+              <div className="bg-sky-500/[0.06] border border-sky-500/25 rounded-xl p-4">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input type="checkbox" checked={minChargeEnabled} onChange={e => setMinChargeEnabled(e.target.checked)} className="mt-0.5 w-4 h-4 accent-sky-500" />
+                  <span className="flex-1">
+                    <span className="block text-xs text-white font-bold">💳 حدّ أدنى للاستهلاك</span>
+                    <span className="block text-[10.5px] text-gray-500 mt-0.5 leading-relaxed">
+                      يسري على كلّ لاعبٍ لعب جولةً واحدة على الأقلّ: من لم يطلب — أو طلب أقلّ من الحدّ —
+                      تُكمَّل فاتورته إليه. رسوم اللعبة خارج الحساب وتُضاف فوقه.
+                    </span>
+                  </span>
+                </label>
+                {minChargeEnabled && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <input type="number" min="0" step="0.25" value={minimumCharge}
+                      onChange={e => setMinimumCharge(e.target.value)} dir="ltr"
+                      className="w-28 px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-sky-500/30" />
+                    <span className="text-xs text-gray-400">د.أ لكلّ لاعب</span>
+                  </div>
+                )}
               </div>
 
               {/* ── 🧪 استعارة منيو — لمواقع الاختبار حصراً ── */}
