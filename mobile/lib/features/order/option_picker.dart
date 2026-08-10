@@ -26,7 +26,8 @@ const _emeraldOnBorder = Color(0x7310B981);
 Future<T?> _sheet<T>(BuildContext context, Widget Function(BuildContext) builder) =>
     showModalBottomSheet<T>(
       context: context,
-      useRootNavigator: false,
+      // 🔴 الجذر لا الفرع — وإلّا حجب شريطُ تنقّل الغلاف أزرارَ الورقة السفليّة
+      useRootNavigator: true,
       backgroundColor: Colors.transparent,
       barrierColor: const Color(0xCC000000),
       isScrollControlled: true,

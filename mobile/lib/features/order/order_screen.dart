@@ -37,7 +37,9 @@ class OrderScreen extends StatefulWidget {
 /// يعرض لوحة الطلب ورقةً منسدلة فوق شاشة اللعبة.
 Future<void> showOrderSheet(BuildContext context) => showModalBottomSheet<void>(
       context: context,
-      useRootNavigator: false,
+      // 🔴 الجذر لا الفرع: من داخل تبويبٍ في الغلاف كانت الورقة تعيش تحت
+      //    شريط التنقّل فيحجب أسفلها (زرّ الإرسال وشريط السلّة)
+      useRootNavigator: true,
       backgroundColor: Colors.transparent,
       barrierColor: const Color(0xCC000000),
       isScrollControlled: true,
@@ -899,7 +901,8 @@ class _OrderScreenState extends State<OrderScreen>
   // ══════════════════════════════════════════════════════
   Widget _cartBar() {
     if (_cart.isEmpty) return const SizedBox.shrink();
-    final safe = widget.embedded ? 8.0 : MediaQuery.viewPaddingOf(context).bottom;
+    final sysBottom = MediaQuery.viewPaddingOf(context).bottom;
+    final safe = widget.embedded ? (sysBottom > 8 ? sysBottom : 8.0) : sysBottom;
     return InkWell(
       onTap: _openCartDrawer,
       child: Container(
@@ -978,7 +981,7 @@ class _OrderScreenState extends State<OrderScreen>
   /// 🛒 درج السلّة: التعديل والحذف والملاحظة والإرسال — من أيّ موضعٍ بلا تمرير.
   Future<void> _openCartDrawer() => showModalBottomSheet<void>(
         context: context,
-        useRootNavigator: false,
+        useRootNavigator: true,   // فوق شريط تنقّل الغلاف — لا تحته
         backgroundColor: Colors.transparent,
         barrierColor: const Color(0xCC000000),
         isScrollControlled: true,
