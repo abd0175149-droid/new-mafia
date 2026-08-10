@@ -5,6 +5,8 @@
 // كلّ نداءٍ عبر HTTP على المسارات الحقيقيّة بتوكنات لاعبٍ وإدارةٍ موقَّعة
 // بنفس دوالّ النظام — ثمّ تأكيدٌ من قاعدة البيانات مباشرة.
 // التنظيف كاملٌ في النهاية (وفي البداية دفاعاً من تشغيلةٍ سابقة فاشلة).
+// 📌 العدّة مكتوبة بأسماء أصناف جلسة، فتثبّت مصدر الاستعارة على 8 بنفسها
+//    وتعيده كما كان — تبديل المصدر لتجربة منيو مكانٍ آخر لا يكسرها.
 // ══════════════════════════════════════════════════════
 
 import { sql } from 'drizzle-orm';
@@ -44,6 +46,14 @@ async function main() {
     await q(sql`DELETE FROM players WHERE phone = '0700000999'`);
   }
   await cleanup();
+
+  // 📌 تثبيت مصدر الاستعارة على جلسة (#8) — يُعاد في النهاية
+  const [{ menu_source_location_id: savedSrc }] =
+    await q(sql`SELECT menu_source_location_id FROM locations WHERE id = ${LOC_TEST}`);
+  if (String(savedSrc) !== '8') {
+    await q(sql`UPDATE locations SET menu_source_location_id = 8 WHERE id = ${LOC_TEST}`);
+    console.log(`  📌 مصدر الاستعارة ثُبّت على 8 (كان ${savedSrc ?? '—'}) — يُعاد في النهاية`);
+  }
 
   // ── التجهيز: لاعب + فعاليّة + حجز ──
   section('التجهيز');
@@ -346,6 +356,10 @@ async function main() {
   if (failures.length) { console.log('  الإخفاقات:'); failures.forEach(f => console.log(`   • ${f}`)); }
 
   await cleanup();
+  if (String(savedSrc) !== '8') {
+    await q(sql`UPDATE locations SET menu_source_location_id = ${savedSrc} WHERE id = ${LOC_TEST}`);
+    console.log(`  📌 أُعيد مصدر الاستعارة إلى ${savedSrc ?? '—'}`);
+  }
   console.log('  🧹 نُظّفت كلّ بيانات الفحص');
   process.exit(fail ? 1 : 0);
 }
