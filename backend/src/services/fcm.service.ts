@@ -444,8 +444,10 @@ export async function sendPushToStaff(
 
 
   // إرسال Push
+  // 🔴 لا خروج مبكّراً عند غياب FCM: مفاتيح VAPID مستقلّة عنه، والخروج هنا كان
+  //    يُسقط اشتراكات WEBPUSH (آيفون الموظّفين) كلّها إذا تعطّل Firebase وحده —
+  //    بعكس مسار اللاعب الذي يحرس فرع FCM فقط
   const messaging = getMessaging();
-  if (!messaging) return;
 
   const tokens = await db.select({ token: staffFcmTokens.fcmToken })
     .from(staffFcmTokens)
@@ -464,7 +466,7 @@ export async function sendPushToStaff(
   const staffData = { ...data, url: data.url || '/admin' };
   let ok = 0;
 
-  if (fcmTokens.length > 0) {
+  if (fcmTokens.length > 0 && messaging) {
     try {
       const response = await messaging.sendEachForMulticast(
         buildFCMPayload(fcmTokens, title, body, type, staffData)

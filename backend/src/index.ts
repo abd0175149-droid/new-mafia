@@ -710,6 +710,10 @@ async function main() {
       // فهرسٌ للاستعلام الساخن: المفتوح لكلّ فعاليّة (شاشة المكان + الماسح كلّ دقيقة)
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_service_requests_open
         ON service_requests (activity_id, status)`);
+      // 🔁 مفتاح تكرار الطلب (2026-08-10) — فريدٌ لكلّ (فعاليّة، لاعب) حين يوجد
+      await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_key VARCHAR(40)`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_orders_client_key
+        ON orders (activity_id, player_id, client_key) WHERE client_key IS NOT NULL`);
       // ترحيل لمرّة واحدة: كل قيمة category نصّيّة قائمة تصير قسماً رئيساً ويُربط بها أصنافها
       await db.execute(sql`
         INSERT INTO menu_categories (location_id, name, sort_order)

@@ -120,8 +120,13 @@ export default function VenueOrdersPage() {
 
   const resolveSvc = async (id: number) => {
     setSvcList(prev => prev.filter(s => s.id !== id));   // تفاؤليّ — الشاشة لا تنتظر
-    await fetch(withLoc(`/api/venue/service/${id}/done`), { method: 'PUT', headers: authHeaders })
-      .catch(() => loadSvc());
+    try {
+      const r = await fetch(withLoc(`/api/venue/service/${id}/done`), { method: 'PUT', headers: authHeaders });
+      const d = await r.json().catch(() => null);
+      // 🔴 الردّ الواصل بفشلٍ (500/404) ليس catch — بلا هذا الفحص كان الطلب
+      //    يختفي من الشاشة وهو مفتوحٌ على الخادم واللاعب ينتظر فحمه
+      if (!r.ok || d?.success !== true) { flash('⚠️ تعذّر الإغلاق — أُعيد الطلب'); loadSvc(); }
+    } catch { loadSvc(); }
   };
 
   useEffect(() => { load(); loadSvc(); }, [load, loadSvc]);
@@ -163,12 +168,19 @@ export default function VenueOrdersPage() {
       flash(`💨 ${r.label || 'خدمة أرجيلة'} — ${r.playerName}`);
     };
     const onSvcDone = (d: { id: number }) => setSvcList(prev => prev.filter(x => x.id !== d.id));
+    // ⏰ خدمةٌ متأخّرة: نفس جرس الطلب المتأخّر — الشاشة المفتوحة لا تحتاج بوشاً
+    const onSvcStalled = (d: { id: number; minutes: number }) => {
+      if (!mutedRef.current) playDing();
+      flash(`⏰ خدمة أرجيلة متأخّرة منذ ${d.minutes} دقيقة`);
+      loadSvc();
+    };
 
     s.on('fnb:new-order', onNew);
     s.on('fnb:order-updated', onUpdated);
     s.on('fnb:order-stalled', onStalled);
     s.on('fnb:service-request', onSvc);
     s.on('fnb:service-done', onSvcDone);
+    s.on('fnb:service-stalled', onSvcStalled);
 
     const refresh = () => { if (document.visibilityState === 'visible') { load(); loadSvc(); } };
     const iv = setInterval(refresh, 30000);
@@ -181,6 +193,7 @@ export default function VenueOrdersPage() {
       s.off('fnb:order-stalled', onStalled);
       s.off('fnb:service-request', onSvc);
       s.off('fnb:service-done', onSvcDone);
+      s.off('fnb:service-stalled', onSvcStalled);
       clearInterval(iv);
       document.removeEventListener('visibilitychange', refresh);
       setLive(false);

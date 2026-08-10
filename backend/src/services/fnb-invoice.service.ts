@@ -128,7 +128,21 @@ export async function issueInvoiceNumber(
     )).limit(1);
 
     if (existing) {
-      // إعادة طباعة: نحدّث المجاميع والختم بلا رقم جديد
+      // 🔴 فاتورةٌ محصَّلة لا تُعاد كتابة مبالغها: بعد /pay يصير الحجز مدفوعاً،
+      //    فإعادة البناء تحسب رسوم اللعبة صفراً وتكتبها فوق اللقطة المدفوعة —
+      //    فتختفي الرسوم من تقارير التحصيل وكأنّها لم تُقبض. الختمُ وحده يُحدَّث.
+      if (existing.isPaid === true) {
+        await tx.update(orderInvoices).set({ printedBy, printedAt: new Date() } as any)
+          .where(eq(orderInvoices.id, existing.id));
+        // الورقة المطبوعة تعكس اللقطة المجمَّدة لا الحساب المُعاد — data تُمرَّر
+        // بالمرجع فيقرأ منها invoiceHtml في المسارَين (pdf و print-all)
+        data.ordersTotal = parseFloat(existing.ordersTotal || '0');
+        data.gameFeeApplied = existing.gameFeeApplied === true;
+        data.gameFeeAmount = parseFloat(existing.gameFeeAmount || '0');
+        data.grandTotal = parseFloat(existing.grandTotal || '0');
+        return existing.invoiceNo;
+      }
+      // إعادة طباعة فاتورةٍ غير محصَّلة: نحدّث المجاميع والختم بلا رقم جديد
       await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,

@@ -79,11 +79,19 @@ export async function runStalledOrderScan(io?: any): Promise<void> {
     const last = nth >= MAX_REMINDERS ? ' (آخر تذكير)' : '';
 
     try {
-      // ✍️ الوسم قبل الإرسال: فشل الدفع لا يجوز أن يُنتج تذكيراً كلّ دقيقة
-      await db.update(orders).set({
+      // ✍️ الوسم قبل الإرسال: فشل الدفع لا يجوز أن يُنتج تذكيراً كلّ دقيقة.
+      // 🔒 مشروطٌ بالحالة والعدّاد اللذين قرأناهما: انتقال الحالة أثناء معالجة
+      //    الحلقة يصفّر العدّاد — تحديثٌ غير مشروط كان يدوس التصفير ويرسل
+      //    «لم يبدأ تحضيره» لطلبٍ بدأ تحضيره للتوّ
+      const [claimed] = await db.update(orders).set({
         reminderSentAt: new Date(),
         reminderCount: nth,
-      } as any).where(eq(orders.id, r.id));
+      } as any).where(and(
+        eq(orders.id, r.id),
+        eq(orders.status, r.status),
+        eq(orders.reminderCount, r.reminderCount ?? 0),
+      )).returning({ id: orders.id });
+      if (!claimed) continue;
 
       await sendPushToLocationStaff(
         r.locationId,
@@ -140,10 +148,15 @@ export async function runStalledServiceScan(io?: any): Promise<void> {
     const label = r.kind === 'coal' ? 'فحم' : 'تزبيط أرجيلة';
     const seat = r.physicalId ? ` — مقعد ${r.physicalId}` : '';
     try {
-      // الوسم قبل الإرسال — كما في تذكير الطلبات
-      await db.update(serviceRequests).set({
+      // الوسم قبل الإرسال — كما في تذكير الطلبات، مشروطاً ببقاء الطلب مفتوحاً
+      const [claimed] = await db.update(serviceRequests).set({
         reminderSentAt: new Date(), reminderCount: nth,
-      } as any).where(eq(serviceRequests.id, r.id));
+      } as any).where(and(
+        eq(serviceRequests.id, r.id),
+        eq(serviceRequests.status, 'open'),
+        eq(serviceRequests.reminderCount, r.reminderCount ?? 0),
+      )).returning({ id: serviceRequests.id });
+      if (!claimed) continue;
 
       await sendPushToLocationStaff(
         r.locationId, 'service.shisha', `⏰ ${label} بانتظارك`,

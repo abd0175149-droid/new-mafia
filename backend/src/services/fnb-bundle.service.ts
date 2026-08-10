@@ -162,7 +162,9 @@ export function resolveOrderSlots(
     // المقفل يُستبعَد من السؤال ويُضاف للقطة بلا فرقٍ في السعر
     const askable = groups.filter(g => !(g.name in locked));
     const r = validateSelections(askable, pick?.options, `${item.name} (داخل ${bundleName})`);
-    delta += r.delta;
+    // 💰 الفرق × كمّية الخانة: خانة «أرجيلتان» بنكهةٍ فاخرة — اللقطة تحضّر وحدتين
+    //    بالنكهة، فالفرق يُدفع عنهما معاً وإلّا ابتلع المكان (qty−1)×الفرق
+    delta += r.delta * s.qty;
 
     const opts = [
       ...Object.entries(locked).map(([group, value]) => ({ group, value })),

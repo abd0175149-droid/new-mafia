@@ -218,7 +218,8 @@ function PackageSheet({ item, onCancel, onConfirm }: {
     for (const g of groupsOf(s)) {
       const vk = opts[s.i]?.[g.key];
       const v = g.values.find(x => x.key === vk);
-      if (v) extra += v.priceDelta;
+      // 💰 × كمّية الخانة — يطابق حساب الخادم (خانة «أرجيلتان» تدفع الفرق مرّتين)
+      if (v) extra += v.priceDelta * s.qty;
     }
   }
   const unitPrice = parseFloat(item.price) + extra;
@@ -301,7 +302,12 @@ function PackageSheet({ item, onCancel, onConfirm }: {
                     const on = chosen[s.i] === f.menuItemId;
                     return (
                       <button key={f.menuItemId}
-                        onClick={() => setChosen(p => ({ ...p, [s.i]: on ? undefined : f.menuItemId }))}
+                        onClick={() => {
+                          // 🔴 مفاتيح خيارات المرشّح السابق (c0:1…) كانت تبقى فتُفسَّر
+                          //    على مجموعات المرشّح الجديد — اختيارٌ لم يُقصَد أو رفضٌ غامض
+                          setOpts(p => ({ ...p, [s.i]: {} }));
+                          setChosen(p => ({ ...p, [s.i]: on ? undefined : f.menuItemId }));
+                        }}
                         className="px-3 py-1.5 rounded-lg text-[11.5px] font-medium"
                         style={on
                           ? { background: 'rgba(16,185,129,0.18)', border: '1px solid rgba(16,185,129,0.45)', color: '#6ee7b7' }
@@ -469,6 +475,9 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const [svc, setSvc] = useState<{ available: boolean; pending: { id: number; kind: string } | null }>({ available: false, pending: null });
   const [svcBusy, setSvcBusy] = useState(false);
 
+  // 🔁 مفتاح تكرار الإرسال: يثبت عبر إعادة المحاولة (ردٌّ ضائع ⇒ الخادم يعيد
+  //    الطلب الأوّل لا ينشئ ثانياً) ويتجدّد مع أيّ تغييرٍ في السلّة
+  const submitKeyRef = useRef<string | null>(null);
   // 🧭 مراجع القفز والرصد — القائمة المتّصلة
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickyRef = useRef<HTMLDivElement>(null);
@@ -602,19 +611,19 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   useEffect(() => () => { if (jumpTimer.current) clearTimeout(jumpTimer.current); }, []);
 
   // ── السلّة ──
-  const bumpLine = (line: CartLine) => setCart(prev => {
+  const bumpLine = (line: CartLine) => { submitKeyRef.current = null; setCart(prev => {
     const i = prev.findIndex(l => l.key === line.key);
     if (i === -1) return [...prev, line];
     const next = [...prev];
     next[i] = { ...next[i], quantity: Math.min(next[i].quantity + 1, 20) };
     return next;
-  });
-  const changeQty = (key: string, delta: number) => setCart(prev => prev.flatMap(l => {
+  }); };
+  const changeQty = (key: string, delta: number) => { submitKeyRef.current = null; setCart(prev => prev.flatMap(l => {
     if (l.key !== key) return [l];
     const q = l.quantity + delta;
     return q <= 0 ? [] : [{ ...l, quantity: Math.min(q, 20) }];
-  }));
-  const removeLine = (key: string) => setCart(prev => prev.filter(l => l.key !== key));
+  })); };
+  const removeLine = (key: string) => { submitKeyRef.current = null; setCart(prev => prev.filter(l => l.key !== key)); };
 
   const cartCount = cart.reduce((s, l) => s + l.quantity, 0);
   const cartTotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
@@ -646,6 +655,9 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const submit = async () => {
     if (cartCount === 0 || !ctx) return;
     setSending(true); setErr('');
+    if (!submitKeyRef.current) {
+      submitKeyRef.current = (globalThis.crypto?.randomUUID?.() ?? `k${Date.now()}${Math.random().toString(36).slice(2, 10)}`);
+    }
     try {
       const r = await fetch('/api/fnb/orders', {
         method: 'POST',
@@ -662,10 +674,12 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
             })),
           })),
           note: note.trim(),
+          clientKey: submitKeyRef.current,
         }),
       });
       const d = await r.json();
       if (d.success) {
+        submitKeyRef.current = null;
         setCart([]); setNote(''); setSent(true); setCartOpen(false);
         loadOrders(ctx.activityId);
         setTab('ord');

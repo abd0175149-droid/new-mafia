@@ -283,7 +283,14 @@ router.get('/activities/upcoming', async (req: Request, res: Response) => {
     const borrowRows = await db.select({ id: locations.id, src: locations.menuSourceLocationId })
       .from(locations)
       .where(and(eq(locations.isTestLocation, true), isNull(locations.deletedAt)));
-    const borrowMap = new Map(borrowRows.filter(r => r.src).map(r => [r.id, r.src as number]));
+    // مصدرٌ محذوفٌ يُسقط الاستعارة هنا كما يُسقطها effectiveMenuLocation — وإلّا
+    // أضاء الزرّ على منيو الموقع نفسه الفارغ
+    const srcIds = [...new Set(borrowRows.map(r => r.src).filter(Boolean))] as number[];
+    const liveSrc = srcIds.length
+      ? new Set((await db.select({ id: locations.id }).from(locations)
+          .where(and(inArray(locations.id, srcIds), isNull(locations.deletedAt)))).map(r => r.id))
+      : new Set<number>();
+    const borrowMap = new Map(borrowRows.filter(r => r.src && liveSrc.has(r.src)).map(r => [r.id, r.src as number]));
 
     // لكل نشاط: عدد الحاجزين
     const enriched = await Promise.all(filtered.map(async (act) => {

@@ -214,6 +214,19 @@ async function validateBundleBody(
     .where(and(inArray(menuItems.id, ids), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt)));
   const simple = new Set(rows.filter(r => r.isBundle !== true).map(r => r.id));
 
+  // 🔴 منع التعشيش من الجهة الثانية (TOCTOU): صنفٌ بسيطٌ مكوّنٌ في باقةٍ حيّة
+  //    يتحوّل باقةً عبر PUT — ففي داخل الباقة الأولى باقةٌ لا تُحلّ خاناتها
+  //    وقت الطلب وتصل تذكرة المطبخ باسمٍ بلا تركيبة
+  if (selfId !== null) {
+    const others = await db.select({ name: menuItems.name, bundleItems: menuItems.bundleItems }).from(menuItems)
+      .where(and(eq(menuItems.locationId, locId), eq(menuItems.isBundle, true), isNull(menuItems.deletedAt), ne(menuItems.id, selfId)));
+    const host = others.find(o => slotItemIds(readSlots(o.bundleItems)).includes(selfId));
+    if (host) {
+      res.status(400).json({ error: `الصنف مكوّنٌ في باقة «${host.name}» — أزِله منها قبل تحويله باقةً` });
+      return null;
+    }
+  }
+
   try {
     // التحقّق نفسه يخدم الشكلين — والباقات القديمة تمرّ منه بلا ترحيل
     return { isBundle: true, bundleItems: validateSlotsInput(body.bundleItems, selfId, (id) => simple.has(id)) };
@@ -238,7 +251,10 @@ venueRouter.post('/menu-items', authenticate, requireVenuePermission('menu.manag
     if (!links) return;
     const [item] = await db.insert(menuItems).values({
       categoryId: links.categoryId,
-      optionGroupIds: links.optionGroupIds,
+      // 🎁 الباقة خياراتها في خاناتها — مجموعةٌ على الباقة نفسها لا يجمعها
+      //    مُهيّئ العميل فيرفض الخادم كلّ طلبٍ لها (باقة معروضة غير قابلة للطلب)
+      optionGroupIds: b.isBundle ? [] : links.optionGroupIds,
+      ...(b.isBundle ? { customOptions: [] } : {}),
       locationId: locId,
       category: String(req.body.category || '').trim().slice(0, 50),
       name: v.name,
@@ -273,7 +289,8 @@ venueRouter.put('/menu-items/:id', authenticate, requireVenuePermission('menu.ma
     // صنفٌ عاديّ لا يجوز أن يصبح عاديّاً وهو مكوّنٌ داخل باقة؟ مسموح — الباقة تحفظ لقطتها لحظة الطلب.
     const [item] = await db.update(menuItems).set({
       categoryId: links.categoryId,
-      optionGroupIds: links.optionGroupIds,
+      // 🎁 نفس قاعدة الإدراج: باقةٌ بلا مجموعات خياراتٍ على نفسها
+      ...(b.isBundle ? { optionGroupIds: [], customOptions: [] } : { optionGroupIds: links.optionGroupIds }),
       category: String(req.body.category || '').trim().slice(0, 50),
       name: v.name,
       description: String(req.body.description || '').trim(),
@@ -313,6 +330,13 @@ venueRouter.delete('/menu-items/:id', authenticate, requireVenuePermission('menu
   if (!locId) return;
   const id = parseInt(req.params.id);
   try {
+    // 🔴 مكوّن باقةٍ حيّة لا يُحذف: العرض يخفيه لكنّ خانات الباقة المخزّنة تطالب
+    //    به وقت الطلب — فتصير الباقة معروضةً وكلّ طلبٍ لها يفشل. عدّل الباقة أوّلاً.
+    const liveBundles = await db.select({ name: menuItems.name, bundleItems: menuItems.bundleItems }).from(menuItems)
+      .where(and(eq(menuItems.locationId, locId), eq(menuItems.isBundle, true), isNull(menuItems.deletedAt)));
+    const host = liveBundles.find(bb => slotItemIds(readSlots(bb.bundleItems)).includes(id));
+    if (host) return res.status(400).json({ error: `الصنف مكوّنٌ في باقة «${host.name}» — عدّل الباقة أو احذفها أوّلاً` });
+
     const [item] = await db.update(menuItems).set({ deletedAt: new Date() } as any)
       .where(and(eq(menuItems.id, id), eq(menuItems.locationId, locId), isNull(menuItems.deletedAt))).returning();
     if (!item) return res.status(404).json({ error: 'الصنف غير موجود' });
@@ -546,7 +570,7 @@ venueRouter.put('/option-groups/:id', authenticate, requireVenuePermission('menu
   const v = readGroupBody(req.body, res);
   if (!v) return;
   try {
-    const [exists] = await db.select({ id: menuOptionGroups.id }).from(menuOptionGroups)
+    const [exists] = await db.select({ id: menuOptionGroups.id, name: menuOptionGroups.name }).from(menuOptionGroups)
       .where(and(eq(menuOptionGroups.id, id), eq(menuOptionGroups.locationId, locId), isNull(menuOptionGroups.deletedAt))).limit(1);
     if (!exists) return res.status(404).json({ error: 'المجموعة غير موجودة' });
 
@@ -558,6 +582,28 @@ venueRouter.put('/option-groups/:id', authenticate, requireVenuePermission('menu
       await tx.update(menuOptionValues).set({ deletedAt: new Date() } as any)
         .where(and(eq(menuOptionValues.groupId, id), isNull(menuOptionValues.deletedAt)));
       await tx.insert(menuOptionValues).values(v.values.map(x => ({ groupId: id, ...x })) as any);
+
+      // 🔒 أقفال الباقات مربوطة باسم المجموعة نصّاً (lockedOptions): إعادة التسمية
+      //    بلا ترحيلها كانت تفكّ القفل — فيُسأل اللاعب عن خيارٍ حدّده العرض
+      //    ويُحاسَب على فرقه فوق سعر الباقة الثابت
+      if (v.name !== exists.name) {
+        const bundles = await tx.select({ id: menuItems.id, bundleItems: menuItems.bundleItems }).from(menuItems)
+          .where(and(eq(menuItems.locationId, locId), eq(menuItems.isBundle, true), isNull(menuItems.deletedAt)));
+        for (const bb of bundles) {
+          const raw = Array.isArray(bb.bundleItems) ? bb.bundleItems as any[] : [];
+          let touched = false;
+          const next = raw.map(slot => {
+            const lo = slot?.lockedOptions;
+            if (lo && typeof lo === 'object' && exists.name in lo) {
+              touched = true;
+              const { [exists.name]: val, ...rest } = lo;
+              return { ...slot, lockedOptions: { ...rest, [v.name]: val } };
+            }
+            return slot;
+          });
+          if (touched) await tx.update(menuItems).set({ bundleItems: next } as any).where(eq(menuItems.id, bb.id));
+        }
+      }
       return g;
     });
     res.json({ success: true, group });
@@ -663,12 +709,15 @@ venueRouter.put('/orders/:id/status', authenticate, requireVenuePermission('orde
       return res.status(400).json({ error: `لا يمكن الانتقال من «${existing.status}» إلى «${status}»` });
     }
 
+    // 🔒 الحارس على الحالة القديمة يقفل سباق check-then-update: موظّفان يضغطان
+    //    معاً، أو إلغاء اللاعب الذرّيّ يسبق — الثاني يجد 0 صفوف فيُرفض لا يدوس
     const [updated] = await db.update(orders).set({
       status, statusChangedBy: req.venueStaff!.id, statusChangedAt: new Date(),
       // ⏰ المرحلة الجديدة تبدأ بعدّاد تذكيرٍ نظيف — من بدأ التحضير الآن
       // لا يُذكَّر لأنّ الطلب قديم، ويُمنح ٥ دقائق كاملة لمرحلته
       reminderSentAt: null, reminderCount: 0,
-    } as any).where(eq(orders.id, id)).returning();
+    } as any).where(and(eq(orders.id, id), eq(orders.status, existing.status))).returning();
+    if (!updated) return res.status(409).json({ error: 'تغيّرت حالة الطلب للتوّ — حدّث الشاشة' });
 
     // بثّ لحظيّ لبقيّة أجهزة المكان
     const io = req.app.get('io');
@@ -1002,14 +1051,19 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
     const staffId = req.venueStaff!.id;
     const receiverName = req.user?.displayName || req.user?.username || '';
 
+    // 🔒 isPaid=false داخل الشرط: كاشيران يضغطان معاً — الثاني يجد 0 صفوف
+    //    فيُرفض، ولا يضيع اسم من حصّل فعلاً من سجلّ التدقيق
+    let paidRow: any = null;
     await db.transaction(async (tx) => {
-      await tx.update(orderInvoices).set({
+      const [row] = await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
         isPaid: true, paidAt: new Date(), paidBy: staffId,
-      } as any).where(eq(orderInvoices.id, inv.id));
+      } as any).where(and(eq(orderInvoices.id, inv.id), eq(orderInvoices.isPaid, false))).returning();
+      paidRow = row;
+      if (!row) return;
 
       // رسوم اللعبة محصَّلة عند المكان ⇒ الحجز صار مدفوعاً باسم موظّف المكان
       if (data.gameFeeApplied && data.gameFeeAmount > 0 && data.bookingId) {
@@ -1020,6 +1074,7 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
         } as any).where(and(eq(bookings.id, data.bookingId), eq(bookings.isPaid, false)));
       }
     });
+    if (!paidRow) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
 
     res.json({
       success: true,
@@ -1224,6 +1279,11 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
     b.activityStatus !== 'completed' && b.activityStatus !== 'cancelled' && b.locationId != null);
   const inWindow = usable.filter(b => b.activityDate.getTime() - ORDER_WINDOW_BEFORE_MS <= now);
 
+  // 🎯 عند تداخل نافذتين (فعاليّة عصرٍ لم تُغلَق + فعاليّة الليلة): الأقرب زمنيّاً
+  //    للآن هي التي يجلس فيها اللاعب — الترتيب التصاعديّ وحده كان يختار الأقدم
+  //    فتذهب طلباته وفاتورته لمكانٍ غادره
+  inWindow.sort((a, b) =>
+    Math.abs(a.activityDate.getTime() - now) - Math.abs(b.activityDate.getTime() - now));
   const chosen = inWindow[0];
   if (!chosen) {
     // لا سياق — نُفصح **لماذا** بدل الصمت: الغموض هنا كلّف تشخيصاً خاطئاً مرّتين.
@@ -1344,7 +1404,7 @@ export async function buildPlayerMenu(db: NonNullable<ReturnType<typeof getDB>>,
             };
           }).filter((s: any) => s.kind === 'choice' ? s.from.length > 0 : s.name)
         : [],
-      optionGroups: groupsByItem.get(r.id) ?? [],
+      optionGroups: r.isBundle === true ? [] : (groupsByItem.get(r.id) ?? []),
       _sort: [
         catOrder.get(parent?.id ?? leaf?.id ?? -1) ?? 9999,
         catOrder.get(leaf?.id ?? -1) ?? 9999,
@@ -1472,8 +1532,9 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     // 🎁 مكوّنات الباقات: كلّ صنفٍ قد تشير إليه خانة — ثابتاً أو مرشَّحاً لاختيار
     const compIds = [...new Set(dbItems.filter(m => m.isBundle === true)
       .flatMap(m => slotItemIds(readSlots(m.bundleItems))))];
+    // المحذوف ناعماً لا يدخل طلباً جديداً — resolveOrderSlots سيرفض برسالةٍ صريحة
     const compRows = compIds.length > 0
-      ? await db.select().from(menuItems).where(inArray(menuItems.id, compIds))
+      ? await db.select().from(menuItems).where(and(inArray(menuItems.id, compIds), isNull(menuItems.deletedAt)))
       : [];
     const compById = new Map(compRows.map(c => [c.id, c]));
 
@@ -1490,7 +1551,7 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     try {
       for (const l of lines) {
         const m = itemById.get(l.menuItemId)!;
-        const { chosen, delta } = validateSelections(groupsByItem.get(m.id) ?? [], l.options, m.name);
+        const { chosen, delta } = validateSelections(m.isBundle === true ? [] : (groupsByItem.get(m.id) ?? []), l.options, m.name);
 
         // 🎁 خانات الباقة: الثابتة تُحلّ وحدها، والاختياريّة من `slots` التي أرسلها
         //    اللاعب. الشكل القديم `componentOptions` (مفتاحه menuItemId) يبقى مقبولاً
@@ -1531,7 +1592,23 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     const total = built.reduce((s, b) => s + b.unitPrice * b.quantity, 0);
     const note = String(req.body.note || '').trim().slice(0, 300);
 
-    const order = await db.transaction(async (tx) => {
+    // 🔁 مفتاح تكرارٍ اختياريّ من العميل: إعادة إرسال سلّةٍ ضاع ردّها لا تنشئ
+    //    طلباً ثانياً — تعيد الأوّل نفسه (فهرسٌ فريد يقفل السباق أيضاً)
+    const rawKey = String(req.body.clientKey || '').trim().slice(0, 40);
+    const clientKey = /^[A-Za-z0-9-]{8,40}$/.test(rawKey) ? rawKey : null;
+    if (clientKey) {
+      const [dup] = await db.select({ id: orders.id, total: orders.total }).from(orders)
+        .where(and(
+          eq(orders.activityId, ctx.activityId),
+          eq(orders.playerId, playerId),
+          eq(orders.clientKey, clientKey),
+        )).limit(1);
+      if (dup) return res.json({ success: true, orderId: dup.id, replayed: true });
+    }
+
+    let order: any;
+    try {
+      order = await db.transaction(async (tx) => {
       const [o] = await tx.insert(orders).values({
         activityId: ctx.activityId,
         locationId: ctx.locationId,
@@ -1543,6 +1620,7 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
         status: 'new',
         total: total.toFixed(2),
         note,
+        clientKey,
       } as any).returning();
       await tx.insert(orderItems).values(built.map(b => ({
         orderId: o.id,
@@ -1555,7 +1633,20 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
         optionsSnapshot: b.options,
       })) as any);
       return o;
-    });
+      });
+    } catch (e: any) {
+      // سباق نفس المفتاح من جهازين: الفهرس الفريد يرفض الثاني — نعيد الأوّل
+      if (e?.code === '23505' && clientKey) {
+        const [dup] = await db.select({ id: orders.id }).from(orders)
+          .where(and(
+            eq(orders.activityId, ctx.activityId),
+            eq(orders.playerId, playerId),
+            eq(orders.clientKey, clientKey),
+          )).limit(1);
+        if (dup) return res.json({ success: true, orderId: dup.id, replayed: true });
+      }
+      throw e;
+    }
 
     // 📥 إشعار المكان الفوريّ: بثّ لغرفة location:{id} + بوش لحسابات المكان المصرَّح لها
     const emittedItems = built.map(b => ({
@@ -1624,10 +1715,30 @@ playerFnbRouter.post('/orders/:id/cancel', authenticatePlayer, async (req: Reque
   const id = parseInt(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
   try {
+    // 🔴 قيمة الطلب قد تكون داخل فاتورةٍ حُصِّلت نقداً: إلغاؤه بعدها يجعل المكان
+    //    قابضاً ثمن طلبٍ ملغى وتقارير الدخل تسقطه — الإلغاء بعد التحصيل بيد المكان لا اللاعب
+    const [target] = await db.select({ activityId: orders.activityId }).from(orders)
+      .where(and(eq(orders.id, id), eq(orders.playerId, playerId))).limit(1);
+    if (target) {
+      const [paidInv] = await db.select({ id: orderInvoices.id }).from(orderInvoices)
+        .where(and(
+          eq(orderInvoices.activityId, target.activityId),
+          eq(orderInvoices.playerId, playerId),
+          eq(orderInvoices.isPaid, true),
+        )).limit(1);
+      if (paidInv) return res.status(400).json({ error: 'فاتورتك حُصِّلت — راجع المكان لأيّ تعديل' });
+    }
+
     const [o] = await db.update(orders).set({ status: 'cancelled', statusChangedAt: new Date() } as any)
       .where(and(eq(orders.id, id), eq(orders.playerId, playerId), eq(orders.status, 'new')))
       .returning();
     if (!o) return res.status(400).json({ error: 'لا يمكن إلغاء الطلب — بدأ تحضيره أو غير موجود' });
+
+    // 🔔 الكونسول يعرف فوراً: بلا هذا البثّ كانت التذكرة تبقى «بانتظار» على
+    //    الشاشة حتى دورة المسح، فيبدأ الموظّف تحضير طلبٍ ملغى
+    const io = req.app.get('io');
+    if (io) io.to(`location:${o.locationId}`).emit('fnb:order-updated', { orderId: o.id, status: 'cancelled', activityId: o.activityId });
+
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -1653,8 +1764,9 @@ async function hasDeliveredShisha(
       eq(orders.activityId, activityId),
       eq(orders.playerId, playerId),
       eq(orders.status, 'delivered'),
-      sql`(${orderItems.nameSnapshot} LIKE '%رجيل%'
-           OR ${orderItems.componentsSnapshot}::text LIKE '%رجيل%')`,
+      // «رجيل» تلتقط أرجيلة/الأراجيل، و«شيش» تلتقط شيشة/الشيشة — مرادفان شائعان
+      sql`(${orderItems.nameSnapshot} LIKE '%رجيل%' OR ${orderItems.nameSnapshot} LIKE '%شيش%'
+           OR ${orderItems.componentsSnapshot}::text LIKE '%رجيل%' OR ${orderItems.componentsSnapshot}::text LIKE '%شيش%')`,
     ));
   return (row?.n ?? 0) > 0;
 }
@@ -1714,10 +1826,20 @@ playerFnbRouter.post('/service', authenticatePlayer, async (req: Request, res: R
     if (open) return res.status(429).json({ error: 'طلبك السابق ما زال قيد التنفيذ — الموظّف في الطريق' });
 
     const [p] = await db.select({ name: players.name }).from(players).where(eq(players.id, playerId)).limit(1);
-    const [row] = await db.insert(serviceRequests).values({
-      activityId: ctx.activityId, locationId: ctx.locationId, playerId,
-      playerName: p?.name || 'لاعب', kind, note, physicalId: ctx.physicalId,
-    } as any).returning();
+    // 🔒 إدراجٌ مشروطٌ ذرّيّاً (INSERT..SELECT WHERE NOT EXISTS): ضغطتان متسارعتان
+    //    كانتا تمرّان معاً من فحص SELECT فتصير فحمَين وإشعارَين وسَيلَي تذكير
+    const insRes: any = await db.execute(sql`
+      INSERT INTO service_requests (activity_id, location_id, player_id, player_name, kind, note, physical_id)
+      SELECT ${ctx.activityId}, ${ctx.locationId}, ${playerId}, ${p?.name || 'لاعب'}, ${kind}, ${note}, ${ctx.physicalId}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM service_requests
+        WHERE activity_id = ${ctx.activityId} AND player_id = ${playerId} AND status = 'open')
+      RETURNING *`);
+    const raw = (insRes?.rows ?? insRes)?.[0];
+    if (!raw) return res.status(429).json({ error: 'طلبك السابق ما زال قيد التنفيذ — الموظّف في الطريق' });
+    const row = { id: raw.id, activityId: raw.activity_id, locationId: raw.location_id, playerId: raw.player_id,
+      playerName: raw.player_name, kind: raw.kind, note: raw.note, physicalId: raw.physical_id,
+      status: raw.status, createdAt: raw.created_at };
 
     const label = SERVICE_KINDS[kind];
     const io = req.app.get('io');
@@ -1753,6 +1875,7 @@ venueRouter.put('/service/:id/done', authenticate, requireVenuePermission('servi
   const locId = resolveVenueLocation(req, res);
   if (!locId) return;
   const id = parseInt(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
   try {
     const [row] = await db.update(serviceRequests)
       .set({ status: 'done', resolvedBy: req.user!.id, resolvedAt: new Date() } as any)

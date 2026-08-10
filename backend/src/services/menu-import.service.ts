@@ -85,10 +85,24 @@ export function validateSpec(spec: MenuSpec): string[] {
   if ((spec.sharedGroups ?? []).some(g => !g.key)) errs.push('كلّ مجموعةٍ مشتركة تحتاج مفتاحاً (key)');
   if (keys.size !== (spec.sharedGroups ?? []).length) errs.push('مفاتيح المجموعات المشتركة مكرّرة');
 
+  // أطوال الأعمدة: تجاوزها كان يفشل في **منتصف** الإدخال بخطأ قاعدةٍ خام —
+  // بعد مسح المنيو القديم. الفشل هنا قبل أيّ كتابة.
+  const checkLen = (val: string | undefined, max: number, what: string) => {
+    if (val && val.length > max) errs.push(`${what} «${val.slice(0, 30)}…» أطول من ${max} حرفاً`);
+  };
+  for (const g of spec.sharedGroups ?? []) {
+    checkLen(g.name, 80, 'اسم مجموعة');
+    for (const v of g.values) {
+      checkLen(v.name, 80, 'اسم قيمة');
+      if ((v.priceDelta ?? 0) < 0) errs.push(`فرقٌ سالب على «${v.name}» — الفروق صفرٌ فأكثر (كما في المحرّر)`);
+    }
+  }
+
   const names = new Set<string>();
   const walk = (secs: SpecSection[], depth: number) => {
     for (const s of secs) {
       if (!s.name?.trim()) errs.push('قسمٌ بلا اسم');
+      checkLen(s.name, 50, 'اسم قسم');   // الأضيق: لقطة menuItems.category varchar(50)
       if (s.sections?.length) {
         // 🔴 الجدول يحمل مستويين: parent_id واحدٌ لا سلسلة. الأعمق يُرفض هنا
         //    لا في قاعدة البيانات، وإلّا ظهرت أقسامٌ يتيمة لا تصل اللاعب.
@@ -97,7 +111,15 @@ export function validateSpec(spec: MenuSpec): string[] {
       }
       for (const it of s.items ?? []) {
         if (!it.name?.trim()) errs.push(`صنفٌ بلا اسم في «${s.name}»`);
+        checkLen(it.name, 150, 'اسم صنف');
         if (!Number.isFinite(it.price) || it.price < 0) errs.push(`«${it.name}»: سعرٌ غير صالح`);
+        for (const g of it.options ?? []) {
+          checkLen(g.name, 80, 'اسم مجموعة');
+          for (const v of g.values ?? []) {
+            checkLen(v.name, 80, 'اسم قيمة');
+            if ((v.priceDelta ?? 0) < 0) errs.push(`«${it.name}» ← «${v.name}»: فرقٌ سالب`);
+          }
+        }
         if (names.has(it.name)) errs.push(`اسمٌ مكرّر: «${it.name}» — مكوّنات الباقات تُحلّ بالاسم فيلتبس`);
         names.add(it.name);
         for (const k of it.groups ?? []) {
@@ -138,7 +160,7 @@ export function validateSpec(spec: MenuSpec): string[] {
  * والأقسام والمجموعات حذفاً صلباً (اختيارات اللاعب ملقوطة بالاسم لا بالمعرّف).
  */
 export async function applyMenuSpec(
-  db: Database, locationId: number, spec: MenuSpec, opts: { wipe?: boolean } = {},
+  outerDb: Database, locationId: number, spec: MenuSpec, opts: { wipe?: boolean } = {},
 ): Promise<ImportResult> {
   const errs = validateSpec(spec);
   if (errs.length) throw new Error('وصفٌ غير صالح:\n  • ' + errs.join('\n  • '));
@@ -148,6 +170,11 @@ export async function applyMenuSpec(
     categories: 0, items: 0, groups: 0, values: 0, bundles: 0,
     removed: { items: 0, categories: 0, groups: 0 }, log,
   };
+
+  // 🔴 معاملةٌ واحدة للكلّ: مع wipe يُمسح المنيو القديم قبل الإدخال — أيّ فشلِ
+  //    قاعدةٍ في المنتصف كان يترك المكان بمنيو ممسوحٍ أو نصفِ مُدخَل بلا تراجع.
+  //    التحقّق أعلاه يصطاد المتوقَّع، والمعاملة تحمي من غير المتوقَّع.
+  await outerDb.transaction(async (db) => {
 
   if (opts.wipe) {
     const oldItems = await db.select({ id: menuItems.id }).from(menuItems)
@@ -250,6 +277,7 @@ export async function applyMenuSpec(
     res.bundles++;
   }
   if (res.bundles) log.push(`🎁 ${res.bundles} باقة — حُلّت مكوّناتها`);
+  });
 
   return res;
 }
