@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- خلفيّة الأيقونة التكيّفيّة — سواد الشعار -->
     <color name="ic_launcher_background">#050505</color>
+    <!-- لون accent الإشعارات — أحمر المافيا العميق (06 §4.7) -->
+    <color name="mafia_accent">#8A0303</color>
 </resources>

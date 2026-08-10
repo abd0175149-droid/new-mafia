@@ -1,4 +1,49 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- ══════════════════════════════════════════════════
+         الأذونات — §13 في الملفّ ٩٠، كلٌّ بمبرّره
+         ══════════════════════════════════════════════════
+         🔴 لا إذن زائد بلا استعمال: كلّ إذنٍ في القائمة يظهر للمستخدم في
+            المتجر ويُسأل عنه في نموذج Data Safety.
+
+         🔒 `READ_MEDIA_IMAGES` غائبٌ عمداً — `image_picker` الحديث يستعمل
+            منتقي الصور النظاميّ فلا يحتاج إذن تخزينٍ إطلاقاً. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- الإشعارات: إذنٌ وقتَ التشغيل من API 33 (البوّابة الحاجبة تطلبه) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- الصوت المباشر عن بُعد (٣١) — يُطلَب عند دخول غرفةٍ صوتية فقط -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <!-- توجيه الصوت لسمّاعة بلوتوث — إذنٌ وقتَ التشغيل من API 31 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+    <!-- اهتزازات أحداث الليل والإشعارات (٠٧/٠٦) -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <!-- منع قفل الشاشة داخل اللعبة وكونسول المضيف -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- الكاميرا: تسند زرّ الفيديو الذاتيّ في اللعب عن بُعد (٣١). ليست
+         للأفاتار — منتقي الصور النظاميّ يكفيه. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- ══════════════════════════════════════════════════
+         🔴 أذونات يحقنها SDK الصوت ولا نستعملها — تُنزَع
+         ══════════════════════════════════════════════════
+         معيار ١٢٫١٥: «بلا إذن زائد بلا استعمال». الـmanifest المدموج كان
+         يحمل أربعة أذونات من `realtimekit`/`webrtc` لا يمسّها التطبيق:
+         التخزين الخارجيّ (يظهر أحمرَ في Data Safety ويُدقَّق في Play)،
+         وحالة الواي-فاي، وبلوتوث القديم. `tools:node="remove"` ينزعها
+         عند الدمج فلا تصل الحزمة المرفوعة.
+
+         🔒 نزعُها آمن: مسارات الـSDK التي تستدعيها (تسجيل الاجتماع محلّياً
+         ومشاركة الشاشة) غير مُفعَّلة عندنا أصلاً. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"
+        tools:node="remove"/>
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        tools:node="remove"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
@@ -38,6 +83,21 @@
                       android:pathPrefix="/join/"/>
             </intent-filter>
         </activity>
+        <!-- ══════════════════════════════════════════════
+             ميتاداتا الإشعارات — §4.5 في الملفّ ٩٠
+             ══════════════════════════════════════════════
+             القناة تُنشأ برمجياً في `main()`؛ هذه احتياطٌ لعرض النظام
+             قبل أن ينشئها التطبيق أوّل مرّة. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="mafia_default" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_mafia" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/mafia_accent" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

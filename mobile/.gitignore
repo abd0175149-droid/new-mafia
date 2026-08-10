@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ── أسرار الإصدار — §13 في الملفّ ٩٠ ──
+# فقدانها كارثة، وتسريبها أسوأ. النسخة الاحتياطية خارج المستودع.
+key.properties
+*.jks
+*.keystore
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist

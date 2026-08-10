@@ -1,3 +1,21 @@
+import java.util.Properties
+
+// ══════════════════════════════════════════════════════
+// 🔑 مفتاح الرفع — §12.1 و§12.2 في الملفّ ٩٠
+// ══════════════════════════════════════════════════════
+// 🔴 الأسرار **خارج المستودع**: `key.properties` و`*.jks` في `.gitignore`.
+//    وغيابهما لا يكسر البناء — يسقط إلى مفاتيح التنقيح كي يبقى
+//    `flutter run --release` عاملاً على جهاز التطوير.
+//
+// فقدان مفتاح الرفع يُصلَح عبر دعم Play؛ أمّا فقدانُه **بلا** Play App
+// Signing فكارثةٌ لا رجعة فيها — ولهذا التوقيع بالمفتاح المُدار إلزاميّ.
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+val hasReleaseKey = keystorePropertiesFile.exists()
+if (hasReleaseKey) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
+}
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -55,11 +73,32 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO(M6): مفتاح توقيع حقيقيّ + Play App Signing (90-release-android.md).
-            //           يوقّع بمفاتيح التنقيح حالياً كي يعمل `flutter run --release`.
-            signingConfig = signingConfigs.getByName("debug")
+            // مفتاح الرفع إن وُجد، وإلّا مفاتيح التنقيح للتجربة المحلّية
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
+            // R8 يقلّص الحزمة وسطح الهجوم معاً — لا تُعطَّل في الإنتاج
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

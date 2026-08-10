@@ -62,6 +62,12 @@ dependencies:
   vibration: ^3.2.0
   audioplayers: ^6.7.1
 
+  # الصوت المباشر عن بُعد (M5) + نوع RtkError من واجهة المنصّة —
+  # الميزة خلف بوّابة can_host_remote ولم تُطلَق بعد (P0 الأمنيّ أولاً)
+  realtimekit_core_platform_interface: ^0.1.6
+  realtimekit_core: ^0.1.6
+  permission_handler: ^11.3.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
