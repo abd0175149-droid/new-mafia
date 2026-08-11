@@ -119,6 +119,8 @@ export default function VenueMenuPage() {
   const [err, setErr] = useState('');
   const [toast, setToast] = useState('');
   const [search, setSearch] = useState('');
+  // 📱 معاينة اللاعب داخل ورقة التحرير — مطويّة افتراضيّاً كي لا تزاحم الحقول على الهاتف
+  const [showPreview, setShowPreview] = useState(false);
   const [catFilter, setCatFilter] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // 🗂️ الأقسام و⚙️ مجموعات الخيارات — تُدار من مودالَين مستقلَّين
@@ -164,10 +166,12 @@ export default function VenueMenuPage() {
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
 
   const openAdd = () => {
+    setShowPreview(false);
     setForm({ ...EMPTY_FORM }); setIsBundle(false); setBundle(new Map()); setLinkedGroups(new Set());
     setEditId(null); setErr(''); setModal('add');
   };
   const openEdit = (it: MenuItem) => {
+    setShowPreview(false);
     setForm({
       name: it.name, category: it.category || '', categoryId: it.categoryId ? String(it.categoryId) : '',
       description: it.description || '',
@@ -268,51 +272,44 @@ export default function VenueMenuPage() {
 
   return (
     <div className="space-y-4">
-      {/* ── شريط علويّ ── */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-bold">⚙️ إعدادات المنيو</h2>
-          <p className="text-[11px] text-[#8B9A92] mt-0.5">
-            {locationName} • {items.length} صنفاً ({availCount} متاح) • يُعدّ مرّةً ويظهر للاعبين في كلّ فعاليّة مفعَّلة
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={() => setManagerModal('cats')} title="أقسام المنيو"
-            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-[#D98A2B]/45 transition-colors">
-            🗂️ الأقسام
-          </button>
-          <button onClick={() => setManagerModal('groups')} title="مجموعات الخيارات"
-            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-amber-500/40 transition-colors">
-            ⚙️ الخيارات
-          </button>
-          {/* 💰 الحصّة رقمُ عملٍ يتغيّر بالتفاوض — ضبطها صنفاً صنفاً عملٌ يُؤجَّل فلا يُنجَز */}
-          <button onClick={() => setManagerModal('share')} title="حصّة النادي على دفعة أصناف"
-            className="px-2.5 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 hover:border-amber-500/40 transition-colors">
-            💰 الحصّة
-          </button>
-          <button
-            onClick={openAdd}
-            className="px-4 py-2 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white shadow-lg shadow-black/40 active:scale-95 transition-transform"
-          >
-            + صنف جديد
-          </button>
-        </div>
+      {/* ── ترويسة مدمجة للهاتف: عنوانٌ وسطران لا غير — الأفعال في الشرائح والزرّ العائم ── */}
+      <div>
+        <h2 className="text-base font-bold">🍽️ المنيو والباقات</h2>
+        <p className="text-[11px] text-[#8B9A92] mt-0.5">
+          {locationName} • {items.length} صنفاً ({availCount} متاح) • يُعدّ مرّةً ويظهر في كلّ فعاليّة مفعَّلة
+        </p>
       </div>
 
-      {/* ── بحث + فئات ── */}
-      {items.length > 0 && (
-        <div className="space-y-2">
+      {/* ── بحث + شريطٌ منزلقٌ واحد: الأدوات الثلاث ثمّ فلاتر الفئات — لا التفاف على الهاتف ── */}
+      <div className="space-y-2">
+        {items.length > 0 && (
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="🔎 ابحث باسم الصنف…"
             className="w-full bg-[#1B211D] border border-[#232B27] rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-[#D98A2B]/50 placeholder:text-[#5A6862]"
           />
+        )}
+        <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+          <button onClick={() => setManagerModal('cats')}
+            className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 whitespace-nowrap">
+            🗂️ الأقسام
+          </button>
+          <button onClick={() => setManagerModal('groups')}
+            className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 whitespace-nowrap">
+            ⚙️ الخيارات
+          </button>
+          {/* 💰 الحصّة رقمُ عملٍ يتغيّر بالتفاوض — ضبطها صنفاً صنفاً عملٌ يُؤجَّل فلا يُنجَز */}
+          <button onClick={() => setManagerModal('share')}
+            className="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-white/5 border border-white/10 whitespace-nowrap">
+            💰 الحصّة
+          </button>
           {existingCats.length > 1 && (
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
+            <>
+              <span className="shrink-0 w-px my-1" style={{ background: '#2E3833' }} />
               <button
                 onClick={() => setCatFilter(null)}
-                className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors ${
+                className={`shrink-0 px-3 py-2 rounded-xl text-xs whitespace-nowrap transition-colors ${
                   catFilter === null ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-[#8B9A92] border border-transparent'
                 }`}
               >
@@ -322,17 +319,17 @@ export default function VenueMenuPage() {
                 <button
                   key={c || '_none'}
                   onClick={() => setCatFilter(prev => prev === c ? null : c)}
-                  className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-colors ${
+                  className={`shrink-0 px-3 py-2 rounded-xl text-xs whitespace-nowrap transition-colors ${
                     catFilter === c ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-[#8B9A92] border border-transparent'
                   }`}
                 >
                   {c || 'بلا فئة'} ({items.filter(i => (i.category || '') === c).length})
                 </button>
               ))}
-            </div>
+            </>
           )}
         </div>
-      )}
+      </div>
 
       {loading ? (
         <div className="flex justify-center py-16">
@@ -360,9 +357,12 @@ export default function VenueMenuPage() {
             </h3>
             <div className="space-y-2">
               {visibleItems.filter(i => (i.category || '') === cat).map(it => (
+                // 📱 الصفّ كلّه زرّ تحرير (هدف لمسٍ واحد كبير) — مفتاح الإتاحة وحده
+                //    مستقلّ، والحذف انتقل داخل ورقة التحرير فلا حذف بنقرة خطأ
                 <div
                   key={it.id}
-                  className={`rounded-xl p-3 flex items-center gap-3 border transition-opacity ${it.isAvailable ? 'bg-white/[0.03] border-white/[0.07]' : 'bg-white/[0.01] border-white/[0.04] opacity-50'}`}
+                  onClick={() => openEdit(it)}
+                  className={`rounded-xl p-3 flex items-center gap-3 border transition-opacity cursor-pointer active:scale-[0.995] ${it.isAvailable ? 'bg-white/[0.03] border-white/[0.07]' : 'bg-white/[0.01] border-white/[0.04] opacity-50'}`}
                 >
                   <div className="w-12 h-12 rounded-lg overflow-hidden bg-[#1B211D] flex items-center justify-center shrink-0">
                     {it.imageUrl ? <img src={it.imageUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">🍴</span>}
@@ -396,19 +396,16 @@ export default function VenueMenuPage() {
                       )}
                     </div>
                   </div>
-                  {/* إتاحة */}
+                  {/* إتاحة — يعترض النقر قبل فتح الورقة، وهدفه ≥42px */}
                   <button
-                    onClick={() => toggleAvail(it)}
-                    className={`w-10 h-5.5 rounded-full relative transition-colors shrink-0 ${it.isAvailable ? 'bg-emerald-500' : 'bg-gray-700'}`}
-                    style={{ height: 22 }}
+                    onClick={e => { e.stopPropagation(); toggleAvail(it); }}
+                    className={`rounded-full relative transition-colors shrink-0 ${it.isAvailable ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                    style={{ width: 42, height: 24 }}
                     title={it.isAvailable ? 'متاح — اضغط للإخفاء' : 'مخفيّ — اضغط للإتاحة'}
                   >
-                    <span className={`absolute top-0.5 w-[18px] h-[18px] rounded-full bg-white transition-all ${it.isAvailable ? 'right-0.5' : 'right-[20px]'}`} />
+                    <span className={`absolute top-[2.5px] w-[19px] h-[19px] rounded-full bg-white transition-all ${it.isAvailable ? 'right-[2.5px]' : 'right-[20.5px]'}`} />
                   </button>
-                  <div className="flex flex-col gap-1 shrink-0">
-                    <button onClick={() => openEdit(it)} className="text-xs px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">✏️</button>
-                    <button onClick={() => remove(it)} className="text-xs px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors">🗑️</button>
-                  </div>
+                  <span className="text-[11px] shrink-0 text-[#5A6862]">◀</span>
                 </div>
               ))}
             </div>
@@ -416,18 +413,26 @@ export default function VenueMenuPage() {
         ))
       )}
 
-      {/* ── مودال إضافة/تعديل ── */}
+      {/* ── 📱 ورقة تحرير سفليّة (بديل المودال المركزيّ): رأسٌ وذيلٌ لاصقان
+             والجسم وحده يتمرّر — فلا يتصارع التمرير مع الكيبورد ولا يضيع زرّ الحفظ ── */}
       {modal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !saving && setModal(null)}>
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end justify-center" onClick={() => !saving && setModal(null)}>
           <div
-            className="w-full max-w-md sm:max-w-2xl bg-[#161B18] border border-[#232B27] rounded-2xl p-5 max-h-[88vh] overflow-y-auto"
+            className="w-full max-w-2xl bg-[#161B18] border border-[#2E3833] border-b-0 rounded-t-3xl flex flex-col relative"
+            style={{ height: '93%' }}
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-base font-bold mb-4">{modal === 'add' ? '➕ صنف جديد' : '✏️ تعديل الصنف'}</h3>
+            <span className="absolute top-1.5 left-1/2 -translate-x-1/2 w-11 h-1 rounded-full bg-[#2E3833]" />
+            {/* الرأس اللاصق */}
+            <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#232B27] shrink-0">
+              <h3 className="text-sm font-bold flex-1 truncate">{modal === 'add' ? '➕ صنف جديد' : `✏️ ${form.name.trim() || 'تعديل الصنف'}`}</h3>
+              <button onClick={() => !saving && setModal(null)}
+                className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 text-[#8B9A92] text-sm shrink-0">✕</button>
+            </div>
 
-            {/* المعاينة ملتصقة في الحالتين: فوق الحقول على الجوّال، وعموداً يساراً على الشاشات الواسعة */}
-            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_280px] gap-4 sm:gap-5 sm:items-start">
-            <div className="space-y-3 order-2 sm:order-1">
+            {/* الجسم المتمرّر — عمودٌ واحد */}
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="space-y-3">
               {/* ── 🎁 نوع الصنف: مفرد أم باقة ── */}
               <div className="flex gap-2 p-1 rounded-xl bg-[#1B211D] border border-[#232B27]">
                 <button
@@ -604,36 +609,60 @@ export default function VenueMenuPage() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input type="checkbox" checked={form.isAvailable} onChange={e => setForm(f => ({ ...f, isAvailable: e.target.checked }))}
-                  className="w-4 h-4 accent-emerald-500" />
-                <span className="text-xs text-[#E8EFEA]">متاح للطلب الآن</span>
-              </label>
+              {/* الإتاحة — صفّ مفتاحٍ بهدف لمسٍ كامل بدل checkbox صغير */}
+              <button onClick={() => setForm(f => ({ ...f, isAvailable: !f.isAvailable }))}
+                className="w-full flex items-center justify-between bg-[#1B211D] border border-[#232B27] rounded-xl px-3.5 py-3">
+                <span className="text-xs font-bold text-[#E8EFEA]">متاح للطلب الآن</span>
+                <span className={`rounded-full relative transition-colors shrink-0 ${form.isAvailable ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                  style={{ width: 42, height: 24, display: 'inline-block' }}>
+                  <span className={`absolute top-[2.5px] w-[19px] h-[19px] rounded-full bg-white transition-all ${form.isAvailable ? 'right-[2.5px]' : 'right-[20.5px]'}`} />
+                </span>
+              </button>
+              {!form.isAvailable && (
+                <p className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
+                  ⚠️ لن يظهر هذا الصنف للاعبين إطلاقاً.
+                </p>
+              )}
+
+              {/* 👁️ المعاينة الحيّة — مطويّة كي لا تزاحم الحقول على الهاتف */}
+              <button onClick={() => setShowPreview(v => !v)}
+                className="w-full flex items-center justify-between rounded-xl px-3.5 py-3 text-[11px] font-bold text-[#8B9A92]"
+                style={{ background: 'rgba(3,7,5,0.6)', border: '1px solid rgba(35,43,39,0.6)' }}>
+                <span>👁️ كما يراه اللاعب</span>
+                <span>{showPreview ? '▼' : '◀'}</span>
+              </button>
+              {showPreview && (
+                <PlayerPreview
+                  form={form}
+                  isBundle={isBundle}
+                  components={Array.from(bundle.entries()).map(([id, qty]) => ({
+                    name: items.find(i => i.id === id)?.name || 'صنف محذوف',
+                    qty,
+                  }))}
+                  priceNum={parseFloat(form.price) || 0}
+                />
+              )}
 
               {err && <p className="text-rose-400 text-xs bg-rose-500/10 border border-rose-500/20 rounded-lg p-2">{err}</p>}
+            </div>
+            </div>
 
-              <div className="flex gap-2 pt-2">
-                <button onClick={save} disabled={saving || uploading}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white disabled:opacity-50">
-                  {saving ? '⏳ يحفظ…' : modal === 'add' ? 'إضافة الصنف' : 'حفظ التعديلات'}
+            {/* الذيل اللاصق: الحفظ عريضٌ بمتناول الإبهام — والحذف هنا لا في الصفوف */}
+            <div className="flex gap-2.5 px-4 py-3 border-t border-[#232B27] bg-[#121614] shrink-0"
+              style={{ paddingBottom: 'calc(12px + env(safe-area-inset-bottom))' }}>
+              <button onClick={save} disabled={saving || uploading}
+                className="flex-1 py-3 rounded-xl text-sm font-bold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-white disabled:opacity-50">
+                {saving ? '⏳ يحفظ…' : modal === 'add' ? '💾 إضافة الصنف' : '💾 حفظ التعديلات'}
+              </button>
+              {modal === 'edit' && editId != null && (
+                <button
+                  onClick={() => { const it = items.find(x => x.id === editId); if (it) { setModal(null); remove(it); } }}
+                  disabled={saving}
+                  title="حذف الصنف"
+                  className="px-4 py-3 rounded-xl text-sm bg-rose-500/10 border border-rose-500/25 text-rose-400 disabled:opacity-50">
+                  🗑️
                 </button>
-                <button onClick={() => setModal(null)} disabled={saving}
-                  className="px-4 py-2.5 rounded-xl text-sm bg-white/5 border border-white/10 text-[#8B9A92]">إلغاء</button>
-              </div>
-            </div>
-
-            {/* ── 👁️ المعاينة الحيّة ── */}
-            <div className="order-1 sm:order-2 sticky top-0 z-10 bg-[#161B18] pb-2 sm:pb-0">
-              <PlayerPreview
-                form={form}
-                isBundle={isBundle}
-                components={Array.from(bundle.entries()).map(([id, qty]) => ({
-                  name: items.find(i => i.id === id)?.name || 'صنف محذوف',
-                  qty,
-                }))}
-                priceNum={parseFloat(form.price) || 0}
-              />
-            </div>
+              )}
             </div>
           </div>
         </div>
@@ -665,6 +694,17 @@ export default function VenueMenuPage() {
             load();
           }}
         />
+      )}
+
+      {/* ── 📱 الزرّ العائم: الفعل الأكثر تكراراً بمتناول الإبهام دائماً ── */}
+      {!modal && !managerModal && (
+        <button
+          onClick={openAdd}
+          className="fixed z-40 rounded-2xl px-5 py-3.5 text-sm font-extrabold bg-gradient-to-l from-[#D98A2B] to-[#C2751F] text-[#1A1208] shadow-2xl shadow-black/60 active:scale-95 transition-transform"
+          style={{ bottom: 'calc(18px + env(safe-area-inset-bottom))', left: 16 }}
+        >
+          ＋ صنف جديد
+        </button>
       )}
 
       {/* ── توست ── */}

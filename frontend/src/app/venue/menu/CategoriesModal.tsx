@@ -107,8 +107,9 @@ export default function CategoriesModal({
   );
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-lg bg-[#161B18] border border-[#232B27] rounded-2xl p-5 max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-end justify-center" onClick={onClose}>
+      <div className="w-full max-w-lg bg-[#161B18] border border-[#2E3833] border-b-0 rounded-t-3xl p-5 overflow-y-auto relative" style={{ height: '90%', paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }} onClick={e => e.stopPropagation()}>
+        <span className="absolute top-1.5 left-1/2 -translate-x-1/2 w-11 h-1 rounded-full bg-[#2E3833]" />
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-bold">🗂️ أقسام المنيو</h3>
           <button onClick={onClose} className="text-[#8B9A92] hover:text-white">✕</button>

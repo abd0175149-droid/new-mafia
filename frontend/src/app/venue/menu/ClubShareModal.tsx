@@ -70,8 +70,8 @@ export default function ClubShareModal({
   const roots = cats.filter(c => !c.parentId);
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4" onClick={onClose} dir="rtl">
-      <div className="w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl p-5 bg-[#161B18] border border-[#232B27] text-[#E8EFEA]"
+    <div className="fixed inset-0 z-[300] flex items-end justify-center bg-black/75 backdrop-blur-sm" onClick={onClose} dir="rtl">
+      <div className="w-full max-w-md overflow-y-auto rounded-t-3xl p-5 bg-[#161B18] border border-[#2E3833] border-b-0 text-[#E8EFEA] relative" style={{ height: '90%', paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-base font-bold">💰 حصّة النادي</h3>
