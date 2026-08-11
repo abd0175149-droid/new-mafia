@@ -62,7 +62,9 @@ const DEFAULT_CONFIG = {
   // القيم الافتراضية مطابقة للعام (لا تغيّر سلوكاً حتى يعدّلها الليدر).
   roleAbilities: {
     SNIPER:      { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // أصاب مافيا/محايد ✓ — أصاب مواطن ✗
-    SHERIFF:     { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // حقّق مافيا فعلية ✓
+    // 🕵️ قرار 2026-08-11: سؤال الشريف عن مواطنٍ صالح **حياد** — لا خصم ولا كسب.
+    //    التحقيق استبعادٌ مشروع لا خطأٌ يُعاقَب؛ المكافأة لإصابة مافيا فعليّة وحدها.
+    SHERIFF:     { correctXp: 10, correctRr: 5, wrongXp: 0, wrongRr: 0 },
     DOCTOR:      { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // حماية أبطلت اغتيالاً ✓
     NURSE:       { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 },
     POLICEWOMAN: { correctXp: 10, correctRr: 5, wrongXp: -5, wrongRr: -5 }, // إعدام مافيا ✓
