@@ -89,13 +89,14 @@ export default function LocationsPage() {
     { id: 'invoices.print', label: '🧾 طباعة الفواتير' },
     { id: 'menu.manage', label: '📋 إدارة المنيو' },
     { id: 'payments.record', label: '💵 تسجيل التحصيل' },
+    { id: 'service.shisha', label: '💨 خدمة الأرجيلة (فحم/تزبيط)' },
   ];
 
   // 👥 مجموعات صلاحيات جاهزة — أنواع موظّفي المكان (الدور واحد: location_owner)
   const PERM_PRESETS = [
-    { key: 'owner', label: '👑 صاحب المكان', perms: ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record'] },
+    { key: 'owner', label: '👑 صاحب المكان', perms: ['orders.receive', 'orders.manage', 'invoices.print', 'menu.manage', 'payments.record', 'service.shisha'] },
     { key: 'cashier', label: '💵 كاشير', perms: ['invoices.print', 'payments.record'] },
-    { key: 'prep', label: '👨‍🍳 موظّف تحضير', perms: ['orders.receive', 'orders.manage'] },
+    { key: 'prep', label: '👨‍🍳 موظّف تحضير', perms: ['orders.receive', 'orders.manage', 'service.shisha'] },
     { key: 'kds', label: '📺 شاشة مطبخ', perms: ['orders.receive'] },
     { key: 'menu', label: '📋 مسؤول المنيو', perms: ['menu.manage'] },
   ];
