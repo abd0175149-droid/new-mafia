@@ -231,10 +231,15 @@ async function main() {
     let r = await checkNeutralVoteWin(s, 14, 'DAY_VOTE');
     check('مهرج أُقصي بالتصويت (جولة 2) → فوز', !!r && r.won === true);
 
-    // أُقصي بالاتفاقية → فوز
+    // أُقصي بالاتفاقية (هو هدفها) → فوز
     s = mkState([P(14, Role.JESTER, false), P(7, Role.CITIZEN)], { round: 2 });
     r = await checkNeutralVoteWin(s, 14, 'DEAL');
-    check('مهرج أُقصي باتفاقية → فوز', !!r && r.won === true);
+    check('مهرج أُقصي باتفاقية (هدفها) → فوز', !!r && r.won === true);
+
+    // 🃏 سقط لأنّ اتفاقيته هو خابت (عملها على بريء) → لا فوز — لم يكن هدف التصويت
+    s = mkState([P(14, Role.JESTER, false), P(7, Role.CITIZEN, false)], { round: 2 });
+    r = await checkNeutralVoteWin(s, 14, 'DEAL_BACKFIRE');
+    check('مهرج أسقط نفسه بديلٍ خاطئ → لا فوز', r === null);
 
     // قُتل ليلاً → لا فوز
     s = mkState([P(14, Role.JESTER, false), P(7, Role.CITIZEN)], { round: 2 });

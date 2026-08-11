@@ -342,9 +342,12 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         eliminated.push(initiator.physicalId);
         checkPolicewomanTrigger(state, initiator.physicalId);
         revealedRoles.push({ physicalId: initiator.physicalId, role: initiator.role || 'UNKNOWN' });
+        // 🃏 سقوط صاحب الاتفاقية الخاطئة يُسجَّل بطريقةٍ مميّزة (قرار 2026-08-11):
+        //    المدينة صوّتت على **هدفه** لا عليه — فمهرجٌ أسقط نفسه بديلٍ خاطئ
+        //    لا يُحتسب «مُقصىً بالتصويت» ولا يفوز. فوزه حين يكون هو الهدف وحده.
         state.performanceTracking.eliminationLog.push({
           physicalId: initiator.physicalId,
-          eliminatedBy: 'DEAL',
+          eliminatedBy: 'DEAL_BACKFIRE',
           round: state.round || 1,
           team: (initiator.role && isMafiaRole(initiator.role)) ? 'MAFIA' : 'CITIZEN',
         });
@@ -405,11 +408,17 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
   }
 
   // 🎭 فحص فوز محايد فوري (مثل المهرج — يفوز عند إقصائه بواسطة المدينة)
+  // 🔴 الطريقة تُمرَّر **لكلّ مُقصىً على حدة**: في الاتفاقية هدفُ التصويت وحده
+  //    طريقتُه DEAL — صاحبها الساقط معه (ديل خاطئ) طريقتُه DEAL_BACKFIRE فلا
+  //    يفوز مهرجٌ أسقط نفسه باتفاقيةٍ على بريء. كانت تُمرَّر DEAL للجميع.
   let neutralWin: NeutralResult | null = null;
   const eliminationType = winner.type === CandidateType.DEAL ? 'DEAL' : 'DAY_VOTE';
   for (const elId of eliminated) {
     try {
-      const nw = await checkNeutralVoteWin(state, elId, eliminationType);
+      const method = winner.type === CandidateType.DEAL && elId !== winner.targetPhysicalId
+        ? 'DEAL_BACKFIRE'
+        : eliminationType;
+      const nw = await checkNeutralVoteWin(state, elId, method);
       if (nw) { neutralWin = nw; break; }
     } catch { /* المحرك الديناميكي غير متاح — نتجاهل */ }
   }

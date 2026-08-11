@@ -1213,6 +1213,8 @@ export function registerDayEvents(io: Server, socket: Socket) {
         // نبني قائمة المُقصيين من بيانات المتعادلين
         const eliminated: number[] = [];
         const revealedRoles: { physicalId: number; role: string }[] = [];
+        // 🃏 من سقط لأنّ اتفاقيته خابت — ليس هدف تصويتٍ فلا يفوز به مهرج
+        const dealBackfireIds = new Set<number>();
 
         if (data.tiedCandidates) {
           for (const candidate of data.tiedCandidates) {
@@ -1230,6 +1232,7 @@ export function registerDayEvents(io: Server, socket: Socket) {
                     initiator.isAlive = false;
                     eliminated.push(initiator.physicalId);
                     revealedRoles.push({ physicalId: initiator.physicalId, role: initiator.role || 'UNKNOWN' });
+                    dealBackfireIds.add(initiator.physicalId);
                   }
                 }
               }
@@ -1304,10 +1307,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
 
         // 🤡 فحص فوز محايد (المهرج) — الإقصاء بكسر التعادل هو إقصاء مدينة أيضاً
         // (كان هذا المسار يتجاوز الفحص فلا يُعلَن فوز المهرج المُقصى بالتعادل — نفس منطق resolveElimination)
+        // 🔴 ساقطُ الاتفاقية الخائبة يُمرَّر DEAL_BACKFIRE — هدفُ التصويت وحده إقصاءُ مدينة
         let neutralWin: any = null;
         for (const elId of eliminated) {
           try {
-            const nw = await checkNeutralVoteWin(state, elId, 'DAY_VOTE');
+            const nw = await checkNeutralVoteWin(state, elId, dealBackfireIds.has(elId) ? 'DEAL_BACKFIRE' : 'DAY_VOTE');
             if (nw?.won) { neutralWin = nw; break; }
           } catch { /* المحرك الديناميكي غير متاح — نتجاهل */ }
         }

@@ -90,6 +90,8 @@ export function evaluateNeutralWins(state: GameState, allRoles: RoleDef[]): Neut
           const log = state.performanceTracking?.eliminationLog || [];
           const entry = log.find(e => e.physicalId === player.physicalId);
           // فوز: أي إقصاء من طرف المدينة (ليس من المافيا)
+          // 🃏 DEAL = **هدف** الاتفاقية وحده. صاحبُ اتفاقيةٍ خابت يسقط معها
+          //    بطريقة DEAL_BACKFIRE — ليس هدف تصويتٍ فلا تُحتسب فوزاً (2026-08-11)
           const cityKillMethods = ['DAY_VOTE', 'DEAL'];
           const killedByCity = entry ? cityKillMethods.includes(entry.eliminatedBy) : false;
           
@@ -169,6 +171,7 @@ export async function checkNeutralVoteWin(
   const conditionType = roleDef.winConditionType || '';
 
   // شرط VOTED_OUT: المهرج يفوز فورياً عند إقصائه بواسطة المدينة، بشرط بقائه على قيد الحياة للحد الأدنى من الجولات
+  // 🃏 DEAL = هدف الاتفاقية وحده؛ DEAL_BACKFIRE (سقوط صاحبها) ليس فوزاً — هو لم يكن هدف التصويت
   if (conditionType === 'VOTED_OUT') {
     const cityKillMethods = ['DAY_VOTE', 'DEAL'];
     const reqRounds = state.config.jesterSurviveRounds || 2;
