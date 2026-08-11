@@ -521,6 +521,20 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
 
+  // 💨 فور إغلاق الموظّف طلبَ الفحم يعود الزرّ قابلاً للضغط — الخادم يبثّ
+  //    fnb:service-done لغرفة player:{id} وكنّا نتركه يضيع وننتظر دورة
+  //    الاستطلاع (حتى ٣٠ ثانية) قبل السماح بإعادة الطلب
+  useEffect(() => {
+    if (!player) return;
+    let sock: any = null;
+    const onDone = () => { setSvc(v => ({ ...v, pending: null })); loadSvc(); };
+    import('@/lib/socket')
+      .then(m => { sock = m.getSocket(); sock.on('fnb:service-done', onDone); })
+      .catch(() => {});
+    return () => { try { sock?.off('fnb:service-done', onDone); } catch { /* لا شيء */ } };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [player]);
+
   useEffect(() => {
     if (!ctx) return;
     const refresh = () => {

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../app/router.dart';
 import '../../app/theme/dimens.dart';
 import '../../core/api/api_client.dart';
+import '../../core/socket/socket_service.dart';
 import '../../models/fnb.dart';
 import '../profile/profile_palette.dart';
 import 'option_picker.dart';
@@ -135,12 +136,22 @@ class _OrderScreenState extends State<OrderScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scroll.addListener(_onScrollSpy);
+    // 💨 فور إغلاق الموظّف طلبَ الفحم يعود الزرّ فوراً — الخادم يبثّ
+    //    fnb:service-done لغرفة player:{id}، وكنّا ننتظر دورة الاستطلاع (٣٠ ث)
+    SocketService.instance.on('fnb:service-done', _onSvcDone);
     _boot();
+  }
+
+  void _onSvcDone(dynamic _) {
+    if (!mounted) return;
+    setState(() => _svcPending = null);
+    _loadService();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    SocketService.instance.off('fnb:service-done', _onSvcDone);
     _poll?.cancel();
     _toastTimer?.cancel();
     _jumpTimer?.cancel();
