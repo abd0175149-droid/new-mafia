@@ -79,6 +79,12 @@ export default function VenueOrdersPage() {
   const [showHistory, setShowHistory] = useState(false);
   // 🔎 فلتر المؤشّرات: نقرةٌ على «بانتظار/قيد التحضير/متأخّر» تحصر السكّة، وثانيةٌ تلغي
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'preparing' | 'late'>('all');
+  // 👥 «في الغرفة»: من جلس في الغرفة الحيّة ولم يطلب بعد يظهر ساخناً — فيُذكَّر
+  const [rooms, setRooms] = useState<{
+    activityId: number; activityName: string;
+    players: { physicalId: number; playerName: string; joinedAt: string; ordersCount: number; ordersTotal: number }[];
+  }[]>([]);
+  const [roomOpen, setRoomOpen] = useState(true);
   const [muted, setMuted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const flashRef = useRef<Set<number>>(new Set());
@@ -142,6 +148,16 @@ export default function VenueOrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId]);
 
+  // 👥 «في الغرفة» — كلّ جالسٍ في غرفةٍ حيّة الآن، وعدد طلباته (صفر = يُذكَّر)
+  const loadRooms = useCallback(() => {
+    if (!locationId) return;
+    fetch(withLoc('/api/venue/room-attendance'), { headers: authHeaders })
+      .then(r => r.json())
+      .then(d => { if (d.success) setRooms(d.rooms); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
+
   const resolveSvc = async (id: number) => {
     setSvcList(prev => prev.filter(s => s.id !== id));   // تفاؤليّ — الشاشة لا تنتظر
     try {
@@ -153,7 +169,7 @@ export default function VenueOrdersPage() {
     } catch { loadSvc(); }
   };
 
-  useEffect(() => { load(); loadSvc(); }, [load, loadSvc]);
+  useEffect(() => { load(); loadSvc(); loadRooms(); }, [load, loadSvc, loadRooms]);
 
   // ── سوكيت: انضمام لغرفة المكان + استقبال لحظيّ ──
   useEffect(() => {
@@ -171,11 +187,14 @@ export default function VenueOrdersPage() {
       if (!mutedRef.current) playDing();
       setNow(Date.now());
       flash(`🍽️ طلب جديد من ${data.order.playerName}`);
+      loadRooms();   // 👥 صاحب الطلب ينتقل فوراً من «لم يطلبوا» إلى «طلبوا»
     };
     const onUpdated = (data: { orderId: number; status: string }) => {
       // الوقت يُصفَّر محليّاً كما يفعل الخادم — التذكرة تبرد فور انتقالها
       setOrdersList(prev => prev.map(o => o.id === data.orderId
         ? { ...o, status: data.status, statusChangedAt: new Date().toISOString() } : o));
+      // 👥 إلغاء طلبٍ وحيد يعيد صاحبه إلى «لم يطلبوا»
+      if (data.status === 'cancelled') loadRooms();
     };
     // ⏰ الخادم يذكّر بطلبٍ تجاوز ٥ دقائق في مرحلته
     const onStalled = (data: { orderId: number; minutes: number }) => {
@@ -211,7 +230,7 @@ export default function VenueOrdersPage() {
     s.on('fnb:service-stalled', onSvcStalled);
     s.on('fnb:push-blackout', onBlackout);
 
-    const refresh = () => { if (document.visibilityState === 'visible') { load(); loadSvc(); } };
+    const refresh = () => { if (document.visibilityState === 'visible') { load(); loadSvc(); loadRooms(); } };
     const iv = setInterval(refresh, 30000);
     document.addEventListener('visibilitychange', refresh);
 
@@ -572,6 +591,105 @@ export default function VenueOrdersPage() {
           onClick={() => setStatusFilter(f => f === 'late' ? 'all' : 'late')} />
         <Kpi n={sales} label="مبيعات د.أ" color={EM.text} money />
       </div>
+
+      {/* ── 👥 في الغرفة — من جلس ولم يطلب بعد يُرى ويُذكَّر ──
+          نفس سُلّم الجمرة: الجالس بلا طلبٍ «يسخن» بمرور الوقت كالتذكرة المتروكة */}
+      {rooms.map(room => {
+        const withMin = room.players.map(p => ({
+          ...p, mins: Math.max(0, Math.floor((now - new Date(p.joinedAt).getTime()) / 60000)),
+        }));
+        const noOrder = withMin.filter(p => p.ordersCount === 0).sort((a, b) => b.mins - a.mins);
+        const ordered = withMin.filter(p => p.ordersCount > 0).sort((a, b) => a.physicalId - b.physicalId);
+        const seatChip = (p: typeof withMin[number]) => {
+          if (p.ordersCount === 0) {
+            const ht = heat(p.mins * 60);
+            return (
+              <div key={p.physicalId} className="flex items-center gap-2 rounded-xl px-2.5 py-2"
+                style={{
+                  background: ht.hot ? 'rgba(224,73,43,0.07)' : 'rgba(217,138,43,0.06)',
+                  border: `1px solid ${ht.hot ? 'rgba(224,73,43,0.5)' : 'rgba(217,138,43,0.4)'}`,
+                }}>
+                <span className="rounded-lg px-2 py-0.5 shrink-0 font-bold text-[11px]"
+                  style={{ ...({ fontFamily: MONO } as any), background: 'rgba(255,255,255,0.06)', border: `1px solid ${EM.line2}`, color: EM.dim }}>
+                  {p.physicalId}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <p className="text-[12px] font-bold truncate">{p.playerName}</p>
+                  <small className="block text-[9.5px] font-bold leading-snug"
+                    style={{ color: ht.hot ? '#F08163' : EM.warm }}>
+                    ⚠️ لم يطلب — في الغرفة منذ <span style={{ fontFamily: MONO } as any}>{ageText(p.mins * 60)}</span>
+                  </small>
+                </span>
+                <span className="shrink-0 text-[14px]">🕐</span>
+              </div>
+            );
+          }
+          return (
+            <div key={p.physicalId} className="flex items-center gap-2 rounded-xl px-2.5 py-2 opacity-80"
+              style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${EM.line}` }}>
+              <span className="rounded-lg px-2 py-0.5 shrink-0 font-bold text-[11px]"
+                style={{ ...({ fontFamily: MONO } as any), background: 'rgba(255,255,255,0.06)', border: `1px solid ${EM.line2}`, color: EM.dim }}>
+                {p.physicalId}
+              </span>
+              <span className="flex-1 min-w-0">
+                <p className="text-[12px] font-bold truncate">{p.playerName}</p>
+                <small className="block text-[9.5px]" style={{ color: EM.faint }}>
+                  {p.ordersCount} {p.ordersCount === 1 ? 'طلب' : 'طلبات'} · <span style={{ fontFamily: MONO } as any}>{jod(p.ordersTotal)}</span>
+                </small>
+              </span>
+              <span className="shrink-0 text-[14px]" style={{ color: EM.go }}>✓</span>
+            </div>
+          );
+        };
+        return (
+          <div key={room.activityId} className="rounded-2xl overflow-hidden mt-3"
+            style={{ background: EM.card, border: `1px solid ${EM.line}` }}>
+            <button onClick={() => setRoomOpen(v => !v)}
+              className="w-full flex items-center gap-2.5 px-3.5 py-3 text-right">
+              <span className="text-[15px]">👥</span>
+              <b className="text-[12.5px]">في الغرفة ({room.players.length})</b>
+              {rooms.length > 1 && <span className="text-[10px]" style={{ color: EM.faint }}>{room.activityName}</span>}
+              {noOrder.length > 0 ? (
+                <span className="text-[11px] font-black rounded-full px-2.5 py-px"
+                  style={{ color: EM.warm, background: 'rgba(217,138,43,0.12)', border: '1px solid rgba(217,138,43,0.3)' }}>
+                  ⚠️ {noOrder.length} لم يطلبوا بعد
+                </span>
+              ) : (
+                <span className="text-[10.5px]" style={{ color: EM.go }}>✓ الكلّ طلب</span>
+              )}
+              <span className="mr-auto text-[11px]" style={{ color: EM.faint }}>{roomOpen ? '▼' : '◀'}</span>
+            </button>
+            {roomOpen && (
+              <div className="px-3 pb-3 pt-1" style={{ borderTop: `1px solid ${EM.line}` }}>
+                {noOrder.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-2 mt-2 mb-1.5 text-[10px] font-bold" style={{ color: EM.faint }}>
+                      🕐 لم يطلبوا — الأقدم جلوساً أوّلاً
+                      <span className="flex-1 h-px" style={{ background: EM.line }} />
+                      <span style={{ fontFamily: MONO } as any}>{noOrder.length}</span>
+                    </div>
+                    <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(158px, 1fr))' }}>
+                      {noOrder.map(seatChip)}
+                    </div>
+                  </>
+                )}
+                {ordered.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-2 mt-2.5 mb-1.5 text-[10px] font-bold" style={{ color: EM.faint }}>
+                      ✓ طلبوا
+                      <span className="flex-1 h-px" style={{ background: EM.line }} />
+                      <span style={{ fontFamily: MONO } as any}>{ordered.length}</span>
+                    </div>
+                    <div className="grid gap-1.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(158px, 1fr))' }}>
+                      {ordered.map(seatChip)}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {loading ? (
         <div className="flex justify-center py-20">

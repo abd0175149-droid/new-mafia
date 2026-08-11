@@ -107,6 +107,70 @@ venueRouter.get('/push-status', authenticate, requireVenuePermission('orders.rec
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /room-attendance — من في الغرفة الحيّة الآن، ومَن منهم لم يطلب بعد ──
+// 👥 لوحة «في الغرفة» في شاشة الطلبات: كلّ جالسٍ في غرفةٍ حيّة لفعاليّةٍ
+//    مفعَّل منيوها بهذا المكان، مع عدد طلباته ومجموعها — صفرٌ يعني أنّ
+//    الموظّف يذهب إليه ويذكّره. الجلوس من session_players والطلبات بالحساب.
+venueRouter.get('/room-attendance', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const rooms = await db.select({
+      sessionId: sessions.id, activityId: activities.id, activityName: activities.name,
+    }).from(sessions)
+      .innerJoin(activities, eq(sessions.activityId, activities.id))
+      .where(and(
+        eq(sessions.status, 'active'), isNull(sessions.deletedAt),
+        eq(activities.locationId, locId), isNull(activities.deletedAt),
+        ne(activities.status, 'cancelled'), eq(activities.menuOrderingEnabled, true),
+      ));
+    if (rooms.length === 0) return res.json({ success: true, rooms: [] });
+
+    const out = [];
+    for (const r of rooms) {
+      const seats = await db.select({
+        physicalId: sessionPlayers.physicalId, playerName: sessionPlayers.playerName,
+        playerId: sessionPlayers.playerId, joinedAt: sessionPlayers.joinedAt,
+      }).from(sessionPlayers).where(eq(sessionPlayers.sessionId, r.sessionId));
+
+      // إعادة دخولٍ بنفس المقعد تترك صفّين — الأحدث جلوساً هو الصادق
+      const bySeat = new Map<number, typeof seats[number]>();
+      for (const s of seats) {
+        const prev = bySeat.get(s.physicalId);
+        if (!prev || new Date(s.joinedAt) > new Date(prev.joinedAt)) bySeat.set(s.physicalId, s);
+      }
+
+      const pids = [...bySeat.values()].map(s => s.playerId).filter(Boolean) as number[];
+      const sums = pids.length > 0
+        ? await db.select({
+            playerId: orders.playerId,
+            cnt: sql<number>`count(*)::int`,
+            total: sql<string>`sum(${orders.total})::text`,
+          }).from(orders).where(and(
+            eq(orders.activityId, r.activityId), eq(orders.locationId, locId),
+            ne(orders.status, 'cancelled'), inArray(orders.playerId, pids),
+          )).groupBy(orders.playerId)
+        : [];
+      const sumByPlayer = new Map(sums.map(s => [s.playerId, s]));
+
+      out.push({
+        activityId: r.activityId,
+        activityName: r.activityName,
+        players: [...bySeat.values()].map(s => ({
+          physicalId: s.physicalId,
+          playerName: s.playerName,
+          joinedAt: s.joinedAt,
+          ordersCount: s.playerId ? (sumByPlayer.get(s.playerId)?.cnt ?? 0) : 0,
+          ordersTotal: s.playerId ? parseFloat(sumByPlayer.get(s.playerId)?.total || '0') : 0,
+        })),
+      });
+    }
+    res.json({ success: true, rooms: out });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── رفع صورة صنف → uploads/menu ──
 const MENU_MEDIA_DIR = path.resolve(process.cwd(), 'uploads/menu');
 if (!fs.existsSync(MENU_MEDIA_DIR)) fs.mkdirSync(MENU_MEDIA_DIR, { recursive: true });
