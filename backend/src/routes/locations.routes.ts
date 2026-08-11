@@ -60,6 +60,8 @@ router.post('/', authenticate, managerOrAbove, async (req: Request, res: Respons
       ? parseInt(String(req.body.menuSourceLocationId)) : null,
     // 💳 الحدّ الأدنى للاستهلاك — الافتراضيّ 2.00 معطَّلاً حتى يُفعَّل من هنا
     minChargeEnabled: req.body.minChargeEnabled === true,
+    // 💧 ماءٌ تلقائيّ على كلّ فاتورة — يُستثنى من طلبه ماءً أو عرضاً يحويه
+    autoWater: req.body.autoWater === true,
     minimumCharge: Number.isFinite(parseFloat(String(req.body.minimumCharge))) && parseFloat(String(req.body.minimumCharge)) >= 0
       ? parseFloat(String(req.body.minimumCharge)).toFixed(2) : '2.00',
   } as any).returning();
@@ -144,6 +146,7 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
 
   // 💳 الحدّ الأدنى للاستهلاك: تفعيلٌ ومبلغٌ — غير المُرسَل يبقى كما هو
   if (req.body.minChargeEnabled !== undefined) patch.minChargeEnabled = req.body.minChargeEnabled === true;
+  if (req.body.autoWater !== undefined) patch.autoWater = req.body.autoWater === true;
   if (req.body.minimumCharge !== undefined) {
     const v = parseFloat(String(req.body.minimumCharge));
     if (!Number.isFinite(v) || v < 0) return res.status(400).json({ error: 'الحدّ الأدنى غير صالح' });

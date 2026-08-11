@@ -15,7 +15,7 @@ import { staffFcmTokens } from '../schemas/notification.schema.js';
 import { authenticate, requireVenuePermission } from '../middleware/auth.js';
 import { authenticatePlayer } from '../middleware/player-auth.middleware.js';
 import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../services/fcm.service.js';
-import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed } from '../services/fnb-invoice.service.js';
+import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
@@ -858,9 +858,21 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
     //    تكملته تظهر هنا كما ستظهر في فاتورته
     const [locRow] = await db.select({
       minChargeEnabled: locations.minChargeEnabled, minimumCharge: locations.minimumCharge,
+      autoWater: locations.autoWater,
     }).from(locations).where(eq(locations.id, locId)).limit(1);
     const minCharge = locRow?.minChargeEnabled === true ? parseFloat(locRow.minimumCharge || '0') : 0;
-    const playedIds = minCharge > 0 ? new Set(await playersWhoPlayed(db, activityId)) : new Set<number>();
+    // 💧 الماء التلقائيّ: صنفه من المنيو الفعّال، ومن وصله ماءٌ من طلبه يُستثنى
+    const water = locRow?.autoWater === true ? await waterItemOf(db, locId) : null;
+    const waterOwners = water
+      ? new Set(((await db.execute(sql`
+          SELECT DISTINCT o.player_id FROM order_items oi
+          JOIN orders o ON o.id = oi.order_id
+          WHERE o.activity_id = ${activityId} AND o.location_id = ${locId} AND o.status != 'cancelled'
+            AND (oi.name_snapshot = ${water.name}
+                 OR oi.components_snapshot @> ${JSON.stringify([{ name: water.name }])}::jsonb)
+        `)) as any).rows.map((r: any) => Number(r.player_id)))
+      : new Set<number>();
+    const playedIds = (minCharge > 0 || water) ? new Set(await playersWhoPlayed(db, activityId)) : new Set<number>();
 
     // 🧾 ومن له فاتورةٌ مُصدَرة يبقى مرشّحاً دائماً — فاتورة تكملةٍ محصَّلة
     //    للاعبٍ بلا طلبات كانت ستختفي من الشاشة لو عُطّل الحدّ لاحقاً
@@ -898,7 +910,7 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
     const invs = await db.select({
       playerId: orderInvoices.playerId, invoiceNo: orderInvoices.invoiceNo, printedAt: orderInvoices.printedAt,
       isPaid: orderInvoices.isPaid, paidAt: orderInvoices.paidAt, gameFeeAmount: orderInvoices.gameFeeAmount,
-      minTopup: orderInvoices.minTopup,
+      minTopup: orderInvoices.minTopup, waterCharge: orderInvoices.waterCharge,
     }).from(orderInvoices)
       .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId)));
     const invByPlayer = new Map(invs.map(i => [i.playerId, i]));
@@ -908,16 +920,21 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
       gameFeeEnabled: act.addGameFee === true,
       minChargeEnabled: minCharge > 0,
       minimumCharge: minCharge,
+      autoWaterEnabled: water !== null,
+      waterPrice: water?.price ?? 0,
       candidates: rows.map(r => {
         const bk = bkById.get(Number(r.bookingId));
         const gameFee = act.addGameFee === true && bk && bk.isPaid !== true && bk.isFree !== true
           ? parseFloat(act.basePrice || '0') : 0;
         const ordersTotal = parseFloat(r.ordersTotal || '0');
         const inv = invByPlayer.get(r.playerId);
-        // فاتورةٌ محصَّلة تُجمَّد على لقطتها (رسوماً وتكملةً) — الحيّ يُحسب للبقيّة
+        // فاتورةٌ محصَّلة تُجمَّد على لقطتها (رسوماً وتكملةً وماءً) — الحيّ يُحسب للبقيّة
+        const waterCharge = inv?.isPaid
+          ? parseFloat(inv.waterCharge || '0')
+          : (water && !waterOwners.has(r.playerId) ? water.price : 0);
         const minTopup = inv?.isPaid
           ? parseFloat(inv.minTopup || '0')
-          : (playedIds.has(r.playerId) ? Math.max(0, minCharge - ordersTotal) : 0);
+          : (playedIds.has(r.playerId) ? Math.max(0, minCharge - (ordersTotal + waterCharge)) : 0);
         const feeShown = inv?.isPaid ? parseFloat(inv.gameFeeAmount || '0') : gameFee;
         return {
           playerId: r.playerId,
@@ -925,8 +942,9 @@ venueRouter.get('/invoices/candidates', authenticate, requireVenuePermission('in
           ordersCount: r.ordersCount,
           ordersTotal,
           minTopup,
+          waterCharge,
           gameFee: feeShown,
-          grandTotal: ordersTotal + minTopup + feeShown,
+          grandTotal: ordersTotal + waterCharge + minTopup + feeShown,
           invoiceNo: inv?.invoiceNo ?? null,
           printedAt: inv?.printedAt ?? null,
           isPaid: inv?.isPaid === true,
@@ -1168,6 +1186,7 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
       const [row] = await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
         minTopup: data.minTopup.toFixed(2),
+        waterCharge: data.waterCharge.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -1268,13 +1287,13 @@ venueRouter.get('/invoices/:activityId/print-all', authenticate, requireVenuePer
       .where(and(eq(orders.activityId, activityId), eq(orders.locationId, locId), ne(orders.status, 'cancelled')));
     // 💳 مع الحدّ الأدنى: من لعب بلا طلباتٍ له فاتورة تكملةٍ تُطبع مع البقيّة —
     //    ومن له فاتورةٌ مُصدَرة يُطبع دائماً (لقطته محفوظة ولو تغيّرت الإعدادات)
-    const [locMin] = await db.select({ en: locations.minChargeEnabled })
+    const [locMin] = await db.select({ en: locations.minChargeEnabled, water: locations.autoWater })
       .from(locations).where(eq(locations.id, locId)).limit(1);
     const extraIds = new Set<number>(
       (await db.select({ playerId: orderInvoices.playerId }).from(orderInvoices)
         .where(and(eq(orderInvoices.locationId, locId), eq(orderInvoices.activityId, activityId))))
         .map(i => i.playerId));
-    if (locMin?.en === true) {
+    if (locMin?.en === true || locMin?.water === true) {
       for (const pid of await playersWhoPlayed(db, activityId)) extraIds.add(pid);
     }
     for (const pid of extraIds) {

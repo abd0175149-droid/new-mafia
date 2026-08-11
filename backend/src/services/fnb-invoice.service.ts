@@ -7,7 +7,7 @@
 
 import { eq, and, ne, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '../config/db.js';
-import { orders, orderItems, orderInvoices } from '../schemas/fnb.schema.js';
+import { orders, orderItems, orderInvoices, menuItems } from '../schemas/fnb.schema.js';
 import { activities, bookings, locations } from '../schemas/admin.schema.js';
 import { players } from '../schemas/player.schema.js';
 
@@ -31,6 +31,8 @@ export interface InvoiceData {
   ordersTotal: number;
   /** 💳 تكملة الحدّ الأدنى للاستهلاك — صفر إن كان معطّلاً أو الطلبات بلغته أو اللاعب لم يلعب */
   minTopup: number;
+  /** 💧 الماء التلقائيّ — صفر إن كان معطّلاً أو وصله ماءٌ من طلبه (مفرداً أو ضمن عرض) */
+  waterCharge: number;
   gameFeeApplied: boolean;
   gameFeeAmount: number;
   grandTotal: number;
@@ -46,6 +48,32 @@ export async function playedInActivity(db: Database, activityId: number, playerI
     LIMIT 1
   `);
   return Boolean(r?.rows?.[0] ?? r?.[0]);
+}
+
+/**
+ * 💧 صنف الماء في المنيو الفعّال للمكان — بالاسم («مياه» أو «ماء»).
+ * موقع الاختبار يستعير منيو مصدره، فالبحث يتبع الاستعارة (نفس دلالة
+ * effectiveMenuLocation في fnb.routes — منسوخة هنا لتفادي استيرادٍ دائريّ).
+ */
+export async function waterItemOf(db: Database, locationId: number):
+  Promise<{ id: number; name: string; price: number } | null> {
+  let menuLocId = locationId;
+  const [loc] = await db.select({
+    isTest: locations.isTestLocation, src: locations.menuSourceLocationId,
+  }).from(locations).where(eq(locations.id, locationId)).limit(1);
+  if (loc?.isTest === true && loc.src) {
+    const [src] = await db.select({ id: locations.id }).from(locations)
+      .where(and(eq(locations.id, loc.src), isNull(locations.deletedAt))).limit(1);
+    if (src) menuLocId = src.id;
+  }
+  const [w] = await db.select({ id: menuItems.id, name: menuItems.name, price: menuItems.price })
+    .from(menuItems)
+    .where(and(
+      eq(menuItems.locationId, menuLocId),
+      inArray(menuItems.name, ['مياه', 'ماء']),
+      isNull(menuItems.deletedAt),
+    )).limit(1);
+  return w ? { id: w.id, name: w.name, price: parseFloat(w.price) } : null;
 }
 
 /** لاعبو الفعاليّة الذين لعبوا جولةً على الأقلّ (معرّفاتهم المميّزة) */
@@ -75,6 +103,7 @@ export async function buildInvoiceData(
     name: locations.name,
     minChargeEnabled: locations.minChargeEnabled,
     minimumCharge: locations.minimumCharge,
+    autoWater: locations.autoWater,
   }).from(locations).where(eq(locations.id, locationId)).limit(1);
 
   const playerOrders = await db.select().from(orders).where(and(
@@ -86,9 +115,11 @@ export async function buildInvoiceData(
 
   // 💳 الحدّ الأدنى: يستحقّه من لعب جولةً على الأقلّ — فحضورٌ بلا لعبٍ ليس زبون طاولة
   const minCharge = loc?.minChargeEnabled === true ? parseFloat(loc.minimumCharge || '0') : 0;
-  const played = minCharge > 0 ? await playedInActivity(db, activityId, playerId) : false;
+  // 💧 الماء التلقائيّ — يفتح هو الآخر فاتورةَ من لعب بلا طلبات
+  const water = loc?.autoWater === true ? await waterItemOf(db, locationId) : null;
+  const played = (minCharge > 0 || water !== null) ? await playedInActivity(db, activityId, playerId) : false;
 
-  if (playerOrders.length === 0 && !(minCharge > 0 && played)) {
+  if (playerOrders.length === 0 && !((minCharge > 0 || water !== null) && played)) {
     // فاتورةٌ سبق إصدارها (تكملة حدٍّ أدنى مثلاً) تبقى قابلةً للعرض وإعادة
     // الطباعة ولو عُطّلت الميزة لاحقاً — المحصَّلة تُقرأ من لقطتها المجمّدة
     const [inv] = await db.select({ id: orderInvoices.id }).from(orderInvoices).where(and(
@@ -129,8 +160,18 @@ export async function buildInvoiceData(
   const lines = [...merged.values()];
   const ordersTotal = playerOrders.reduce((s, o) => s + parseFloat(o.total), 0);
 
-  // 💳 التكملة: من لعب وطلباته دون الحدّ تُرفع فاتورته إليه — رسوم اللعبة خارج المقارنة
-  const minTopup = minCharge > 0 && played ? Math.max(0, minCharge - ordersTotal) : 0;
+  // 💧 ماءٌ واحدٌ تلقائيّاً — إلا من وصله ماءٌ من طلبه: مفرداً باسمه أو مكوّناً في عرض
+  let waterCharge = 0;
+  if (water) {
+    const hasWater = items.some(it =>
+      it.nameSnapshot === water.name ||
+      (Array.isArray(it.componentsSnapshot)
+        && (it.componentsSnapshot as any[]).some(c => String(c?.name || '') === water.name)));
+    waterCharge = hasWater ? 0 : water.price;
+  }
+
+  // 💳 التكملة: الماء استهلاكٌ فعليّ فيُحتسب ضمن الحدّ — رسوم اللعبة وحدها خارج المقارنة
+  const minTopup = minCharge > 0 && played ? Math.max(0, minCharge - (ordersTotal + waterCharge)) : 0;
 
   // هويّة اللاعب وحجزه: من الطلبات إن وُجدت، وإلا من حسابه وحجزه في الفعاليّة
   let playerName = playerOrders[0]?.playerName || '';
@@ -170,9 +211,10 @@ export async function buildInvoiceData(
     ordersCount: playerOrders.length,
     ordersTotal,
     minTopup,
+    waterCharge,
     gameFeeApplied,
     gameFeeAmount,
-    grandTotal: ordersTotal + minTopup + gameFeeAmount,
+    grandTotal: ordersTotal + waterCharge + minTopup + gameFeeAmount,
   };
 }
 
@@ -201,6 +243,7 @@ export async function issueInvoiceNumber(
         // بالمرجع فيقرأ منها invoiceHtml في المسارَين (pdf و print-all)
         data.ordersTotal = parseFloat(existing.ordersTotal || '0');
         data.minTopup = parseFloat(existing.minTopup || '0');
+        data.waterCharge = parseFloat(existing.waterCharge || '0');
         data.gameFeeApplied = existing.gameFeeApplied === true;
         data.gameFeeAmount = parseFloat(existing.gameFeeAmount || '0');
         data.grandTotal = parseFloat(existing.grandTotal || '0');
@@ -210,6 +253,7 @@ export async function issueInvoiceNumber(
       await tx.update(orderInvoices).set({
         ordersTotal: data.ordersTotal.toFixed(2),
         minTopup: data.minTopup.toFixed(2),
+        waterCharge: data.waterCharge.toFixed(2),
         gameFeeApplied: data.gameFeeApplied,
         gameFeeAmount: data.gameFeeAmount.toFixed(2),
         grandTotal: data.grandTotal.toFixed(2),
@@ -233,6 +277,7 @@ export async function issueInvoiceNumber(
       bookingId: data.bookingId,
       ordersTotal: data.ordersTotal.toFixed(2),
       minTopup: data.minTopup.toFixed(2),
+      waterCharge: data.waterCharge.toFixed(2),
       gameFeeApplied: data.gameFeeApplied,
       gameFeeAmount: data.gameFeeAmount.toFixed(2),
       grandTotal: data.grandTotal.toFixed(2),
@@ -346,6 +391,7 @@ export function invoiceHtml(data: InvoiceData, invoiceNo: number, printedByName:
     </table>
     <div class="sums">
       <div class="sum"><span>مجموع الطلبات</span><span>${fmt(data.ordersTotal)} د.أ</span></div>
+      ${data.waterCharge > 0 ? `<div class="sum fee"><span>مياه ×1</span><span>${fmt(data.waterCharge)} د.أ</span></div>` : ''}
       ${data.minTopup > 0 ? `<div class="sum fee"><span>حدّ أدنى للاستهلاك</span><span>${fmt(data.minTopup)} د.أ</span></div>` : ''}
       ${data.gameFeeApplied ? `<div class="sum fee"><span>رسوم اللعبة</span><span>${fmt(data.gameFeeAmount)} د.أ</span></div>` : ''}
       <div class="sum grand"><span>الإجماليّ</span><span>${fmt(data.grandTotal)} د.أ</span></div>

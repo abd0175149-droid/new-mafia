@@ -427,6 +427,85 @@ async function main() {
 
   await q(sql`UPDATE locations SET min_charge_enabled = ${minSaved.en === true}, minimum_charge = ${minSaved.val} WHERE id = ${LOC_TEST}`);
 
+  // ══ ١٠ · الماء التلقائيّ ══
+  section('١٠ · الماء التلقائيّ على الفواتير');
+  const [waterSaved] = await q(sql`SELECT auto_water AS aw, min_charge_enabled AS en FROM locations WHERE id = ${LOC_TEST}`);
+  await q(sql`UPDATE locations SET auto_water = true, min_charge_enabled = false WHERE id = ${LOC_TEST}`);
+
+  // فعاليّة نظيفة + غرفة حيّة جديدة: انضمام 999 و996 إليها الأحدث يجعل سياق
+  // طلبيهما عليها (قاعدة «الغرفة الحيّة» بأحدث جلوس) — و998 لعب بلا طلبات
+  const [act10] = await q(sql`INSERT INTO activities (name, date, base_price, status, location_id, menu_ordering_enabled, add_game_fee_to_bill)
+    VALUES (${E2E_TAG + ' water'}, NOW(), 3.00, 'planned', ${LOC_TEST}, true, false) RETURNING id`);
+  await q(sql`INSERT INTO bookings (activity_id, name, phone, count, player_id, created_by, is_paid, is_free)
+    VALUES (${act10.id}, ${player.name}, ${player.phone}, 1, ${player.id}, 'e2e', false, false),
+           (${act10.id}, ${p996.name}, ${p996.phone}, 1, ${p996.id}, 'e2e', false, false)`);
+  const [sess10] = await q(sql`INSERT INTO sessions (session_code, session_name, activity_id)
+    VALUES ('E2E10W', ${E2E_TAG + ' water room'}, ${act10.id}) RETURNING id`);
+  await q(sql`INSERT INTO session_players (session_id, player_id, physical_id, player_name)
+    VALUES (${sess10.id}, ${player.id}, 1, ${player.name}), (${sess10.id}, ${p996.id}, 2, ${p996.name})`);
+  const [m10] = await q(sql`INSERT INTO matches (session_id, room_id, room_code, game_name, player_count)
+    VALUES (${sess10.id}, 'e2e-room-w', 'E2E10W', ${E2E_TAG + ' water game'}, 2) RETURNING id`);
+  await q(sql`INSERT INTO match_players (match_id, player_id, physical_id, player_name, role)
+    VALUES (${m10.id}, ${player.id}, 1, ${player.name}, 'citizen'),
+           (${m10.id}, ${p998.id}, 3, ${p998.name}, 'mafia')`);
+
+  // 999: شاي بلا ماء → ماءٌ تلقائيّ 0.50
+  r = await api('/api/fnb/orders', { method: 'POST', headers: P,
+    body: JSON.stringify({ items: [{ menuItemId: tea.id, quantity: 1 }] }) });
+  ok('طلب شاي فعاليّة الماء يُقبل', r.body?.success === true, JSON.stringify(r.body));
+
+  // 996: باقة «سوفت درينك + ماء» تحوي الماء → لا ماء تلقائيّ
+  const pkgWater = items.find(i => i.name === 'سوفت درينك + ماء');
+  ok('باقة «سوفت درينك + ماء» موجودة', !!pkgWater);
+  if (pkgWater) {
+    const chSlot = (pkgWater.slots as any[]).find(sl => sl.kind === 'choice');
+    const fxSlots = (pkgWater.slots as any[]).filter(sl => sl.kind === 'fixed');
+    r = await api('/api/fnb/orders', { method: 'POST',
+      headers: { Authorization: `Bearer ${p996Tok}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [{ menuItemId: pkgWater.id, quantity: 1, slots: [
+        { i: chSlot.i, menuItemId: tea.id, options: [] },
+        ...fxSlots.map((sl: any) => ({ i: sl.i, options: [] })),
+      ] }] }) });
+    ok('طلب الباقة ذات الماء يُقبل', r.body?.success === true, JSON.stringify(r.body));
+  }
+
+  const cw = await api(vURL(`/api/venue/invoices/candidates?activityId=${act10.id}`), { headers: A });
+  const cws: any[] = cw.body?.candidates ?? [];
+  const w999 = cws.find(c => c.playerId === player.id);
+  const w996 = cws.find(c => c.playerId === p996.id);
+  const w998 = cws.find(c => c.playerId === p998.id);
+  ok('الماء مفعَّل في الاستجابة بسعر 0.50', cw.body?.autoWaterEnabled === true && cw.body?.waterPrice === 0.5, JSON.stringify([cw.body?.autoWaterEnabled, cw.body?.waterPrice]));
+  ok('شايٌ بلا ماء → ماء 0.50 وإجماليّ 2.00', w999?.waterCharge === 0.5 && w999?.grandTotal === 2, JSON.stringify(w999));
+  ok('عرضٌ يحوي الماء → لا ماء تلقائيّ', w996?.waterCharge === 0 && w996?.grandTotal === 1.5, JSON.stringify(w996));
+  ok('لعب بلا طلبات → فاتورة ماءٍ وحده 0.50', w998?.ordersCount === 0 && w998?.waterCharge === 0.5 && w998?.grandTotal === 0.5, JSON.stringify(w998));
+
+  // 999 يطلب ماءً مفرداً → ماؤه من طلبه لا تلقائيّاً
+  const waterItem = items.find(i => i.name === 'ماء');
+  ok('صنف «ماء» في المنيو المستعار', !!waterItem);
+  if (waterItem) {
+    r = await api('/api/fnb/orders', { method: 'POST', headers: P,
+      body: JSON.stringify({ items: [{ menuItemId: waterItem.id, quantity: 1 }] }) });
+    const cw2 = await api(vURL(`/api/venue/invoices/candidates?activityId=${act10.id}`), { headers: A });
+    const w999b = (cw2.body?.candidates ?? []).find((c: any) => c.playerId === player.id);
+    ok('طلب ماءً بنفسه → التلقائيّ يسقط والإجماليّ 2.00', w999b?.waterCharge === 0 && w999b?.grandTotal === 2, JSON.stringify(w999b));
+  }
+
+  // إصدار فاتورة 998 وتحصيلها ثم تعطيل الميزة: اللقطة تصمد
+  r = await api(vURL(`/api/venue/invoices/${act10.id}/${p998.id}/pdf`), { method: 'POST', headers: A });
+  ok('فاتورة الماء وحده تصدر', r.status === 200, `status=${r.status}`);
+  const [invW] = await q(sql`SELECT orders_total, water_charge, grand_total FROM order_invoices WHERE activity_id=${act10.id} AND player_id=${p998.id}`);
+  ok('لقطتها: طلبات 0 + ماء 0.50 = 0.50', invW?.orders_total === '0.00' && invW?.water_charge === '0.50' && invW?.grand_total === '0.50', JSON.stringify(invW));
+  r = await api(vURL(`/api/venue/invoices/${act10.id}/${p998.id}/pay`), { method: 'POST', headers: A });
+  ok('تحصيل فاتورة الماء يُقبل', r.body?.success === true, JSON.stringify(r.body));
+  await q(sql`UPDATE locations SET auto_water = false WHERE id = ${LOC_TEST}`);
+  const cw3 = await api(vURL(`/api/venue/invoices/candidates?activityId=${act10.id}`), { headers: A });
+  const w998b = (cw3.body?.candidates ?? []).find((c: any) => c.playerId === p998.id);
+  const w999c = (cw3.body?.candidates ?? []).find((c: any) => c.playerId === player.id);
+  ok('بعد التعطيل: المحصَّلة مجمَّدة على مائها', w998b?.isPaid === true && w998b?.waterCharge === 0.5, JSON.stringify(w998b));
+  ok('بعد التعطيل: الحيّة بلا ماء', w999c?.waterCharge === 0, JSON.stringify(w999c));
+
+  await q(sql`UPDATE locations SET auto_water = ${waterSaved.aw === true}, min_charge_enabled = ${waterSaved.en === true} WHERE id = ${LOC_TEST}`);
+
   // ══ ٨ · الخلاصة والتنظيف ══
   section('النتيجة');
   console.log(`\n  ✅ نجح: ${pass}   ❌ فشل: ${fail}`);

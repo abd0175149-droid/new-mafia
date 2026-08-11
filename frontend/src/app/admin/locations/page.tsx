@@ -65,6 +65,8 @@ export default function LocationsPage() {
   // 💳 الحدّ الأدنى للاستهلاك — لمن لعب جولةً على الأقلّ في الفعاليّة
   const [minChargeEnabled, setMinChargeEnabled] = useState(false);
   const [minimumCharge, setMinimumCharge] = useState('2.00');
+  // 💧 ماء تلقائيّ لكلّ فاتورة
+  const [autoWater, setAutoWater] = useState(false);
   const [ownerUsername, setOwnerUsername] = useState('');
   const [offers, setOffers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -139,7 +141,7 @@ export default function LocationsPage() {
     setEditingLoc(null);
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
     setIsActive(true); setIsTestLocation(false); setMenuSource('');
-    setMinChargeEnabled(false); setMinimumCharge('2.00');
+    setMinChargeEnabled(false); setMinimumCharge('2.00'); setAutoWater(false);
     setIsDialogOpen(true);
   }
 
@@ -153,6 +155,7 @@ export default function LocationsPage() {
     setMenuSource(loc.menuSourceLocationId ? String(loc.menuSourceLocationId) : '');
     setMinChargeEnabled(loc.minChargeEnabled === true);
     setMinimumCharge(loc.minimumCharge ? String(parseFloat(loc.minimumCharge)) : '2.00');
+    setAutoWater(loc.autoWater === true);
     setMapUrl(loc.mapUrl || '');
     const parsed = (loc.offers || []).map((o: any, i: number) => normalizeOffer(o, i));
     setOffers(parsed);
@@ -173,6 +176,7 @@ export default function LocationsPage() {
       // 💳 الحدّ الأدنى: تفعيلٌ ومبلغ — التحقّق النهائيّ في الخادم
       minChargeEnabled,
       minimumCharge: parseFloat(minimumCharge) >= 0 ? parseFloat(minimumCharge) : 2,
+      autoWater,
       ownerUsername: ownerUsername.trim() || undefined,
     };
 
@@ -387,6 +391,16 @@ export default function LocationsPage() {
                     <span className="text-xs text-gray-400">د.أ لكلّ لاعب</span>
                   </div>
                 )}
+                <label className="flex items-start gap-2.5 cursor-pointer mt-3 pt-3 border-t border-sky-500/15">
+                  <input type="checkbox" checked={autoWater} onChange={e => setAutoWater(e.target.checked)} className="mt-0.5 w-4 h-4 accent-sky-500" />
+                  <span className="flex-1">
+                    <span className="block text-xs text-white font-bold">💧 ماء تلقائيّ لكلّ فاتورة</span>
+                    <span className="block text-[10.5px] text-gray-500 mt-0.5 leading-relaxed">
+                      ماءٌ واحد بسعر صنف «مياه/ماء» في المنيو يُضاف لكلّ لاعبٍ لعب جولة —
+                      إلا من طلب ماءً بنفسه أو عرضاً يحويه. يُحتسب ضمن استهلاك الحدّ الأدنى.
+                    </span>
+                  </span>
+                </label>
               </div>
 
               {/* ── 🧪 استعارة منيو — لمواقع الاختبار حصراً ── */}

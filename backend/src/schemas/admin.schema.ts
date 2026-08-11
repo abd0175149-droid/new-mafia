@@ -42,6 +42,9 @@ export const locations = pgTable('locations', {
   // تُكمَّل فاتورته إليه. رسوم اللعبة خارج المقارنة وتُضاف فوقه.
   minChargeEnabled: boolean('min_charge_enabled').default(false),
   minimumCharge: decimal('minimum_charge', { precision: 10, scale: 2 }).default('2.00'),
+  // 💧 ماءٌ تلقائيّ: كلّ فاتورة لاعبٍ تحمل ماءً واحداً بسعر صنف الماء في المنيو —
+  // إلا من طلب ماءً بنفسه أو عرضاً يحويه. يُحتسب ضمن استهلاك الحدّ الأدنى.
+  autoWater: boolean('auto_water').default(false),
   isActive: boolean('is_active').default(true).notNull(), // 💬 يجيب بوت واتساب عن الأماكن الفعالة فقط
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
