@@ -77,6 +77,8 @@ export default function VenueOrdersPage() {
   const [blackout, setBlackout] = useState('');
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  // 🔎 فلتر المؤشّرات: نقرةٌ على «بانتظار/قيد التحضير/متأخّر» تحصر السكّة، وثانيةٌ تلغي
+  const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'preparing' | 'late'>('all');
   const [muted, setMuted] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const flashRef = useRef<Set<number>>(new Set());
@@ -307,7 +309,7 @@ export default function VenueOrdersPage() {
   const preparing = ordersList.filter(o => o.status === 'preparing').sort(byAge);
   const done = ordersList.filter(o => o.status === 'delivered' || o.status === 'cancelled');
   const sales = ordersList.filter(o => o.status !== 'cancelled').reduce((s, o) => s + parseFloat(o.total), 0);
-  const lateCount = [...newOrders, ...preparing].filter(o => stageAge(o, now) >= STALL_SEC).length;
+  const lateOrders = [...newOrders, ...preparing].filter(o => stageAge(o, now) >= STALL_SEC).sort(byAge);
 
   // ── تذكرة ──
   const Ticket = ({ o }: { o: VOrder }) => {
@@ -557,11 +559,17 @@ export default function VenueOrdersPage() {
         </div>
       </div>
 
-      {/* ── المؤشّرات ── */}
+      {/* ── المؤشّرات: الثلاثة الأولى فلاتر تبديل لا عدّادات فحسب ── */}
       <div className="grid grid-cols-4 gap-2">
-        <Kpi n={newOrders.length} label="بانتظار" color={EM.cool} pulse={newOrders.length > 0} />
-        <Kpi n={preparing.length} label="قيد التحضير" color={EM.warm} />
-        <Kpi n={lateCount} label="متأخّر ٥ د+" color={lateCount ? EM.hot : EM.faint} pulse={lateCount > 0} />
+        <Kpi n={newOrders.length} label="بانتظار" color={EM.cool} pulse={newOrders.length > 0}
+          active={statusFilter === 'new'}
+          onClick={() => setStatusFilter(f => f === 'new' ? 'all' : 'new')} />
+        <Kpi n={preparing.length} label="قيد التحضير" color={EM.warm}
+          active={statusFilter === 'preparing'}
+          onClick={() => setStatusFilter(f => f === 'preparing' ? 'all' : 'preparing')} />
+        <Kpi n={lateOrders.length} label="متأخّر ٥ د+" color={lateOrders.length ? EM.hot : EM.faint} pulse={lateOrders.length > 0}
+          active={statusFilter === 'late'}
+          onClick={() => setStatusFilter(f => f === 'late' ? 'all' : 'late')} />
         <Kpi n={sales} label="مبيعات د.أ" color={EM.text} money />
       </div>
 
@@ -570,18 +578,37 @@ export default function VenueOrdersPage() {
           <div className="w-8 h-8 rounded-full animate-spin"
             style={{ border: `2px solid ${EM.line2}`, borderTopColor: EM.warm }} />
         </div>
-      ) : newOrders.length === 0 && preparing.length === 0 ? (
-        <div className="text-center py-16" style={{ color: EM.faint }}>
-          <div className="text-4xl mb-3 opacity-50">😌</div>
-          <p className="text-sm" style={{ color: EM.dim }}>السكّة فارغة</p>
-          <p className="text-xs mt-1">أبقِ هذه الشاشة مفتوحة — الطلب الجديد يظهر فوراً مع تنبيهٍ صوتيّ</p>
-        </div>
-      ) : (
-        <>
-          {newOrders.length > 0 && <Rail title="🕐 بانتظار القبول" list={newOrders} />}
-          {preparing.length > 0 && <Rail title="👨‍🍳 قيد التحضير" list={preparing} />}
-        </>
-      )}
+      ) : (() => {
+        const visNew = statusFilter === 'all' || statusFilter === 'new' ? newOrders : [];
+        const visPrep = statusFilter === 'all' || statusFilter === 'preparing' ? preparing : [];
+        const visLate = statusFilter === 'late' ? lateOrders : [];
+        if (visNew.length + visPrep.length + visLate.length === 0) {
+          return statusFilter === 'all' ? (
+            <div className="text-center py-16" style={{ color: EM.faint }}>
+              <div className="text-4xl mb-3 opacity-50">😌</div>
+              <p className="text-sm" style={{ color: EM.dim }}>السكّة فارغة</p>
+              <p className="text-xs mt-1">أبقِ هذه الشاشة مفتوحة — الطلب الجديد يظهر فوراً مع تنبيهٍ صوتيّ</p>
+            </div>
+          ) : (
+            <div className="text-center py-16" style={{ color: EM.faint }}>
+              <div className="text-4xl mb-3 opacity-50">🔎</div>
+              <p className="text-sm" style={{ color: EM.dim }}>لا طلبات ضمن هذا الفلتر</p>
+              <button onClick={() => setStatusFilter('all')}
+                className="mt-3 text-[11.5px] px-4 py-2 rounded-xl font-bold"
+                style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${EM.line2}`, color: EM.dim }}>
+                عرض الكلّ
+              </button>
+            </div>
+          );
+        }
+        return (
+          <>
+            {visLate.length > 0 && <Rail title="⏰ متأخّر ٥ د+" list={visLate} />}
+            {visNew.length > 0 && <Rail title="🕐 بانتظار القبول" list={visNew} />}
+            {visPrep.length > 0 && <Rail title="👨‍🍳 قيد التحضير" list={visPrep} />}
+          </>
+        );
+      })()}
 
       {/* ── السجلّ — مطويّ بعيداً عن العين ── */}
       {done.length > 0 && !kds && (
@@ -612,19 +639,33 @@ export default function VenueOrdersPage() {
   );
 }
 
-function Kpi({ n, label, color, pulse, money }: { n: number; label: string; color: string; pulse?: boolean; money?: boolean }) {
+function Kpi({ n, label, color, pulse, money, active, onClick }: {
+  n: number; label: string; color: string; pulse?: boolean; money?: boolean;
+  /** فلتر: يحوّل المؤشّر زرّاً — الحدود واللون يعلنان التفعيل */
+  active?: boolean; onClick?: () => void;
+}) {
+  const Tag: any = onClick ? 'button' : 'div';
   return (
-    <div className="rounded-xl px-2 py-2.5 text-center relative overflow-hidden"
-      style={{ background: EM.card, border: `1px solid ${EM.line}` }}>
+    <Tag onClick={onClick}
+      className="rounded-xl px-2 py-2.5 text-center relative overflow-hidden w-full"
+      style={{
+        background: active ? 'rgba(255,255,255,0.07)' : EM.card,
+        border: `1px solid ${active ? color : EM.line}`,
+        boxShadow: active ? `0 0 0 1px ${color} inset` : undefined,
+        cursor: onClick ? 'pointer' : undefined,
+      }}
+      title={onClick ? (active ? 'اضغط لإلغاء الفلتر' : 'اضغط لعرض هذه الطلبات وحدها') : undefined}>
       <b className="block leading-tight"
         style={{ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: money ? 18 : 23, color }}>
         {money ? n.toFixed(2) : n}
       </b>
-      <span className="text-[10.5px] font-bold" style={{ color: EM.faint }}>{label}</span>
-      {pulse && (
+      <span className="text-[10.5px] font-bold" style={{ color: active ? color : EM.faint }}>
+        {active ? `✓ ${label}` : label}
+      </span>
+      {pulse && !active && (
         <span className="absolute inset-0 rounded-xl pointer-events-none animate-pulse"
           style={{ border: `1px solid ${color}`, opacity: 0.5 }} />
       )}
-    </div>
+    </Tag>
   );
 }
