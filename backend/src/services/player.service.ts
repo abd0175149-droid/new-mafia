@@ -166,6 +166,7 @@ export async function getPlayerProfile(playerId: number) {
         survived: matchPlayers.survivedToEnd,
         survivedToEnd: matchPlayers.survivedToEnd,
         matchWinner: matches.winner,
+        seasonId: matches.seasonId,
         matchDate: matches.createdAt,
         matchDuration: matches.durationSeconds,
         matchPlayerCount: matches.playerCount,
@@ -237,13 +238,23 @@ export async function getPlayerProfile(playerId: number) {
     console.warn('⚠️ Failed to attach breakdown to profile matches:', e.message);
   }
 
-  // 3. حساب الإحصائيات التفصيلية
+  // 3. حساب الإحصائيات التفصيلية — **للموسم النشط وحده**
+  // سجلّ المباريات المعروض يبقى عابراً للمواسم (تاريخ اللاعب الكامل)، أمّا الإحصاءات
+  // المشتقّة منه (نسبة الفوز/النجاة، توزيع الأدوار، أطول سلسلة) فتُحسب من مباريات الموسم
+  // النشط فقط، وإلّا ناقضت عدّادات الموسم: بعد بدء موسم جديد كانت تُعرض «٠ مباراة» بجانب
+  // «٦٠٪ نسبة فوز» و«٢٠ مباراة مافيا» من الموسم المنتهي.
+  const { getActiveRegularSeasonId } = await import('./season.service.js');
+  const activeSeasonId = await getActiveRegularSeasonId().catch(() => null);
+  const seasonMatches = activeSeasonId != null
+    ? matchHistory.filter((m: any) => m.seasonId === activeSeasonId)
+    : matchHistory;
+
   const roleStats: Record<string, number> = {};
   let mafiaWins = 0, citizenWins = 0;
   let mafiaGames = 0, citizenGames = 0;
   let currentStreak = 0, maxStreak = 0;
 
-  for (const m of matchHistory) {
+  for (const m of seasonMatches) {
     if (m.role) {
       roleStats[m.role] = (roleStats[m.role] || 0) + 1;
     }
@@ -266,11 +277,11 @@ export async function getPlayerProfile(playerId: number) {
   }
 
   const favoriteRole = Object.entries(roleStats).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-  const avgSurvival = matchHistory.length > 0
-    ? Math.round((matchHistory.filter(m => m.survived).length / matchHistory.length) * 100)
+  const avgSurvival = seasonMatches.length > 0
+    ? Math.round((seasonMatches.filter((m: any) => m.survived).length / seasonMatches.length) * 100)
     : 0;
-  const winRate = matchHistory.length > 0
-    ? Math.round(((mafiaWins + citizenWins) / matchHistory.length) * 100)
+  const winRate = seasonMatches.length > 0
+    ? Math.round(((mafiaWins + citizenWins) / seasonMatches.length) * 100)
     : 0;
   const mafiaWinRate = mafiaGames > 0 ? Math.round((mafiaWins / mafiaGames) * 100) : 0;
   const citizenWinRate = citizenGames > 0 ? Math.round((citizenWins / citizenGames) * 100) : 0;
@@ -300,8 +311,8 @@ export async function getPlayerProfile(playerId: number) {
     player: safePlayer,
     stats: {
       // ?? لا || — الصفر قيمة صادقة بعد تصفير الموسم؛ السقوط على تاريخ المباريات
-      // (العابر للمواسم) كان يُظهر عدّادات الموسم القديم بعد بدء موسم جديد.
-      totalMatches: playerData.totalMatches ?? matchHistory.length,
+      // كان يُظهر عدّادات الموسم القديم بعد بدء موسم جديد.
+      totalMatches: playerData.totalMatches ?? seasonMatches.length,
       totalWins: playerData.totalWins ?? (mafiaWins + citizenWins),
       winRate,
       survivalRate: avgSurvival,
