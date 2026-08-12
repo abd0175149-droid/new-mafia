@@ -2,9 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:realtimekit_core/realtimekit_core.dart';
-import 'package:realtimekit_core_platform_interface/realtimekit_core_platform_interface.dart'
-    show RtkError;
 
 import '../../core/socket/socket_service.dart';
 import '../../models/voice.dart';
@@ -448,122 +445,73 @@ class VoiceService extends ChangeNotifier {
 }
 
 // ══════════════════════════════════════════════════════
-// 🔌 الربط بالـSDK الأصليّ
+// 🔌 الربط بالـSDK الأصليّ — **مستبعَدٌ مؤقّتاً**
 // ══════════════════════════════════════════════════════
+// 🔴 لماذا لا يوجد محرّكٌ حقيقيّ هنا:
+//
+// `realtimekit_core_ios` يعلن في `Package.swift` اعتماديّةً على
+//     https://gitlab.cfdata.org/cloudflare/rt/mobile/spm/core-bridge.git
+// وهو GitLab **الداخليّ** لـCloudflare: يستجيب لـDNS ثم ينقطع على 443،
+// بينما المضيفات العامّة تردّ من الجهاز نفسه. ومسار CocoaPods لا ينقذ:
+// الـpodspec لا يذكر المضيف، لكن مصادره تستورد `RealtimeKitFlutterCoreKMM`
+// وهي الوحدة التي يوفّرها ذلك المستودع — فيفشل عند الترجمة بدل الجلب.
+//
+// النتيجة أن **بناء iOS كلّه** كان يسقط عند حلّ الاعتماديّات، لا الصوت
+// وحده. فاستُبعدت الحزمة بقرار المالك (12 آب) كي يمرّ البناء.
+//
+// ⚠️ الواجهة `VoiceEngine` باقيةٌ كما هي ومعها منطق القواعد والاختبارات
+//    الأربعة والأربعون — المستبعَد هو التطبيق الأصليّ وحده. لإعادته:
+//    ① أعد `realtimekit_core` و`realtimekit_core_platform_interface`
+//       إلى pubspec، ② أعد صنف `_RealtimeKitEngine` من تاريخ هذا الملفّ
+//       قبل هذا الكوميت، ③ أعِد `_defaultEngine()` إليه.
+//
+// ولا يُستبدَل بمحرّكٍ صامتٍ يتظاهر بالنجاح: ذلك يُظهر واجهة صوتٍ تعمل
+// وهي لا تعمل. يرمي صراحةً، وتقرؤه الواجهة عبر `VoiceService.isSupported`.
 
-VoiceEngine _defaultEngine() => _RealtimeKitEngine();
-
-class _RealtimeKitEngine implements VoiceEngine {
-  final _client = RealtimekitClient();
-  VoidCallback? _onChanged;
+/// محرّكٌ يعلن أن الصوت غير متاحٍ في هذا البناء.
+class UnavailableVoiceEngine implements VoiceEngine {
+  static const reason =
+      'الصوت المباشر غير متاحٍ في هذا البناء — حزمة RealtimeKit مستبعَدة.';
 
   @override
-  set onChanged(VoidCallback? cb) => _onChanged = cb;
+  set onChanged(VoidCallback? cb) {}
+
+  Never _unavailable() => throw UnsupportedError(reason);
 
   @override
   Future<void> init({
     required String authToken,
     required bool enableAudio,
     required String displayName,
-  }) async {
-    final done = Completer<void>();
-    _client.init(
-      RtkMeetingInfo(
-        authToken: authToken,
-        enableAudio: enableAudio,
-        enableVideo: false,
-        displayName: displayName,
-      ),
-      onSuccess: () => done.complete(),
-      onError: (e) => done.completeError(Exception('$e')),
-    );
-    await done.future.timeout(const Duration(seconds: 20));
-  }
+  }) async =>
+      _unavailable();
 
   @override
-  Future<void> join() async {
-    final done = Completer<void>();
-    _client.joinRoom(
-      onSuccess: () => done.complete(),
-      onError: (e) => done.completeError(Exception('$e')),
-    );
-    await done.future.timeout(const Duration(seconds: 20));
-    _onChanged?.call();
-  }
+  Future<void> join() async => _unavailable();
 
   @override
   Future<void> leave() async {
-    _client.leaveRoom();
-  }
-
-  // 🔴 استدعاءات الـSDK **متزامنة تُرجع `void`** وتردّ عبر `onResult`.
-  //    كنتُ أنتظرها بـ`await` فبدت ناجحةً قبل أن تُنفَّذ فعلاً.
-  @override
-  Future<void> enableSelfAudio() => _act(
-      (r) => _client.localUser.enableAudio(onResult: r));
-
-  @override
-  Future<void> disableSelfAudio() => _act(
-      (r) => _client.localUser.disableAudio(onResult: r));
-
-  @override
-  Future<void> enableSelfVideo() => _act(
-      (r) => _client.localUser.enableVideo(onResult: r));
-
-  @override
-  Future<void> disableSelfVideo() => _act(
-      (r) => _client.localUser.disableVideo(onResult: r));
-
-  @override
-  Future<void> muteParticipant(int physicalId) {
-    final target = _client.participants.joined
-        .where((p) =>
-            physicalIdFromCustom(p.customParticipantId) == physicalId)
-        .firstOrNull;
-    if (target == null) {
-      return Future.error(Exception('participant not found'));
-    }
-    return _act((r) => target.disableAudio(onResult: r));
-  }
-
-  /// يحوّل نمط `onResult` إلى `Future` — بمهلةٍ كي لا تعلق الواجهة.
-  Future<void> _act(void Function(void Function(RtkError?)) call) {
-    final done = Completer<void>();
-    call((error) {
-      if (done.isCompleted) return;
-      if (error == null) {
-        done.complete();
-      } else {
-        done.completeError(Exception('$error'));
-      }
-    });
-    return done.future
-        .timeout(const Duration(seconds: 8))
-        .whenComplete(() => _onChanged?.call());
+    // المغادرة تُقبل صامتةً: تُنادى في مسارات التنظيف، ورميُها هناك
+    // يُسقط شاشةً تُغادر غرفةً لم تدخلها أصلاً.
   }
 
   @override
-  VoiceEngineSnapshot read() {
-    final self = _client.localUser;
-    final joined = _client.participants.joined;
-    final audio = <int, bool>{};
-    final video = <int, bool>{};
+  Future<void> enableSelfAudio() async => _unavailable();
 
-    for (final p in joined) {
-      final pid = physicalIdFromCustom(p.customParticipantId);
-      // 🔒 مشاركٌ بمعرّفٍ لا نفهمه يُتجاهَل — لا يدخل الخرائط أصلاً
-      if (pid == null) continue;
-      audio[pid] = p.audioEnabled;
-      video[pid] = p.videoEnabled;
-    }
+  @override
+  Future<void> disableSelfAudio() async => _unavailable();
 
-    return VoiceEngineSnapshot(
-      selfAudioOn: self.audioEnabled,
-      selfVideoOn: self.videoEnabled,
-      canMute: _client.permissions.host.canMuteAudio,
-      audioByPid: audio,
-      videoByPid: video,
-      participantCount: joined.length,
-    );
-  }
+  @override
+  Future<void> enableSelfVideo() async => _unavailable();
+
+  @override
+  Future<void> disableSelfVideo() async => _unavailable();
+
+  @override
+  Future<void> muteParticipant(int physicalId) async => _unavailable();
+
+  @override
+  VoiceEngineSnapshot read() => const VoiceEngineSnapshot();
 }
+
+VoiceEngine _defaultEngine() => UnavailableVoiceEngine();

@@ -188,4 +188,40 @@ APNs مفتاح p8 · حساب Apple Developer · جهاز iPhone حقيقيّ �
    تحت «سجلّ انحرافات الـMac» أدناه — **حدِّث الملفّ ولا تكتفِ بالتقرير**.
 
 ## سجلّ انحرافات الـMac
-*(يملؤه المنفّذ على الـMac — فارغٌ حتى الآن)*
+
+### ن1 — `realtimekit_core` مستبعَدة (12 آب) 🔴
+
+**العطل**: `realtimekit_core_ios 0.1.6` يعلن في `Package.swift` اعتماديّةً على
+`https://gitlab.cfdata.org/cloudflare/rt/mobile/spm/core-bridge.git` — وهو GitLab
+**الداخليّ** لـCloudflare: يستجيب لـDNS (عنوان Cloudflare) ثمّ ينقطع على 443 بعد
+٧٥ ثانية، بينما `github.com` يردّ 200 من الجهاز نفسه — فليست مشكلة شبكةٍ محليّة.
+
+**ومسار CocoaPods لا ينقذ**: `rtk_core_ios.podspec` لا يذكر المضيف، لكنّ مصادره
+الـ28 تستورد `RealtimeKitFlutterCoreKMM` وهي الوحدة التي يوفّرها ذلك المستودع —
+فيفشل عند الترجمة بدل الجلب.
+
+**الأثر**: كان يُسقط `flutter build ios` عند حلّ الاعتماديّات — أي **بناء iOS كلَّه**
+لا الصوت وحده، فتسقط معه م3–م5.
+
+**القرار (المالك، 12 آب)**: استبعاد الحزمة مؤقّتاً. أُسقطت `realtimekit_core`
+و`realtimekit_core_platform_interface` من `pubspec`، وحُذف صنف `_RealtimeKitEngine`
+من `voice_service.dart` واستُبدل بـ`UnavailableVoiceEngine` **يرمي صراحةً** ولا
+يتظاهر بالنجاح — محرّكٌ صامتٌ كان سيُظهر واجهة صوتٍ تعمل وهي لا تعمل.
+
+**ما لم يتأثّر**: واجهة `VoiceEngine` ومنطق القواعد والاختبارات الأربعة والأربعون
+(تحقن `_FakeEngine`). طريق الإعادة موثَّقٌ آخر `voice_service.dart`.
+
+### ن2 — `pod install` لا يجلب الاعتماديّات الجديدة (تصحيح لـ§4-م1)
+
+§4-م1 يفترض أنّ أوّل `pod install` يجلب `realtimekit_core` و`permission_handler`
+و`app_badge_plus`. **لم يجلب أياً منها**: Flutter 3.44 يفعّل Swift Package Manager
+افتراضاً، فتمرّ الإضافات الداعمة له عبر SPM لا CocoaPods. الناتج ثلاث pods فقط
+(`Flutter` و`flutter_local_notifications` و`flutter_secure_storage` — وهما الوحيدتان
+بلا دعم SPM).
+
+وعليه فالمصائد الأربع المكتوبة لم تنطبق كما صيغت: **الحدّ الأدنى بقي `13.0` بلا رفع**
+في `Podfile` وpbxproj معاً، ولم يُطلب أيّ ماكرو أذونات، و`use_frameworks!` لم يُمسّ.
+المخاطرة الحقيقيّة كانت في **حلّ حزم SPM** لا في CocoaPods.
+
+**الحالة بعد ن1**: `pod install` ينجح، و`flutter build ios --no-codesign` يمرّ
+للنكهتين (prod ‏79.6s · dev ‏53.9s)، و617/617 اختباراً خضراء.
