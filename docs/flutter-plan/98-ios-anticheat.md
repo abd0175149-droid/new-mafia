@@ -286,3 +286,60 @@ layer.removeFromSuperlayer()
 | `flutter test` | ✅ **620/620** |
 | `flutter build ios --flavor prod --no-codesign` | ✅ مرّ — 35.5MB |
 | إدراج `ScreenProtector.swift` في هدف Runner | ✅ مؤكَّدٌ بإعادة فتح المشروع |
+
+### ن6 — 🔴🔴 السقوط على الجهاز عند فتح المعرض: دورةٌ في شجرة الطبقات
+
+**ما حدث**: النسخة الأولى أسقطت التطبيق فوراً عند فتح معرض المافيا على
+iPhone 16 Pro Max — `SIGABRT` من استثناءٍ غير مُلتقَط. الأثر من تقرير عطل
+الجهاز حرفياً:
+
+```
+-[UITextField _layoutContentOnly] → -[UIView _addSubview:] → -[CALayer addSublayer:]
+→ CA::Layer::ensure_transaction_recursively  (×4 متكرّرة) → objc_exception_throw
+```
+
+**السبب**: نُقلت **سليلةُ** طبقة الحقل (`sublayers.first`) وحدها إلى أبي
+النافذة، بينما بقي **الحقل نفسه عرضاً داخل النافذة**. فلمّا أعاد UIKit تخطيط
+الحقل وأضاف عرضه الداخليّ، صارت الشجرة دائريّة: النافذةُ داخل الطبقة الآمنة،
+والطبقةُ الآمنة تنتمي لحقلٍ داخل النافذة. و`ensure_transaction_recursively`
+المتكرّرة هي بالضبط كشفُ CoreAnimation للدورة.
+
+**العلاج**: تُنقَل **طبقة الحقل كاملةً** (`field.layer`) خارج شجرة النافذة
+أوّلاً — فتصير أباً للنافذة لا سليلاً لها — ثمّ تبتلع الطبقةُ الآمنة النافذةَ:
+
+```swift
+parent.addSublayer(field.layer)     // ① الحقل كلّه يخرج من شجرة النافذة
+secure.addSublayer(window.layer)    // ② ثمّ تبتلع الآمنةُ النافذةَ
+```
+
+وأُضيف حارس `isAncestor` قبل كلّ نقلٍ فيعيد `false` بدل الانهيار مهما تغيّر
+ترتيب الطبقات في إصدارٍ قادم.
+
+⚠️ **الدرس**: `sublayers.first` في الخطّة كان `sublayers.last` في الحزم
+المنشورة، والفارق الحاسم ليس الفهرس بل **أيّ طبقةٍ تُنقَل**.
+
+### ن7 — اختباراتٌ أصليّة في هدف RunnerTests
+
+أُضيف `ios/RunnerTests/ScreenProtectorTests.swift` (٧ حالات) لأن السقوط أعلاه
+**لا يمكن أن تمسكه اختبارات Dart إطلاقاً** — الخلل في شجرة طبقات UIKit.
+أهمّها `testEnableThenRelayoutDoesNotCrash` الذي يجبر إعادة تخطيط الحقل، وهي
+اللحظة التي وقع فيها السقوط؛ و`testDisableRestoresWindowLayer` الذي يحرس ن1.
+
+تُشغَّل بـ:
+```bash
+xcodebuild test -workspace Runner.xcworkspace -scheme dev \
+  -configuration Debug-dev -destination 'platform=iOS Simulator,...' \
+  -only-testing:RunnerTests/ScreenProtectorTests
+```
+النتيجة: **٧/٧ ناجحة**.
+
+⚠️ **ما لم يُثبَت**: حاولتُ إعادة الكود المعطوب مؤقّتاً لأبرهن أن الاختبار
+يمسكه، فعلّق `xcodebuild` (إعادةُ محاولةٍ متكرّرة بعد انهيار المضيف — وهو
+سلوكٌ متّسقٌ مع السقوط لكنّه ليس برهاناً نظيفاً) فأُنهي. الدليل المعتمد يبقى
+**تقرير عطل الجهاز** بأثره الحرفيّ أعلاه.
+
+### ⬜ ما لم يُفحَص بعد
+
+بروتوكول §5 (ب١–ب٤) **لم يُنفَّذ**: يتطلّب ضغط أزرارٍ ماديّة ومركز التحكّم على
+جهازٍ حقيقيّ. **فسوادُ اللقطة نفسه غير مُتحقَّقٍ منه بعد** — المُتحقَّق أن
+البنية سليمةٌ ولا تنهار.
