@@ -2364,40 +2364,120 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         totalDeduction += penaltyKickDeduction;
       }
 
+      // هل طُبّق خصم رانك فعلاً؟ (يضبط نصوص الرسائل — لا خصم في مواقع الاختبار أو بلا موسم نشط)
+      let rankApplied = false;
+
       // إذا كان للاعب معرّف حقيقي في قاعدة البيانات
       if (player.playerId) {
         try {
-          await applyRR(player.playerId, totalDeduction);
-
-          // ── تسجيل خصم العقوبة في سجل المباراة الحالية ──
-          if (state.matchId) {
+          // 🛡️ عزل: لا أثر رانك لمواقع الاختبار، ولا مساس بالرانك العادي في البطولات/الأونلاين
+          let isTestPenalty = false;
+          if (state.activityId) {
             try {
-              const db = getDB();
-              if (db) {
-                await db.update(matchPlayers)
-                  .set({
-                    penaltyCount: sql`COALESCE(${matchPlayers.penaltyCount}, 0) + 1`,
-                    penaltyRRDeduction: sql`COALESCE(${matchPlayers.penaltyRRDeduction}, 0) + ${totalDeduction}`,
-                    rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalDeduction}`,
-                  } as any) // نمط المستودع المعتمد مع Drizzle .set (خلل استنتاج أنواع معروف)
-                  .where(
-                    and(
-                      eq(matchPlayers.matchId, state.matchId),
-                      eq(matchPlayers.playerId, player.playerId)
-                    )
-                  );
-                console.log(`📝 Penalty RR deduction (${totalDeduction}) recorded in match_players for player ${player.playerId}, match ${state.matchId}`);
+              const db0 = getDB();
+              if (db0) {
+                const { activities, locations } = await import('../schemas/admin.schema.js');
+                const [info] = await db0.select({ isTest: locations.isTestLocation })
+                  .from(activities)
+                  .leftJoin(locations, eq(activities.locationId, locations.id))
+                  .where(eq(activities.id, state.activityId))
+                  .limit(1);
+                isTestPenalty = !!info?.isTest;
               }
-            } catch (dbErr: any) {
-              console.warn(`⚠️ Failed to record penalty in match_players:`, dbErr.message);
+            } catch { /* عند الشك نعاملها كغير اختبارية */ }
+          }
+          const { resolveSeasonForGame } = await import('../services/season.service.js');
+          const { seasonId, isRegular } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+
+          if (!isTestPenalty && seasonId != null) {
+            // ── الدفتر أولاً (match_players = مصدر الحقيقة) ──
+            // الصفوف تُدرَج فقط عند احتساب المباراة؛ لذا:
+            //   • بين المباريات (صف موجود): تحديث مباشر + مصالحة مستهدفة فورية من الدفتر.
+            //   • أثناء المباراة (لا صف بعد): تخزين الحدث في الحالة ليُدمج في finalizeMatch —
+            //     فينجو الخصم من المصالحات بدل أن تمحوه (الكتابة المباشرة كانت تصيب 0 صفوف وتضيع).
+            let ledgerUpdated = false;
+            if (state.matchId) {
+              try {
+                const db = getDB();
+                if (db) {
+                  const updatedRows = await db.update(matchPlayers)
+                    .set({
+                      penaltyCount: sql`COALESCE(${matchPlayers.penaltyCount}, 0) + 1`,
+                      penaltyRRDeduction: sql`COALESCE(${matchPlayers.penaltyRRDeduction}, 0) + ${totalDeduction}`,
+                      rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalDeduction}`,
+                    } as any) // نمط المستودع المعتمد مع Drizzle .set (خلل استنتاج أنواع معروف)
+                    .where(
+                      and(
+                        eq(matchPlayers.matchId, state.matchId),
+                        eq(matchPlayers.playerId, player.playerId)
+                      )
+                    )
+                    .returning({ id: matchPlayers.id });
+                  ledgerUpdated = updatedRows.length > 0;
+                }
+              } catch (dbErr: any) {
+                console.warn(`⚠️ Failed to record penalty in match_players:`, dbErr.message);
+              }
             }
+
+            // هل توجد لعبة جارية فعلاً؟ (buffer الحالة يُدمج في finalizeMatch — لا معنى له خارج لعبة)
+            const gameRunning = !!state.matchId && !state.winner
+              && state.phase !== Phase.LOBBY && state.phase !== Phase.GAME_OVER;
+
+            if (ledgerUpdated) {
+              // مباراة محتسبة بالفعل → مصالحة مستهدفة فورية تلتقط الخصم من الدفتر
+              // وتحدّث التجميعة الصحيحة حسب نوع الموسم (players.* أو player_season_stats)
+              try {
+                const { reconcileSeasonProgression } = await import('../services/reconcile.service.js');
+                await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: [player.playerId] });
+              } catch (recErr: any) {
+                console.warn(`⚠️ Targeted reconcile after penalty failed (will self-heal on next reconcile):`, recErr.message);
+              }
+              console.log(`📝 Penalty (${totalDeduction} RR) ledgered+reconciled for player ${player.playerId}, match ${state.matchId}`);
+            } else if (gameRunning) {
+              // أثناء المباراة → تخزين للدمج عند الاحتساب + أثر حيّ فوري للموسم العادي فقط
+              if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+              if (!state.performanceTracking.penaltyEvents) state.performanceTracking.penaltyEvents = [];
+              state.performanceTracking.penaltyEvents.push({
+                physicalId: player.physicalId,
+                playerId: player.playerId,
+                rr: totalDeduction,
+                round: state.round || 1,
+                kicked: isKicked,
+              });
+              if (isRegular) {
+                await applyRR(player.playerId, totalDeduction);
+              }
+              console.log(`📝 Penalty (${totalDeduction} RR) buffered for player ${player.playerId} (season ${seasonId}, regular: ${isRegular}) — folded into ledger at finalize`);
+            } else {
+              // لوبي بلا مباراة (أو صف غير موجود لمباراة منتهية) → سجل دائم في rank_bonuses
+              // يدخل في كل إعادة احتساب فلا يُمحى، ثم مصالحة مستهدفة لتحديث التجميعة فوراً
+              try {
+                const db2 = getDB();
+                if (db2) {
+                  await db2.execute(sql`
+                    INSERT INTO rank_bonuses (player_id, rr, reason, season_id)
+                    VALUES (${player.playerId}, ${totalDeduction}, ${'عقوبة ليدر (خارج مباراة) — غرفة ' + data.roomId}, ${seasonId})
+                  `);
+                  const { reconcileSeasonProgression } = await import('../services/reconcile.service.js');
+                  await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: [player.playerId] });
+                }
+              } catch (bonusErr: any) {
+                console.warn(`⚠️ Failed to record lobby penalty in rank_bonuses:`, bonusErr.message);
+              }
+              console.log(`📝 Penalty (${totalDeduction} RR) recorded as durable rank_bonus for player ${player.playerId} (no active match)`);
+            }
+            rankApplied = true;
+          } else {
+            console.log(`📝 Penalty recorded WITHOUT rank effect for player ${player.playerId} (${isTestPenalty ? 'test location' : 'no active season'})`);
           }
 
           // إرسال إشعار فوري
+          const rrSuffix = rankApplied ? `، مع خصم ${Math.abs(totalDeduction)} نقطة RR` : '';
           const bodyMsg = isKicked
-            ? `حصلت على عقوبة (${player.penalties}/${maxPenalties}) وتم استبعادك من اللعبة، مع خصم ${Math.abs(totalDeduction)} نقطة RR!`
-            : `حصلت على عقوبة (${player.penalties}/${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR من رتبتك.`;
-          
+            ? `حصلت على عقوبة (${player.penalties}/${maxPenalties}) وتم استبعادك من اللعبة${rrSuffix}!`
+            : `حصلت على عقوبة (${player.penalties}/${maxPenalties})${rankApplied ? ` وتم خصم ${Math.abs(totalDeduction)} نقطة RR من رتبتك` : ''}.`;
+
           await sendPushToPlayer(
             player.playerId,
             '⚖️ عقوبة لاعب',
@@ -2442,9 +2522,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // إعلان العقوبة
       const arabicName = player.name;
+      const rrNote = rankApplied ? `، وتم خصم ${Math.abs(totalDeduction)} نقطة RR` : '';
       const msg = isKicked
-        ? `🛑 تم استبعاد اللاعب ${arabicName} لتجاوزه حد العقوبات المسموح به (${player.penalties}/${maxPenalties})، وتم تطبيق خصم ${Math.abs(totalDeduction)} نقطة RR.`
-        : `⚠️ اللاعب ${arabicName} حصل على عقوبة (${player.penalties}/${maxPenalties})، وتم خصم ${Math.abs(totalDeduction)} نقطة RR من رتبتك.`;
+        ? `🛑 تم استبعاد اللاعب ${arabicName} لتجاوزه حد العقوبات المسموح به (${player.penalties}/${maxPenalties})${rrNote}.`
+        : `⚠️ اللاعب ${arabicName} حصل على عقوبة (${player.penalties}/${maxPenalties})${rrNote}.`;
 
       io.to(data.roomId).emit('game:penalty-recorded', {
         physicalId: data.targetPhysicalId,
@@ -2488,13 +2569,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             if (state.phase === Phase.LOBBY) {
               // في اللوبي فقط: طرد فعلي من السوكت
               s.emit('player:kicked-self', {
-                reason: `تم استبعادك لتجاوز حد العقوبات (${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR.`,
+                reason: `تم استبعادك لتجاوز حد العقوبات (${maxPenalties})${rrNote}.`,
               });
               s.leave(data.roomId);
             } else {
               // أثناء اللعب: إقصاء من اللعبة فقط (يبقى في الغرفة)
               s.emit('player:penalty-ejected', {
-                reason: `تم إقصاؤك من هذه اللعبة لتجاوز حد العقوبات (${maxPenalties}) وتم خصم ${Math.abs(totalDeduction)} نقطة RR.`,
+                reason: `تم إقصاؤك من هذه اللعبة لتجاوز حد العقوبات (${maxPenalties})${rrNote}.`,
                 penalties: player.penalties,
                 maxPenalties,
               });

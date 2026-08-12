@@ -7,7 +7,7 @@ import { Server, Socket } from 'socket.io';
 import { setPhase, Phase } from '../game/state.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { resolveNight, resetNightActions, getAvailableTargets, checkPolicewomanTrigger } from '../game/night-resolver.js';
-import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, getTeamCounts } from '../game/roles.js';
+import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
 import { WinResult, checkWinCondition } from '../game/win-checker.js';
 import { checkWinConditionDynamic } from '../game/dynamic-win-checker.js';
 import {
@@ -1596,7 +1596,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         physicalId: target.physicalId,
         eliminatedBy: 'POLICEWOMAN',
         round: state.round || 1,
-        team: targetIsMafia ? 'MAFIA' : 'CITIZEN',
+        team: teamOfRole(target.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
 
       // نقاط رانك
@@ -1702,6 +1702,11 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
       const state = await getGameState(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
+
+      // 🧮 شبكة أمان (نفس نمط بقية مسارات التفكيك): إن تقرّر فائز ولم تُحتسب اللعبة → تُحتسب
+      // الآن (مع دمج عقوبات/قنبلة الحالة في الدفتر)، وإن لا فائز → تُلغى المباراة بلا أثر.
+      // بدونها كان التصفير أدناه يمسح matchId ويترك صف مباراة يتيماً بلا احتساب ولا إلغاء.
+      await finalizeIfDecided(state);
 
       // إعادة تعيين جميع اللاعبين
       state.players = state.players.map((p: any) => ({

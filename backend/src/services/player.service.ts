@@ -280,7 +280,8 @@ export async function getPlayerProfile(playerId: number) {
   const currentXP = (playerData as any).xp || 0;
   const currentLevel = (playerData as any).level || 1;
   const nextLevelXP = xpForNextLevel(currentLevel);
-  const xpProgress = nextLevelXP > 0 ? Math.round((currentXP / nextLevelXP) * 100) : 0;
+  // clamp 0..100 — بعد تعديل يدوي قد يتجاوز xp متطلب المستوى مؤقتاً؛ لا نعرض شريطاً >100%
+  const xpProgress = nextLevelXP > 0 ? Math.min(100, Math.max(0, Math.round((currentXP / nextLevelXP) * 100))) : 0;
 
   // 🔒 تعقيم مخرجات البروفايل — هذا المصدر يخدم مساراً عاماً غير مصادق
   //    (GET /api/player/:id/profile) فيجب ألا يحمل أسراراً ولا بيانات مالية:
@@ -298,8 +299,10 @@ export async function getPlayerProfile(playerId: number) {
   return {
     player: safePlayer,
     stats: {
-      totalMatches: playerData.totalMatches || matchHistory.length,
-      totalWins: playerData.totalWins || (mafiaWins + citizenWins),
+      // ?? لا || — الصفر قيمة صادقة بعد تصفير الموسم؛ السقوط على تاريخ المباريات
+      // (العابر للمواسم) كان يُظهر عدّادات الموسم القديم بعد بدء موسم جديد.
+      totalMatches: playerData.totalMatches ?? matchHistory.length,
+      totalWins: playerData.totalWins ?? (mafiaWins + citizenWins),
       winRate,
       survivalRate: avgSurvival,
       favoriteRole,

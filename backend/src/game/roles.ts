@@ -78,6 +78,18 @@ export function isNeutralRole(role: Role | string): boolean {
   return NEUTRAL_ROLES.includes(role as Role);
 }
 
+// ── فريق الدور (المصدر الموحّد لتصنيف الضحايا في سجل الإقصاء والنقاط) ──
+// المحايد (مهرج/سفّاح) ليس مواطناً: موته لا يمنح مكافأة إقصاء لأي فريق
+// ولا يُحتسب «إصابة مواطن» في قدرة القنبلة.
+export type TeamName = 'MAFIA' | 'CITIZEN' | 'NEUTRAL';
+
+export function teamOfRole(role: Role | string | null | undefined): TeamName {
+  if (!role) return 'CITIZEN';
+  if (isMafiaRole(role as Role)) return 'MAFIA';
+  if (isNeutralRole(role)) return 'NEUTRAL';
+  return 'CITIZEN';
+}
+
 // ── أسماء الأدوار بالعربي ────────────────────────
 
 export const ROLE_NAMES_AR: Record<Role, string> = {

@@ -46,15 +46,31 @@ export let LEVEL_BASE_XP = 500;
 export let LEVEL_EXPONENT = 1.2;
 export let DEMOTION_RETURN_PERCENT = 80;
 
+// النسخ الافتراضية الثابتة — تُستعمل لإعادة ضبط المعاملات قبل كل تطبيق إعدادات،
+// كي لا تبقى قيمة مفتاحٍ حُذف من الإعدادات عالقةً في ذاكرة العملية حتى إعادة التشغيل.
+const DEFAULT_RANK_RR_REQUIRED: Record<RankTier, number> = {
+  INFORMANT: 100, SOLDIER: 200, CAPO: 300, UNDERBOSS: 400, GODFATHER: 9999,
+};
+const DEFAULT_LEVEL_BASE_XP = 500;
+const DEFAULT_LEVEL_EXPONENT = 1.2;
+const DEFAULT_DEMOTION_RETURN_PERCENT = 80;
+
 // ── معادلة Level XP (تكلفة الصعود للمستوى التالي) ───────
 export function xpForNextLevel(level: number): number {
   return Math.floor(LEVEL_BASE_XP * Math.pow(level, LEVEL_EXPONENT));
 }
 
 // ── تطبيق إعدادات التقدّم على المعاملات العامة (عتبات الرتب + المستوى + التنزيل) ──
-// يُستدعى أينما تُحمّل cfg (processMatchRewards / finalizeMatch / recalc) لضمان أن
-// تعديلات الواجهة (الرتب/المستوى/نسبة التنزيل) تؤثّر فعلاً في الحساب.
+// يُستدعى عند إقلاع الخادم، وعند حفظ الإعدادات (PUT)، وأينما تُحمّل cfg
+// (processMatchRewards / finalizeMatch / recalc) لضمان أن تعديلات الواجهة
+// (الرتب/المستوى/نسبة التنزيل) تؤثّر فعلاً في الحساب وفي عتبات البروفايل المعروضة.
 export function applyProgressionConfig(cfg: any): void {
+  // إعادة الضبط للافتراضي أولاً — المفاتيح الغائبة تعود لقيمها لا لآخر قيمة مطبَّقة
+  for (const tier of RANK_TIERS) RANK_RR_REQUIRED[tier] = DEFAULT_RANK_RR_REQUIRED[tier];
+  LEVEL_BASE_XP = DEFAULT_LEVEL_BASE_XP;
+  LEVEL_EXPONENT = DEFAULT_LEVEL_EXPONENT;
+  DEMOTION_RETURN_PERCENT = DEFAULT_DEMOTION_RETURN_PERCENT;
+
   if (!cfg) return;
   if (cfg.ranks) {
     for (const tier of RANK_TIERS) {

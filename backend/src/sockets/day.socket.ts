@@ -18,7 +18,7 @@ import {
 } from '../game/vote-engine.js';
 import { checkWinCondition, WinResult } from '../game/win-checker.js';
 import { checkWinConditionDynamic, checkNeutralVoteWin } from '../game/dynamic-win-checker.js';
-import { isMafiaRole, getTeamCounts } from '../game/roles.js';
+import { isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkPolicewomanTrigger } from '../game/night-resolver.js';
 import { finalizeMatch } from '../services/match.service.js';
@@ -1068,53 +1068,73 @@ export function registerDayEvents(io: Server, socket: Socket) {
         bombEliminated.push(player.physicalId);
         bombRevealedRoles.push({ physicalId: player.physicalId, role: player.role || 'UNKNOWN' });
 
-        // تسجيل سبب الإقصاء
+        // تسجيل سبب الإقصاء (المحايد NEUTRAL — لا مكافأة إقصاء لأحد)
         if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+        const victimTeam = teamOfRole(player.role);
         state.performanceTracking.eliminationLog.push({
           physicalId: player.physicalId,
           eliminatedBy: 'GODFATHER_BOMB',
           round: state.round || 1,
-          team: (player.role && isMafiaRole(player.role)) ? 'MAFIA' : 'CITIZEN',
+          team: victimTeam,
         });
 
         // 👮‍♀️ تحفيز/احتساب الشرطية لضحايا القنبلة (كانت مفقودة — X8)
         checkPolicewomanTrigger(state, player.physicalId);
 
-        // حساب RR
-        const isMafia = player.role && isMafiaRole(player.role);
-        totalBombRR += isMafia ? bombHitMafia : bombHitCitizen;
+        // حساب RR — قرار صريح: إصابة محايد (مهرج/سفّاح) = 0 (ليست «إصابة مواطن»)
+        if (victimTeam === 'MAFIA') totalBombRR += bombHitMafia;
+        else if (victimTeam === 'CITIZEN') totalBombRR += bombHitCitizen;
       };
 
       // ترتيب الكشف: الأقل (below) أولاً ثم الأعلى (above)
       if (data.eliminateBelow && bomb.below) processTarget(bomb.below);
       if (data.eliminateAbove && bomb.above) processTarget(bomb.above);
 
-      // تطبيق RR لشيخ المافيا
+      // تطبيق RR لشيخ المافيا — عبر الدفتر (مصدر الحقيقة) مع احترام عزل المواسم/الاختبار
+      // ⚠️ القنبلة تقع دائماً أثناء المباراة وصفوف match_players لا تُدرج إلا عند finalizeMatch،
+      // لذا نخزّن الحدث في حالة اللعبة ليُدمج في صفّ الدفتر عند الاحتساب (rr_change + bomb_rr_change)
+      // فينجو من المصالحات بدل أن تمحوه (كانت الكتابة المباشرة تصيب 0 صفوف وتضيع).
       if (totalBombRR !== 0 && bomb.godfatherPlayerId) {
         try {
-          const { applyRR } = await import('../services/progression.service.js');
-          await applyRR(bomb.godfatherPlayerId, totalBombRR);
-
-          // تسجيل في match_players
-          if (state.matchId) {
+          // 🛡️ عزل مواقع الاختبار: لا أثر رانك إطلاقاً
+          let isTestBomb = false;
+          if (state.activityId) {
             const { getDB } = await import('../config/db.js');
-            const { matchPlayers } = await import('../schemas/game.schema.js');
-            const { eq, sql, and } = await import('drizzle-orm');
+            const { activities, locations } = await import('../schemas/admin.schema.js');
+            const { eq } = await import('drizzle-orm');
             const db = getDB();
             if (db) {
-              await db.update(matchPlayers)
-                .set({
-                  bombRRChange: sql`COALESCE(${matchPlayers.bombRRChange}, 0) + ${totalBombRR}`,
-                  rrChange: sql`COALESCE(${matchPlayers.rrChange}, 0) + ${totalBombRR}`,
-                } as any)
-                .where(
-                  and(
-                    eq(matchPlayers.matchId, state.matchId),
-                    eq(matchPlayers.playerId, bomb.godfatherPlayerId)
-                  )
-                );
-              console.log(`💣 Bomb RR (${totalBombRR}) recorded for Godfather player ${bomb.godfatherPlayerId}`);
+              const [info] = await db.select({ isTest: locations.isTestLocation })
+                .from(activities)
+                .leftJoin(locations, eq(activities.locationId, locations.id))
+                .where(eq(activities.id, state.activityId))
+                .limit(1);
+              isTestBomb = !!info?.isTest;
             }
+          }
+
+          const { resolveSeasonForGame } = await import('../services/season.service.js');
+          const { seasonId, isRegular } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+
+          if (!isTestBomb && seasonId != null) {
+            if (!state.performanceTracking) state.performanceTracking = { dealOutcomes: [], abilityResults: [], eliminationLog: [] };
+            if (!state.performanceTracking.bombEvents) state.performanceTracking.bombEvents = [];
+            state.performanceTracking.bombEvents.push({
+              physicalId: bomb.godfatherPhysicalId,
+              playerId: bomb.godfatherPlayerId,
+              rr: totalBombRR,
+              round: state.round || 1,
+            });
+
+            // الأثر الحيّ الفوري على players.* للموسم العادي فقط —
+            // البطولات/الأونلاين تصلها القيمة عبر إحصاءات الموسم عند الاحتساب (row.rrChange)
+            if (isRegular) {
+              const { applyRR } = await import('../services/progression.service.js');
+              await applyRR(bomb.godfatherPlayerId, totalBombRR);
+            }
+            console.log(`💣 Bomb RR (${totalBombRR}) buffered for Godfather player ${bomb.godfatherPlayerId} (season ${seasonId}, regular: ${isRegular})`);
+          } else {
+            console.log(`💣 Bomb RR skipped (test location or no active season) — no rank effect`);
           }
         } catch (e: any) {
           console.warn(`⚠️ Failed to apply bomb RR:`, e.message);

@@ -21,7 +21,9 @@ const router = Router();
 // 🔒 STATIC ROUTES FIRST (قبل /:id)
 // ════════════════════════════════════════════
 
-// ── 🏆 GET /leaderboard ──
+// ── 🏆 GET /leaderboard (ترتيب الموسم العادي النشط — من players.*) ──
+// ⚠️ لاعبو الموسم فقط (total_matches > 0): بعد بدء موسم جديد يتساوى الجميع على صفر/مُخبر،
+// فبلا هذا الشرط تعرض اللوحة خمسين اسماً بترتيبٍ اعتباطي وكأنهم متصدّرون بلا لعب.
 router.get('/leaderboard', async (_req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -39,6 +41,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
       totalWins: players.totalWins,
     })
       .from(players)
+      .where(sql`COALESCE(${players.totalMatches}, 0) > 0`)
       .orderBy(
         sql`CASE ${players.rankTier}
           WHEN 'GODFATHER' THEN 5

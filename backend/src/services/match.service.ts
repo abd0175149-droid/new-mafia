@@ -171,6 +171,15 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         (breakdown.xp as any).chipsBoost = xpEarned - baseXp;
       }
 
+      // ⚖️💣 دمج عقوبات الليدر وقنبلة شيخ المافيا المخزّنة أثناء المباراة في صفّ الدفتر.
+      // تُحفظ في penalty_rr_deduction / bomb_rr_change (تعرضها البنود كسطور منفصلة)
+      // وتدخل في صافي rr_change — فتنجو من كل المصالحات (الدفتر = مصدر الحقيقة).
+      // كانت تُكتب مباشرة أثناء اللعب على صفوف غير موجودة بعد فتصيب 0 صفوف وتضيع.
+      const penaltyEvts = (tracking.penaltyEvents || []).filter(e => e.physicalId === p.physicalId);
+      const bombEvts = (tracking.bombEvents || []).filter(e => e.physicalId === p.physicalId);
+      const penaltyRR = penaltyEvts.reduce((s, e) => s + (e.rr || 0), 0);
+      const bombRR = bombEvts.reduce((s, e) => s + (e.rr || 0), 0);
+
       return {
         matchId: state.matchId!,
         playerId: p.playerId || null,
@@ -187,7 +196,10 @@ export async function finalizeMatch(state: GameState): Promise<void> {
         abilityCorrect: abilityResults.length > 0 ? abilityResults.some(a => a.correct) : null,
         // 💾 تُحفظ القيم لكل الأدوار (حتى المحايدين) — لا أصفار بعد الآن. تُتخطّى المباريات التجريبية فقط.
         xpEarned: isTestGame ? 0 : xpEarned,
-        rrChange: isTestGame ? 0 : rrChange,
+        rrChange: isTestGame ? 0 : (rrChange + penaltyRR + bombRR),
+        penaltyCount: isTestGame ? 0 : penaltyEvts.length,
+        penaltyRRDeduction: isTestGame ? 0 : penaltyRR,
+        bombRRChange: isTestGame ? 0 : bombRR,
         rewardBreakdown: isTestGame ? null : breakdown,
       };
     });
@@ -444,9 +456,10 @@ export async function reconcileMatchPlayersRank(state: GameState): Promise<void>
       if (info?.isTest) return;
     }
 
-    const { resolveSeasonForActivity } = await import('./season.service.js');
+    // resolveSeasonForGame (لا ForActivity) — كي تشمل شبكةُ أمان ما بعد المباراة موسمَ الأونلاين أيضاً
+    const { resolveSeasonForGame } = await import('./season.service.js');
     const { reconcileSeasonProgression } = await import('./reconcile.service.js');
-    const { seasonId } = await resolveSeasonForActivity(state.activityId);
+    const { seasonId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
     if (!seasonId) return;
 
     const res = await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: playerIds });
@@ -656,7 +669,21 @@ export async function adjustMatchPlayerPoints(
     const pUpdates: any = {};
     if (xpDelta) pUpdates.xp = sql`GREATEST(0, COALESCE(${players.xp}, 0) + ${xpDelta})`;
     if (rrDelta) pUpdates.rankRR = sql`GREATEST(0, COALESCE(${players.rankRR}, 0) + ${rrDelta})`;
-    if (Object.keys(pUpdates).length) await db.update(players).set(pUpdates).where(eq(players.id, mp.playerId));
+    if (Object.keys(pUpdates).length) {
+      await db.update(players).set(pUpdates).where(eq(players.id, mp.playerId));
+
+      // 🧮 تطبيع بعد الدلتا: حلقتا المستوى والترقية بنفس منطق الاحتساب الحي —
+      // بدونها يبقى xp أعلى من متطلب المستوى وRR فوق عتبة الرتبة بلا ترقية حتى أول مصالحة.
+      try {
+        const { applyXPAndLevel, applyRR } = await import('./progression.service.js');
+        let cfgN: any; try { cfgN = await getProgressionConfig(); } catch { cfgN = undefined; }
+        applyProgressionConfig(cfgN);
+        if (xpDelta) await applyXPAndLevel(mp.playerId, 0);
+        if (rrDelta) await applyRR(mp.playerId, 0);
+      } catch (normErr: any) {
+        console.warn(`⚠️ Post-adjust normalization failed for player ${mp.playerId}:`, normErr.message);
+      }
+    }
     [player] = await db.select({ xp: players.xp, level: players.level, rankTier: players.rankTier, rankRR: players.rankRR })
       .from(players).where(eq(players.id, mp.playerId)).limit(1);
   }

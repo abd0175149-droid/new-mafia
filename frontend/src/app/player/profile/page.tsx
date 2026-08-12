@@ -205,6 +205,7 @@ export default function PlayerProfilePage(){
   const [emailInput,setEmailInput]=useState('');
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [leaderboard,setLeaderboard]=useState<any[]>([]);
+  const [progCfg,setProgCfg]=useState<any>(null); // ⚙️ إعدادات التقدم الحيّة من الخادم (أرقام الدليل)
   const fileInputRef=useRef<HTMLInputElement>(null);
   const nameInputRef=useRef<HTMLInputElement>(null);
   const settingsRef=useRef<HTMLDivElement>(null);
@@ -255,6 +256,7 @@ export default function PlayerProfilePage(){
       .catch(()=>setError('خطأ في الاتصال'))
       .finally(()=>setLoading(false));
     fetch('/api/player-app/leaderboard',{headers:getAuthHeaders()}).then(r=>r.json()).then(d=>{if(Array.isArray(d))setLeaderboard(d.slice(0,5));}).catch(()=>{});
+    fetch('/api/progression-settings/public').then(r=>r.json()).then(d=>{if(d?.success)setProgCfg(d.config);}).catch(()=>{});
   },[getAuthHeaders]);
 
   const showToast=(msg:string)=>{setSaveMsg(msg);setTimeout(()=>setSaveMsg(''),3000);};
@@ -337,6 +339,13 @@ export default function PlayerProfilePage(){
   const avatarSrc=player.avatarUrl?`${SOCKET_URL}${player.avatarUrl}`:null;
   const rank=RANK_CONFIG[progression?.rankTier||'INFORMANT']||RANK_CONFIG.INFORMANT;
   const joinYear=new Date(player.createdAt).getFullYear();
+  // ⚙️ أرقام دليل التقدم من إعدادات الخادم — القيم بعد ?? احتياط فقط ريثما يصل الكونفج
+  const cfgXp=progCfg?.xp||{};
+  const cfgRr=progCfg?.rr||{};
+  const cfgRanks=progCfg?.ranks||{};
+  const fmtPts=(v:number)=>`${v>0?'+':''}${v}`;
+  // XP المستوى التالي: قيمة الخادم أولاً، وإلا حسبة معادلة المستوى من الكونفج
+  const nextLevelXP=progression?.nextLevelXP||Math.floor((progCfg?.level?.baseXP??500)*Math.pow(progression?.level||1,progCfg?.level?.exponent??1.2));
 
   return(
     <div className="min-h-screen bg-black text-white" dir="rtl">
@@ -431,13 +440,13 @@ export default function PlayerProfilePage(){
             <div className="flex-1">
               <div className="flex justify-between text-[10px] mb-1">
                 <span className="text-gray-500">التقدم XP</span>
-                <span style={{color:rank.color}}>{progression?.xp||0} / {progression?.nextLevelXP||500} XP</span>
+                <span style={{color:rank.color}}>{progression?.xp||0} / {nextLevelXP} XP</span>
               </div>
               <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">
                 <motion.div initial={{width:0}} animate={{width:`${progression?.xpProgress||0}%`}} transition={{duration:1,ease:'easeOut'}}
                   className="h-full rounded-full" style={{background:`linear-gradient(90deg,${rank.color},${rank.color}88)`}}/>
               </div>
-              <p className="text-[9px] text-gray-600 mt-0.5">المستوى التالي: {(progression?.nextLevelXP||500) - (progression?.xp||0)} XP</p>
+              <p className="text-[9px] text-gray-600 mt-0.5">المستوى التالي: {nextLevelXP - (progression?.xp||0)} XP</p>
             </div>
           </div>
 
@@ -786,12 +795,12 @@ export default function PlayerProfilePage(){
                 <p className="text-[11px] text-gray-400 mb-2">تتراكم بعد كل مباراة لرفع مستواك:</p>
                 <div className="space-y-1">
                   {[
-                    {l:'المشاركة في مباراة',v:'+20'},
-                    {l:'فوز الفريق',v:'+50'},
-                    {l:'النجاة كل جولة',v:'+5'},
-                    {l:'استخدام القدرة بشكل صحيح',v:'+10'},
-                    {l:'اتفاقية ناجحة (هدف مافيا)',v:'+50'},
-                    {l:'إقصاء خصم (فريقي)',v:'+15'},
+                    {l:'المشاركة في مباراة',v:fmtPts(cfgXp.participation??20)},
+                    {l:'فوز الفريق',v:fmtPts(cfgXp.teamWin??50)},
+                    {l:'النجاة كل جولة',v:fmtPts(cfgXp.survivalPerRound??5)},
+                    {l:'استخدام القدرة بشكل صحيح',v:fmtPts(cfgXp.abilityCorrect??10)},
+                    {l:'اتفاقية ناجحة (هدف مافيا)',v:fmtPts(cfgXp.citizenDealOnMafia??50)},
+                    {l:'إقصاء خصم (فريقي)',v:fmtPts(cfgXp.teamEliminationBonus??15)},
                   ].map((s,i)=>(
                     <div key={i} className="flex justify-between text-[10px]">
                       <span className="text-gray-300">{s.l}</span>
@@ -802,8 +811,8 @@ export default function PlayerProfilePage(){
                 <div className="mt-2 bg-red-500/5 border border-red-500/10 rounded-lg p-2 space-y-1">
                   <p className="text-[10px] text-red-400 font-bold">⬇ عقوبات XP:</p>
                   {[
-                    {l:'قدرة خاصة خاطئة',v:'-5'},
-                    {l:'اتفاقية فاشلة (هدف مواطن)',v:'-10'},
+                    {l:'قدرة خاصة خاطئة',v:fmtPts(cfgXp.abilityIncorrect??-5)},
+                    {l:'اتفاقية فاشلة (هدف مواطن)',v:fmtPts(cfgXp.failedDeal??-10)},
                   ].map((s,i)=>(
                     <div key={i} className="flex justify-between text-[10px]">
                       <span className="text-gray-300">{s.l}</span>
@@ -826,10 +835,10 @@ export default function PlayerProfilePage(){
                 <div className="space-y-1">
                   <p className="text-[10px] text-green-400 font-bold mb-1">⬆ مصادر الزيادة:</p>
                   {[
-                    {l:'فوز الفريق',v:'+20',c:'text-green-400'},
-                    {l:'اتفاقية ناجحة (هدف مافيا)',v:'+20',c:'text-green-400'},
-                    {l:'النجاة حتى النهاية',v:'+5',c:'text-green-400'},
-                    {l:'قدرة خاصة صحيحة',v:'+5',c:'text-green-400'},
+                    {l:'فوز الفريق',v:fmtPts(cfgRr.teamWin??20),c:'text-green-400'},
+                    {l:'اتفاقية ناجحة (هدف مافيا)',v:fmtPts(cfgRr.citizenDealOnMafia??20),c:'text-green-400'},
+                    {l:'النجاة حتى النهاية',v:fmtPts(cfgRr.survivedToEnd??5),c:'text-green-400'},
+                    {l:'قدرة خاصة صحيحة',v:fmtPts(cfgRr.abilityCorrect??5),c:'text-green-400'},
                   ].map((s,i)=>(
                     <div key={i} className="flex justify-between text-[10px]">
                       <span className="text-gray-300">{s.l}</span>
@@ -840,9 +849,9 @@ export default function PlayerProfilePage(){
                 <div className="mt-2 space-y-1">
                   <p className="text-[10px] text-red-400 font-bold mb-1">⬇ مصادر النقصان:</p>
                   {[
-                    {l:'خسارة الفريق',v:'-20',c:'text-red-400'},
-                    {l:'اتفاقية فاشلة (هدف مواطن)',v:'-30',c:'text-red-400'},
-                    {l:'قدرة خاصة خاطئة',v:'-5',c:'text-red-400'},
+                    {l:'خسارة الفريق',v:fmtPts(cfgRr.teamLoss??-20),c:'text-red-400'},
+                    {l:'اتفاقية فاشلة (هدف مواطن)',v:fmtPts(cfgRr.failedDeal??-30),c:'text-red-400'},
+                    {l:'قدرة خاصة خاطئة',v:fmtPts(cfgRr.abilityIncorrect??-5),c:'text-red-400'},
                   ].map((s,i)=>(
                     <div key={i} className="flex justify-between text-[10px]">
                       <span className="text-gray-300">{s.l}</span>
@@ -858,10 +867,10 @@ export default function PlayerProfilePage(){
                 <p className="text-[11px] text-gray-400 mb-2">عند اكتمال RR المطلوب تترقى للرتبة التالية:</p>
                 <div className="space-y-1.5">
                   {[
-                    {icon:'🕵️',name:'مُخبر',rr:'100',tier:'INFORMANT'},
-                    {icon:'⚔️',name:'جندي',rr:'200',tier:'SOLDIER'},
-                    {icon:'🎖️',name:'كابو',rr:'300',tier:'CAPO'},
-                    {icon:'💎',name:'أندربوس',rr:'400',tier:'UNDERBOSS'},
+                    {icon:'🕵️',name:'مُخبر',rr:String(cfgRanks.INFORMANT?.rrRequired??100),tier:'INFORMANT'},
+                    {icon:'⚔️',name:'جندي',rr:String(cfgRanks.SOLDIER?.rrRequired??200),tier:'SOLDIER'},
+                    {icon:'🎖️',name:'كابو',rr:String(cfgRanks.CAPO?.rrRequired??300),tier:'CAPO'},
+                    {icon:'💎',name:'أندربوس',rr:String(cfgRanks.UNDERBOSS?.rrRequired??400),tier:'UNDERBOSS'},
                     {icon:'👑',name:'الأب الروحي',rr:'—',tier:'GODFATHER'},
                   ].map((r,i)=>(
                     <div key={i} className={`flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg ${r.tier===(progression?.rankTier||'INFORMANT')?'bg-white/5 border border-white/10':''}`}>
@@ -884,7 +893,7 @@ export default function PlayerProfilePage(){
                   </div>
                   <div className="flex items-start gap-2">
                     <span className="text-red-400 mt-0.5">❌</span>
-                    <p className="text-gray-300"><strong className="text-red-400">فاشلة:</strong> الهدف كان مواطناً — المبادر يُعاقب بـ <strong className="text-red-400">-30 RR</strong> و <strong className="text-red-400">-10 XP</strong> ويُقصى هو أيضاً!</p>
+                    <p className="text-gray-300"><strong className="text-red-400">فاشلة:</strong> الهدف كان مواطناً — المبادر يُعاقب بـ <strong className="text-red-400">{fmtPts(cfgRr.failedDeal??-30)} RR</strong> و <strong className="text-red-400">{fmtPts(cfgXp.failedDeal??-10)} XP</strong> ويُقصى هو أيضاً!</p>
                   </div>
                 </div>
               </div>

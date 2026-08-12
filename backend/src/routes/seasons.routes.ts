@@ -109,6 +109,26 @@ router.post('/regular/start', authenticate, managerOrAbove, async (req: Request,
       });
     }
 
+    // 🧮 تسوية الغرف المنتهية غير المحتسبة قبل التبديل — غرفة في GAME_OVER تمرّ من الحارس أعلاه،
+    // ولو بقيت مباراتها بلا احتساب لاحتُسبت لاحقاً في **الموسم الجديد** (الموسم يُحسم لحظة الاحتساب)
+    // فتُسرّب لعبةً من الموسم المنتهي إلى الجديد. نحسمها الآن: محسومة ⇒ تُحتسب للموسم القديم، بلا فائز ⇒ تُلغى.
+    try {
+      const { getGameState } = await import('../config/redis.js');
+      const { finalizeIfDecided } = await import('../services/match.service.js');
+      let settled = 0;
+      for (const room of getActiveRooms()) {
+        const roomId = (room as any)?.roomId;
+        if (!roomId) continue;
+        const state = await getGameState(roomId).catch(() => null);
+        if (!state?.matchId) continue;
+        await finalizeIfDecided(state).catch(() => {});
+        settled++;
+      }
+      if (settled > 0) console.log(`🧮 [seasons] Settled ${settled} pending room match(es) before starting a new regular season`);
+    } catch (settleErr: any) {
+      console.warn('⚠️ [seasons] Pre-switch settle failed:', settleErr?.message || settleErr);
+    }
+
     const userId = (req as any).user?.id;
     const season = await startRegularSeason(String(name).trim(), userId);
     res.json({ success: true, season, message: 'تم بدء الموسم العادي الجديد وتصفير الترتيب' });
@@ -158,11 +178,22 @@ router.patch('/:id', authenticate, managerOrAbove, async (req: Request, res: Res
   }
 });
 
-// ── إنهاء موسم (بطولة، أو إنهاء صريح) ──
+// ── إنهاء موسم (بطولة/أونلاين، أو إنهاء صريح) ──
+// 🛑 الموسم العادي النشط لا يُنهى مباشرةً — إنهاؤه مرتبط ببدء موسم عادي جديد
+// (startRegularSeason ينهي الحالي ويبدأ البديل ذرّياً). بدون هذا الحارس تنشأ نافذة
+// «لا موسم نشط»: مباريات تُحتسب حياً بلا ختم موسم ثم تمحوها أول مصالحة كاملة.
 router.post('/:id/end', authenticate, managerOrAbove, async (req: Request, res: Response) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+    const activeRegularId = await getActiveRegularSeasonId();
+    if (activeRegularId != null && id === activeRegularId) {
+      return res.status(409).json({
+        error: 'لا يمكن إنهاء الموسم العادي النشط مباشرة — ابدأ موسماً عادياً جديداً وسيُنهى الحالي تلقائياً (حتى لا تُحتسب مباريات بلا موسم وتُفقد نقاطها لاحقاً)',
+      });
+    }
+
     await endSeason(id);
     res.json({ success: true, message: 'تم إنهاء الموسم' });
   } catch (err: any) {

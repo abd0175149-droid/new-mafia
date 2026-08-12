@@ -48,9 +48,24 @@ void main() {
       expect(RankScale.nameAr('CAPO'), 'كابو');
     });
 
-    test('سقف RR للأب الروحيّ 9999 — لا ترقية بعده', () {
+    test('سقف RR للأب الروحيّ 9999 — لا ترقية بعده (الخريطة الاحتياطية)', () {
       expect(RankScale.rrRequired('GODFATHER'), 9999);
       expect(RankScale.rrRequired('INFORMANT'), 100);
+    });
+
+    test('العتبة الموحّدة: الإعدادات أوّلاً، ثم البروفايل، ثم الثابت', () {
+      final c = ProgressionConfig.fromJson(const {
+        'ranks': {
+          'SOLDIER': {'rrRequired': 250},
+        },
+      });
+      // قيمة الإعدادات تغلب البروفايل والثابت معاً
+      expect(RankScale.rrRequiredFrom('SOLDIER', config: c, profile: 111), 250);
+      // رتبة غائبة من الإعدادات ⇒ قيمة البروفايل
+      expect(RankScale.rrRequiredFrom('CAPO', config: c, profile: 111), 111);
+      // لا إعدادات ولا بروفايل ⇒ الخريطة الاحتياطية
+      expect(RankScale.rrRequiredFrom('CAPO'), 300);
+      expect(RankScale.rrRequiredFrom('KING'), 100);
     });
   });
 
@@ -83,6 +98,21 @@ void main() {
       const c = ProgressionConfig();
       expect(c.xpOf('participation'), isNull);
       expect(c.rrOf('participation'), isNull);
+    });
+
+    test('roleAbilities تُقرأ كاملة — صفر الشريف قيمةٌ لا غياب', () {
+      final c = ProgressionConfig.fromJson(const {
+        'roleAbilities': {
+          'SHERIFF': {'correctXp': 10, 'correctRr': 5, 'wrongXp': 0, 'wrongRr': 0},
+          'SNIPER': {'correctXp': 12, 'correctRr': 6, 'wrongXp': -5, 'wrongRr': -5},
+        },
+      });
+      expect(c.roleAbilities['SHERIFF']!.wrongXp, 0);
+      expect(c.roleAbilities['SHERIFF']!.wrongRr, 0);
+      expect(c.roleAbilities['SNIPER']!.correctXp, 12);
+      expect(c.roleAbilities['SNIPER']!.wrongRr, -5);
+      // دور غائب ⇒ لا صفّ له — يسقط على القيم العامة في الشاشة
+      expect(c.roleAbilities['DOCTOR'], isNull);
     });
   });
 
@@ -147,6 +177,8 @@ void main() {
       expect(size.height.isFinite && size.height > 0, isTrue);
       expect(find.text('Hamza (أنت)'), findsOneWidget);
       expect(find.textContaining('👑'), findsWidgets);
+      // المستوى مفتاح الترتيب الثالث في الخادم — يظهر في سطر الصفّ
+      expect(find.textContaining('مستوى'), findsNWidgets(2));
     });
   });
 }

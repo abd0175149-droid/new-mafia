@@ -10,7 +10,23 @@ import {
   getAlivePlayers,
 } from './state.js';
 import { getGameState, setGameState } from '../config/redis.js';
-import { Role, isMafiaRole, isNeutralRole } from './roles.js';
+import { Role, isMafiaRole, isNeutralRole, teamOfRole } from './roles.js';
+
+// ── 🔫 تسلسل تنفيذ اغتيال المافيا (الأعلى رتبةً هو المنفّذ المعتمد) ──
+// شيخ المافيا إن كان حياً، وإلا الأعلى في التسلسل المعلن. تُنسب له نقاط
+// نجاح/إبطال الاغتيال — بدل الإسناد السابق لأول مافيا حيّ بترتيب المقاعد.
+const MAFIA_KILL_PRIORITY: Role[] = [
+  Role.GODFATHER, Role.CHAMELEON, Role.SILENCER, Role.OLDER_BROTHER, Role.MAFIA_REGULAR,
+];
+
+function findAssassinator(state: GameState, excludePhysicalId?: number) {
+  for (const role of MAFIA_KILL_PRIORITY) {
+    const p = state.players.find(pl =>
+      pl.role === role && pl.isAlive && (excludePhysicalId == null || pl.physicalId !== excludePhysicalId));
+    if (p) return p;
+  }
+  return undefined;
+}
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
@@ -49,10 +65,8 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     return player?.disabledUntilRound != null && player.disabledUntilRound >= (state.round || 1);
   };
 
-  // الاغتيال: فحص إذا كان منفذ الاغتيال الحالي (حسب الترتيب) معطلاً
-  const activeAssassinator = state.players.find(p => 
-    [Role.GODFATHER, Role.CHAMELEON, Role.SILENCER, Role.OLDER_BROTHER, Role.MAFIA_REGULAR].includes(p.role as Role) && p.isAlive
-  );
+  // الاغتيال: فحص إذا كان منفذ الاغتيال الحالي (حسب تسلسل الرتب) معطلاً
+  const activeAssassinator = findAssassinator(state);
   if (activeAssassinator && activeAssassinator.disabledUntilRound != null && activeAssassinator.disabledUntilRound >= (state.round || 1)) {
     nightActions.godfatherTarget = null;
   }
@@ -82,7 +96,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
         sniperTarget.isAlive = false;
         events.push({ type: 'SNIPE_MAFIA', targetPhysicalId: sniperTarget.physicalId, targetName: sniperTarget.name, performerPhysicalId: sniper.physicalId, performerName: sniper.name, wasRandom: !!nightActions.randomSelections?.['SNIPER'], extra: { sniperName: sniper.name, targetRole: sniperTarget.role }, revealed: false });
         pt.abilityResults.push({ physicalId: sniper.physicalId, role: 'SNIPER', correct: true });
-        pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: isMafiaRole(sniperTarget.role) ? 'MAFIA' : 'NEUTRAL' });
+        pt.eliminationLog.push({ physicalId: sniperTarget.physicalId, eliminatedBy: 'SNIPER', round: state.round || 1, team: teamOfRole(sniperTarget.role) });
       } else {
         // قنص مواطن → يموت المواطن + القناص معاً
         sniperTarget.isAlive = false;
@@ -103,7 +117,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     if (assassinTarget && assassinTarget.isAlive) {
       if (nightActions.godfatherTarget === protectedId) {
         // الحماية نجحت → الهدف يبقى حياً
-        const assassinatorBlocked = state.players.find(p => (p.role === Role.GODFATHER || p.role === Role.CHAMELEON || p.role === Role.SILENCER || p.role === Role.MAFIA_REGULAR) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
+        const assassinatorBlocked = findAssassinator(state, assassinTarget.physicalId);
         const protectorBlocked = state.players.find(p => (p.role === Role.DOCTOR || p.role === Role.NURSE) && p.isAlive);
         events.push({ type: 'ASSASSINATION_BLOCKED', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, performerPhysicalId: protectorBlocked?.physicalId, performerName: protectorBlocked?.name, wasRandom: !!nightActions.randomSelections?.['DOCTOR'] || !!nightActions.randomSelections?.['NURSE'], extra: { assassinId: assassinatorBlocked?.physicalId, assassinName: assassinatorBlocked?.name, wasAssassinRandom: !!nightActions.randomSelections?.['GODFATHER'] }, revealed: false });
         // الطبيب/الممرضة أصاب
@@ -118,7 +132,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
       } else {
         // الاغتيال نجح
         assassinTarget.isAlive = false;
-        const assassinator = state.players.find(p => (p.role === Role.GODFATHER || p.role === Role.CHAMELEON || p.role === Role.SILENCER || p.role === Role.MAFIA_REGULAR) && p.isAlive && p.physicalId !== assassinTarget.physicalId);
+        const assassinator = findAssassinator(state, assassinTarget.physicalId);
         events.push({ type: 'ASSASSINATION', targetPhysicalId: assassinTarget.physicalId, targetName: assassinTarget.name, performerPhysicalId: assassinator?.physicalId, performerName: assassinator?.name, wasRandom: !!nightActions.randomSelections?.['GODFATHER'], extra: { targetRole: assassinTarget.role }, revealed: false });
         // 🎭 المُغتال نجح اغتياله (قدرة صحيحة)
         if (assassinator) {
@@ -128,7 +142,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
           physicalId: assassinTarget.physicalId,
           eliminatedBy: 'NIGHT_KILL',
           round: state.round || 1,
-          team: (assassinTarget.role && isMafiaRole(assassinTarget.role)) ? 'MAFIA' : 'CITIZEN',
+          team: teamOfRole(assassinTarget.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
         });
 
         if (protectedId !== null) {
@@ -233,7 +247,7 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
             physicalId: target.physicalId,
             eliminatedBy: 'ASSASSIN',
             round: state.round || 1,
-            team: (target.role && isMafiaRole(target.role)) ? 'MAFIA' : 'CITIZEN',
+            team: teamOfRole(target.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
           });
         }
 

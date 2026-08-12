@@ -4,10 +4,19 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ROLE_NAMES } from '@/lib/constants';
 import { usePlayer } from '@/context/PlayerContext';
-import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS, RANK_RR_REQUIRED } from '@/lib/ranks';
+import { RANK_NAMES_AR, RANK_BADGES, RANK_COLORS } from '@/lib/ranks';
 import { useModalScrollLock } from '@/hooks/useModalScrollLock';
 
 type Tab = 'leaderboard' | 'coplayers' | 'howto';
+
+// ⚠️ احتياط أخير فقط قبل وصول إعدادات التقدم من الخادم — المصدر الحقيقي هو config.ranks
+const RANK_RR_FALLBACK: Record<string, number> = {
+  INFORMANT: 100,
+  SOLDIER: 200,
+  CAPO: 300,
+  UNDERBOSS: 400,
+  GODFATHER: 9999,
+};
 
 export default function RankPage() {
   const { player } = usePlayer();
@@ -149,6 +158,9 @@ export default function RankPage() {
   const myRank = leaderboard.findIndex(p => p.id === player?.playerId) + 1;
   const myRow = leaderboard.find(p => p.id === player?.playerId);
 
+  // ── RR المطلوب للترقية: من إعدادات التقدم الحيّة، والقيم الثابتة القديمة احتياط أخير ──
+  const rrRequiredFor = (tier: string) => progressionConfig?.ranks?.[tier]?.rrRequired ?? RANK_RR_FALLBACK[tier] ?? 100;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -194,6 +206,7 @@ export default function RankPage() {
           </p>
         </div>
         <span className="text-gray-300 text-[10px] w-16 text-center truncate">{RANK_BADGES[p.rankTier]} {RANK_NAMES_AR[p.rankTier]}</span>
+        <span className="text-blue-300 text-[10px] font-bold w-8 text-center tabular-nums">{p.level || 1}</span>
         <span className="text-amber-400 text-xs font-bold w-10 text-center tabular-nums">{p.rankRR}</span>
         {!me && isCoPlayer(p.id) && (
           <button
@@ -302,7 +315,7 @@ export default function RankPage() {
               <span className="text-lg font-bold mr-1" style={{ color: RANK_COLORS[prog.rankTier] }}>
                 {prog.rankRR}
               </span>
-              <span className="text-gray-600 text-[10px]">/{RANK_RR_REQUIRED[prog.rankTier] || 100}</span>
+              <span className="text-gray-600 text-[10px]">/{rrRequiredFor(prog.rankTier)}</span>
             </div>
           </div>
           {/* ── إحصائيات سريعة ── */}
@@ -329,7 +342,7 @@ export default function RankPage() {
           <div className="mt-3 h-1.5 rounded-full bg-white/5 overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${Math.min((prog.rankRR / (RANK_RR_REQUIRED[prog.rankTier] || 100)) * 100, 100)}%` }}
+              animate={{ width: `${Math.min((prog.rankRR / rrRequiredFor(prog.rankTier)) * 100, 100)}%` }}
               className="h-full rounded-full"
               style={{ background: RANK_COLORS[prog.rankTier] }}
             />
@@ -399,11 +412,20 @@ export default function RankPage() {
               <span className="w-6" /><span className="w-8" />
               <span className="flex-1 text-[9px] text-gray-600">اللاعب</span>
               <span className="text-[9px] text-gray-600 w-16 text-center">الرتبة</span>
+              <span className="text-[9px] text-gray-600 w-8 text-center">مستوى</span>
               <span className="text-[9px] text-gray-600 w-10 text-center">RR</span>
             </div>
+            {/* ── أقل من 3 لاعبين ⇒ لا منصّة، قائمة كاملة من المركز الأول ── */}
             <div className="space-y-1.5">
-              {leaderboard.slice(3).map((p: any, i: number) => renderPlayerRow(p, i + 4))}
+              {(leaderboard.length >= 3 ? leaderboard.slice(3) : leaderboard).map((p: any, i: number) =>
+                renderPlayerRow(p, leaderboard.length >= 3 ? i + 4 : i + 1))}
             </div>
+            {/* 🆕 موسم بدأ للتوّ: لا لاعب سجّل مباراة بعد (اللوحة تعرض لاعبي الموسم فقط) */}
+            {!seasonLoading && leaderboard.length === 0 && (
+              <p className="text-gray-600 text-sm text-center py-8">
+                {viewingActive ? 'الموسم بدأ للتوّ — لا نتائج بعد. العب أول مباراة وكن المتصدّر!' : 'لا نتائج في هذا الموسم'}
+              </p>
+            )}
           </motion.div>
         )}
 
@@ -462,7 +484,7 @@ export default function RankPage() {
                   </ul>
                 </div>
 
-                {[
+                {([
                   {
                     id: 'basics', label: '🔰 أساسيات المباراة',
                     actions: [
@@ -488,8 +510,33 @@ export default function RankPage() {
                       { key: 'abilityCorrect', label: 'استخدام قدرة صحيحة', icon: '✅', desc: 'إصابة صحيحة لشريف/قناص/طبيب' },
                       { key: 'abilityIncorrect', label: 'استخدام قدرة خاطئة', icon: '❌', desc: 'إصابة خاطئة (عقوبة)' },
                     ]
+                  },
+                  {
+                    id: 'neutrals', label: '🃏 الأدوار المحايدة',
+                    actions: [
+                      { key: 'jesterWin', label: 'فوز المهرج', icon: '🎭', desc: 'نجح بإقناع المدينة بإعدامه' },
+                      { key: 'jesterLoss', label: 'خسارة المهرج', icon: '🤡', desc: 'انتهت المباراة دون إعدامه' },
+                      { key: 'assassinWin', label: 'فوز السفّاح', icon: '🗡️', desc: 'أنجز عقوده وحقق شرط فوزه' },
+                      { key: 'assassinLoss', label: 'خسارة السفّاح', icon: '⚰️', desc: 'أُقصي أو لم يُكمل عقوده' },
+                      { key: 'assassinContractComplete', label: 'عقد سفّاح مُنجز', icon: '📜', desc: 'لكل عقد اغتيال يكتمل' },
+                    ]
+                  },
+                  {
+                    id: 'penalties', label: '⚖️ عقوبات الليدر',
+                    actions: [
+                      { key: 'penaltyDeduction', label: 'عقوبة من الليدر', icon: '🟨', desc: 'خصم يفرضه الليدر لمخالفة' },
+                      { key: 'penaltyKickDeduction', label: 'طرد من المباراة', icon: '🟥', desc: 'عقوبة الطرد (مغلظة)' },
+                    ]
+                  },
+                  {
+                    id: 'bomb', label: '💣 القنبلة',
+                    note: 'إذا أصابت القنبلة دوراً محايداً (المهرج/السفّاح) فلا نقاط — 0 RR.',
+                    actions: [
+                      { key: 'bombHitCitizen', label: 'قنبلة أصابت مواطناً', icon: '💥', desc: 'القنبلة أخرجت مواطناً' },
+                      { key: 'bombHitMafia', label: 'قنبلة أصابت مافيا', icon: '🧨', desc: 'القنبلة أخرجت عنصر مافيا (عقوبة)' },
+                    ]
                   }
-                ].map(category => (
+                ] as { id: string; label: string; note?: string; actions: { key: string; label: string; icon: string; desc: string }[] }[]).map(category => (
                   <div key={category.id} className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                     <div className="bg-white/5 px-3 py-2 border-b border-white/5">
                       <h4 className="text-xs font-bold text-gray-200">{category.label}</h4>
@@ -525,8 +572,34 @@ export default function RankPage() {
                         );
                       })}
                     </div>
+                    {category.note && (
+                      <p className="text-[9px] text-gray-500 px-3 py-2 border-t border-white/5">💡 {category.note}</p>
+                    )}
                   </div>
                 ))}
+
+                {/* ── تخصيصات القدرات لكل دور (تتجاوز القيم العامة أعلاه) ── */}
+                {progressionConfig.roleAbilities && Object.keys(progressionConfig.roleAbilities).length > 0 && (
+                  <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div className="bg-white/5 px-3 py-2 border-b border-white/5">
+                      <h4 className="text-xs font-bold text-gray-200">🎭 قيم القدرات حسب الدور</h4>
+                      <p className="text-[9px] text-gray-500 mt-0.5">بعض الأدوار لها قيم خاصة تختلف عن القيم العامة (✅ إصابة صحيحة • ❌ إصابة خاطئة)</p>
+                    </div>
+                    <div className="divide-y divide-white/5">
+                      {Object.entries(progressionConfig.roleAbilities as Record<string, any>).map(([role, v]) => (
+                        <div key={role} className="p-3 flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-gray-300 shrink-0">{(ROLE_NAMES as Record<string, string>)[role] || role}</span>
+                          <div className="flex flex-wrap justify-end gap-1">
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">✅ {v.correctXp > 0 ? '+' : ''}{v.correctXp} XP</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">✅ {v.correctRr > 0 ? '+' : ''}{v.correctRr} RR</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${v.wrongXp < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-white/5 text-gray-400'}`}>❌ {v.wrongXp > 0 ? '+' : ''}{v.wrongXp} XP</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${v.wrongRr < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-white/5 text-gray-400'}`}>❌ {v.wrongRr > 0 ? '+' : ''}{v.wrongRr} RR</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="rounded-xl p-3" style={{ background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.15)' }}>
                   <p className="text-purple-400 text-xs font-bold mb-2">👑 الرتب — RR المطلوب للترقية</p>

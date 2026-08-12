@@ -86,9 +86,10 @@ export default function SeasonsPage() {
 
   async function endSeason(id: number, name: string) {
     if (!(await swalConfirm(`إنهاء الموسم "${name}"؟ ستُحفظ إحصاءاته ويمكن مراجعتها لاحقاً.`))) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setActiveGames(null);
     try { await apiFetch(`/api/seasons/${id}/end`, { method: 'POST' }); await load(); }
-    catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    // الخادم يرد بـ 409 برسالة عربية واضحة (مثل منع إنهاء الموسم العادي النشط) — نعرضها كما هي
+    catch (e: any) { setError(e.data?.error || e.message); } finally { setBusy(false); }
   }
 
   async function rename(id: number, current: string) {
@@ -178,7 +179,10 @@ export default function SeasonsPage() {
                     <td className="p-3 flex gap-2 justify-end">
                       <button onClick={() => openBoard(s)} className="text-[11px] text-[#C5A059] border border-[#C5A059]/30 rounded px-2 py-1 hover:bg-[#C5A059]/10">الترتيب</button>
                       <button onClick={() => rename(s.id, s.name)} className="text-[11px] text-[#888] border border-[#333] rounded px-2 py-1 hover:bg-white/5">✏️ تسمية</button>
-                      {s.status === 'ACTIVE' && <button onClick={() => endSeason(s.id, s.name)} className="text-[11px] text-[#ff6b6b] border border-[#8A0303]/30 rounded px-2 py-1 hover:bg-[#8A0303]/10">إنهاء</button>}
+                      {/* 🛑 الموسم العادي النشط لا يُنهى مباشرةً (الخادم يرفض بـ 409) — يُنهى تلقائياً عند بدء موسم عادي جديد */}
+                      {s.status === 'ACTIVE' && (s.type === 'REGULAR'
+                        ? <span className="text-[10px] text-[#666] border border-[#2a2a2a] rounded px-2 py-1" title="لا يمكن إنهاء الموسم العادي النشط مباشرة">يُنهى تلقائياً عند بدء موسم عادي جديد</span>
+                        : <button onClick={() => endSeason(s.id, s.name)} className="text-[11px] text-[#ff6b6b] border border-[#8A0303]/30 rounded px-2 py-1 hover:bg-[#8A0303]/10">إنهاء</button>)}
                     </td>
                   </tr>
                 ))}

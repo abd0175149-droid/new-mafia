@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
 import '../../models/profile.dart';
+import '../../models/rank.dart' show ProgressionConfig, RankScale;
 import 'profile_palette.dart';
 
 // ══════════════════════════════════════════════════════
 // 📖 مودال دليل التقدّم — §4.5 في الملفّ 13
 // ══════════════════════════════════════════════════════
-// كل رقم هنا **معروض فقط** — القيم الحيّة يحسبها الخادم من إعدادات
-// التقدّم. إن غُيّرت هناك ولم تُغيّر هنا صار الدليل يكذب، فهذه نسخة
-// نصّية لا مصدر حقيقة. (نفس وضع الويب حرفياً.)
+// الأرقام تُجلب حيّةً من `/api/progression-settings/public` — نفس مصدر
+// شاشة الرتب — فلا يكذب الدليل حين يعدّل الأدمن الإعدادات. الحرفيّات
+// أدناه **احتياط عرضٍ فقط**: تُعرض ريثما تصل الاستجابة أو إن فشلت،
+// وهي مرآة افتراضيات الخادم لا مصدر حقيقة.
 
 Future<void> showProgressGuide(BuildContext context, String currentTier) {
   return showDialog(
@@ -18,9 +21,39 @@ Future<void> showProgressGuide(BuildContext context, String currentTier) {
   );
 }
 
-class _GuideDialog extends StatelessWidget {
+class _GuideDialog extends StatefulWidget {
   const _GuideDialog({required this.currentTier});
   final String currentTier;
+
+  @override
+  State<_GuideDialog> createState() => _GuideDialogState();
+}
+
+class _GuideDialogState extends State<_GuideDialog> {
+  /// null ريثما تصل الإعدادات — الافتراضيات تُعرض ثم تُستبدل بصمت.
+  ProgressionConfig? _cfg;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    // نفس نمط شاشة الرتب: فشل الجلب يتدهور بصمت إلى الافتراضيات
+    final r = await ApiClient.instance
+        .get('/api/progression-settings/public')
+        .catchError((_) => null);
+    if (!mounted || r is! Map || r['config'] is! Map) return;
+    setState(() => _cfg = ProgressionConfig.fromJson(
+        Map<String, dynamic>.from(r['config'] as Map)));
+  }
+
+  // ── القيم: الإعدادات أوّلاً والحرفيّ احتياط ──
+  int _xp(String key, int fallback) => _cfg?.xpOf(key) ?? fallback;
+  int _rr(String key, int fallback) => _cfg?.rrOf(key) ?? fallback;
+
+  String _signed(int v, String unit) => '${v > 0 ? '+' : ''}$v $unit';
 
   @override
   Widget build(BuildContext context) {
@@ -126,12 +159,12 @@ class _GuideDialog extends StatelessWidget {
             style: ar(14, color: Tw.amber400, weight: FontWeight.w700)),
         const SizedBox(height: 4),
         Text('تتراكم بعد كل مباراة لرفع مستواك:', style: ar(11, color: Tw.gray400)),
-        _row('المشاركة في مباراة', '+20 XP', Tw.amber400),
-        _row('فوز الفريق', '+50 XP', Tw.amber400),
-        _row('النجاة كل جولة', '+5 XP', Tw.amber400),
-        _row('استخدام القدرة بشكل صحيح', '+10 XP', Tw.amber400),
-        _row('اتفاقية ناجحة (هدف مافيا)', '+50 XP', Tw.amber400),
-        _row('إقصاء خصم (فريقي)', '+15 XP', Tw.amber400),
+        _row('المشاركة في مباراة', _signed(_xp('participation', 20), 'XP'), Tw.amber400),
+        _row('فوز الفريق', _signed(_xp('teamWin', 50), 'XP'), Tw.amber400),
+        _row('النجاة كل جولة', _signed(_xp('survivalPerRound', 5), 'XP'), Tw.amber400),
+        _row('استخدام القدرة بشكل صحيح', _signed(_xp('abilityCorrect', 10), 'XP'), Tw.amber400),
+        _row('اتفاقية ناجحة (هدف مافيا)', _signed(_xp('citizenDealOnMafia', 50), 'XP'), Tw.amber400),
+        _row('إقصاء خصم (فريقي)', _signed(_xp('teamEliminationBonus', 15), 'XP'), Tw.amber400),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(8),
@@ -142,8 +175,8 @@ class _GuideDialog extends StatelessWidget {
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text('⬇ عقوبات XP:', style: ar(10, color: Tw.red400, weight: FontWeight.w700)),
-            _row('قدرة خاصة خاطئة', '-5 XP', Tw.red400),
-            _row('اتفاقية فاشلة (هدف مواطن)', '-10 XP', Tw.red400),
+            _row('قدرة خاصة خاطئة', _signed(_xp('abilityIncorrect', -5), 'XP'), Tw.red400),
+            _row('اتفاقية فاشلة (هدف مواطن)', _signed(_xp('failedDeal', -10), 'XP'), Tw.red400),
           ]),
         ),
       ]);
@@ -162,23 +195,22 @@ class _GuideDialog extends StatelessWidget {
         Text('يحدد رتبتك ومكانتك التنافسية:', style: ar(11, color: Tw.gray400)),
         const SizedBox(height: 8),
         Text('⬆ مصادر الزيادة:', style: ar(10, color: Tw.green400, weight: FontWeight.w700)),
-        _row('فوز الفريق', '+20 RR', Tw.green400),
-        _row('اتفاقية ناجحة (هدف مافيا)', '+20 RR', Tw.green400),
-        _row('النجاة حتى النهاية', '+5 RR', Tw.green400),
-        _row('قدرة خاصة صحيحة', '+5 RR', Tw.green400),
+        _row('فوز الفريق', _signed(_rr('teamWin', 20), 'RR'), Tw.green400),
+        _row('اتفاقية ناجحة (هدف مافيا)', _signed(_rr('citizenDealOnMafia', 20), 'RR'), Tw.green400),
+        _row('النجاة حتى النهاية', _signed(_rr('survivedToEnd', 5), 'RR'), Tw.green400),
+        _row('قدرة خاصة صحيحة', _signed(_rr('abilityCorrect', 5), 'RR'), Tw.green400),
         const SizedBox(height: 8),
         Text('⬇ مصادر النقصان:', style: ar(10, color: Tw.red400, weight: FontWeight.w700)),
-        _row('خسارة الفريق', '-20 RR', Tw.red400),
-        _row('اتفاقية فاشلة (هدف مواطن)', '-30 RR', Tw.red400),
-        _row('قدرة خاصة خاطئة', '-5 RR', Tw.red400),
+        _row('خسارة الفريق', _signed(_rr('teamLoss', -20), 'RR'), Tw.red400),
+        _row('اتفاقية فاشلة (هدف مواطن)', _signed(_rr('failedDeal', -30), 'RR'), Tw.red400),
+        _row('قدرة خاصة خاطئة', _signed(_rr('abilityIncorrect', -5), 'RR'), Tw.red400),
       ]);
 
   Widget _ranksBox() {
+    // العتبات من الإعدادات — الثابت المحلّي احتياطٌ أخير (RankScale)
     final promo = <String, String>{
-      'INFORMANT': '${ltrRun('100 RR')} للترقية',
-      'SOLDIER': '${ltrRun('200 RR')} للترقية',
-      'CAPO': '${ltrRun('300 RR')} للترقية',
-      'UNDERBOSS': '${ltrRun('400 RR')} للترقية',
+      for (final t in const ['INFORMANT', 'SOLDIER', 'CAPO', 'UNDERBOSS'])
+        t: '${ltrRun('${RankScale.rrRequiredFrom(t, config: _cfg)} RR')} للترقية',
     };
 
     return _box(Tw.red500, [
@@ -190,7 +222,7 @@ class _GuideDialog extends StatelessWidget {
         Container(
           margin: const EdgeInsets.only(top: 4),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          decoration: r.tier == currentTier
+          decoration: r.tier == widget.currentTier
               ? BoxDecoration(
                   color: const Color(0x0DFFFFFF),
                   borderRadius: BorderRadius.circular(8),
@@ -201,7 +233,7 @@ class _GuideDialog extends StatelessWidget {
             Text(r.icon, style: const TextStyle(fontSize: 18)),
             const SizedBox(width: 8),
             Expanded(child: Text(r.nameAr, style: ar(11, color: Tw.gray300))),
-            if (r.tier == currentTier)
+            if (r.tier == widget.currentTier)
               Padding(
                 padding: const EdgeInsets.only(left: 8),
                 child: Text('أنت هنا', style: ar(9, color: Tw.amber400)),
@@ -237,9 +269,13 @@ class _GuideDialog extends StatelessWidget {
             child: Text.rich(TextSpan(children: [
               TextSpan(text: 'فاشلة: ', style: ar(11, color: Tw.red400, weight: FontWeight.w700)),
               TextSpan(text: 'الهدف كان مواطناً — المبادر يُعاقب بـ ', style: ar(11, color: Tw.gray300)),
-              TextSpan(text: '-30 RR', style: ar(11, color: Tw.red400, weight: FontWeight.w700)),
+              TextSpan(
+                  text: ltrRun(_signed(_rr('failedDeal', -30), 'RR')),
+                  style: ar(11, color: Tw.red400, weight: FontWeight.w700)),
               TextSpan(text: ' و ', style: ar(11, color: Tw.gray300)),
-              TextSpan(text: '-10 XP', style: ar(11, color: Tw.red400, weight: FontWeight.w700)),
+              TextSpan(
+                  text: ltrRun(_signed(_xp('failedDeal', -10), 'XP')),
+                  style: ar(11, color: Tw.red400, weight: FontWeight.w700)),
               TextSpan(text: ' ويُقصى هو أيضاً!', style: ar(11, color: Tw.gray300)),
             ])),
           ),

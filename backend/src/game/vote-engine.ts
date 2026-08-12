@@ -6,7 +6,7 @@
 import { type GameState, type Candidate, CandidateType, getAlivePlayers, type PlayerCandidate } from './state.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { checkWinCondition, WinResult } from './win-checker.js';
-import { isMafiaRole } from './roles.js';
+import { isMafiaRole, teamOfRole } from './roles.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform } from './twin-engine.js';
@@ -267,7 +267,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         physicalId: player.physicalId,
         eliminatedBy: 'DAY_VOTE',
         round: state.round || 1,
-        team: (player.role && isMafiaRole(player.role)) ? 'MAFIA' : 'CITIZEN',
+        team: teamOfRole(player.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
 
       // 💣 قدرة القنبلة — إذا المُقصى شيخ المافيا بالتصويت + القنبلة مفعلة
@@ -334,7 +334,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         physicalId: target.physicalId,
         eliminatedBy: 'DEAL',
         round: state.round || 1,
-        team: targetIsMafia ? 'MAFIA' : 'CITIZEN',
+        team: teamOfRole(target.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
 
       if (!targetIsMafia && initiator) {
@@ -349,7 +349,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
           physicalId: initiator.physicalId,
           eliminatedBy: 'DEAL_BACKFIRE',
           round: state.round || 1,
-          team: (initiator.role && isMafiaRole(initiator.role)) ? 'MAFIA' : 'CITIZEN',
+          team: teamOfRole(initiator.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
         });
       }
 

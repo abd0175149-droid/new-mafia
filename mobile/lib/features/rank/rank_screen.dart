@@ -534,7 +534,9 @@ class RankScreenState extends State<RankScreen>
   Widget _currentSeasonCard() {
     final prog = _prog!;
     final color = RankScale.color(prog.rankTier);
-    final required = RankScale.rrRequired(prog.rankTier);
+    // العتبة من الإعدادات أوّلاً، ثم rrRequired من البروفايل، ثم الثابت
+    final required = RankScale.rrRequiredFrom(prog.rankTier,
+        config: _config, profile: prog.rrRequired);
     final s = _myStats;
 
     return _rankCardShell(
@@ -685,15 +687,16 @@ class RankScreenState extends State<RankScreen>
   // ── §4.6 الترتيب ──
   Widget _leaderboardTab() {
     final board = _board;
-    // 🔴 تكافؤ مقصود مع الويب: الصفوف دائماً `slice(3)` والمنصّة تتطلّب
-    //    ثلاثة، فلوحةٌ بلاعبٍ أو لاعبَين تعرض **رؤوس الأعمدة وحدها**.
-    //    نُبقيها كما هي في الإصدار الأوّل.
-    final rest = board.length > 3 ? board.sublist(3) : const <LeaderboardRow>[];
+    // 🔴 كان هنا تكافؤ مع علّة الويب: الصفوف دائماً `slice(3)` والمنصّة
+    //    تتطلّب ثلاثة، فلوحةٌ بلاعبٍ أو لاعبَين كانت تعرض **رؤوس الأعمدة
+    //    وحدها**. أقلّ من ثلاثة ⇒ قائمة عادية بلا منصّة، والترقيم من ١.
+    final hasPodium = board.length >= 3;
+    final rest = hasPodium ? board.sublist(3) : board;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (board.length >= 3)
+        if (hasPodium)
           Podium(top3: board.take(3).toList(), myId: _myId, onTap: _viewProfile),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -724,7 +727,7 @@ class RankScreenState extends State<RankScreen>
               return LeaderboardRowTile(
                 key: me ? _myRowKey : null,
                 row: r,
-                rank: i + 4,
+                rank: i + (hasPodium ? 4 : 1),
                 isMe: me,
                 glow: me ? _glow : null,
                 onTap: () => _viewProfile(r.id),
@@ -737,6 +740,20 @@ class RankScreenState extends State<RankScreen>
                     : null,
               );
             }),
+          ),
+        // 🆕 موسم بدأ للتوّ: لا لاعب سجّل مباراة بعد (اللوحة تعرض لاعبي الموسم فقط)
+        if (board.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Text(
+                _viewingActive
+                    ? 'الموسم بدأ للتوّ — لا نتائج بعد. العب أول مباراة وكن المتصدّر!'
+                    : 'لا نتائج في هذا الموسم',
+                textAlign: TextAlign.center,
+                style: ar(13, color: Tw.gray600),
+              ),
+            ),
           ),
       ],
     );
@@ -841,6 +858,10 @@ class RankScreenState extends State<RankScreen>
           _categoryCard(title, actions, cfg),
           const SizedBox(height: 16),
         ],
+        if (cfg.roleAbilities.isNotEmpty) ...[
+          _roleAbilitiesCard(cfg),
+          const SizedBox(height: 16),
+        ],
         _ranksCard(cfg),
       ],
     );
@@ -922,17 +943,92 @@ class RankScreenState extends State<RankScreen>
 
   Widget _valueChip(int v, String unit, Color posFg, Color posBg) {
     final positive = v > 0;
+    // الصفر رماديّ محايد — لا يصل إلا من بطاقة تجاوزات الأدوار (حياد
+    // الشريف)؛ بقيّة المواضع تُخفي الأصفار قبل النداء.
+    final zero = v == 0;
     return Container(
       margin: const EdgeInsets.only(top: 2),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(4),
-        color: positive ? posBg : const Color(0x1AF43F5E),
+        color: zero
+            ? const Color(0x0DFFFFFF)
+            : (positive ? posBg : const Color(0x1AF43F5E)),
       ),
-      child: ltrText('${positive ? '+' : ''}$v $unit',
-          ar(10, color: positive ? posFg : Tw.rose400, weight: FontWeight.w700)),
+      child: ltrText(
+          '${positive ? '+' : ''}$v $unit',
+          ar(10,
+              color: zero ? Tw.gray500 : (positive ? posFg : Tw.rose400),
+              weight: FontWeight.w700)),
     );
   }
+
+  // ── تجاوزات القدرات لكل دور — `config.roleAbilities` ──
+  // 🔴 الأصفار هنا **تُعرض** بعكس القائمة العامة التي تُخفيها: صفر
+  //    الشريف عند سؤاله عن مواطنٍ صالح حيادٌ مقصود لا صفٌّ غائب.
+  Widget _roleAbilitiesCard(ProgressionConfig cfg) {
+    final roles = abilityRoleOrder.where(cfg.roleAbilities.containsKey).toList();
+    if (roles.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0x08FFFFFF),
+        border: Border.all(color: const Color(0x0FFFFFFF)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: const BoxDecoration(
+            color: Color(0x0DFFFFFF),
+            border: Border(bottom: BorderSide(color: Color(0x0DFFFFFF))),
+          ),
+          child: Text('🎭 قدرات الأدوار — تفصيل كل دور',
+              style: ar(12, color: const Color(0xFFE5E7EB), weight: FontWeight.w700)),
+        ),
+        for (var i = 0; i < roles.length; i++)
+          Builder(builder: (_) {
+            final a = cfg.roleAbilities[roles[i]]!;
+            return Container(
+              padding: const EdgeInsets.all(12),
+              decoration: i == 0
+                  ? null
+                  : const BoxDecoration(
+                      border: Border(top: BorderSide(color: Color(0x0DFFFFFF)))),
+              child: Row(children: [
+                Expanded(
+                  child: Text(roleNameAr(roles[i]),
+                      style: ar(11, color: Tw.gray300, weight: FontWeight.w700)),
+                ),
+                const SizedBox(width: 8),
+                _abilityCell('✅', a.correctXp, a.correctRr),
+                const SizedBox(width: 12),
+                _abilityCell('❌', a.wrongXp, a.wrongRr),
+              ]),
+            );
+          }),
+      ]),
+    );
+  }
+
+  /// خلية «صحيحة/خاطئة» لدورٍ واحد — رقاقتا XP وRR فوق بعض.
+  Widget _abilityCell(String icon, int xp, int rr) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 10)),
+          const SizedBox(width: 4),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _valueChip(xp, 'XP', Tw.amber400, const Color(0x1AF59E0B)),
+              _valueChip(rr, 'RR', const Color(0xFF60A5FA), const Color(0x1A3B82F6)),
+            ],
+          ),
+        ],
+      );
 
   Widget _ranksCard(ProgressionConfig cfg) => Container(
         padding: const EdgeInsets.all(12),
@@ -959,7 +1055,8 @@ class RankScreenState extends State<RankScreen>
                   style: ar(11, color: Tw.gray300),
                 ),
                 ltrText(
-                  '${cfg.ranks[RankScale.tiers[i]] ?? '?'} RR',
+                  // رتبة غائبة من الإعدادات تسقط على الثابت — لا «?»
+                  '${RankScale.rrRequiredFrom(RankScale.tiers[i], config: cfg)} RR',
                   ar(12, color: Tw.purple400, weight: FontWeight.w700),
                 ),
               ]),

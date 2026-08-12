@@ -130,6 +130,42 @@ section('6) الملخص يعكس التعديل اليدوي بدقّة (الج
   check('بعد +10: كسب+خسر = المجموع', s.rrGained + s.rrLost === s.rrTotal);
 }
 
+section('7) دلالات الدفتر الجديدة — عقوبة وقنبلة مدموجتان في صافي rr_change عند finalizeMatch');
+{
+  // شيخ مافيا فائز: أساس (فريق +20، نجاة +5) + عقوبة −10 + قنبلة +10 → المخزّن 25
+  const gf = row({
+    role: 'GODFATHER', xpEarned: 90, rrChange: 25,
+    penaltyRRDeduction: -10, bombRRChange: 10,
+    rewardBreakdown: { won: true, team: 'MAFIA', xp: { participation: 20, teamWin: 50, survival: 20 }, rr: { teamResult: 20, survivedToEnd: 5 } },
+  });
+  const s = summarizeMatchPlayerPoints(gf, undefined);
+  check('شيخ المافيا: المجموع = 25 (أساس 25 − عقوبة 10 + قنبلة 10)', s.rrTotal === 25, `=${s.rrTotal}`);
+  check('شيخ المافيا: بند العقوبة −10 ظاهر', s.rrBreakdown.some((l: any) => l.key === 'penalty' && l.value === -10));
+  check('شيخ المافيا: بند القنبلة +10 ظاهر', s.rrBreakdown.some((l: any) => l.key === 'bomb' && l.value === 10));
+  check('شيخ المافيا: لا سطر تسوية (البنود تفسّر المجموع كاملاً)', !s.rrBreakdown.some((l: any) => l.key === 'reconcile'));
+  check('شيخ المافيا: كسب+خسر = المجموع', s.rrGained + s.rrLost === s.rrTotal, `${s.rrGained}+${s.rrLost}≠${s.rrTotal}`);
+
+  // مهرّج فائز مع عقوبة: محايد يبقى محايداً والعقوبة تُخصم من صافيه
+  const j = row({
+    role: 'JESTER', xpEarned: 50, rrChange: 20, penaltyRRDeduction: -10,
+    rewardBreakdown: { won: true, team: 'NEUTRAL', xp: { neutralResult: 50 }, rr: { neutralResult: 30 } },
+  });
+  const sj = summarizeMatchPlayerPoints(j, undefined);
+  check('مهرّج معاقَب: المجموع = 20 (30 − 10)', sj.rrTotal === 20, `=${sj.rrTotal}`);
+  check('مهرّج معاقَب: team = NEUTRAL', sj.team === 'NEUTRAL');
+  check('مهرّج معاقَب: لا سطر تسوية', !sj.rrBreakdown.some((l: any) => l.key === 'reconcile'));
+
+  // عقوبتان متراكمتان (عادية ثم طرد): −10 ثم −40 → penalty_rr_deduction = −50 ضمن الصافي
+  const p2 = row({
+    role: 'CITIZEN', xpEarned: 20, rrChange: -70, penaltyRRDeduction: -50,
+    rewardBreakdown: { won: false, team: 'CITIZEN', xp: { participation: 20 }, rr: { teamResult: -20 } },
+  });
+  const sp2 = summarizeMatchPlayerPoints(p2, undefined);
+  check('عقوبتان: المجموع = −70 (−20 فريق − 50 عقوبات)', sp2.rrTotal === -70, `=${sp2.rrTotal}`);
+  check('عقوبتان: بند العقوبة = −50', sp2.rrBreakdown.some((l: any) => l.key === 'penalty' && l.value === -50));
+  check('عقوبتان: كسب+خسر = المجموع', sp2.rrGained + sp2.rrLost === sp2.rrTotal);
+}
+
 console.log(`\n══════════════════════════════════════`);
 console.log(`النتيجة: ${pass} نجح / ${fail} فشل  (المجموع ${pass + fail})`);
 if (fail > 0) {

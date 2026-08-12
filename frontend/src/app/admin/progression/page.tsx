@@ -176,11 +176,16 @@ export default function ProgressionPage() {
     const breakdown = { team: bd.team, won: bd.won, xp: xpMap, rr: rrMap };
     setAdjusting(true);
     try {
-      await apiFetch(`/api/progression-settings/player/${selPlayer.id}/adjust`, {
+      const resp = await apiFetch(`/api/progression-settings/player/${selPlayer.id}/adjust`, {
         method: 'POST',
         body: JSON.stringify({ matchPlayerId: selMatch.mpId, xpDelta: appliedXpDelta, rrDelta: appliedRrDelta, reason: adjustReason || 'تعديل إداري', breakdown, penaltyRRDeduction: 0, bombRRChange: 0 }),
       });
       showToast(`تم تعديل نقاط ${selPlayer.name} بنجاح`, 'success');
+      // الخادم يُطبّع المستوى/الرتبة بعد التعديل — نعرض قيمه المعتمدة فوراً بدل الافتراض
+      if (resp?.player) {
+        setSelPlayer((p: any) => ({ ...p, ...resp.player }));
+        setPlayers(prev => prev.map((p: any) => (p.id === selPlayer.id ? { ...p, ...resp.player } : p)));
+      }
       loadPlayerMatches(selPlayer.id); // Refresh
       setXpDelta(''); setRrDelta(''); setAdjustReason('');
     } catch (err: any) { showToast(err.message, 'error'); }

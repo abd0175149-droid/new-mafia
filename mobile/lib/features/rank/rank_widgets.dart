@@ -150,7 +150,9 @@ class LeaderboardRowTile extends StatelessWidget {
                 style: ar(12,
                     color: isMe ? Tw.amber400 : Colors.white, weight: FontWeight.w500),
               ),
-              Text('${row.totalMatches} مباراة • ${row.totalWins} فوز',
+              // المستوى ظاهر لأنّه مفتاح الترتيب الثالث في الخادم
+              // (الرتبة ← RR ← المستوى) — بدونه يبدو تعادل RR اعتباطاً.
+              Text('${row.totalMatches} مباراة • ${row.totalWins} فوز • مستوى ${row.level}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: ar(10, color: Tw.gray500)),

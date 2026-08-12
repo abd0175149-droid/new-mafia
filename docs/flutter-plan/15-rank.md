@@ -64,8 +64,10 @@ RANK_TIERS         = [INFORMANT, SOLDIER, CAPO, UNDERBOSS, GODFATHER]
 RANK_NAMES_AR      = { INFORMANT: 'مُخبر', SOLDIER: 'جندي', CAPO: 'كابو', UNDERBOSS: 'أندربوس', GODFATHER: 'الأب الروحي' }
 RANK_BADGES        = { INFORMANT: '🕵️', SOLDIER: '⚔️', CAPO: '🎖️', UNDERBOSS: '💎', GODFATHER: '👑' }
 RANK_COLORS        = { INFORMANT: '#6b7280', SOLDIER: '#3b82f6', CAPO: '#a855f7', UNDERBOSS: '#f59e0b', GODFATHER: '#ef4444' }   // لواجهة الصفحة
-RANK_RR_REQUIRED   = { INFORMANT: 100, SOLDIER: 200, CAPO: 300, UNDERBOSS: 400, GODFATHER: 9999 }
+RANK_RR_REQUIRED   = { INFORMANT: 100, SOLDIER: 200, CAPO: 300, UNDERBOSS: 400, GODFATHER: 9999 }   // fallback أخير فقط — ليست مصدر الحقيقة (انظر التحذير أدناه)
 ```
+
+> **تحذير حرج — `RANK_RR_REQUIRED` ليست مصدر الحقيقة:** قيم الـ RR المطلوبة **قابلة للتعديل من الأدمن** في أي لحظة. مصدر الحقيقة هو `/api/progression-settings/public` → `config.ranks[tier].rrRequired`، أو مباشرةً `profile.progression.rrRequired` الذي يصل جاهزاً من البروفايل (§7.1 صف 3). الخريطة الصلبة أعلاه **fallback أخير فقط** عند تعذّر جلب الـ config (خطأ شبكة قبل امتلاء الـ cache) — لا تُستخدم مقاماً أو مرجعاً أساسياً في أي حساب.
 
 > **تحذير — لوحتا ألوان متعارضتان بالتصميم:** `RANK_COLORS` أعلاه (صفحة الرتب) **ليست** ألوان كرت اللعب. كرت اللعب يستخدم ألوان `RankEffects.css`/الـ config (SOLDIER `#10b981` أخضر، CAPO `#3b82f6`، UNDERBOSS `#8b5cf6`، GODFATHER `#f59e0b`). ولا تساوي ألوان البروفايل في 13-profile.md. **أبقِ الثلاث منفصلة.**
 > **تحذير — مجموعتا شارات:** `RANK_BADGES` (🕵️⚔️🎖️💎👑) تُستخدم في صفوف اللوحة/البروفايل، بينما تبويب «النقاط» يستخدم شارات نجوم مختلفة عمداً (⭐/⭐⭐/🌟/🌟🌟/👑). أبقِ كليهما.
@@ -113,9 +115,9 @@ RANK_RR_REQUIRED   = { INFORMANT: 100, SOLDIER: 200, CAPO: 300, UNDERBOSS: 400, 
 
 - صف علوي (`space-between`):
   - يسار: شارة (2xl) + اسم عربي (أبيض bold `mr-2`) + `#{myRank}` إن `myRank>0`.
-  - يمين (`text-left`): تسمية `RR` + قيمة `prog.rankRR` (`text-lg bold` ملوّنة `mr-1`) + `/{RANK_RR_REQUIRED[tier] || 100}` (رمادي `#4B5563` gray-600، **10px**).
+  - يمين (`text-left`): تسمية `RR` + قيمة `prog.rankRR` (`text-lg bold` ملوّنة `mr-1`) + `/{rrRequired}` (رمادي `#4B5563` gray-600، **10px**) — حيث `rrRequired = prog.rrRequired ?? progressionConfig?.ranks?.[tier]?.rrRequired ?? RANK_RR_REQUIRED[tier] ?? 100` (**config-first**؛ الخريطة الصلبة fallback أخير فقط — §4.0).
 - 4 صناديق إحصاء (تظهر إذا `myStats`): `مباراة` (`totalMatches` أبيض) / `فوز` (`totalWins` أخضر) / `نسبة فوز` (`{winRate}%` أمبر) / `الرانك` (سلسلة الـ enum الخام `prog.rankTier` نص أزرق `#60A5FA` blue-400). نفس تنسيق الصناديق أعلاه.
-- **شريط تقدّم RR:** مسار `h-1.5` (6px) `rounded-full bg-white/5`؛ تعبئة متحرّكة من عرض 0 إلى `min(prog.rankRR / (RANK_RR_REQUIRED[tier] || 100) * 100, 100)%`، لونها `RANK_COLORS[tier]`. حركة framer-motion (spring افتراضي). Flutter: `TweenAnimationBuilder<double>` + `FractionallySizedBox` (~600–800ms، `Curves.easeOut`).
+- **شريط تقدّم RR:** مسار `h-1.5` (6px) `rounded-full bg-white/5`؛ تعبئة متحرّكة من عرض 0 إلى `min(prog.rankRR / rrRequired * 100, 100)%` — بنفس `rrRequired` الـ config-first المعرّف أعلاه (لا تقسم على الخريطة الصلبة مباشرة)، لونها `RANK_COLORS[tier]`. حركة framer-motion (spring افتراضي). Flutter: `TweenAnimationBuilder<double>` + `FractionallySizedBox` (~600–800ms، `Curves.easeOut`).
 
 ### 4.5 شريط التبويبات
 
@@ -433,8 +435,8 @@ RANK_RR_REQUIRED   = { INFORMANT: 100, SOLDIER: 200, CAPO: 300, UNDERBOSS: 400, 
 |---|--------|------|------|---------|--------------------------|
 | 1 | GET | `/api/player-app/leaderboard` | — | — | `{success, leaderboard:[{id, name, avatarUrl, rankTier, rankRR, totalMatches, totalWins, level?}]}` (اللوحة الحية للموسم الوجاهيّ النشط) |
 | 2 | GET | `/api/player-app/{playerId}/co-players` | Bearer | — | `{success, coPlayers:[{id, name, avatarUrl, rankTier, matchCount, isFollowing}]}` |
-| 3 | GET | `/api/player/{id}/profile` | — | — | `{success, player:{name, avatarUrl}, progression:{rankTier, rankRR}, stats:{totalMatches, totalWins, winRate, survivalRate}, matchHistory:[{role, matchWinner, matchDate}]}` (لنفسي `myProfile` ولأي لاعب معروض) |
-| 4 | GET | `/api/progression-settings/public` | — | — | `{success, config:{xp:{participation, teamWin, teamLoss, survivalPerRound, survivedToEnd, teamEliminationBonus, citizenDealOnMafia, failedDeal, mafiaDealOnMafia, abilityCorrect, abilityIncorrect}, rr:{نفس المفاتيح}, ranks:{TIER:{rrRequired}}}}` (مغلّف `.catch(()=>null)`) |
+| 3 | GET | `/api/player/{id}/profile` | — | — | `{success, player:{name, avatarUrl}, progression:{xp, level, nextLevelXP, xpProgress (0–100 مقيّد من السيرفر), rankTier, rankRR, rrRequired, totalDeals, successfulDeals, dealSuccessRate}, stats:{totalMatches, totalWins, winRate, survivalRate}, matchHistory:[{role, matchWinner, matchDate}]}` — `rrRequired`/`nextLevelXP` يصلان دائماً fresh (الـ config يُطبَّق عند الإقلاع وعند حفظ الإعدادات) (لنفسي `myProfile` ولأي لاعب معروض) |
+| 4 | GET | `/api/progression-settings/public` | — | — | `{success, config:{xp:{...14 مفتاحاً}, rr:{...17 مفتاحاً}, ranks:{TIER:{rrRequired}}, roleAbilities:{ROLE:{correctXp, correctRr, wrongXp, wrongRr}}, level:{baseXP, exponent}, demotionReturnPercent}}` — المفاتيح الكاملة أدناه (مغلّف `.catch(()=>null)`) |
 | 5 | GET | `/api/seasons/public/active` | — | — | `{success, season:{id, name}}` |
 | 6 | GET | `/api/seasons/public/list` | — | — | `{success, seasons:[{id, name}]}` (مواسم وجاهيّة) |
 | 7 | GET | `/api/seasons/public/online-list` | — | — | `{success, seasons:[{id, name}], activeOnlineSeasonId}` |
@@ -446,6 +448,25 @@ RANK_RR_REQUIRED   = { INFORMANT: 100, SOLDIER: 200, CAPO: 300, UNDERBOSS: 400, 
 **ملاحظات مهمة:**
 - **`avatarUrl` قد يكون مساراً نسبياً:** صفحة الرتب في الويب تستخدمه كما هو (same-origin proxy). في Flutter **يجب** prefix بعنوان الـ base (socket/API URL) عند كونه نسبياً، مع cache-busting متسق (`?t=...`) — راجع 03-networking-rest.md.
 - لا endpoints جديدة. التطبيق عميل ثانٍ لنفس الـ backend.
+
+#### 7.1.1 بنية `config` الكاملة (`/api/progression-settings/public`) — كلها قابلة للتعديل من الأدمن (القيم أدناه = الافتراضيات)
+
+- **`xp` (14 مفتاحاً):** `participation:20, teamWin:50, survivalPerRound:5, abilityCorrect:10, abilityIncorrect:-5, citizenDealOnMafia:50, failedDeal:-10, mafiaDealOnMafia:-10, teamEliminationBonus:15, jesterWin:50, jesterLoss:0, assassinWin:80, assassinLoss:10, assassinContractComplete:15`.
+- **`rr` (17 مفتاحاً):** `teamWin:20, teamLoss:-20, citizenDealOnMafia:20, failedDeal:-30, mafiaDealOnMafia:-30, survivedToEnd:5, abilityCorrect:5, abilityIncorrect:-5, penaltyDeduction:-10, penaltyKickDeduction:-30, bombHitCitizen:10, bombHitMafia:-10, jesterWin:30, jesterLoss:-10, assassinWin:30, assassinLoss:-15, assassinContractComplete:10`.
+- **مفاتيح `xp` و`rr` ليست متطابقة:** `xp` بلا `teamLoss`/`survivedToEnd`/عقوبات/قنبلة، و`rr` بلا `participation`/`survivalPerRound`/`teamEliminationBonus`. تبويب «النقاط» يخفي الـ chip/الصف تلقائياً عند غياب المفتاح (§4.8) — هذا هو السلوك الصحيح، لا تفترض التماثل.
+- **`ranks`:** `{INFORMANT:{rrRequired:100}, SOLDIER:{rrRequired:200}, CAPO:{rrRequired:300}, UNDERBOSS:{rrRequired:400}, GODFATHER:{rrRequired:9999}}` — **هذا هو مصدر الحقيقة لمتطلّب الترقية** (لا `RANK_RR_REQUIRED` الصلبة).
+- **`roleAbilities`:** overrides لكل دور — `SNIPER/SHERIFF/DOCTOR/NURSE/POLICEWOMAN/GODFATHER/SILENCER/WITCH: {correctXp, correctRr, wrongXp, wrongRr}`. تتقدّم على العامة؛ الدور الغائب يسقط على `xp.abilityCorrect/abilityIncorrect` + `rr.abilityCorrect/abilityIncorrect`. **SHERIFF wrong = 0/0 متعمّد** (لا عقوبة على خطأ الشريف) — لا تعتبره نقص بيانات.
+- **`level`:** `{baseXP:500, exponent:1.2}` — معادلة المستوى أدناه.
+- **`demotionReturnPercent`:** `80`.
+
+#### 7.1.2 قواعد سيرفر يجب أن تعكسها الواجهة
+
+- **ترتيب اللوحة يُحسم على السيرفر:** `rankTier DESC → rankRR DESC → level DESC`. لا تعِد الترتيب على العميل — اعرض الصفوف كما وصلت.
+- **معادلة المستوى:** `xpForNextLevel(L) = floor(baseXP × L^exponent)`. **`players.xp` هو المتبقّي داخل المستوى الحالي (residual) لا التراكمي**، و`progression.xpProgress` يصل جاهزاً من السيرفر مقيّداً 0–100 — لا تعِد حسابه.
+- **الهبوط (demotion):** عند النزول رتبةً يعود اللاعب عند `demotionReturnPercent%` (افتراضياً 80%) من متطلّب الرتبة الأدنى.
+- **القنبلة على محايد (JESTER/ASSASSIN) = 0 RR** — لا `bombHitCitizen` ولا `bombHitMafia`؛ المحايد ليس مواطناً ولا مافيا.
+- **العقوبات والقنبلة تُرسَّخ في `match_players` عند الـ finalize** (`rr_change` + `penalty_rr_deduction` / `bomb_rr_change`) — عليها يعتمد مودال تفصيل النقاط (16-history.md).
+- **إنهاء المواسم:** `POST /api/seasons/{id}/end` على الموسم **العادي النشط** يرجع **HTTP 409** برسالة عربية (الطريق الصحيح: بدء موسم عادي جديد). لا يخص شاشة اللاعب مباشرة لكنه يفسّر أن الموسم الوجاهيّ النشط موجود دائماً.
 
 ### 7.2 Socket
 
@@ -464,8 +485,14 @@ class RankConst {
   static const namesAr = {RankTier.INFORMANT:'مُخبر', RankTier.SOLDIER:'جندي', RankTier.CAPO:'كابو', RankTier.UNDERBOSS:'أندربوس', RankTier.GODFATHER:'الأب الروحي'};
   static const badges  = {RankTier.INFORMANT:'🕵️', RankTier.SOLDIER:'⚔️', RankTier.CAPO:'🎖️', RankTier.UNDERBOSS:'💎', RankTier.GODFATHER:'👑'};
   static const colors  = {RankTier.INFORMANT:0xFF6B7280, RankTier.SOLDIER:0xFF3B82F6, RankTier.CAPO:0xFFA855F7, RankTier.UNDERBOSS:0xFFF59E0B, RankTier.GODFATHER:0xFFEF4444};
-  static const rrRequired = {RankTier.INFORMANT:100, RankTier.SOLDIER:200, RankTier.CAPO:300, RankTier.UNDERBOSS:400, RankTier.GODFATHER:9999};
+  // fallback أخير فقط — مصدر الحقيقة config.ranks[tier].rrRequired أو progression.rrRequired (§4.0, §7.1.1). لا تقرأها مباشرة؛ استخدم rrRequiredFor()
+  static const rrRequiredFallback = {RankTier.INFORMANT:100, RankTier.SOLDIER:200, RankTier.CAPO:300, RankTier.UNDERBOSS:400, RankTier.GODFATHER:9999};
 }
+
+/// config-first: كل استهلاك لمتطلّب RR يمرّ من هنا — لا وصول مباشر للخريطة الصلبة.
+/// الأولوية: rrRequired الجاهز من البروفايل ← config.ranks[tier].rrRequired ← الـ fallback الصلب ← 100.
+int rrRequiredFor(RankTier tier, {int? fromProfile, ProgressionConfig? config}) =>
+    fromProfile ?? config?.ranks[tier.name]?.rrRequired ?? RankConst.rrRequiredFallback[tier] ?? 100;
 
 class LeaderboardRow {
   final int id; final String? name; final String? avatarUrl;
@@ -484,21 +511,30 @@ class OnlineSeasonsResp { final List<Season> seasons; final int? activeOnlineSea
 class PlayerProfileResp {
   final bool success;
   final ProfilePlayer? player;      // {name, avatarUrl}
-  final ProfileProgression? progression; // {rankTier, rankRR}
+  final ProfileProgression? progression; // الحمولة الكاملة — §7.1 صف 3
   final ProfileStats? stats;        // {totalMatches, totalWins, winRate, survivalRate}
   final List<ProfileMatch> matchHistory; // {role, matchWinner, matchDate}
 }
 class ProfilePlayer { final String? name; final String? avatarUrl; }
-class ProfileProgression { final String rankTier; final int rankRR; }
+class ProfileProgression {
+  final int xp; final int level; final int nextLevelXP; final num xpProgress; // 0–100 مقيّد من السيرفر — لا تعِد حسابه
+  final String rankTier; final int rankRR; final int rrRequired; // rrRequired يصل دائماً fresh من الـ config
+  final int totalDeals; final int successfulDeals; final num dealSuccessRate;
+}
 class ProfileStats { final int totalMatches; final int totalWins; final num winRate; final num survivalRate; }
 class ProfileMatch { final String? role; final String? matchWinner; final String? matchDate; }
 
 class ProgressionConfig {
-  final Map<String,int> xp;   // keys: participation, teamWin, teamLoss, survivalPerRound,
-  final Map<String,int> rr;   //       survivedToEnd, teamEliminationBonus, citizenDealOnMafia,
-  final Map<String,RankReq> ranks; //  failedDeal, mafiaDealOnMafia, abilityCorrect, abilityIncorrect
+  final Map<String,int> xp;   // 14 مفتاحاً — §7.1.1 (بلا teamLoss/survivedToEnd/عقوبات/قنبلة)
+  final Map<String,int> rr;   // 17 مفتاحاً — §7.1.1 (تشمل العقوبات والقنبلة والمحايدين)
+  final Map<String,RankReq> ranks;                     // مصدر الحقيقة لمتطلّب الترقية
+  final Map<String,RoleAbilityOverride> roleAbilities; // SNIPER…WITCH؛ الدور الغائب → fallback على abilityCorrect/Incorrect
+  final LevelConfig level;            // xpForNextLevel(L) = floor(baseXP × L^exponent)
+  final int demotionReturnPercent;    // افتراضياً 80
 }
 class RankReq { final int? rrRequired; }
+class RoleAbilityOverride { final int correctXp; final int correctRr; final int wrongXp; final int wrongRr; } // SHERIFF wrong = 0/0 متعمّد
+class LevelConfig { final num baseXP; final num exponent; }
 
 // ── تأثيرات الكرت (من useGameConfig.RankEffectsDef) ──
 class RankEffectsDef { final String id; final String nameAr; final int sortOrder; final RankEffects effects; }
@@ -577,7 +613,7 @@ enum FrameType { none, simple, greek, islamic, deco, royal }
 - [ ] مبدّل الوضع يظهر فقط إذا `onlineSeasons.length>0`، بألوان وجاهيّ أمبر / أونلاين سماوي الحرفية.
 - [ ] منسدلة الموسم بنصوص `🗓️ {name}` ولاحقة ` • الحالي`، وبدائل `🌐 لا مواسم أونلاين بعد` / `🗓️ موسم: {name}`.
 - [ ] بطاقة «رتبتي» تعرض الصيغة الصحيحة (حالي مقابل سابق/أونلاين) بحالات `جارٍ التحميل…` / صف / `لم تلعب في هذا الموسم`.
-- [ ] شريط تقدّم RR يتحرّك من 0 إلى النسبة المحسوبة بلون الرتبة.
+- [ ] شريط تقدّم RR يتحرّك من 0 إلى النسبة المحسوبة بلون الرتبة — **المقام config-first** (`prog.rrRequired` ← `config.ranks[tier].rrRequired` ← fallback صلب أخير)، لا قسمة مباشرة على `RANK_RR_REQUIRED`.
 - [ ] التبويبات الثلاثة بنصوصها، وانتقال fade، وإعادة `glowing=true` عند نقر `الترتيب`.
 - [ ] المنصّة top-3 تظهر فقط عند `>=3`، بترتيب #2/#1/#3 وأحجام 56/72/56 والقصّ اليدوي 8/10/8، وميداليات 🥈🥇🥉.
 - [ ] الصفوف من المركز الرابع (`slice(3)`)؛ صفّي مميّز + ` (أنت)` + توهّج `pulse-glow 1.5s` يتوقّف بعد 5s + غير قابل للنقر.

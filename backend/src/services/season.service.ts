@@ -231,14 +231,29 @@ export async function endSeason(seasonId: number): Promise<void> {
   invalidateSeasonCache();
 }
 
-// ── بدء موسم عادي جديد: ينهي الحالي + يصفّر players.* + يبدأ موسماً ──
+// ── بدء موسم عادي جديد: يثبّت أرشيف الحالي + ينهيه + يصفّر players.* + يبدأ موسماً ──
 // ⚠️ يجب ألا تكون هناك مباريات جارية (يفحصها المُستدعي).
 export async function startRegularSeason(name: string, createdBy?: number): Promise<SeasonRow> {
   const db = getDB();
   if (!db) throw new Error('DB unavailable');
 
-  // 1) إنهاء الموسم العادي الحالي (إن وُجد) — إحصاءاته محفوظة في player_season_stats
   const currentId = await getActiveRegularSeasonId();
+
+  // 0) 🧊 لقطة التثبيت النهائية: مصالحة كاملة للموسم المنتهي من مصدر الحقيقة (match_players
+  //    + rank_bonuses) قبل إنهائه — تضمن أن player_season_stats (الأرشيف الذي تقرؤه كل
+  //    واجهات «المواسم السابقة») مطابق للحقيقة حرفياً لحظة التجميد، وتصحّح أي صف مرآة قديم.
+  //    فشل اللقطة = إجهاض التبديل: لا نجمّد أرشيفاً غير مؤكد أبداً.
+  if (currentId) {
+    const { reconcileSeasonProgression } = await import('./reconcile.service.js');
+    const snap = await reconcileSeasonProgression(currentId, true);
+    // 'mass-zero-guard' = موسم بلا أي مباراة محتسبة → لا شيء يُثبَّت، والمتابعة آمنة
+    if (!snap.applied && snap.reason !== 'mass-zero-guard') {
+      throw new Error(`فشل تثبيت أرشيف الموسم #${currentId} قبل الإنهاء (${snap.reason}) — أُجهض بدء الموسم الجديد`);
+    }
+    console.log(`🧊 [startRegularSeason] Season #${currentId} archive frozen — players=${snap.players}, counted=${snap.counted}, reason=${snap.reason}`);
+  }
+
+  // 1) إنهاء الموسم العادي الحالي (إن وُجد) — إحصاءاته مثبّتة الآن في player_season_stats
   if (currentId) {
     await db.update(seasons).set({ status: 'ENDED', endedAt: new Date() } as any).where(eq(seasons.id, currentId));
   }

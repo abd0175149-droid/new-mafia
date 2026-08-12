@@ -581,6 +581,18 @@ async function main() {
   // ── بذر البيانات ──
   await seedDatabase();
 
+  // ── 🏆 تحميل إعدادات التقدّم على معاملات الحساب في الذاكرة ──
+  // بدونها تُخدَم عتبات البروفايل (rrRequired/nextLevelXP) بالقيم الافتراضية المدمجة في الكود
+  // بعد كل إعادة تشغيل، حتى تنتهي أول مباراة في العملية. (تُحدَّث أيضاً عند حفظ الإعدادات.)
+  try {
+    const { getProgressionConfig } = await import('./routes/progression-settings.routes.js');
+    const { applyProgressionConfig } = await import('./services/progression.service.js');
+    applyProgressionConfig(await getProgressionConfig());
+    console.log('✅ Progression config loaded into runtime parameters');
+  } catch (err: any) {
+    console.warn('⚠️ Progression config boot load failed (defaults in effect):', err.message);
+  }
+
   // ── إعادة بناء الغرف النشطة من Redis ──
   await rehydrateActiveRooms();
 

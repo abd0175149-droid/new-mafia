@@ -84,6 +84,21 @@ let configCache: any = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 60_000; // 1 دقيقة
 
+// ── دمج إعدادات مخزّنة/واردة مع الافتراضيات (مصدر واحد للدمج — يستعمله getConfig وPUT) ──
+// يضمن أن أي مفتاح ناقص يسقط على قيمته الافتراضية بدل أن يختفي من الحساب أو العرض.
+function mergeWithDefaults(dbConfig: any) {
+  if (!dbConfig) return DEFAULT_CONFIG;
+  return {
+    ...DEFAULT_CONFIG,
+    ...dbConfig,
+    xp: { ...DEFAULT_CONFIG.xp, ...(dbConfig.xp || {}) },
+    rr: { ...DEFAULT_CONFIG.rr, ...(dbConfig.rr || {}) },
+    ranks: { ...DEFAULT_CONFIG.ranks, ...(dbConfig.ranks || {}) },
+    level: { ...DEFAULT_CONFIG.level, ...(dbConfig.level || {}) },
+    roleAbilities: { ...DEFAULT_CONFIG.roleAbilities, ...(dbConfig.roleAbilities || {}) },
+  };
+}
+
 async function getConfig() {
   if (configCache && Date.now() - cacheTimestamp < CACHE_TTL) return configCache;
 
@@ -104,20 +119,7 @@ async function getConfig() {
   }
 
   const row = rows.find(r => r.key === 'progression');
-  const dbConfig = row?.value as any;
-  if (!dbConfig) {
-    configCache = DEFAULT_CONFIG;
-  } else {
-    configCache = {
-      ...DEFAULT_CONFIG,
-      ...dbConfig,
-      xp: { ...DEFAULT_CONFIG.xp, ...(dbConfig.xp || {}) },
-      rr: { ...DEFAULT_CONFIG.rr, ...(dbConfig.rr || {}) },
-      ranks: { ...DEFAULT_CONFIG.ranks, ...(dbConfig.ranks || {}) },
-      level: { ...DEFAULT_CONFIG.level, ...(dbConfig.level || {}) },
-      roleAbilities: { ...DEFAULT_CONFIG.roleAbilities, ...(dbConfig.roleAbilities || {}) },
-    };
-  }
+  configCache = mergeWithDefaults(row?.value as any);
   cacheTimestamp = Date.now();
   return configCache;
 }
@@ -151,22 +153,32 @@ router.put('/', authenticate, adminOnly, async (req: Request, res: Response) => 
     const newConfig = req.body.config;
     if (!newConfig) return res.status(400).json({ error: 'config is required' });
 
+    // 🧩 دمج مع الافتراضيات قبل التخزين والكيّش — إعداد ناقص لا يُسقط مفاتيح من الحساب/العرض
+    const merged = mergeWithDefaults(newConfig);
+
     const existing = await db.select().from(progressionConfig).where(eq(progressionConfig.key, 'progression')).limit(1);
 
     if (existing.length === 0) {
       await db.insert(progressionConfig).values({
         key: 'progression',
-        value: newConfig,
+        value: merged,
       } as any);
     } else {
       await db.update(progressionConfig)
-        .set({ value: newConfig, updatedAt: new Date() } as any)
+        .set({ value: merged, updatedAt: new Date() } as any)
         .where(eq(progressionConfig.key, 'progression'));
     }
 
-    // مسح الكاش
-    configCache = newConfig;
+    // تحديث الكاش بالنسخة المدموجة
+    configCache = merged;
     cacheTimestamp = Date.now();
+
+    // ⚡ تطبيق فوري على معاملات الحساب في الذاكرة (عتبات الرتب + معادلة المستوى + نسبة التنزيل)
+    // كي تعكس عتبات البروفايل (rrRequired/nextLevelXP) التعديل فوراً — لا انتظار لنهاية مباراة.
+    try {
+      const { applyProgressionConfig } = await import('../services/progression.service.js');
+      applyProgressionConfig(merged);
+    } catch { /* غير حاجب — سيُطبَّق عند أول احتساب */ }
 
     res.json({ success: true });
   } catch (err: any) {
@@ -270,9 +282,20 @@ router.post('/player/:playerId/adjust', authenticate, adminOnly, async (req: Req
 
     if (Object.keys(playerUpdates).length > 0) {
       await db.update(players).set(playerUpdates).where(eq(players.id, playerId));
+
+      // 🧮 تطبيع بعد الدلتا: تشغيل حلقتي المستوى والترقية بنفس منطق الاحتساب الحي —
+      // بدونها يبقى xp أعلى من متطلب المستوى (شريط >100%) وRR فوق عتبة الرتبة بلا ترقية.
+      try {
+        const { applyXPAndLevel, applyRR, applyProgressionConfig } = await import('../services/progression.service.js');
+        applyProgressionConfig(await getConfig()); // عتبات محدّثة قبل التطبيع
+        if (xpDelta !== undefined && xpDelta !== 0) await applyXPAndLevel(playerId, 0);
+        if (rrDelta !== undefined && rrDelta !== 0) await applyRR(playerId, 0);
+      } catch (normErr: any) {
+        console.warn(`⚠️ Post-adjust normalization failed for player ${playerId}:`, normErr.message);
+      }
     }
 
-    // جلب البيانات المحدثة
+    // جلب البيانات المحدثة (بعد التطبيع)
     const updated = await db.select({ xp: players.xp, level: players.level, rankTier: players.rankTier, rankRR: players.rankRR })
       .from(players).where(eq(players.id, playerId)).limit(1);
 

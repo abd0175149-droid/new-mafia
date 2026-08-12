@@ -271,7 +271,12 @@ export interface GameState {
   performanceTracking: {
     dealOutcomes: Array<{ initiatorPhysicalId: number; targetPhysicalId: number; targetRole: string; success: boolean }>;
     abilityResults: Array<{ physicalId: number; role: string; correct: boolean }>;
-    eliminationLog: Array<{ physicalId: number; eliminatedBy: string; round: number; team: 'MAFIA' | 'CITIZEN' }>;
+    eliminationLog: Array<{ physicalId: number; eliminatedBy: string; round: number; team: 'MAFIA' | 'CITIZEN' | 'NEUTRAL' }>;
+    // ⚖️ عقوبات الليدر أثناء المباراة — تُدمج في صفوف match_players عند finalizeMatch
+    // (الدفتر = مصدر الحقيقة؛ الكتابة المباشرة أثناء اللعب كانت تصيب صفوفاً غير موجودة فتضيع)
+    penaltyEvents?: Array<{ physicalId: number; playerId: number | null; rr: number; round: number; kicked: boolean }>;
+    // 💣 نتيجة قنبلة شيخ المافيا — تُدمج في صفّه عند finalizeMatch لنفس السبب
+    bombEvents?: Array<{ physicalId: number; playerId: number | null; rr: number; round: number }>;
   };
   // ── حالة الشرطية ──
   policewomanState?: {
