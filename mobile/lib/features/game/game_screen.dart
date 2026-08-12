@@ -211,7 +211,13 @@ class _GameScreenState extends State<GameScreen> {
             FilteringTextInputFormatter.digitsOnly,
             LengthLimitingTextInputFormatter(4),
           ],
-          onChanged: (v) => setState(() => _c.roomCodeInput = v),
+          onChanged: (v) {
+            setState(() => _c.roomCodeInput = v);
+            // 🔴 الكود أربع خاناتٍ بالضبط: عند اكتمالها لا حاجة للوحة،
+            //    فتُغلق تلقائياً ويظهر زرّ الاتّصال. هذا هو المخرج الطبيعيّ
+            //    على iOS حيث لا زرّ Return في لوحة الأرقام.
+            if (v.length == 4) FocusScope.of(context).unfocus();
+          },
           style: mono(34, color: Colors.white, weight: FontWeight.w900)
               .copyWith(letterSpacing: 14),
           decoration: InputDecoration(
@@ -465,10 +471,16 @@ class _Shell extends StatelessWidget {
         //    (`extendBody`). خلفيةٌ معتمة هنا تُغطّي ذلك كلَّه فيصير الشريط
         //    كأنه جالسٌ على لوحٍ أسود مستقلّ عن الصفحة — وهو ما رآه المالك.
         backgroundColor: Colors.transparent,
-        // 🔴 `bottom: false`: SafeArea السفلية كانت تُنهي المحتوى فوق
-        //    الشريط بحدٍّ حادّ فيُقصّ الكارت. المطلوب أن يمرّ المحتوى
-        //    **خلف** الزجاج فيكسره — وهذا شرط أن يُرى الزجاج أصلاً.
-        body: SafeArea(
+        // 🔴 لمسةٌ في أيّ فراغٍ تُغلق لوحة المفاتيح: على iOS لوحة الأرقام
+        //    (`TextInputType.number`) **بلا زرّ Return**، وحقل الكود
+        //    `autofocus` — فبلا هذا المخرج تبقى اللوحة عالقةً بلا طريقة
+        //    لإخفائها. على أندرويد يغلقها زرّ الرجوع، فالعلّة iOS وحدها.
+        // 🔴 `translucent` لا `opaque`: الأبناء (الحقول والأزرار) يظلّون
+        //    يلتقطون لمساتهم أوّلاً، وهذا يلتقط ما يسقط في الفراغ فقط.
+        body: GestureDetector(
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          behavior: HitTestBehavior.translucent,
+          child: SafeArea(
           bottom: false,
           child: Center(
             child: SingleChildScrollView(
@@ -496,6 +508,7 @@ class _Shell extends StatelessWidget {
                 ]),
               ),
             ),
+          ),
           ),
         ),
       );
