@@ -53,6 +53,16 @@ export interface CollusionPair {
   band: RiskBand;
 }
 
+export interface DepartureEvent {
+  playerId: number | null; name: string; physicalId: number | null;
+  roomId: string | null; durationMs: number; secretOpen: boolean; at: string;
+}
+export interface FollowOutPair {
+  aId: number; aName: string;    // خرج أوّلاً (المسرِّب؟)
+  bId: number; bName: string;    // خرج بعده بلحظات (تلقّى الرسالة؟)
+  count: number;                 // كم مرّةً تبع خروجُ ب خروجَ أ خلال النافذة
+}
+
 export interface AnticheatOverview {
   generatedAt: string;
   totalMatches: number;
@@ -60,7 +70,13 @@ export interface AnticheatOverview {
   populationDealBaseline: number;
   players: PlayerRisk[];
   pairs: CollusionPair[];
+  // 🕵️ السلوك اللحظيّ (من cheat_signals): خروجاتٌ حديثة + «من خرج بعد من»
+  recentDepartures: DepartureEvent[];
+  followOutPairs: FollowOutPair[];
 }
+
+/** نافذة «خرج بعده» بالثواني — من غادر خلالها بعد آخر يُشتبه أنّه تلقّى تسريباً. */
+const FOLLOW_OUT_SECONDS = 90;
 
 // z ثنائيّ الحدّ: كم انحرافاً معياريّاً تبعد النسبة المرصودة عن الأساس.
 function binomZ(observed: number, baseline: number, n: number): number {
@@ -199,6 +215,44 @@ export async function computeAnticheatOverview(opts: { sinceDays?: number } = {}
   const score = (pr: PlayerRisk) => Math.max(pr.dealZ ?? 0, pr.pairZMax ?? 0, pr.behavioralWeight / 5);
   players.sort((x, y) => bandRank[x.band] - bandRank[y.band] || score(y) - score(x));
 
+  // ── 🕵️ خروجاتٌ حديثة من التطبيق (بمدّتها وهل السرّ مفتوح) ──
+  const depRows = rows(await db.execute(sql`
+    SELECT player_id, player_name, physical_id, room_id,
+      COALESCE((details->>'durationMs')::int, 0) AS dur,
+      COALESCE((details->>'secretOpen')::boolean, false) AS secret,
+      created_at
+    FROM cheat_signals WHERE kind = 'app_departure'
+    ORDER BY created_at DESC LIMIT 40
+  `));
+  const recentDepartures: DepartureEvent[] = depRows.map((r: any) => ({
+    playerId: r.player_id != null ? Number(r.player_id) : null,
+    name: r.player_name || (r.physical_id != null ? `مقعد ${r.physical_id}` : 'لاعب'),
+    physicalId: r.physical_id != null ? Number(r.physical_id) : null,
+    roomId: r.room_id ?? null,
+    durationMs: Number(r.dur), secretOpen: r.secret === true,
+    at: new Date(r.created_at).toISOString(),
+  }));
+
+  // ── 🔗 «من خرج بعد من»: خروج ب خلال ٩٠ث بعد خروج أ في نفس الغرفة (توقيع تسريبٍ لحظيّ) ──
+  const followRows = rows(await db.execute(sql`
+    SELECT a.player_id AS a, MAX(a.player_name) AS an,
+           b.player_id AS b, MAX(b.player_name) AS bn, COUNT(*)::int AS n
+    FROM cheat_signals a
+    JOIN cheat_signals b ON b.room_id = a.room_id AND b.player_id <> a.player_id
+      AND b.created_at > a.created_at
+      AND b.created_at <= a.created_at + (${FOLLOW_OUT_SECONDS} || ' seconds')::interval
+    WHERE a.kind = 'app_departure' AND b.kind = 'app_departure'
+      AND a.player_id IS NOT NULL AND b.player_id IS NOT NULL AND a.room_id IS NOT NULL
+    GROUP BY a.player_id, b.player_id
+    HAVING COUNT(*) >= 2
+    ORDER BY COUNT(*) DESC LIMIT 25
+  `));
+  const followOutPairs: FollowOutPair[] = followRows.map((r: any) => ({
+    aId: Number(r.a), aName: r.an || `لاعب #${r.a}`,
+    bId: Number(r.b), bName: r.bn || `لاعب #${r.b}`,
+    count: Number(r.n),
+  }));
+
   return {
     generatedAt: new Date().toISOString(),
     totalMatches: (rows(await db.execute(sql`SELECT COUNT(*)::int AS c FROM matches WHERE ended_at IS NOT NULL`))[0]?.c) ?? 0,
@@ -206,5 +260,7 @@ export async function computeAnticheatOverview(opts: { sinceDays?: number } = {}
     populationDealBaseline: dealBaseline,
     players,
     pairs: pairs.slice(0, 40),
+    recentDepartures,
+    followOutPairs,
   };
 }
