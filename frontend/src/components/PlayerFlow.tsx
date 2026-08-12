@@ -19,6 +19,7 @@ import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 import { ROLE_NAMES, MAFIA_ROLES } from '@/lib/constants';
 import { Users } from 'lucide-react';
 import MafiaTeamGallery from './MafiaTeamGallery';
+import SecretWatermark from './SecretWatermark';
 import PlayerNotepad from './PlayerNotepad';
 import OrderPanel from './OrderPanel';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
@@ -211,6 +212,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   };
 
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  // 🕵️ مكافحة الغش — تتبّع مغادرة الصفحة أثناء المباراة (نمط تهريب محتمل)
+  const galleryOpenRef = useRef(false);
+  useEffect(() => { galleryOpenRef.current = isGalleryOpen; }, [isGalleryOpen]);
+  const bgAtRef = useRef<number | null>(null);
+  const bgSecretRef = useRef(false);
   const [assassinContracts, setAssassinContracts] = useState<any>(null);
   const [switchConfirm, setSwitchConfirm] = useState<{
     currentRoomId: string;
@@ -1468,14 +1474,32 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
     // 📲 مزامنة فوريّة عند عودة التطبيق للمقدّمة/التركيز — مؤقّتات الخلفيّة تُخنَق على الهاتف
     // فلا يكفي الـ interval وحده؛ هذا يضمن التقاط أيّ انتقالٍ فات أثناء الخلفيّة خلال لحظة.
+    // 🕵️ ويرصد مغادرة الصفحة أثناء المباراة: غيابٌ ذو دلالة (والسرّ مفتوح أو مطوّل) يُبثّ للّيدر.
+    const onVis = () => {
+      if (document.visibilityState === 'hidden') {
+        bgAtRef.current = Date.now();
+        bgSecretRef.current = galleryOpenRef.current;
+      } else {
+        pollState();
+        if (bgAtRef.current != null) {
+          const durMs = Date.now() - bgAtRef.current;
+          bgAtRef.current = null;
+          if (bgSecretRef.current || durMs > 4000) {
+            import('@/lib/socket').then(m =>
+              m.getSocket().emit('cheat:app-departure', { durationMs: durMs, secretOpen: bgSecretRef.current, platform: 'web' }),
+            ).catch(() => {});
+          }
+        }
+      }
+    };
     const onWake = () => { if (document.visibilityState === 'visible') pollState(); };
-    document.addEventListener('visibilitychange', onWake);
+    document.addEventListener('visibilitychange', onVis);
     window.addEventListener('focus', onWake);
     window.addEventListener('online', onWake);
 
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', onWake);
+      document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onWake);
       window.removeEventListener('online', onWake);
     };
@@ -3166,7 +3190,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       TAP CARD TO REVEAL YOUR IDENTITY
                     </p>
 
-                    <div className="flex justify-center mb-6">
+                    <div className="relative flex justify-center mb-6">
+                      {/* 💧 بعد الكشف تُغطّى البطاقة بعلامةٍ مائيّة تفضح مسرّب أيّ لقطة */}
+                      {cardFlipped && (
+                        <SecretWatermark opacity={0.08}
+                          label={`${displayName || 'لاعب'} · مقعد ${physicalId} · ${roomCode} · ${new Date().toTimeString().slice(0, 5)}`} />
+                      )}
                       <MafiaCard
                         key={`card-role-${physicalId}`}
                         playerNumber={parseInt(physicalId)}
@@ -3844,6 +3873,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         sibling={assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? sibling : null}
         isAssassin={assignedRole === 'ASSASSIN'}
         assassinContracts={assassinContracts}
+        /* 💧 وسمٌ يفضح مسرّب أيّ لقطة — الاسم والمقعد والغرفة والوقت */
+        watermark={`${displayName || 'لاعب'} · مقعد ${physicalId} · ${roomCode} · ${new Date().toTimeString().slice(0, 5)}`}
       />
 
       {/* ── زر شركاء المافيا العائم (موجود كشكل للجميع لتجنب كشف الدور) ── */}

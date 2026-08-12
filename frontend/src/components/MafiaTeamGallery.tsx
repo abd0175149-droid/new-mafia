@@ -4,6 +4,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Users, Target, Shield, Eye, Vote, MessageCircle } from 'lucide-react';
 import { ROLE_NAMES, ROLE_ICONS, Role } from '@/lib/constants';
+import SecretWatermark from './SecretWatermark';
 
 interface AssassinContract {
   id: number;
@@ -43,6 +44,8 @@ interface MafiaTeamGalleryProps {
     completedCount: number;
     totalRequired: number;
   } | null;
+  // 💧 وسمُ العلامة المائيّة — يفضح مسرّب أيّ لقطة
+  watermark?: string;
 }
 
 // ── أيقونة الدور حسب role string ──
@@ -53,7 +56,7 @@ function getRoleName(role: string): string {
   return ROLE_NAMES[role as Role] || role;
 }
 
-export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAssassin, assassinContracts }: MafiaTeamGalleryProps) {
+export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAssassin, assassinContracts, watermark }: MafiaTeamGalleryProps) {
   React.useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -85,6 +88,8 @@ export default function MafiaTeamGallery({ isOpen, onClose, team, sibling, isAss
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="relative w-full max-w-sm mx-auto flex flex-col items-center justify-center p-4 max-h-[90dvh] overflow-y-auto overscroll-contain"
           >
+            {/* 💧 علامةٌ مائيّة تفضح مسرّب أيّ لقطة */}
+            {watermark && <SecretWatermark label={watermark} />}
             {/* Close Button */}
             <button
               onClick={onClose}

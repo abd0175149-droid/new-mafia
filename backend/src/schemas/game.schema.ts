@@ -119,3 +119,24 @@ export const surveys = pgTable('surveys', {
   comment: text('comment'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+// ── 🕵️ إشارات مكافحة الغش — Cheat Signals ───────────────
+// كلّ إشارةٍ سلوكيّة مشبوهة من جهاز اللاعب أثناء المباراة: غيابٌ عن التطبيق
+// أثناء/بعد رؤية سرّ (نمط التهريب)، أو لقطة شاشة كُشفت (iOS)، أو تسجيل شاشة.
+// لا تُدين وحدها — تُراكَم في درجة خطرٍ يراجعها الأدمن. الهويّة من socket.data.
+export const cheatSignals = pgTable('cheat_signals', {
+  id: serial('id').primaryKey(),
+  matchId: integer('match_id'),                      // قد يكون null إن لم تُنشأ المباراة بعد
+  roomId: varchar('room_id', { length: 50 }),
+  activityId: integer('activity_id'),
+  playerId: integer('player_id'),                    // حساب اللاعب الدائم (players.id) إن عُرف
+  physicalId: integer('physical_id'),                // مقعده في الغرفة
+  playerName: varchar('player_name', { length: 255 }),
+  role: varchar('role', { length: 50 }),             // دوره وقت الإشارة (سياقٌ للمراجعة)
+  team: varchar('team', { length: 20 }),             // MAFIA | CITIZEN | NEUTRAL
+  // نوع الإشارة: app_departure | screenshot | screen_recording | gallery_open
+  kind: varchar('kind', { length: 40 }).notNull(),
+  weight: integer('weight').default(1).notNull(),    // وزن الخطر المحسوب خادميّاً
+  details: jsonb('details').default({}),             // { durationMs, secretOpen, msSinceSecret, platform, ... }
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

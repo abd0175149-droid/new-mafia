@@ -312,6 +312,9 @@ export default function LeaderPage() {
   const galleryAlertShowingRef = useRef(false);
   const galleryAlertPosRef = useRef(0); // موضع التنبيه المعروض حالياً (1-based؛ 0 = خامل)
 
+  // ── 🕵️ لُقيمات الاشتباه (غياب/لقطة/تسجيل) — سطرٌ خفيفٌ غير حاجب أسفل الشاشة ──
+  const [cheatFeed, setCheatFeed] = useState<{ id: number; name: string; physicalId: number; teamAr: string; labelAr: string; weight: number }[]>([]);
+
   // ── 🎁 سحب «اختيار رابح» (هدايا الفعالية) ──
   const [showLuckyDraw, setShowLuckyDraw] = useState(false);
   const [luckyCount, setLuckyCount] = useState(1);
@@ -1356,6 +1359,18 @@ export default function LeaderPage() {
       processGalleryAlerts();   // ابدأ العرض إن كان خاملاً
     });
 
+    // ── 🕵️ لُقيمات الاشتباه: غيابٌ عن التطبيق/لقطة/تسجيل — سطرٌ خفيفٌ لا يقطع اللعب ──
+    const offCheatSignal = on('leader:cheat-signal', (d: any) => {
+      if (!d || d.roomId !== gameState.roomId) return;
+      if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
+      const id = Date.now() + Math.floor(Math.random() * 1000);
+      setCheatFeed(prev => [
+        { id, name: d.name, physicalId: d.physicalId, teamAr: d.teamAr, labelAr: d.labelAr, weight: d.weight },
+        ...prev,
+      ].slice(0, 4));
+      setTimeout(() => setCheatFeed(prev => prev.filter(x => x.id !== id)), 15000);
+    });
+
     // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──
     const offStateUpdated = on('game:state-updated', (state: any) => {
       if (!state) return;
@@ -1411,6 +1426,7 @@ export default function LeaderPage() {
       offTimerAdjusted();
       offPenaltyRecorded();
       offGalleryAlert();
+      offCheatSignal();
       offSoundsUpdated();
       offMorningEventSound();
       offShowSilencedSound();
@@ -4430,6 +4446,22 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   return (
     <div className="display-bg min-h-screen flex flex-col items-center py-12 px-6 font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white">
+      {/* 🕵️ لُقيمات الاشتباه — أسفل يسار الشاشة، على جهاز الليدر وحده (لا تُبثّ للقاعة) */}
+      {cheatFeed.length > 0 && (
+        <div className="fixed bottom-4 left-4 z-[95] flex flex-col gap-1.5 max-w-[86vw] sm:max-w-xs" dir="rtl">
+          {cheatFeed.map(c => (
+            <div key={c.id} className="rounded-xl px-3 py-2 text-[11.5px] shadow-2xl"
+              style={{ background: 'rgba(26,5,5,0.95)', border: `1px solid ${c.weight >= 5 ? 'rgba(224,73,43,0.6)' : 'rgba(217,138,43,0.45)'}` }}>
+              <div className="flex items-center gap-1.5 font-bold" style={{ color: c.weight >= 5 ? '#F08163' : '#E8B84B' }}>
+                <span>🕵️</span>
+                <span>مقعد {c.physicalId} · {c.name}</span>
+                <span className="text-[9px] opacity-70">({c.teamAr})</span>
+              </div>
+              <div className="text-[#C9BEB0] mt-0.5">{c.labelAr}</div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="w-full max-w-2xl relative z-10">
         {/* Header */}
         <div className="text-center mb-12 border-b border-[#2a2a2a] pb-8 flex flex-col items-center">

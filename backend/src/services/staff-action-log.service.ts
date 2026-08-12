@@ -11,6 +11,9 @@ import { getDB } from '../config/db.js';
 export const ACTION_CATALOG: Record<string, { category: string; labelAr: string }> = {
   // ── 🕵️ المراقبة (أحداث لاعبين مشبوهة) — نوع مستقل ──
   'player:mafia-gallery-open': { category: 'MONITORING', labelAr: 'فتح قائمة التعرف على المافيا' },
+  'cheat:app-departure': { category: 'MONITORING', labelAr: 'غادر التطبيق أثناء المباراة (نمط تهريب محتمل)' },
+  'cheat:screenshot': { category: 'MONITORING', labelAr: 'لقطة شاشة أثناء شاشة سريّة' },
+  'cheat:screen-recording': { category: 'MONITORING', labelAr: 'تسجيل شاشة أثناء المباراة' },
   // ── العقوبات ──
   'leader:record-penalty': { category: 'PENALTY', labelAr: 'تسجيل عقوبة على لاعب' },
   'ui:penalty-menu-open': { category: 'PENALTY', labelAr: 'فتح قائمة العقوبات' },

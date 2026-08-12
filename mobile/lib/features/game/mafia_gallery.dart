@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/security/secret_watermark.dart';
 import '../../models/game.dart';
 import '../../models/profile.dart';
 import '../profile/profile_palette.dart';
@@ -54,6 +55,7 @@ Future<void> showMafiaGallery(
   SiblingInfo? sibling,
   bool isAssassin = false,
   AssassinContracts? contracts,
+  String? watermark,
 }) =>
     showGeneralDialog<void>(
       context: context,
@@ -66,6 +68,7 @@ Future<void> showMafiaGallery(
         sibling: sibling,
         isAssassin: isAssassin,
         contracts: contracts,
+        watermark: watermark,
       ),
       transitionBuilder: (_, a, __, child) {
         final c = CurvedAnimation(parent: a, curve: Curves.easeOutCubic);
@@ -88,12 +91,22 @@ class MafiaTeamGallery extends StatelessWidget {
     this.sibling,
     this.isAssassin = false,
     this.contracts,
+    this.watermark,
   });
 
   final List<MafiaMate> team;
   final SiblingInfo? sibling;
   final bool isAssassin;
   final AssassinContracts? contracts;
+
+  /// 💧 وسمُ العلامة المائيّة — يفضح مسرّب أيّ لقطة (null = بلا وسم).
+  final String? watermark;
+
+  /// يغلّف المحتوى السريّ بالعلامة المائيّة إن وُجد وسم.
+  Widget _wm(Widget child) =>
+      (watermark == null || watermark!.isEmpty)
+          ? child
+          : SecretWatermark(label: watermark!, child: child);
 
   @override
   Widget build(BuildContext context) {
@@ -120,19 +133,21 @@ class MafiaTeamGallery extends StatelessWidget {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 384),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 56, 16, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (sibling != null) _BloodLink(sibling: sibling!),
-                      if (isAssassin && contracts != null)
-                        _AssassinView(contracts: contracts!)
-                      else if (team.isNotEmpty)
-                        _TeamGrid(team: team)
-                      else
-                        const _DecoyBriefing(),
-                    ],
+                child: _wm(
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 56, 16, 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (sibling != null) _BloodLink(sibling: sibling!),
+                        if (isAssassin && contracts != null)
+                          _AssassinView(contracts: contracts!)
+                        else if (team.isNotEmpty)
+                          _TeamGrid(team: team)
+                        else
+                          const _DecoyBriefing(),
+                      ],
+                    ),
                   ),
                 ),
               ),

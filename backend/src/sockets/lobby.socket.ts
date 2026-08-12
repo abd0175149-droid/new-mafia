@@ -27,7 +27,7 @@ import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
 import { getDB } from '../config/db.js';
-import { matchPlayers } from '../schemas/game.schema.js';
+import { matchPlayers, cheatSignals } from '../schemas/game.schema.js';
 import { eq, sql, and } from 'drizzle-orm';
 import { emitStateSanitized, emitPhaseChangedSanitized } from './broadcast.util.js';
 
@@ -2143,6 +2143,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (!roomId || !physicalId) return;
       if (data?.roomId && data.roomId !== roomId) return;
 
+      // 🕵️ ختمُ رؤية السرّ: يستعمله فحص «الغياب بعد رؤية السرّ» في cheat:app-departure
+      socket.data.lastSecretViewAt = Date.now();
+
       // Throttle: تجاهل التكرار خلال 5 ثوانٍ لكل لاعب (حماية من الإغراق)
       const now = Date.now();
       if (socket.data.lastGalleryPingAt && now - socket.data.lastGalleryPingAt < 5000) return;
@@ -2196,6 +2199,121 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         });
       } catch { /* غير حاجب */ }
     } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
+  });
+
+  // ══ 🕵️ إشارات مكافحة الغش من جهاز اللاعب ══════════════════════
+  // الهويّة من socket.data حصراً. تُخزَّن في cheat_signals، وتُبثّ للّيدر
+  // فوراً (leader:cheat-signal)، وتُسجَّل MONITORING. لا تُدين وحدها.
+  async function recordCheatSignal(
+    kind: 'app_departure' | 'screenshot' | 'screen_recording',
+    weight: number, details: Record<string, any>, labelAr: string,
+  ) {
+    const roomId: string | undefined = socket.data.roomId;
+    const physicalId: number | undefined = socket.data.physicalId;
+    if (!roomId || !physicalId) return;
+    const state = await getGameState(roomId);
+    if (!state || state.phase === 'GAME_OVER') return;         // خارج اللعب لا معنى للإشارة
+    const player = state.players.find((p: any) => p.physicalId === physicalId);
+    if (!player?.role) return;
+    const mafia = isMafiaRole(player.role as Role);
+    const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
+    const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
+    const now = Date.now();
+
+    // بثّ فوريّ للّيدر وحده (يحمل الدور — لا يُبثّ للغرفة)
+    const allSockets = await io.in(roomId).fetchSockets();
+    for (const s of allSockets) {
+      if ((s as any).data?.role === 'leader') {
+        s.emit('leader:cheat-signal', {
+          roomId, physicalId, kind, weight, labelAr,
+          name: player.name, role: player.role, team, teamAr,
+          avatarUrl: (player as any).avatarUrl || null, details, at: now,
+        });
+      }
+    }
+
+    // تخزينٌ دائم للتحليل + تسجيل MONITORING (غير حاجب)
+    try {
+      const db = getDB();
+      if (db) {
+        await db.insert(cheatSignals).values({
+          matchId: (state as any).matchId ?? null,
+          roomId, activityId: (state as any).activityId ?? null,
+          playerId: (player as any).playerId ?? null,
+          physicalId, playerName: player.name, role: player.role, team,
+          kind, weight, details,
+        } as any);
+      }
+    } catch { /* التخزين لا يحجب التنبيه */ }
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      const roleAr = ROLE_NAMES_AR[player.role as Role] || player.role;
+      logStaffAction({
+        source: 'socket', action: `cheat:${kind === 'app_departure' ? 'app-departure' : kind === 'screenshot' ? 'screenshot' : 'screen-recording'}`,
+        category: 'MONITORING', labelAr, outcome: 'success',
+        roomId, roomCode: (state as any).roomCode, matchId: (state as any).matchId,
+        activityId: (state as any).activityId, targetPhysicalId: physicalId,
+        targetName: `${player.name} — ${roleAr}`,
+        details: { ...details, physicalId, role: player.role, team, weight },
+      });
+    } catch { /* غير حاجب */ }
+  }
+
+  // ── مغادرة التطبيق أثناء المباراة (نمط تهريب محتمل) ──
+  // يرسله العميل عند عودته من الخلفيّة بمدّة الغياب، أو عند الخروج فوراً.
+  // الوزن يرتفع كلّما اقترب الغياب من رؤية سرٍّ، وطال، وكانت شاشةٌ سريّة مفتوحة.
+  socket.on('cheat:app-departure', async (data: { durationMs?: number; secretOpen?: boolean; platform?: string }) => {
+    try {
+      if (socket.data.role !== 'player') return;
+      const now = Date.now();
+      // Throttle: غيابٌ واحد كلّ ٣ ثوانٍ لكلّ لاعب
+      if (socket.data.lastDepartureAt && now - socket.data.lastDepartureAt < 3000) return;
+      socket.data.lastDepartureAt = now;
+
+      const durationMs = Math.max(0, Math.min(600000, Number(data?.durationMs) || 0));
+      const secretOpen = data?.secretOpen === true;
+      const sinceSecret = socket.data.lastSecretViewAt ? now - socket.data.lastSecretViewAt : null;
+      const withinWindow = sinceSecret != null && sinceSecret < 120000;   // دقيقتان
+
+      // 🧮 نموذج الوزن: أساسٌ ١، +٣ إن كانت شاشةٌ سريّة مفتوحة، +٢ إن غادر
+      //    خلال دقيقتين من رؤية سرّ (نمط احفظ-ثمّ-سرّب)، + المدّة.
+      let weight = 1;
+      if (secretOpen) weight += 3;
+      else if (withinWindow) weight += 2;
+      if (durationMs > 30000) weight += 2; else if (durationMs > 10000) weight += 1;
+
+      const secs = Math.round(durationMs / 1000);
+      const labelAr = secretOpen
+        ? `غادر التطبيق وشاشة السرّ مفتوحة${secs ? ` (${secs}ث)` : ''}`
+        : withinWindow
+          ? `غادر خلال ${Math.round((sinceSecret as number) / 1000)}ث من رؤية سرّ${secs ? ` (غاب ${secs}ث)` : ''}`
+          : `غادر التطبيق أثناء المباراة${secs ? ` (${secs}ث)` : ''}`;
+
+      await recordCheatSignal('app_departure', weight,
+        { durationMs, secretOpen, msSinceSecret: sinceSecret, platform: data?.platform || 'unknown' }, labelAr);
+    } catch { /* صامت */ }
+  });
+
+  // ── لقطة شاشة كُشفت (iOS يكشف ولا يمنع) ──
+  socket.on('cheat:screenshot', async (data: { platform?: string }) => {
+    try {
+      if (socket.data.role !== 'player') return;
+      const now = Date.now();
+      if (socket.data.lastScreenshotAt && now - socket.data.lastScreenshotAt < 2000) return;
+      socket.data.lastScreenshotAt = now;
+      await recordCheatSignal('screenshot', 5, { platform: data?.platform || 'ios' }, '📸 التقط لقطة شاشة أثناء المباراة');
+    } catch { /* صامت */ }
+  });
+
+  // ── تسجيل شاشةٍ نشط ──
+  socket.on('cheat:screen-recording', async (data: { active?: boolean; platform?: string }) => {
+    try {
+      if (socket.data.role !== 'player' || data?.active !== true) return;
+      const now = Date.now();
+      if (socket.data.lastRecordingAt && now - socket.data.lastRecordingAt < 10000) return;
+      socket.data.lastRecordingAt = now;
+      await recordCheatSignal('screen_recording', 5, { platform: data?.platform || 'unknown' }, '🎥 تسجيل شاشة نشط أثناء المباراة');
+    } catch { /* صامت */ }
   });
 
   // ── 🔊 مرآة الأصوات: شاشة الليدر هي «القائد» الحصري — تبثّ كل صوت إلى شاشات العرض ──

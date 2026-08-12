@@ -700,6 +700,24 @@ async function main() {
       // 💧 الماء التلقائيّ على الفواتير (2026-08-11)
       await db.execute(sql`ALTER TABLE locations ADD COLUMN IF NOT EXISTS auto_water BOOLEAN DEFAULT FALSE`);
       await db.execute(sql`ALTER TABLE order_invoices ADD COLUMN IF NOT EXISTS water_charge DECIMAL(10,2) DEFAULT 0`);
+      // 🕵️ إشارات مكافحة الغش (2026-08-12) — سلوكٌ مشبوه من جهاز اللاعب أثناء المباراة
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS cheat_signals (
+        id SERIAL PRIMARY KEY,
+        match_id INTEGER,
+        room_id VARCHAR(50),
+        activity_id INTEGER,
+        player_id INTEGER,
+        physical_id INTEGER,
+        player_name VARCHAR(255),
+        role VARCHAR(50),
+        team VARCHAR(20),
+        kind VARCHAR(40) NOT NULL,
+        weight INTEGER NOT NULL DEFAULT 1,
+        details JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_player ON cheat_signals(player_id, created_at)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_match ON cheat_signals(match_id)`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0 NOT NULL`);
       // ── 💨 طلبات خدمة الأرجيلة (2026-08-08) — فحمٌ أو تزبيط، بلا سعرٍ ولا فاتورة ──

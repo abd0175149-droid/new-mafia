@@ -393,13 +393,16 @@ class _GameScreenState extends State<GameScreen> {
   void _openGallery() {
     // ① الإعلان أوّلاً ② المُقصى لا يرى — التفاصيل في المتحكّم
     if (!_c.announceGalleryOpen()) return;
+    // 🕵️ شاشةٌ سريّة: تفعيل الحماية الأصليّة + علامةٌ مائيّة، والإطفاء عند الإغلاق
+    _c.enterSecretScreen();
     unawaited(showMafiaGallery(
       context,
       team: _c.galleryTeam,
       sibling: _c.gallerySibling,
       isAssassin: _c.isAssassin,
       contracts: _c.assassinContracts,
-    ));
+      watermark: _c.secretWatermarkLabel,
+    ).whenComplete(_c.leaveSecretScreen));
   }
 
   Widget _switchModal() {

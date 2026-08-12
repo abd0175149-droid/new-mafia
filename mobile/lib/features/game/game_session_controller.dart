@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/haptics/haptics_service.dart';
+import '../../core/security/secure_screen.dart';
 import '../../core/socket/socket_service.dart';
 import '../../core/sound/turn_alert.dart';
 import '../../models/card_template.dart' show kMafiaRoleIds;
@@ -642,6 +644,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     if (_started) return;
     _started = true;
     WidgetsBinding.instance.addObserver(this);
+    _wireCaptureDetection();
     _prefs = await SharedPreferences.getInstance();
     _listen();
     await _bootRejoin();
@@ -919,15 +922,73 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _poll = Timer.periodic(_pollEvery, (_) => _pollOnce());
   }
 
+  // ══ 🕵️ مكافحة الغش — تتبّع السلوك ═══════════════════════
+  bool _secretOpen = false;          // شاشةٌ سريّة مفتوحة الآن (معرض/بطاقة)
+  DateTime? _bgAt;                   // لحظة مغادرة التطبيق
+  bool _bgSecretOpen = false;        // هل كان السرّ مفتوحاً وقت المغادرة
+
+  String get _platform =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+
+  /// وسمُ العلامة المائيّة: يفضح مسرّب أيّ لقطة.
+  String get secretWatermarkLabel {
+    final code = _roomCode.isNotEmpty ? _roomCode : '···';
+    final t = DateTime.now();
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    return '$_displayName · مقعد $_physicalId · $code · $hh:$mm';
+  }
+
+  /// تُستدعى عند فتح شاشةٍ سريّة (المعرض/البطاقة): تفعّل الحماية الأصليّة.
+  void enterSecretScreen() {
+    _secretOpen = true;
+    SecureScreen.instance.enter();
+  }
+
+  /// تُستدعى عند إغلاقها.
+  void leaveSecretScreen() {
+    _secretOpen = false;
+    SecureScreen.instance.leave();
+  }
+
+  /// يربط كشف اللقطة/التسجيل الأصليّ (iOS) ببثٍّ للّيدر. يُستدعى مرّةً في التهيئة.
+  void _wireCaptureDetection() {
+    SecureScreen.instance.onCaptureDetected = (kind) {
+      if (!_step.inGame || _roomId.isEmpty) return;
+      if (kind == 'screenshot') {
+        SocketService.instance.emit('cheat:screenshot', {'platform': _platform});
+      } else {
+        SocketService.instance.emit('cheat:screen-recording', {'active': true, 'platform': _platform});
+      }
+    };
+  }
+
   /// 📌 يتوقّف في الخلفية توفيراً للبطارية، ويُستأنف بنداءٍ فوريّ.
+  /// 🕵️ ويرصد مغادرة التطبيق أثناء المباراة (نمط تهريب محتمل).
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (_step.inGame && _roomId.isNotEmpty) {
-        // إعادة الاتصال تُعيد الالتحاق، ثمّ استطلاعٌ فوريّ
+        // بثّ مغادرةٍ إن كانت ذات دلالة (غاب مطوّلاً أو والسرّ مفتوح)
+        if (_bgAt != null) {
+          final durMs = DateTime.now().difference(_bgAt!).inMilliseconds;
+          if (_bgSecretOpen || durMs > 4000) {
+            SocketService.instance.emit('cheat:app-departure', {
+              'durationMs': durMs,
+              'secretOpen': _bgSecretOpen,
+              'platform': _platform,
+            });
+          }
+        }
+        _bgAt = null;
         _startPolling();
       }
     } else {
+      // مغادرةٌ للخلفيّة أثناء اللعب: نلتقط اللحظة وحالة السرّ
+      if (_step.inGame && _roomId.isNotEmpty) {
+        _bgAt = DateTime.now();
+        _bgSecretOpen = _secretOpen;
+      }
       _poll?.cancel();
       _poll = null;
     }

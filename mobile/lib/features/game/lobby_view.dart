@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/api/game_config_service.dart';
 import '../../core/cosmetics/cosmetics_service.dart';
+import '../../core/security/secret_watermark.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/game.dart';
 import '../cosmetics/mafia_card_view.dart';
@@ -208,24 +209,30 @@ class LobbyView extends StatelessWidget {
       const SizedBox(height: 18),
       Padding(
         padding: const EdgeInsets.only(top: 22),
-        child: MafiaCardView(
-          // §4.13: بطاقة اللوبي واللعب مقاس `md` — قاعدة معايرة القوالب
-          size: CardSize.md,
-          role: c.assignedRole,
-          flippable: !c.cardLocked,
-          isFlipped: c.cardFlipped,
-          // كشفٌ لاصق: يُضبط ولا يُعكَس
-          onFlip: () => c.cardFlipped = true,
-          flipDurationMs: 1100,
-          isAlive: alive,
-          playerNumber: c.physicalId,
-          playerName: c.displayName.isEmpty ? 'أنت' : c.displayName,
-          avatarUrl: SessionStore.instance.player?.avatarUrl,
-          cosmetics: CosmeticsService.instance.cosmetics,
-          template: GameConfigService.instance.master,
-          rankFx: GameConfigService.instance
-              .effectsForTier(CosmeticsService.instance.rankTier),
-        ),
+        // 💧 بعد كشف الدور تُغطّى البطاقة بعلامةٍ مائيّة تفضح مسرّب أيّ لقطة
+        child: () {
+          final card = MafiaCardView(
+            // §4.13: بطاقة اللوبي واللعب مقاس `md` — قاعدة معايرة القوالب
+            size: CardSize.md,
+            role: c.assignedRole,
+            flippable: !c.cardLocked,
+            isFlipped: c.cardFlipped,
+            // كشفٌ لاصق: يُضبط ولا يُعكَس
+            onFlip: () => c.cardFlipped = true,
+            flipDurationMs: 1100,
+            isAlive: alive,
+            playerNumber: c.physicalId,
+            playerName: c.displayName.isEmpty ? 'أنت' : c.displayName,
+            avatarUrl: SessionStore.instance.player?.avatarUrl,
+            cosmetics: CosmeticsService.instance.cosmetics,
+            template: GameConfigService.instance.master,
+            rankFx: GameConfigService.instance
+                .effectsForTier(CosmeticsService.instance.rankTier),
+          );
+          return (c.cardFlipped && !c.isPlayerDead)
+              ? SecretWatermark(label: c.secretWatermarkLabel, opacity: 0.08, child: card)
+              : card;
+        }(),
       ),
       const SizedBox(height: 20),
     ]);
