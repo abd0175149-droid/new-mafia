@@ -58,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     key: 'games', icon: '⚔️', label: 'الألعاب',
     items: [
       { href: '/admin/game-history', icon: '📜', label: 'سجل الألعاب' },
+      { href: '/admin/anticheat', icon: '🕵️', label: 'مكافحة الغش', roles: ['admin'] },
       { href: '/admin/game-config', icon: '🧩', label: 'الأدوار والشخصيات', roles: ['admin'] },
       { href: '/admin/progression', icon: '🏆', label: 'نظام التقدم', roles: ['admin'] },
       { href: '/admin/sounds', icon: '🔊', label: 'المؤثرات الصوتية', roles: ['admin', 'manager'] },

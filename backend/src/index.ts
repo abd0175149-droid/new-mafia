@@ -43,6 +43,7 @@ import printLayoutRoutes from './routes/print-layout.routes.js';
 import gameConfigRoutes from './routes/game-config.routes.js';
 import ticketsRoutes from './routes/tickets.routes.js';
 import progressionSettingsRoutes from './routes/progression-settings.routes.js';
+import anticheatRoutes from './routes/anticheat.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import whatsappInboxRoutes from './routes/whatsapp-inbox.routes.js';
 import seatingRoutes from './routes/seating.routes.js';
@@ -183,6 +184,7 @@ app.use('/api/staff-action-log', staffActionLogRoutes);
 app.use('/api/game-config', gameConfigRoutes);
 app.use('/api/tickets', ticketsRoutes);
 app.use('/api/progression-settings', progressionSettingsRoutes);
+app.use('/api/anticheat', anticheatRoutes);
 app.use('/api/seasons', seasonsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
@@ -718,6 +720,14 @@ async function main() {
       )`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_player ON cheat_signals(player_id, created_at)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_match ON cheat_signals(match_id)`);
+      // 🕵️ حالات مراجعة الأدمن لدرجات الاشتباه (2026-08-12)
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS cheat_reviews (
+        player_id INTEGER PRIMARY KEY,
+        status VARCHAR(20) NOT NULL,
+        note VARCHAR(500) DEFAULT '',
+        reviewed_by INTEGER,
+        reviewed_at TIMESTAMP DEFAULT NOW()
+      )`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMP`);
       await db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS reminder_count INTEGER DEFAULT 0 NOT NULL`);
       // ── 💨 طلبات خدمة الأرجيلة (2026-08-08) — فحمٌ أو تزبيط، بلا سعرٍ ولا فاتورة ──
