@@ -58,6 +58,8 @@ export default function VenueInvoicesPage() {
   const [search, setSearch] = useState('');
   // الفاتورة المفتوحة تفاصيلها
   const [openFor, setOpenFor] = useState<Candidate | null>(null);
+  // 💵 ورقة تأكيد التحصيل — تحلّ محلّ confirm() الرماديّة وتعرض المبلغ وتفكيكه
+  const [payFor, setPayFor] = useState<Candidate | null>(null);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -85,7 +87,15 @@ export default function VenueInvoicesPage() {
     fetch(withLoc(`/api/venue/invoices/candidates?activityId=${actId}`), { headers: authHeaders })
       .then(r => r.json())
       .then(d => {
-        if (d.success) { setCandidates(d.candidates); setGameFeeEnabled(d.gameFeeEnabled); }
+        if (d.success) {
+          setCandidates(d.candidates);
+          setGameFeeEnabled(d.gameFeeEnabled);
+          // 🔴 مزامنة البطاقة المفتوحة مع الحيّ: كانت `openFor` نسخةً ملتقَطةً
+          //    وقت الفتح، فبعد إصدار الفاتورة يبقى رقمها null عندها ويخرج
+          //    زرّ الدفع صامتاً — «نقرةٌ ميّتة» تُجبر على الإغلاق وإعادة الفتح
+          setOpenFor(prev => prev ? (d.candidates.find((x: Candidate) => x.playerId === prev.playerId) ?? prev) : prev);
+          setPayFor(prev => prev ? (d.candidates.find((x: Candidate) => x.playerId === prev.playerId) ?? prev) : prev);
+        }
         else flash(`❌ ${d.error || 'فشل التحميل'}`);
       })
       .catch(() => flash('❌ خطأ في الاتصال'))
@@ -145,17 +155,18 @@ export default function VenueInvoicesPage() {
     finally { setPrintingAll(false); }
   };
 
+  // 💵 التحصيل بنقرةٍ واحدة — الخادم يُصدر رقم الفاتورة إن لم يُصدَر بعد،
+  //    فلا حاجة لطباعة PDF قبله. التأكيد في ورقةٍ سفليّة لا في confirm().
   const recordPayment = async (c: Candidate) => {
-    if (!actId || c.invoiceNo == null) return;
-    const feeLine = c.gameFee > 0 ? `\nتشمل رسوم لعبة ${jod(c.gameFee)} — سيُسجَّل حجز اللاعب مدفوعاً باسمك.` : '';
-    if (!confirm(`تأكيد استلام ${jod(c.grandTotal)} من ${c.playerName} كاملةً؟${feeLine}`)) return;
+    if (!actId) return;
     setPayingId(c.playerId);
     try {
       const d = await fetch(withLoc(`/api/venue/invoices/${actId}/${c.playerId}/pay`), { method: 'POST', headers: authHeaders }).then(r => r.json());
       if (d.success) {
+        setPayFor(null);
         flash(d.gameFeeSettled > 0
-          ? `✅ حُصّلت الفاتورة #${c.invoiceNo} — وسُجّل حجز ${c.playerName} مدفوعاً`
-          : `✅ حُصّلت الفاتورة #${c.invoiceNo}`);
+          ? `✅ حُصّلت الفاتورة #${d.invoiceNo} — وسُجّل حجز ${c.playerName} مدفوعاً`
+          : `✅ حُصّلت الفاتورة #${d.invoiceNo}`);
         loadCandidates();
         if (openFor?.playerId === c.playerId) openDetail(c);
       } else flash(`❌ ${d.error || 'فشل تسجيل التحصيل'}`);
@@ -274,10 +285,9 @@ export default function VenueInvoicesPage() {
       ) : (
         <div className="space-y-2">
           {visible.map(c => (
-            <button
+            <div
               key={c.playerId}
-              onClick={() => openDetail(c)}
-              className="w-full text-right rounded-xl p-3.5 flex items-center gap-3 transition-colors hover:border-emerald-500/30"
+              className="w-full text-right rounded-xl p-3.5 flex items-center gap-3"
               style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
             >
               <div className="w-9 h-9 rounded-full bg-emerald-500/15 text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
@@ -302,9 +312,27 @@ export default function VenueInvoicesPage() {
               </div>
               <div className="text-left shrink-0">
                 <p className="text-emerald-400 text-sm font-bold">{jod(c.grandTotal)}</p>
-                <p className="text-[9px] text-[#5A6862]">التفاصيل ←</p>
               </div>
-            </button>
+              {/* 💵 الفعلان صريحان على البطاقة: التحصيل بلا فتح تفاصيل، والتفاصيل عند الحاجة */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {canPay && !c.isPaid && (
+                  <button
+                    onClick={() => setPayFor(c)} disabled={payingId === c.playerId}
+                    className="px-3 py-2.5 rounded-xl text-[12.5px] font-extrabold disabled:opacity-50"
+                    style={{ background: 'linear-gradient(140deg,#25C08A,#1A9E70)', color: '#04231A' }}
+                  >
+                    {payingId === c.playerId ? '⏳' : '💵 تحصيل'}
+                  </button>
+                )}
+                <button
+                  onClick={() => openDetail(c)}
+                  title="تفاصيل الفاتورة والطباعة"
+                  className="px-3 py-2.5 rounded-xl text-[12.5px] font-bold bg-white/5 border border-white/10 text-[#8B9A92]"
+                >
+                  📄
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -395,9 +423,9 @@ export default function VenueInvoicesPage() {
                     >
                       {busyId === openFor.playerId ? '⏳…' : detail.invoiceNo != null ? '🖨️ إعادة طباعة' : '🧾 إصدار فاتورة PDF'}
                     </button>
-                    {canPay && detail.invoiceNo != null && !detail.isPaid && (
+                    {canPay && !detail.isPaid && (
                       <button
-                        onClick={() => recordPayment(openFor)} disabled={payingId === openFor.playerId}
+                        onClick={() => setPayFor(openFor)} disabled={payingId === openFor.playerId}
                         className="px-4 py-2.5 rounded-xl text-sm font-bold bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 disabled:opacity-50"
                       >
                         {payingId === openFor.playerId ? '⏳…' : '💵 تسجيل الدفع'}
@@ -426,8 +454,43 @@ export default function VenueInvoicesPage() {
         </div>
       )}
 
+      {/* ══ 💵 ورقة تأكيد التحصيل ══ */}
+      {payFor && (
+        <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center"
+          onClick={() => payingId == null && setPayFor(null)}>
+          <div className="w-full max-w-sm bg-[#161B18] border-t sm:border border-[#2E3833] rounded-t-3xl sm:rounded-2xl p-5"
+            onClick={e => e.stopPropagation()}
+            style={{ paddingBottom: 'calc(20px + env(safe-area-inset-bottom))' }}>
+            <p className="text-[11px] text-[#8B9A92]">تحصيل فاتورة</p>
+            <h4 className="text-base font-bold truncate">{payFor.playerName}</h4>
+            <p className="text-[32px] font-black text-emerald-400 tabular-nums leading-tight mt-2">{jod(payFor.grandTotal)}</p>
+            <p className="text-[11px] text-[#8B9A92] mt-1 leading-relaxed">
+              {payFor.ordersCount} {payFor.ordersCount === 1 ? 'طلب' : 'طلبات'} {jod(payFor.ordersTotal)}
+              {payFor.waterCharge > 0 && <> · مياه {jod(payFor.waterCharge)}</>}
+              {payFor.minTopup > 0 && <> · حدّ أدنى {jod(payFor.minTopup)}</>}
+              {payFor.gameFee > 0 && <> · دخوليّة {jod(payFor.gameFee)}</>}
+            </p>
+            <p className="text-[10.5px] text-[#5A6862] mt-2 leading-relaxed">
+              {payFor.gameFee > 0 && 'سيُسجَّل حجز اللاعب مدفوعاً باسمك. '}
+              {payFor.invoiceNo == null && 'ويُصدَر رقم الفاتورة تلقائيّاً — الطباعة اختياريّة بعدها.'}
+            </p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => recordPayment(payFor)} disabled={payingId != null}
+                className="flex-1 py-3 rounded-xl text-sm font-extrabold disabled:opacity-50"
+                style={{ background: 'linear-gradient(140deg,#25C08A,#1A9E70)', color: '#04231A' }}>
+                {payingId != null ? '⏳ يُسجّل…' : '✅ أُقبض المبلغ'}
+              </button>
+              <button onClick={() => setPayFor(null)} disabled={payingId != null}
+                className="px-5 py-3 rounded-xl text-sm bg-white/5 border border-white/10 text-[#8B9A92] disabled:opacity-50">
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && (
-        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl max-w-[92vw] text-center">
+        <div className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[95] bg-[#1B211D] border border-emerald-500/30 rounded-xl px-4 py-2 text-sm shadow-xl max-w-[92vw] text-center">
           {toast}
         </div>
       )}

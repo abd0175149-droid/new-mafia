@@ -497,6 +497,16 @@ async function main() {
   ok('لقطتها: طلبات 0 + ماء 0.50 = 0.50', invW?.orders_total === '0.00' && invW?.water_charge === '0.50' && invW?.grand_total === '0.50', JSON.stringify(invW));
   r = await api(vURL(`/api/venue/invoices/${act10.id}/${p998.id}/pay`), { method: 'POST', headers: A });
   ok('تحصيل فاتورة الماء يُقبل', r.body?.success === true, JSON.stringify(r.body));
+
+  // 💵 التحصيل المباشر بلا إصدار PDF مسبق (2026-08-12): الخادم يُصدر الرقم بنفسه
+  //    — كان يردّ «أصدر الفاتورة أوّلاً» فيفرض تبويب PDF قبل كلّ قبض
+  const before996 = (await q(sql`SELECT count(*)::int n FROM order_invoices WHERE activity_id=${act10.id} AND player_id=${p996.id}`))[0].n;
+  r = await api(vURL(`/api/venue/invoices/${act10.id}/${p996.id}/pay`), { method: 'POST', headers: A });
+  const [inv996] = await q(sql`SELECT invoice_no, is_paid FROM order_invoices WHERE activity_id=${act10.id} AND player_id=${p996.id}`);
+  ok('تحصيلٌ بلا إصدارٍ مسبق يُصدر الرقم ويقبض',
+    before996 === 0 && r.body?.success === true && Number(inv996?.invoice_no) > 0 && inv996?.is_paid === true,
+    JSON.stringify([before996, r.body, inv996]));
+  ok('الردّ يحمل رقم الفاتورة للتوست', Number(r.body?.invoiceNo) === Number(inv996?.invoice_no), JSON.stringify(r.body));
   await q(sql`UPDATE locations SET auto_water = false WHERE id = ${LOC_TEST}`);
   const cw3 = await api(vURL(`/api/venue/invoices/candidates?activityId=${act10.id}`), { headers: A });
   const w998b = (cw3.body?.candidates ?? []).find((c: any) => c.playerId === p998.id);

@@ -1164,20 +1164,32 @@ venueRouter.post('/invoices/:activityId/:playerId/pay', authenticate, requireVen
   if (!Number.isFinite(activityId) || !Number.isFinite(playerId)) return res.status(400).json({ error: 'معرّفات غير صالحة' });
 
   try {
-    const [inv] = await db.select().from(orderInvoices).where(and(
-      eq(orderInvoices.locationId, locId),
-      eq(orderInvoices.activityId, activityId),
-      eq(orderInvoices.playerId, playerId),
-    )).limit(1);
-    if (!inv) return res.status(404).json({ error: 'أصدر الفاتورة أوّلاً ثمّ سجّل التحصيل' });
-    if (inv.isPaid === true) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
-
     // المجاميع تُعاد من الطلبات الحاليّة — لا نثق بمجاميع مخزّنة قد تكون قديمة (طلبٌ أُضيف بعد الطباعة)
     const data = await buildInvoiceData(db, locId, activityId, playerId);
     if ('error' in data) return res.status(404).json({ error: data.error });
 
     const staffId = req.venueStaff!.id;
     const receiverName = req.user?.displayName || req.user?.username || '';
+
+    // 💵 التحصيل يُصدر رقم الفاتورة بنفسه إن لم يُصدَر بعد (قرار 2026-08-12):
+    //    كان يردّ «أصدر الفاتورة أوّلاً» فيفرض على الكاشير فتح PDF في تبويبٍ
+    //    آخر ثمّ العودة — ترتيبٌ لا مبرّر له. الترقيم يبقى تسلسليّاً بنفس
+    //    القفل الاستشاريّ داخل issueInvoiceNumber، والطباعة صارت اختياريّة.
+    let [inv] = await db.select().from(orderInvoices).where(and(
+      eq(orderInvoices.locationId, locId),
+      eq(orderInvoices.activityId, activityId),
+      eq(orderInvoices.playerId, playerId),
+    )).limit(1);
+    if (!inv) {
+      await issueInvoiceNumber(db, data, staffId);
+      [inv] = await db.select().from(orderInvoices).where(and(
+        eq(orderInvoices.locationId, locId),
+        eq(orderInvoices.activityId, activityId),
+        eq(orderInvoices.playerId, playerId),
+      )).limit(1);
+      if (!inv) return res.status(500).json({ error: 'تعذّر إصدار رقم الفاتورة' });
+    }
+    if (inv.isPaid === true) return res.status(400).json({ error: 'الفاتورة محصَّلة مسبقاً' });
 
     // 🔒 isPaid=false داخل الشرط: كاشيران يضغطان معاً — الثاني يجد 0 صفوف
     //    فيُرفض، ولا يضيع اسم من حصّل فعلاً من سجلّ التدقيق
