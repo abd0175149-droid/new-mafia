@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -246,6 +250,38 @@ class PushService {
 
     final n = m.notification;
     if (n == null) return;
+
+    // 🖼️ صورة الإشعار: النظام يعرضها وحده حين يصل الإشعار والتطبيقُ في الخلفيّة،
+    //    أمّا هنا (التطبيق مفتوح) فنحن من نرسم الإشعار — و`flutter_local_notifications`
+    //    لا يجلب رابطاً، يقرأ **ملفّاً** فقط. فننزّلها لملفٍّ مؤقّت ثمّ نعرضها بنمط
+    //    BigPicture. الفشل لا يُسقط الإشعار: يُعرض نصّاً كما كان.
+    final imageUrl = n.android?.imageUrl ?? (m.data['imageUrl'] as String?) ?? '';
+    BigPictureStyleInformation? style;
+    if (imageUrl.startsWith('http')) {
+      try {
+        final res = await Dio().get<List<int>>(
+          imageUrl,
+          options: Options(
+            responseType: ResponseType.bytes,
+            receiveTimeout: const Duration(seconds: 8),
+            sendTimeout: const Duration(seconds: 8),
+          ),
+        );
+        final bytes = res.data;
+        if (res.statusCode == 200 && bytes != null && bytes.isNotEmpty) {
+          final dir = await getTemporaryDirectory();
+          final f = File('${dir.path}/notif_${m.hashCode}.jpg');
+          await f.writeAsBytes(bytes);
+          style = BigPictureStyleInformation(
+            FilePathAndroidBitmap(f.path),
+            contentTitle: n.title,
+            summaryText: n.body,
+            hideExpandedLargeIcon: true,
+          );
+        }
+      } catch (_) { /* بلا صورة — النصّ يكفي */ }
+    }
+
     await _local.show(
       m.hashCode,
       n.title,
@@ -257,8 +293,10 @@ class PushService {
           importance: Importance.high,
           priority: Priority.high,
           // شارة أحادية اللون + لون التمييز — أيقونة ملوّنة تظهر مربّعاً
-          // أبيض على أندرويد ٨ فأحدث.
-          icon: '@mipmap/ic_launcher',
+          // أبيض على أندرويد ٨ فأحدث. (كانت `@mipmap/ic_launcher` الملوّنة،
+          // فتختلف عن إشعارات الخلفيّة التي يرسمها النظام بأيقونة المانيفست.)
+          icon: '@drawable/ic_stat_mafia',
+          styleInformation: style,
         ),
         iOS: const DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
       ),

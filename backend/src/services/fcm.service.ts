@@ -5,6 +5,7 @@
 
 import { eq, and, inArray, sql, like, isNull, desc } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
+import { env } from '../config/env.js';
 import { getMessaging } from '../config/firebase.js';
 import { playerFcmTokens, staffFcmTokens, playerNotifications } from '../schemas/notification.schema.js';
 import { notifications, staff } from '../schemas/admin.schema.js';
@@ -76,6 +77,16 @@ function buildFCMPayload(
     Object.entries(data).map(([k, v]) => [k, String(v)])
   );
   const link = data.url || '/player/home';
+
+  // 🖼️ صورة الإشعار: تُرفع بمسارٍ نسبيّ (/uploads/…) لكنّ FCM يجلبها من **خارج**
+  //    خادمنا، فالمسار النسبيّ لا معنى له عنده — يتجاهله بصمت فلا تظهر الصورة.
+  //    نحوّله لمطلقٍ بـPUBLIC_URL؛ وإن لم يُضبط لا نُرسل الحقل أصلاً بدل إرسال
+  //    قيمةٍ مكسورة (إشعارٌ بلا صورة أفضل من إشعارٍ يفشل جلبها).
+  const rawImage = String(data.imageUrl || '').trim();
+  const imageUrl = !rawImage ? ''
+    : /^https?:\/\//i.test(rawImage) ? rawImage
+    : env.PUBLIC_URL ? `${env.PUBLIC_URL}${rawImage.startsWith('/') ? '' : '/'}${rawImage}`
+    : '';
   // tag ثابت لكل نوع — يمنع تكرار نفس الإشعار
   const notifTag = `${type || 'default'}-${Date.now()}`;
 
@@ -118,6 +129,10 @@ function buildFCMPayload(
         sound: 'default',
         // نفس دلالة apns-collapse-id: إشعارات النوع الواحد تتبادل المكان.
         tag: type || 'default',
+        // 🖼️ الصورة: أندرويد يعرضها تلقائياً بنمط BigPicture حين يصل هذا الحقل
+        //    (يجلبها النظام بنفسه). كانت الصورة تُرسل في `data` وحدها فلا يراها
+        //    النظام إطلاقاً — وهذا سبب اختفائها في نسخة أندرويد.
+        ...(imageUrl ? { imageUrl } : {}),
       },
     },
 

@@ -13,6 +13,11 @@ export const env = {
   JWT_SECRET: process.env.JWT_SECRET || 'mafia-dev-secret-change-in-production',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
+  // 🌐 العنوان العامّ للموقع — لبناء روابط **مطلقة** تصل خارج الخادم:
+  //    صور الإشعارات (FCM يرفض المسار النسبيّ فتسقط الصورة صامتةً)، وأي رابطٍ
+  //    يُقرأ على جهازٍ آخر. مستقلٌّ عن FRONTEND_URL عمداً — ذاك يضبط أصول CORS
+  //    وتغييره يمسّ الأمان، وهذا للعرض وحده.
+  PUBLIC_URL: (process.env.PUBLIC_URL || '').replace(/\/+$/, ''),
 
   // ── 📲 WhatsApp Cloud API (مركز المحادثات + البوت) ──────
   WA_TOKEN: process.env.WA_TOKEN || '',                                 // توكن System User الدائم

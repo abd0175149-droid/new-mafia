@@ -62,6 +62,10 @@ services:
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       # 🔒 الرقم السرّي لفتح الأدوات الحسّاسة (تعديل الأرقام/الأسماء). يُضبط في .env على الخادم — لا يُكتب هنا.
       - RENUMBER_SECRET=${RENUMBER_SECRET:-}
+      # 🌐 العنوان العامّ — لبناء روابط مطلقة تُقرأ **خارج** الخادم. أهمّها صورة
+      # الإشعار: FCM يجلبها بنفسه فيتجاهل المسار النسبيّ صامتاً ولا تظهر الصورة.
+      # مستقلّ عن FRONTEND_URL (ذاك لأصول CORS) — لا تدمجهما.
+      - PUBLIC_URL=${PUBLIC_URL:-}
       # 🎙️ Cloudflare RealtimeKit (صوت/فيديو اللعب عن بُعد). القيم في .env على الخادم — لا تُكتب هنا.
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
       - CLOUDFLARE_REALTIMEKIT_APP_ID=${CLOUDFLARE_REALTIMEKIT_APP_ID:-}
