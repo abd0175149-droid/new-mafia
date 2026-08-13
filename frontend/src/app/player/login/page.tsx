@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
 import Image from 'next/image';
+import AndroidAppButton from '@/components/AndroidAppButton';
 
 type Mode = 'welcome' | 'login' | 'register' | 'change_password';
 
@@ -170,6 +171,12 @@ export default function LoginPage() {
             >
               حساب جديد
             </button>
+
+            {/* 📱 تحميل التطبيق — يظهر على أندرويد وحده وحين تكون الحزمة متاحة */}
+            <div className="w-full pt-1">
+              <div className="h-px w-full mb-4" style={{ background: 'linear-gradient(90deg, transparent, rgba(197,160,89,0.25), transparent)' }} />
+              <AndroidAppButton />
+            </div>
           </motion.div>
         )}
 

@@ -15,6 +15,8 @@
 //    التحقّق الفاشلة، فتتوقّف روابط التطبيق بلا رسالة خطأ ظاهرة.
 
 import { Router, type Request, type Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { eq, sql } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
 import { appRelease } from '../schemas/admin.schema.js';
@@ -112,6 +114,53 @@ router.put('/release', authenticate, adminOnly, async (req: Request, res: Respon
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ══════════════════════════════════════════════════════
+// 📦 استضافة حزمة أندرويد (APK) على خادمنا — التطبيق ليس على متجر بعد
+// ══════════════════════════════════════════════════════
+// الملفّ يعيش في حجم `uploads` الدائم (ينجو من إعادة بناء الحاويات):
+//   uploads/app/mafia-club.apk        الحزمة
+//   uploads/app/mafia-club.json       { version, notes } — اختياريّ
+// التحديث = رفع ملفٍّ جديد، بلا نشرة كود.
+
+const APK_DIR = path.join(process.cwd(), 'uploads', 'app');
+const APK_FILE = path.join(APK_DIR, 'mafia-club.apk');
+const APK_META = path.join(APK_DIR, 'mafia-club.json');
+
+function readApkInfo(): { available: boolean; sizeBytes: number; version: string; updatedAt: string | null; notes: string } {
+  try {
+    const st = fs.statSync(APK_FILE);
+    let version = '', notes = '';
+    try {
+      const m = JSON.parse(fs.readFileSync(APK_META, 'utf8'));
+      version = String(m?.version || ''); notes = String(m?.notes || '');
+    } catch { /* الوصف اختياريّ */ }
+    return { available: true, sizeBytes: st.size, version, updatedAt: st.mtime.toISOString(), notes };
+  } catch {
+    return { available: false, sizeBytes: 0, version: '', updatedAt: null, notes: '' };
+  }
+}
+
+// ── GET /api/app/android/info — يقرؤه زرّ التحميل قبل أن يظهر ──
+router.get('/android/info', (_req: Request, res: Response) => {
+  const info = readApkInfo();
+  res.json({ success: true, ...info, url: info.available ? '/api/app/android/apk' : '' });
+});
+
+// ── GET /api/app/android/apk — تنزيلٌ مباشر ──
+// نوع MIME الصحيح ضروريّ: بدونه يفتح بعض المتصفّحات الملفّ كنصٍّ بدل تنزيله.
+router.get('/android/apk', (_req: Request, res: Response) => {
+  const info = readApkInfo();
+  if (!info.available) {
+    return res.status(404).json({ error: 'حزمة التطبيق غير متاحة بعد — تواصل مع الإدارة' });
+  }
+  const name = `mafia-club${info.version ? `-${info.version}` : ''}.apk`;
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  res.setHeader('Content-Length', String(info.sizeBytes));
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  fs.createReadStream(APK_FILE).on('error', () => { try { res.end(); } catch { /* أُغلق */ } }).pipe(res);
 });
 
 // ══════════════════════════════════════════════════════

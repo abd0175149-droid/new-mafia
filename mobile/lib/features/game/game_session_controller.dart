@@ -953,7 +953,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // ══ 🕵️ مكافحة الغش — تتبّع السلوك ═══════════════════════
-  bool _secretOpen = false;          // شاشةٌ سريّة مفتوحة الآن (معرض/بطاقة)
+  // 🔢 عدّادٌ لا علَم: الشاشتان السرّيّتان تتداخلان (بطاقةٌ مقلوبة ثمّ معرضٌ فوقها).
+  //    بعلَمٍ منطقيّ كان إغلاقُ المعرض يقول «لا سرّ» والبطاقةُ ما تزال مكشوفة —
+  //    فتهبط خطورة المغادرة من ٤ إلى ١ ويتغيّر نصّ تنبيه الليدر، وهو بالضبط نمط
+  //    «شاهِد السرّ ثمّ اخرج» الذي بُني الوزن لالتقاطه. `SecureScreen` عدّادٌ أصلاً.
+  int _secretDepth = 0;
+  bool get _secretOpen => _secretDepth > 0;
   DateTime? _bgAt;                   // لحظة مغادرة التطبيق
   bool _bgSecretOpen = false;        // هل كان السرّ مفتوحاً وقت المغادرة
 
@@ -971,13 +976,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// تُستدعى عند فتح شاشةٍ سريّة (المعرض/البطاقة): تفعّل الحماية الأصليّة.
   void enterSecretScreen() {
-    _secretOpen = true;
+    _secretDepth++;
     SecureScreen.instance.enter();
   }
 
-  /// تُستدعى عند إغلاقها.
+  /// تُستدعى عند إغلاقها. الحدّ الأدنى صفر — إغلاقٌ زائدٌ لا يقلب العدّاد سالباً.
   void leaveSecretScreen() {
-    _secretOpen = false;
+    if (_secretDepth > 0) _secretDepth--;
     SecureScreen.instance.leave();
   }
 
@@ -1016,10 +1021,20 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         _startPolling();
       }
     } else {
-      // مغادرةٌ للخلفيّة أثناء اللعب: نلتقط اللحظة وحالة السرّ
+      // مغادرةٌ للخلفيّة أثناء اللعب: نلتقط اللحظة وحالة السرّ.
+      // ⚠️ `inactive` ليست مغادرة: أندرويد يرسلها لمجرّد فقدان التركيز والتطبيقُ
+      //    ما يزال ظاهراً (سحب شريط الإشعارات، إشعار منبثق، حوار إذن نظام).
+      //    مع العتبة المنخفضة (١.٥ث) كانت قراءةُ إشعارٍ تُنتج «إنذار مغادرة» ضدّ
+      //    لاعبٍ لم يغادر — وتلويثُ الإشارة يُفقد النظام كلَّه قيمته.
+      //    المغادرة الحقيقيّة تمرّ دائماً بـ`paused`، فنبدأ العدّ منها وحدها.
+      //    وحالة السرّ تُلتقط عند `inactive` أيضاً كي لا تضيع بترتيب الانتقال.
       if (_step.inGame && _roomId.isNotEmpty) {
-        _bgAt = DateTime.now();
-        _bgSecretOpen = _secretOpen;
+        if (state == AppLifecycleState.inactive) {
+          _bgSecretOpen = _secretOpen;          // سياقٌ فقط — بلا بدء عدّ
+        } else {
+          _bgAt ??= DateTime.now();             // paused / hidden / detached
+          _bgSecretOpen = _bgSecretOpen || _secretOpen;
+        }
       }
       _poll?.cancel();
       _poll = null;
@@ -1516,6 +1531,27 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _seatsRemapTicket++;
 
     // ── ② الترحيل ──
+    // 🔴 فريق المافيا والتوأم **يُرحَّلان لا يُمحيان**: الخادم يُعيد إرسالهما
+    //    للمنقولين وحدهم، و`room:get-my-state` لا يُعيد `mafiaTeam` أصلاً — فمن
+    //    لم يتحرّك يبقى معرضُه يشير لمقعدٍ صار يجلس فيه **مواطن**، فيوجّه اغتيال
+    //    الليل خطأً ويحرق شريكه. هذا الموضع الوحيد الذي يجوز فيه التصحيح
+    //    الحسابيّ لأن الخريطة خريطة الخادم نفسها والهويّات تتبع الأشخاص.
+    if (_mafiaTeam.isNotEmpty) {
+      _mafiaTeam = [
+        for (final m in _mafiaTeam)
+          map.containsKey(m.physicalId)
+              ? MafiaMate(physicalId: map[m.physicalId]!, name: m.name, role: m.role, avatarUrl: m.avatarUrl)
+              : m,
+      ];
+    }
+    final sib = _sibling;
+    if (sib != null && map.containsKey(sib.physicalId)) {
+      _sibling = SiblingInfo(
+        physicalId: map[sib.physicalId]!, name: sib.name, role: sib.role,
+        avatarUrl: sib.avatarUrl, isAlive: sib.isAlive, recipientIsMafia: sib.recipientIsMafia,
+      );
+    }
+
     unawaited(_migrateNotes(map, oldSelf));
 
     // ── ③ السؤال ──
