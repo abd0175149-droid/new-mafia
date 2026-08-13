@@ -1621,32 +1621,44 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     // 📲 مزامنة فوريّة عند عودة التطبيق للمقدّمة/التركيز — مؤقّتات الخلفيّة تُخنَق على الهاتف
     // فلا يكفي الـ interval وحده؛ هذا يضمن التقاط أيّ انتقالٍ فات أثناء الخلفيّة خلال لحظة.
     // 🕵️ ويرصد مغادرة الصفحة أثناء المباراة: غيابٌ ذو دلالة (والسرّ مفتوح أو مطوّل) يُبثّ للّيدر.
-    const onVis = () => {
-      if (document.visibilityState === 'hidden') {
-        bgAtRef.current = Date.now();
-        bgSecretRef.current = galleryOpenRef.current;
-      } else {
-        pollState();
-        if (bgAtRef.current != null) {
-          const durMs = Date.now() - bgAtRef.current;
-          bgAtRef.current = null;
-          if (bgSecretRef.current || durMs > 4000) {
-            import('@/lib/socket').then(m =>
-              m.getSocket().emit('cheat:app-departure', { durationMs: durMs, secretOpen: bgSecretRef.current, platform: 'web' }),
-            ).catch(() => {});
-          }
-        }
+    // 🕵️ بدءُ الغياب وانتهاؤه — مصدران لا واحد:
+    //   • visibilitychange: يغطّي الهاتف (خلفيّة/قفل شاشة) وتبديل التبويب.
+    //   • blur/focus على النافذة: يغطّي **سطح المكتب** — تبديل النوافذ (واتساب ويب،
+    //     تطبيق آخر، شاشة ثانية) لا يُغيّر visibilityState إطلاقاً، فكان أوضح
+    //     سيناريو تسريبٍ على الحاسوب يمرّ بلا أيّ رصد.
+    const markLeave = () => {
+      if (bgAtRef.current != null) return;              // غيابٌ مفتوحٌ بالفعل
+      bgAtRef.current = Date.now();
+      bgSecretRef.current = galleryOpenRef.current;
+    };
+    const markReturn = () => {
+      pollState();
+      if (bgAtRef.current == null) return;
+      const durMs = Date.now() - bgAtRef.current;
+      bgAtRef.current = null;
+      if (bgSecretRef.current || durMs > 4000) {
+        import('@/lib/socket').then(m =>
+          m.getSocket().emit('cheat:app-departure', { durationMs: durMs, secretOpen: bgSecretRef.current, platform: 'web' }),
+        ).catch(() => {});
       }
     };
+
+    const onVis = () => { if (document.visibilityState === 'hidden') markLeave(); else markReturn(); };
+    // النافذة فقدت التركيز والصفحة ما تزال «مرئيّة» ⇒ المستخدم في نافذةٍ أخرى
+    const onBlur = () => { if (document.visibilityState !== 'hidden') markLeave(); };
+    const onFocus = () => { if (document.visibilityState !== 'hidden') markReturn(); };
     const onWake = () => { if (document.visibilityState === 'visible') pollState(); };
+
     document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('focus', onWake);
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
     window.addEventListener('online', onWake);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('focus', onWake);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onWake);
     };
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead, votingPlayersInfo]);

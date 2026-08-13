@@ -303,6 +303,20 @@ function applySignal(prev: Store, d: any): Store {
   const episodes: AbsenceEpisode[] = old ? old.episodes.slice() : [];
   let currentlyOut = old?.currentlyOut || false;
 
+  // 🛟 شبكة أمان: أيّ إشارةٍ **غير** «خرج» تعني أن اللاعب حاضرٌ يتفاعل الآن.
+  //    فإن بقيت لديه فترةٌ مفتوحة (ضاع إغلاقها لسببٍ ما) نُغلقها هنا بدل أن يظلّ
+  //    عدّاد «خارج الآن» يجري عليه إلى الأبد — وهو ما شُوهد فعلاً مع تطبيق iOS.
+  if (kind !== 'app_left' && kind !== 'app_departure') {
+    for (let i = episodes.length - 1; i >= 0; i--) {
+      if (episodes[i].end === null) {
+        const e = episodes[i];
+        episodes[i] = { ...e, end: at, durMs: Math.max(0, at - e.start) };
+        break;
+      }
+    }
+    currentlyOut = false;
+  }
+
   if (kind === 'app_left') {
     // غيابٌ مفتوح. إن كان مفتوحاً أصلاً (إشارة مكرّرة/إغلاقٌ ضائع) نُبقي البداية
     // الأقدم — التقدير المحافظ يطيل الغياب ولا يخترعه.

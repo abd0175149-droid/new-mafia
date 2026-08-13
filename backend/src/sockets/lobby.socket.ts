@@ -141,6 +141,16 @@ export async function openAbsence(
     const player = state.players.find((p: any) => p.physicalId === physicalId);
     if (!player?.role) return;                                  // قبل ربط الأدوار لا أسرار
 
+    // 🏁 حارس السباق: على iOS يُعلَّق التطبيق فيبقى السوكِت القديم «حيّاً» حتى تنتهي
+    //    مهلته — وقد يعود اللاعب بسوكِتٍ جديد **قبل** أن يصل حدث انقطاع القديم.
+    //    عندها كان يُفتح غيابٌ للاعبٍ حاضرٍ الآن فيظلّ العدّاد يجري بلا نهاية.
+    //    إن وُجد سوكِتٌ متّصلٌ بهذا المقعد فاللاعب حاضر — لا غياب.
+    const live = await io.in(roomId).fetchSockets();
+    if (live.some((s: any) => s.data?.role === 'player' && s.data?.physicalId === physicalId)) {
+      console.log(`↩️ openAbsence skipped for #${physicalId} in ${roomId} — player already reconnected (late disconnect)`);
+      return;
+    }
+
     const { getAux, setAux } = await import('../config/redis.js');
     const open = (await getAux(absenceKey(roomId))) || {};
     open[String(physicalId)] = { at: Date.now(), secretOpen, phase: state.phase, round: state.round ?? 0 };
@@ -1812,6 +1822,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.data.role = 'player';
       socket.data.roomId = data.roomId;
       socket.data.physicalId = actualPhysicalId;
+
+      // 🕵️ شبكة أمان: بعض العودات تمرّ بالانضمام لا بإعادة الاتصال — أغلق أيّ غيابٍ
+      //    مفتوحٍ لهذا المقعد وإلّا ظلّ عدّاد «خارج الآن» يجري عند الليدر بلا نهاية.
+      void closeAbsence(io, data.roomId, actualPhysicalId).then((closed) => {
+        if (closed) socket.data.serverAbsenceClosedAt = Date.now();
+      }).catch(() => {});
 
       // تحديث العداد
       const room = activeRooms.get(data.roomId);
