@@ -26,11 +26,11 @@ type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticke
 
 interface PlayerFlowProps {
   initialRoomCode?: string;
-  inviteFlag?: boolean;    // ðŸ“¨ ÙˆØµÙ„ Ø¹Ø¨Ø± Ø¯Ø¹ÙˆØ© (?invite=1) â†’ ÙŠØ¹Ø±Ø¶ ØªØ£ÙƒÙŠØ¯Ø§Ù‹ Ù‚Ø¨Ù„ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ø§Ù„ØµØ§Ù…Øª
-  inviterName?: string;    // Ø§Ø³Ù… Ø§Ù„Ø¯Ø§Ø¹ÙŠ (Ù…Ù† ?by=) Ù„Ø¹Ø±Ø¶Ù‡ ÙÙŠ Ø§Ù„ØªØ£ÙƒÙŠØ¯
+  inviteFlag?: boolean;    // 📨 وصل عبر دعوة (?invite=1) → يعرض تأكيداً قبل الانضمام الصامت
+  inviterName?: string;    // اسم الداعي (من ?by=) لعرضه في التأكيد
 }
 
-// â”€â”€ SVG Icons â”€â”€
+// ── SVG Icons ──
 const OperationIcon = () => (
   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-80">
     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -60,12 +60,12 @@ const ShieldCheckIcon = () => (
   </svg>
 );
 
-// â”€â”€ Ù‚Ø±Ø§Ø¡Ø© Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ù† Ø¬Ù…ÙŠØ¹ Ù…ØµØ§Ø¯Ø± localStorage â”€â”€
+// ── قراءة بيانات اللاعب من جميع مصادر localStorage ──
 function getSavedToken(): string | null {
-  // Ø§Ù„Ù…ØµØ¯Ø± 1: PlayerFlow's own key
+  // المصدر 1: PlayerFlow's own key
   const t1 = localStorage.getItem('mafia_player_token');
   if (t1) return t1;
-  // Ø§Ù„Ù…ØµØ¯Ø± 2: PlayerContext's key (mafia_player_auth)
+  // المصدر 2: PlayerContext's key (mafia_player_auth)
   try {
     const auth = JSON.parse(localStorage.getItem('mafia_player_auth') || '{}');
     if (auth.token) return auth.token;
@@ -99,11 +99,11 @@ function getSavedPhone(): string {
   return '';
 }
 
-// â”€â”€ ðŸª‘ ØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù…ÙÙƒØ±Ø© Ø¨Ø¹Ø¯ Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ â”€â”€
-// Ø§Ù„Ù…ÙÙƒØ±Ø© Ù‡ÙŠ Ø§Ù„Ø´ÙŠØ¡ Ø§Ù„ÙˆØ­ÙŠØ¯ Ø§Ù„Ø°ÙŠ ÙŠÙ…Ù„ÙƒÙ‡ Ø§Ù„Ø¬Ù‡Ø§Ø² ÙˆÙ„Ø§ ÙŠØ³ØªØ·ÙŠØ¹ Ø§Ù„Ø®Ø§Ø¯Ù… Ø¥Ø¹Ø§Ø¯Ø© Ø¥Ø±Ø³Ø§Ù„Ù‡ØŒ
-// ÙÙ‡ÙŠ ØªÙØ±Ø­ÙŽÙ‘Ù„ Ù„Ø§ ØªÙÙ…Ø­Ù‰: Ø§Ù„Ø¯Ù„Ùˆ ÙŠÙ†ØªÙ‚Ù„ Ù„Ù…ÙØªØ§Ø­ Ù…Ù‚Ø¹Ø¯ÙŠ Ø§Ù„Ø¬Ø¯ÙŠØ¯ØŒ ÙˆÙ…ÙØ§ØªÙŠØ­Ù‡ Ø§Ù„Ø¯Ø§Ø®Ù„ÙŠØ©
-// (Ù…Ù‚Ø§Ø¹Ø¯ Ø§Ù„Ø¢Ø®Ø±ÙŠÙ†) ØªÙ…Ø±Ù‘ Ø¨Ø®Ø±ÙŠØ·Ø© Ø§Ù„Ø®Ø§Ø¯Ù…. Ø§Ù„Ù…ÙØªØ§Ø­ 0 = Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø© Ø§Ù„Ø¹Ø§Ù…Ù‘Ø© Ø¨Ù„Ø§ Ù…Ù‚Ø¹Ø¯.
-// Ù…Ù…Ù†ÙˆØ¹ Ø£ÙŠÙ‘ Ø­Ø³Ø§Ø¨Ù Ù…Ø­Ù„Ù‘ÙŠ Ù„Ù„Ø£Ø±Ù‚Ø§Ù… â€” Ø§Ù„Ø®Ø±ÙŠØ·Ø© ÙˆØ­Ø¯Ù‡Ø§ Ù‡ÙŠ Ø§Ù„Ù…Ø±Ø¬Ø¹.
+// ── 🪑 ترحيل المفكرة بعد إعادة ترتيب المقاعد ──
+// المفكرة هي الشيء الوحيد الذي يملكه الجهاز ولا يستطيع الخادم إعادة إرساله،
+// فهي تُرحَّل لا تُمحى: الدلو ينتقل لمفتاح مقعدي الجديد، ومفاتيحه الداخلية
+// (مقاعد الآخرين) تمرّ بخريطة الخادم. المفتاح 0 = الملاحظة العامّة بلا مقعد.
+// ممنوع أيّ حسابٍ محلّي للأرقام — الخريطة وحدها هي المرجع.
 function migrateNotesForSeatRemap(
   roomId: string, map: Record<string, number>, myOldSeat: number, myNewSeat: number,
 ): Record<number, any> {
@@ -129,7 +129,7 @@ function migrateNotesForSeatRemap(
 export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, inviterName = '' }: PlayerFlowProps) {
   const { joinRoom, isConnected, error, loading, emit, on } = useGameState();
   const [step, setStep] = useState<Step>(() => {
-    // Ø¥Ø°Ø§ ÙÙŠÙ‡ ÙƒÙˆØ¯ QR + ØªÙˆÙƒÙ† Ù…Ø­ÙÙˆØ¸ â†’ Ù†Ø¨Ø¯Ø£ Ø¨Ù€ code Ù…Ø¤Ù‚ØªØ§Ù‹ (Ø§Ù„Ù€ auto-find ÙŠØªÙƒÙÙ„)
+    // إذا فيه كود QR + توكن محفوظ → نبدأ بـ code مؤقتاً (الـ auto-find يتكفل)
     if (initialRoomCode && typeof window !== 'undefined' && getSavedToken()) {
       return 'code';
     }
@@ -151,14 +151,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [requireTicket, setRequireTicket] = useState(false);
   const [ticketNumber, setTicketNumber] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  // ðŸª™ Ù…Ø¸Ù‡Ø±Ù‡ Ø§Ù„Ù…Ø´ØªØ±Ù‰ ÙˆØ±ØªØ¨ØªÙ‡ â€” Ø¨Ø·Ø§Ù‚ØªÙ‡ ÙÙŠ ÙŠØ¯Ù‡ ÙŠØ¬Ø¨ Ø£Ù† ØªØ·Ø§Ø¨Ù‚ Ù…Ø§ ØªØ¹Ø±Ø¶Ù‡ Ø´Ø§Ø´Ø© Ø§Ù„Ù‚Ø§Ø¹Ø©
+  // 🪙 مظهره المشترى ورتبته — بطاقته في يده يجب أن تطابق ما تعرضه شاشة القاعة
   const { cosmetics: myCosmetics, rankTier: myRankTier } = usePlayerCosmetics();
   const [userExited, setUserExited] = useState(() => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('mafia_user_exited') === 'true';
-  }); // ÙŠÙ…Ù†Ø¹ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ø¨Ø¹Ø¯ Ø§Ù„Ø®Ø±ÙˆØ¬
+  }); // يمنع إعادة الدخول التلقائي بعد الخروج
 
-  // â”€â”€ ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ø£Ø¯ÙˆØ§Ø± Ø§Ù„Ø±Ù‚Ù…ÙŠ â”€â”€
+  // ── توزيع الأدوار الرقمي ──
   const [assignedRole, setAssignedRole] = useState<string | null>(null);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [cardFlipped, setCardFlipped] = useState(false);
@@ -167,13 +167,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [playerToken, setPlayerToken] = useState<string | null>(null);
-  // ðŸ½ï¸ Ù‡Ù„ Ù„Ù„Ø§Ø¹Ø¨ Ø³ÙŠØ§Ù‚ Ø·Ù„Ø¨Ù Ø§Ù„Ø¢Ù†ØŸ (Ø­Ø¬Ø² + Ù†Ø§ÙØ°Ø© Ø§Ù„ÙØ¹Ø§Ù„ÙŠÙ‘Ø©) â€” ÙŠØ­ÙƒÙ… Ø¸Ù‡ÙˆØ± Ø²Ø±Ù‘ Ø§Ù„Ù…Ù†ÙŠÙˆ Ø§Ù„Ø¹Ø§Ø¦Ù…
+  // 🍽️ هل للاعب سياق طلبٍ الآن؟ (حجز + نافذة الفعاليّة) — يحكم ظهور زرّ المنيو العائم
   const [fnbReady, setFnbReady] = useState(false);
   const [isOrderOpen, setIsOrderOpen] = useState(false);
-  // ðŸ”´ Ù‚ÙÙ„ ØªÙ…Ø±ÙŠØ± Ø§Ù„Ø®Ù„ÙÙŠÙ‘Ø© â€” Ù‚ÙÙ„Ù Ø§Ù„Ø¬Ø³Ø¯ ÙˆØ­Ø¯Ù‡ØŒ Ù„Ø§ useModalScrollLock:
-  //    Ø§Ù„Ù‡ÙˆÙƒ ÙŠÙ…Ù†Ø¹ ÙƒÙ„Ù‘ Ù„Ù…Ø³Ù Ø®Ø§Ø±Ø¬ Ø¹Ù†ØµØ±Ù Ù…Ø±Ø¬Ø¹ÙŠÙÙ‘ ÙˆØ§Ø­Ø¯ØŒ ÙˆÙ„ÙˆØ­Ø© Ø§Ù„Ø·Ù„Ø¨ ÙÙŠÙ‡Ø§ Ø¹Ø¯Ù‘Ø©
-  //    Ø­Ø§ÙˆÙŠØ§ØªÙ ØªÙ…Ø±ÙŠØ±Ù Ø¯Ø§Ø®Ù„ÙŠÙ‘Ø© (Ø§Ù„Ø¬Ø³Ù…ØŒ Ø§Ù„Ø£ÙˆØ±Ø§Ù‚ØŒ Ø§Ù„Ø³Ù„Ù‘Ø©) â€” ÙÙƒØ§Ù† ÙŠÙ…Ù†Ø¹Ù‡Ø§ Ø¬Ù…ÙŠØ¹Ø§Ù‹
-  //    ÙˆÙŠØªØ¬Ù…Ù‘Ø¯ Ø§Ù„Ù…Ù†ÙŠÙˆ. Ø§Ù„Ù„ÙˆØ­Ø© ØªØ¯ÙŠØ± ØªÙ…Ø±ÙŠØ±Ù‡Ø§ Ø¨Ù†ÙØ³Ù‡Ø§ (overscroll-contain).
+  // 🔴 قفل تمرير الخلفيّة — قفلُ الجسد وحده، لا useModalScrollLock:
+  //    الهوك يمنع كلّ لمسٍ خارج عنصرٍ مرجعيٍّ واحد، ولوحة الطلب فيها عدّة
+  //    حاوياتِ تمريرٍ داخليّة (الجسم، الأوراق، السلّة) — فكان يمنعها جميعاً
+  //    ويتجمّد المنيو. اللوحة تدير تمريرها بنفسها (overscroll-contain).
   useEffect(() => {
     if (!isOrderOpen) return;
     const y = window.scrollY;
@@ -191,7 +191,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [expulsionReason, setExpulsionReason] = useState('');
   const [penalties, setPenalties] = useState<number>(0);
   const [maxPenalties, setMaxPenalties] = useState<number>(3);
-  // ðŸ—£ï¸ Ø¹Ù„Ù… ØªÙØ¹ÙŠÙ„ ØºØ±ÙØ© ØªØ´Ø§ÙˆØ± Ø§Ù„Ù…Ø§ÙÙŠØ§ (Ø¥Ø¹Ø¯Ø§Ø¯ Ø¹Ø§Ù… Ù…Ù† Ø§Ù„Ù„ÙŠØ¯Ø± â€” Ù„Ø§ ÙŠÙƒØ´Ù Ù‡ÙˆÙŠØ© Ø£Ø­Ø¯)
+  // 🗣️ علم تفعيل غرفة تشاور المافيا (إعداد عام من الليدر — لا يكشف هوية أحد)
   const [mafiaChatEnabled, setMafiaChatEnabled] = useState(false);
   const [penaltyAlert, setPenaltyAlert] = useState<{
     message: string;
@@ -220,7 +220,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   };
 
-  // ðŸ‘¥ Ø§Ù„Ø£Ø® (ØªØ¹Ø§Ø±Ù Ø§Ù„Ø£Ø®ÙˆÙŠÙ† â€” Ù‚Ù†Ø§Ø© Ø®Ø§ØµØ© Ù…Ù†ÙØµÙ„Ø© Ø¹Ù† ÙØ±ÙŠÙ‚ Ø§Ù„Ù…Ø§ÙÙŠØ§)
+  // 👥 الأخ (تعارف الأخوين — قناة خاصة منفصلة عن فريق المافيا)
   const [sibling, setSiblingRaw] = useState<{physicalId: number; name: string; role: string; avatarUrl?: string | null; isAlive: boolean; recipientIsMafia: boolean} | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -239,7 +239,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   };
 
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
-  // ðŸ•µï¸ Ù…ÙƒØ§ÙØ­Ø© Ø§Ù„ØºØ´ â€” ØªØªØ¨Ù‘Ø¹ Ù…ØºØ§Ø¯Ø±Ø© Ø§Ù„ØµÙØ­Ø© Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ù…Ø¨Ø§Ø±Ø§Ø© (Ù†Ù…Ø· ØªÙ‡Ø±ÙŠØ¨ Ù…Ø­ØªÙ…Ù„)
+  // 🕵️ مكافحة الغش — تتبّع مغادرة الصفحة أثناء المباراة (نمط تهريب محتمل)
   const galleryOpenRef = useRef(false);
   useEffect(() => { galleryOpenRef.current = isGalleryOpen; }, [isGalleryOpen]);
   const bgAtRef = useRef<number | null>(null);
@@ -252,32 +252,32 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     targetGameName: string;
   } | null>(null);
   const [joinConfirmation, setJoinConfirmation] = useState<{message: string} | null>(null);
-  // ðŸ“¨ ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¯Ø¹ÙˆØ© Ù‚Ø¨Ù„ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…: ÙŠÙØ¹Ø±Ø¶ Ø¹Ù†Ø¯ ÙØªØ­ Ø¥Ø´Ø¹Ø§Ø± Ø¯Ø¹ÙˆØ© (?invite=1)
+  // 📨 تأكيد الدعوة قبل الانضمام: يُعرض عند فتح إشعار دعوة (?invite=1)
   const [inviteConfirmed, setInviteConfirmed] = useState(false);
   const [invitePrompt, setInvitePrompt] = useState<{ roomName: string; inviterName: string } | null>(null);
   const [inviteError, setInviteError] = useState<string>('');
   const [switchLoading, setSwitchLoading] = useState(false);
   const [tokenChecked, setTokenChecked] = useState(false);
   const [roster, setRoster] = useState<any[]>([]);
-  const [isRemote, setIsRemote] = useState(false); // ðŸŒ ØºØ±ÙØ© Ø¹Ù† Ø¨ÙØ¹Ø¯ â†’ Ø£Ø¸Ù‡Ø± Ø·Ø§ÙˆÙ„Ø© Ø§Ù„Ø·ÙˆØ± Ù„Ù„Ø§Ø¹Ø¨
-  const [allowPlayerInvites, setAllowPlayerInvites] = useState(false); // ðŸ“¨ Ø§Ù„Ù‚Ø§Ø¦Ø¯ Ø³Ù…Ø­ Ù„Ù„Ø§Ø¹Ø¨ÙŠÙ† Ø¨Ø¯Ø¹ÙˆØ© Ø£ØµØ¯Ù‚Ø§Ø¦Ù‡Ù…
-  const [showInvite, setShowInvite] = useState(false); // ðŸ“¨ Ù…ÙˆØ¯Ø§Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¯Ø¹ÙˆØ©
+  const [isRemote, setIsRemote] = useState(false); // 🌐 غرفة عن بُعد → أظهر طاولة الطور للاعب
+  const [allowPlayerInvites, setAllowPlayerInvites] = useState(false); // 📨 القائد سمح للاعبين بدعوة أصدقائهم
+  const [showInvite, setShowInvite] = useState(false); // 📨 مودال إرسال الدعوة
   const [voiceMaps, setVoiceMaps] = useState<{ videoByPid: Record<number, MediaStreamTrack | null>; audioByPid: Record<number, boolean> }>({ videoByPid: {}, audioByPid: {} });
-  const [gameOverData, setGameOverData] = useState<{ winner: string | null; players: any[] } | null>(null); // ðŸ ÙƒØ´Ù Ø§Ù„ÙØ§Ø¦Ø² Ø¹Ù„Ù‰ Ø§Ù„Ø·Ø§ÙˆÙ„Ø©
+  const [gameOverData, setGameOverData] = useState<{ winner: string | null; players: any[] } | null>(null); // 🏁 كشف الفائز على الطاولة
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [notepadNotes, setNotepadNotes] = useState<Record<number, any>>({});
-  // ðŸª‘ Ø¹Ø¯Ù‘Ø§Ø¯ Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ â€” ÙŠÙØ¬Ø¨Ø± Ø§Ù„Ù…ÙÙƒØ±Ø© Ø¹Ù„Ù‰ Ø¥Ø¹Ø§Ø¯Ø© Ù‚Ø±Ø§Ø¡Ø© Ø¯Ù„ÙˆÙ‡Ø§ Ø¨Ø¹Ø¯ Ø§Ù„ØªØ±Ø­ÙŠÙ„
+  // 🪑 عدّاد إعادة ترتيب المقاعد — يُجبر المفكرة على إعادة قراءة دلوها بعد الترحيل
   const [notepadRemapNonce, setNotepadRemapNonce] = useState(0);
-  // ðŸª‘ Ù†Ø§ÙØ°Ø© ÙƒØªÙ… Ø¨Ø§Ù†Ø± Â«ØªÙ… ØªØºÙŠÙŠØ± Ø±Ù‚Ù…ÙƒÂ» Ø§Ù„Ù…Ø´ØªÙ‚Ù‘ Ù…Ù† Ø§Ù„Ø§Ø³ØªØ·Ù„Ø§Ø¹/Ø§Ù„Ù…Ø²Ø§Ù…Ù†Ø©: Ø§Ù„ØªÙˆØ³Øª Ø§Ù„Ø®Ø§ØµÙ‘
-  // Ø¨Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ±ØªÙŠØ¨ Ù‚Ø§Ù„Ù‡Ø§ Ø¨Ø§Ù„ÙØ¹Ù„ØŒ ÙÙ„Ø§ Ù†ÙÙƒØ±Ù‘Ø±Ù‡Ø§ Ø¨Ø¨Ø§Ù†Ø±Ù Ø«Ø§Ù†Ù ÙÙˆÙ‚Ù‡.
+  // 🪑 نافذة كتم بانر «تم تغيير رقمك» المشتقّ من الاستطلاع/المزامنة: التوست الخاصّ
+  // بإعادة الترتيب قالها بالفعل، فلا نُكرّرها ببانرٍ ثانٍ فوقه.
   const seatRemapUntilRef = useRef(0);
-  // ðŸ”„ Ø¢Ø®Ø± Ù†Ø³Ø®Ø© Ù…Ù† Ø¯Ø§Ù„Ø© Ø§Ù„Ø§Ø³ØªØ·Ù„Ø§Ø¹ â€” ÙƒÙŠ ÙŠØ³ØªØ¯Ø¹ÙŠÙ‡Ø§ Ù…Ù† ÙŠØ­ØªØ§Ø¬ Ù…Ø²Ø§Ù…Ù†Ø© ÙÙˆØ±ÙŠÙ‘Ø© Ù…ÙˆØ«ÙˆÙ‚Ø©
-  // (Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯) Ø¨Ø¯Ù„ Ø¥Ø¹Ø§Ø¯Ø© Ø¨Ù†Ø§Ø¡ Ù†ÙØ³ Ø§Ù„Ù†Ø¯Ø§Ø¡ Ø¨Ø­Ø§Ù„Ø©Ù Ù†Ø§Ù‚ØµØ©
+  // 🔄 آخر نسخة من دالة الاستطلاع — كي يستدعيها من يحتاج مزامنة فوريّة موثوقة
+  // (إعادة ترتيب المقاعد) بدل إعادة بناء نفس النداء بحالةٍ ناقصة
   const pollStateRef = useRef<(() => void) | null>(null);
-  // ðŸª‘ Ø¢Ø®Ø± player:seat-changed ÙˆØµÙ„ â€” Ù…ØµØ¯Ø± Â«Ù…Ù‚Ø¹Ø¯ÙŠ Ù‚Ø¨Ù„ Ø§Ù„Ù†Ù‚Ù„Â» Ù„Ù…Ø¹Ø§Ù„Ø¬ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ±ØªÙŠØ¨
+  // 🪑 آخر player:seat-changed وصل — مصدر «مقعدي قبل النقل» لمعالج إعادة الترتيب
   const lastSeatChangeRef = useRef<{ oldPhysicalId: number; newPhysicalId: number; at: number } | null>(null);
-  // ðŸª‘ Ù†Ø§ÙØ°Ø© Â«Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¯ÙØ¹ Ø¨Ø¹Ø¯ Ø§Ù„Ù†Ù‚Ù„Â»: Ø®Ù„Ø§Ù„Ù‡Ø§ player:role-assigned Ø¥Ø¹Ø§Ø¯Ø©Ù ØªØ³Ù„ÙŠÙ…Ù Ù„Ø§ Ù„Ø¹Ø¨Ø©ÙŒ
-  // Ø¬Ø¯ÙŠØ¯Ø© â€” ÙÙ„Ø§ ØªÙÙ‚Ù„Ø¨ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø© ÙˆÙ„Ø§ ÙŠÙØ·Ù„Ù‚ Ø§Ù„ØªÙ†Ø¨ÙŠÙ‡ ÙˆÙ„Ø§ ÙŠÙØ­ÙŠØ§ Ù„Ø§Ø¹Ø¨ÙŒ Ù…ÙÙ‚ØµÙ‰.
+  // 🪑 نافذة «إعادة الدفع بعد النقل»: خلالها player:role-assigned إعادةُ تسليمٍ لا لعبةٌ
+  // جديدة — فلا تُقلب البطاقة ولا يُطلق التنبيه ولا يُحيا لاعبٌ مُقصى.
   const seatRemapRepushUntilRef = useRef(0);
   const [nightActionRequired, setNightActionRequired] = useState<{
     actionType: string;
@@ -292,7 +292,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [selectedTargetForConfirm, setSelectedTargetForConfirm] = useState<number | null>(null);
   const [nurseActivationPending, setNurseActivationPending] = useState(false);
   const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // â±ï¸ override ÙŠØ­Ù…ÙŠ Ø§Ù„Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ù…Ø­Ù„ÙŠÙ‘Ø© Ù…Ù† poll Ù‚Ø¯ÙŠÙ… â€” Ù„ÙƒÙ† ÙŠÙ†ØªÙ‡ÙŠ Ø¨Ø¹Ø¯ OVERRIDE_TTL ÙƒÙŠ Ù„Ø§ ÙŠØ¹Ù„Ù‚ Ø¬Ù‡Ø§Ø²ÙŒ ÙÙˆÙ‘Øª Ø­Ø¯Ø« Ø§Ù†ØªÙ‚Ø§Ù„
+  // ⏱️ override يحمي المرحلة المحليّة من poll قديم — لكن ينتهي بعد OVERRIDE_TTL كي لا يعلق جهازٌ فوّت حدث انتقال
   const phaseOverrideRef = useRef<{ phase: string; at: number } | null>(null);
   const OVERRIDE_TTL = 6000;
   const setPhaseOverride = (phase: string) => { phaseOverrideRef.current = { phase, at: Date.now() }; };
@@ -301,7 +301,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [votingCountdown, setVotingCountdown] = useState<number | null>(null);
   const votingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // â”€â”€ Ø­Ø§Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª (Ù…Ø¹ Ø­ÙØ¸ ÙÙŠ localStorage Ù„Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø§Ù„ÙÙˆØ±ÙŠØ© Ø¹Ù†Ø¯ refresh) â”€â”€
+  // ── حالة التصويت (مع حفظ في localStorage للاستعادة الفورية عند refresh) ──
   const [gamePhase, setGamePhaseRaw] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('mafia_gamePhase') || null;
@@ -337,14 +337,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [votingComplete, setVotingComplete] = useState(false);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
   const [phasePollData, setPhasePollData] = useState<any>(null);
-  // ðŸŽ© Ø§Ù„Ø¹Ù…Ø¯Ø©: Ø¨Ø±ÙˆÙ…Ø¨Øª Ù‚Ø±Ø§Ø±Ù‡ (ÙŠØµÙ„Ù‡ ÙˆØ­Ø¯Ù‡ â€” Ø¹Ù† Ø¨ÙØ¹Ø¯)ØŒ Ø¥Ø¹Ù„Ø§Ù† Ø§Ù„ÙƒØ´Ù Ù„Ù„Ø¬Ù…ÙŠØ¹ØŒ ÙˆÙ…ÙŽÙ† Ø§Ù„Ø¹Ù…Ø¯Ø© Ø§Ù„Ù…ÙƒØ´ÙˆÙ
+  // 🎩 العمدة: برومبت قراره (يصله وحده — عن بُعد)، إعلان الكشف للجميع، ومَن العمدة المكشوف
   const [mayorPrompt, setMayorPrompt] = useState<any>(null);
   const [mayorPromptLeft, setMayorPromptLeft] = useState(30);
   const [mayorBanner, setMayorBanner] = useState<{ physicalId: number; name: string; decision: string; voteWeight?: number } | null>(null);
   const [mayorRevealedId, setMayorRevealedId] = useState<number | null>(null);
   const [mayorWeight, setMayorWeight] = useState(2);
   const [mayorSending, setMayorSending] = useState(false);
-  // ðŸŽ™ï¸ Ù…Ù† ÙŠÙØ³Ù…Ø­ Ù„Ù‡ Ø¨Ø§Ù„ÙƒÙ„Ø§Ù… (Ù†Ù‚Ø§Ø´/ØªØ¨Ø±ÙŠØ±/Ù…ÙˆØ§Ø¬Ù‡Ø©) â€” Ù„ÙØªØ­ Ù…Ø§ÙŠÙƒÙŠ + Ø¹Ø±Ø¶ Ø§Ù„Ù…ÙˆØ§Ø¬Ù‡Ø©
+  // 🎙️ من يُسمح له بالكلام (نقاش/تبرير/مواجهة) — لفتح مايكي + عرض المواجهة
   const { confrontation, allowedPids: voiceAllowedPids } = useActiveSpeaker({ on, gamePhase, initialDiscussionState: phasePollData?.discussionState });
 
   const [lastVoteTime, setLastVoteTimeRaw] = useState<number | null>(() => {
@@ -361,7 +361,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   }, [gamePhase]);
 
-  // â”€â”€ Wrappers: ØªØ­ÙØ¸ ÙÙŠ localStorage Ø¹Ù†Ø¯ ÙƒÙ„ ØªØºÙŠÙŠØ± â”€â”€
+  // ── Wrappers: تحفظ في localStorage عند كل تغيير ──
   const setGamePhase = (phase: string | null) => {
     setGamePhaseRaw(phase);
     if (phase) localStorage.setItem('mafia_gamePhase', phase);
@@ -393,17 +393,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     else localStorage.removeItem('mafia_lastVoteTime');
   };
 
-  // â”€â”€ Ù…Ø­Ø§ÙˆÙ„Ø© Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§ØªØµØ§Ù„ (rejoin) Ø¹Ù†Ø¯ ÙØªØ­ Ø§Ù„ØµÙØ­Ø© â”€â”€
+  // ── محاولة إعادة الاتصال (rejoin) عند فتح الصفحة ──
   useEffect(() => {
     if (!isConnected || !emit) {
-      // Ù„Ø§ Ù†Ù…Ø³Ø­ rejoinLoading Ù‡Ù†Ø§ â€” Ù†Ù†ØªØ¸Ø± Ø§Ù„Ø§ØªØµØ§Ù„
+      // لا نمسح rejoinLoading هنا — ننتظر الاتصال
       return;
     }
 
-    // Ù†Ù†ØªØ¸Ø± ÙØ­Øµ Ø§Ù„ØªÙˆÙƒÙ† Ù„Ø£Ù†Ù‡ Ù…Ù…ÙƒÙ† ÙŠÙÙ†Ø´Ø¦ mafia_session Ù…Ù† activeGame
+    // ننتظر فحص التوكن لأنه ممكن يُنشئ mafia_session من activeGame
     if (!tokenChecked) return;
 
-    // Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø®Ø±Ø¬ ÙŠØ¯ÙˆÙŠØ§Ù‹ â†’ Ù„Ø§ Ù†Ø¹ÙŠØ¯ Ø§Ù„Ø¯Ø®ÙˆÙ„
+    // إذا اللاعب خرج يدوياً → لا نعيد الدخول
     if (userExited || localStorage.getItem('mafia_user_exited') === 'true') {
       setRejoinLoading(false);
       return;
@@ -422,19 +422,19 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         return;
       }
 
-      // â”€â”€ ØªØ­Ù‚Ù‚ Ù…Ù† ØªÙˆØ§ÙÙ‚ Ø§Ù„Ø­Ø³Ø§Ø¨: Ø¥Ø°Ø§ ÙÙŠÙ‡ ØªÙˆÙƒÙ† Ù…Ø­ÙÙˆØ¸ Ù„Ø­Ø³Ø§Ø¨ Ù…Ø®ØªÙ„Ù â†’ Ù…Ø³Ø­ Ø§Ù„Ø¬Ù„Ø³Ø© Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø© â”€â”€
+      // ── تحقق من توافق الحساب: إذا فيه توكن محفوظ لحساب مختلف → مسح الجلسة القديمة ──
       const savedToken = getSavedToken();
       const savedPlayerId = String(getSavedPlayerId());
       if (session.playerId && savedPlayerId && String(session.playerId) !== savedPlayerId) {
-        console.log(`âš ï¸ Session belongs to player #${session.playerId} but logged in as #${savedPlayerId} â€” clearing stale session`);
+        console.log(`⚠️ Session belongs to player #${session.playerId} but logged in as #${savedPlayerId} — clearing stale session`);
         localStorage.removeItem('mafia_session');
         setRejoinLoading(false);
         return;
       }
 
-      // â”€â”€ Ø¥Ø°Ø§ ÙÙŠÙ‡ ÙƒÙˆØ¯ ØºØ±ÙØ© Ø¬Ø¯ÙŠØ¯ (Ù…Ù† QR) Ù…Ø®ØªÙ„Ù Ø¹Ù† Ø§Ù„Ø¬Ù„Ø³Ø© Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø© â†’ ØªØ¬Ø§Ù‡Ù„ Ø§Ù„Ø¬Ù„Ø³Ø© Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø© â”€â”€
+      // ── إذا فيه كود غرفة جديد (من QR) مختلف عن الجلسة القديمة → تجاهل الجلسة القديمة ──
       if (initialRoomCode && session.roomCode && initialRoomCode !== session.roomCode) {
-        console.log(`ðŸ”„ New room code ${initialRoomCode} differs from saved session ${session.roomCode} â€” skipping rejoin`);
+        console.log(`🔄 New room code ${initialRoomCode} differs from saved session ${session.roomCode} — skipping rejoin`);
         localStorage.removeItem('mafia_session');
         setRejoinLoading(false);
         return;
@@ -444,8 +444,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         roomId: session.roomId,
         physicalId: session.physicalId,
         phone: session.phone || undefined,
-        // ðŸª‘ Ø§Ù„Ù‡ÙˆÙŠØ© Ø£ÙˆÙ„Ø§Ù‹: Ø¨Ø¹Ø¯ Ù†Ù‚Ù„ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ Ù„Ù… ÙŠØ¹ÙØ¯ Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ù…Ø­ÙÙˆØ¸ Ø¯Ù„ÙŠÙ„Ø§Ù‹ Ø¹Ù„Ù‰ ØµØ§Ø­Ø¨Ù‡ â€”
-        // Ø§Ù„Ø­Ø³Ø§Ø¨ Ù‡Ùˆ Ù…Ø§ ÙŠØ¹Ø±Ù‘Ù Ø§Ù„Ù„Ø§Ø¹Ø¨ØŒ ÙˆØ§Ù„Ù…Ù‚Ø¹Ø¯ Ø¢Ø®Ø± Ù…Ø§ ÙŠÙ„Ø¬Ø£ Ø¥Ù„ÙŠÙ‡ Ø§Ù„Ø®Ø§Ø¯Ù…
+        // 🪑 الهوية أولاً: بعد نقل المقاعد لم يعُد المقعد المحفوظ دليلاً على صاحبه —
+        // الحساب هو ما يعرّف اللاعب، والمقعد آخر ما يلجأ إليه الخادم
         playerId: session.playerId || getSavedPlayerId() || undefined,
       }).then((res: any) => {
         if (res.success) {
@@ -457,7 +457,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           setGender(res.player.gender === 'FEMALE' ? 'female' : 'male');
           setPlayerId(session.playerId || res.player.playerId || null);
 
-          // Ø­ÙØ¸ playerId Ù„Ù„Ø¨Ø±ÙˆÙØ§ÙŠÙ„
+          // حفظ playerId للبروفايل
           const pid = res.player.playerId || session.playerId;
           if (pid) localStorage.setItem('mafia_playerId', String(pid));
 
@@ -468,7 +468,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             setMafiaTeam(res.mafiaTeam);
           }
           if (res.sibling !== undefined) {
-            setSibling(res.sibling); // ðŸ‘¥ Ø§Ù„Ø£Ø®
+            setSibling(res.sibling); // 👥 الأخ
           }
           if (res.assassinContracts) {
             setAssassinContracts(res.assassinContracts);
@@ -479,20 +479,20 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
-            setCardFlipped(true); // Ù…ÙŠØª = ÙƒØ§Ø±Ø¯ Ù…ÙØªÙˆØ­
+            setCardFlipped(true); // ميت = كارد مفتوح
           }
 
-          // â”€â”€ Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø­Ø§Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª ÙÙˆØ±ÙŠØ§Ù‹ Ø¹Ù†Ø¯ rejoin â”€â”€
+          // ── استعادة حالة التصويت فورياً عند rejoin ──
           if (res.phase) setGamePhase(res.phase);
-          console.log(`ðŸ” Rejoin phase: ${res.phase}, hasVotingState: ${!!res.votingState}, candidates: ${res.votingState?.candidates?.length || 0}`);
+          console.log(`🔍 Rejoin phase: ${res.phase}, hasVotingState: ${!!res.votingState}, candidates: ${res.votingState?.candidates?.length || 0}`);
           if (res.votingState && res.phase === 'DAY_VOTING') {
-            console.log(`ðŸ—³ï¸ Restoring voting: ${res.votingState.candidates.length} candidates, myVotes: ${JSON.stringify(res.votingState.playerVotes)}`);
+            console.log(`🗳️ Restoring voting: ${res.votingState.candidates.length} candidates, myVotes: ${JSON.stringify(res.votingState.playerVotes)}`);
             setVotingCandidates(res.votingState.candidates || []);
             setTotalVotesCast(res.votingState.totalVotesCast || 0);
             setPlayerVotes(res.votingState.playerVotes || {});
             if (res.votingState.playersInfo) setVotingPlayersInfo(res.votingState.playersInfo);
             setVotingComplete(false);
-            // Ø§Ø³ØªØ¹Ø§Ø¯Ø© ØµÙˆØª Ø§Ù„Ù„Ø§Ø¹Ø¨
+            // استعادة صوت اللاعب
             const myPhysId = res.player.physicalId;
             if (res.votingState.playerVotes?.[myPhysId] !== undefined) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
@@ -503,15 +503,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
           setStep('rejoined');
           localStorage.removeItem('mafia_user_exited');
-          console.log(`â™»ï¸ Rejoin success: #${res.player.physicalId} - ${res.player.name} | role: ${res.player.role} | phase: ${res.phase}`);
+          console.log(`♻️ Rejoin success: #${res.player.physicalId} - ${res.player.name} | role: ${res.player.role} | phase: ${res.phase}`);
         } else if (res.code === 'IDENTITY_REQUIRED') {
-          // ðŸª‘ Ø§Ù„Ù…Ù‚Ø¹Ø¯ ÙˆØ­Ø¯Ù‡ Ù„Ù… ÙŠØ¹ÙØ¯ ÙŠÙØ«Ø¨Øª Ø§Ù„Ù‡ÙˆÙŠÙ‘Ø© (Ù†Ù‚Ù„/ØªØ¨Ø¯ÙŠÙ„ Ù…Ù‚Ø§Ø¹Ø¯) â†’ Ù†ÙØ¹ÙŠØ¯Ù‡ Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„
-          // Ø¨Ø±Ø³Ø§Ù„Ø© Ø§Ù„Ø®Ø§Ø¯Ù… Ø¨Ø¯Ù„ ØªØ±ÙƒÙ‡ Ø¹Ø§Ù„Ù‚Ø§Ù‹ Ø¹Ù„Ù‰ Ø¬Ù„Ø³Ø©Ù Ù„Ø§ ÙŠØ³ØªØ·ÙŠØ¹ Ø£Ø­Ø¯ Ø§Ù„ØªØ­Ù‚Ù‘Ù‚ Ù…Ù† ØµØ§Ø­Ø¨Ù‡Ø§
+          // 🪑 المقعد وحده لم يعُد يُثبت الهويّة (نقل/تبديل مقاعد) → نُعيده لشاشة الدخول
+          // برسالة الخادم بدل تركه عالقاً على جلسةٍ لا يستطيع أحد التحقّق من صاحبها
           localStorage.removeItem('mafia_session');
-          setApiError(res.error || 'ØªØ¹Ø°Ù‘Ø± Ø§Ù„ØªØ¹Ø±Ù‘Ù Ø¹Ù„ÙŠÙƒ â€” Ø£Ø¹Ø¯ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø±Ù‚Ù… Ù‡Ø§ØªÙÙƒ Ø£Ùˆ Ù…Ù† Ø­Ø³Ø§Ø¨Ùƒ');
+          setApiError(res.error || 'تعذّر التعرّف عليك — أعد الدخول برقم هاتفك أو من حسابك');
           setStep(initialRoomCode ? 'phone' : 'code');
         } else {
-          // Ø§Ù„ØºØ±ÙØ© Ù…Ø´ Ù…ÙˆØ¬ÙˆØ¯Ø© â†’ Ù…Ø³Ø­ Ø§Ù„Ø¬Ù„Ø³Ø©
+          // الغرفة مش موجودة → مسح الجلسة
           localStorage.removeItem('mafia_session');
         }
         setRejoinLoading(false);
@@ -524,9 +524,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   }, [isConnected, emit, tokenChecked]);
 
-  // â”€â”€ ðŸ½ï¸ Ø³ÙŠØ§Ù‚ Ø§Ù„Ø·Ù„Ø¨: Ù‡Ù„ ÙŠØ¸Ù‡Ø± Ø²Ø±Ù‘ Ø§Ù„Ù…Ù†ÙŠÙˆ Ø¯Ø§Ø®Ù„ Ø§Ù„ØºØ±ÙØ©ØŸ â”€â”€
-  // Ø§Ù„Ø®Ø§Ø¯Ù… ÙˆØ­Ø¯Ù‡ ÙŠÙ‚Ø±Ù‘Ø± (Ø­Ø¬Ø²ÙŒ Ø¥Ù„Ø²Ø§Ù…ÙŠÙ‘ + Ù†Ø§ÙØ°Ø© Ø§Ù„ÙØ¹Ø§Ù„ÙŠÙ‘Ø©)ØŒ ÙÙ†ÙƒØªÙÙŠ Ø¨Ø³Ø¤Ø§Ù„Ù‡ Ù…Ø±Ù‘Ø©Ù‹ Ø¹Ù†Ø¯
-  // Ø¯Ø®ÙˆÙ„ Ø§Ù„ØºØ±ÙØ©. ÙØ´Ù„ Ø§Ù„Ù†Ø¯Ø§Ø¡ ÙŠØ¹Ù†ÙŠ Ø¥Ø®ÙØ§Ø¡ Ø§Ù„Ø²Ø±Ù‘ â€” Ù„Ø§ Ø±Ø³Ø§Ù„Ø© Ø®Ø·Ø£ ØªØ²Ø¹Ø¬ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ù„Ø¹Ø¨.
+  // ── 🍽️ سياق الطلب: هل يظهر زرّ المنيو داخل الغرفة؟ ──
+  // الخادم وحده يقرّر (حجزٌ إلزاميّ + نافذة الفعاليّة)، فنكتفي بسؤاله مرّةً عند
+  // دخول الغرفة. فشل النداء يعني إخفاء الزرّ — لا رسالة خطأ تزعج اللاعب أثناء اللعب.
   useEffect(() => {
     if (step !== 'done' && step !== 'rejoined') return;
     const t = playerToken || localStorage.getItem('mafia_player_token');
@@ -539,13 +539,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     return () => { alive = false; };
   }, [step, playerToken]);
 
-  // â”€â”€ Ø§Ù„Ø¨Ø­Ø« Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ø¹Ù† Ø§Ù„ØºØ±ÙØ© Ø¹Ù†Ø¯ ÙˆØ¬ÙˆØ¯ ÙƒÙˆØ¯ Ù…Ø³Ø¨Ù‚ â”€â”€
-  // âš ï¸ ÙŠÙ†ØªØ¸Ø± tokenChecked Ù„Ø£Ù† handleFindRoom ÙŠØªØ­Ù‚Ù‚ Ù…Ù† playerToken/playerId
+  // ── البحث التلقائي عن الغرفة عند وجود كود مسبق ──
+  // ⚠️ ينتظر tokenChecked لأن handleFindRoom يتحقق من playerToken/playerId
   useEffect(() => {
-    // ðŸ“¨ Ø¹Ù†Ø¯ Ø§Ù„ÙˆØµÙˆÙ„ Ø¹Ø¨Ø± Ø¯Ø¹ÙˆØ©: Ù„Ø§ Ù†Ù†Ø¶Ù…Ù‘ ØµØ§Ù…ØªØ§Ù‹ â€” Ù†Ù†ØªØ¸Ø± ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø£ÙˆÙ„Ø§Ù‹ (invite-resolve Ø£Ø¯Ù†Ø§Ù‡)
+    // 📨 عند الوصول عبر دعوة: لا ننضمّ صامتاً — ننتظر تأكيد اللاعب أولاً (invite-resolve أدناه)
     if (inviteFlag && !inviteConfirmed) return;
     if (initialRoomCode && isConnected && !roomId && tokenChecked) {
-      // Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙØªØ­ Ø±Ø§Ø¨Ø· ØºØ±ÙØ© Ø¬Ø¯ÙŠØ¯ â†’ ÙŠØ¹Ù†ÙŠ ÙŠØ±ÙŠØ¯ Ø§Ù„Ø¯Ø®ÙˆÙ„ â€” Ù…Ø³Ø­ Ø¹Ù„Ø§Ù…Ø© Ø§Ù„Ø®Ø±ÙˆØ¬
+      // اللاعب فتح رابط غرفة جديد → يعني يريد الدخول — مسح علامة الخروج
       if (userExited) {
         setUserExited(false);
         localStorage.removeItem('mafia_user_exited');
@@ -554,7 +554,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   }, [initialRoomCode, isConnected, tokenChecked, inviteFlag, inviteConfirmed]);
 
-  // â”€â”€ ðŸ“¨ Ø¯Ø¹ÙˆØ©: Ù†Ø­Ù„Ù‘ Ø§Ø³Ù… Ø§Ù„ØºØ±ÙØ© (Ø¨Ù„Ø§ Ø§Ù†Ø¶Ù…Ø§Ù…) ÙˆÙ†Ø¹Ø±Ø¶ ØªØ£ÙƒÙŠØ¯Ø§Ù‹ Â«Ù‡Ù„ ØªØ±ÙŠØ¯ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…â€¦ØŸÂ» Ù‚Ø¨Ù„ Ø£ÙŠÙ‘ Ø¯Ø®ÙˆÙ„ â”€â”€
+  // ── 📨 دعوة: نحلّ اسم الغرفة (بلا انضمام) ونعرض تأكيداً «هل تريد الانضمام…؟» قبل أيّ دخول ──
   useEffect(() => {
     if (!inviteFlag || inviteConfirmed || invitePrompt || inviteError) return;
     if (!initialRoomCode || !isConnected) return;
@@ -563,29 +563,29 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       try {
         const res = await emit('room:find-by-code', { roomCode: initialRoomCode });
         if (cancelled) return;
-        // room:find-by-code Ù‚Ø¯ ÙŠÙØ±Ø¬Ø¹ {success:false} Ø¯ÙˆÙ† Ø±ÙØ¶ Ø§Ù„ÙˆØ¹Ø¯ â†’ Ù†Ø¹Ø§Ù…Ù„Ù‡ ÙƒØºØ±ÙØ© ØºÙŠØ± Ù…ØªØ§Ø­Ø©
+        // room:find-by-code قد يُرجع {success:false} دون رفض الوعد → نعامله كغرفة غير متاحة
         if (!res || res.success === false || !res.roomId) {
-          setInviteError('Ø§Ù„ØºØ±ÙØ© Ù„Ù… ØªØ¹Ø¯ Ù…ØªØ§Ø­Ø©');
+          setInviteError('الغرفة لم تعد متاحة');
           return;
         }
-        setInvitePrompt({ roomName: res.gameName || 'ØºØ±ÙØ© Ø¹Ù† Ø¨ÙØ¹Ø¯', inviterName: inviterName || 'Ù„Ø§Ø¹Ø¨' });
+        setInvitePrompt({ roomName: res.gameName || 'غرفة عن بُعد', inviterName: inviterName || 'لاعب' });
       } catch {
-        if (!cancelled) setInviteError('Ø§Ù„ØºØ±ÙØ© Ù„Ù… ØªØ¹Ø¯ Ù…ØªØ§Ø­Ø©');
+        if (!cancelled) setInviteError('الغرفة لم تعد متاحة');
       }
     })();
     return () => { cancelled = true; };
   }, [inviteFlag, inviteConfirmed, invitePrompt, inviteError, initialRoomCode, isConnected, emit, inviterName]);
 
-  // â”€â”€ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„ØªÙˆÙƒÙ† Ø§Ù„Ù…Ø­ÙÙˆØ¸ Ø¹Ù†Ø¯ ÙØªØ­ Ø§Ù„ØµÙØ­Ø© â”€â”€
+  // ── التحقق من التوكن المحفوظ عند فتح الصفحة ──
   useEffect(() => {
     const savedToken = getSavedToken();
     if (savedToken) {
       setPlayerToken(savedToken);
-      // Ù…Ø²Ø§Ù…Ù†Ø©: Ø­ÙØ¸ Ø§Ù„ØªÙˆÙƒÙ† ÙÙŠ Ø§Ù„Ù…ÙØªØ§Ø­ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ Ø¥Ø°Ø§ Ù…Ø´ Ù…ÙˆØ¬ÙˆØ¯
+      // مزامنة: حفظ التوكن في المفتاح الرئيسي إذا مش موجود
       if (!localStorage.getItem('mafia_player_token')) {
         localStorage.setItem('mafia_player_token', savedToken);
       }
-      // ØªØ­Ù‚Ù‚ Ù…Ù† ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„ØªÙˆÙƒÙ†
+      // تحقق من صلاحية التوكن
       fetch('/api/player-auth/me', {
         headers: { 'Authorization': `Bearer ${savedToken}` },
       }).then(r => r.json()).then(data => {
@@ -597,11 +597,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           setMustChangePassword(data.player.mustChangePassword || false);
           if (data.player.avatarUrl) setAvatarUrl(data.player.avatarUrl);
           localStorage.setItem('mafia_playerId', String(data.player.id));
-          // Ù…Ø²Ø§Ù…Ù†Ø© Ø§Ù„ØªÙˆÙƒÙ† Ù„ÙƒÙ„ Ø§Ù„Ù…ØµØ§Ø¯Ø±
+          // مزامنة التوكن لكل المصادر
           localStorage.setItem('mafia_player_token', savedToken);
 
-          // Ø¥Ø°Ø§ ÙÙŠ Ø¬ÙŠÙ… Ù†Ø´Ø· ÙˆÙ…Ø§ ÙÙŠÙ‡ Ø¬Ù„Ø³Ø© Ù…Ø­ÙÙˆØ¸Ø© â†’ Ù†Ù†Ø´Ø¦ Ø¬Ù„Ø³Ø© Ù„ÙŠÙ„ØªÙ‚Ø·Ù‡Ø§ rejoin
-          // âš ï¸ Ù„Ø§ Ù†Ù†Ø´Ø¦ Ø¬Ù„Ø³Ø© Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø®Ø±Ø¬ ÙŠØ¯ÙˆÙŠØ§Ù‹ (userExited)
+          // إذا في جيم نشط وما فيه جلسة محفوظة → ننشئ جلسة ليلتقطها rejoin
+          // ⚠️ لا ننشئ جلسة إذا اللاعب خرج يدوياً (userExited)
           if (data.activeGame && !localStorage.getItem('mafia_session') && !userExited) {
             localStorage.setItem('mafia_session', JSON.stringify({
               roomId: data.activeGame.roomId,
@@ -610,11 +610,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               phone: data.player.phone || '',
               playerId: data.player.id,
             }));
-            // Ù„Ø§ Ù†Ø¶Ø¨Ø· state Ù…Ø¨Ø§Ø´Ø±Ø© â€” Ù†ØªØ±Ùƒ rejoin useEffect ÙŠØªÙƒÙÙ„ Ø¨ÙƒÙ„ Ø´ÙŠØ¡
-            // Ù‡Ø°Ø§ ÙŠÙ…Ù†Ø¹ race condition Ù…Ø¹ rejoin callback
+            // لا نضبط state مباشرة — نترك rejoin useEffect يتكفل بكل شيء
+            // هذا يمنع race condition مع rejoin callback
           }
         } else {
-          // ØªÙˆÙƒÙ† Ù…Ù†ØªÙ‡ÙŠ â†’ Ù…Ø³Ø­
+          // توكن منتهي → مسح
           localStorage.removeItem('mafia_player_token');
           setPlayerToken(null);
         }
@@ -629,27 +629,27 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   }, []);
 
-  // â”€â”€ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ù„Ù„ØºØ±ÙØ© Ø¹Ù†Ø¯ reconnect â”€â”€
-  // Ø¹Ù†Ø¯ Ù‚Ø·Ø¹ Ø§Ù„Ø§ØªØµØ§Ù„ ÙˆØ¥Ø¹Ø§Ø¯ØªÙ‡ â†’ socket ÙŠØ­ØµÙ„ Ø¹Ù„Ù‰ ID Ø¬Ø¯ÙŠØ¯ ÙˆÙŠØ®Ø±Ø¬ Ù…Ù† Ø§Ù„ØºØ±ÙØ©
-  // Ù„Ø§Ø²Ù… ÙŠØ¹ÙˆØ¯ ÙŠÙ†Ø¶Ù… Ø¹Ø´Ø§Ù† ÙŠØ³ØªÙ‚Ø¨Ù„ game:state-sync
+  // ── إعادة الانضمام للغرفة عند reconnect ──
+  // عند قطع الاتصال وإعادته → socket يحصل على ID جديد ويخرج من الغرفة
+  // لازم يعود ينضم عشان يستقبل game:state-sync
   useEffect(() => {
     if (!on || !emit) return;
     if (step !== 'done' && step !== 'rejoined') return;
     if (!roomId) return;
 
     const cleanupReconnect = on('connect', () => {
-      console.log('ðŸ”„ Socket reconnected â€” re-joining room...');
+      console.log('🔄 Socket reconnected — re-joining room...');
       const normalized = phone.startsWith('0') ? phone : '0' + phone;
       emit('room:rejoin-player', {
         roomId,
         physicalId: parseInt(physicalId) || 0,
         phone: normalized || undefined,
-        playerId: playerId || getSavedPlayerId() || undefined, // ðŸª‘ Ø§Ù„Ù‡ÙˆÙŠØ© Ø£ÙˆÙ„Ø§Ù‹ â€” Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ù‚Ø¯ ÙŠÙƒÙˆÙ† ØªØºÙŠÙ‘Ø±
+        playerId: playerId || getSavedPlayerId() || undefined, // 🪑 الهوية أولاً — المقعد قد يكون تغيّر
       }).then((res: any) => {
         if (res?.code === 'IDENTITY_REQUIRED') {
-          // ØªØ¹Ø°Ù‘Ø± Ø§Ù„ØªØ¹Ø±Ù‘Ù Ø¨Ø¹Ø¯ Ø§Ù†Ù‚Ø·Ø§Ø¹ â†’ Ù„Ø§ Ù†ØªØ±ÙƒÙ‡ Ø¹Ù„Ù‰ Ø´Ø§Ø´Ø© Ù„Ø¹Ø¨Ø©Ù Ù„Ù… ÙŠØ¹ÙØ¯ Ø§Ù„Ø®Ø§Ø¯Ù… ÙŠØ¹ØªØ±Ù Ø¨Ù‡Ø§
+          // تعذّر التعرّف بعد انقطاع → لا نتركه على شاشة لعبةٍ لم يعُد الخادم يعترف بها
           localStorage.removeItem('mafia_session');
-          setApiError(res.error || 'ØªØ¹Ø°Ù‘Ø± Ø§Ù„ØªØ¹Ø±Ù‘Ù Ø¹Ù„ÙŠÙƒ â€” Ø£Ø¹Ø¯ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø±Ù‚Ù… Ù‡Ø§ØªÙÙƒ Ø£Ùˆ Ù…Ù† Ø­Ø³Ø§Ø¨Ùƒ');
+          setApiError(res.error || 'تعذّر التعرّف عليك — أعد الدخول برقم هاتفك أو من حسابك');
           setStep(initialRoomCode ? 'phone' : 'code');
           return;
         }
@@ -661,34 +661,34 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             setIsPlayerDead(true);
             setCardFlipped(true);
           }
-          // ØªØ­Ø¯ÙŠØ« Ø§Ù„ÙƒØ§Ø´
+          // تحديث الكاش
           const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
           saved.physicalId = res.player.physicalId;
           localStorage.setItem('mafia_session', JSON.stringify(saved));
-          console.log(`âœ… Re-joined room: #${res.player.physicalId} - ${res.player.name}`);
+          console.log(`✅ Re-joined room: #${res.player.physicalId} - ${res.player.name}`);
         }
       }).catch(() => {
-        console.warn('âš ï¸ Re-join failed after reconnect');
+        console.warn('⚠️ Re-join failed after reconnect');
       });
     });
 
     return () => cleanupReconnect();
   }, [on, emit, step, roomId, phone, physicalId, playerId]);
 
-  // â”€â”€ Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ ØªØºÙŠÙŠØ± Ø±Ù‚Ù… Ø§Ù„Ù…Ù‚Ø¹Ø¯ ÙˆØ§Ù„Ø¹Ù‚ÙˆØ¨Ø§Øª ÙˆØ§Ù„Ø·Ø±Ø¯ Ù…Ù† Ø§Ù„Ù„ÙŠØ¯Ø± â”€â”€
+  // ── استقبال تغيير رقم المقعد والعقوبات والطرد من الليدر ──
   useEffect(() => {
     if (!on) return;
 
     const cleanupSeat = on('player:seat-changed', (data: { oldPhysicalId: number; newPhysicalId: number }) => {
-      // ðŸª‘ ÙŠÙØ¨Ø«Ù‘ Ù‚Ø¨Ù„ room:seats-remapped Ù…Ø¨Ø§Ø´Ø±Ø© â†’ Ù†Ø­ÙØ¸Ù‡ Ù„ÙŠØ¹Ø±Ù Ù…Ø¹Ø§Ù„Ø¬ Ø§Ù„ØªØ±ØªÙŠØ¨ Â«Ù…Ù‚Ø¹Ø¯ÙŠ Ù‚Ø¨Ù„ Ø§Ù„Ù†Ù‚Ù„Â»
+      // 🪑 يُبثّ قبل room:seats-remapped مباشرة → نحفظه ليعرف معالج الترتيب «مقعدي قبل النقل»
       lastSeatChangeRef.current = { oldPhysicalId: data.oldPhysicalId, newPhysicalId: data.newPhysicalId, at: Date.now() };
       setPhysicalId(String(data.newPhysicalId));
-      // ØªØ­Ø¯ÙŠØ« localStorage
+      // تحديث localStorage
       const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
       saved.physicalId = data.newPhysicalId;
       localStorage.setItem('mafia_session', JSON.stringify(saved));
-      // ØªÙ†Ø¨ÙŠÙ‡ Ø¨ØµØ±ÙŠ
-      const msg = `ØªÙ… ØªØºÙŠÙŠØ± Ø±Ù‚Ù…Ùƒ: ${data.oldPhysicalId} â† ${data.newPhysicalId}`;
+      // تنبيه بصري
+      const msg = `تم تغيير رقمك: ${data.oldPhysicalId} ← ${data.newPhysicalId}`;
       setActiveToast({
         message: msg,
         type: 'success'
@@ -699,17 +699,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
     });
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // ðŸª‘ Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ â€” Ø¹Ù‚Ø¯ Ø§Ù„ØªØµØ§Ù„Ø­: Ø§Ù…Ø­Ù â† Ø±Ø­Ù‘Ù„ â† Ø§Ø³Ø£Ù„ â† Ø£Ø¹Ø¯ Ø§Ù„Ø§Ø´ØªÙ‚Ø§Ù‚
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // ÙŠÙ†ÙÙ‘Ø°Ù‡ **ÙƒÙ„** Ù…Ù† ÙÙŠ Ø§Ù„ØºØ±ÙØ© Ù„Ø§ Ø§Ù„Ù…Ù†Ù‚ÙˆÙ„ÙŽÙŠÙ† ÙÙ‚Ø·: ÙƒÙ„ Ø®Ø±ÙŠØ·Ø© Ù…ÙÙ‡Ø±Ø³Ø© Ø¨Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯
-    // Ø¹Ù„Ù‰ Ø£ÙŠÙ‘ Ø¬Ù‡Ø§Ø² ØµØ§Ø±Øª ØªØ´ÙŠØ± Ù„Ù„Ø´Ø®Øµ Ø§Ù„Ø®Ø·Ø£. ÙˆÙ…Ù…Ù†ÙˆØ¹ Ø¹Ù„Ù‰ Ø§Ù„Ø¬Ù‡Ø§Ø² Ø£Ù† Â«ÙŠÙØµÙ„Ø­Â» Ø°Ø§ÙƒØ±ØªÙ‡
-    // Ø­Ø³Ø§Ø¨ÙŠØ§Ù‹ â€” ÙŠÙ…Ø­ÙˆÙ‡Ø§ Ø«Ù… ÙŠØ³Ø£Ù„ Ø§Ù„Ø®Ø§Ø¯Ù… Ø§Ù„Ø°ÙŠ ÙŠØ­Ù„Ù‘ Ø§Ù„Ù‡ÙˆÙŠØ© Ø¨Ø§Ù„Ø­Ø³Ø§Ø¨/Ø§Ù„Ù‡Ø§ØªÙ Ù„Ø§ Ø¨Ø§Ù„Ù…Ù‚Ø¹Ø¯.
+    // ══════════════════════════════════════════════════════
+    // 🪑 إعادة ترتيب المقاعد — عقد التصالح: امحُ ← رحّل ← اسأل ← أعد الاشتقاق
+    // ══════════════════════════════════════════════════════
+    // ينفّذه **كل** من في الغرفة لا المنقولَين فقط: كل خريطة مفهرسة بالمقاعد
+    // على أيّ جهاز صارت تشير للشخص الخطأ. وممنوع على الجهاز أن «يُصلح» ذاكرته
+    // حسابياً — يمحوها ثم يسأل الخادم الذي يحلّ الهوية بالحساب/الهاتف لا بالمقعد.
     const cleanupRemap = on('room:seats-remapped', (data: { map: Record<string, number>; swapped: boolean; at: number }) => {
       const map = data?.map || {};
 
-      // Â«Ù…Ù‚Ø¹Ø¯ÙŠ Ù‚Ø¨Ù„ Ø§Ù„Ù†Ù‚Ù„Â»: Ø§Ù„Ø­Ø¯Ø« Ø§Ù„Ø³Ø§Ø¨Ù‚ Ù‚Ø¯ ÙŠÙƒÙˆÙ† Ø­Ø¯Ù‘Ø« Ø§Ù„Ø±Ù‚Ù… ÙØ¹Ù„Ø§Ù‹ØŒ ÙÙ†Ø£Ø®Ø°Ù‡ Ù…Ù†Ù‡
-      // Ù…ØªÙ‰ ÙƒØ§Ù† Ø·Ø§Ø²Ø¬Ø§Ù‹ ÙˆÙ…Ø·Ø§Ø¨Ù‚Ø§Ù‹ Ù„Ù„Ø®Ø±ÙŠØ·Ø© (Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ Ù„Ø§ ÙŠÙÙ…ÙŠÙŽÙ‘Ø² Ø¨Ø§Ù„Ø¹ÙƒØ³: 5â†’7 Ùˆ7â†’5).
+      // «مقعدي قبل النقل»: الحدث السابق قد يكون حدّث الرقم فعلاً، فنأخذه منه
+      // متى كان طازجاً ومطابقاً للخريطة (التبديل لا يُميَّز بالعكس: 5→7 و7→5).
       const recent = lastSeatChangeRef.current;
       const myOldSeat = (recent && Date.now() - recent.at < 4000 && map[String(recent.oldPhysicalId)] === recent.newPhysicalId)
         ? recent.oldPhysicalId
@@ -717,7 +717,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       const myNewSeat = map[String(myOldSeat)] ?? myOldSeat;
       lastSeatChangeRef.current = null;
 
-      // â‘   Ø§Ù…Ø­Ù ÙƒÙ„ Ù…Ø§ Ù‡Ùˆ Ù…ÙÙ‡Ø±Ø³ Ø¨Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ ÙˆÙ„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ÙˆØ«ÙˆÙ‚ Ø¨Ù‡ Ø¨Ø¹Ø¯ Ø§Ù„ØªØ±Ù‚ÙŠÙ… Ø§Ù„Ø¬Ø¯ÙŠØ¯
+      // ①  امحُ كل ما هو مفهرس بالمقاعد ولا يمكن الوثوق به بعد الترقيم الجديد
       setVotingCandidates([]);
       setVotingPlayersInfo([]);
       setPlayerVotes({});
@@ -727,26 +727,26 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setLastVoteTime(null);
       setVotingCountdown(null);
       if (votingTimerRef.current) clearInterval(votingTimerRef.current);
-      setPhasePollData(null);        // ØªØ¨Ø±ÙŠØ±/Ù†Ù‚Ø§Ø´/Ø¥Ù‚ØµØ§Ø¡/Ø§ØªÙØ§Ù‚ÙŠØ§Øª â€” ÙƒÙ„Ù‡Ø§ Ø¨Ø£Ø±Ù‚Ø§Ù… Ù…Ù‚Ø§Ø¹Ø¯
-      setRoster([]);                 // Ø§Ù„Ø±ÙˆØ³ØªØ± ÙŠØ¹ÙˆØ¯ ÙƒØ§Ù…Ù„Ø§Ù‹ Ù…Ù† Ø£ÙˆÙ‘Ù„ Ø§Ø³ØªØ·Ù„Ø§Ø¹
-      setVoiceMaps({ videoByPid: {}, audioByPid: {} }); // ÙƒØ§Ù…ÙŠØ±Ø§/ÙƒÙ„Ø§Ù… Ø¹Ù„Ù‰ ÙƒØ§Ø±Øª Ø§Ù„Ø´Ø®Øµ Ø§Ù„Ø®Ø·Ø£
-      // Ù†Ø§ÙØ°Ø© Ø§Ù„Ù„ÙŠÙ„ Ø§Ù„Ù…ÙØªÙˆØ­Ø© ØªÙØºÙ„Ù‚: Ø´Ø¨ÙƒØ© Ø£Ù…Ø§Ù† Ø§Ù„Ù„ÙŠÙ„ ØªØ¹ÙŠØ¯ ÙØªØ­Ù‡Ø§ Ù…Ù† Ø§Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ø§Ø²Ø¬Ø©
+      setPhasePollData(null);        // تبرير/نقاش/إقصاء/اتفاقيات — كلها بأرقام مقاعد
+      setRoster([]);                 // الروستر يعود كاملاً من أوّل استطلاع
+      setVoiceMaps({ videoByPid: {}, audioByPid: {} }); // كاميرا/كلام على كارت الشخص الخطأ
+      // نافذة الليل المفتوحة تُغلق: شبكة أمان الليل تعيد فتحها من الحالة الطازجة
       if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
       setNightActionRequired(null);
       setNightActionSubmitted(false);
       setNightActionCountdown(0);
       setSelectedTargetForConfirm(null);
-      // Ø§Ù„Ø¹Ù…Ø¯Ø©: Ø¨Ø±ÙˆÙ…Ø¨Øª Ù‚Ø±Ø§Ø±Ù‡ ÙˆØ´Ø§Ø±ØªÙ‡ ÙˆØ¥Ø¹Ù„Ø§Ù†Ù‡ â€” Ø«Ù„Ø§Ø«ØªÙ‡Ø§ Ù…Ø±Ø¨ÙˆØ·Ø© Ø¨Ø±Ù‚Ù… Ù…Ù‚Ø¹Ø¯
+      // العمدة: برومبت قراره وشارته وإعلانه — ثلاثتها مربوطة برقم مقعد
       setMayorPrompt(null);
       setMayorBanner(null);
       setMayorRevealedId(null);
-      // ðŸ›¡ï¸ Ù†Ø§ÙØ°Ø© ØµÙ…Øª Ù‚ØµÙŠØ±Ø© Ù„Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¯ÙØ¹ Ø§Ù„Ø®Ø§ØµÙ‘Ø©: Ø§Ù„Ø®Ø§Ø¯Ù… ÙŠÙØ¹ÙŠØ¯ Ø¥Ø±Ø³Ø§Ù„ player:role-assigned
-      //    Ù„ÙƒÙ„ Ù…Ù†Ù‚ÙˆÙ„ (Ø¨Ù„Ø§ Ø­Ù‚Ù„ Ø­ÙŠØ§Ø©)ØŒ ÙˆÙ…Ø¹Ø§Ù„Ø¬ÙÙ‡ ÙŠÙØªØ±Ø¶ Â«Ø¯ÙˆØ± Ø¬Ø¯ÙŠØ¯Â» ÙÙŠÙØ­ÙŠÙŠ Ù…ÙŠØªØ§Ù‹ ÙˆÙŠÙ‚Ù„Ø¨ Ø¨Ø·Ø§Ù‚ØªÙ‡
-      //    ÙˆÙŠÙØ·Ù„Ù‚ ØªÙ†Ø¨ÙŠÙ‡ Ø§Ù„Ø¯ÙˆØ±. Ø§Ù„Ø§Ø³ØªØ·Ù„Ø§Ø¹ Ø§Ù„ØªØ§Ù„ÙŠ Ù‡Ùˆ Ø§Ù„Ù…Ø±Ø¬Ø¹ Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ø­ÙŠØ§Ø©.
+      // 🛡️ نافذة صمت قصيرة لإعادة الدفع الخاصّة: الخادم يُعيد إرسال player:role-assigned
+      //    لكل منقول (بلا حقل حياة)، ومعالجُه يفترض «دور جديد» فيُحيي ميتاً ويقلب بطاقته
+      //    ويُطلق تنبيه الدور. الاستطلاع التالي هو المرجع لحالة الحياة.
       seatRemapRepushUntilRef.current = Date.now() + 5000;
 
-      // â‘¡  Ø±Ø­Ù‘Ù„ Ù…Ø§ ÙŠÙ…Ù„ÙƒÙ‡ Ø§Ù„Ø¬Ù‡Ø§Ø² ÙˆÙ„Ø§ ÙŠÙØ¹ÙŠØ¯Ù‡ Ø§Ù„Ø®Ø§Ø¯Ù…: Ø§Ù„Ù…ÙÙƒØ±Ø© Ø§Ù„Ø®Ø§ØµÙ‘Ø© + Ù‡ÙˆÙŠÙ‘Ø§Øª Ø§Ù„ÙØ±ÙŠÙ‚
-      //     (Ø§Ù„Ø£Ø³Ù…Ø§Ø¡ ØªØ³Ø§ÙØ± Ù…Ø¹ Ø§Ù„Ø£Ø´Ø®Ø§ØµØŒ ÙØªÙ…Ø±Ù‘ Ø£Ø±Ù‚Ø§Ù…Ù‡Ø§ Ø¨Ø®Ø±ÙŠØ·Ø© Ø§Ù„Ø®Ø§Ø¯Ù… ÙƒÙ…Ø§ ÙØ¹Ù„ Ù‡Ùˆ Ø¨Ø­Ø§Ù„ØªÙ‡)
+      // ②  رحّل ما يملكه الجهاز ولا يُعيده الخادم: المفكرة الخاصّة + هويّات الفريق
+      //     (الأسماء تسافر مع الأشخاص، فتمرّ أرقامها بخريطة الخادم كما فعل هو بحالته)
       setNotepadNotes(migrateNotesForSeatRemap(roomId, map, myOldSeat, myNewSeat));
       setNotepadRemapNonce(n => n + 1);
       setMafiaTeamRaw(prev => {
@@ -761,17 +761,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         return next;
       });
 
-      // â‘¢  Ø§Ø³Ø£Ù„ Ø§Ù„Ø®Ø§Ø¯Ù… (Ù†ÙØ³ Ù†Ø¯Ø§Ø¡ Ø§Ù„Ø§Ø³ØªØ·Ù„Ø§Ø¹) â€” Ù‡Ùˆ Ø§Ù„Ù…Ø±Ø¬Ø¹ Ù„Ù…Ù‚Ø¹Ø¯ÙŠ ÙˆØ¯ÙˆØ±ÙŠ ÙˆÙ…Ø±Ø­Ù„ØªÙŠ
-      // (Ø³Ø¬Ù„Ù‘ Ø¯Ø±Ø¯Ø´Ø© Ø§Ù„Ù…Ø§ÙÙŠØ§ Ø£ÙØ¹ÙŠØ¯ ØªØ±Ù‚ÙŠÙ…Ù‡ Ø¹Ù„Ù‰ Ø§Ù„Ø®Ø§Ø¯Ù… Ø£ÙŠØ¶Ø§Ù‹ â€” ØªÙØ¹ÙŠØ¯ Ø§Ù„Ù…ÙÙƒØ±Ø© Ø¬Ù„Ø¨Ù‡ Ø¨Ø§Ù„Ø¹Ø¯Ù‘Ø§Ø¯ Ø£Ø¹Ù„Ø§Ù‡)
-      seatRemapUntilRef.current = Date.now() + 6000; // ÙŠÙƒØªÙ… Ø¨Ø§Ù†Ø± Â«ØªÙ… ØªØºÙŠÙŠØ± Ø±Ù‚Ù…ÙƒÂ» Ø§Ù„Ù…ÙƒØ±Ù‘Ø±
-      // â±ï¸ ØªØ£Ø¬ÙŠÙ„ Ù†Ø¯Ø§Ø¡ Ø§Ù„Ø§Ø³ØªØ·Ù„Ø§Ø¹ Ù„Ø¯ÙˆØ±Ø© Ø±Ø³Ù… ÙˆØ§Ø­Ø¯Ø©: Ø§Ù„Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„ÙÙˆØ±ÙŠ ÙŠÙ†ÙÙ‘Ø° Ø§Ù„Ø¥ØºÙ„Ø§Ù‚ (closure)
-      //    Ø§Ù„Ù…ÙÙ„ØªÙ‚Ø· **Ù‚Ø¨Ù„** ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ù‚Ø¹Ø¯ØŒ ÙÙŠØ³ØªØ¹ÙŠØ¯ ØµÙˆØªÙŠ Ù…Ù† Ù…ÙØªØ§Ø­ Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ù‚Ø¯ÙŠÙ… â€” Ø£ÙŠ ØµÙˆØª
-      //    Ø´Ø±ÙŠÙƒ Ø§Ù„ØªØ¨Ø¯ÙŠÙ„. Ø¨Ø¹Ø¯ Ø§Ù„Ø±Ø³Ù… ÙŠØµÙŠØ± Ø§Ù„Ø¥ØºÙ„Ø§Ù‚ Ù…Ø­Ø¯Ù‘Ø«Ø§Ù‹ Ø¨Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ø¬Ø¯ÙŠØ¯.
+      // ③  اسأل الخادم (نفس نداء الاستطلاع) — هو المرجع لمقعدي ودوري ومرحلتي
+      // (سجلّ دردشة المافيا أُعيد ترقيمه على الخادم أيضاً — تُعيد المفكرة جلبه بالعدّاد أعلاه)
+      seatRemapUntilRef.current = Date.now() + 6000; // يكتم بانر «تم تغيير رقمك» المكرّر
+      // ⏱️ تأجيل نداء الاستطلاع لدورة رسم واحدة: الاستدعاء الفوري ينفّذ الإغلاق (closure)
+      //    المُلتقط **قبل** تحديث المقعد، فيستعيد صوتي من مفتاح المقعد القديم — أي صوت
+      //    شريك التبديل. بعد الرسم يصير الإغلاق محدّثاً بالمقعد الجديد.
       setTimeout(() => pollStateRef.current?.(), 0);
 
-      // â‘£  ØªÙˆØ³Øª Ù‚ØµÙŠØ± ØºÙŠØ± Ù…ÙÙ‚Ù„Ù‚ â€” Ø¨Ù„Ø§ Ø£Ø³Ù…Ø§Ø¡ ÙˆÙ„Ø§ ØªÙØ§ØµÙŠÙ„ ØªÙƒØ´Ù Ù…Ù† ØªØ­Ø±Ù‘Ùƒ
-      //     (Ø¨Ù„Ø§ Ø§Ù‡ØªØ²Ø§Ø²: Ù…Ù† Ø§Ù†ØªÙ‚Ù„ Ù…Ù‚Ø¹Ø¯Ù‡ Ø§Ù‡ØªØ²Ù‘ Ø¬Ù‡Ø§Ø²Ù‡ Ø£ØµÙ„Ø§Ù‹ Ù…Ø¹ player:seat-changed)
-      const msg = myNewSeat !== myOldSeat ? `ØªØºÙŠÙ‘Ø± Ù…Ù‚Ø¹Ø¯Ùƒ Ø¥Ù„Ù‰ Ø±Ù‚Ù… ${myNewSeat}` : 'Ø£ÙØ¹ÙŠØ¯ ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯';
+      // ④  توست قصير غير مُقلق — بلا أسماء ولا تفاصيل تكشف من تحرّك
+      //     (بلا اهتزاز: من انتقل مقعده اهتزّ جهازه أصلاً مع player:seat-changed)
+      const msg = myNewSeat !== myOldSeat ? `تغيّر مقعدك إلى رقم ${myNewSeat}` : 'أُعيد ترتيب المقاعد';
       setActiveToast({ message: msg, type: 'info' });
       setTimeout(() => {
         setActiveToast(prev => prev && prev.message === msg ? null : prev);
@@ -780,14 +780,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
     const cleanupKick = on('player:kicked-self', (data?: { reason?: string }) => {
       localStorage.removeItem('mafia_session');
-      localStorage.removeItem('mafia_held_seat'); // Ù„Ø§ ÙŠØ­ØªØ§Ø¬ Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¨Ø¹Ø¯ Ø§Ù„Ø·Ø±Ø¯
+      localStorage.removeItem('mafia_held_seat'); // لا يحتاج العودة بعد الطرد
       setAssignedRole(null);
       setPhysicalId('');
       setRoomId('');
       setUserExited(true);
       localStorage.setItem('mafia_user_exited', 'true');
 
-      // Ù…Ø³Ø­ ÙƒØ§ÙØ© Ù…ÙØ§ØªÙŠØ­ Ø§Ù„Ø¬Ù„Ø³Ø© Ù„Ù„ØªØµÙÙŠØ± Ø§Ù„ÙƒØ§Ù…Ù„
+      // مسح كافة مفاتيح الجلسة للتصفير الكامل
       localStorage.removeItem('mafia_gamePhase');
       localStorage.removeItem('mafia_votingCandidates');
       localStorage.removeItem('mafia_votingPlayersInfo');
@@ -802,11 +802,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         setExpulsionReason(data.reason);
       } else {
         setStep(initialRoomCode ? 'phone' : 'code');
-        setApiError('ØªÙ… Ø¥Ø²Ø§Ù„ØªÙƒ Ù…Ù† Ø§Ù„Ù„Ø¹Ø¨Ø© Ù…Ù† Ù‚Ø¨Ù„ Ø§Ù„Ù„ÙŠØ¯Ø±');
+        setApiError('تم إزالتك من اللعبة من قبل الليدر');
       }
     });
 
-    // ðŸ—£ï¸ ØªÙØ¹ÙŠÙ„/ØªØ¹Ø·ÙŠÙ„ ØºØ±ÙØ© Ø§Ù„ØªØ´Ø§ÙˆØ± ÙÙˆØ±ÙŠØ§Ù‹ Ù…Ù† Ø§Ù„Ù„ÙŠØ¯Ø± (Ø¥Ø¹Ø¯Ø§Ø¯ Ø¹Ø§Ù… Ù„Ø§ ÙŠÙƒØ´Ù Ù‡ÙˆÙŠØ©)
+    // 🗣️ تفعيل/تعطيل غرفة التشاور فورياً من الليدر (إعداد عام لا يكشف هوية)
     const cleanupChatToggle = on('room:config-updated', (data: any) => {
       if (typeof data?.mafiaChatEnabled === 'boolean') setMafiaChatEnabled(data.mafiaChatEnabled);
     });
@@ -838,13 +838,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         }
       }
       
-      // Ø¥Ø®ÙØ§Ø¡ Ø§Ù„ØªÙˆØ³Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ø¹Ø¯ 6 Ø«ÙˆØ§Ù†Ù
+      // إخفاء التوست تلقائياً بعد 6 ثوانٍ
       setTimeout(() => {
         setActiveToast(prev => prev && prev.message === data.message ? null : prev);
       }, 6000);
     });
 
-    // Ø¥Ù‚ØµØ§Ø¡ Ø¨Ø³Ø¨Ø¨ Ø§Ù„Ø¹Ù‚ÙˆØ¨Ø§Øª â€” Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙŠØ¨Ù‚Ù‰ ÙÙŠ Ø§Ù„ØºØ±ÙØ© Ù„ÙƒÙ† Ù…ÙŠØª
+    // إقصاء بسبب العقوبات — اللاعب يبقى في الغرفة لكن ميت
     const cleanupPenaltyEjected = on('player:penalty-ejected', (data: { reason: string; penalties: number; maxPenalties: number }) => {
       setIsPlayerDead(true);
       setCardFlipped(true);
@@ -870,12 +870,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [on, initialRoomCode, physicalId, roomId]);
 
-  // â•â•â• ÙØ­Øµ Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ù…Ø­Ø¬ÙˆØ² â€” Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ â•â•â•
-  // ÙŠØ¹Ù…Ù„ ÙÙ‚Ø· Ø¹Ù†Ø¯ ÙØªØ­ Ø§Ù„ØµÙØ­Ø© Ù…Ù† Ø¬Ø¯ÙŠØ¯ (Ù…Ø«Ù„Ø§Ù‹ Ù…Ù† Ø²Ø± "Ø§Ù„Ø¹ÙˆØ¯Ø©" ÙÙŠ Ø§Ù„ØµÙØ­Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©)
-  // Ù„Ø§ ÙŠØ¹Ù…Ù„ Ù…Ø¨Ø§Ø´Ø±Ø© Ø¨Ø¹Ø¯ Ø§Ù„Ø®Ø±ÙˆØ¬ (userExited = true)
+  // ═══ فحص المقعد المحجوز — إعادة الدخول التلقائي ═══
+  // يعمل فقط عند فتح الصفحة من جديد (مثلاً من زر "العودة" في الصفحة الرئيسية)
+  // لا يعمل مباشرة بعد الخروج (userExited = true)
   useEffect(() => {
     if (step !== 'code' || initialRoomCode) return;
-    // Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù„Ø³Ù‰ Ø·Ø§Ù„Ø¹ â†’ Ù„Ø§ Ù†Ø¹ÙŠØ¯ Ø¯Ø®ÙˆÙ„Ù‡ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+    // إذا اللاعب لسى طالع → لا نعيد دخوله تلقائياً
     if (userExited || localStorage.getItem('mafia_user_exited')) return;
     try {
       const held = localStorage.getItem('mafia_held_seat');
@@ -896,9 +896,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     } catch { /* ignore parse errors */ }
   }, [step, initialRoomCode]);
 
-  // â”€â”€ ØªØ³Ø¬ÙŠÙ„ Ø®Ø±ÙˆØ¬ Ø§Ù„Ù„Ø§Ø¹Ø¨ (Ù…Ø³Ø­ ÙƒÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©) â”€â”€
+  // ── تسجيل خروج اللاعب (مسح كل البيانات المحفوظة) ──
   const handleLogout = useCallback(() => {
-    // â•â•â• Ø­ÙØ¸ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø£Ø®ÙŠØ±Ø© Ù‚Ø¨Ù„ Ø§Ù„Ù…Ø³Ø­ (Ù„Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ù…Ø­Ø¬ÙˆØ²) â•â•â•
+    // ═══ حفظ بيانات الغرفة الأخيرة قبل المسح (للعودة للمقعد المحجوز) ═══
     const savedRoomCode = roomCode;
     const savedRoomId = roomId;
     if (savedRoomCode && savedRoomId) {
@@ -912,20 +912,20 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }));
     }
 
-    // Ø¥Ø±Ø³Ø§Ù„ Ø­Ø¯Ø« Ø§Ù„Ø®Ø±ÙˆØ¬ Ù„Ù„Ø³ÙŠØ±ÙØ± Ø£ÙˆÙ„Ø§Ù‹ (Ù„Ø¥Ø²Ø§Ù„Ø© Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ù† ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù„ÙŠØ¯Ø±)
+    // إرسال حدث الخروج للسيرفر أولاً (لإزالة اللاعب من واجهة الليدر)
     if (emit && roomId) {
       const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
       emit('room:player-exit', {
         roomId,
         phone: normalizedPhone,
         playerId: playerId || undefined,
-      }).catch(() => {}); // Ù„Ø§ Ù†Ù…Ù†Ø¹ Ø§Ù„Ø®Ø±ÙˆØ¬ Ø­ØªÙ‰ Ù„Ùˆ ÙØ´Ù„
+      }).catch(() => {}); // لا نمنع الخروج حتى لو فشل
     }
 
     localStorage.removeItem('mafia_session');
     localStorage.removeItem('mafia_player_token');
     localStorage.removeItem('mafia_playerId');
-    // ØªÙ†Ø¸ÙŠÙ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØµÙˆÙŠØª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©
+    // تنظيف بيانات التصويت المحفوظة
     localStorage.removeItem('mafia_gamePhase');
     localStorage.removeItem('mafia_votingCandidates');
     localStorage.removeItem('mafia_votingPlayersInfo');
@@ -946,7 +946,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     setMustChangePassword(false);
     setApiError('');
     if (initialRoomCode) {
-      // Ø¥Ø°Ø§ Ø¯Ø®Ù„ Ø¹Ø¨Ø± Ø²Ø± Ø§Ù„Ø­Ø¬Ø² â†’ Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„ØµÙØ­Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© Ù„ÙŠØ®ØªØ§Ø± ØºØ±ÙØ© Ù…Ù† Ø¬Ø¯ÙŠØ¯
+      // إذا دخل عبر زر الحجز → العودة للصفحة الرئيسية ليختار غرفة من جديد
       setStep('code');
       setUserExited(true);
       localStorage.setItem('mafia_user_exited', 'true');
@@ -958,7 +958,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     localStorage.setItem('mafia_user_exited', 'true');
   }, [initialRoomCode, emit, roomId, phone, playerId, roomCode, displayName]);
 
-  // â”€â”€ Ù…Ù†Ø¹ pull-to-refresh Ø¯Ø§Ø®Ù„ Ø§Ù„Ù„Ø¹Ø¨Ø© â”€â”€
+  // ── منع pull-to-refresh داخل اللعبة ──
   useEffect(() => {
     document.body.classList.add('in-game');
     return () => {
@@ -966,41 +966,41 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, []);
 
-  // â”€â”€ Ù…Ø²Ø§Ù…Ù†Ø© Ø®ÙÙŠØ© â€” Ø§Ù„Ø§Ø³ØªÙ…Ø§Ø¹ Ù„Ø¨Ø¯Ø¡ Ø§Ù„Ù„Ø¹Ø¨Ø© + ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ø£Ø¯ÙˆØ§Ø± â”€â”€
+  // ── مزامنة خفية — الاستماع لبدء اللعبة + توزيع الأدوار ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
-    // Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ Ø§Ù„Ø¯ÙˆØ± Ù…Ù† Ø§Ù„Ù„ÙŠØ¯Ø± (Ø¹Ù†Ø¯ ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø£Ø¯ÙˆØ§Ø±)
+    // استقبال الدور من الليدر (عند تأكيد الأدوار)
     const cleanupRole = on('player:role-assigned', (data: { role: string; mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[]; sibling?: any }) => {
-      // ðŸª‘ Ø¥Ø¹Ø§Ø¯Ø© Ø¯ÙØ¹ Ø¨Ø¹Ø¯ Ù†Ù‚Ù„ Ù…Ù‚Ø¹Ø¯ (Ù„Ø§ Ù„Ø¹Ø¨Ø© Ø¬Ø¯ÙŠØ¯Ø©): Ø§Ù„Ø®Ø§Ø¯Ù… ÙŠÙØ¹ÙŠØ¯ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¯ÙˆØ± Ù„ÙŠØµÙ„ Ù„ØµØ§Ø­Ø¨Ù‡
-      //    Ø¨Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ø¬Ø¯ÙŠØ¯. Ù„Ø§ ÙŠØ¬ÙˆØ² Ø¹Ù†Ø¯Ù‡Ø§ Ù‚Ù„Ø¨ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø© ÙˆÙ„Ø§ Ø¥Ø·Ù„Ø§Ù‚ ØªÙ†Ø¨ÙŠÙ‡ Ø§Ù„Ø¯ÙˆØ± ÙˆÙ„Ø§ Â«Ø¥Ø­ÙŠØ§Ø¡Â» Ù…ÙŠØª.
+      // 🪑 إعادة دفع بعد نقل مقعد (لا لعبة جديدة): الخادم يُعيد إرسال الدور ليصل لصاحبه
+      //    بالمقعد الجديد. لا يجوز عندها قلب البطاقة ولا إطلاق تنبيه الدور ولا «إحياء» ميت.
       const isSeatRepush = Date.now() < seatRemapRepushUntilRef.current;
       setAssignedRole(data.role);
       if (!isSeatRepush) {
         setCardFlipped(false);
         setRoleAlert(true);
-        setIsPlayerDead(false); // â† reset: Ù„Ø¹Ø¨Ø© Ø¬Ø¯ÙŠØ¯Ø© = Ø­ÙŠ
+        setIsPlayerDead(false); // ← reset: لعبة جديدة = حي
       }
-      // ðŸ‘¥ Ù†Ø·Ø¨Ù‘Ù‚ Ø¯Ø§Ø¦Ù…Ø§Ù‹ (Ù„Ø§ Ø´Ø±Ø·): Ø¥Ù† Ù„Ù… ÙŠÙƒÙ† Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ø§ÙÙŠØ§ ÙÙŠ Ù‡Ø°Ù‡ Ø§Ù„Ù„Ø¹Ø¨Ø© (Ù…Ø«Ù„ Ø§Ù„Ø£Ø® Ø§Ù„Ø£ØµØºØ±/Ø§Ù„Ù…ÙˆØ§Ø·Ù†)
-      // ÙŠØ¬Ø¨ Ù…Ø³Ø­ Ø£ÙŠ ÙØ±ÙŠÙ‚ Ù…Ø§ÙÙŠØ§ Ù‚Ø¯ÙŠÙ… Ù…Ø­ÙÙˆØ¸ Ù…Ù† Ù„Ø¹Ø¨Ø© Ø³Ø§Ø¨Ù‚Ø© â€” ÙˆØ¥Ù„Ù‘Ø§ Ø±Ø¢Ù‡ Ø§Ù„Ø£Ø® Ø§Ù„Ø£ØµØºØ± Ù‚Ø¨Ù„ ØªØ­ÙˆÙ‘Ù„Ù‡.
+      // 👥 نطبّق دائماً (لا شرط): إن لم يكن اللاعب مافيا في هذه اللعبة (مثل الأخ الأصغر/المواطن)
+      // يجب مسح أي فريق مافيا قديم محفوظ من لعبة سابقة — وإلّا رآه الأخ الأصغر قبل تحوّله.
       setMafiaTeam(data.mafiaTeam || []);
-      setSibling(data.sibling || null); // ðŸ‘¥ Ø§Ù„Ø£Ø® (null Ù„ØºÙŠØ± Ø§Ù„Ø£Ø®ÙˆÙŠÙ†)
+      setSibling(data.sibling || null); // 👥 الأخ (null لغير الأخوين)
       if (!isSeatRepush && navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
     });
 
-    // ðŸ‘¥ ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¦Ù…Ø© ÙØ±ÙŠÙ‚ Ø§Ù„Ù…Ø§ÙÙŠØ§ (Ø¹Ù†Ø¯ ØªØ­ÙˆÙ‘Ù„ Ø§Ù„Ø£Ø® Ø§Ù„Ø£ØµØºØ± â€” Ø¯ÙˆÙ† Ù„Ù…Ø³ Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„Ù„Ø§Ø¹Ø¨)
+    // 👥 تحديث قائمة فريق المافيا (عند تحوّل الأخ الأصغر — دون لمس بطاقة اللاعب)
     const cleanupMafiaTeam = on('mafia:team-updated', (data: { mafiaTeam?: {physicalId: number; name: string; role: string; avatarUrl?: string | null}[] }) => {
       if (data.mafiaTeam) setMafiaTeam(data.mafiaTeam);
     });
 
-    // ðŸ”ª Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ Ø¹Ù‚ÙˆØ¯ Ø§Ù„Ø³ÙÙ‘Ø§Ø­
+    // 🔪 استقبال عقود السفّاح
     const cleanupAssassin = on('assassin:contracts-update', (data: any) => {
       setAssassinContracts(data);
     });
 
     const cleanup = on('game:started', () => {
-      console.log('ðŸŽ® New game started â€” resetting all game state');
-      // â”€â”€ Ø¥Ø¹Ø§Ø¯Ø© ØªØ¹ÙŠÙŠÙ† Ø­Ø§Ù„Ø§Øª Ø§Ù„Ø¬ÙˆÙ„Ø© â”€â”€
+      console.log('🎮 New game started — resetting all game state');
+      // ── إعادة تعيين حالات الجولة ──
       setIsPlayerDead(false);
       setVotingCandidates([]);
       setMyVote(null);
@@ -1008,13 +1008,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setPlayerVotes({});
       setTotalVotesCast(0);
       setLastVoteTime(null);
-      setAssassinContracts(null); // ðŸ”ª ØªØµÙÙŠØ± Ø¹Ù‚ÙˆØ¯ Ø§Ù„Ø³ÙÙ‘Ø§Ø­
+      setAssassinContracts(null); // 🔪 تصفير عقود السفّاح
       if (navigator.vibrate) navigator.vibrate(200);
     });
 
-    // â”€â”€ Ø§Ù„Ø­Ù„ Ø§Ù„Ø¬Ø°Ø±ÙŠ: Ù…Ø²Ø§Ù…Ù†Ø© Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ playerId â”€â”€
-    // ÙƒÙ„ Ù…Ø§ ÙŠØªØºÙŠØ± Ø§Ù„Ù€ state Ø¨Ø§Ù„Ø³ÙŠØ±ÙØ± (renumber, kick, etc.)
-    // Ù†Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø¨Ø§Ù„Ù€ playerId Ø£Ùˆ Ø§Ù„Ù‡Ø§ØªÙ ÙˆÙ†Ø­Ø¯Ù‘Ø« physicalId + role + alive
+    // ── الحل الجذري: مزامنة بناءً على playerId ──
+    // كل ما يتغير الـ state بالسيرفر (renumber, kick, etc.)
+    // نبحث عن اللاعب بالـ playerId أو الهاتف ونحدّث physicalId + role + alive
     const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
     const cleanupSync = on('game:state-sync', (state: any) => {
       if (!state || !state.players) return;
@@ -1022,50 +1022,50 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       if (state.config?.isRemote != null) setIsRemote(!!state.config.isRemote);
       if (state.config?.allowPlayerInvites != null) setAllowPlayerInvites(!!state.config.allowPlayerInvites);
 
-      // Ø§Ù„Ø¨Ø­Ø« Ø¨Ù€ playerId Ø£ÙˆÙ„Ø§Ù‹ (Ø§Ù„Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ù…ÙˆØ«ÙˆÙ‚Ø©)
+      // البحث بـ playerId أولاً (الطريقة الموثوقة)
       let me = playerId
         ? state.players.find((p: any) => p.playerId === playerId)
         : null;
 
-      // fallback: Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„Ù‡Ø§ØªÙ
+      // fallback: البحث بالهاتف
       if (!me && normalizedPhone) {
         me = state.players.find((p: any) => p.phone === normalizedPhone);
       }
 
       if (me) {
-        // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø±Ù‚Ù… Ø¥Ø°Ø§ ØªØºÙŠÙ‘Ø±
+        // تحديث الرقم إذا تغيّر
         if (String(me.physicalId) !== physicalId) {
           const oldId = physicalId;
           setPhysicalId(String(me.physicalId));
-          // ØªØ­Ø¯ÙŠØ« Ø§Ù„ÙƒØ§Ø´
+          // تحديث الكاش
           const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
           saved.physicalId = me.physicalId;
           localStorage.setItem('mafia_session', JSON.stringify(saved));
-          // ØªÙ†Ø¨ÙŠÙ‡ Ø¨ØµØ±ÙŠ â€” Ø¥Ù„Ø§ Ø¥Ø°Ø§ ÙƒØ§Ù† ØªÙˆØ³Øª Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ Ù‚Ø¯ Ù‚Ø§Ù„Ù‡Ø§ Ù„Ù„ØªÙˆ
+          // تنبيه بصري — إلا إذا كان توست إعادة ترتيب المقاعد قد قالها للتو
           if (oldId && oldId !== '0' && Date.now() > seatRemapUntilRef.current) {
-            setSeatChangeAlert(`ØªÙ… ØªØºÙŠÙŠØ± Ø±Ù‚Ù…Ùƒ: ${oldId} â† ${me.physicalId}`);
+            setSeatChangeAlert(`تم تغيير رقمك: ${oldId} ← ${me.physicalId}`);
             setTimeout(() => setSeatChangeAlert(null), 5000);
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
           }
         }
 
-        // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø§Ø³Ù… Ø¥Ø°Ø§ ØªØºÙŠÙ‘Ø±
+        // تحديث الاسم إذا تغيّر
         if (me.name && me.name !== displayName) {
           setDisplayName(me.name);
         }
 
-        // ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø§Ù„Ø­ÙŠØ§Ø©
+        // تحديث حالة الحياة
         if (!me.isAlive && !isPlayerDead) {
           setIsPlayerDead(true);
           setCardFlipped(true);
         }
-        // â† Ø¥Ø­ÙŠØ§Ø¡: Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø­ÙŠ ÙÙŠ Ù„Ø¹Ø¨Ø© Ø¬Ø¯ÙŠØ¯Ø© Ø¨Ø³ Ø§Ù„Ù€ state ÙŠÙ‚ÙˆÙ„ Ù…ÙŠØª
+        // ← إحياء: إذا اللاعب حي في لعبة جديدة بس الـ state يقول ميت
         if (me.isAlive && isPlayerDead) {
           setIsPlayerDead(false);
           setCardFlipped(false);
         }
 
-        // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¹Ù‚ÙˆØ¨Ø§Øª ÙˆØ§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰
+        // تحديث العقوبات والحد الأقصى
         const mePenalties = me.penalties || 0;
         if (mePenalties !== penalties) {
           setPenalties(mePenalties);
@@ -1075,8 +1075,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           setMaxPenalties(stateMaxPenalties);
         }
       } else {
-        // Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ø´ Ù…ÙˆØ¬ÙˆØ¯ Ø¨Ø§Ù„Ù€ state â†’ Ù…Ù…ÙƒÙ† Ø§ØªØ·Ø±Ø¯
-        // Ø¨Ø³ Ù…Ø§ Ù†Ù…Ø³Ø­ Ø§Ù„Ø¬Ù„Ø³Ø© Ù‡ÙˆÙ† Ø¹Ø´Ø§Ù† Ù…Ù…ÙƒÙ† ÙŠÙƒÙˆÙ† state-sync Ù„ØºØ±ÙØ© Ø«Ø§Ù†ÙŠØ©
+        // اللاعب مش موجود بالـ state → ممكن اتطرد
+        // بس ما نمسح الجلسة هون عشان ممكن يكون state-sync لغرفة ثانية
       }
     });
 
@@ -1088,12 +1088,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [step, on, playerId, phone, physicalId, displayName, isPlayerDead, penalties, maxPenalties]);
 
-  // â”€â”€ Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø­Ø§Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª ÙÙˆØ± Ø§ÙƒØªÙ…Ø§Ù„ Ø§Ù„Ù€ rejoin (safety net Ø´Ø§Ù…Ù„) â”€â”€
-  // Ù‡Ø°Ø§ ÙŠØ´ØªØºÙ„ Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© Ø¨Ø¹Ø¯ step = 'rejoined' ÙˆÙŠØ¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØµÙˆÙŠØª Ù…Ø¨Ø§Ø´Ø±Ø©
+  // ── استعادة حالة التصويت فور اكتمال الـ rejoin (safety net شامل) ──
+  // هذا يشتغل مرة واحدة بعد step = 'rejoined' ويجلب بيانات التصويت مباشرة
   useEffect(() => {
     if (step !== 'rejoined' || !emit || !roomId) return;
 
-    // ØªØ£Ø®ÙŠØ± Ø¨Ø³ÙŠØ· Ù„Ø§Ù†ØªØ¸Ø§Ø± React batching ÙŠØ·Ø¨Ù‘Ù‚ ÙƒÙ„ Ø§Ù„Ù€ states Ù…Ù† rejoin callback
+    // تأخير بسيط لانتظار React batching يطبّق كل الـ states من rejoin callback
     const timer = setTimeout(async () => {
       try {
         const normalizedPhone = phone.startsWith('0') ? phone : '0' + phone;
@@ -1102,13 +1102,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           playerId: playerId || undefined,
           phone: normalizedPhone || undefined,
         });
-        console.log(`ðŸ›¡ï¸ Post-rejoin fetch: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
+        console.log(`🛡️ Post-rejoin fetch: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
         
         if (res.success && res.phase) {
           setGamePhase(res.phase);
           
           if (res.votingState && res.phase === 'DAY_VOTING') {
-            console.log(`ðŸ›¡ï¸ Restoring voting state: ${res.votingState.candidates?.length} candidates`);
+            console.log(`🛡️ Restoring voting state: ${res.votingState.candidates?.length} candidates`);
             setVotingCandidates(res.votingState.candidates || []);
             setTotalVotesCast(res.votingState.totalVotesCast || 0);
             setPlayerVotes(res.votingState.playerVotes || {});
@@ -1118,7 +1118,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
             
-            // Ø§Ø³ØªØ¹Ø§Ø¯Ø© ØªØ§ÙŠÙ…Ø± Ø§Ù„ØªØµÙˆÙŠØª
+            // استعادة تايمر التصويت
             if (res.votingState.durationSeconds && res.votingState.votingStartTime) {
               const elapsed = Math.floor((Date.now() - res.votingState.votingStartTime) / 1000);
               const remaining = Math.max(0, res.votingState.durationSeconds - elapsed);
@@ -1140,12 +1140,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             }
           }
 
-          // â”€â”€ Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ù…Ù‡Ø§Ù… Ø§Ù„Ø³ÙÙ‘Ø§Ø­ â”€â”€
+          // ── استعادة مهام السفّاح ──
           if (res.assassinContracts) {
             setAssassinContracts(res.assassinContracts);
           }
 
-          // â”€â”€ Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø­Ø§Ù„Ø© Ø§Ù„Ù„ÙŠÙ„ Ø§Ù„Ø£ÙˆØªÙˆ Ø¹Ù†Ø¯ refresh â”€â”€
+          // ── استعادة حالة الليل الأوتو عند refresh ──
           if (res.nightState && res.phase === 'NIGHT' && !res.nightState.playerSubmitted) {
             const ns = res.nightState;
             const myPhysId = parseInt(physicalId);
@@ -1166,7 +1166,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             });
             setNightActionSubmitted(false);
             setSelectedTargetForConfirm(null);
-            // ØªØ§ÙŠÙ…Ø± â€” Ù†Ø¨Ø¯Ø£ Ù…Ù† Ø§Ù„ÙˆÙ‚Øª Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ (ØªÙ‚Ø±ÙŠØ¨ÙŠ)
+            // تايمر — نبدأ من الوقت المتبقي (تقريبي)
             const remaining = Math.max(3, ns.config.autoNightTime || 15);
             setNightActionCountdown(remaining);
             if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
@@ -1182,14 +1182,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [step, emit, roomId]); // deps Ø¨Ø³ÙŠØ·Ø© â€” ÙŠØ´ØªØºÙ„ ÙÙ‚Ø· Ø¹Ù†Ø¯ rejoin
+  }, [step, emit, roomId]); // deps بسيطة — يشتغل فقط عند rejoin
 
-  // â”€â”€ ðŸŽ© Ø£Ø­Ø¯Ø§Ø« Ø§Ù„Ø¹Ù…Ø¯Ø©: Ù†Ø§ÙØ°Ø© Ù‚Ø±Ø§Ø±Ù‡ (Ù„Ù‡ ÙˆØ­Ø¯Ù‡) + Ø¥Ø¹Ù„Ø§Ù† Ø§Ù„ÙƒØ´Ù (Ù„Ù„Ø¬Ù…ÙŠØ¹) â”€â”€
+  // ── 🎩 أحداث العمدة: نافذة قراره (له وحده) + إعلان الكشف (للجميع) ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
     const cleanupWindow = on('day:mayor-window', (data: any) => {
-      if (!data?.forMayor) return; // Ø§Ù„Ø¨Ø«Ù‘ Ø§Ù„Ù…ÙˆØ«ÙˆÙ‚ (Ù„ÙŠØ¯Ø±/Ø¹Ø±Ø¶) Ù„Ø§ ÙŠØ¹Ù†ÙŠÙ†Ø§ Ù‡Ù†Ø§
+      if (!data?.forMayor) return; // البثّ الموثوق (ليدر/عرض) لا يعنينا هنا
       setMayorPrompt(data);
       setMayorPromptLeft(data.timeoutSeconds || 30);
       if (navigator.vibrate) navigator.vibrate([120, 80, 120, 80, 240]);
@@ -1206,7 +1206,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     return () => { cleanupWindow?.(); cleanupClosed?.(); cleanupRevealed?.(); };
   }, [step, on]);
 
-  // Ø¹Ø¯Ù‘Ø§Ø¯ Ø¨Ø±ÙˆÙ…Ø¨Øª Ø§Ù„Ø¹Ù…Ø¯Ø© (Ø¥Ø±Ø´Ø§Ø¯ÙŠÙ‘ â€” Ø§Ù†ØªÙ‡Ø§Ø¤Ù‡ Ù„Ø§ ÙŠÙ‚Ø±Ù‘Ø± Ø´ÙŠØ¦Ø§Ù‹Ø› Ø§Ù„Ù„ÙŠØ¯Ø± Ø®Ø·Ù‘ Ø§Ù„Ø±Ø¬Ø¹Ø©)
+  // عدّاد برومبت العمدة (إرشاديّ — انتهاؤه لا يقرّر شيئاً؛ الليدر خطّ الرجعة)
   useEffect(() => {
     if (!mayorPrompt) return;
     const iv = setInterval(() => setMayorPromptLeft(p => Math.max(0, p - 1)), 1000);
@@ -1219,22 +1219,22 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     try {
       await emit('day:mayor-decision', { roomId, decision });
       setMayorPrompt(null);
-    } catch { /* Ø§Ù„Ù„ÙŠØ¯Ø± ÙŠØ³ØªØ·ÙŠØ¹ Ø§Ù„ØªÙ†ÙÙŠØ° ÙŠØ¯ÙˆÙŠÙ‘Ø§Ù‹ */ }
+    } catch { /* الليدر يستطيع التنفيذ يدويّاً */ }
     setMayorSending(false);
   };
 
-  // â”€â”€ Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ Ø£Ø­Ø¯Ø§Ø« Ø§Ù„ØªØµÙˆÙŠØª â”€â”€
+  // ── استقبال أحداث التصويت ──
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !on) return;
 
-    // Ø¨Ø¯Ø¡ Ø§Ù„ØªØµÙˆÙŠØª
+    // بدء التصويت
     const cleanupVotingStarted = on('day:voting-started', (data: any) => {
       setGamePhase('DAY_VOTING');
       setPhaseOverride('DAY_VOTING');
       setVotingCandidates(data.candidates || []);
       if (data.playersInfo) setVotingPlayersInfo(data.playersInfo);
       setPlayerVotes(data.playerVotes || {});
-      // Ø§Ø³ØªØ¹Ø§Ø¯Ø© ØµÙˆØªÙŠ Ø¥Ø°Ø§ ØµÙˆÙ‘ØªØª Ù…Ø³Ø¨Ù‚Ø§Ù‹ (reconnect)
+      // استعادة صوتي إذا صوّتت مسبقاً (reconnect)
       const myPhysId = parseInt(physicalId);
       if (data.playerVotes && data.playerVotes[myPhysId] !== undefined) {
         setMyVote(data.playerVotes[myPhysId]);
@@ -1264,13 +1264,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     });
 
-    // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø£ØµÙˆØ§Øª Ø§Ù„Ù„Ø­Ø¸ÙŠ
+    // تحديث الأصوات اللحظي
     const cleanupVoteUpdate = on('day:vote-update', (data: any) => {
       setVotingCandidates(data.candidates || []);
       setTotalVotesCast(data.totalVotesCast || 0);
       if (data.playerVotes) {
         setPlayerVotes(data.playerVotes);
-        // Ù…Ø²Ø§Ù…Ù†Ø© ØµÙˆØªÙŠ Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ± (Ù…Ù‡Ù… Ù„ØªØºÙŠÙŠØ± Ø§Ù„ØµÙˆØª)
+        // مزامنة صوتي من السيرفر (مهم لتغيير الصوت)
         const myPhysId = parseInt(physicalId);
         if (data.playerVotes[myPhysId] !== undefined) {
           setMyVote(data.playerVotes[myPhysId]);
@@ -1280,33 +1280,33 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     });
 
-    // Ø§ÙƒØªÙ…Ø§Ù„ Ø§Ù„ØªØµÙˆÙŠØª
+    // اكتمال التصويت
     const cleanupVotingComplete = on('day:voting-complete', () => {
       setVotingComplete(true);
     });
 
-    // ØªØºÙŠÙŠØ± Ø§Ù„Ù…Ø±Ø­Ù„Ø©
+    // تغيير المرحلة
     const cleanupPhaseChanged = on('game:phase-changed', (data: any) => {
-      console.log(`ðŸ”„ Phase changed event: ${data.phase}`);
+      console.log(`🔄 Phase changed event: ${data.phase}`);
       setGamePhase(data.phase);
-      if (data.state?.config?.isRemote != null) setIsRemote(!!data.state.config.isRemote); // ðŸŒ ÙƒØ´Ù Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø¨Ø¹ÙŠØ¯Ø© Ø¹Ù†Ø¯ Ø¨Ø¯Ø¡ Ø§Ù„Ù„Ø¹Ø¨
+      if (data.state?.config?.isRemote != null) setIsRemote(!!data.state.config.isRemote); // 🌐 كشف الغرفة البعيدة عند بدء اللعب
       if (data.state?.config?.allowPlayerInvites != null) setAllowPlayerInvites(!!data.state.config.allowPlayerInvites);
-      // Ø­Ù…Ø§ÙŠØ© Ù…Ù† Ø§Ù„Ù€ polling Ø§Ù„Ù‚Ø¯ÙŠÙ… Ù„Ù…Ø¯Ù‘Ø© OVERRIDE_TTL ÙÙ‚Ø· (Ø«Ù…Ù‘ ÙŠÙØ³Ù…Ø­ Ù„Ù„Ù€ poll Ø¨Ù…Ø²Ø§Ù…Ù†Ø© Ø£ÙŠÙ‘ Ù…Ø±Ø­Ù„Ø© Ø£Ø­Ø¯Ø«)
+      // حماية من الـ polling القديم لمدّة OVERRIDE_TTL فقط (ثمّ يُسمح للـ poll بمزامنة أيّ مرحلة أحدث)
       setPhaseOverride(data.phase);
       
-      // Ù…Ø³Ø­ Ø£Ø¯ÙˆØ§Ø± Ø§Ù„Ù…Ø§ÙÙŠØ§ + Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø¹Ù†Ø¯ Ø¨Ø¯Ø¡ Ø¬ÙˆÙ„Ø© Ø¬Ø¯ÙŠØ¯Ø© Ù„ØªØ¬Ù†Ø¨ ØªØ³Ø±ÙŠØ¨Ù‡Ø§
+      // مسح أدوار المافيا + الملاحظات عند بدء جولة جديدة لتجنب تسريبها
       if (data.phase === 'LOBBY' || data.phase === 'ROLE_GENERATION' || data.phase === 'ROLE_BINDING') {
         setMafiaTeam([]); setSibling(null);
         setAssignedRole(null);
         setGameOverData(null);
-        // Ù…Ø³Ø­ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ Ø¨Ø¯Ø¡ Ù„Ø¹Ø¨Ø© Ø¬Ø¯ÙŠØ¯Ø© Ø£Ùˆ Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„ØºØ±ÙØ©
+        // مسح الملاحظات تلقائياً عند بدء لعبة جديدة أو العودة للغرفة
         if (roomId && physicalId) {
           localStorage.removeItem(`mafia_notes_${roomId}_${physicalId}`);
           setNotepadNotes({});
         }
       }
 
-      // Ù…Ø³Ø­ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØµÙˆÙŠØª ÙÙ‚Ø· Ø¹Ù†Ø¯ Ø§Ù„Ø®Ø±ÙˆØ¬ Ù…Ù† Ù…Ø±Ø­Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª
+      // مسح بيانات التصويت فقط عند الخروج من مرحلة التصويت
       if (data.phase !== 'DAY_VOTING' && data.phase !== 'DAY_JUSTIFICATION') {
         setVotingCandidates([]);
         setMyVote(null);
@@ -1318,9 +1318,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     });
 
-    // Ø§Ù„ØªØ¨Ø±ÙŠØ±
+    // التبرير
     const cleanupJustification = on('day:justification-started', (data: any) => {
-      console.log('âš–ï¸ Justification started');
+      console.log('⚖️ Justification started');
       setGamePhase('DAY_JUSTIFICATION');
       if (data && data.playerVotes) {
         setPlayerVotes(data.playerVotes);
@@ -1328,12 +1328,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setPhaseOverride('DAY_JUSTIFICATION');
     });
 
-    // Ø§Ù„Ø¥Ù‚ØµØ§Ø¡
+    // الإقصاء
     const cleanupElimination = on('day:elimination-pending', () => {
-      console.log('ðŸ’€ Elimination pending');
+      console.log('💀 Elimination pending');
       setGamePhase('ELIMINATION_PENDING');
       setPhaseOverride('ELIMINATION_PENDING');
-      // Ù…Ø³Ø­ Ø§Ù„ØªØµÙˆÙŠØª
+      // مسح التصويت
       setVotingCandidates([]);
       setMyVote(null);
       setVotingComplete(false);
@@ -1341,14 +1341,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setLastVoteTime(null);
     });
 
-    // Ø§Ù†ØªÙ‡Ø§Ø¡ Ø§Ù„Ù„Ø¹Ø¨Ø© â€” Ù„Ø§ Ù†Ù…Ø³Ø­ Ø§Ù„Ø¯ÙˆØ± Ø£Ùˆ Ø­Ø§Ù„Ø© Ø§Ù„Ù…ÙˆØª (Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù„Ø§Ø²Ù… ÙŠØ´ÙˆÙÙ‡Ù…)
-    // Ø§Ù„Ù€ full reset ÙŠØ­ØµÙ„ ÙÙ‚Ø· Ø¹Ù†Ø¯ game:started
+    // انتهاء اللعبة — لا نمسح الدور أو حالة الموت (اللاعب لازم يشوفهم)
+    // الـ full reset يحصل فقط عند game:started
     const cleanupGameOver = on('game:over', (data: any) => {
-      console.log('ðŸ Game over â€” clearing voting only');
+      console.log('🏁 Game over — clearing voting only');
       if (data && Array.isArray(data.players)) setGameOverData({ winner: data.winner ?? null, players: data.players });
       setGamePhase('GAME_OVER');
       setPhaseOverride('GAME_OVER');
-      // Ù…Ø³Ø­ Ø§Ù„ØªØµÙˆÙŠØª
+      // مسح التصويت
       setVotingCandidates([]);
       setMyVote(null);
       setVotingComplete(false);
@@ -1362,9 +1362,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       }
     });
 
-    // Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ØºØ±ÙØ© Ù…Ù† Ø§Ù„Ù„ÙŠØ¯Ø±
+    // إغلاق الغرفة من الليدر
     const cleanupClosed = on('game:closed', () => {
-      console.log('ðŸ”’ Game closed â€” full reset + clear session');
+      console.log('🔒 Game closed — full reset + clear session');
       localStorage.removeItem('mafia_session');
       localStorage.removeItem('mafia_gamePhase');
       localStorage.removeItem('mafia_votingCandidates');
@@ -1389,9 +1389,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setLastVoteTime(null);
     });
 
-    // Ø­Ø°Ù Ø§Ù„ØºØ±ÙØ© Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹ Ù…Ù† Ø§Ù„Ù‚Ø§Ø¦Ø¯
+    // حذف الغرفة نهائياً من القائد
     const cleanupRoomDeleted = on('game:room-deleted', () => {
-      console.log('ðŸ—‘ï¸ Room deleted â€” full cleanup + redirect');
+      console.log('🗑️ Room deleted — full cleanup + redirect');
       localStorage.removeItem('mafia_session');
       localStorage.removeItem('mafia_gamePhase');
       localStorage.removeItem('mafia_votingCandidates');
@@ -1413,12 +1413,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setRoomId('');
       setRoomCode('');
       setStep(initialRoomCode ? 'phone' : 'code');
-      setApiError('ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ØºØ±ÙØ©');
+      setApiError('تم إغلاق الغرفة');
     });
 
-    // ØªÙ†Ø¸ÙŠÙ ÙƒØ§Ù…Ù„ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ â€” Ù…Ø´ØªØ±Ùƒ Ø¨ÙŠÙ† game:kicked Ùˆ event:closed
+    // تنظيف كامل وإعادة لشاشة الدخول — مشترك بين game:kicked و event:closed
     const leaveAndReset = (reason?: string) => {
-      console.log('ðŸšª Room ended/kicked â€” full cleanup + redirect');
+      console.log('🚪 Room ended/kicked — full cleanup + redirect');
       localStorage.removeItem('mafia_session');
       localStorage.removeItem('mafia_gamePhase');
       localStorage.removeItem('mafia_votingCandidates');
@@ -1442,12 +1442,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setRoomId('');
       setRoomCode('');
       setStep(initialRoomCode ? 'phone' : 'code');
-      setApiError(reason || 'ØªÙ… Ø¥Ù†Ù‡Ø§Ø¡ Ø§Ù„ÙØ¹Ø§Ù„ÙŠØ© ÙˆØ¥ØºÙ„Ø§Ù‚ Ø§Ù„ØºØ±ÙØ©');
+      setApiError(reason || 'تم إنهاء الفعالية وإغلاق الغرفة');
     };
 
-    // Ø§Ù„Ø·Ø±Ø¯ Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ± (Ø¥ØºÙ„Ø§Ù‚ Ù‚Ø³Ø±ÙŠ Ù…Ù† Ø§Ù„Ø¥Ø¯Ø§Ø±Ø©)
+    // الطرد من السيرفر (إغلاق قسري من الإدارة)
     const cleanupKicked = on('game:kicked', (data: any) => leaveAndReset(data?.reason));
-    // Ø¥Ù†Ù‡Ø§Ø¡ Ø§Ù„ÙØ¹Ø§Ù„ÙŠØ© (ÙŠÙØ¨Ø«Ù‘ Ù„Ù„ØºØ±ÙØ© Ø¹Ù†Ø¯ Ø¥ØºÙ„Ø§Ù‚Ù‡Ø§ Ù…Ù† Ø§Ù„Ù„ÙˆØ­Ø© Ø£Ùˆ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù„ÙŠØ¯Ø±)
+    // إنهاء الفعالية (يُبثّ للغرفة عند إغلاقها من اللوحة أو واجهة الليدر)
     const cleanupEventClosed = on('event:closed', (data: any) => leaveAndReset(data?.reason || data?.message));
 
     return () => {
@@ -1465,9 +1465,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [step, on, physicalId]);
 
-  // â”€â”€ Polling: Ù…Ø²Ø§Ù…Ù†Ø© Ø­Ø§Ù„Ø© Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙƒÙ„ 3 Ø«ÙˆØ§Ù†ÙŠ (Ø¨Ø§Ù„Ù€ phone/playerId Ù…Ø´ physicalId) â”€â”€
-  // Ù‡Ø°Ø§ Ù‡Ùˆ Ø§Ù„Ø­Ù„ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ: Ø­ØªÙ‰ Ù„Ùˆ Ø§Ù„Ù€ WebSocket events Ù…Ø§ ÙˆØµÙ„ØªØŒ
-  // Ø§Ù„Ù€ polling Ø¨ÙŠØ¬Ù„Ø¨ Ø§Ù„Ø±Ù‚Ù… Ø§Ù„ØµØ­ÙŠØ­ Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ± ÙƒÙ„ 3 Ø«ÙˆØ§Ù†ÙŠ
+  // ── Polling: مزامنة حالة اللاعب كل 3 ثواني (بالـ phone/playerId مش physicalId) ──
+  // هذا هو الحل النهائي: حتى لو الـ WebSocket events ما وصلت،
+  // الـ polling بيجلب الرقم الصحيح من السيرفر كل 3 ثواني
   useEffect(() => {
     if ((step !== 'done' && step !== 'rejoined') || !emit) return;
     if (!roomId) return;
@@ -1481,68 +1481,68 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           playerId: playerId || undefined,
           phone: normalizedPhone || undefined,
         });
-        console.log(`ðŸ“Š Poll: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
+        console.log(`📊 Poll: phase=${res.phase}, hasVotingState=${!!res.votingState}, candidates=${res.votingState?.candidates?.length || 0}`);
         if (res.success && res.player) {
-          // ðŸ—£ï¸ ØªØ­Ø¯ÙŠØ« Ø¹Ù„Ù… ØºØ±ÙØ© Ø§Ù„ØªØ´Ø§ÙˆØ± (Ø¥Ø¹Ø¯Ø§Ø¯ Ø¹Ø§Ù…)
+          // 🗣️ تحديث علم غرفة التشاور (إعداد عام)
           setMafiaChatEnabled(res.mafiaChatEnabled === true);
-          // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø±Ù‚Ù… Ø¥Ø°Ø§ ØªØºÙŠÙ‘Ø±
+          // تحديث الرقم إذا تغيّر
           if (String(res.player.physicalId) !== physicalId) {
-            console.log(`ðŸ”„ Polling: seat changed ${physicalId} â†’ ${res.player.physicalId}`);
+            console.log(`🔄 Polling: seat changed ${physicalId} → ${res.player.physicalId}`);
             setPhysicalId(String(res.player.physicalId));
-            // ØªØ­Ø¯ÙŠØ« Ø§Ù„ÙƒØ§Ø´
+            // تحديث الكاش
             const saved = JSON.parse(localStorage.getItem('mafia_session') || '{}');
             saved.physicalId = res.player.physicalId;
             localStorage.setItem('mafia_session', JSON.stringify(saved));
-            // ØªÙ†Ø¨ÙŠÙ‡ â€” Ø¥Ù„Ø§ Ø¥Ø°Ø§ ÙƒØ§Ù† ØªÙˆØ³Øª Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ Ù‚Ø¯ Ù‚Ø§Ù„Ù‡Ø§ Ù„Ù„ØªÙˆ
+            // تنبيه — إلا إذا كان توست إعادة ترتيب المقاعد قد قالها للتو
             if (physicalId && physicalId !== '0' && Date.now() > seatRemapUntilRef.current) {
-              setSeatChangeAlert(`ØªÙ… ØªØºÙŠÙŠØ± Ø±Ù‚Ù…Ùƒ: ${physicalId} â† ${res.player.physicalId}`);
+              setSeatChangeAlert(`تم تغيير رقمك: ${physicalId} ← ${res.player.physicalId}`);
               setTimeout(() => setSeatChangeAlert(null), 5000);
               if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             }
           }
-          // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø§Ø³Ù… Ø¥Ø°Ø§ ØªØºÙŠÙ‘Ø±
+          // تحديث الاسم إذا تغيّر
           if (res.player.name && res.player.name !== displayName) {
             setDisplayName(res.player.name);
           }
-          // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¯ÙˆØ±
+          // تحديث الدور
           if (res.player.role && !assignedRole) {
             setAssignedRole(res.player.role);
             setCardFlipped(false);
-            setRoleAlert(true); // â† ØªÙ†Ø¨ÙŠÙ‡ Ø¬Ù„ÙˆÙ†Ø¬
+            setRoleAlert(true); // ← تنبيه جلونج
             if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
           }
-          // ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø§Ù„Ø­ÙŠØ§Ø©
+          // تحديث حالة الحياة
           if (!res.player.isAlive && !isPlayerDead) {
             setIsPlayerDead(true);
             setCardFlipped(true);
           }
-          // Ø¥Ø­ÙŠØ§Ø¡: Ù„Ø¹Ø¨Ø© Ø¬Ø¯ÙŠØ¯Ø© â†’ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø­ÙŠ Ø¨Ø³ Ø§Ù„Ù€ state ÙŠÙ‚ÙˆÙ„ Ù…ÙŠØª
+          // إحياء: لعبة جديدة → اللاعب حي بس الـ state يقول ميت
           if (res.player.isAlive && isPlayerDead) {
             setIsPlayerDead(false);
             setCardFlipped(false);
           }
-          // ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù„Ø§Ø¹Ø¨ÙŠÙ† Ù„Ø²Ø± Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª
+          // تحديث قائمة اللاعبين لزر الملاحظات
           if (res.rosterInfo) {
             setRoster(res.rosterInfo);
           }
 
-          // ØªØ­Ø¯ÙŠØ« Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ù„Ø¹Ø¨Ø© (Ù…Ø¹ Ø­Ù…Ø§ÙŠØ© Ù…Ù† Ø§Ù„Ù€ phase-changed event)
+          // تحديث مرحلة اللعبة (مع حماية من الـ phase-changed event)
           if (res.phase) {
-            // ØªØ­ÙˆÙŠÙ„ DAY_ELIMINATION Ù„Ù„ØªÙˆØ§ÙÙ‚ Ù…Ø¹ ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù„Ø§Ø¹Ø¨ (Ù†Ø·Ø§Ø¨Ù‚ Ø§Ù„Ù€ override Ø¹Ù„Ù‰ Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…ÙØ­ÙˆÙ‘Ù„Ø©)
+            // تحويل DAY_ELIMINATION للتوافق مع واجهة اللاعب (نطابق الـ override على القيمة المُحوّلة)
             const mappedPhase = res.phase === 'DAY_ELIMINATION' ? 'ELIMINATION_PENDING' : res.phase;
             const override = phaseOverrideRef.current;
             const overrideExpired = override ? (Date.now() - override.at > OVERRIDE_TTL) : false;
             if (override && mappedPhase !== override.phase && !overrideExpired) {
-              console.log(`ðŸ›¡ï¸ Poll blocked (fresh override): server=${mappedPhase}, override=${override.phase}`);
-              // override Ø­Ø¯ÙŠØ« â†’ Ù„Ø§ Ù†Ø³Ù…Ø­ Ù„Ù„Ù€ poll Ø¨Ø§Ù„ÙƒØªØ§Ø¨Ø© (Ù†Ø­Ù…ÙŠ Ø§Ù†ØªÙ‚Ø§Ù„Ø§Ù‹ Ù…Ø­Ù„ÙŠÙ‘Ø§Ù‹ Ø­Ø¯ÙŠØ«Ø§Ù‹)
+              console.log(`🛡️ Poll blocked (fresh override): server=${mappedPhase}, override=${override.phase}`);
+              // override حديث → لا نسمح للـ poll بالكتابة (نحمي انتقالاً محليّاً حديثاً)
             } else {
-              // Ø¥Ù…Ù‘Ø§ ØªØ·Ø§Ø¨Ù‚ØŒ Ø£Ùˆ Ù„Ø§ ÙŠÙˆØ¬Ø¯ overrideØŒ Ø£Ùˆ Ø§Ù†ØªÙ‡Øª ØµÙ„Ø§Ø­ÙŠÙ‘ØªÙ‡ â†’ Ù†ÙØ²Ø§Ù…Ù† Ù…Ø¹ Ø§Ù„Ø³ÙŠØ±ÙØ± (ÙŠØ´ÙÙŠ Ø§Ù„Ø£Ø¬Ù‡Ø²Ø© Ø§Ù„ØªÙŠ ÙÙˆÙ‘ØªØª Ø§Ù„Ø­Ø¯Ø«)
+              // إمّا تطابق، أو لا يوجد override، أو انتهت صلاحيّته → نُزامن مع السيرفر (يشفي الأجهزة التي فوّتت الحدث)
               if (override && (mappedPhase === override.phase || overrideExpired)) phaseOverrideRef.current = null;
               setGamePhase(mappedPhase);
             }
           }
 
-          // Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØµÙˆÙŠØª Ø¨Ø¹Ø¯ reconnect (Ù…Ø¹ Ø­Ù…Ø§ÙŠØ© override Ø§Ù„Ø­Ø¯ÙŠØ« ÙÙ‚Ø·)
+          // استعادة بيانات التصويت بعد reconnect (مع حماية override الحديث فقط)
           const ovr = phaseOverrideRef.current;
           const overrideActive = ovr !== null && (Date.now() - ovr.at <= OVERRIDE_TTL);
           if (!overrideActive && res.votingState && res.phase === 'DAY_VOTING') {
@@ -1554,7 +1554,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             if (res.votingState.playerVotes?.[myPhysId] !== undefined && myVote === null) {
               setMyVote(res.votingState.playerVotes[myPhysId]);
             }
-            // Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø§Ù„ØªØ§ÙŠÙ…Ø± Ø¥Ø°Ø§ ÙƒØ§Ù† Ù…ÙÙ‚ÙˆØ¯Ø§Ù‹
+            // استعادة التايمر إذا كان مفقوداً
             if (res.votingState.durationSeconds && res.votingState.votingStartTime && votingCountdown === null) {
               const elapsed = Math.floor((Date.now() - res.votingState.votingStartTime) / 1000);
               const remaining = Math.max(0, res.votingState.durationSeconds - elapsed);
@@ -1571,7 +1571,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               }, 1000);
             }
           } else if (!overrideActive && res.phase && res.phase !== 'DAY_VOTING') {
-            // Ø®Ø§Ø±Ø¬ Ø§Ù„ØªØµÙˆÙŠØª â†’ Ù…Ø³Ø­ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØµÙˆÙŠØª Ø¥Ø°Ø§ Ù…ÙˆØ¬ÙˆØ¯Ø©
+            // خارج التصويت → مسح بيانات التصويت إذا موجودة
             if (votingCandidates.length > 0) {
               setVotingCandidates([]);
               setMyVote(null);
@@ -1580,12 +1580,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             }
           }
 
-          // ðŸŒ ØºØ±ÙØ© Ø¨Ø¹ÙŠØ¯Ø© + Ø·Ø§ÙˆÙ„Ø© Ø§Ù„Ø·ÙˆØ± (Ù„Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø§Ù„ÙÙˆØ±ÙŠÙ‘Ø© Ø¹Ù†Ø¯ reconnect)
+          // 🌐 غرفة بعيدة + طاولة الطور (للاستعادة الفوريّة عند reconnect)
           if (res.isRemote != null) setIsRemote(!!res.isRemote);
           if (res.allowPlayerInvites != null) setAllowPlayerInvites(!!res.allowPlayerInvites);
           if (Array.isArray(res.rosterInfo) && res.rosterInfo.length) setRoster(res.rosterInfo);
 
-          // ØªÙ…Ø±ÙŠØ± Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø±Ø§Ø­Ù„ Ù„Ù€ PlayerPhaseView (Ù„Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø© Ø¹Ù†Ø¯ reconnect)
+          // تمرير بيانات المراحل لـ PlayerPhaseView (للاستعادة عند reconnect)
           setPhasePollData({
             justificationData: res.justificationData || null,
             withdrawalState: res.withdrawalState || null,
@@ -1596,7 +1596,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             round: res.round || 1,
           });
 
-          // ØªØ­Ø¯ÙŠØ« Ø£Ø³Ù…Ø§Ø¡ Ø§Ù„Ù„Ø§Ø¹Ø¨ÙŠÙ† (Ù…Ù‡Ù… Ù„Ø¹Ø±Ø¶ Ø£Ø³Ù…Ø§Ø¡ Ø§Ù„Ù…ØªÙ‡Ù…ÙŠÙ† ÙˆØ§Ù„Ø§ØªÙØ§Ù‚ÙŠØ§Øª)
+          // تحديث أسماء اللاعبين (مهم لعرض أسماء المتهمين والاتفاقيات)
           if (res.playersInfo) {
             const isDiff = votingPlayersInfo.length !== res.playersInfo.length ||
               res.playersInfo.some((p: any, idx: number) => 
@@ -1612,15 +1612,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       } catch (e) { /* ignore polling errors */ }
     };
 
-    // ØªÙ†ÙÙŠØ° ÙÙˆØ±ÙŠ Ø£ÙˆÙ„ Ù…Ø±Ø© + Ø«Ù… ÙƒÙ„ 3 Ø«ÙˆØ§Ù†ÙŠ
-    // ðŸª‘ ÙˆÙ†ÙØ¨Ù‚ÙŠ Ù…Ø±Ø¬Ø¹Ø§Ù‹ Ù„Ø£Ø­Ø¯Ø« Ù†Ø³Ø®Ø© ÙƒÙŠ ÙŠØ³ØªØ¯Ø¹ÙŠÙ‡Ø§ Ù…Ø¹Ø§Ù„Ø¬ Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ ÙÙˆØ±Ø§Ù‹
+    // تنفيذ فوري أول مرة + ثم كل 3 ثواني
+    // 🪑 ونُبقي مرجعاً لأحدث نسخة كي يستدعيها معالج إعادة ترتيب المقاعد فوراً
     pollStateRef.current = pollState;
     pollState();
     const interval = setInterval(pollState, 3000);
 
-    // ðŸ“² Ù…Ø²Ø§Ù…Ù†Ø© ÙÙˆØ±ÙŠÙ‘Ø© Ø¹Ù†Ø¯ Ø¹ÙˆØ¯Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚ Ù„Ù„Ù…Ù‚Ø¯Ù‘Ù…Ø©/Ø§Ù„ØªØ±ÙƒÙŠØ² â€” Ù…Ø¤Ù‚Ù‘ØªØ§Øª Ø§Ù„Ø®Ù„ÙÙŠÙ‘Ø© ØªÙØ®Ù†ÙŽÙ‚ Ø¹Ù„Ù‰ Ø§Ù„Ù‡Ø§ØªÙ
-    // ÙÙ„Ø§ ÙŠÙƒÙÙŠ Ø§Ù„Ù€ interval ÙˆØ­Ø¯Ù‡Ø› Ù‡Ø°Ø§ ÙŠØ¶Ù…Ù† Ø§Ù„ØªÙ‚Ø§Ø· Ø£ÙŠÙ‘ Ø§Ù†ØªÙ‚Ø§Ù„Ù ÙØ§Øª Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ø®Ù„ÙÙŠÙ‘Ø© Ø®Ù„Ø§Ù„ Ù„Ø­Ø¸Ø©.
-    // ðŸ•µï¸ ÙˆÙŠØ±ØµØ¯ Ù…ØºØ§Ø¯Ø±Ø© Ø§Ù„ØµÙØ­Ø© Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ù…Ø¨Ø§Ø±Ø§Ø©: ØºÙŠØ§Ø¨ÙŒ Ø°Ùˆ Ø¯Ù„Ø§Ù„Ø© (ÙˆØ§Ù„Ø³Ø±Ù‘ Ù…ÙØªÙˆØ­ Ø£Ùˆ Ù…Ø·ÙˆÙ‘Ù„) ÙŠÙØ¨Ø«Ù‘ Ù„Ù„Ù‘ÙŠØ¯Ø±.
+    // 📲 مزامنة فوريّة عند عودة التطبيق للمقدّمة/التركيز — مؤقّتات الخلفيّة تُخنَق على الهاتف
+    // فلا يكفي الـ interval وحده؛ هذا يضمن التقاط أيّ انتقالٍ فات أثناء الخلفيّة خلال لحظة.
+    // 🕵️ ويرصد مغادرة الصفحة أثناء المباراة: غيابٌ ذو دلالة (والسرّ مفتوح أو مطوّل) يُبثّ للّيدر.
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
         bgAtRef.current = Date.now();
@@ -1651,20 +1651,20 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [step, emit, roomId, playerId, phone, physicalId, displayName, assignedRole, isPlayerDead, votingPlayersInfo]);
 
-  // â”€â”€ Auto-Vote on Self â”€â”€
+  // ── Auto-Vote on Self ──
   useEffect(() => {
     if (votingCountdown === 0 && myVote === null && !isPlayerDead && emit && roomId && gamePhase === 'DAY_VOTING') {
       const myPhysId = parseInt(physicalId);
       let voteIndex = votingCandidates.findIndex(c => c.targetPhysicalId === myPhysId);
       
-      // ÙÙŠ Ø­Ø§Ù„ Ù„Ù… ÙŠÙƒÙ† Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ù† Ø¶Ù…Ù† Ø§Ù„Ù…Ø±Ø´Ø­ÙŠÙ† (Ø¨Ø³Ø¨Ø¨ Ø¯ÙŠÙ„ Ø£Ùˆ Ø­ØµØ± ØªØµÙˆÙŠØª)
-      // ÙˆÙ„Ù… ÙŠØµÙˆØª Ø­ØªÙ‰ Ø§Ù†ØªÙ‡Ù‰ Ø§Ù„ÙˆÙ‚ØªØŒ ÙŠØªÙ… Ø§Ø®ØªÙŠØ§Ø± Ø£ÙˆÙ„ Ù…Ø±Ø´Ø­ ÙƒØ¥Ø¬Ø±Ø§Ø¡ Ø§ÙØªØ±Ø§Ø¶ÙŠ Ù„ØªÙØ§Ø¯ÙŠ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ø¬ÙˆÙ„Ø©
+      // في حال لم يكن اللاعب من ضمن المرشحين (بسبب ديل أو حصر تصويت)
+      // ولم يصوت حتى انتهى الوقت، يتم اختيار أول مرشح كإجراء افتراضي لتفادي تعليق الجولة
       if (voteIndex === -1 && votingCandidates.length > 0) {
         voteIndex = 0;
       }
 
       if (voteIndex !== -1) {
-        console.log('â° Time expired, auto-voting for candidate index:', voteIndex);
+        console.log('⏰ Time expired, auto-voting for candidate index:', voteIndex);
         emit('player:cast-vote', {
           roomId,
           physicalId: myPhysId,
@@ -1680,7 +1680,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   }, [votingCountdown, myVote, isPlayerDead, emit, roomId, physicalId, votingCandidates, gamePhase]);
 
-  // â”€â”€ Auto Night Mode: Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡ Ø§Ù„Ù„ÙŠÙ„ÙŠ â”€â”€
+  // ── Auto Night Mode: استقبال طلب الإجراء الليلي ──
   useEffect(() => {
     if (!on) return;
 
@@ -1694,13 +1694,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setNightActionSubmitted(false);
       setSelectedTargetForConfirm(null);
       setNightActionCountdown(data.timeoutSeconds);
-      // Ø¨Ø¯Ø¡ Ø§Ù„Ø¹Ø¯Ø§Ø¯ Ø§Ù„ØªÙ†Ø§Ø²Ù„ÙŠ
+      // بدء العداد التنازلي
       if (nightCountdownRef.current) clearInterval(nightCountdownRef.current);
       nightCountdownRef.current = setInterval(() => {
         setNightActionCountdown(prev => {
           if (prev <= 1) {
             clearInterval(nightCountdownRef.current!);
-            // Ø§Ù„Ø³ÙŠØ±ÙØ± ÙŠØ®ØªØ§Ø± Ø¹Ø´ÙˆØ§Ø¦ÙŠØ§Ù‹ â€” Ù†ØºÙ„Ù‚ Ø§Ù„Ø´Ø§Ø´Ø© Ø¨Ø¹Ø¯ Ø«Ø§Ù†ÙŠØªÙŠÙ†
+            // السيرفر يختار عشوائياً — نغلق الشاشة بعد ثانيتين
             setTimeout(() => {
               setNightActionSubmitted(true);
               setTimeout(() => setNightActionRequired(null), 1500);
@@ -1724,27 +1724,27 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     };
   }, [on]);
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // ðŸ”´ Ø´Ø¨ÙƒØ© Ø£Ù…Ø§Ù† Ø§Ù„Ù„ÙŠÙ„ â€” Ø§Ø´ØªÙ‚Ø§Ù‚ Ø§Ù„Ø´Ø§Ø´Ø© Ù…Ù† Ø§Ù„Ø­Ø§Ù„Ø© Ù„Ø§ Ù…Ù† Ø§Ù„Ø­Ø¯Ø«
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // Ø§Ù„Ø¹Ø·Ù„: `night:action-required` ÙŠÙØ¨Ø«Ù‘ **Ù…Ø±Ù‘Ø© ÙˆØ§Ø­Ø¯Ø©** Ù„Ø³ÙˆÙƒØªØ§Øª Ø§Ù„ØºØ±ÙØ©
-  // Ù„Ø­Ø¸Ø© Ø¨Ø¯Ø¡ Ø§Ù„Ø®Ø·ÙˆØ©. Ù…Ù† Ù„Ù… ÙŠÙƒÙ† Ø³ÙˆÙƒØªÙ‡ Ù…ÙˆØ¬ÙˆØ¯Ø§Ù‹ Ø­ÙŠÙ†Ù‡Ø§ â€” Ø¥Ø¹Ø§Ø¯Ø© Ø§ØªØµØ§Ù„ØŒ Ø´Ø§Ø´Ø©
-  // Ù…Ù‚ÙÙ„Ø©ØŒ ØªØ¨ÙˆÙŠØ¨ ÙÙŠ Ø§Ù„Ø®Ù„ÙÙŠØ©ØŒ Ø´Ø¨ÙƒØ© Ù…ØªØ°Ø¨Ø°Ø¨Ø© â€” Ù„Ø§ ÙŠØ¹Ù„Ù… Ø¨Ø§Ù„Ø®Ø·ÙˆØ© Ø¥Ø·Ù„Ø§Ù‚Ø§Ù‹
-  // ÙˆÙŠØ¨Ù‚Ù‰ Ø¹Ù„Ù‰ Ø§Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø³Ù„Ø¨ÙŠØ© Ø¨ÙŠÙ†Ù…Ø§ ØªÙ†ØªØ¸Ø±Ù‡ Ø§Ù„Ø·Ø§ÙˆÙ„Ø© ÙƒÙ„Ù‡Ø§. Ø§Ù„Ø§Ø³ØªØ¹Ø§Ø¯Ø©
-  // Ø§Ù„ÙˆØ­ÙŠØ¯Ø© Ø§Ù„Ù…ÙˆØ¬ÙˆØ¯Ø© ØªØ¹Ù…Ù„ Ø¹Ù†Ø¯ `step === 'rejoined'` ÙÙ‚Ø·ØŒ ÙÙ…Ù† ÙƒØ§Ù† ÙÙŠ
-  // Ø§Ù„Ù…Ø³Ø§Ø± Ø§Ù„Ø¹Ø§Ø¯ÙŠ Ù„Ø§ Ù…Ø®Ø±Ø¬ Ù„Ù‡ Ø¥Ù„Ø§ ØªØ­Ø¯ÙŠØ« Ø§Ù„ØµÙØ­Ø© ÙŠØ¯ÙˆÙŠØ§Ù‹.
+  // ══════════════════════════════════════════════════════
+  // 🔴 شبكة أمان الليل — اشتقاق الشاشة من الحالة لا من الحدث
+  // ══════════════════════════════════════════════════════
+  // العطل: `night:action-required` يُبثّ **مرّة واحدة** لسوكتات الغرفة
+  // لحظة بدء الخطوة. من لم يكن سوكته موجوداً حينها — إعادة اتصال، شاشة
+  // مقفلة، تبويب في الخلفية، شبكة متذبذبة — لا يعلم بالخطوة إطلاقاً
+  // ويبقى على الشاشة السلبية بينما تنتظره الطاولة كلها. الاستعادة
+  // الوحيدة الموجودة تعمل عند `step === 'rejoined'` فقط، فمن كان في
+  // المسار العادي لا مخرج له إلا تحديث الصفحة يدوياً.
   //
-  // Ø§Ù„Ø­Ù„ Ø§Ù„Ø¬Ø°Ø±ÙŠ: Ù…Ø§ Ø¯Ø§Ù… Ø§Ù„Ø·ÙˆØ± Ù„ÙŠÙ„Ø§Ù‹ ÙˆÙ„Ø§ Ø´Ø§Ø´Ø© Ù…ÙØªÙˆØ­Ø©ØŒ Ø§Ø³Ø£Ù„ Ø§Ù„Ø®Ø§Ø¯Ù… ÙƒÙ„
-  // 3 Ø«ÙˆØ§Ù†Ù Â«Ù‡Ù„ Ø«Ù…Ø© Ø®Ø·ÙˆØ© Ø­ÙŠØ© Ù„Ù… Ø£Ø±Ø³Ù„ ÙÙŠÙ‡Ø§ØŸÂ» ÙˆØ§ÙØªØ­ Ø§Ù„Ø´Ø§Ø´Ø© Ù…Ù† Ø§Ù„Ø¬ÙˆØ§Ø¨.
-  // Ù„Ø§ ÙŠÙØµÙÙŽÙ‘Ø± Ø¹Ø¯Ø§Ø¯ Ø¬Ø§Ø±Ù: Ø§Ù„Ø´Ø±Ø· ÙŠØ®Ø±Ø¬ Ù…Ø¨ÙƒØ±Ø§Ù‹ Ù…ØªÙ‰ ÙƒØ§Ù†Øª Ø§Ù„Ø´Ø§Ø´Ø© Ù…ÙØªÙˆØ­Ø©.
+  // الحل الجذري: ما دام الطور ليلاً ولا شاشة مفتوحة، اسأل الخادم كل
+  // 3 ثوانٍ «هل ثمة خطوة حية لم أرسل فيها؟» وافتح الشاشة من الجواب.
+  // لا يُصفَّر عداد جارٍ: الشرط يخرج مبكراً متى كانت الشاشة مفتوحة.
   useEffect(() => {
     if (gamePhase !== 'NIGHT' || !emit || !roomId) return;
-    // Ø§Ù„Ø®Ø±ÙˆØ¬ Ø§Ù„ÙˆØ­ÙŠØ¯: Ø´Ø§Ø´Ø© Ù…ÙØªÙˆØ­Ø© ÙØ¹Ù„Ø§Ù‹ (ÙƒÙŠ Ù„Ø§ ÙŠÙØµÙÙŽÙ‘Ø± Ø¹Ø¯Ø§Ø¯Ù‡Ø§). Ù„Ø§ Ù†ÙØ­Øµ
-    // `nightActionSubmitted` Ù‡Ù†Ø§: Ù‡ÙŠ ØªØ¨Ù‚Ù‰ true Ø¨Ø¹Ø¯ Ø¥ØºÙ„Ø§Ù‚ Ø´Ø§Ø´Ø© Ø§Ù„Ø®Ø·ÙˆØ©
-    // Ø§Ù„Ø³Ø§Ø¨Ù‚Ø© Ø­ØªÙ‰ ÙŠØµÙ„ Ø­Ø¯Ø« Ø§Ù„Ø®Ø·ÙˆØ© Ø§Ù„ØªØ§Ù„ÙŠØ© â€” ÙˆÙ‡Ùˆ Ø§Ù„Ø­Ø¯Ø« Ù†ÙØ³Ù‡ Ø§Ù„Ø°ÙŠ Ù‚Ø¯ ÙŠØ¶ÙŠØ¹.
-    // ÙØ­ØµÙ‡Ø§ ÙƒØ§Ù† Ø³ÙŠØºÙ„Ù‚ Ø§Ù„Ø´Ø¨ÙƒØ© Ø£Ù…Ø§Ù… Ø§Ù„Ø­Ø§Ù„Ø© Ø§Ù„ØªÙŠ Ø¨ÙÙ†ÙŠØª Ù„Ø£Ø¬Ù„Ù‡Ø§.
-    // Ø§Ù„Ù…Ø±Ø¬Ø¹ Ø§Ù„Ù…ÙˆØ«ÙˆÙ‚ Ù„Ù„Ø¥Ø±Ø³Ø§Ù„ Ù‡Ùˆ `playerSubmitted` Ù…Ù† Ø§Ù„Ø®Ø§Ø¯Ù…: Ù„ÙƒÙ„ Ø®Ø·ÙˆØ©
-    // Ø¹Ù„Ù‰ Ø­Ø¯Ø©.
+    // الخروج الوحيد: شاشة مفتوحة فعلاً (كي لا يُصفَّر عدادها). لا نفحص
+    // `nightActionSubmitted` هنا: هي تبقى true بعد إغلاق شاشة الخطوة
+    // السابقة حتى يصل حدث الخطوة التالية — وهو الحدث نفسه الذي قد يضيع.
+    // فحصها كان سيغلق الشبكة أمام الحالة التي بُنيت لأجلها.
+    // المرجع الموثوق للإرسال هو `playerSubmitted` من الخادم: لكل خطوة
+    // على حدة.
     if (nightActionRequired) return;
 
     let cancelled = false;
@@ -1759,10 +1759,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         if (cancelled || !res?.success || res.phase !== 'NIGHT') return;
         const ns = res.nightState;
         if (!ns || ns.playerSubmitted) return;
-        // Ø§Ù„Ø®Ø·ÙˆØ© Ø§Ù†ØªÙ‡Øª ÙˆØªÙ†ØªØ¸Ø± Ù…ÙˆØ§ÙÙ‚Ø© Ø§Ù„Ù„ÙŠØ¯Ø± â‡’ Ù‚Ø§Ø¦Ù…Ø© Ù…ÙŠØªØ© ÙŠØ±ÙØ¶ Ø§Ù„Ø®Ø§Ø¯Ù… ÙƒÙ„
-        // Ø§Ø®ØªÙŠØ§Ø± Ù…Ù†Ù‡Ø§
+        // الخطوة انتهت وتنتظر موافقة الليدر ⇒ قائمة ميتة يرفض الخادم كل
+        // اختيار منها
         if (ns.autoNightStepApproval) return;
-        // Ù…Ø¶Ù‰ Ù…ÙˆØ¹Ø¯Ù‡Ø§ â‡’ Ø§Ù„Ø®Ø§Ø¯Ù… Ø§Ø®ØªØ§Ø± Ø¹Ø´ÙˆØ§Ø¦ÙŠØ§Ù‹ Ø¨Ø§Ù„ÙØ¹Ù„
+        // مضى موعدها ⇒ الخادم اختار عشوائياً بالفعل
         const deadline: number | null = ns.autoNightStepDeadline || null;
         if (deadline && deadline <= Date.now()) return;
         const myPhysId = parseInt(physicalId);
@@ -1784,8 +1784,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         setNightActionSubmitted(false);
         setSelectedTargetForConfirm(null);
 
-        // Ø§Ù„Ø¹Ø¯Ø§Ø¯ Ù…Ù† Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ø§Ù„Ø­Ù‚ÙŠÙ‚ÙŠ â€” ÙˆØ£Ø±Ø¶ÙŠØªÙ‡ 3 Ø«ÙˆØ§Ù†Ù: Ø´Ø§Ø´Ø© ØªÙÙØªØ­ Ø¹Ù„Ù‰
-        // Ø«Ø§Ù†ÙŠØ© ÙˆØ§Ø­Ø¯Ø© ØªÙØºÙ„Ù‚ Ù‚Ø¨Ù„ Ø£Ù† ÙŠÙ‚Ø±Ø£Ù‡Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨
+        // العداد من المتبقي الحقيقي — وأرضيته 3 ثوانٍ: شاشة تُفتح على
+        // ثانية واحدة تُغلق قبل أن يقرأها اللاعب
         const total = ns.config?.autoNightTime || 15;
         const left = deadline ? Math.ceil((deadline - Date.now()) / 1000) : total;
         setNightActionCountdown(Math.max(3, Math.min(total, left)));
@@ -1796,7 +1796,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             return prev - 1;
           });
         }, 1000);
-      } catch { /* Ø¯ÙˆØ±Ø© ÙØ§Ø¦ØªØ© ØªÙØ¹ÙˆÙŽÙ‘Ø¶ Ø¨Ø§Ù„ØªØ§Ù„ÙŠØ© */ }
+      } catch { /* دورة فائتة تُعوَّض بالتالية */ }
     };
 
     check();
@@ -1805,7 +1805,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   }, [gamePhase, emit, roomId, playerId, phone, physicalId, nightActionRequired]);
 
 
-  // â”€â”€ Ø§Ù„Ø®Ø·ÙˆØ© 1: Ø¥Ø¯Ø®Ø§Ù„ ÙƒÙˆØ¯ Ø§Ù„Ù„Ø¹Ø¨Ø© â”€â”€
+  // ── الخطوة 1: إدخال كود اللعبة ──
   const handleFindRoom = async (code?: string) => {
     const targetCode = code || roomCode.trim();
     setApiError('');
@@ -1817,17 +1817,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       const needsTicket = res.requireTicket ?? false;
       setRequireTicket(needsTicket);
 
-      // âœ… Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ø³Ø¬Ù„ Ø¯Ø®ÙˆÙ„ â†’ ØªØ®Ø·ÙŠ phone + login â†’ Ø¯Ø®ÙˆÙ„ Ù…Ø¨Ø§Ø´Ø±
-      // Ù†Ù‚Ø±Ø£ Ù…Ù† localStorage ÙƒÙ€ fallback Ù„Ø£Ù† Ø§Ù„Ù€ state Ù…Ù…ÙƒÙ† Ù…Ø§ Ø§ØªØ­Ø¯Ø« Ø¨Ø¹Ø¯
+      // ✅ إذا اللاعب مسجل دخول → تخطي phone + login → دخول مباشر
+      // نقرأ من localStorage كـ fallback لأن الـ state ممكن ما اتحدث بعد
       const savedToken = playerToken || getSavedToken();
       const savedPlayerId = playerId || getSavedPlayerId();
 
       if (savedToken && savedPlayerId) {
-        console.log('âš¡ Player already authenticated â€” skipping phone/login steps');
+        console.log('⚡ Player already authenticated — skipping phone/login steps');
         let playerPhone = phone || getSavedPhone();
-        // Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ù† /me Ø¥Ø°Ø§ Ù…Ø´ Ù…ØªÙˆÙØ±
+        // جلب بيانات اللاعب من /me إذا مش متوفر
         if (!playerPhone) {
-          // Ù…Ø­Ø§ÙˆÙ„Ø© 2: Ù…Ù† /me endpoint
+          // محاولة 2: من /me endpoint
           try {
             const meRes = await fetch('/api/player-auth/me', {
               headers: { 'Authorization': `Bearer ${savedToken}` },
@@ -1850,16 +1850,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
       if (!code) setStep('phone');
     } catch (err: any) {
-      setApiError(err.message || 'Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø§Ù„Ù„Ø¹Ø¨Ø©');
+      setApiError(err.message || 'لم يتم العثور على اللعبة');
     }
   };
 
-  // â”€â”€ Ø§Ù„Ø®Ø·ÙˆØ© 2: Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„Ù‡Ø§ØªÙ â†’ login Ø£Ùˆ register â”€â”€
+  // ── الخطوة 2: البحث بالهاتف → login أو register ──
   const handlePhoneLookup = async () => {
     setApiError('');
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
 
-    // Ø¥Ø°Ø§ Ø¹Ù†Ø¯Ù‡ ØªÙˆÙƒÙ† ØµØ§Ù„Ø­ â†’ ÙŠØªØ®Ø·Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„
+    // إذا عنده توكن صالح → يتخطى تسجيل الدخول
     const savedToken = playerToken || getSavedToken();
     const savedPid = playerId || getSavedPlayerId();
     if (savedToken && savedPid) {
@@ -1868,7 +1868,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       if (mustChangePassword) {
         setStep('change_password');
       } else {
-        // ØªØ­Ù‚Ù‚ Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø£ØµÙ„Ø§Ù‹ Ø¬ÙˆØ§ Ø§Ù„Ù„Ø¹Ø¨Ø©
+        // تحقق إذا اللاعب أصلاً جوا اللعبة
         await tryRejoinCurrentRoom(savedPid, savedToken, undefined, requireTicket);
       }
       return;
@@ -1886,16 +1886,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         setDisplayName(data.player.displayName);
         setPlayerId(data.player.id);
         if (data.player.playerId || data.player.id) localStorage.setItem('mafia_playerId', String(data.player.playerId || data.player.id));
-        setStep('login'); // Ø§Ù„Ø­Ø³Ø§Ø¨ Ù…ÙˆØ¬ÙˆØ¯ â†’ ØªØ³Ø¬ÙŠÙ„ Ø¯Ø®ÙˆÙ„
+        setStep('login'); // الحساب موجود → تسجيل دخول
       } else {
-        setStep('register'); // Ø­Ø³Ø§Ø¨ Ø¬Ø¯ÙŠØ¯ â†’ ØªØ³Ø¬ÙŠÙ„
+        setStep('register'); // حساب جديد → تسجيل
       }
     } catch (err) {
-      setApiError('Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„');
+      setApiError('خطأ في الاتصال');
     }
   };
 
-  // â”€â”€ Ø§Ù„Ø®Ø·ÙˆØ© 3Ø£: ØªØ³Ø¬ÙŠÙ„ Ø¯Ø®ÙˆÙ„ Ø¨ÙƒÙ„Ù…Ø© Ø³Ø± â”€â”€
+  // ── الخطوة 3أ: تسجيل دخول بكلمة سر ──
   const handleLogin = async () => {
     setApiError('');
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
@@ -1915,14 +1915,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         localStorage.setItem('mafia_playerId', String(data.player.id));
         if (data.player.avatarUrl) setAvatarUrl(data.player.avatarUrl);
 
-        // â”€â”€ Ù…Ø³Ø­ Ø¬Ù„Ø³Ø© Ù„Ø§Ø¹Ø¨ Ø¢Ø®Ø± Ø¥Ø°Ø§ Ù…ÙˆØ¬ÙˆØ¯Ø© â”€â”€
+        // ── مسح جلسة لاعب آخر إذا موجودة ──
         const oldSession = localStorage.getItem('mafia_session');
         if (oldSession) {
           try {
             const s = JSON.parse(oldSession);
             if (s.playerId && s.playerId !== data.player.id) {
               localStorage.removeItem('mafia_session');
-              console.log(`ðŸ§¹ Cleared stale session from player #${s.playerId}`);
+              console.log(`🧹 Cleared stale session from player #${s.playerId}`);
             }
           } catch {}
         }
@@ -1931,30 +1931,30 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           setMustChangePassword(true);
           setStep('change_password');
         } else {
-          // â”€â”€ ØªØ­Ù‚Ù‚ Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø£ØµÙ„Ø§Ù‹ Ø¬ÙˆØ§ Ø§Ù„Ù„Ø¹Ø¨Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ© â”€â”€
+          // ── تحقق إذا اللاعب أصلاً جوا اللعبة الحالية ──
           await tryRejoinCurrentRoom(data.player.id, data.token, undefined, requireTicket);
         }
       } else {
-        setApiError(data.error || 'Ø®Ø·Ø£ ÙÙŠ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„');
+        setApiError(data.error || 'خطأ في تسجيل الدخول');
       }
     } catch (err) {
-      setApiError('Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„');
+      setApiError('خطأ في الاتصال');
     }
   };
 
-  // â”€â”€ Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù„Ù„ØºØ±ÙØ© (Ø¨Ø¹Ø¯ login/register) â”€â”€
+  // ── محاولة الانضمام التلقائي للغرفة (بعد login/register) ──
   const tryRejoinCurrentRoom = async (pid: number, token: string, phoneOverride?: string, ticketRequired?: boolean, roomIdOverride?: string) => {
     const playerPhone = phoneOverride || phone;
     const effectiveRoomId = roomIdOverride || roomId;
-    // 1. Ø¬Ø±Ù‘Ø¨ rejoin Ø¹Ø¨Ø± WebSocket Ø¥Ø°Ø§ Ø¹Ù†Ø§ roomId
+    // 1. جرّب rejoin عبر WebSocket إذا عنا roomId
     if (emit && effectiveRoomId && playerPhone) {
       try {
         const normalized = playerPhone.startsWith('0') ? playerPhone : '0' + playerPhone;
         const res: any = await emit('room:rejoin-player', {
           roomId: effectiveRoomId,
-          physicalId: 0, // Ù†Ø¨Ø­Ø« Ø¨Ø§Ù„Ù‡Ø§ØªÙ
+          physicalId: 0, // نبحث بالهاتف
           phone: normalized,
-          playerId: pid || undefined, // ðŸª‘ Ø§Ù„Ø­Ø³Ø§Ø¨ Ø£ÙˆØ«Ù‚ Ù…Ù† Ø§Ù„Ù…Ù‚Ø¹Ø¯ â€” Ø§Ù„Ø®Ø§Ø¯Ù… ÙŠØ¬Ø±Ù‘Ø¨Ù‡ Ø£ÙˆÙ„Ø§Ù‹
+          playerId: pid || undefined, // 🪑 الحساب أوثق من المقعد — الخادم يجرّبه أولاً
         });
         if (res?.success && res.player) {
           setPhysicalId(String(res.player.physicalId));
@@ -1963,13 +1963,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           setPlayerId(pid);
           if (res.player.role) setAssignedRole(res.player.role);
           if (res.mafiaTeam !== undefined) setMafiaTeam(res.mafiaTeam);
-          if (res.sibling !== undefined) setSibling(res.sibling); // ðŸ‘¥ Ø§Ù„Ø£Ø®
+          if (res.sibling !== undefined) setSibling(res.sibling); // 👥 الأخ
           if (res.assassinContracts) setAssassinContracts(res.assassinContracts);
           if (!res.player.isAlive) {
             setIsPlayerDead(true);
             setCardFlipped(true);
           }
-          // Ø­ÙØ¸ Ø§Ù„Ø¬Ù„Ø³Ø©
+          // حفظ الجلسة
           localStorage.setItem('mafia_session', JSON.stringify({
             roomId: effectiveRoomId, physicalId: res.player.physicalId, phone: normalized,
             displayName: res.player.name, roomCode, playerId: pid,
@@ -1980,7 +1980,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       } catch {}
     }
 
-    // 2. Ø¬Ø±Ù‘Ø¨ /me endpoint Ù„Ù„Ø¨Ø­Ø« Ø¹Ù† Ù„Ø¹Ø¨Ø© Ù†Ø´Ø·Ø©
+    // 2. جرّب /me endpoint للبحث عن لعبة نشطة
     try {
       const meRes = await fetch('/api/player-auth/me', {
         headers: { 'Authorization': `Bearer ${token}` },
@@ -1988,7 +1988,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       const meData = await meRes.json();
       if (meData.success && meData.activeGame && meData.activeGame.roomId) {
         const ag = meData.activeGame;
-        // Ø¥Ø°Ø§ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ù†Ø´Ø·Ø© Ù‡ÙŠ Ù†ÙØ³ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø­Ø§Ù„ÙŠØ© â†’ Ø¯Ø®ÙˆÙ„ Ù…Ø¨Ø§Ø´Ø±
+        // إذا الغرفة النشطة هي نفس الغرفة الحالية → دخول مباشر
         if (!effectiveRoomId || ag.roomId === effectiveRoomId) {
           setRoomId(ag.roomId);
           setRoomCode(ag.roomCode || roomCode);
@@ -2008,23 +2008,23 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           return;
         }
 
-        // â”€â”€ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ù†Ø´Ø·Ø© Ù…Ø®ØªÙ„ÙØ© Ø¹Ù† Ø§Ù„Ù‡Ø¯Ù â†’ Ø¹Ø±Ø¶ ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ â”€â”€
+        // ── الغرفة النشطة مختلفة عن الهدف → عرض تأكيد التبديل ──
         if (effectiveRoomId && ag.roomId !== effectiveRoomId) {
           setSwitchConfirm({
             currentRoomId: ag.roomId,
-            currentGameName: ag.gameName || 'ØºØ±ÙØ© Ù†Ø´Ø·Ø©',
+            currentGameName: ag.gameName || 'غرفة نشطة',
             targetRoomId: effectiveRoomId,
-            targetGameName: gameName || 'ØºØ±ÙØ© Ø¬Ø¯ÙŠØ¯Ø©',
+            targetGameName: gameName || 'غرفة جديدة',
           });
           return;
         }
       }
     } catch {}
 
-    // 3. Ù„Ø§ Ù„Ø¹Ø¨Ø© Ù†Ø´Ø·Ø© â†’ Ø§Ù†Ø¶Ù…Ø§Ù… ØªÙ„Ù‚Ø§Ø¦ÙŠ
+    // 3. لا لعبة نشطة → انضمام تلقائي
     const needTicket = ticketRequired ?? requireTicket;
-    // Ø¥Ø°Ø§ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù…Ø³Ø¬Ù„ (Ø¹Ù†Ø¯Ù‡ playerId) â†’ Ù†Ø±Ø³Ù„ auto-join Ù…Ø¨Ø§Ø´Ø±Ø©
-    // Ø§Ù„Ø¨Ø§ÙƒØ¥Ù†Ø¯ ÙŠÙØ­Øµ Ø¥Ø°Ø§ Ø¹Ù†Ø¯Ù‡ ØªØ°ÙƒØ±Ø© Ù…Ø³Ø¨Ù‚Ø© Ù„Ù†ÙØ³ Ø§Ù„Ù†Ø´Ø§Ø· ÙˆÙŠØªØ®Ø·Ù‰ Ø§Ù„Ø³Ø¤Ø§Ù„
+    // إذا اللاعب مسجل (عنده playerId) → نرسل auto-join مباشرة
+    // الباكإند يفحص إذا عنده تذكرة مسبقة لنفس النشاط ويتخطى السؤال
     if (needTicket && pid) {
       setStep('auto_joining');
       setTimeout(() => handleAutoJoin(false, undefined, effectiveRoomId), 100);
@@ -2036,23 +2036,23 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     }
   };
 
-  // â”€â”€ ØªÙ†ÙÙŠØ° Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ Ø¨ÙŠÙ† Ø§Ù„ØºØ±Ù â”€â”€
+  // ── تنفيذ التبديل بين الغرف ──
   const handleSwitchRoom = async () => {
     if (!switchConfirm || !emit) return;
     setSwitchLoading(true);
     try {
       const normalized = phone.startsWith('0') ? phone : '0' + phone;
-      // 1. ØªØ¬Ù…ÙŠØ¯ Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙÙŠ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø­Ø§Ù„ÙŠØ©
+      // 1. تجميد اللاعب في الغرفة الحالية
       await emit('room:freeze-player', {
         roomId: switchConfirm.currentRoomId,
         phone: normalized,
         playerId: playerId || undefined,
       });
 
-      // 2. Ù…Ø³Ø­ Ø§Ù„Ø¬Ù„Ø³Ø© Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø©
+      // 2. مسح الجلسة القديمة
       localStorage.removeItem('mafia_session');
 
-      // 3. Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„Ø§Ø®ØªÙŠØ§Ø± Ù…Ù‚Ø¹Ø¯ ÙÙŠ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©
+      // 3. الانتقال لاختيار مقعد في الغرفة الجديدة
       setRoomId(switchConfirm.targetRoomId);
       setAssignedRole(null);
       setCardFlipped(false);
@@ -2060,18 +2060,18 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setPhysicalId('');
       setSwitchConfirm(null);
     setStep(requireTicket ? 'ticket' : 'auto_joining');
-    // Ø¥Ø°Ø§ Ù„Ø§ ØªØ°ÙƒØ±Ø© Ù…Ø·Ù„ÙˆØ¨Ø© â†’ Ø¨Ø¯Ø¡ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù…Ø¨Ø§Ø´Ø±Ø©
+    // إذا لا تذكرة مطلوبة → بدء الانضمام التلقائي مباشرة
     if (!requireTicket) {
       setTimeout(() => handleAutoJoin(false), 100);
     }
     } catch (err: any) {
-      setApiError(err.message || 'ÙØ´Ù„ ÙÙŠ Ø§Ù„ØªØ¨Ø¯ÙŠÙ„');
+      setApiError(err.message || 'فشل في التبديل');
     } finally {
       setSwitchLoading(false);
     }
   };
 
-  // â”€â”€ Ø§Ù„Ø®Ø·ÙˆØ© 3Ø¨: ØªØ³Ø¬ÙŠÙ„ Ø­Ø³Ø§Ø¨ Ø¬Ø¯ÙŠØ¯ â”€â”€
+  // ── الخطوة 3ب: تسجيل حساب جديد ──
   const handleRegister = async () => {
     setApiError('');
     const normalized = phone.startsWith('0') ? phone : '0' + phone;
@@ -2080,7 +2080,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       : null;
 
     if (!password || password.length < 4) {
-      setApiError('ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† 4 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„');
+      setApiError('كلمة المرور يجب أن تكون 4 أحرف على الأقل');
       return;
     }
 
@@ -2102,7 +2102,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         localStorage.setItem('mafia_player_token', data.token);
         setPlayerId(data.player.id);
         localStorage.setItem('mafia_playerId', String(data.player.id));
-        // Ù„Ø§Ø¹Ø¨ Ø¬Ø¯ÙŠØ¯ â€” Ù…Ø³ØªØ­ÙŠÙ„ ÙŠÙƒÙˆÙ† Ø¬ÙˆØ§ Ù„Ø¹Ø¨Ø©ØŒ ÙŠØ±ÙˆØ­ Ø¹Ù„Ù‰ Ø§Ø®ØªÙŠØ§Ø± Ù…Ù‚Ø¹Ø¯
+        // لاعب جديد — مستحيل يكون جوا لعبة، يروح على اختيار مقعد
         setStep(requireTicket ? 'ticket' : 'auto_joining');
         if (!requireTicket) {
           setTimeout(() => handleAutoJoin(false), 100);
@@ -2111,15 +2111,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         setApiError(data.error);
       }
     } catch (err) {
-      setApiError('Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„');
+      setApiError('خطأ في الاتصال');
     }
   };
 
-  // â”€â”€ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ø³Ø± (Ù„Ù„Ø§Ø¹Ø¨ÙŠÙ† Ø§Ù„Ù…Ù‡Ø§Ø¬Ø±ÙŠÙ†) â”€â”€
+  // ── تغيير كلمة السر (للاعبين المهاجرين) ──
   const handleChangePassword = async () => {
     setApiError('');
     if (!newPassword || newPassword.length < 4) {
-      setApiError('ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† 4 Ø£Ø­Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„');
+      setApiError('كلمة المرور الجديدة يجب أن تكون 4 أحرف على الأقل');
       return;
     }
     try {
@@ -2143,16 +2143,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         setApiError(data.error);
       }
     } catch (err) {
-      setApiError('Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§ØªØµØ§Ù„');
+      setApiError('خطأ في الاتصال');
     }
   };
 
-  // â”€â”€ Ø§Ù„Ø®Ø·ÙˆØ© 4: Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ø§Ù„ØªÙ„Ù‚Ø§Ø¦ÙŠ Ù„Ù„Ø¹Ø¨Ø© â”€â”€
+  // ── الخطوة 4: الانضمام التلقائي للعبة ──
   const handleAutoJoin = async (forceJoin: boolean = false, ticket?: string, roomIdOverride?: string) => {
     if (!displayName) return;
     const effectiveRoomId = roomIdOverride || roomId;
     if (!effectiveRoomId) {
-      setApiError('Ù„Ù… ÙŠØªÙ… ØªØ­Ø¯ÙŠØ¯ Ø§Ù„ØºØ±ÙØ©');
+      setApiError('لم يتم تحديد الغرفة');
       return;
     }
     setApiError('');
@@ -2163,17 +2163,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         : undefined;
       const genderUpper = gender === 'female' ? 'FEMALE' : gender === 'male' ? 'MALE' : undefined;
       
-      // âš ï¸ Ù„Ø§ Ù†Ø±Ø³Ù„ preferredSeat â€” Ø§Ù„Ø¨Ø§ÙƒØ¥Ù†Ø¯ ÙŠÙˆØ²Ø¹ Ø¹Ø´ÙˆØ§Ø¦ÙŠØ§Ù‹ Ø¯Ø§Ø¦Ù…Ø§Ù‹ Ø¹Ù†Ø¯ auto-join
-      // Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù†ÙØ³ Ø§Ù„Ø±Ù‚Ù… ØªÙØ¹Ø§Ù„Ø¬ Ø¹Ø¨Ø± 'room:rejoin-player' ÙˆÙ„ÙŠØ³ 'room:auto-join'
+      // ⚠️ لا نرسل preferredSeat — الباكإند يوزع عشوائياً دائماً عند auto-join
+      // العودة لنفس الرقم تُعالج عبر 'room:rejoin-player' وليس 'room:auto-join'
       const res = await joinRoom(effectiveRoomId, displayName, phone, playerId || undefined, genderUpper, dateOfBirth, forceJoin, ticket || ticketNumber || undefined, undefined);
 
       const assignedSeat = res?.assignedSeat;
       if (assignedSeat) {
         setPhysicalId(String(assignedSeat));
       }
-      if (res?.isRemote != null) setIsRemote(!!res.isRemote); // ðŸŒ ÙƒØ´Ù Ù…Ø¨ÙƒØ± Ù„Ù„ØºØ±ÙØ© Ø§Ù„Ø¨Ø¹ÙŠØ¯Ø©
+      if (res?.isRemote != null) setIsRemote(!!res.isRemote); // 🌐 كشف مبكر للغرفة البعيدة
 
-      // Ø­ÙØ¸ Ø§Ù„Ø¬Ù„Ø³Ø© ÙÙŠ localStorage
+      // حفظ الجلسة في localStorage
       localStorage.setItem('mafia_session', JSON.stringify({
         roomId: effectiveRoomId,
         physicalId: assignedSeat || 0,
@@ -2183,39 +2183,39 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         playerId: playerId || null,
       }));
 
-      // Ù…Ø³Ø­ Ø¹Ù„Ø§Ù…Ø© Ø§Ù„Ø®Ø±ÙˆØ¬ â€” Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø§Ù†Ø¶Ù… Ø¨Ù†Ø¬Ø§Ø­
+      // مسح علامة الخروج — اللاعب انضم بنجاح
       localStorage.removeItem('mafia_user_exited');
-      localStorage.removeItem('mafia_held_seat'); // ØªÙ†Ø¸ÙŠÙ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ù…Ø­Ø¬ÙˆØ²
+      localStorage.removeItem('mafia_held_seat'); // تنظيف بيانات المقعد المحجوز
       setJoinConfirmation(null);
       setStep('done');
     } catch (err: any) {
       const errMsg = err.message || err.response?.error || '';
-      // Ø§Ø³ØªØ¨ÙŠØ§Ù†Ø§Øª Ø¥Ù„Ø²Ø§Ù…ÙŠØ© Ù…Ø¹Ù„Ù‘Ù‚Ø© â†’ ØªÙˆØ¬ÙŠÙ‡ Ù„Ø¥ÙƒÙ…Ø§Ù„Ù‡Ø§ Ù‚Ø¨Ù„ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…
+      // استبيانات إلزامية معلّقة → توجيه لإكمالها قبل الانضمام
       if (err.response?.code === 'PENDING_SURVEYS') {
-        setApiError(err.response.error || 'ÙŠØ¬Ø¨ Ø¥ÙƒÙ…Ø§Ù„ Ø§Ø³ØªØ¨ÙŠØ§Ù†Ø§Øª ÙØ¹Ø§Ù„ÙŠØ§ØªÙƒ Ø§Ù„Ø³Ø§Ø¨Ù‚Ø© Ù‚Ø¨Ù„ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…');
+        setApiError(err.response.error || 'يجب إكمال استبيانات فعالياتك السابقة قبل الانضمام');
         setTimeout(() => { window.location.href = '/player/feedback'; }, 1500);
         return;
       }
-      // Ø¥Ø°Ø§ Ø§Ù„Ø®Ø·Ø£ Ù…ØªØ¹Ù„Ù‚ Ø¨Ø§Ù„ØªØ°ÙƒØ±Ø© â†’ Ù†Ø¹Ø±Ø¶ Ø´Ø§Ø´Ø© Ø¥Ø¯Ø®Ø§Ù„ Ø§Ù„ØªØ°ÙƒØ±Ø© Ù…Ø¨Ø§Ø´Ø±Ø©
-      const isTicketError = errMsg.includes('Ø§Ù„ØªØ°ÙƒØ±Ø©') || errMsg.includes('ticket');
+      // إذا الخطأ متعلق بالتذكرة → نعرض شاشة إدخال التذكرة مباشرة
+      const isTicketError = errMsg.includes('التذكرة') || errMsg.includes('ticket');
       if (err.response?.requiresConfirmation) {
         setJoinConfirmation({ message: err.response.error });
         setStep(isTicketError || requireTicket ? 'ticket' : 'auto_joining');
       } else {
-        setApiError(errMsg || 'Ø­Ø¯Ø« Ø®Ø·Ø£ ÙÙŠ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…');
+        setApiError(errMsg || 'حدث خطأ في الانضمام');
         setStep(isTicketError || requireTicket ? 'ticket' : 'auto_joining');
       }
     }
   };
 
-  // â”€â”€ Ø¯Ø§Ù„Ø© Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ø§Ù„Ù‚Ø¯ÙŠÙ…Ø© (Ù„Ù„ØªÙˆØ§ÙÙ‚ Ù…Ø¹ confirmation dialog) â”€â”€
+  // ── دالة الانضمام القديمة (للتوافق مع confirmation dialog) ──
   const handleJoinGame = async (forceJoin: boolean = false) => {
     await handleAutoJoin(forceJoin);
   };
 
   return (
     <div className={`min-h-screen flex flex-col items-center font-sans relative overflow-hidden selection:bg-[#8A0303] selection:text-white ${isRemote ? 'justify-start p-2 pt-3 pb-24 bg-[#050505] remote-vignette' : 'justify-center p-4 sm:p-6 display-bg blood-vignette'}`}>
-      {/* â”€â”€ Dynamic Toast Notification Overlay â”€â”€ */}
+      {/* ── Dynamic Toast Notification Overlay ── */}
       <AnimatePresence>
         {activeToast && (
           <motion.div
@@ -2237,10 +2237,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               }`}
             >
               <div className="text-xl shrink-0">
-                {activeToast.type === 'penalty' && 'ðŸ”´'}
-                {activeToast.type === 'warning' && 'âš ï¸'}
-                {activeToast.type === 'success' && 'âœ…'}
-                {activeToast.type === 'info' && 'â„¹ï¸'}
+                {activeToast.type === 'penalty' && '🔴'}
+                {activeToast.type === 'warning' && '⚠️'}
+                {activeToast.type === 'success' && '✅'}
+                {activeToast.type === 'info' && 'ℹ️'}
               </div>
               <div className="flex-1 font-bold text-sm text-right" style={{ fontFamily: 'Amiri, serif' }}>
                 {activeToast.message}
@@ -2249,14 +2249,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 onClick={() => setActiveToast(null)}
                 className="text-gray-400 hover:text-white shrink-0 text-xs font-mono ml-2 p-1"
               >
-                âœ•
+                ✕
               </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* â”€â”€ Penalty Alert Modal Prompt â”€â”€ */}
+      {/* ── Penalty Alert Modal Prompt ── */}
       <AnimatePresence>
         {penaltyAlert && (
           <motion.div
@@ -2275,10 +2275,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               <div className="absolute top-0 left-0 w-full h-[3px] bg-red-600 animate-pulse" />
               
               <div className="mb-4 text-red-500 flex justify-center text-4xl animate-bounce">
-                âš ï¸
+                ⚠️
               </div>
               
-              <h3 className="text-red-500 text-xl font-bold mb-3" style={{ fontFamily: 'Amiri, serif' }}>ØªÙ†Ø¨ÙŠÙ‡ Ù…Ø®Ø§Ù„ÙØ© Ø§Ù„Ù‚ÙˆØ§Ù†ÙŠÙ†!</h3>
+              <h3 className="text-red-500 text-xl font-bold mb-3" style={{ fontFamily: 'Amiri, serif' }}>تنبيه مخالفة القوانين!</h3>
               
               <p className="text-white mb-5 text-sm leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
                 {penaltyAlert.message}
@@ -2306,7 +2306,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 onClick={() => setPenaltyAlert(null)}
                 className="w-full py-3 rounded-xl bg-red-900 hover:bg-red-800 text-white font-mono text-sm shadow-[0_0_15px_rgba(138,3,3,0.4)] transition-all font-bold"
               >
-                ÙÙ‡Ù…Øª ÙˆØªØ¹Ù‡Ø¯Øª Ø¨Ø§Ù„Ø§Ù„ØªØ²Ø§Ù…
+                فهمت وتعهدت بالالتزام
               </button>
             </motion.div>
           </motion.div>
@@ -2326,7 +2326,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               animate={{ scale: 1, y: 0 }}
               className="bg-[#111] border border-[#C5A059]/30 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
             >
-              <h3 className="text-[#C5A059] text-xl font-bold mb-4 text-center">ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„</h3>
+              <h3 className="text-[#C5A059] text-xl font-bold mb-4 text-center">تأكيد الانتقال</h3>
               <p className="text-white text-center mb-6 text-sm leading-relaxed">{joinConfirmation.message}</p>
               
               <div className="flex gap-3">
@@ -2334,13 +2334,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   onClick={() => setJoinConfirmation(null)}
                   className="flex-1 py-3 rounded-xl border border-[#333] text-[#888] font-mono text-sm hover:bg-[#222] transition-colors"
                 >
-                  Ø¥Ù„ØºØ§Ø¡
+                  إلغاء
                 </button>
                 <button
                   onClick={() => handleJoinGame(true)}
                   className="flex-1 py-3 rounded-xl bg-[#8A0303] text-white font-mono text-sm shadow-[0_0_15px_rgba(138,3,3,0.4)] hover:bg-[#a00404] transition-colors"
                 >
-                  Ù…ÙˆØ§ÙÙ‚ØŒ Ø§Ù†ØªÙ‚Ù„
+                  موافق، انتقل
                 </button>
               </div>
             </motion.div>
@@ -2348,7 +2348,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         )}
       </AnimatePresence>
 
-      {/* ðŸ“¨ ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø¯Ø¹ÙˆØ© Ù‚Ø¨Ù„ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… */}
+      {/* 📨 تأكيد الدعوة قبل الانضمام */}
       <AnimatePresence>
         {invitePrompt && (
           <motion.div
@@ -2357,22 +2357,22 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           >
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
               className="bg-[#0c0c0c] border border-sky-500/40 rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
-              <div className="text-4xl mb-3">ðŸ“¨</div>
-              <h3 className="text-sky-300 text-xl font-black mb-2" style={{ fontFamily: 'Amiri, serif' }}>Ø¯Ø¹ÙˆØ© Ù„Ù„Ø§Ù†Ø¶Ù…Ø§Ù…</h3>
-              <p className="text-white text-base leading-relaxed mb-1">Ù‡Ù„ ØªØ±ÙŠØ¯ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ø¥Ù„Ù‰ ØºØ±ÙØ© Â«<b className="text-sky-300">{invitePrompt.roomName}</b>Â»ØŸ</p>
-              <p className="text-[#888] text-xs mb-6">Ø¯Ø¹Ø§Ùƒ <b className="text-[#C5A059]">{invitePrompt.inviterName}</b></p>
+              <div className="text-4xl mb-3">📨</div>
+              <h3 className="text-sky-300 text-xl font-black mb-2" style={{ fontFamily: 'Amiri, serif' }}>دعوة للانضمام</h3>
+              <p className="text-white text-base leading-relaxed mb-1">هل تريد الانضمام إلى غرفة «<b className="text-sky-300">{invitePrompt.roomName}</b>»؟</p>
+              <p className="text-[#888] text-xs mb-6">دعاك <b className="text-[#C5A059]">{invitePrompt.inviterName}</b></p>
               <div className="flex gap-3">
                 <button
                   onClick={() => { setInvitePrompt(null); try { window.location.assign('/player/home'); } catch { /* ignore */ } }}
                   className="flex-1 py-3 rounded-xl border border-[#333] text-[#888] font-mono text-sm hover:bg-[#222] transition-colors"
                 >
-                  Ù„ÙŠØ³ Ø§Ù„Ø¢Ù†
+                  ليس الآن
                 </button>
                 <button
                   onClick={() => { setInvitePrompt(null); setInviteConfirmed(true); }}
                   className="flex-1 py-3 rounded-xl bg-sky-600 text-white font-bold text-sm shadow-[0_0_15px_rgba(2,132,199,0.4)] hover:bg-sky-500 transition-colors"
                 >
-                  Ø§Ù†Ø¶Ù…Ø§Ù…
+                  انضمام
                 </button>
               </div>
             </motion.div>
@@ -2385,25 +2385,25 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           >
             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
               className="bg-[#0c0c0c] border border-[#333] rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
-              <div className="text-4xl mb-3">ðŸšª</div>
+              <div className="text-4xl mb-3">🚪</div>
               <p className="text-white text-base leading-relaxed mb-6">{inviteError}</p>
               <button
                 onClick={() => { setInviteError(''); try { window.location.assign('/player/home'); } catch { /* ignore */ } }}
                 className="w-full py-3 rounded-xl bg-[#1a1a1a] border border-[#333] text-white font-mono text-sm hover:bg-[#222] transition-colors"
               >
-                Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„Ø±Ø¦ÙŠØ³ÙŠØ©
+                العودة للرئيسية
               </button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ðŸ“¨ Ù…ÙˆØ¯Ø§Ù„ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø¯Ø¹ÙˆØ© (Ù„Ù„Ø§Ø¹Ø¨ Ø§Ù„Ù…ØµØ±Ù‘Ø­ Ù„Ù‡) */}
+      {/* 📨 مودال إرسال الدعوة (للاعب المصرّح له) */}
       {showInvite && isRemote && roomId && (
         <InviteModal roomId={roomId} emit={emit} onClose={() => setShowInvite(false)} />
       )}
 
-      {/* ðŸŽ© Ø¨Ø±ÙˆÙ…Ø¨Øª Ù‚Ø±Ø§Ø± Ø§Ù„Ø¹Ù…Ø¯Ø© â€” ÙŠØµÙ„ Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø¹Ù…Ø¯Ø© ÙˆØ­Ø¯Ù‡ (Ø§Ù„Ù„Ø¹Ø¨ Ø¹Ù† Ø¨ÙØ¹Ø¯) */}
+      {/* 🎩 برومبت قرار العمدة — يصل لهاتف العمدة وحده (اللعب عن بُعد) */}
       <AnimatePresence>
         {mayorPrompt && (
           <motion.div
@@ -2415,17 +2415,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               className="w-full max-w-sm rounded-2xl p-5 border-2 border-[#C5A059] shadow-[0_0_40px_rgba(197,160,89,0.3)]"
               style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}
             >
-              <div className="text-center text-4xl mb-1">ðŸŽ©</div>
-              <h3 className="text-center text-[#C5A059] font-black text-lg">Ø£Ù†Øª Ø§Ù„Ø¹Ù…Ø¯Ø© â€” Ù„Ø­Ø¸Ø© Ø§Ù„Ù‚Ø±Ø§Ø±</h3>
+              <div className="text-center text-4xl mb-1">🎩</div>
+              <h3 className="text-center text-[#C5A059] font-black text-lg">أنت العمدة — لحظة القرار</h3>
               <p className="text-center text-[11px] text-[#9a8f7d] mb-1 leading-relaxed">
-                Ù†ØªÙŠØ¬Ø© Ø§Ù„ØªØµÙˆÙŠØª: Ø¥Ø¹Ø¯Ø§Ù…{' '}
+                نتيجة التصويت: إعدام{' '}
                 <b className="text-[#ff6b64]">
                   {mayorPrompt.winner?.type === 'DEAL'
-                    ? `ØµÙÙ‚Ø© #${mayorPrompt.winner?.initiatorPhysicalId} â† #${mayorPrompt.winner?.targetPhysicalId}`
+                    ? `صفقة #${mayorPrompt.winner?.initiatorPhysicalId} ← #${mayorPrompt.winner?.targetPhysicalId}`
                     : `#${mayorPrompt.winner?.targetPhysicalId} ${mayorPrompt.winner?.targetName || ''}`}
-                </b>{' '}({mayorPrompt.topVotes} Ø£ØµÙˆØ§Øª)
+                </b>{' '}({mayorPrompt.topVotes} أصوات)
               </p>
-              <p className="text-center text-[10px] text-[#655c4e] mb-3">â³ {mayorPromptLeft} Ø«Ø§Ù†ÙŠØ© â€” ÙˆØ¨Ø¹Ø¯Ù‡Ø§ ÙŠØ­Ø³Ù… Ø§Ù„Ù…ÙˆØ¬Ù‘Ù‡</p>
+              <p className="text-center text-[10px] text-[#655c4e] mb-3">⏳ {mayorPromptLeft} ثانية — وبعدها يحسم الموجّه</p>
               <div className="space-y-2">
                 <button
                   onClick={() => sendMayorDecision('REVOTE')}
@@ -2433,7 +2433,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg,#3b6fd4,#2b4f9e)', border: '1px solid #4f8ef7' }}
                 >
-                  ðŸ”„ Ø£ÙƒØ´Ù Ù†ÙØ³ÙŠ â€” Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ù… ÙˆØªØµÙˆÙŠØª Ø¬Ø¯ÙŠØ¯ Ø¹Ù„Ù‰ Ø§Ù„Ø¬Ù…ÙŠØ¹
+                  🔄 أكشف نفسي — إلغاء الإعدام وتصويت جديد على الجميع
                 </button>
                 <button
                   onClick={() => sendMayorDecision('POSTPONE')}
@@ -2441,23 +2441,23 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   className="w-full py-3 rounded-xl font-bold text-white text-sm disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg,#7a4b8f,#5b3570)', border: '1px solid #9b6dd6' }}
                 >
-                  ðŸŒ™ Ø£ÙƒØ´Ù Ù†ÙØ³ÙŠ â€” ØªØ£Ø¬ÙŠÙ„: Ù„Ø§ Ù…ÙˆØª Ø§Ù„ÙŠÙˆÙ…
+                  🌙 أكشف نفسي — تأجيل: لا موت اليوم
                 </button>
                 <button
                   onClick={() => sendMayorDecision('PASS')}
                   disabled={mayorSending}
                   className="w-full py-2.5 rounded-xl text-sm border border-[#4a3f31] text-[#9a8f7d] disabled:opacity-50"
                 >
-                  ðŸ¤ Ø£Ø¨Ù‚Ù‰ Ù…Ø®ÙÙŠÙ‘Ø§Ù‹ â€” Ù†ÙÙ‘Ø°ÙˆØ§ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ù…
+                  🤐 أبقى مخفيّاً — نفّذوا الإعدام
                 </button>
               </div>
-              <p className="text-center text-[10px] text-[#9a9a9a] mt-3">Ø§Ù„ÙƒØ´Ù Ø¯Ø§Ø¦Ù… Ù„Ù„Ø¬Ù…ÙŠØ¹ + ØµÙˆØªÙƒ Ã—{mayorPrompt.voteWeight || 2} ÙÙˆØ±Ø§Ù‹ + Ø§Ù„Ù‚Ø¯Ø±Ø© ØªÙØ³ØªÙ‡Ù„Ùƒ (Ù…Ø±Ù‘Ø© ÙˆØ§Ø­Ø¯Ø©)</p>
+              <p className="text-center text-[10px] text-[#9a9a9a] mt-3">الكشف دائم للجميع + صوتك ×{mayorPrompt.voteWeight || 2} فوراً + القدرة تُستهلك (مرّة واحدة)</p>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ðŸŽ© Ø¥Ø¹Ù„Ø§Ù† ÙƒØ´Ù Ø§Ù„Ø¹Ù…Ø¯Ø© â€” Ù„ÙƒÙ„Ù‘ Ø§Ù„Ù„Ø§Ø¹Ø¨ÙŠÙ† */}
+      {/* 🎩 إعلان كشف العمدة — لكلّ اللاعبين */}
       <AnimatePresence>
         {mayorBanner && (
           <motion.div
@@ -2466,21 +2466,21 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           >
             <div className="max-w-sm w-full rounded-2xl px-4 py-3 border border-[#C5A059] text-center shadow-[0_0_30px_rgba(197,160,89,0.25)]"
               style={{ background: 'linear-gradient(170deg,#1d160c,#0f0b06)' }}>
-              <p className="text-[#C5A059] font-black text-sm">ðŸŽ© Ø§Ù„Ø¹Ù…Ø¯Ø© ÙŠÙƒØ´Ù Ù†ÙØ³Ù‡: #{mayorBanner.physicalId} {mayorBanner.name}</p>
+              <p className="text-[#C5A059] font-black text-sm">🎩 العمدة يكشف نفسه: #{mayorBanner.physicalId} {mayorBanner.name}</p>
               <p className="text-[#9a8f7d] text-[11px] mt-0.5">
-                {mayorBanner.decision === 'REVOTE' ? 'Ø£ÙÙ„ØºÙŠ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ù… â€” ØªØµÙˆÙŠØª Ø¬Ø¯ÙŠØ¯ Ø¹Ù„Ù‰ Ø§Ù„Ø¬Ù…ÙŠØ¹' : 'Ø£ÙÙ„ØºÙŠ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ù… â€” Ù„Ø§ Ù…ÙˆØª Ø§Ù„ÙŠÙˆÙ…'}
-                {' '}â€¢ ØµÙˆØªÙ‡ ÙŠÙØ­Ø³Ø¨ âš–ï¸Ã—{mayorBanner.voteWeight || 2}
+                {mayorBanner.decision === 'REVOTE' ? 'أُلغي الإعدام — تصويت جديد على الجميع' : 'أُلغي الإعدام — لا موت اليوم'}
+                {' '}• صوته يُحسب ⚖️×{mayorBanner.voteWeight || 2}
               </p>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ðŸŽ© Ø´Ø§Ø±Ø© Ø¯Ø§Ø¦Ù…Ø© Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„ØªØµÙˆÙŠØª: Ø¹Ù…Ø¯Ø© Ù…ÙƒØ´ÙˆÙ */}
+      {/* 🎩 شارة دائمة أثناء التصويت: عمدة مكشوف */}
       {gamePhase === 'DAY_VOTING' && mayorRevealedId !== null && !mayorBanner && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[40]" dir="rtl">
           <span className="text-[10px] px-2.5 py-1 rounded-full border border-[#C5A059]/60 text-[#C5A059] bg-[#151007]/90">
-            {mayorRevealedId === parseInt(physicalId) ? `âš–ï¸ Ø£Ù†Øª Ø§Ù„Ø¹Ù…Ø¯Ø© â€” ØµÙˆØªÙƒ ÙŠÙØ­Ø³Ø¨ Ã—${mayorWeight}` : `ðŸŽ© Ø§Ù„Ø¹Ù…Ø¯Ø© #${mayorRevealedId} â€” ØµÙˆØªÙ‡ Ã—${mayorWeight}`}
+            {mayorRevealedId === parseInt(physicalId) ? `⚖️ أنت العمدة — صوتك يُحسب ×${mayorWeight}` : `🎩 العمدة #${mayorRevealedId} — صوته ×${mayorWeight}`}
           </span>
         </div>
       )}
@@ -2510,18 +2510,18 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           </div>
           
           <h2 className="text-3xl font-black text-red-500 mb-4" style={{ fontFamily: 'Amiri, serif' }}>
-            ØªÙ… Ø§Ø³ØªØ¨Ø¹Ø§Ø¯Ùƒ Ù…Ù† Ø§Ù„Ù„Ø¹Ø¨Ø©!
+            تم استبعادك من اللعبة!
           </h2>
           
           <div className="bg-black/40 border border-red-950 rounded-xl p-4 mb-6">
             <p className="text-gray-400 text-xs font-mono uppercase tracking-widest mb-2">REASON FOR EXPULSION</p>
             <p className="text-white text-base leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
-              {expulsionReason || 'Ù„Ù‚Ø¯ ØªÙ… Ø§Ø³ØªØ¨Ø¹Ø§Ø¯Ùƒ Ø¨Ø³Ø¨Ø¨ Ø§Ù†ØªÙ‡Ø§Ùƒ Ù‚ÙˆØ§Ø¹Ø¯ Ø§Ù„Ù„Ø¹Ø¨ ÙˆØªØ¬Ø§ÙˆØ² Ø§Ù„Ø­Ø¯ Ø§Ù„Ø£Ù‚ØµÙ‰ Ù„Ù„Ø¹Ù‚ÙˆØ¨Ø§Øª.'}
+              {expulsionReason || 'لقد تم استبعادك بسبب انتهاك قواعد اللعب وتجاوز الحد الأقصى للعقوبات.'}
             </p>
           </div>
           
           <p className="text-red-400/80 text-xs leading-relaxed mb-8" style={{ fontFamily: 'Amiri, serif' }}>
-            Ù„Ù‚Ø¯ ØªÙ… Ù…Ø³Ø­ Ø¬Ù„Ø³ØªÙƒ Ø§Ù„Ø­Ø§Ù„ÙŠØ© ÙˆØ®ØµÙ… Ù†Ù‚Ø§Ø· Ù…Ù† Ø±ØªØ¨ØªÙƒ (RR) ÙƒØ¹Ù‚ÙˆØ¨Ø© ØªÙ†Ø¸ÙŠÙ…ÙŠØ©. Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ù„Ø§Ù„ØªØ²Ø§Ù… Ø¨Ù‚ÙˆØ§Ø¹Ø¯ Ø§Ù„Ù„Ø¹Ø¨ Ø§Ù„Ù†Ø¸ÙŠÙ ÙÙŠ Ø§Ù„Ù…Ø±Ø§Øª Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©.
+            لقد تم مسح جلستك الحالية وخصم نقاط من رتبتك (RR) كعقوبة تنظيمية. الرجاء الالتزام بقواعد اللعب النظيف في المرات القادمة.
           </p>
           
           <button
@@ -2531,12 +2531,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             }}
             className="w-full py-4 rounded-xl bg-gradient-to-r from-red-950 to-red-800 border border-red-700/50 text-white font-mono text-sm tracking-widest font-black shadow-[0_0_20px_rgba(138,3,3,0.4)] hover:from-red-900 hover:to-red-750 transition-all active:scale-98"
           >
-            Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©
+            العودة للشاشة الرئيسية
           </button>
         </motion.div>
       ) : (
         <>
-          {/* â”€â”€ Title: MAFIA CLUB + Logo (Ù…Ø®ÙÙŠÙ‘ Ø¹Ù† Ø¨ÙØ¹Ø¯ â€” ÙˆØ§Ø¬Ù‡Ø© Ù…Ù„Ø¡ Ø§Ù„Ø´Ø§Ø´Ø© Ø¨Ù„Ø§ Ù„ÙˆØ¬Ùˆ) â”€â”€ */}
+          {/* ── Title: MAFIA CLUB + Logo (مخفيّ عن بُعد — واجهة ملء الشاشة بلا لوجو) ── */}
           {!isRemote && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -2544,7 +2544,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
             className="flex items-center justify-center gap-4 md:gap-6 mb-8 relative z-10 w-full max-w-md"
           >
-            {/* Ø§Ù„Ù†ØµÙˆØµ */}
+            {/* النصوص */}
             <h1 className="text-center md:text-right">
               <span
                 className="block text-4xl md:text-5xl font-black tracking-tight text-[#C5A059]"
@@ -2569,7 +2569,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               </span>
             </h1>
 
-            {/* Ø§Ù„Ù„ÙˆØ¬Ùˆ */}
+            {/* اللوجو */}
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2597,12 +2597,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         
         <AnimatePresence mode="wait">
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© 1: ÙƒÙˆØ¯ Ø§Ù„Ù„Ø¹Ø¨Ø© â”€â”€ */}
+          {/* ── خطوة 1: كود اللعبة ── */}
           {step === 'code' && (
             <motion.div key="code" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-8 border-b border-[#2a2a2a]/40 pb-6">
                 <div className="mb-4 text-[#C5A059] flex justify-center"><OperationIcon /></div>
-                <h1 className="text-3xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù… Ù„Ù„Ø¹Ù…Ù„ÙŠØ©</h1>
+                <h1 className="text-3xl font-black mb-2 text-white" style={{ fontFamily: 'Amiri, serif' }}>الانضمام للعملية</h1>
                 <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em]">INPUT SECURE OPERATION CODE</p>
               </div>
 
@@ -2629,12 +2629,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© 2: Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ â”€â”€ */}
+          {/* ── خطوة 2: رقم الهاتف ── */}
           {step === 'phone' && (
            <motion.div key="phone" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-8 border-b border-[#2a2a2a]/40 pb-6">
                 <div className="mb-4 text-[#C5A059] flex justify-center"><PhoneIcon /></div>
-                <h1 className="text-2xl font-black mb-2 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>{gameName || 'Ø¹Ù…Ù„ÙŠØ© Ø¬Ø§Ø±ÙŠØ©'}</h1>
+                <h1 className="text-2xl font-black mb-2 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>{gameName || 'عملية جارية'}</h1>
                 <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em]">AGENT IDENTIFICATION</p>
               </div>
 
@@ -2682,11 +2682,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© 3: Ø§Ù„ØªØ³Ø¬ÙŠÙ„ (Ù„Ù„Ø¬Ø¯Ø¯) â”€â”€ */}
+          {/* ── خطوة 3: التسجيل (للجدد) ── */}
           {step === 'register' && (
             <motion.div key="register" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
-                <h2 className="text-2xl font-black mb-1 text-white" style={{ fontFamily: 'Amiri, serif' }}>Ù‡ÙˆÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©</h2>
+                <h2 className="text-2xl font-black mb-1 text-white" style={{ fontFamily: 'Amiri, serif' }}>هوية جديدة</h2>
                 <p className="text-[#808080] text-[10px] font-mono tracking-[0.2em] uppercase">NEW DOSSIER REGISTRATION</p>
               </div>
 
@@ -2697,7 +2697,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Ø§Ù„Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ¹Ø§Ø±"
+                    placeholder="الاسم المستعار"
                     className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center focus:border-[#C5A059] focus:outline-none transition-colors"
                     maxLength={20}
                     autoFocus
@@ -2752,7 +2752,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           : 'bg-black/40 border-[#2a2a2a] text-[#555] hover:border-[#555]'
                       }`}
                     >
-                      â™‚ Ø°ÙƒØ±
+                      ♂ ذكر
                     </button>
                     <button
                       onClick={() => setGender('female')}
@@ -2762,7 +2762,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           : 'bg-black/40 border-[#2a2a2a] text-[#555] hover:border-[#555]'
                       }`}
                     >
-                      â™€ Ø£Ù†Ø«Ù‰
+                      ♀ أنثى
                     </button>
                   </div>
                 </div>
@@ -2773,7 +2773,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± (4 Ø£Ø­Ø±Ù+)"
+                    placeholder="كلمة المرور (4 أحرف+)"
                     className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center focus:border-[#C5A059] focus:outline-none transition-colors font-mono tracking-widest"
                     minLength={4}
                   />
@@ -2794,12 +2794,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© 3Ø£: ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ (Ø­Ø³Ø§Ø¨ Ù…ÙˆØ¬ÙˆØ¯) â”€â”€ */}
+          {/* ── خطوة 3أ: تسجيل الدخول (حساب موجود) ── */}
           {step === 'login' && (
             <motion.div key="login" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
                 <div className="mb-4 text-[#C5A059] flex justify-center"><OperationIcon /></div>
-                <h2 className="text-2xl font-black mb-1 text-white" style={{ fontFamily: 'Amiri, serif' }}>Ù…Ø±Ø­Ø¨Ø§Ù‹ {displayName}</h2>
+                <h2 className="text-2xl font-black mb-1 text-white" style={{ fontFamily: 'Amiri, serif' }}>مرحباً {displayName}</h2>
                 <p className="text-[#808080] text-[10px] font-mono tracking-[0.2em] uppercase">ENTER ACCESS CODE</p>
               </div>
 
@@ -2810,7 +2810,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±"
+                    placeholder="كلمة المرور"
                     className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center font-mono text-2xl tracking-[0.3em] focus:border-[#C5A059] focus:outline-none transition-colors"
                     autoFocus
                     onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
@@ -2832,22 +2832,22 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ø³Ø± (Ù„Ù„Ù…Ù‡Ø§Ø¬Ø±ÙŠÙ†) â”€â”€ */}
+          {/* ── خطوة تغيير كلمة السر (للمهاجرين) ── */}
           {step === 'change_password' && (
             <motion.div key="change_pw" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-6 border-b border-[#2a2a2a]/40 pb-6">
                 <div className="mb-4 text-[#C5A059] flex justify-center"><OperationIcon /></div>
-                <h2 className="text-2xl font-black mb-1 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</h2>
+                <h2 className="text-2xl font-black mb-1 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>تغيير كلمة المرور</h2>
                 <p className="text-[#808080] text-[10px] font-mono tracking-[0.2em] uppercase">UPDATE YOUR ACCESS CODE</p>
               </div>
 
               <div className="space-y-4">
-                <p className="text-[#C5A059]/80 text-xs text-center" style={{ fontFamily: 'Amiri, serif' }}>ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø­Ø§Ù„ÙŠØ© Ù…Ø¤Ù‚ØªØ© â€” Ø§Ø®ØªØ± ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ± Ø¬Ø¯ÙŠØ¯Ø©</p>
+                <p className="text-[#C5A059]/80 text-xs text-center" style={{ fontFamily: 'Amiri, serif' }}>كلمة المرور الحالية مؤقتة — اختر كلمة مرور جديدة</p>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© (4 Ø£Ø­Ø±Ù+)"
+                  placeholder="كلمة المرور الجديدة (4 أحرف+)"
                   className="w-full p-4 bg-black/40 border border-[#2a2a2a] rounded-lg text-white text-center font-mono text-xl tracking-[0.3em] focus:border-[#C5A059] focus:outline-none transition-colors"
                   autoFocus
                   minLength={4}
@@ -2869,8 +2869,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© 4: Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯ Ø§Ù„Ù…ØªØ§Ø­Ø© â”€â”€ */}
-          {/* â”€â”€ Ø®Ø·ÙˆØ©: Ø¥Ø¯Ø®Ø§Ù„ Ø±Ù‚Ù… Ø§Ù„ØªØ°ÙƒØ±Ø© â”€â”€ */}
+          {/* ── خطوة 4: المقاعد المتاحة ── */}
+          {/* ── خطوة: إدخال رقم التذكرة ── */}
           {step === 'ticket' && (
             <motion.div key="ticket" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
               <div className="text-center mb-8 border-b border-[#2a2a2a]/40 pb-6">
@@ -2882,8 +2882,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     <path d="M13 11v2"></path>
                   </svg>
                 </div>
-                <h2 className="text-2xl font-black mb-2 text-white truncate" style={{ fontFamily: 'Amiri, serif' }}>Ù…Ø±Ø­Ø¨Ø§Ù‹ {displayName}</h2>
-                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>Ø£Ø¯Ø®Ù„ Ø±Ù‚Ù… Ø§Ù„ØªØ°ÙƒØ±Ø© Ù„Ù„Ø¯Ø®ÙˆÙ„</p>
+                <h2 className="text-2xl font-black mb-2 text-white truncate" style={{ fontFamily: 'Amiri, serif' }}>مرحباً {displayName}</h2>
+                <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>أدخل رقم التذكرة للدخول</p>
               </div>
 
               <div className="mb-6">
@@ -2891,7 +2891,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   type="text"
                   value={ticketNumber}
                   onChange={e => setTicketNumber(e.target.value)}
-                  placeholder="Ø±Ù‚Ù… Ø§Ù„ØªØ°ÙƒØ±Ø©"
+                  placeholder="رقم التذكرة"
                   dir="ltr"
                   className="w-full px-5 py-4 bg-black/40 border border-[#2a2a2a] rounded-xl text-center text-white text-2xl font-mono tracking-[0.3em] placeholder-[#333] focus:outline-none focus:border-[#C5A059]/50 focus:shadow-[0_0_15px_rgba(197,160,89,0.15)] transition-all"
                 />
@@ -2912,28 +2912,28 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   textShadow: !ticketNumber.trim() || loading ? 'none' : '0 0 10px rgba(34,197,94,0.5)',
                 }}
               >
-                {loading ? 'Ø¬Ø§Ø±Ù Ø§Ù„ØªØ­Ù‚Ù‚...' : 'ðŸŽ« ØªØ­Ù‚Ù‚ ÙˆØ§Ø¯Ø®Ù„'}
+                {loading ? 'جارٍ التحقق...' : '🎫 تحقق وادخل'}
               </button>
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ©: Ø¬Ø§Ø±ÙŠ ØªØ®ØµÙŠØµ Ø§Ù„Ù…Ù‚Ø¹Ø¯ â”€â”€ */}
+          {/* ── خطوة: جاري تخصيص المقعد ── */}
           {step === 'auto_joining' && (
             <motion.div key="auto_joining" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-center py-10">
               <div className="mb-6">
                 <div className="w-16 h-16 border-3 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-4" />
               </div>
-              <h2 className="text-xl font-black text-white mb-2" style={{ fontFamily: 'Amiri, serif' }}>Ø¬Ø§Ø±ÙŠ ØªØ®ØµÙŠØµ Ù…Ù‚Ø¹Ø¯Ùƒ...</h2>
-              <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>ÙŠØªÙ… Ø§Ø®ØªÙŠØ§Ø± Ø£ÙØ¶Ù„ Ù…Ù‚Ø¹Ø¯ Ù„Ùƒ</p>
+              <h2 className="text-xl font-black text-white mb-2" style={{ fontFamily: 'Amiri, serif' }}>جاري تخصيص مقعدك...</h2>
+              <p className="text-[#808080] text-sm" style={{ fontFamily: 'Amiri, serif' }}>يتم اختيار أفضل مقعد لك</p>
               {apiError && <p className="text-[#8A0303] text-xs font-mono text-center mt-4 bg-[#8A0303]/10 p-2 rounded">{apiError}</p>}
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© 5: ØªÙ… â”€â”€ */}
+          {/* ── خطوة 5: تم ── */}
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
-              {/* â”€â”€ Ø¨Ø§Ù†Ø± Ø§Ù„Ù…Ù‚Ø¹Ø¯ Ø§Ù„Ù…Ø®ØµØµ (Ù…Ø®ÙÙŠÙ‘ Ø¹Ù† Ø¨ÙØ¹Ø¯ â€” Ø§Ù„Ø·Ø§ÙˆÙ„Ø© ØªÙØ¸Ù‡Ø± Ù…Ù‚Ø¹Ø¯Ùƒ Ø¹Ù„Ù‰ ÙƒØ§Ø±Ø¯ Â«Ø£Ù†ØªÂ») â”€â”€ */}
+              {/* ── بانر المقعد المخصص (مخفيّ عن بُعد — الطاولة تُظهر مقعدك على كارد «أنت») ── */}
               {!isRemote && physicalId && (
                 <motion.div
                   initial={{ scale: 0.9, opacity: 0 }}
@@ -2946,37 +2946,37 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     boxShadow: '0 0 30px rgba(197,160,89,0.1), inset 0 0 30px rgba(197,160,89,0.05)',
                   }}
                 >
-                  <p className="text-[#808080] text-xs mb-1" style={{ fontFamily: 'Amiri, serif' }}>ðŸª‘ Ù…Ù‚Ø¹Ø¯Ùƒ Ø±Ù‚Ù…</p>
+                  <p className="text-[#808080] text-xs mb-1" style={{ fontFamily: 'Amiri, serif' }}>🪑 مقعدك رقم</p>
                   <p className="text-5xl font-black text-[#C5A059] mb-2" style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(197,160,89,0.4)' }}>{physicalId}</p>
-                  <p className="text-[#C5A059]/70 text-xs" style={{ fontFamily: 'Amiri, serif' }}>ÙŠØ±Ø¬Ù‰ Ø§Ù„Ø¬Ù„ÙˆØ³ ÙÙŠ Ù…Ù‚Ø¹Ø¯Ùƒ</p>
+                  <p className="text-[#C5A059]/70 text-xs" style={{ fontFamily: 'Amiri, serif' }}>يرجى الجلوس في مقعدك</p>
                 </motion.div>
-              )}              {/* â”€â”€ Ø£Ø²Ø±Ø§Ø± Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ + ØªØ³Ø¬ÙŠÙ„ Ø®Ø±ÙˆØ¬ â”€â”€ */}
+              )}              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">
                 <button
                   onClick={() => setRolesModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
                 >
-                  <span className="text-sm">ðŸƒ</span> Ø§Ù„Ø£Ø¯ÙˆØ§Ø±
+                  <span className="text-sm">🃏</span> الأدوار
                 </button>
                 {isRemote && physicalId && (
-                  <span className="text-[11px] font-mono text-[#808080]">Ù…Ù‚Ø¹Ø¯Ùƒ <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
+                  <span className="text-[11px] font-mono text-[#808080]">مقعدك <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
                 )}
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/25 text-red-400 hover:bg-red-500/10 transition-all text-[11px] font-bold"
                 >
-                  <span className="text-sm">ðŸšª</span> Ø®Ø±ÙˆØ¬
+                  <span className="text-sm">🚪</span> خروج
                 </button>
               </div>
 
-              {/* ðŸ” DEBUG BAR (Ù…Ø¤Ù‚Øª â€” Ù„Ù„ØªØ´Ø®ÙŠØµ) */}
+              {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
               <div className="text-[10px] font-mono text-[#9a9a9a] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
               </div>
               )}
 
-              {/* ðŸ“± Ø§Ù„Ø·Ø§ÙˆÙ„Ø© 3D Ø£Ø¹Ù„Ù‰ Ø§Ù„Ø´Ø§Ø´Ø© (Ø¨Ø¯ÙŠÙ„ Ø´Ø§Ø´Ø© Ø§Ù„Ø¹Ø±Ø¶ â€” Ø¨Ù„Ø§ ÙƒØ´Ù Ø£Ø¯ÙˆØ§Ø±) */}
+              {/* 📱 الطاولة 3D أعلى الشاشة (بديل شاشة العرض — بلا كشف أدوار) */}
               {isRemote && gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase) && (
                 <PhoneSpectatorView
                   roster={roster}
@@ -2991,8 +2991,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* â”€â”€ Ø±ØµÙŠÙ Ø§Ù„Ø£ÙƒØ´Ù† Ø£Ø³ÙÙ„ Ø§Ù„Ø·Ø§ÙˆÙ„Ø© â”€â”€ */}
-              {/* ðŸŽ™ï¸ ØµÙˆØª Ø§Ù„Ù„Ø¹Ø¨ Ø¹Ù† Ø¨ÙØ¹Ø¯ (key Ø«Ø§Ø¨Øª ÙŠÙ…Ù†Ø¹ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ±ÙƒÙŠØ¨/Ø§Ù†Ù‚Ø·Ø§Ø¹ Ø§Ù„ØµÙˆØª Ø¹Ù†Ø¯ ØªØ¨Ø¯Ù‘Ù„ Ø§Ù„Ø£Ø·ÙˆØ§Ø±) */}
+              {/* ── رصيف الأكشن أسفل الطاولة ── */}
+              {/* 🎙️ صوت اللعب عن بُعد (key ثابت يمنع إعادة التركيب/انقطاع الصوت عند تبدّل الأطوار) */}
               {isRemote && (
                 <RemoteVoice
                   key="remote-voice"
@@ -3007,19 +3007,19 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* ðŸ“¨ Ø¯Ø¹ÙˆØ© Ø§Ù„Ø£ØµØ¯Ù‚Ø§Ø¡ â€” ÙŠØ¸Ù‡Ø± Ù„Ù„Ø§Ø¹Ø¨ ÙÙ‚Ø· Ø¥Ø°Ø§ Ø³Ù…Ø­ Ø§Ù„Ù‚Ø§Ø¦Ø¯ Ø¨Ø°Ù„Ùƒ */}
+              {/* 📨 دعوة الأصدقاء — يظهر للاعب فقط إذا سمح القائد بذلك */}
               {isRemote && allowPlayerInvites && roomId && (
                 <div className="w-full max-w-lg mx-auto px-1 mt-2">
                   <button
                     onClick={() => setShowInvite(true)}
                     className="w-full py-2.5 rounded-xl border border-sky-600/40 text-sky-300 bg-transparent text-sm font-bold hover:bg-sky-500/10 transition flex items-center justify-center gap-2"
                   >
-                    ðŸ“¨ Ø¯Ø¹ÙˆØ© ØµØ¯ÙŠÙ‚ Ù„Ù„ØºØ±ÙØ©
+                    📨 دعوة صديق للغرفة
                   </button>
                 </div>
               )}
 
-              {/* âš”ï¸ Ø§Ù„Ù…ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø«Ù†Ø§Ø¦ÙŠØ© */}
+              {/* ⚔️ المواجهة الثنائية */}
               {isRemote && (
                 <ConfrontationControls
                   confrontation={confrontation}
@@ -3032,7 +3032,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* â”€â”€ Ø¹Ø±Ø¶ Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ù„Ø¹Ø¨Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ© (Ù†ÙØ®ÙÙŠ ÙƒØ´Ù Ø§Ù„ÙØ§Ø¦Ø² Ø¹Ù† Ø¨ÙØ¹Ø¯ â€” Ø§Ù„Ø·Ø§ÙˆÙ„Ø© ØªÙƒØ´ÙÙ‡) â”€â”€ */}
+              {/* ── عرض مرحلة اللعبة الحالية (نُخفي كشف الفائز عن بُعد — الطاولة تكشفه) ── */}
               {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
                 <PlayerPhaseView
                   gamePhase={gamePhase}
@@ -3050,9 +3050,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* â”€â”€ Ù…Ø±Ø­Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª: ØªØ­Ù…ÙŠÙ„ Ø£Ùˆ Ø¹Ø±Ø¶ â”€â”€ */}
+              {/* ── مرحلة التصويت: تحميل أو عرض ── */}
               {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
-                <PhaseLoading icon="ðŸ—³ï¸" text="Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØµÙˆÙŠØª..." />
+                <PhaseLoading icon="🗳️" text="جاري تحميل التصويت..." />
               ) : gamePhase === 'DAY_VOTING' && votingCandidates.length > 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
@@ -3067,21 +3067,21 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
                     return (
                       <>
-                        {/* Ø¹Ù†ÙˆØ§Ù† */}
+                        {/* عنوان */}
                         <div className="text-center mb-5">
-                          <div className="text-3xl mb-2">ðŸ—³ï¸</div>
+                          <div className="text-3xl mb-2">🗳️</div>
                           <h2 className="text-2xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                            Ù…Ø±Ø­Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª
+                            مرحلة التصويت
                           </h2>
                           <p className="text-[#808080] text-xs font-mono mt-2">
-                            {isPlayerDead ? 'Ù…Ø´Ø§Ù‡Ø¯Ø© ÙÙ‚Ø· â€” Ø£Ù†Øª Ù…ÙÙ‚ØµÙ‰' : myVote !== null ? (
+                            {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? (
                               voteWindowOpen ? (
-                                <span className="text-amber-500 font-bold">ÙŠÙ…ÙƒÙ†Ùƒ ØªØºÙŠÙŠØ± ØªØµÙˆÙŠØªÙƒ Ø®Ù„Ø§Ù„ {secondsLeft} Ø«Ø§Ù†ÙŠØ©</span>
+                                <span className="text-amber-500 font-bold">يمكنك تغيير تصويتك خلال {secondsLeft} ثانية</span>
                               ) : (
-                                <span className="text-green-500 font-bold">âœ… ØªÙ… Ø§Ù„ØªØµÙˆÙŠØª (Ù…ØºÙ„Ù‚)</span>
+                                <span className="text-green-500 font-bold">✅ تم التصويت (مغلق)</span>
                               )
                             ) : (
-                              votingCountdown === 0 ? <span className="text-[#8A0303] font-bold">âŒ Ù„Ù… ØªÙ‚Ù… Ø¨Ø§Ù„ØªØµÙˆÙŠØª</span> : 'ØµÙˆÙ‘Øª Ø¶Ø¯ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø§Ù„Ù…Ø´ØªØ¨Ù‡'
+                              votingCountdown === 0 ? <span className="text-[#8A0303] font-bold">❌ لم تقم بالتصويت</span> : 'صوّت ضد اللاعب المشتبه'
                             )}
                           </p>
                         </div>
@@ -3094,15 +3094,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       }`}
                       style={{ transform: 'translateZ(0)' }}
                     >
-                      â± {votingCountdown}Ø«
+                      ⏱ {votingCountdown}ث
                     </div>
                   )}
 
-                  {/* Ø´Ø±ÙŠØ· Ø§Ù„ØªÙ‚Ø¯Ù… */}
+                  {/* شريط التقدم */}
                   <div className="mb-5 px-2">
                     <div className="flex justify-between text-[10px] text-[#808080] font-mono mb-1">
-                      <span>{totalVotesCast} ØµÙˆØª</span>
-                      <span>{votingCandidates.reduce((max: number, c: any) => Math.max(max, c.votes || 0), 0)} Ø£Ø¹Ù„Ù‰</span>
+                      <span>{totalVotesCast} صوت</span>
+                      <span>{votingCandidates.reduce((max: number, c: any) => Math.max(max, c.votes || 0), 0)} أعلى</span>
                     </div>
                     <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
                       <motion.div
@@ -3118,18 +3118,18 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         animate={{ opacity: 1 }}
                         className="text-[#C5A059] text-[10px] font-mono text-center mt-2 tracking-wider"
                       >
-                        âœ“ Ø§ÙƒØªÙ…Ù„ Ø§Ù„ØªØµÙˆÙŠØª â€” Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù„ÙŠØ¯Ø±
+                        ✓ اكتمل التصويت — بانتظار الليدر
                       </motion.p>
                     )}
                   </div>
 
-                  {/* ÙƒØ±ÙˆØª Ø§Ù„Ù…Ø±Ø´Ø­ÙŠÙ† */}
+                  {/* كروت المرشحين */}
                   <div className="grid grid-cols-1 gap-4 px-1 max-h-[55vh] overflow-y-auto pb-4">
                     {votingCandidates.map((candidate: any, index: number) => {
                       const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
                       const isMyChoice = myVote === index;
                       const playerInfo = votingPlayersInfo.find((p: any) => p.physicalId === candidate.targetPhysicalId);
-                      const candidateName = playerInfo?.name || `Ù„Ø§Ø¹Ø¨ ${candidate.targetPhysicalId}`;
+                      const candidateName = playerInfo?.name || `لاعب ${candidate.targetPhysicalId}`;
                       const candidateAvatar = playerInfo?.avatarUrl;
                       const isDeal = candidate.type === 'DEAL';
                       const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
@@ -3161,7 +3161,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                               : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
-                          {/* ØµÙˆØ±Ø© ÙˆØ§Ø³Ù… */}
+                          {/* صورة واسم */}
                           <div className="flex items-center gap-3 w-full">
                             <div className="relative w-[72px] h-[72px] shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
                               {candidateAvatar ? (
@@ -3175,14 +3175,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                                   animate={{ scale: 1 }}
                                   className="absolute inset-0 bg-[#C5A059]/40 flex items-center justify-center rounded-full backdrop-blur-sm"
                                 >
-                                  <span className="text-3xl drop-shadow-md">âœ…</span>
+                                  <span className="text-3xl drop-shadow-md">✅</span>
                                 </motion.div>
                               )}
                             </div>
 
                             <div className="flex flex-col items-start flex-1 min-w-0">
                               <span className="text-sm font-mono text-[#C5A059] mb-1 tracking-widest bg-black/40 px-2 py-0.5 rounded-full border border-[#C5A059]/20">
-                                Ù…Ù‚Ø¹Ø¯ #{candidate.targetPhysicalId}
+                                مقعد #{candidate.targetPhysicalId}
                               </span>
                               
                               <div className="flex items-center gap-2 w-full">
@@ -3191,33 +3191,33 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                                 </p>
                                 {notepadNotes[candidate.targetPhysicalId] && notepadNotes[candidate.targetPhysicalId].suspicion !== 'none' && (
                                   <span className="text-sm bg-black/50 px-1.5 py-0.5 rounded-md border border-[#333] shadow-inner">
-                                    {notepadNotes[candidate.targetPhysicalId].suspicion === 'safe' ? 'ðŸŸ¢' : notepadNotes[candidate.targetPhysicalId].suspicion === 'suspect' ? 'ðŸŸ¡' : 'ðŸ”´'}
+                                    {notepadNotes[candidate.targetPhysicalId].suspicion === 'safe' ? '🟢' : notepadNotes[candidate.targetPhysicalId].suspicion === 'suspect' ? '🟡' : '🔴'}
                                   </span>
                                 )}
                               </div>
                               
                               {isDeal && (
                                 <div className="mt-2 bg-red-500/20 border border-red-500/30 px-2.5 py-1 rounded-md flex items-center gap-2">
-                                  <span className="text-red-500 text-xs font-bold whitespace-nowrap">ðŸ¤ Ø¯ÙŠÙ„ Ù…Ù†:</span>
+                                  <span className="text-red-500 text-xs font-bold whitespace-nowrap">🤝 ديل من:</span>
                                   <span className="text-white text-xs font-bold truncate">
-                                    {initiatorInfo?.name || `Ù„Ø§Ø¹Ø¨ ${candidate.initiatorPhysicalId}`} <span className="font-mono text-red-400">#{candidate.initiatorPhysicalId}</span>
+                                    {initiatorInfo?.name || `لاعب ${candidate.initiatorPhysicalId}`} <span className="font-mono text-red-400">#{candidate.initiatorPhysicalId}</span>
                                   </span>
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Ø¹Ø¯Ø§Ø¯ Ø§Ù„Ø£ØµÙˆØ§Øª */}
+                          {/* عداد الأصوات */}
                           <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5 w-fit mx-auto">
                             <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
-                            <span className="text-[10px] text-[#808080]">ØµÙˆØª</span>
+                            <span className="text-[10px] text-[#808080]">صوت</span>
                           </div>
 
-                          {/* Ø£Ø³Ù…Ø§Ø¡ Ø§Ù„Ù…ØµÙˆØªÙŠÙ† */}
+                          {/* أسماء المصوتين */}
                           {votersForThisCandidate.length > 0 && (
                             <div className="mt-2 w-full flex flex-wrap justify-center gap-1.5 border-t border-[#333]/50 pt-2 px-1">
                               {votersForThisCandidate.map(vId => {
-                                const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `Ù„Ø§Ø¹Ø¨ ${vId}`;
+                                const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `لاعب ${vId}`;
                                 return (
                                   <span key={vId} className="text-[10px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
                                     <span className="font-black text-[#ff4444]">{vId}</span>
@@ -3228,9 +3228,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                             </div>
                           )}
 
-                          {/* Ø´Ø§Ø±Ø© "Ø£Ù†Øª" */}
+                          {/* شارة "أنت" */}
                           {isSelf && (
-                            <span className="absolute top-1.5 right-1.5 text-[10px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">Ø£Ù†Øª</span>
+                            <span className="absolute top-1.5 right-1.5 text-[10px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
                           )}
                         </motion.button>
                       );
@@ -3242,7 +3242,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 </motion.div>
               ) : (!gamePhase || gamePhase === 'LOBBY' || gamePhase === 'ROLE_BINDING' || gamePhase === 'ROLE_GENERATION') ? (
                 assignedRole === null ? (
-                  /* â”€â”€ Ø­Ø§Ù„Ø© Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø± (Ù„Ù… ÙŠÙÙˆØ²ÙŽÙ‘Ø¹ Ø§Ù„Ø¯ÙˆØ± Ø¨Ø¹Ø¯) â”€â”€ */
+                  /* ── حالة الانتظار (لم يُوزَّع الدور بعد) ── */
                   <>
                     {penalties > 0 && (
                       <div className="flex flex-col items-center gap-1.5 mb-6 bg-red-950/20 border border-red-900/30 rounded-xl p-3 shadow-[0_0_15px_rgba(220,38,38,0.05)] w-full">
@@ -3260,12 +3260,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           ))}
                         </div>
                         <span className="text-[10px] text-red-300/70" style={{ fontFamily: 'Amiri, serif' }}>
-                          ØªØ­Ø°ÙŠØ±: ({penalties}/{maxPenalties}) Ø¹Ù‚ÙˆØ¨Ø§Øª. Ø³ÙŠØªÙ… Ø·Ø±Ø¯Ùƒ Ø¹Ù†Ø¯ ØªØ¬Ø§ÙˆØ² Ø§Ù„Ø­Ø¯.
+                          تحذير: ({penalties}/{maxPenalties}) عقوبات. سيتم طردك عند تجاوز الحد.
                         </span>
                       </div>
                     )}
                     {isRemote && (!gamePhase || gamePhase === 'LOBBY' || gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING') ? (
-                      /* â”€â”€ Ù„ÙˆØ¨ÙŠ Ø§Ù„Ù„Ø¹Ø¨ Ø¹Ù† Ø¨ÙØ¹Ø¯: Ø­Ù„Ù‚Ø© ÙƒØ±ÙˆØª Ø§Ù„Ø·Ø§ÙˆÙ„Ø© (Ù†ÙØ³ ØªØµÙ…ÙŠÙ… Ø¨Ø§Ù‚ÙŠ Ø§Ù„Ù…Ø±Ø§Ø­Ù„) â”€â”€ */
+                      /* ── لوبي اللعب عن بُعد: حلقة كروت الطاولة (نفس تصميم باقي المراحل) ── */
                       <>
                         <PhoneSpectatorView
                           roster={roster}
@@ -3283,7 +3283,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         <div className="mt-2 h-1.5 rounded-full bg-[#1a1a1a] overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-[#C5A059] to-[#E8C97A] transition-[width] duration-500" style={{ width: `${Math.min(100, (roster.length / (maxPlayers || roster.length || 1)) * 100)}%` }} />
                         </div>
-                        <div className="mt-1 text-center text-[10px] font-mono text-[#808080]">Ø§Ù†Ø¶Ù…Ù‘ {roster.length} Ù…Ù† {maxPlayers}</div>
+                        <div className="mt-1 text-center text-[10px] font-mono text-[#808080]">انضمّ {roster.length} من {maxPlayers}</div>
                       </>
                     ) : (
                     <>
@@ -3294,7 +3294,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     >
                       <ShieldCheckIcon />
                     </motion.div>
-                    <h2 className="text-3xl font-black mb-4 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>Ø§ÙƒØªÙ…Ù„ Ø§Ù„ØªØ´ÙÙŠØ±</h2>
+                    <h2 className="text-3xl font-black mb-4 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>اكتمل التشفير</h2>
 
                     <div className="flex justify-center mb-8">
                       <MafiaCard
@@ -3324,24 +3324,24 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     )}
                   </>
                 ) : (
-                  /* â”€â”€ Ø­Ø§Ù„Ø© Ø§Ù„Ø¯ÙˆØ± Ø§Ù„Ù…ÙØ¹ÙŠÙŽÙ‘Ù† (ÙƒØ§Ø±Ø¯ Ø³Ø±ÙŠ Ù‚Ø§Ø¨Ù„ Ù„Ù„Ù‚Ù„Ø¨) â”€â”€ */
+                  /* ── حالة الدور المُعيَّن (كارد سري قابل للقلب) ── */
                   <motion.div
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
                   >
                     <h2 className="text-2xl font-black mb-2 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                      ØªÙ… ØªØ¹ÙŠÙŠÙ† Ù…Ù‡Ù…ØªÙƒ
+                      تم تعيين مهمتك
                     </h2>
                     <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em] mb-6">
                       TAP CARD TO REVEAL YOUR IDENTITY
                     </p>
 
                     <div className="relative flex justify-center mb-6">
-                      {/* ðŸ’§ Ø¨Ø¹Ø¯ Ø§Ù„ÙƒØ´Ù ØªÙØºØ·Ù‘Ù‰ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø© Ø¨Ø¹Ù„Ø§Ù…Ø©Ù Ù…Ø§Ø¦ÙŠÙ‘Ø© ØªÙØ¶Ø­ Ù…Ø³Ø±Ù‘Ø¨ Ø£ÙŠÙ‘ Ù„Ù‚Ø·Ø© */}
+                      {/* 💧 بعد الكشف تُغطّى البطاقة بعلامةٍ مائيّة تفضح مسرّب أيّ لقطة */}
                       {cardFlipped && (
                         <SecretWatermark opacity={0.08}
-                          label={`${displayName || 'Ù„Ø§Ø¹Ø¨'} Â· Ù…Ù‚Ø¹Ø¯ ${physicalId} Â· ${roomCode} Â· ${new Date().toTimeString().slice(0, 5)}`} />
+                          label={`${displayName || 'لاعب'} · مقعد ${physicalId} · ${roomCode} · ${new Date().toTimeString().slice(0, 5)}`} />
                       )}
                       <MafiaCard
                         key={`card-role-${physicalId}`}
@@ -3371,7 +3371,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           className="flex flex-col items-center w-full"
                         >
                           <p className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em] animate-pulse mb-4">
-                            âš ï¸ Ø£Ø®ÙÙ Ù‡Ø§ØªÙÙƒ Ø§Ù„Ø¢Ù†!
+                            ⚠️ أخفِ هاتفك الآن!
                           </p>
 
 
@@ -3384,7 +3384,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           exit={{ opacity: 0 }}
                           className="text-[#555] text-[9px] font-mono uppercase tracking-widest"
                         >
-                          Ø§Ø¶ØºØ· Ø§Ù„Ø¨Ø·Ø§Ù‚Ø© Ù„ÙƒØ´Ù Ø¯ÙˆØ±Ùƒ
+                          اضغط البطاقة لكشف دورك
                         </motion.p>
                       )}
                     </AnimatePresence>
@@ -3396,37 +3396,37 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             </motion.div>
           )}
 
-          {/* â”€â”€ Ø®Ø·ÙˆØ© Rejoin: Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø¹Ø§Ø¯ â”€â”€ */}
+          {/* ── خطوة Rejoin: اللاعب عاد ── */}
           {step === 'rejoined' && (
             <motion.div key="rejoined" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
-              {/* â”€â”€ Ø£Ø²Ø±Ø§Ø± Ø§Ù„Ù…Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠ + ØªØ³Ø¬ÙŠÙ„ Ø®Ø±ÙˆØ¬ â”€â”€ */}
+              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">
                 <button
                   onClick={() => setRolesModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
                 >
-                  <span className="text-sm">ðŸƒ</span> Ø§Ù„Ø£Ø¯ÙˆØ§Ø±
+                  <span className="text-sm">🃏</span> الأدوار
                 </button>
                 {isRemote && physicalId && (
-                  <span className="text-[11px] font-mono text-[#808080]">Ù…Ù‚Ø¹Ø¯Ùƒ <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
+                  <span className="text-[11px] font-mono text-[#808080]">مقعدك <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
                 )}
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-red-500/25 text-red-400 hover:bg-red-500/10 transition-all text-[11px] font-bold"
                 >
-                  <span className="text-sm">ðŸšª</span> Ø®Ø±ÙˆØ¬
+                  <span className="text-sm">🚪</span> خروج
                 </button>
               </div>
 
-              {/* ðŸ” DEBUG BAR (Ù…Ø¤Ù‚Øª â€” Ù„Ù„ØªØ´Ø®ÙŠØµ) */}
+              {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
               <div className="text-[10px] font-mono text-[#9a9a9a] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
                 P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
               </div>
               )}
 
-              {/* ðŸ“± Ø§Ù„Ø·Ø§ÙˆÙ„Ø© 3D Ø£Ø¹Ù„Ù‰ Ø§Ù„Ø´Ø§Ø´Ø© (Ø¨Ø¯ÙŠÙ„ Ø´Ø§Ø´Ø© Ø§Ù„Ø¹Ø±Ø¶ â€” Ø¨Ù„Ø§ ÙƒØ´Ù Ø£Ø¯ÙˆØ§Ø±) */}
+              {/* 📱 الطاولة 3D أعلى الشاشة (بديل شاشة العرض — بلا كشف أدوار) */}
               {isRemote && gamePhase && !['LOBBY', 'ROLE_GENERATION', 'ROLE_BINDING'].includes(gamePhase) && (
                 <PhoneSpectatorView
                   roster={roster}
@@ -3441,8 +3441,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* â”€â”€ Ø±ØµÙŠÙ Ø§Ù„Ø£ÙƒØ´Ù† Ø£Ø³ÙÙ„ Ø§Ù„Ø·Ø§ÙˆÙ„Ø© â”€â”€ */}
-              {/* ðŸŽ™ï¸ ØµÙˆØª Ø§Ù„Ù„Ø¹Ø¨ Ø¹Ù† Ø¨ÙØ¹Ø¯ (key Ø«Ø§Ø¨Øª ÙŠÙ…Ù†Ø¹ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ±ÙƒÙŠØ¨/Ø§Ù†Ù‚Ø·Ø§Ø¹ Ø§Ù„ØµÙˆØª Ø¹Ù†Ø¯ ØªØ¨Ø¯Ù‘Ù„ Ø§Ù„Ø£Ø·ÙˆØ§Ø±) */}
+              {/* ── رصيف الأكشن أسفل الطاولة ── */}
+              {/* 🎙️ صوت اللعب عن بُعد (key ثابت يمنع إعادة التركيب/انقطاع الصوت عند تبدّل الأطوار) */}
               {isRemote && (
                 <RemoteVoice
                   key="remote-voice"
@@ -3457,19 +3457,19 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* ðŸ“¨ Ø¯Ø¹ÙˆØ© Ø§Ù„Ø£ØµØ¯Ù‚Ø§Ø¡ â€” ÙŠØ¸Ù‡Ø± Ù„Ù„Ø§Ø¹Ø¨ ÙÙ‚Ø· Ø¥Ø°Ø§ Ø³Ù…Ø­ Ø§Ù„Ù‚Ø§Ø¦Ø¯ Ø¨Ø°Ù„Ùƒ */}
+              {/* 📨 دعوة الأصدقاء — يظهر للاعب فقط إذا سمح القائد بذلك */}
               {isRemote && allowPlayerInvites && roomId && (
                 <div className="w-full max-w-lg mx-auto px-1 mt-2">
                   <button
                     onClick={() => setShowInvite(true)}
                     className="w-full py-2.5 rounded-xl border border-sky-600/40 text-sky-300 bg-transparent text-sm font-bold hover:bg-sky-500/10 transition flex items-center justify-center gap-2"
                   >
-                    ðŸ“¨ Ø¯Ø¹ÙˆØ© ØµØ¯ÙŠÙ‚ Ù„Ù„ØºØ±ÙØ©
+                    📨 دعوة صديق للغرفة
                   </button>
                 </div>
               )}
 
-              {/* âš”ï¸ Ø§Ù„Ù…ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ø«Ù†Ø§Ø¦ÙŠØ© */}
+              {/* ⚔️ المواجهة الثنائية */}
               {isRemote && (
                 <ConfrontationControls
                   confrontation={confrontation}
@@ -3482,7 +3482,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* â”€â”€ Ø¹Ø±Ø¶ Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ù„Ø¹Ø¨Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ© (Ù†ÙØ®ÙÙŠ ÙƒØ´Ù Ø§Ù„ÙØ§Ø¦Ø² Ø¹Ù† Ø¨ÙØ¹Ø¯ â€” Ø§Ù„Ø·Ø§ÙˆÙ„Ø© ØªÙƒØ´ÙÙ‡) â”€â”€ */}
+              {/* ── عرض مرحلة اللعبة الحالية (نُخفي كشف الفائز عن بُعد — الطاولة تكشفه) ── */}
               {gamePhase && gamePhase !== 'DAY_VOTING' && gamePhase !== 'LOBBY' && (
                 <PlayerPhaseView
                   gamePhase={gamePhase}
@@ -3500,12 +3500,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 />
               )}
 
-              {/* â”€â”€ Ø§Ù„ØªØµÙˆÙŠØª Ø£ÙˆÙ„Ø§Ù‹ (Ø¥Ù† ÙƒØ§Ù† ÙØ¹Ù‘Ø§Ù„) â”€â”€ */}
+              {/* ── التصويت أولاً (إن كان فعّال) ── */}
               {gamePhase === 'DAY_VOTING' && votingCandidates.length === 0 ? (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-10">
-                  <div className="text-3xl mb-3">ðŸ—³ï¸</div>
+                  <div className="text-3xl mb-3">🗳️</div>
                   <div className="w-8 h-8 border-2 border-[#C5A059]/30 border-t-[#C5A059] rounded-full animate-spin mx-auto mb-3" />
-                  <p className="text-[#C5A059] text-sm font-mono">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„ØªØµÙˆÙŠØª...</p>
+                  <p className="text-[#C5A059] text-sm font-mono">جاري تحميل التصويت...</p>
                 </motion.div>
               ) : gamePhase === 'DAY_VOTING' && votingCandidates.length > 0 ? (
                 <motion.div
@@ -3513,14 +3513,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5 }}
                 >
-                  {/* Ø¹Ù†ÙˆØ§Ù† Ø§Ù„ØªØµÙˆÙŠØª */}
+                  {/* عنوان التصويت */}
                   <div className="text-center mb-5">
-                    <div className="text-3xl mb-2">ðŸ—³ï¸</div>
+                    <div className="text-3xl mb-2">🗳️</div>
                     <h2 className="text-xl font-black text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                      Ù…Ø±Ø­Ù„Ø© Ø§Ù„ØªØµÙˆÙŠØª
+                      مرحلة التصويت
                     </h2>
                     <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.15em] mt-1">
-                      {isPlayerDead ? 'Ù…Ø´Ø§Ù‡Ø¯Ø© ÙÙ‚Ø· â€” Ø£Ù†Øª Ù…ÙÙ‚ØµÙ‰' : myVote !== null ? 'âœ… ØªÙ… Ø§Ù„ØªØµÙˆÙŠØª â€” Ø§Ø¶ØºØ· Ù„Ø§Ø¹Ø¨ Ø¢Ø®Ø± Ù„Ù„ØªØºÙŠÙŠØ±' : (votingCountdown === 0 ? <span className="text-[#8A0303] font-bold">âŒ Ù„Ù… ØªÙ‚Ù… Ø¨Ø§Ù„ØªØµÙˆÙŠØª</span> : 'ØµÙˆÙ‘Øª Ø¶Ø¯ Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø§Ù„Ù…Ø´ØªØ¨Ù‡')}
+                      {isPlayerDead ? 'مشاهدة فقط — أنت مُقصى' : myVote !== null ? '✅ تم التصويت — اضغط لاعب آخر للتغيير' : (votingCountdown === 0 ? <span className="text-[#8A0303] font-bold">❌ لم تقم بالتصويت</span> : 'صوّت ضد اللاعب المشتبه')}
                     </p>
                   </div>
 
@@ -3532,15 +3532,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       }`}
                       style={{ transform: 'translateZ(0)' }}
                     >
-                      â± {votingCountdown}Ø«
+                      ⏱ {votingCountdown}ث
                     </div>
                   )}
 
-                  {/* Ø´Ø±ÙŠØ· Ø§Ù„ØªÙ‚Ø¯Ù… */}
+                  {/* شريط التقدم */}
                   <div className="mb-5">
                     <div className="flex justify-between text-[10px] font-mono text-[#9a9a9a] mb-1">
                       <span>VOTES: {totalVotesCast}</span>
-                      <span>{votingComplete ? 'âœ… COMPLETE' : 'â³ IN PROGRESS'}</span>
+                      <span>{votingComplete ? '✅ COMPLETE' : '⏳ IN PROGRESS'}</span>
                     </div>
                     <div className="h-1.5 bg-[#1a1a1a] rounded-full overflow-hidden">
                       <motion.div
@@ -3553,13 +3553,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                     </div>
                   </div>
 
-                  {/* ÙƒØ±ÙˆØª Ø§Ù„Ù…Ø±Ø´Ø­ÙŠÙ† */}
+                  {/* كروت المرشحين */}
                   <div className="grid grid-cols-1 gap-4 px-1 max-h-[55vh] overflow-y-auto pb-4">
                     {votingCandidates.map((candidate: any, index: number) => {
                       const isSelf = candidate.targetPhysicalId === parseInt(physicalId);
                       const isMyChoice = myVote === index;
                       const playerInfo = votingPlayersInfo.find((p: any) => p.physicalId === candidate.targetPhysicalId);
-                      const candidateName = playerInfo?.name || `Ù„Ø§Ø¹Ø¨ ${candidate.targetPhysicalId}`;
+                      const candidateName = playerInfo?.name || `لاعب ${candidate.targetPhysicalId}`;
                       const candidateAvatar = playerInfo?.avatarUrl;
                       const isDeal = candidate.type === 'DEAL';
                       const initiatorInfo = isDeal ? votingPlayersInfo.find((p: any) => p.physicalId === candidate.initiatorPhysicalId) : null;
@@ -3590,7 +3590,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                               : 'border-[#222] bg-[#111] hover:border-[#C5A059]/30 active:bg-[#1a1a1a]'
                           }`}
                         >
-                          {/* ØµÙˆØ±Ø© ÙˆØ§Ø³Ù… */}
+                          {/* صورة واسم */}
                           <div className="flex items-center gap-3 w-full">
                             <div className="relative w-[72px] h-[72px] shrink-0 rounded-full overflow-hidden border-2 border-[#333] bg-[#1a1a1a] flex items-center justify-center shadow-lg">
                               {candidateAvatar ? (
@@ -3604,14 +3604,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                                   animate={{ scale: 1 }}
                                   className="absolute inset-0 bg-[#C5A059]/40 flex items-center justify-center rounded-full backdrop-blur-sm"
                                 >
-                                  <span className="text-3xl drop-shadow-md">âœ…</span>
+                                  <span className="text-3xl drop-shadow-md">✅</span>
                                 </motion.div>
                               )}
                             </div>
 
                             <div className="flex flex-col items-start flex-1 min-w-0">
                               <span className="text-sm font-mono text-[#C5A059] mb-1 tracking-widest bg-black/40 px-2 py-0.5 rounded-full border border-[#C5A059]/20">
-                                Ù…Ù‚Ø¹Ø¯ #{candidate.targetPhysicalId}
+                                مقعد #{candidate.targetPhysicalId}
                               </span>
                               
                               <div className="flex items-center gap-2 w-full">
@@ -3620,33 +3620,33 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                                 </p>
                                 {notepadNotes[candidate.targetPhysicalId] && notepadNotes[candidate.targetPhysicalId].suspicion !== 'none' && (
                                   <span className="text-sm bg-black/50 px-1.5 py-0.5 rounded-md border border-[#333] shadow-inner">
-                                    {notepadNotes[candidate.targetPhysicalId].suspicion === 'safe' ? 'ðŸŸ¢' : notepadNotes[candidate.targetPhysicalId].suspicion === 'suspect' ? 'ðŸŸ¡' : 'ðŸ”´'}
+                                    {notepadNotes[candidate.targetPhysicalId].suspicion === 'safe' ? '🟢' : notepadNotes[candidate.targetPhysicalId].suspicion === 'suspect' ? '🟡' : '🔴'}
                                   </span>
                                 )}
                               </div>
                               
                               {isDeal && (
                                 <div className="mt-2 bg-red-500/20 border border-red-500/30 px-2.5 py-1 rounded-md flex items-center gap-2">
-                                  <span className="text-red-500 text-xs font-bold whitespace-nowrap">ðŸ¤ Ø¯ÙŠÙ„ Ù…Ù†:</span>
+                                  <span className="text-red-500 text-xs font-bold whitespace-nowrap">🤝 ديل من:</span>
                                   <span className="text-white text-xs font-bold truncate">
-                                    {initiatorInfo?.name || `Ù„Ø§Ø¹Ø¨ ${candidate.initiatorPhysicalId}`} <span className="font-mono text-red-400">#{candidate.initiatorPhysicalId}</span>
+                                    {initiatorInfo?.name || `لاعب ${candidate.initiatorPhysicalId}`} <span className="font-mono text-red-400">#{candidate.initiatorPhysicalId}</span>
                                   </span>
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {/* Ø¹Ø¯Ø§Ø¯ Ø§Ù„Ø£ØµÙˆØ§Øª */}
+                          {/* عداد الأصوات */}
                           <div className="mt-1.5 flex items-center gap-1 bg-black/30 rounded-full px-2.5 py-0.5 w-fit mx-auto">
                             <span className="text-sm font-black text-[#C5A059]">{candidate.votes || 0}</span>
-                            <span className="text-[10px] text-[#808080]">ØµÙˆØª</span>
+                            <span className="text-[10px] text-[#808080]">صوت</span>
                           </div>
 
-                          {/* Ø£Ø³Ù…Ø§Ø¡ Ø§Ù„Ù…ØµÙˆØªÙŠÙ† */}
+                          {/* أسماء المصوتين */}
                           {votersForThisCandidate.length > 0 && (
                             <div className="mt-2 w-full flex flex-wrap justify-center gap-1.5 border-t border-[#333]/50 pt-2 px-1">
                               {votersForThisCandidate.map(vId => {
-                                const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `Ù„Ø§Ø¹Ø¨ ${vId}`;
+                                const vName = votingPlayersInfo.find((p: any) => p.physicalId === vId)?.name || `لاعب ${vId}`;
                                 return (
                                   <span key={vId} className="text-[10px] font-mono bg-[#8A0303]/20 border border-[#8A0303]/40 text-white px-1.5 py-0.5 rounded-full flex items-center gap-1">
                                     <span className="font-black text-[#ff4444]">{vId}</span>
@@ -3657,9 +3657,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                             </div>
                           )}
 
-                          {/* Ø´Ø§Ø±Ø© "Ø£Ù†Øª" */}
+                          {/* شارة "أنت" */}
                           {isSelf && (
-                            <span className="absolute top-1.5 right-1.5 text-[10px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">Ø£Ù†Øª</span>
+                            <span className="absolute top-1.5 right-1.5 text-[10px] bg-[#222] text-[#808080] px-1.5 py-0.5 rounded-full font-mono">أنت</span>
                           )}
                         </motion.button>
                       );
@@ -3668,13 +3668,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 </motion.div>
               ) : (!gamePhase || gamePhase === 'LOBBY' || gamePhase === 'ROLE_BINDING' || gamePhase === 'ROLE_GENERATION') ? (
                 isPlayerDead ? (
-                  /* â”€â”€ Ø­Ø§Ù„Ø© Ø§Ù„Ù…ÙŠØª: ÙƒØ§Ø±Ø¯ Ù…ÙØªÙˆØ­ + grayscale â”€â”€ */
+                  /* ── حالة الميت: كارد مفتوح + grayscale ── */
                   <>
                     <h2 className="text-2xl font-black mb-2 text-[#555]" style={{ fontFamily: 'Amiri, serif' }}>
-                      ØªÙ… Ø¥Ù‚ØµØ§Ø¤Ùƒ
+                      تم إقصاؤك
                     </h2>
                     <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em] mb-6">
-                      AGENT ELIMINATED â€” IDENTITY EXPOSED
+                      AGENT ELIMINATED — IDENTITY EXPOSED
                     </p>
                     <div className="flex justify-center mb-6 grayscale opacity-70">
                       <MafiaCard
@@ -3693,14 +3693,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       />
                     </div>
                     <p className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em]">
-                      â˜ ï¸ STATUS: ELIMINATED
+                      ☠️ STATUS: ELIMINATED
                     </p>
                   </>
                 ) : assignedRole ? (
-                  /* â”€â”€ Ø­Ø§Ù„Ø© Ø­ÙŠ Ù…Ø¹ Ø¯ÙˆØ±: ÙƒØ§Ø±Ø¯ Ù‚Ø§Ø¨Ù„ Ù„Ù„Ù‚Ù„Ø¨ â”€â”€ */
+                  /* ── حالة حي مع دور: كارد قابل للقلب ── */
                   <>
                     <h2 className="text-2xl font-black mb-2 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                      Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ø¹ÙˆØ¯ØªÙƒ
+                      مرحباً بعودتك
                     </h2>
                     <p className="text-[#808080] text-[10px] font-mono uppercase tracking-[0.2em] mb-6">
                       TAP CARD TO REVEAL YOUR IDENTITY
@@ -3727,19 +3727,19 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       {cardFlipped ? (
                         <motion.p key="hide2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                           className="text-[#8A0303] text-[11px] font-mono uppercase tracking-[0.2em] animate-pulse">
-                          âš ï¸ Ø£Ø®ÙÙ Ù‡Ø§ØªÙÙƒ Ø§Ù„Ø¢Ù†!
+                          ⚠️ أخفِ هاتفك الآن!
                         </motion.p>
                       ) : (
                         <motion.p key="tap2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                           className="text-[#555] text-[9px] font-mono uppercase tracking-widest">
-                          Ø§Ø¶ØºØ· Ø§Ù„Ø¨Ø·Ø§Ù‚Ø© Ù„ÙƒØ´Ù Ø¯ÙˆØ±Ùƒ
+                          اضغط البطاقة لكشف دورك
                         </motion.p>
                       )}
                     </AnimatePresence>
 
                   </>
                 ) : (
-                  /* â”€â”€ Ø­Ø§Ù„Ø© Ø­ÙŠ Ø¨Ø¯ÙˆÙ† Ø¯ÙˆØ± (ÙÙŠ Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø±) â”€â”€ */
+                  /* ── حالة حي بدون دور (في الانتظار) ── */
                   <>
                     {penalties > 0 && (
                       <div className="flex flex-col items-center gap-1.5 mb-6 bg-red-950/20 border border-red-900/30 rounded-xl p-3 shadow-[0_0_15px_rgba(220,38,38,0.05)] w-full">
@@ -3757,12 +3757,12 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           ))}
                         </div>
                         <span className="text-[10px] text-red-300/70" style={{ fontFamily: 'Amiri, serif' }}>
-                          ØªØ­Ø°ÙŠØ±: ({penalties}/{maxPenalties}) Ø¹Ù‚ÙˆØ¨Ø§Øª. Ø³ÙŠØªÙ… Ø·Ø±Ø¯Ùƒ Ø¹Ù†Ø¯ ØªØ¬Ø§ÙˆØ² Ø§Ù„Ø­Ø¯.
+                          تحذير: ({penalties}/{maxPenalties}) عقوبات. سيتم طردك عند تجاوز الحد.
                         </span>
                       </div>
                     )}
                     {isRemote && (!gamePhase || gamePhase === 'LOBBY' || gamePhase === 'ROLE_GENERATION' || gamePhase === 'ROLE_BINDING') ? (
-                      /* â”€â”€ Ù„ÙˆØ¨ÙŠ Ø§Ù„Ù„Ø¹Ø¨ Ø¹Ù† Ø¨ÙØ¹Ø¯ (Ø¨Ø¹Ø¯ Ø¹ÙˆØ¯Ø© Ø§Ù„Ù„Ø§Ø¹Ø¨): Ø­Ù„Ù‚Ø© ÙƒØ±ÙˆØª Ø§Ù„Ø·Ø§ÙˆÙ„Ø© â”€â”€ */
+                      /* ── لوبي اللعب عن بُعد (بعد عودة اللاعب): حلقة كروت الطاولة ── */
                       <>
                         <PhoneSpectatorView
                           roster={roster}
@@ -3780,7 +3780,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                         <div className="mt-2 h-1.5 rounded-full bg-[#1a1a1a] overflow-hidden">
                           <div className="h-full bg-gradient-to-r from-[#C5A059] to-[#E8C97A] transition-[width] duration-500" style={{ width: `${Math.min(100, (roster.length / (maxPlayers || roster.length || 1)) * 100)}%` }} />
                         </div>
-                        <div className="mt-1 text-center text-[10px] font-mono text-[#808080]">Ø§Ù†Ø¶Ù…Ù‘ {roster.length} Ù…Ù† {maxPlayers}</div>
+                        <div className="mt-1 text-center text-[10px] font-mono text-[#808080]">انضمّ {roster.length} من {maxPlayers}</div>
                       </>
                     ) : (
                     <>
@@ -3789,7 +3789,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       <ShieldCheckIcon />
                     </motion.div>
                     <h2 className="text-3xl font-black mb-4 text-[#C5A059]" style={{ fontFamily: 'Amiri, serif' }}>
-                      Ù…Ø±Ø­Ø¨Ø§Ù‹ Ø¨Ø¹ÙˆØ¯ØªÙƒ
+                      مرحباً بعودتك
                     </h2>
                     <div className="flex justify-center mb-8">
                       <MafiaCard
@@ -3822,7 +3822,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         </>
       )}
 
-      {/* â”€â”€ Ø´Ø§Ø´Ø© Ø§Ù„ØªØ­Ù…ÙŠÙ„ Ø£Ø«Ù†Ø§Ø¡ Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ù„Ù€ Rejoin â”€â”€ */}
+      {/* ── شاشة التحميل أثناء محاولة الـ Rejoin ── */}
       {rejoinLoading && (
         <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
           <motion.div
@@ -3844,7 +3844,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         </div>
       )}
 
-      {/* â”€â”€ ØªÙ†Ø¨ÙŠÙ‡ ØªØºÙŠÙŠØ± Ø±Ù‚Ù… Ø§Ù„Ù…Ù‚Ø¹Ø¯ â”€â”€ */}
+      {/* ── تنبيه تغيير رقم المقعد ── */}
       {seatChangeAlert && (
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -3857,7 +3857,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         </motion.div>
       )}
 
-      {/* â”€â”€ ØªÙ†Ø¨ÙŠÙ‡ Ø¬Ù„ÙˆÙ†Ø¬ â€” Ø§Ù‚Ù„Ø¨ Ø§Ù„ÙƒØ§Ø±Ø¯ Ù„Ù…Ø¹Ø±ÙØ© Ø¯ÙˆØ±Ùƒ â”€â”€ */}
+      {/* ── تنبيه جلونج — اقلب الكارد لمعرفة دورك ── */}
       <AnimatePresence>
         {roleAlert && !cardFlipped && assignedRole && (
           <motion.div
@@ -3880,26 +3880,26 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               className="w-full max-w-md rounded-2xl border-2 border-[#C5A059] bg-gradient-to-b from-[#1a1508] to-[#0d0a02] p-5 cursor-pointer"
               style={{ backdropFilter: 'blur(20px)' }}
             >
-              {/* Ø§Ù„Ø£ÙŠÙ‚ÙˆÙ†Ø© Ø§Ù„Ù…ØªØ­Ø±ÙƒØ© */}
+              {/* الأيقونة المتحركة */}
               <motion.div
                 className="text-4xl text-center mb-2"
                 animate={{ rotateY: [0, 180, 360] }}
                 transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
               >
-                ðŸŽ´
+                🎴
               </motion.div>
-                          {/* Ø§Ù„Ù†Øµ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ */}
+                          {/* النص الرئيسي */}
               <h3
                 className="text-[#C5A059] text-xl font-black text-center mb-1"
                 style={{ fontFamily: 'Amiri, serif', textShadow: '0 0 20px rgba(197,160,89,0.5)' }}
               >
-                ØªÙ… ØªØ¹ÙŠÙŠÙ† Ø¯ÙˆØ±Ùƒ!
+                تم تعيين دورك!
               </h3>
               <p className="text-[#C5A059]/80 text-sm text-center font-bold" style={{ fontFamily: 'Amiri, serif' }}>
-                Ø§Ù‚Ù„Ø¨ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø© Ù„Ù…Ø¹Ø±ÙØ© Ù‡ÙˆÙŠØªÙƒ Ø§Ù„Ø³Ø±ÙŠØ©
+                اقلب البطاقة لمعرفة هويتك السرية
               </p>
 
-              {/* Ø´Ø±ÙŠØ· Ù…ØªØ­Ø±Ùƒ */}
+              {/* شريط متحرك */}
               <motion.div
                 className="mt-3 h-[2px] bg-gradient-to-r from-transparent via-[#C5A059] to-transparent rounded-full"
                 animate={{ opacity: [0.3, 1, 0.3] }}
@@ -3907,14 +3907,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               />
 
               <p className="text-[#555] text-[8px] font-mono uppercase tracking-[0.2em] text-center mt-2">
-                TAP CARD TO REVEAL Â· TAP HERE TO DISMISS
+                TAP CARD TO REVEAL · TAP HERE TO DISMISS
               </p>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* â”€â”€ Ù†Ø§ÙØ°Ø© ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ Ø¨ÙŠÙ† Ø§Ù„ØºØ±Ù â”€â”€ */}
+      {/* ── نافذة تأكيد التبديل بين الغرف ── */}
       <AnimatePresence>
         {switchConfirm && (
           <motion.div
@@ -3932,51 +3932,51 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               className="w-full max-w-sm rounded-2xl border-2 border-[#C5A059]/50 bg-gradient-to-b from-[#1a1508] to-[#0a0804] p-6"
               style={{ boxShadow: '0 0 40px rgba(197,160,89,0.2)' }}
             >
-              {/* Ø£ÙŠÙ‚ÙˆÙ†Ø© */}
-              <div className="text-5xl text-center mb-4">ðŸ”„</div>
+              {/* أيقونة */}
+              <div className="text-5xl text-center mb-4">🔄</div>
 
-              {/* Ø§Ù„Ø¹Ù†ÙˆØ§Ù† */}
+              {/* العنوان */}
               <h3
                 className="text-[#C5A059] text-xl font-black text-center mb-4"
                 style={{ fontFamily: 'Amiri, serif' }}
               >
-                ØªØ¨Ø¯ÙŠÙ„ Ø§Ù„ØºØ±ÙØ©
+                تبديل الغرفة
               </h3>
 
-              {/* Ø§Ù„ØªÙØ§ØµÙŠÙ„ */}
+              {/* التفاصيل */}
               <div className="space-y-3 mb-6">
                 <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
-                  <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-widest mb-1">Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø­Ø§Ù„ÙŠØ©</p>
+                  <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-widest mb-1">الغرفة الحالية</p>
                   <p className="text-red-300 font-bold text-sm" style={{ fontFamily: 'Amiri, serif' }}>
                     {switchConfirm.currentGameName}
                   </p>
                 </div>
-                <div className="text-center text-[#C5A059] text-lg">â†“</div>
+                <div className="text-center text-[#C5A059] text-lg">↓</div>
                 <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
-                  <p className="text-[9px] font-mono text-green-400/70 uppercase tracking-widest mb-1">Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø©</p>
+                  <p className="text-[9px] font-mono text-green-400/70 uppercase tracking-widest mb-1">الغرفة الجديدة</p>
                   <p className="text-green-300 font-bold text-sm" style={{ fontFamily: 'Amiri, serif' }}>
                     {switchConfirm.targetGameName}
                   </p>
                 </div>
               </div>
 
-              {/* Ø±Ø³Ø§Ù„Ø© ØªÙˆØ¶ÙŠØ­ÙŠØ© */}
+              {/* رسالة توضيحية */}
               <p className="text-[#808080] text-xs text-center mb-5 leading-relaxed" style={{ fontFamily: 'Amiri, serif' }}>
-                Ø³ÙŠØªÙ… ØªØ¬Ù…ÙŠØ¯ Ù…Ø´Ø§Ø±ÙƒØªÙƒ ÙÙŠ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø­Ø§Ù„ÙŠØ© ÙˆÙŠÙ…ÙƒÙ†Ùƒ Ø§Ù„Ø¹ÙˆØ¯Ø© Ø¥Ù„ÙŠÙ‡Ø§ Ù„Ø§Ø­Ù‚Ø§Ù‹
+                سيتم تجميد مشاركتك في الغرفة الحالية ويمكنك العودة إليها لاحقاً
               </p>
 
-              {/* Ø§Ù„Ø£Ø²Ø±Ø§Ø± */}
+              {/* الأزرار */}
               <div className="flex gap-3">
                 <button
                   onClick={() => {
-                    // Ø§Ø¨Ù‚Ù‰ ÙÙŠ Ø§Ù„ØºØ±ÙØ© Ø§Ù„Ø­Ø§Ù„ÙŠØ© â†’ Ø­Ø§ÙˆÙ„ rejoin
+                    // ابقى في الغرفة الحالية → حاول rejoin
                     if (switchConfirm && emit) {
                       const normalized = phone.startsWith('0') ? phone : '0' + phone;
                       emit('room:rejoin-player', {
                         roomId: switchConfirm.currentRoomId,
                         physicalId: 0,
                         phone: normalized,
-                        playerId: playerId || getSavedPlayerId() || undefined, // ðŸª‘ Ø§Ù„Ù‡ÙˆÙŠØ© Ø£ÙˆÙ„Ø§Ù‹
+                        playerId: playerId || getSavedPlayerId() || undefined, // 🪑 الهوية أولاً
                       }).then((res: any) => {
                         if (res?.success && res.player) {
                           setRoomId(switchConfirm.currentRoomId);
@@ -3986,14 +3986,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                           if (!res.player.isAlive) { setIsPlayerDead(true); setCardFlipped(true); }
                           setStep('rejoined');
                         } else if (res?.code === 'IDENTITY_REQUIRED') {
-                          // ðŸªª Ø§Ù„Ø®Ø§Ø¯Ù… Ù„Ù… ÙŠØªØ¹Ø±Ù‘Ù Ø¹Ù„ÙŠÙ†Ø§ (Ù„Ø§ Ø­Ø³Ø§Ø¨ ÙˆÙ„Ø§ Ù‡Ø§ØªÙ Ù…Ø·Ø§Ø¨Ù‚) â€” Ù„Ø§ Ù†ØªØ±ÙƒÙ‡
-                          // Ù…Ø¹Ù„Ù‘Ù‚Ø§Ù‹ Ø¹Ù„Ù‰ Ø²Ø±ÙÙ‘ Ù„Ø§ ÙŠÙØ¹Ù„ Ø´ÙŠØ¦Ø§Ù‹: Ù†Ø¹ÙŠØ¯Ù‡ Ù„Ø´Ø§Ø´Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø±Ø³Ø§Ù„ØªÙ‡
-                          setActiveToast({ message: res.error || 'ØªØ¹Ø°Ù‘Ø± Ø§Ù„ØªØ¹Ø±Ù‘Ù Ø¹Ù„ÙŠÙƒ â€” Ø£Ø¹Ø¯ Ø§Ù„Ø¯Ø®ÙˆÙ„', type: 'warning' });
+                          // 🪪 الخادم لم يتعرّف علينا (لا حساب ولا هاتف مطابق) — لا نتركه
+                          // معلّقاً على زرٍّ لا يفعل شيئاً: نعيده لشاشة الدخول برسالته
+                          setActiveToast({ message: res.error || 'تعذّر التعرّف عليك — أعد الدخول', type: 'warning' });
                           setStep('phone');
                         }
                       }).catch((e: any) => {
                         if (e?.response?.code === 'IDENTITY_REQUIRED') {
-                          setActiveToast({ message: e.response.error || 'ØªØ¹Ø°Ù‘Ø± Ø§Ù„ØªØ¹Ø±Ù‘Ù Ø¹Ù„ÙŠÙƒ â€” Ø£Ø¹Ø¯ Ø§Ù„Ø¯Ø®ÙˆÙ„', type: 'warning' });
+                          setActiveToast({ message: e.response.error || 'تعذّر التعرّف عليك — أعد الدخول', type: 'warning' });
                           setStep('phone');
                         }
                       });
@@ -4004,7 +4004,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   className="flex-1 py-3 rounded-xl border border-[#333] bg-black/60 text-[#888] font-bold text-sm transition-all hover:border-[#555] hover:text-white disabled:opacity-50"
                   style={{ fontFamily: 'Amiri, serif' }}
                 >
-                  Ø§Ø¨Ù‚ÙŽ Ù‡Ù†Ø§
+                  ابقَ هنا
                 </button>
                 <button
                   onClick={handleSwitchRoom}
@@ -4012,7 +4012,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   className="flex-1 py-3 rounded-xl border-2 border-[#C5A059] text-[#C5A059] font-black text-sm transition-all hover:bg-[#C5A059]/10 disabled:opacity-50"
                   style={{ fontFamily: 'Amiri, serif', boxShadow: '0 0 15px rgba(197,160,89,0.2)' }}
                 >
-                  {switchLoading ? 'â³ Ø¬Ø§Ø±Ù...' : 'Ø§Ù†ØªÙ‚Ù„ Ù„Ù„ØºØ±ÙØ©'}
+                  {switchLoading ? '⏳ جارٍ...' : 'انتقل للغرفة'}
                 </button>
               </div>
             </motion.div>
@@ -4023,68 +4023,68 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       <MafiaTeamGallery
         isOpen={isGalleryOpen}
         onClose={() => setIsGalleryOpen(false)}
-        /* ðŸ‘¥ Ø¯ÙØ§Ø¹: Ù„Ø§ ØªÙØ¹Ø±Ø¶ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…Ø§ÙÙŠØ§ Ø¥Ù„Ø§ Ø¥Ø°Ø§ ÙƒØ§Ù† Ø¯ÙˆØ± Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø§Ù„Ø­Ø§Ù„ÙŠ Ù…Ø§ÙÙŠØ§ ÙØ¹Ù„Ø§Ù‹ â€”
-           ÙŠÙ…Ù†Ø¹ ØªØ³Ø±Ù‘Ø¨ ÙØ±ÙŠÙ‚ Ù…Ø­ÙÙˆØ¸ Ù…Ù† Ù„Ø¹Ø¨Ø© Ø³Ø§Ø¨Ù‚Ø© Ù„Ù„Ø£Ø® Ø§Ù„Ø£ØµØºØ±/Ø§Ù„Ù…ÙˆØ§Ø·Ù† Ø­ØªÙ‰ Ù„Ùˆ Ø¨Ù‚ÙŠ ÙÙŠ Ø§Ù„Ø­Ø§Ù„Ø© Ù„Ø­Ø¸ÙŠØ§Ù‹.
-           Ø¨Ø¹Ø¯ ØªØ­ÙˆÙ‘Ù„ Ø§Ù„Ø£Ø® Ø§Ù„Ø£ØµØºØ± ÙŠØµØ¨Ø­ Ø¯ÙˆØ±Ù‡ Ù…Ø§ÙÙŠØ§ÙˆÙŠØ§Ù‹ ÙØªØ¸Ù‡Ø± Ø§Ù„Ù‚Ø§Ø¦Ù…Ø© Ø·Ø¨ÙŠØ¹ÙŠØ§Ù‹. */
+        /* 👥 دفاع: لا تُعرض قائمة المافيا إلا إذا كان دور اللاعب الحالي مافيا فعلاً —
+           يمنع تسرّب فريق محفوظ من لعبة سابقة للأخ الأصغر/المواطن حتى لو بقي في الحالة لحظياً.
+           بعد تحوّل الأخ الأصغر يصبح دوره مافياوياً فتظهر القائمة طبيعياً. */
         team={assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? mafiaTeam : []}
-        /* Ø¨Ø·Ø§Ù‚Ø© Ø§Ù„ØªØ¹Ø§Ø±Ù Ù„Ù„Ø£Ø® Ø§Ù„Ø£ÙƒØ¨Ø± (Ù…Ø§ÙÙŠØ§) ÙÙ‚Ø· â€” Ù†ÙØ³ Ø§Ù„Ø­Ù…Ø§ÙŠØ© Ø¶Ø¯ Ø¨Ù‚Ø§ÙŠØ§ Ù„Ø¹Ø¨Ø© Ø³Ø§Ø¨Ù‚Ø© */
+        /* بطاقة التعارف للأخ الأكبر (مافيا) فقط — نفس الحماية ضد بقايا لعبة سابقة */
         sibling={assignedRole && (MAFIA_ROLES as unknown as string[]).includes(assignedRole) ? sibling : null}
         isAssassin={assignedRole === 'ASSASSIN'}
         assassinContracts={assassinContracts}
-        /* ðŸ’§ ÙˆØ³Ù…ÙŒ ÙŠÙØ¶Ø­ Ù…Ø³Ø±Ù‘Ø¨ Ø£ÙŠÙ‘ Ù„Ù‚Ø·Ø© â€” Ø§Ù„Ø§Ø³Ù… ÙˆØ§Ù„Ù…Ù‚Ø¹Ø¯ ÙˆØ§Ù„ØºØ±ÙØ© ÙˆØ§Ù„ÙˆÙ‚Øª */
-        watermark={`${displayName || 'Ù„Ø§Ø¹Ø¨'} Â· Ù…Ù‚Ø¹Ø¯ ${physicalId} Â· ${roomCode} Â· ${new Date().toTimeString().slice(0, 5)}`}
+        /* 💧 وسمٌ يفضح مسرّب أيّ لقطة — الاسم والمقعد والغرفة والوقت */
+        watermark={`${displayName || 'لاعب'} · مقعد ${physicalId} · ${roomCode} · ${new Date().toTimeString().slice(0, 5)}`}
       />
 
-      {/* â”€â”€ Ø²Ø± Ø´Ø±ÙƒØ§Ø¡ Ø§Ù„Ù…Ø§ÙÙŠØ§ Ø§Ù„Ø¹Ø§Ø¦Ù… (Ù…ÙˆØ¬ÙˆØ¯ ÙƒØ´ÙƒÙ„ Ù„Ù„Ø¬Ù…ÙŠØ¹ Ù„ØªØ¬Ù†Ø¨ ÙƒØ´Ù Ø§Ù„Ø¯ÙˆØ±) â”€â”€ */}
+      {/* ── زر شركاء المافيا العائم (موجود كشكل للجميع لتجنب كشف الدور) ── */}
       {assignedRole !== null && gamePhase !== 'GAME_OVER' && (step === 'done' || step === 'rejoined') && (
         <button
           onClick={() => {
-            // ðŸ•µï¸ ØªÙ†Ø¨ÙŠÙ‡ Ù„Ø­Ø¸ÙŠ Ù„Ù„ÙŠØ¯Ø± Ø¨Ø£Ù† Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙØªØ­/Ø­Ø§ÙˆÙ„ ÙØªØ­ Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„ØªØ¹Ø±Ù (fire-and-forget)
+            // 🕵️ تنبيه لحظي لليدر بأن اللاعب فتح/حاول فتح قائمة التعرف (fire-and-forget)
             import('@/lib/socket').then(m => m.getSocket().emit('player:mafia-gallery-open', { roomId })).catch(() => {});
-            // Ø§Ù„Ù„Ø§Ø¹Ø¨ Ø§Ù„Ù…ÙÙ‚ØµÙ‰ Ù…Ù…Ù†ÙˆØ¹ Ù…Ù† ÙØªØ­ Ø§Ù„Ù…Ø¹Ø±Ø¶ (Ø§Ù„Ø³ÙŠØ±ÙØ± ÙŠÙ…ÙŠÙ‘Ø²Ù‡ ÙˆÙŠÙÙ†Ø¨Ù‘Ù‡ Ø§Ù„Ù„ÙŠØ¯Ø± Ø¨Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©)
+            // اللاعب المُقصى ممنوع من فتح المعرض (السيرفر يميّزه ويُنبّه الليدر بالمحاولة)
             if (isPlayerDead) return;
             setIsGalleryOpen(true);
           }}
           className="fixed bottom-[110px] left-4 z-[90] bg-[#8A0303]/90 hover:bg-[#8A0303] text-white border border-red-500/50 p-3 rounded-full shadow-[0_0_15px_rgba(138,3,3,0.5)] transition-transform hover:scale-110 flex items-center justify-center backdrop-blur-sm"
-          title="Ø§Ù„ØªØ¹Ø±Ù Ø¹Ù„Ù‰ Ø§Ù„Ù…Ø§ÙÙŠØ§"
+          title="التعرف على المافيا"
         >
           <Users className="w-6 h-6" />
         </button>
       )}
 
-      {/* Player Notepad FAB â€” ÙÙˆÙ‚ Ø§Ù„Ø¨ÙˆØªÙˆÙ… Ø¨Ø§Ø± */}
+      {/* Player Notepad FAB — فوق البوتوم بار */}
       {(step === 'done' || step === 'rejoined') && (
         <button
           onClick={() => setIsNotepadOpen(true)}
           className="fixed bottom-[88px] right-4 w-12 h-12 bg-[#111] border-2 border-[#C5A059] text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(197,160,89,0.3)] z-[90] hover:scale-105 transition-transform"
-          title="Ù…ÙÙƒØ±Ø© Ø§Ù„ØªØ­Ø±ÙŠ"
+          title="مفكرة التحري"
         >
-          ðŸ“
+          📝
         </button>
       )}
 
-      {/* ðŸ½ï¸ Ø²Ø±Ù‘ Ø§Ù„Ø·Ù„Ø¨ Ù…Ù† Ø§Ù„Ù…ÙƒØ§Ù† â€” Ø¯Ø§Ø®Ù„ Ø§Ù„ØºØ±ÙØ© Ø­ÙŠØ« ÙŠØ·Ù„Ø¨ Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙØ¹Ù„Ø§Ù‹.
-          ÙŠØ¸Ù‡Ø± ÙÙ‚Ø· Ø¥Ø°Ø§ Ø£Ø¹Ø§Ø¯ /api/fnb/context Ø³ÙŠØ§Ù‚Ø§Ù‹ (Ø­Ø¬Ø²ÙŒ + Ù†Ø§ÙØ°Ø© Ø§Ù„Ø·Ù„Ø¨)ØŒ
-          ÙÙ„Ø§ ÙŠØ²Ø­Ù… Ø§Ù„Ø´Ø§Ø´Ø© ÙÙŠ Ø§Ù„ØºØ±Ù Ø§Ù„ØªÙŠ Ù„Ø§ Ù…Ù†ÙŠÙˆ ÙÙŠÙ‡Ø§. */}
+      {/* 🍽️ زرّ الطلب من المكان — داخل الغرفة حيث يطلب اللاعب فعلاً.
+          يظهر فقط إذا أعاد /api/fnb/context سياقاً (حجزٌ + نافذة الطلب)،
+          فلا يزحم الشاشة في الغرف التي لا منيو فيها. */}
       {(step === 'done' || step === 'rejoined') && fnbReady && (
         <button
           onClick={() => setIsOrderOpen(true)}
           className="fixed bottom-[152px] right-4 w-12 h-12 bg-[#0d1f18] border-2 border-emerald-500/70 text-xl flex items-center justify-center rounded-full shadow-[0_0_20px_rgba(16,185,129,0.35)] z-[90] hover:scale-105 transition-transform"
-          title="Ø§Ø·Ù„Ø¨ Ù…Ù† Ø§Ù„Ù…ÙƒØ§Ù†"
+          title="اطلب من المكان"
         >
-          ðŸ½ï¸
+          🍽️
         </button>
       )}
 
-      {/* ðŸ½ï¸ ÙˆØ±Ù‚Ø© Ø§Ù„Ø·Ù„Ø¨ â€” ØªÙÙØªØ­ ÙÙˆÙ‚ Ø´Ø§Ø´Ø© Ø§Ù„Ù„Ø¹Ø¨Ø© ÙˆÙ„Ø§ ØªØºØ§Ø¯Ø±Ù‡Ø§.
-          Ø§Ù„Ù„Ø§Ø¹Ø¨ ÙÙŠ Ø¬ÙˆÙ„Ø©Ù Ø¬Ø§Ø±ÙŠØ©: Ù…ØºØ§Ø¯Ø±Ø© Ø§Ù„ØµÙØ­Ø© ØªÙ‚Ø·Ø¹ Ø§Ù„Ø³ÙˆÙƒÙŠØª ÙˆØªØ¹ÙŠØ¯ Ø§Ù„Ø§Ù†Ø¶Ù…Ø§Ù…. */}
+      {/* 🍽️ ورقة الطلب — تُفتح فوق شاشة اللعبة ولا تغادرها.
+          اللاعب في جولةٍ جارية: مغادرة الصفحة تقطع السوكيت وتعيد الانضمام. */}
       {isOrderOpen && (
         <div
           className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={() => setIsOrderOpen(false)}
         >
-          {/* ðŸ”´ Ø§Ø±ØªÙØ§Ø¹ÙŒ Ø«Ø§Ø¨ØªÙŒ Ø¨Ù„Ø§ ØªÙ…Ø±ÙŠØ±Ù Ù‡Ù†Ø§: Ø§Ù„Ù„ÙˆØ­Ø© ØªØ¯ÙŠØ± ØªÙ…Ø±ÙŠØ±Ù‡Ø§ Ø§Ù„Ø¯Ø§Ø®Ù„ÙŠÙ‘ Ø¨ÙŠÙ†
-              ØªØ±ÙˆÙŠØ³Ø©Ù ÙˆØ´Ø±ÙŠØ·Ù Ø«Ø§Ø¨ØªÙŽÙŠÙ†. ØªÙ…Ø±ÙŠØ±ÙŒ Ø®Ø§Ø±Ø¬ÙŠÙŒÙ‘ Ù‡Ù†Ø§ ÙƒØ§Ù† ÙŠÙØ®ÙÙŠ Ø´Ø±ÙŠØ· Ø§Ù„Ø³Ù„Ù‘Ø©. */}
+          {/* 🔴 ارتفاعٌ ثابتٌ بلا تمريرٍ هنا: اللوحة تدير تمريرها الداخليّ بين
+              ترويسةٍ وشريطٍ ثابتَين. تمريرٌ خارجيٌّ هنا كان يُخفي شريط السلّة. */}
           <div
             className="w-full max-w-lg h-[88dvh] overflow-hidden rounded-t-3xl sm:rounded-2xl border-t sm:border border-emerald-500/25"
             style={{ background: '#050505' }}
@@ -4104,21 +4104,21 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         isOpen={isNotepadOpen}
         onClose={() => setIsNotepadOpen(false)}
         onNotesChange={setNotepadNotes}
-        /* ðŸª‘ ÙŠØªØºÙŠÙ‘Ø± Ø¨Ø¹Ø¯ Ø¥Ø¹Ø§Ø¯Ø© ØªØ±ØªÙŠØ¨ Ø§Ù„Ù…Ù‚Ø§Ø¹Ø¯: ÙŠÙØ¬Ø¨Ø± Ø§Ù„Ù…ÙÙƒØ±Ø© Ø¹Ù„Ù‰ Ø¥Ø¹Ø§Ø¯Ø© Ù‚Ø±Ø§Ø¡Ø© Ø¯Ù„ÙˆÙ‡Ø§
-           Ø§Ù„Ù…ÙØ±Ø­ÙŽÙ‘Ù„ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø¬Ù„Ø¨ Ø³Ø¬Ù„Ù‘ Ø§Ù„ØªØ´Ø§ÙˆØ± (ÙƒÙ„Ø§Ù‡Ù…Ø§ Ø£ÙØ¹ÙŠØ¯ ØªØ±Ù‚ÙŠÙ…Ù‡) */
+        /* 🪑 يتغيّر بعد إعادة ترتيب المقاعد: يُجبر المفكرة على إعادة قراءة دلوها
+           المُرحَّل وإعادة جلب سجلّ التشاور (كلاهما أُعيد ترقيمه) */
         remapNonce={notepadRemapNonce}
         chatVisible={
-          // ðŸ—£ï¸ ØªØ¨ÙˆÙŠØ¨ Ø§Ù„ØªØ´Ø§ÙˆØ±: Ù…Ø§ÙÙŠØ§ Ø­ÙŠÙ‘ + Ø§Ù„ØºØ±ÙØ© Ù…ÙØ¹Ù‘Ù„Ø© Ù…Ù† Ø§Ù„Ù„ÙŠØ¯Ø± + Ù…Ø±Ø­Ù„Ø© Ù„Ø¹Ø¨ ÙØ¹Ù„ÙŠØ©.
-          // ÙŠÙØ­Ø³Ø¨ Ø¹Ù„Ù‰ Ø¬Ù‡Ø§Ø² Ø§Ù„Ù„Ø§Ø¹Ø¨ Ù†ÙØ³Ù‡ ÙÙ‚Ø· (Ù„Ø§ ÙŠÙØ¨Ø«Ù‘ Ø´ÙŠØ¡)Ø› ÙˆØ§Ù„Ø³ÙŠØ±ÙØ± ÙŠØªØ­Ù‚Ù‚ Ø³ÙŠØ§Ø¯ÙŠØ§Ù‹ Ø¹Ù„Ù‰ ÙƒÙ„ Ø¹Ù…Ù„ÙŠØ©.
+          // 🗣️ تبويب التشاور: مافيا حيّ + الغرفة مفعّلة من الليدر + مرحلة لعب فعلية.
+          // يُحسب على جهاز اللاعب نفسه فقط (لا يُبثّ شيء)؛ والسيرفر يتحقق سيادياً على كل عملية.
           mafiaChatEnabled &&
           !isPlayerDead &&
           (['GODFATHER', 'SILENCER', 'CHAMELEON', 'WITCH', 'OLDER_BROTHER', 'MAFIA_REGULAR'].includes(assignedRole || '') || mafiaTeam.length > 0) &&
-          // ROLE_BINDING Ù…Ø³Ù…ÙˆØ­Ø©: Ø§Ù…ØªÙ„Ø§Ùƒ assignedRole ÙŠØ¹Ù†ÙŠ Ø£Ù† Ø§Ù„Ø£Ø¯ÙˆØ§Ø± Ø§Ø¹ØªÙÙ…Ø¯Øª ÙˆÙˆÙØ²Ù‘Ø¹Øª ÙØ¹Ù„Ø§Ù‹
+          // ROLE_BINDING مسموحة: امتلاك assignedRole يعني أن الأدوار اعتُمدت ووُزّعت فعلاً
           !['LOBBY', 'ROLE_GENERATION', 'GAME_OVER'].includes(gamePhase || '')
         }
       />
 
-      {/* â•â• Auto Night: Ø´Ø§Ø´Ø© Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡ Ø§Ù„Ù„ÙŠÙ„ÙŠ â€” ØªØµÙ…ÙŠÙ… Ù…Ø·Ø§Ø¨Ù‚ Ù„Ù„ØªØµÙˆÙŠØª â•â• */}
+      {/* ══ Auto Night: شاشة الإجراء الليلي — تصميم مطابق للتصويت ══ */}
       {nightActionRequired && !nightActionSubmitted && (
         <div className="fixed inset-0 z-[200] bg-gradient-to-b from-[#0a0812] via-[#070510] to-[#000]" style={{ fontFamily: 'Amiri, serif' }}>
           <div className="flex flex-col h-full safe-area-inset">
@@ -4128,36 +4128,36 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
                 transition={{ duration: 3, repeat: Infinity }}
                 className="text-4xl mb-2"
-              >ðŸŒ™</motion.div>
-              <p className="text-[9px] font-mono text-[#666] tracking-[0.2em] uppercase mb-1">Ù…Ø±Ø­Ù„Ø© Ø§Ù„Ù„ÙŠÙ„</p>
+              >🌙</motion.div>
+              <p className="text-[9px] font-mono text-[#666] tracking-[0.2em] uppercase mb-1">مرحلة الليل</p>
               <h2 className="text-xl font-black text-[#C5A059]">
-                {nightActionRequired.stepRole === 'MAFIA' ? 'Ø§Ù„Ù…Ø§ÙÙŠØ§' :
-                  nightActionRequired.stepRole === 'GODFATHER' ? 'Ø§Ù„Ø¹Ø±Ø§Ø¨' :
-                  nightActionRequired.stepRole === 'SILENCER' ? 'Ø§Ù„Ù…ÙØ³ÙƒØª' :
-                  nightActionRequired.stepRole === 'SHERIFF' ? 'Ø§Ù„Ù…Ø­Ù‚Ù‚' :
-                  nightActionRequired.stepRole === 'DOCTOR' ? 'Ø§Ù„Ø·Ø¨ÙŠØ¨' :
-                  nightActionRequired.stepRole === 'NURSE' ? 'Ø§Ù„Ù…Ù…Ø±Ø¶Ø©' :
-                  nightActionRequired.stepRole === 'SNIPER' ? 'Ø§Ù„Ù‚Ù†Ø§Øµ' :
-                  nightActionRequired.stepRole === 'CHAMELEON' ? 'Ø§Ù„Ø­Ø±Ø¨Ø§Ø¡' :
-                  nightActionRequired.stepRole || 'Ù…Ø¬Ù‡ÙˆÙ„'}
+                {nightActionRequired.stepRole === 'MAFIA' ? 'المافيا' :
+                  nightActionRequired.stepRole === 'GODFATHER' ? 'العراب' :
+                  nightActionRequired.stepRole === 'SILENCER' ? 'المُسكت' :
+                  nightActionRequired.stepRole === 'SHERIFF' ? 'المحقق' :
+                  nightActionRequired.stepRole === 'DOCTOR' ? 'الطبيب' :
+                  nightActionRequired.stepRole === 'NURSE' ? 'الممرضة' :
+                  nightActionRequired.stepRole === 'SNIPER' ? 'القناص' :
+                  nightActionRequired.stepRole === 'CHAMELEON' ? 'الحرباء' :
+                  nightActionRequired.stepRole || 'مجهول'}
               </h2>
               <p className="text-[#888] text-xs mt-1">
                 {nightActionRequired.isDecoy
-                  ? 'Ø§Ø®ØªØ± Ø£ÙŠ Ø´Ø®Øµ Ù„Ù„ØªÙ…ÙˆÙŠÙ‡...'
+                  ? 'اختر أي شخص للتمويه...'
                   : (
-                    (nightActionRequired.actionType === 'KILL' && 'Ø§Ø®ØªØ± Ù‡Ø¯Ù Ø§Ù„Ø§ØºØªÙŠØ§Ù„') ||
-                    (nightActionRequired.actionType === 'INVESTIGATE' && 'Ù…Ù† ØªØ±ÙŠØ¯ Ø§Ù„ØªØ­Ù‚ÙŠÙ‚ Ù…Ø¹Ù‡ØŸ') ||
-                    (nightActionRequired.actionType === 'PROTECT' && 'Ù…Ù† ØªØ±ÙŠØ¯ Ø­Ù…Ø§ÙŠØªÙ‡ Ø§Ù„Ù„ÙŠÙ„Ø©ØŸ') ||
-                    (nightActionRequired.actionType === 'SNIPE' && 'Ø§Ø®ØªØ± Ù‡Ø¯Ù Ø§Ù„Ù‚Ù†Øµ') ||
-                    (nightActionRequired.actionType === 'SILENCE' && 'Ù…Ù† ØªØ±ÙŠØ¯ Ø¥Ø³ÙƒØ§ØªÙ‡ØŸ') ||
-                    (nightActionRequired.actionType === 'DISABLE' && 'Ø§Ø®ØªØ± Ù„Ø§Ø¹Ø¨Ø§Ù‹ Ù„ØªØ¹Ø·ÙŠÙ„ Ù‚Ø¯Ø±ØªÙ‡') ||
-                    (nightActionRequired.actionType === 'DECOY' && 'Ø§Ø®ØªØ± Ø£ÙŠ Ø´Ø®Øµ')
+                    (nightActionRequired.actionType === 'KILL' && 'اختر هدف الاغتيال') ||
+                    (nightActionRequired.actionType === 'INVESTIGATE' && 'من تريد التحقيق معه؟') ||
+                    (nightActionRequired.actionType === 'PROTECT' && 'من تريد حمايته الليلة؟') ||
+                    (nightActionRequired.actionType === 'SNIPE' && 'اختر هدف القنص') ||
+                    (nightActionRequired.actionType === 'SILENCE' && 'من تريد إسكاته؟') ||
+                    (nightActionRequired.actionType === 'DISABLE' && 'اختر لاعباً لتعطيل قدرته') ||
+                    (nightActionRequired.actionType === 'DECOY' && 'اختر أي شخص')
                   )
                 }
               </p>
             </div>
 
-            {/* Ø§Ù„ØªØ§ÙŠÙ…Ø± Ø§Ù„Ø¯Ø§Ø¦Ø±ÙŠ */}
+            {/* التايمر الدائري */}
             <div className="flex justify-center py-2">
               <div className="relative w-16 h-16">
                 <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
@@ -4177,7 +4177,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               </div>
             </div>
 
-            {/* Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø£Ù‡Ø¯Ø§Ù â€” ØªØµÙ…ÙŠÙ… Ù…Ø·Ø§Ø¨Ù‚ Ù„Ù„ØªØµÙˆÙŠØª */}
+            {/* قائمة الأهداف — تصميم مطابق للتصويت */}
             <div className="flex-1 overflow-y-auto px-4 pb-2">
               <div className="space-y-2">
                 {nightActionRequired.availableTargets.map(target => {
@@ -4217,7 +4217,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-white font-bold text-sm truncate">
-                          {target.name || `Ù„Ø§Ø¹Ø¨ #${target.physicalId}`}
+                          {target.name || `لاعب #${target.physicalId}`}
                         </p>
                       </div>
                     </motion.button>
@@ -4226,7 +4226,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               </div>
             </div>
 
-            {/* Ø²Ø± ØªØ®Ø·ÙŠ */}
+            {/* زر تخطي */}
             {nightActionRequired.canSkip && !nightActionRequired.isDecoy && (
               <div className="px-4 pb-4 pt-2">
                 <button
@@ -4243,13 +4243,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   }}
                   className="w-full py-2.5 text-[#666] hover:text-[#999] text-xs font-mono transition-colors border border-[#1a1a1a] rounded-xl hover:border-[#333]"
                 >
-                  ØªØ®Ø·ÙŠ Ù‡Ø°Ù‡ Ø§Ù„Ø®Ø·ÙˆØ© â†
+                  تخطي هذه الخطوة ←
                 </button>
               </div>
             )}
           </div>
 
-          {/* Ø±Ø³Ø§Ù„Ø© ØªØ£ÙƒÙŠØ¯ */}
+          {/* رسالة تأكيد */}
           {nightActionSubmitted && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -4265,8 +4265,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                   animate={{ scale: [1, 1.2, 1] }}
                   transition={{ duration: 1.5, repeat: Infinity }}
                   className="text-6xl mb-4"
-                >âœ…</motion.div>
-                <p className="text-white font-black text-xl">ØªÙ… Ø§Ù„Ø¥Ø±Ø³Ø§Ù„</p>
+                >✅</motion.div>
+                <p className="text-white font-black text-xl">تم الإرسال</p>
                 <p className="text-[#666] text-xs font-mono mt-2 tracking-widest">WAITING FOR RESULTS...</p>
               </motion.div>
             </motion.div>
@@ -4274,15 +4274,15 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         </div>
       )}
 
-      {/* â•â• Nurse Activation Prompt â•â• */}
+      {/* ══ Nurse Activation Prompt ══ */}
       {nurseActivationPending && (
         <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center px-4" style={{ fontFamily: 'Amiri, serif' }}>
           <div className="bg-[#111] border border-[#C5A059]/30 rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl">
-            <div className="text-5xl mb-4">ðŸ¥</div>
-            <h2 className="text-2xl font-black text-[#C5A059] mb-2">Ø§Ù„Ù…Ù…Ø±Ø¶Ø©</h2>
+            <div className="text-5xl mb-4">🏥</div>
+            <h2 className="text-2xl font-black text-[#C5A059] mb-2">الممرضة</h2>
             <p className="text-gray-300 text-sm mb-6 leading-relaxed">
-              Ø§Ù„Ø·Ø¨ÙŠØ¨ ØºÙŠØ± Ù…ØªØ§Ø­ Ù‡Ø°Ù‡ Ø§Ù„Ù„ÙŠÙ„Ø©.<br/>
-              Ù‡Ù„ ØªØ±ÙŠØ¯ÙŠÙ† ØªÙØ¹ÙŠÙ„ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø­Ù…Ø§ÙŠØ©ØŸ
+              الطبيب غير متاح هذه الليلة.<br/>
+              هل تريدين تفعيل صلاحية الحماية؟
             </p>
             <div className="flex gap-3">
               <button
@@ -4293,7 +4293,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 }}
                 className="flex-1 py-3 rounded-xl border border-[#333] bg-black/60 text-[#888] font-bold text-sm"
               >
-                Ù„Ø§ØŒ ØªØ®Ø·ÙŠ
+                لا، تخطي
               </button>
               <button
                 onClick={async () => {
@@ -4303,14 +4303,14 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 }}
                 className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#b38b47] text-black font-black text-sm"
               >
-                Ù†Ø¹Ù…ØŒ Ø£Ø±ÙŠØ¯ Ø§Ù„Ø­Ù…Ø§ÙŠØ©
+                نعم، أريد الحماية
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* â•â• Roles Modal â•â• */}
+      {/* ══ Roles Modal ══ */}
       <RolesInfoModal isOpen={rolesModalOpen} onClose={() => setRolesModalOpen(false)} />
     </div>
   );
