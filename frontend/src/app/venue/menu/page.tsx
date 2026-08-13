@@ -114,6 +114,9 @@ export default function VenueMenuPage() {
   // 🎁 تركيبة الباقة — Map(menuItemId → qty). فارغةٌ = صنفٌ عاديّ.
   const [isBundle, setIsBundle] = useState(false);
   const [bundle, setBundle] = useState<Map<number, number>>(new Map());
+  // 🎁 خانات «اختر صنفاً» — تُحمَل وتُعاد كما هي (هذا المحرّر لا ينشئها ولا يعدّلها،
+  //    لكنّ إسقاطها عند الحفظ يُفقد العرضَ خانة اختيار المشروب بلا إنذار).
+  const [keptChoiceSlots, setKeptChoiceSlots] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
@@ -168,6 +171,7 @@ export default function VenueMenuPage() {
   const openAdd = () => {
     setShowPreview(false);
     setForm({ ...EMPTY_FORM }); setIsBundle(false); setBundle(new Map()); setLinkedGroups(new Set());
+    setKeptChoiceSlots([]);   // صنفٌ جديد — لا خانات اختيارٍ موروثة
     setEditId(null); setErr(''); setModal('add');
   };
   const openEdit = (it: MenuItem) => {
@@ -179,7 +183,13 @@ export default function VenueMenuPage() {
       imageUrl: it.imageUrl || '', isAvailable: it.isAvailable,
     });
     setIsBundle(it.isBundle === true);
-    setBundle(new Map((it.bundleItems || []).map(c => [c.menuItemId, c.qty])));
+    // 🔴 خانات «اختر صنفاً» (choice) لا يحرّرها هذا المحرّر — يعرف المكوّنات الثابتة وحدها.
+    //    تُحفظ كما هي ليُعاد إرسالها عند الحفظ، وإلّا محا أيّ تعديلٍ بسيط (تغيير سعر مثلاً)
+    //    خانةَ اختيار المشروب من العرض بلا إنذار — وهو ما حدث فعلاً في باقات مزاج.
+    setKeptChoiceSlots(((it.bundleItems || []) as any[]).filter(c => c && (c as any).choice));
+    setBundle(new Map(((it.bundleItems || []) as any[])
+      .filter(c => c && !(c as any).choice)
+      .map(c => [c.menuItemId, c.qty])));
     setLinkedGroups(new Set(it.optionGroupIds || []));
     setEditId(it.id); setErr(''); setModal('edit');
   };
@@ -227,7 +237,10 @@ export default function VenueMenuPage() {
           clubShare: form.clubShare === '' ? 0 : parseFloat(form.clubShare),
           sortOrder: parseInt(form.sortOrder) || 0,
           isBundle,
-          bundleItems: isBundle ? Array.from(bundle.entries()).map(([menuItemId, qty]) => ({ menuItemId, qty })) : [],
+          // الثابتة من المحرّر + خانات الاختيار كما وردت (يحفظها المحرّر ولا يمسّها)
+          bundleItems: isBundle
+            ? [...Array.from(bundle.entries()).map(([menuItemId, qty]) => ({ menuItemId, qty })), ...keptChoiceSlots]
+            : [],
           optionGroupIds: Array.from(linkedGroups),
         }),
       });

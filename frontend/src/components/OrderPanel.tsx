@@ -414,7 +414,11 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer }: {
   children: React.ReactNode; footer: React.ReactNode;
 }) {
   return (
-    <div className="absolute inset-0 z-[60] flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.78)' }}
+    // 🔴 `fixed` لا `absolute`: الورقة تُستعمل في صفحةٍ كاملة (/player/order) لا داخل
+    //    حاويةٍ موضَّعة فقط. مع `absolute` تتموضع نسبةً لكتلة الاحتواء الأولى — أي من
+    //    **أعلى المستند** — فمع أيّ تمرير ينزل ذيلها (وفيه زرّ الإرسال) خارج الشاشة أو
+    //    تحت شريط التنقّل السفليّ الثابت (z-50)، فيراه اللاعب ولا يستطيع ضغطه.
+    <div className="fixed inset-0 z-[60] flex items-end justify-center" style={{ background: 'rgba(0,0,0,0.78)' }}
       onClick={onClose} dir="rtl">
       <motion.div
         initial={{ y: 60, opacity: 0.6 }} animate={{ y: 0, opacity: 1 }}
@@ -438,7 +442,9 @@ function Sheet({ title, subtitle, subtitleWarn, onClose, children, footer }: {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3.5">{children}</div>
-        <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-white/7" style={{ background: '#080b0a' }}>{footer}</div>
+        {/* حافّة الأمان (شريط الإيماءات في آيفون) — وإلّا لامس الزرّ الحافّة فيصعب ضغطه */}
+        <div className="shrink-0 flex gap-2 px-4 py-3 border-t border-white/7"
+          style={{ background: '#080b0a', paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>{footer}</div>
       </motion.div>
     </div>
   );
