@@ -229,8 +229,16 @@ class LobbyView extends StatelessWidget {
             rankFx: GameConfigService.instance
                 .effectsForTier(CosmeticsService.instance.rankTier),
           );
+          // 🕵️ البطاقة المكشوفة شاشةٌ سريّة كالمعرض: تُفعَّل الحماية الأصليّة
+          //    (تسويد اللقطة والتسجيل) ما دامت معروضة. قبل هذا كانت تحصل على
+          //    العلامة المائيّة وحدها، فلقطتُها تخرج واضحةً على iOS وأندرويد
+          //    معاً — بلاغُ المالك، والملفّ 98 ث1.
           return (c.cardFlipped && !c.isPlayerDead)
-              ? SecretWatermark(label: c.secretWatermarkLabel, opacity: 0.08, child: card)
+              ? _SecretGuard(
+                  controller: c,
+                  child: SecretWatermark(
+                      label: c.secretWatermarkLabel, opacity: 0.08, child: card),
+                )
               : card;
         }(),
       ),
@@ -306,6 +314,44 @@ class LobbyView extends StatelessWidget {
 // ══════════════════════════════════════════════════════
 // §4.12 شريط الأدوات
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 🕵️ حارس الشاشة السريّة — يربط عمرَ الودجة بعمر الحماية
+// ══════════════════════════════════════════════════════
+// 🔴 لماذا ودجةٌ ذات حالة ولا يكفي نداءان في مكان الكشف: `SecureScreen`
+//    عدّادٌ مرجعيّ (بطاقة + معرض معاً)، وأيّ `enter` بلا `leave` مقابل يُبقي
+//    التسويد عالقاً على كلّ الشاشات، وأيّ `leave` زائد يُطفئه والسرّ معروض.
+//    ربطُهما بـ`initState`/`dispose` يجعل التوازن **مضموناً بالبنية** لا
+//    بانضباط المستدعي: أيّ مسار خروجٍ — إقصاء، انتهاء الجولة، مغادرة الشاشة،
+//    أو إغلاق اللعبة — يفكّك الودجة فيطفئ الحماية حتماً.
+class _SecretGuard extends StatefulWidget {
+  const _SecretGuard({required this.controller, required this.child});
+
+  final GameSessionController controller;
+  final Widget child;
+
+  @override
+  State<_SecretGuard> createState() => _SecretGuardState();
+}
+
+class _SecretGuardState extends State<_SecretGuard> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.enterSecretScreen();
+  }
+
+  @override
+  void dispose() {
+    // 🔴 لا `context` ولا `setState` هنا: التفكيك قد يقع والشجرة تُهدَم.
+    //    `leaveSecretScreen` نداءُ متحكّمٍ وقناةٍ فقط — آمنٌ في هذا الطور.
+    widget.controller.leaveSecretScreen();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
+
 class _Toolbar extends StatelessWidget {
   const _Toolbar({required this.controller});
   final GameSessionController controller;
