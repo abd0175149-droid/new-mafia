@@ -171,6 +171,53 @@ final class ScreenProtectorTests: XCTestCase {
         }
     }
 
+    /// 🔴🔴 الحارس الأهمّ بعد ن6: اللمس أثناء التفعيل — السقوط الثاني.
+    ///    بقاءُ الحقل عرضاً داخل النافذة بينما صارت طبقتُه سلفاً لطبقتها يجعله
+    ///    ابناً في شجرةٍ وأباً في الأخرى، فيقرأ UIKit ذاكرةً محرَّرة عند أوّل
+    ///    لمسة: `hitTest: → convertPoint:fromView: → objc_retain` → EXC_BAD_ACCESS.
+    func testHitTestWhileEnabledDoesNotCrash() {
+        XCTAssertTrue(ScreenProtector.shared.enable(window: window))
+
+        // اللمس في خمسة مواضع — هذا ما كان يُسقط التطبيق فور إغلاق المعرض.
+        for p in [CGPoint(x: 10, y: 10), CGPoint(x: 195, y: 422),
+                  CGPoint(x: 380, y: 800), CGPoint(x: 0, y: 0),
+                  CGPoint(x: 389, y: 843)] {
+            _ = window.hitTest(p, with: nil)
+        }
+        XCTAssertTrue(ScreenProtector.shared.isEnabled)
+    }
+
+    /// واللمس بعد الإطفاء كذلك — وهي اللحظة التي بلّغ عنها المالك حرفياً.
+    func testHitTestAfterDisableDoesNotCrash() {
+        XCTAssertTrue(ScreenProtector.shared.enable(window: window))
+        XCTAssertTrue(ScreenProtector.shared.disable(window: window))
+        for p in [CGPoint(x: 10, y: 10), CGPoint(x: 195, y: 422), CGPoint(x: 380, y: 800)] {
+            _ = window.hitTest(p, with: nil)
+        }
+        XCTAssertFalse(ScreenProtector.shared.isEnabled)
+    }
+
+    /// 🔴 اتّساق الشجرتين: لا عرضٌ في النافذة تكون طبقتُه سلفاً لطبقتها.
+    ///    هذا هو الشرط البنيويّ الذي انتهاكُه أنتج السقوط أعلاه.
+    func testNoViewLayerHierarchyContradiction() {
+        XCTAssertTrue(ScreenProtector.shared.enable(window: window))
+        for sub in window.subviews {
+            XCTAssertFalse(Self.layerIsAncestor(sub.layer, of: window.layer),
+                           "\(type(of: sub)) ابنٌ في شجرة العروض وأبٌ في شجرة الطبقات")
+        }
+    }
+
+    private static func layerIsAncestor(_ layer: CALayer, of other: CALayer) -> Bool {
+        var cursor: CALayer? = other.superlayer
+        var hops = 0
+        while let c = cursor, hops < 32 {
+            if c === layer { return true }
+            cursor = c.superlayer
+            hops += 1
+        }
+        return false
+    }
+
     /// الإطفاء قبل التفعيل لا يُسقط شيئاً.
     func testDisableWithoutEnableIsSafe() {
         XCTAssertTrue(ScreenProtector.shared.disable(window: window))

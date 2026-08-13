@@ -85,25 +85,32 @@ final class ScreenProtector {
             return false
         }
 
-        // ① طبقة الحقل كلّها تخرج من شجرة النافذة.
-        guard !Self.isAncestor(window.layer, of: parent) else {
-            field.removeFromSuperview()
-            return false
-        }
+        // 🔴🔴 الحقل يغادر شجرة العروض **قبل** أيّ جراحةٍ على الطبقات — وهذا
+        //    ثمنُ سقوطٍ ثانٍ عاشه المالك: بقاؤه عرضاً داخل النافذة بينما صارت
+        //    طبقتُه سلفاً لطبقة النافذة يجعله ابناً في شجرةٍ وأباً في الأخرى.
+        //    فعند أوّل لمسة يمشي UIKit هذا المسار المتناقض ويقرأ ذاكرةً محرَّرة:
+        //      hitTest: → -[UIView(Geometry) convertPoint:fromView:] → objc_retain
+        //      → EXC_BAD_ACCESS
+        //    بعد الخروج تبقى الشجرتان متّسقتين: النافذة وحدها في شجرة العروض،
+        //    والطبقات وحدها هي المنقولة. ونحتفظ بمرجعٍ قويٍّ للحقل كي يحيا.
+        field.removeFromSuperview()
+
+        // ① طبقة الحقل كلّها تدخل تحت أبي النافذة.
+        guard !Self.isAncestor(window.layer, of: parent) else { return false }
         parent.addSublayer(field.layer)
+        field.layer.frame = windowFrame
 
         // ② ثمّ تبتلع الطبقةُ الآمنة النافذةَ. الحارس يمنع الدورة نهائياً.
         guard !Self.isAncestor(window.layer, of: secure) else {
             field.layer.removeFromSuperlayer()
-            field.removeFromSuperview()
             return false
         }
         secure.addSublayer(window.layer)
 
-        // 🔴 المطابقة الهندسيّة، وتتكرّر عند كلّ تخطيط: الطبقة الآمنة تملأ
-        //    الحقل، والحقلُ يملأ النافذة — فتقع النافذة في موضعها الأصليّ
-        //    تماماً. بلا هذا تنزاح الواجهة كلُّها وتنكمش (حارسها
-        //    `testWindowGeometryUnchangedAfterEnable`).
+        // 🔴 المطابقة الهندسيّة: الطبقة الآمنة تملأ الحقل، والحقلُ يحمل إطار
+        //    النافذة — فتقع النافذة في موضعها الأصليّ تماماً. بلا هذا تنزاح
+        //    الواجهة كلُّها وتنكمش (حارسها `testWindowGeometryUnchangedAfterEnable`).
+        //    وتُعاد المطابقة عند أيّ تخطيطٍ طارئ احتياطاً.
         let matchGeometry: () -> Void = { [weak field, weak window] in
             guard let field = field, let window = window else { return }
             secure.frame = field.layer.bounds
