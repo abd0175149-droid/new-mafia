@@ -458,6 +458,32 @@ export function AntiCheatProvider({
     setAliveCount(c?.aliveCount || 0);
   }, [roomId]);
 
+  // ── 💾 ترطيبٌ من المخزَّن: السجلّ يعيش في بثّ السوكِت، فتحديثُ صفحة الليدر
+  // (أو فتحُها من جهازٍ ثانٍ) كان يمحو سجلّ المباراة كلّه. نُعيد الإشارات المحفوظة
+  // عبر **نفس** المخفِّض `applySignal` فلا منطق ثانٍ يُصان بالتوازي.
+  // يُنفَّذ مرّةً لكلّ غرفة، وما وصل بالسوكِت لا يُكرَّر (المخفِّض يدمج بالفترات).
+  const hydratedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!roomId || hydratedRef.current === roomId) return;
+    hydratedRef.current = roomId;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = typeof window !== 'undefined'
+          ? (localStorage.getItem('leader_token') || localStorage.getItem('token') || '') : '';
+        const res = await fetch(`/api/anticheat/room/${encodeURIComponent(roomId)}/signals?limit=500`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const r: any = await res.json();
+        const list: any[] = r?.signals || [];
+        if (cancelled || list.length === 0) return;
+        setStore((prev) => list.reduce((acc, s) => applySignal(acc, s), prev));
+      } catch { /* الترطيب تحسينٌ — البثّ الحيّ يبقى المصدر الأساسيّ */ }
+    })();
+    return () => { cancelled = true; };
+  }, [roomId]);
+
   // ── المستهلك **الوحيد** لإشارة الاشتباه في لوحة الليدر ──
   useEffect(() => {
     if (!roomId) return;

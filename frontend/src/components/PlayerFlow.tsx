@@ -242,6 +242,11 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // 🕵️ مكافحة الغش — تتبّع مغادرة الصفحة أثناء المباراة (نمط تهريب محتمل)
   const galleryOpenRef = useRef(false);
   useEffect(() => { galleryOpenRef.current = isGalleryOpen; }, [isGalleryOpen]);
+  // 🕵️ «شاشة سرّ مفتوحة» = المعرض **أو** بطاقة الدور مكشوفة — تكافؤاً مع الموبايل
+  // الذي يحتسب الاثنتين. كان الويب يحتسب المعرض وحده، فيخرج لاعبٌ وبطاقته مكشوفة
+  // أمامه بوزن خطرٍ أقلّ من زميله على الهاتف لنفس الفعل تماماً.
+  const secretOpenRef = useRef(false);
+  useEffect(() => { secretOpenRef.current = isGalleryOpen || cardFlipped; }, [isGalleryOpen, cardFlipped]);
   const bgAtRef = useRef<number | null>(null);
   const bgSecretRef = useRef(false);
   const [assassinContracts, setAssassinContracts] = useState<any>(null);
@@ -1629,14 +1634,18 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     const markLeave = () => {
       if (bgAtRef.current != null) return;              // غيابٌ مفتوحٌ بالفعل
       bgAtRef.current = Date.now();
-      bgSecretRef.current = galleryOpenRef.current;
+      bgSecretRef.current = secretOpenRef.current;
     };
     const markReturn = () => {
       pollState();
       if (bgAtRef.current == null) return;
       const durMs = Date.now() - bgAtRef.current;
       bgAtRef.current = null;
-      if (bgSecretRef.current || durMs > 4000) {
+      // ⏱️ العتبة ١.٥ث لا ٤ث: إرسال اسمٍ عبر واتساب يستغرق ثلاثاً، فكانت العتبة
+      //    القديمة تُسقط أسرع تسريبٍ وأنظفه. و١٥٠٠ هي نفسها أرضية محرّك الارتباط
+      //    (MIN_EPISODE_MS) فما دونها مُهمَلٌ في التحليل أصلاً — فلا معنى لبثّه.
+      //    كبح الخادم (٣ث لكلّ لاعب) يحدّ الإغراق، والوزن يبقى ١ للغياب القصير.
+      if (bgSecretRef.current || durMs > 1500) {
         import('@/lib/socket').then(m =>
           m.getSocket().emit('cheat:app-departure', { durationMs: durMs, secretOpen: bgSecretRef.current, platform: 'web' }),
         ).catch(() => {});

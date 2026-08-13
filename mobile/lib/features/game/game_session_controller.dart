@@ -1002,7 +1002,9 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         // بثّ مغادرةٍ إن كانت ذات دلالة (غاب مطوّلاً أو والسرّ مفتوح)
         if (_bgAt != null) {
           final durMs = DateTime.now().difference(_bgAt!).inMilliseconds;
-          if (_bgSecretOpen || durMs > 4000) {
+          // ⏱️ العتبة ١.٥ث لا ٤ث: إرسال اسمٍ يستغرق ثلاثاً، فكانت القديمة تُسقط
+          //    أسرع تسريبٍ وأنظفه. و١٥٠٠ هي أرضية محرّك الارتباط نفسها.
+          if (_bgSecretOpen || durMs > 1500) {
             SocketService.instance.emit('cheat:app-departure', {
               'durationMs': durMs,
               'secretOpen': _bgSecretOpen,
