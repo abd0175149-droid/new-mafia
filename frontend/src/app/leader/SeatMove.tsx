@@ -93,6 +93,9 @@ export function SeatMoveProvider({
   const [remapVersion, setRemapVersion] = useState(0);
   const [hazard, setHazard] = useState<HazardPrompt | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  // 🔒 مطالبة السرّ في مكانها — تحمل النقلة المؤجّلة لتُعاد تلقائياً بعد الفتح
+  const [unlock, setUnlock] = useState<{ from: number; to: number; confirmHazard?: boolean; error: string } | null>(null);
+  const [unlockCode, setUnlockCode] = useState('');
   const busyRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -152,6 +155,12 @@ export function SeatMoveProvider({
         setHazard(null);
         setMovingId(null);
         showToast(r.error || 'تعذّر النقل الآن', 'blocked');
+      } else if (r?.code === 'TOOLS_LOCKED') {
+        // 🔒 الأدوات مقفلة: نطلب السرّ هنا مباشرةً ونُعيد المحاولة تلقائياً بعد الفتح.
+        // (مدخل الفتح الآخر — الضغطة المطوّلة على كود الغرفة — يعيش في شاشة إدارة الغرفة
+        //  وحدها، فكان الليدر أثناء اللعب يصطدم بجدارٍ بلا مخرج.)
+        setHazard(null);
+        setUnlock({ from, to, confirmHazard, error: '' });
       } else {
         setHazard(null);                // يبقى وضع اختيار الوجهة ليعيد المحاولة بلمسة واحدة
         showToast(err?.message || 'فشل نقل المقعد', 'error');
@@ -162,6 +171,32 @@ export function SeatMoveProvider({
     }
   }, [roomId, emit, bySeat, showToast]);
 
+  // مرجع حيّ لـrunMove — تستدعيه مطالبة السرّ بعد الفتح بلا اعتماد دائري
+  const runMoveRef = useRef<typeof runMove | null>(null);
+  runMoveRef.current = runMove;
+
+  // 🔒 فتح الأدوات ثم إعادة النقلة المؤجّلة تلقائياً — الليدر يكتب السرّ مرّة ويكمل عمله
+  const submitUnlock = useCallback(async () => {
+    if (!unlock || busyRef.current) return;
+    const code = unlockCode.trim();
+    if (!code) return;
+    try {
+      const r: any = await emit('leader:tools-ping', { code });
+      if (r?.ok || r?.success) {
+        const pending = unlock;
+        setUnlock(null);
+        setUnlockCode('');
+        await runMoveRef.current?.(pending.from, pending.to, pending.confirmHazard);
+      } else {
+        setUnlockCode('');
+        setUnlock((u) => (u ? { ...u, error: 'رقم غير صحيح' } : u));
+      }
+    } catch {
+      setUnlockCode('');
+      setUnlock((u) => (u ? { ...u, error: 'تعذّر التحقق — حاول مجدداً' } : u));
+    }
+  }, [unlock, unlockCode, emit]);
+
   const beginMove = useCallback((physicalId: number) => {
     setHazard(null);
     setMovingId(physicalId);
@@ -170,6 +205,8 @@ export function SeatMoveProvider({
   const cancelMove = useCallback(() => {
     setMovingId(null);
     setHazard(null);
+    setUnlock(null);
+    setUnlockCode('');
   }, []);
 
   const moveTo = useCallback((toSeat: number) => {
@@ -180,7 +217,7 @@ export function SeatMoveProvider({
 
   // ── ESC / لمسة خارج واجهة النقل = إلغاء ──
   useEffect(() => {
-    if (movingId === null && !hazard) return;
+    if (movingId === null && !hazard && !unlock) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') cancelMove(); };
     const onDown = (e: PointerEvent) => {
       const el = e.target as HTMLElement | null;
@@ -202,7 +239,7 @@ export function SeatMoveProvider({
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onDown, true);
     };
-  }, [movingId, hazard, cancelMove]);
+  }, [movingId, hazard, unlock, cancelMove]);
 
   // ── إشارة الإبطال من الخادم (تصل حتى لو نُقل من جهاز ليدر آخر) ──
   useEffect(() => {
@@ -226,7 +263,51 @@ export function SeatMoveProvider({
       {/* ── طبقة الرجع: تأكيد المخاطر (مضغوط، لا مودال) ثم شريط النتيجة مع «تراجع» ── */}
       <FixedLayer>
       <AnimatePresence>
-        {hazard ? (
+        {unlock ? (
+          /* 🔒 مطالبة السرّ في مكانها — تُعيد النقلة تلقائياً بعد الفتح (١٠ دقائق) */
+          <motion.div
+            key="seat-move-unlock"
+            data-seat-move="1"
+            dir="rtl"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 14 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[130] w-[min(94vw,26rem)] rounded-2xl border border-[#C5A059]/50 bg-[#0d0b06]/95 backdrop-blur-md shadow-2xl p-4"
+          >
+            <p className="text-[#C5A059] text-[13px] font-bold mb-1">🔒 أدخل الرقم السرّي لتعديل المقاعد</p>
+            <p className="text-[#8a8172] text-[11px] mb-3">
+              نقل «{bySeat.get(unlock.from)?.name || `#${unlock.from}`}» إلى المقعد <b className="font-mono">{unlock.to}</b> — يبقى مفتوحاً ١٠ دقائق
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                inputMode="numeric"
+                autoFocus
+                value={unlockCode}
+                onChange={(e) => setUnlockCode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void submitUnlock(); }}
+                placeholder="••••"
+                className="flex-1 min-w-0 px-3 py-2.5 rounded-xl bg-black/60 border border-[#C5A059]/30 text-white text-center font-mono tracking-[0.4em] outline-none focus:border-[#C5A059]"
+              />
+              <button
+                type="button"
+                disabled={busy || !unlockCode.trim()}
+                onClick={() => { void submitUnlock(); }}
+                className="px-4 py-2.5 rounded-xl bg-[#C5A059]/20 border border-[#C5A059] text-[#C5A059] text-xs font-bold hover:bg-[#C5A059]/30 transition-colors disabled:opacity-40"
+              >
+                فتح ونقل
+              </button>
+              <button
+                type="button"
+                onClick={cancelMove}
+                className="px-3 py-2.5 rounded-xl bg-zinc-800 border border-zinc-600 text-zinc-300 text-xs hover:bg-zinc-700 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            {unlock.error && <p className="text-red-400 text-[11px] mt-2">{unlock.error}</p>}
+          </motion.div>
+        ) : hazard ? (
           <motion.div
             key="seat-move-hazard"
             data-seat-move="1"

@@ -2063,9 +2063,11 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (socket.data.role !== 'leader') {
         return callback({ success: false, error: 'Only leader' });
       }
-      // 🔒 نفس منطق السرّ (RENUMBER_SECRET عبر leader:tools-ping) — خطأ عام يوحي بعطل مؤقّت
+      // 🔒 نفس منطق السرّ (RENUMBER_SECRET عبر leader:tools-ping).
+      // الرمز TOOLS_LOCKED يسمح لواجهة الليدر بطلب السرّ فوراً في مكانه بدل إرسال الليدر
+      // للبحث عن مدخل الفتح في شاشة أخرى. النصّ يبقى عاماً لمن يقرأ الشاشة من بعيد.
       if (!toolsUnlocked(socket)) {
-        return callback({ success: false, error: 'تعذّر تنفيذ النقل — مشكلة مؤقتة، حاول لاحقاً' });
+        return callback({ success: false, code: 'TOOLS_LOCKED', error: 'تعذّر تنفيذ النقل — مشكلة مؤقتة، حاول لاحقاً' });
       }
 
       // 🔒 قفل تسلسل لكل غرفة — يمنع نقلين متزامنين يتقاطعان على نفس الحالة
