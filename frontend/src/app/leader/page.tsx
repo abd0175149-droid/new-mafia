@@ -12,6 +12,7 @@ import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
 import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
+import { AntiCheatProvider, AntiCheatToggle } from './AntiCheatWatch';
 import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
@@ -313,40 +314,11 @@ export default function LeaderPage() {
   const galleryAlertShowingRef = useRef(false);
   const galleryAlertPosRef = useRef(0); // موضع التنبيه المعروض حالياً (1-based؛ 0 = خامل)
 
-  // ── 🕵️ لُقيمات الاشتباه (غياب/لقطة/تسجيل) — سطرٌ خفيفٌ غير حاجب أسفل الشاشة ──
-  const [cheatFeed, setCheatFeed] = useState<{ id: number; name: string; physicalId: number; teamAr: string; labelAr: string; weight: number }[]>([]);
-
   // ══════════════════════════════════════════════════
-  // 🕵️ سجلّ الاشتباه المُجمَّع — لاعبٌ واحدٌ = سطرٌ واحد
+  // 🕵️ المراقبة (غياب/لقطة/تسجيل) — كلّ المنطق في طبقة AntiCheatWatch المشتركة:
+  //    المزوّد هو **المستهلك الوحيد** لـleader:cheat-signal (التنبيه الفوري،
+  //    الصوت، مخزن الحلقات، ومحرّك «خرجوا معاً»)، والزرّ الدائم في الرأسين.
   // ══════════════════════════════════════════════════
-  // 🔴 لماذا تجميعٌ ولا يكفي السطر العابر: الإشارة الواحدة لا تُدين، والنمط
-  //    يُدين. لاعبٌ غادر مرّةً لثانيتين ≠ لاعبٌ غادر خمس مرّاتٍ وشاشة السرّ
-  //    مفتوحة. والسطر العابر (١٥ث) يختفي قبل أن يلتفت الليدر — فيضيع النمط
-  //    كلُّه. فيُحفظ العدّ ووقتُ آخر مغادرةٍ **طوال المباراة**.
-  //
-  // 🔴 ولماذا لم يكن يظهر أصلاً: `cheatFeed` كان مرسوماً في كتلة العودة
-  //    الأخيرة وحدها — **شاشة إنشاء اللعبة** — حيث يستحيل أن تقع إشارة، إذ
-  //    يشترط الخادم لعبةً جارية غير منتهية. وأثناء اللعب يعرض الليدر شاشة
-  //    الجلسة التي لم تكن تحوي اللوحة. الإشارة كانت تصل وتُخزَّن (فتظهر في
-  //    داشبورد مكافحة الغش) ولا تُرسم قطّ.
-  type CheatAggRow = {
-    physicalId: number; name: string; teamAr: string;
-    departures: number; screenshots: number; recordings: number;
-    lastDepartureAt: number | null; lastDepartureMs: number | null;
-    totalAwayMs: number; lastAt: number; maxWeight: number; lastLabelAr: string;
-  };
-  const [cheatAgg, setCheatAgg] = useState<Record<number, CheatAggRow>>({});
-  const [cheatPanelOpen, setCheatPanelOpen] = useState(true);
-  // نبضةٌ خفيفة لتحديث «قبل كذا» — تعمل فقط ما دام في السجلّ صفوف.
-  const [cheatNow, setCheatNow] = useState(() => Date.now());
-  const cheatCount = Object.keys(cheatAgg).length;
-  useEffect(() => {
-    if (cheatCount === 0) return;
-    const iv = setInterval(() => setCheatNow(Date.now()), 10000);
-    return () => clearInterval(iv);
-  }, [cheatCount]);
-  // مباراةٌ جديدة = سجلٌّ جديد: «خلال اللعبة» تفقد معناها لو تراكمت الغرف.
-  useEffect(() => { setCheatAgg({}); }, [gameState?.roomId]);
 
   // ── 🎁 سحب «اختيار رابح» (هدايا الفعالية) ──
   const [showLuckyDraw, setShowLuckyDraw] = useState(false);
@@ -791,7 +763,6 @@ export default function LeaderPage() {
       setPendingNewGameAction(null);
       setExcludedPlayers([]);
       setShowExcludeUI(false);
-      setCheatFeed([]);
       setAutoNightStep(null);
       setAutoNightProgress(null);
       setAutoNightApproval(null);
@@ -1430,42 +1401,7 @@ export default function LeaderPage() {
       processGalleryAlerts();   // ابدأ العرض إن كان خاملاً
     });
 
-    // ── 🕵️ لُقيمات الاشتباه: غيابٌ عن التطبيق/لقطة/تسجيل — سطرٌ خفيفٌ لا يقطع اللعب ──
-    const offCheatSignal = on('leader:cheat-signal', (d: any) => {
-      if (!d || d.roomId !== gameState.roomId) return;
-      if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
-      const id = Date.now() + Math.floor(Math.random() * 1000);
-      setCheatFeed(prev => [
-        { id, name: d.name, physicalId: d.physicalId, teamAr: d.teamAr, labelAr: d.labelAr, weight: d.weight },
-        ...prev,
-      ].slice(0, 4));
-      setTimeout(() => setCheatFeed(prev => prev.filter(x => x.id !== id)), 15000);
-
-      // ── التجميع لكلّ لاعبٍ على حدة (يبقى طوال المباراة) ──
-      const at = typeof d.at === 'number' ? d.at : Date.now();
-      // 🔴 المدّة تأتي من العميل داخل `details` — والخادم يحدّها ١٠ دقائق.
-      //    غيابها ليس صفراً بل «غير معروف»، فتُميَّز بـnull لا بـ0.
-      const durMs = typeof d?.details?.durationMs === 'number' ? d.details.durationMs : null;
-      const isDeparture = d.kind === 'app_departure';
-      setCheatAgg(prev => {
-        const old = prev[d.physicalId];
-        const row: CheatAggRow = {
-          physicalId: d.physicalId,
-          name: d.name,
-          teamAr: d.teamAr,
-          departures: (old?.departures || 0) + (isDeparture ? 1 : 0),
-          screenshots: (old?.screenshots || 0) + (d.kind === 'screenshot' ? 1 : 0),
-          recordings: (old?.recordings || 0) + (d.kind === 'screen_recording' ? 1 : 0),
-          lastDepartureAt: isDeparture ? at : (old?.lastDepartureAt ?? null),
-          lastDepartureMs: isDeparture ? durMs : (old?.lastDepartureMs ?? null),
-          totalAwayMs: (old?.totalAwayMs || 0) + (isDeparture && durMs ? durMs : 0),
-          lastAt: at,
-          maxWeight: Math.max(old?.maxWeight || 0, Number(d.weight) || 0),
-          lastLabelAr: d.labelAr || old?.lastLabelAr || '',
-        };
-        return { ...prev, [d.physicalId]: row };
-      });
-    });
+    // ── 🕵️ إشارات الاشتباه: يستهلكها مزوّد AntiCheatWatch وحده (لا مستمع هنا) ──
 
     // ── Auto Night: استقبال تحديث الحالة الكامل من السيرفر ──
     const offStateUpdated = on('game:state-updated', (state: any) => {
@@ -1523,7 +1459,6 @@ export default function LeaderPage() {
       offTimerAdjusted();
       offPenaltyRecorded();
       offGalleryAlert();
-      offCheatSignal();
       offSoundsUpdated();
       offMorningEventSound();
       offShowSilencedSound();
@@ -1773,99 +1708,6 @@ export default function LeaderPage() {
   const stingNoticeBadge = stingNotice ? (
     <div className="fixed bottom-4 left-20 z-[60] px-3 py-2 rounded-xl text-xs font-bold border backdrop-blur-sm shadow-lg bg-[#1a1206]/90 border-amber-600/40 text-amber-300">
       {stingNotice}
-    </div>
-  ) : null;
-
-  // ══════════════════════════════════════════════════
-  // 🕵️ لوحة الاشتباه — على جهاز الليدر وحده، لا تُبثّ للقاعة
-  // ══════════════════════════════════════════════════
-  // 🔴 تُحقن في **كلّ** شاشات الليدر. كان مصدر العطل أنها رُسمت في شاشة إنشاء
-  //    اللعبة وحدها، حيث يستحيل أن تقع إشارةٌ أصلاً.
-  // بنيتان متكاملتان: سطرٌ عابر ينبّه لحظة الحدث، ولوحةٌ مُجمَّعة تبقى فتكشف
-  // النمط — إذ الإشارة الواحدة لا تُدين والتكرار يُدين.
-  const cheatRows = Object.values(cheatAgg).sort((a, b) => b.lastAt - a.lastAt);
-  const fmtClock = (ts: number) => {
-    const d = new Date(ts);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  };
-  const fmtAgo = (ts: number) => {
-    const s = Math.max(0, Math.round((cheatNow - ts) / 1000));
-    if (s < 45) return 'الآن';
-    if (s < 3600) return `قبل ${Math.round(s / 60)}د`;
-    return `قبل ${Math.floor(s / 3600)}س`;
-  };
-  const fmtDur = (ms: number | null) => {
-    if (ms == null) return null;                       // «غير معروف» لا «صفر»
-    const s = Math.round(ms / 1000);
-    return s < 60 ? `${s}ث` : `${Math.floor(s / 60)}د ${s % 60}ث`;
-  };
-
-  const cheatWatchPanel = (cheatRows.length > 0 || cheatFeed.length > 0) ? (
-    <div className="fixed bottom-4 left-4 z-[95] flex flex-col gap-1.5 max-w-[86vw] sm:max-w-xs" dir="rtl">
-      {/* السطر العابر — تنبيهٌ لحظيّ لا يقطع اللعب */}
-      {cheatFeed.map(c => (
-        <div key={c.id} className="rounded-xl px-3 py-2 text-[11.5px] shadow-2xl"
-          style={{ background: 'rgba(26,5,5,0.95)', border: `1px solid ${c.weight >= 5 ? 'rgba(224,73,43,0.6)' : 'rgba(217,138,43,0.45)'}` }}>
-          <div className="flex items-center gap-1.5 font-bold" style={{ color: c.weight >= 5 ? '#F08163' : '#E8B84B' }}>
-            <span>🕵️</span>
-            <span>مقعد {c.physicalId} · {c.name}</span>
-            <span className="text-[9px] opacity-70">({c.teamAr})</span>
-          </div>
-          <div className="text-[#C9BEB0] mt-0.5">{c.labelAr}</div>
-        </div>
-      ))}
-
-      {/* اللوحة المُجمَّعة — تبقى طوال المباراة */}
-      {cheatRows.length > 0 && (
-        <div className="rounded-xl shadow-2xl overflow-hidden"
-          style={{ background: 'rgba(16,10,10,0.96)', border: '1px solid rgba(217,138,43,0.35)' }}>
-          <button type="button" onClick={() => setCheatPanelOpen(o => !o)}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] font-bold text-[#E8B84B] hover:bg-white/5 transition">
-            <span className="flex items-center gap-1.5">
-              <span>🕵️</span>
-              <span>سجلّ الاشتباه · {cheatRows.length} لاعب</span>
-            </span>
-            <span className="text-[9px] opacity-70">{cheatPanelOpen ? '▲' : '▼'}</span>
-          </button>
-
-          {cheatPanelOpen && (
-            <div className="max-h-[42vh] overflow-y-auto border-t border-white/10">
-              {cheatRows.map(r => (
-                <div key={r.physicalId} className="px-3 py-2 border-b border-white/5 last:border-b-0">
-                  <div className="flex items-center gap-1.5 text-[11.5px] font-bold"
-                    style={{ color: r.maxWeight >= 5 ? '#F08163' : '#E8B84B' }}>
-                    <span>مقعد {r.physicalId} · {r.name}</span>
-                    <span className="text-[9px] opacity-70">({r.teamAr})</span>
-                  </div>
-
-                  {r.departures > 0 && (
-                    <div className="text-[#C9BEB0] text-[10.5px] mt-0.5 leading-relaxed">
-                      {/* 🔴 العدّ أوّلاً: هو ما يكشف النمط. ثمّ وقتُ آخر مغادرةٍ
-                          مطلقاً ونسبيّاً معاً — المطلق للتوثيق والنسبيّ للحكم
-                          اللحظيّ («قبل 1د» أدلّ من «21:14» أثناء إدارة جولة). */}
-                      <span className="text-[#F0C674] font-bold">غادر التطبيق ×{r.departures}</span>
-                      {r.lastDepartureAt != null && (
-                        <> · آخرها {fmtClock(r.lastDepartureAt)} <span className="opacity-70">({fmtAgo(r.lastDepartureAt)})</span></>
-                      )}
-                      {fmtDur(r.lastDepartureMs) && <> · غاب {fmtDur(r.lastDepartureMs)}</>}
-                      {r.departures > 1 && fmtDur(r.totalAwayMs) && (
-                        <> · مجموع {fmtDur(r.totalAwayMs)}</>
-                      )}
-                    </div>
-                  )}
-
-                  {(r.screenshots > 0 || r.recordings > 0) && (
-                    <div className="flex items-center gap-2 mt-1 text-[10px]">
-                      {r.screenshots > 0 && <span className="text-[#F08163]">📸 لقطة ×{r.screenshots}</span>}
-                      {r.recordings > 0 && <span className="text-[#F08163]">🎥 تسجيل ×{r.recordings}</span>}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   ) : null;
 
@@ -2227,11 +2069,11 @@ export default function LeaderPage() {
   if (gameState && inSession) {
     return (
       <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
+      <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
           {stingNoticeBadge}
-          {cheatWatchPanel}
           {mafiaChatBtn}
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
@@ -2253,6 +2095,8 @@ export default function LeaderPage() {
               {birthdayBtn}
               {/* 🪑 لوحة نقل/تبادل المقاعد — متاحة في كل المراحل */}
               <SeatMoveBoardToggle />
+              {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
+              <AntiCheatToggle />
               {/* زر تعديل الأسماء — Session View */}
               {gameState.players.length > 0 && (
                 <button
@@ -3473,6 +3317,7 @@ export default function LeaderPage() {
           })()}
         </div>
       </div>
+      </AntiCheatProvider>
       </SeatMoveProvider>
     );
   }
@@ -3483,11 +3328,11 @@ export default function LeaderPage() {
   if (gameState) {
     return (
       <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
+      <AntiCheatProvider roomId={gameState.roomId} on={on} soundOn={() => leaderSoundOnRef.current}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
           {stingNoticeBadge}
-          {cheatWatchPanel}
           {mafiaChatBtn}
           {mafiaChatModal}
           {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}
@@ -3516,6 +3361,8 @@ export default function LeaderPage() {
               {birthdayBtn}
               {/* 🪑 لوحة نقل/تبادل المقاعد — متاحة في كل المراحل (لمستان بلا كتابة) */}
               <SeatMoveBoardToggle />
+              {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
+              <AntiCheatToggle />
               {/* زر تعديل الأسماء — يظهر فقط قبل توزيع الأدوار */}
               {(gameState.phase === 'LOBBY' || gameState.phase === 'ROLE_GENERATION') && gameState.players.length > 0 && (
                 <button
@@ -4612,6 +4459,7 @@ export default function LeaderPage() {
           </div>
         </div>
       </div>
+      </AntiCheatProvider>
       </SeatMoveProvider>
     );
   }
@@ -4619,10 +4467,10 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   // شاشة إنشاء لعبة + الألعاب النشطة
   // ══════════════════════════════════════════════════
+  // 🕵️ لا لوحة مراقبة هنا: الخادم لا يبثّ إشارةً إلا في مباراةٍ جارية، وهذه
+  //     الشاشة تعني أنه لا لعبة أصلاً — فالمزوّد يُركَّب مع gameState وحده.
   return (
     <div className="display-bg min-h-screen flex flex-col items-center py-12 px-6 font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white">
-      {/* 🕵️ لُقيمات الاشتباه — على جهاز الليدر وحده (لا تُبثّ للقاعة) */}
-      {cheatWatchPanel}
       <div className="w-full max-w-2xl relative z-10">
         {/* Header */}
         <div className="text-center mb-12 border-b border-[#2a2a2a] pb-8 flex flex-col items-center">

@@ -161,6 +161,32 @@ try {
   ok('مجموع الغياب = ٤١ث', rows[0]?.totalAwayMs === 41000, `=${rows[0]?.totalAwayMs}`);
   ok('آخر مغادرة = ٢٥ث (الأخيرة)', rows[0]?.lastDepartureMs === 25000, `=${rows[0]?.lastDepartureMs}`);
   ok('أعلى وزن التُقط', (rows[0]?.maxWeight || 0) >= 2, `=${rows[0]?.maxWeight}`);
+  ok('السياق الجديد مرفق (مرحلة/جولة/أحياء)', dep.every(s => s?.details?.phase && typeof s?.details?.aliveCount === 'number'),
+    JSON.stringify({ phase: dep[0]?.details?.phase, aliveCount: dep[0]?.details?.aliveCount }));
+
+  // ── الثغرة الكبرى: «غادر ولم يعد» — يجب أن يُسجَّل الآن من الخادم ──
+  console.log('\n━━━ ٦) قطع الاتصال بلا عودة (كان لا يُنتج شيئاً إطلاقاً) ━━━');
+  const before = signals.length;
+  player.close();                       // محاكاة: قُتل التطبيق / انقطعت الشبكة
+  await sleep(2500);
+  const left = signals.slice(before).filter(s => s.kind === 'app_left');
+  ok('وصلت إشارة «خرج ولم يعد» فور الانقطاع', left.length === 1, `وصل ${left.length}`);
+  ok('الإشارة مُعلَّمة ongoing وبمصدر disconnect',
+    left[0]?.details?.ongoing === true && left[0]?.details?.source === 'disconnect',
+    JSON.stringify(left[0]?.details));
+  ok('نصّها يوضّح أنه لم يعد', /لم يعد|خرج/.test(left[0]?.labelAr || ''), left[0]?.labelAr);
+
+  // ── العودة تُغلق الغياب بمدّة يقيسها الخادم ──
+  console.log('\n━━━ ٧) العودة تُغلق الغياب بمدّة خادميّة ━━━');
+  const back = await connect({});
+  others.push(back);
+  const beforeBack = signals.length;
+  await rpc(back, 'room:rejoin-player', { roomId, physicalId: pid, phone: '0790000001' });
+  await sleep(2000);
+  const closed = signals.slice(beforeBack).filter(s => s.kind === 'app_departure' && s.details?.source === 'disconnect');
+  ok('سُجّل غيابٌ مكتمل عند العودة', closed.length === 1, `وصل ${closed.length}`);
+  ok('المدّة قاسها الخادم (≈ زمن الانقطاع)', (closed[0]?.details?.durationMs || 0) >= 2000, `=${closed[0]?.details?.durationMs}`);
+  ok('يحمل لحظة المغادرة departedAt', typeof closed[0]?.details?.departedAt === 'number');
 } catch (e) {
   fail++; failures.push(`استثناء: ${e.message}`);
   console.error('❌ استثناء:', e.message);

@@ -49,6 +49,146 @@ function toolsUnlocked(socket: any): boolean {
 }
 
 // ══════════════════════════════════════════════════════
+// 🕵️ رصد سلوك اللاعب (مكافحة الغش) — البنية العامّة
+// ══════════════════════════════════════════════════════
+// `app_left`     : اللاعب خرج **الآن** (بلا مدّة بعد) — يُسجَّل فور الانقطاع.
+// `app_departure`: غيابٌ **مكتمل** بمدّته — يُسجَّل عند العودة. هو ما تُحسب عليه الإحصاءات.
+// الفصل بينهما هو ما يجعل «غادر ولم يعد» مرئيّاً: كان يختفي تماماً لأن كلا العميلين
+// (ويب/موبايل) لا يبثّان إلا على حافة العودة، والخادم لم يكن يرصد الانقطاع إطلاقاً.
+export type CheatKind = 'app_departure' | 'app_left' | 'screenshot' | 'screen_recording';
+
+/** مفتاح Redis لغياباتٍ مفتوحة في غرفة: physicalId → لحظة الخروج وسياقها */
+const absenceKey = (roomId: string) => `absence:${roomId}`;
+
+/**
+ * المسار الوحيد لتسجيل إشارة اشتباه — بلا اعتمادٍ على سوكِت حيّ.
+ * يبثّ للّيدر، ويخزّن الصفّ، ويسجّل عملية مراقبة.
+ */
+export async function recordCheatSignalFor(
+  io: Server, roomId: string, physicalId: number,
+  kind: CheatKind, weight: number, details: Record<string, any>, labelAr: string,
+): Promise<void> {
+  if (!roomId || !physicalId) return;
+  const state = await getGameState(roomId);
+  if (!state || state.phase === 'GAME_OVER') return;         // خارج اللعب لا معنى للإشارة
+  const player = state.players.find((p: any) => p.physicalId === physicalId);
+  if (!player?.role) return;
+  const mafia = isMafiaRole(player.role as Role);
+  const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
+  const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
+  const now = Date.now();
+
+  // 🧭 سياقٌ يرفع قيمة التحليل كثيراً ولا يكلّف شيئاً: المرحلة والجولة وحالة الحياة
+  //    وعدد الأحياء (مقام قاعدة «استراحة عامّة» التي تُميّز الضجيج عن التواطؤ).
+  const enriched = {
+    ...details,
+    phase: state.phase, round: state.round ?? 0,
+    alive: player.isAlive !== false,
+    aliveCount: state.players.filter((p: any) => p.isAlive !== false).length,
+  };
+
+  // بثّ فوريّ للّيدر وحده (يحمل الدور — لا يُبثّ للغرفة)
+  const allSockets = await io.in(roomId).fetchSockets();
+  for (const s of allSockets) {
+    if ((s as any).data?.role === 'leader') {
+      s.emit('leader:cheat-signal', {
+        roomId, physicalId, kind, weight, labelAr,
+        name: player.name, role: player.role, team, teamAr,
+        avatarUrl: (player as any).avatarUrl || null, details: enriched, at: now,
+      });
+    }
+  }
+
+  try {
+    const db = getDB();
+    if (db) {
+      await db.insert(cheatSignals).values({
+        matchId: (state as any).matchId ?? null,
+        roomId, activityId: (state as any).activityId ?? null,
+        playerId: (player as any).playerId ?? null,
+        physicalId, playerName: player.name, role: player.role, team,
+        kind, weight, details: enriched,
+      } as any);
+    }
+  } catch { /* التخزين لا يحجب التنبيه */ }
+
+  try {
+    const { logStaffAction } = await import('../services/staff-action-log.service.js');
+    const roleAr = ROLE_NAMES_AR[player.role as Role] || player.role;
+    logStaffAction({
+      source: 'socket',
+      action: `cheat:${kind === 'app_departure' ? 'app-departure' : kind === 'app_left' ? 'app-left' : kind === 'screenshot' ? 'screenshot' : 'screen-recording'}`,
+      category: 'MONITORING', labelAr, outcome: 'success',
+      roomId, roomCode: (state as any).roomCode, matchId: (state as any).matchId,
+      activityId: (state as any).activityId, targetPhysicalId: physicalId,
+      targetName: `${player.name} — ${roleAr}`,
+      details: { ...enriched, physicalId, role: player.role, team, weight },
+    });
+  } catch { /* غير حاجب */ }
+}
+
+/**
+ * 🚪 فتح غياب: اللاعب انقطع أثناء لعبةٍ حيّة.
+ * يُسجَّل فوراً (`app_left`) فيبقى أثرٌ دائمٌ حتى لو لم يعد أبداً — وهي الحالة
+ * التي كانت غير مرئيّة إطلاقاً. اللحظة تُحفظ في Redis لتُغلَق عند العودة.
+ */
+export async function openAbsence(
+  io: Server, roomId: string, physicalId: number, secretOpen: boolean,
+): Promise<void> {
+  try {
+    const state = await getGameState(roomId);
+    if (!state || state.phase === 'GAME_OVER') return;
+    const player = state.players.find((p: any) => p.physicalId === physicalId);
+    if (!player?.role) return;                                  // قبل ربط الأدوار لا أسرار
+
+    const { getAux, setAux } = await import('../config/redis.js');
+    const open = (await getAux(absenceKey(roomId))) || {};
+    open[String(physicalId)] = { at: Date.now(), secretOpen, phase: state.phase, round: state.round ?? 0 };
+    await setAux(absenceKey(roomId), open);
+
+    await recordCheatSignalFor(io, roomId, physicalId,
+      'app_left', secretOpen ? 4 : 1,
+      { source: 'disconnect', secretOpen, ongoing: true },
+      secretOpen ? 'خرج من التطبيق وشاشة السرّ مفتوحة' : 'خرج من التطبيق (لم يعد بعد)');
+  } catch (e: any) {
+    console.warn('⚠️ openAbsence failed:', e?.message || e);
+  }
+}
+
+/**
+ * 🚪 إغلاق غياب: اللاعب عاد. يحسب المدّة الحقيقيّة من لحظة الانقطاع المحفوظة
+ * (لا من قياس الجهاز) ويسجّلها كغيابٍ مكتمل. يعيد true إن أُغلق غيابٌ فعلاً.
+ */
+export async function closeAbsence(
+  io: Server, roomId: string, physicalId: number,
+): Promise<boolean> {
+  try {
+    const { getAux, setAux } = await import('../config/redis.js');
+    const open = (await getAux(absenceKey(roomId))) || {};
+    const rec = open[String(physicalId)];
+    if (!rec?.at) return false;
+    delete open[String(physicalId)];
+    await setAux(absenceKey(roomId), open);
+
+    const durationMs = Math.max(0, Math.min(600000, Date.now() - Number(rec.at)));
+    const secs = Math.round(durationMs / 1000);
+    // نفس نموذج الوزن المستعمل في المسار الذي يبلّغه الجهاز — كي تتقارن الإشارتان
+    let weight = 1;
+    if (rec.secretOpen) weight += 3;
+    if (durationMs > 30000) weight += 2; else if (durationMs > 10000) weight += 1;
+
+    await recordCheatSignalFor(io, roomId, physicalId,
+      'app_departure', weight,
+      { durationMs, secretOpen: !!rec.secretOpen, source: 'disconnect', departedAt: Number(rec.at) },
+      `عاد بعد غياب ${secs}ث${rec.secretOpen ? ' (خرج وشاشة السرّ مفتوحة)' : ''}`);
+    return true;
+  } catch (e: any) {
+    console.warn('⚠️ closeAbsence failed:', e?.message || e);
+    return false;
+  }
+}
+
+// ══════════════════════════════════════════════════════
 // 🪑 نقل المقاعد أثناء اللعب — البنية المساندة
 // ══════════════════════════════════════════════════════
 
@@ -1803,6 +1943,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       socket.data.roomId = data.roomId;
       socket.data.physicalId = player.physicalId;
 
+      // 🕵️ إغلاق الغياب المفتوح (إن كان انقطع أثناء لعبةٍ حيّة): تُحسب المدّة من
+      // لحظة الانقطاع المسجّلة خادميّاً لا من قياس الجهاز. والعلَم يمنع ازدواج
+      // التسجيل إن أرسل الجهاز بلاغه الخاصّ عن نفس الغياب بعد لحظات.
+      void closeAbsence(io, data.roomId, player.physicalId).then((closed) => {
+        if (closed) socket.data.serverAbsenceClosedAt = Date.now();
+      }).catch(() => {});
+
       // إخفاء الدور إذا لم يتم تأكيد الأدوار بعد
       const shouldShowRole = state.rolesConfirmed || 
         (state.phase !== Phase.ROLE_BINDING && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.LOBBY);
@@ -2367,6 +2514,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // 🕵️ ختمُ رؤية السرّ: يستعمله فحص «الغياب بعد رؤية السرّ» في cheat:app-departure
       socket.data.lastSecretViewAt = Date.now();
+      // 🔓 شاشة سرٍّ مفتوحة الآن — لو انقطع الاتصال بعدها مباشرةً فالغياب أخطر بكثير،
+      //    ومسارُ الانقطاع (openAbsence) يقرأ هذا العلَم لرفع الوزن. يُطفأ بعد دقيقتين
+      //    تلقائياً لأن العميل لا يبلّغ إغلاق المعرض.
+      socket.data.secretScreenOpen = true;
+      if (socket.data.secretScreenTimer) clearTimeout(socket.data.secretScreenTimer);
+      socket.data.secretScreenTimer = setTimeout(() => { socket.data.secretScreenOpen = false; }, 120000);
 
       // Throttle: تجاهل التكرار خلال 5 ثوانٍ لكل لاعب (حماية من الإغراق)
       const now = Date.now();
@@ -2427,58 +2580,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
   // الهويّة من socket.data حصراً. تُخزَّن في cheat_signals، وتُبثّ للّيدر
   // فوراً (leader:cheat-signal)، وتُسجَّل MONITORING. لا تُدين وحدها.
   async function recordCheatSignal(
-    kind: 'app_departure' | 'screenshot' | 'screen_recording',
+    kind: CheatKind,
     weight: number, details: Record<string, any>, labelAr: string,
   ) {
     const roomId: string | undefined = socket.data.roomId;
     const physicalId: number | undefined = socket.data.physicalId;
     if (!roomId || !physicalId) return;
-    const state = await getGameState(roomId);
-    if (!state || state.phase === 'GAME_OVER') return;         // خارج اللعب لا معنى للإشارة
-    const player = state.players.find((p: any) => p.physicalId === physicalId);
-    if (!player?.role) return;
-    const mafia = isMafiaRole(player.role as Role);
-    const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
-    const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
-    const now = Date.now();
-
-    // بثّ فوريّ للّيدر وحده (يحمل الدور — لا يُبثّ للغرفة)
-    const allSockets = await io.in(roomId).fetchSockets();
-    for (const s of allSockets) {
-      if ((s as any).data?.role === 'leader') {
-        s.emit('leader:cheat-signal', {
-          roomId, physicalId, kind, weight, labelAr,
-          name: player.name, role: player.role, team, teamAr,
-          avatarUrl: (player as any).avatarUrl || null, details, at: now,
-        });
-      }
-    }
-
-    // تخزينٌ دائم للتحليل + تسجيل MONITORING (غير حاجب)
-    try {
-      const db = getDB();
-      if (db) {
-        await db.insert(cheatSignals).values({
-          matchId: (state as any).matchId ?? null,
-          roomId, activityId: (state as any).activityId ?? null,
-          playerId: (player as any).playerId ?? null,
-          physicalId, playerName: player.name, role: player.role, team,
-          kind, weight, details,
-        } as any);
-      }
-    } catch { /* التخزين لا يحجب التنبيه */ }
-    try {
-      const { logStaffAction } = await import('../services/staff-action-log.service.js');
-      const roleAr = ROLE_NAMES_AR[player.role as Role] || player.role;
-      logStaffAction({
-        source: 'socket', action: `cheat:${kind === 'app_departure' ? 'app-departure' : kind === 'screenshot' ? 'screenshot' : 'screen-recording'}`,
-        category: 'MONITORING', labelAr, outcome: 'success',
-        roomId, roomCode: (state as any).roomCode, matchId: (state as any).matchId,
-        activityId: (state as any).activityId, targetPhysicalId: physicalId,
-        targetName: `${player.name} — ${roleAr}`,
-        details: { ...details, physicalId, role: player.role, team, weight },
-      });
-    } catch { /* غير حاجب */ }
+    await recordCheatSignalFor(io, roomId, physicalId, kind, weight, details, labelAr);
   }
 
   // ── مغادرة التطبيق أثناء المباراة (نمط تهريب محتمل) ──
@@ -2492,10 +2600,18 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       if (socket.data.lastDepartureAt && now - socket.data.lastDepartureAt < 3000) return;
       socket.data.lastDepartureAt = now;
 
+      // 🚫 منع الازدواج: إن كان الخادم قد أغلق غياب هذا اللاعب للتوّ (انقطاعٌ ثمّ عودة)
+      //    فبلاغ الجهاز يصف الغياب نفسه — والخادم قياسه أدقّ (لا يعتمد ساعة الجهاز).
+      if (socket.data.serverAbsenceClosedAt && now - socket.data.serverAbsenceClosedAt < 8000) return;
+
       const durationMs = Math.max(0, Math.min(600000, Number(data?.durationMs) || 0));
       const secretOpen = data?.secretOpen === true;
       const sinceSecret = socket.data.lastSecretViewAt ? now - socket.data.lastSecretViewAt : null;
-      const withinWindow = sinceSecret != null && sinceSecret < 120000;   // دقيقتان
+      // ⏱️ القياس يجب أن يكون **لحظة المغادرة** لا لحظة العودة: sinceSecret يشمل
+      //    الغياب كلّه، فغيابٌ طويلٌ بعد رؤية سرٍّ كان يسقط من النافذة — وهو أسوأ
+      //    نمطٍ تُفترض النافذة لالتقاطه (شاهِد ثمّ اخرج وسرّب).
+      const sinceSecretAtDeparture = sinceSecret != null ? Math.max(0, sinceSecret - durationMs) : null;
+      const withinWindow = sinceSecretAtDeparture != null && sinceSecretAtDeparture < 120000;   // دقيقتان
 
       // 🧮 نموذج الوزن: أساسٌ ١، +٣ إن كانت شاشةٌ سريّة مفتوحة، +٢ إن غادر
       //    خلال دقيقتين من رؤية سرّ (نمط احفظ-ثمّ-سرّب)، + المدّة.
@@ -2508,11 +2624,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const labelAr = secretOpen
         ? `غادر التطبيق وشاشة السرّ مفتوحة${secs ? ` (${secs}ث)` : ''}`
         : withinWindow
-          ? `غادر خلال ${Math.round((sinceSecret as number) / 1000)}ث من رؤية سرّ${secs ? ` (غاب ${secs}ث)` : ''}`
+          ? `غادر خلال ${Math.round((sinceSecretAtDeparture as number) / 1000)}ث من رؤية سرّ${secs ? ` (غاب ${secs}ث)` : ''}`
           : `غادر التطبيق أثناء المباراة${secs ? ` (${secs}ث)` : ''}`;
 
-      await recordCheatSignal('app_departure', weight,
-        { durationMs, secretOpen, msSinceSecret: sinceSecret, platform: data?.platform || 'unknown' }, labelAr);
+      await recordCheatSignal('app_departure', weight, {
+        durationMs, secretOpen, platform: data?.platform || 'unknown', source: 'client',
+        msSinceSecret: sinceSecret,                       // من العودة (للتوافق مع الصفوف القديمة)
+        msSinceSecretAtDeparture: sinceSecretAtDeparture,  // القياس الصحيح للنافذة
+      }, labelAr);
     } catch { /* صامت */ }
   });
 
@@ -4613,6 +4732,13 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     }
     if (socket.data.role === 'display' && socket.data.roomId) {
       console.log(`⚠️ Display disconnected from room ${socket.data.roomId}`);
+    }
+    // 🕵️ انقطاع لاعبٍ أثناء لعبةٍ حيّة = مغادرةٌ تُسجَّل فوراً.
+    // بدونه كان «غادر ولم يعد» (قتل التطبيق، نفاد البطارية، خروجٌ من القاعة)
+    // لا يُنتج أثراً إطلاقاً — وهي أخطر حالةٍ وأكثرها دلالة.
+    if (socket.data.role === 'player' && socket.data.roomId && socket.data.physicalId) {
+      const secretOpen = !!socket.data.secretScreenOpen;
+      void openAbsence(io, socket.data.roomId, socket.data.physicalId, secretOpen);
     }
   });
 }

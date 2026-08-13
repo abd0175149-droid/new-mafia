@@ -732,6 +732,8 @@ async function main() {
       )`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_player ON cheat_signals(player_id, created_at)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_match ON cheat_signals(match_id)`);
+      // 🕵️ مسار الوصول الفعليّ لكل استعلام «من غاب مع من»: نطاقٌ زمنيّ داخل غرفة
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_cheat_signals_room_time ON cheat_signals(room_id, created_at)`);
       // 🕵️ حالات مراجعة الأدمن لدرجات الاشتباه (2026-08-12)
       await db.execute(sql`CREATE TABLE IF NOT EXISTS cheat_reviews (
         player_id INTEGER PRIMARY KEY,
