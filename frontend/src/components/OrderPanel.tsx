@@ -839,8 +839,16 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
   const ordersBadge = myOrders.filter(o => o.status === 'new' || o.status === 'preparing').length;
 
   return (
-    <div className={embedded ? 'flex flex-col h-full' : 'flex flex-col h-[100dvh] max-w-lg mx-auto'} dir="rtl"
-      style={{ background: '#050505' }}>
+    // 🔴 في الصفحة الكاملة الارتفاع = الشاشة **ناقص شريط التنقّل السفليّ**، لا `100dvh`:
+    //    الشريط `fixed bottom-0` بارتفاع 64px + المنطقة الآمنة و`z-50`، فعمودٌ بطول
+    //    الشاشة كاملةً يضع آخر أبنائه — شريط «راجع وأرسل» — تحته تماماً. اللاعب يضيف
+    //    الصنف فيرى العدّاد على البطاقة ولا يرى زرّ الإرسال أبداً، لأنّ القائمة تُمرَّر
+    //    داخلياً (`flex-1 overflow-y-auto`) فلا يصل تمريره إلى المستند ليرفع الشريط.
+    <div className={embedded ? 'flex flex-col h-full' : 'flex flex-col max-w-lg mx-auto'} dir="rtl"
+      style={{
+        background: '#050505',
+        ...(embedded ? {} : { height: 'calc(100dvh - 64px - env(safe-area-inset-bottom, 0px))' }),
+      }}>
 
       {/* ══ ترويسة ثابتة ══ */}
       <div className="shrink-0 px-4 py-3 flex items-center gap-3 border-b border-white/7" style={{ background: '#0a0f0d' }}>
