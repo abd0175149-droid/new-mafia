@@ -123,6 +123,54 @@ final class ScreenProtectorTests: XCTestCase {
         }
     }
 
+    /// 🔴 الهندسة: النافذة يجب ألّا تنزاح ولا تنكمش بعد التفعيل.
+    ///    طبقةُ النافذة تصير سليلةً لطبقة حقلٍ صغيرٍ متوسَّط، وإحداثيّاتُ الطبقة
+    ///    نسبيّةٌ لأبيها — فبلا ضبطٍ صريح ينزاح محتوى التطبيق كلُّه بمقدار موضع
+    ///    الحقل. لا تكشفه اختبارات البنية ولا يظهر إلّا بالعين على الجهاز.
+    func testWindowGeometryUnchangedAfterEnable() {
+        let parent = window.layer.superlayer!
+        let before = window.layer.convert(CGPoint.zero, to: parent)
+        let sizeBefore = window.layer.bounds.size
+
+        XCTAssertTrue(ScreenProtector.shared.enable(window: window))
+        window.layoutIfNeeded()
+
+        let after = window.layer.convert(CGPoint.zero, to: parent)
+        XCTAssertEqual(after.x, before.x, accuracy: 0.5,
+                       "انزاحت النافذة أفقياً بمقدار \(after.x - before.x)")
+        XCTAssertEqual(after.y, before.y, accuracy: 0.5,
+                       "انزاحت النافذة رأسياً بمقدار \(after.y - before.y)")
+        XCTAssertEqual(window.layer.bounds.size.width, sizeBefore.width, accuracy: 0.5)
+        XCTAssertEqual(window.layer.bounds.size.height, sizeBefore.height, accuracy: 0.5)
+    }
+
+    /// والهندسة تعود كما كانت بعد الإطفاء.
+    func testWindowGeometryRestoredAfterDisable() {
+        let parent = window.layer.superlayer!
+        let before = window.layer.convert(CGPoint.zero, to: parent)
+
+        XCTAssertTrue(ScreenProtector.shared.enable(window: window))
+        XCTAssertTrue(ScreenProtector.shared.disable(window: window))
+        window.layoutIfNeeded()
+
+        let after = window.layer.convert(CGPoint.zero, to: parent)
+        XCTAssertEqual(after.x, before.x, accuracy: 0.5)
+        XCTAssertEqual(after.y, before.y, accuracy: 0.5)
+    }
+
+    /// لا قصّ: الطبقة الآمنة أصغر من النافذة، فلو قصّت لاختفى معظم الواجهة.
+    func testSecureLayerDoesNotClipWindow() {
+        XCTAssertTrue(ScreenProtector.shared.enable(window: window))
+        var cursor = window.layer.superlayer
+        var hops = 0
+        while let c = cursor, hops < 8 {
+            XCTAssertFalse(c.masksToBounds,
+                           "طبقةٌ في السلسلة تقصّ المحتوى — ستُخفي جزءاً من الواجهة")
+            cursor = c.superlayer
+            hops += 1
+        }
+    }
+
     /// الإطفاء قبل التفعيل لا يُسقط شيئاً.
     func testDisableWithoutEnableIsSafe() {
         XCTAssertTrue(ScreenProtector.shared.disable(window: window))

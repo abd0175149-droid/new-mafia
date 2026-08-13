@@ -23,16 +23,33 @@ import UIKit
 ///    العلاج المعتمد: تُنقَل **طبقة الحقل كاملةً** خارج شجرة النافذة أوّلاً،
 ///    فتصير أباً للنافذة لا سليلاً لها. ويحرس `isAncestor` الحالتين قبل كلّ
 ///    نقلٍ حتى لا يتكرّر السقوط مهما تغيّر ترتيب الطبقات في إصدارٍ قادم.
+/// حقلٌ سرّيّ يُخبر مالكه عند كلّ تخطيط.
+///
+/// 🔴 لماذا صنفٌ فرعيّ ولا يكفي ضبطُ الإطار مرّةً واحدة: بعد النقل تصير طبقةُ
+///    النافذة سليلةً للطبقة الآمنة، وإحداثيّاتُ الطبقة نسبيّةٌ لأبيها. وUIKit
+///    يُعيد ضبط إطار الطبقة الآمنة في **كلّ** دورة تخطيطٍ حسب محتوى النصّ —
+///    فتنزاح واجهةُ التطبيق كلُّها وتنكمش. تُعاد المطابقة عند كلّ تخطيط.
+private final class SecureOverlayField: UITextField {
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
 final class ScreenProtector {
     static let shared = ScreenProtector()
     private init() {}
 
-    private var secureField: UITextField?
+    private var secureField: SecureOverlayField?
     /// 🔴 أبو طبقة النافذة **قبل** النقل. بدونه يستحيل التراجع: بعد `enable`
     ///    يصير `window.layer.superlayer` هو الطبقة الآمنة نفسها، فإعادةُ
     ///    الطبقة «إلى أبيها» تُعيدها إلى موضعها ذاته، ثمّ اقتلاعُ طبقة الحقل
     ///    يقتلع النافذة معها — وتبقى الشاشة فارغةً إلى الأبد.
     private weak var originalSuperlayer: CALayer?
+    /// إطار طبقة النافذة قبل النقل — يُعاد حرفياً عند الإطفاء.
+    private var originalWindowFrame: CGRect = .zero
     private(set) var isEnabled = false
 
     /// يفعّل التسويد على نافذة المفتاح. يعيد ما إذا انعقدت الحماية فعلاً.
@@ -42,8 +59,9 @@ final class ScreenProtector {
         guard let window = window else { return false }
         if isEnabled { return true }
         guard let parent = window.layer.superlayer else { return false }
+        let windowFrame = window.layer.frame
 
-        let field = UITextField()
+        let field = SecureOverlayField()
         field.isSecureTextEntry = true
         field.isUserInteractionEnabled = false
         field.backgroundColor = .clear
@@ -51,10 +69,14 @@ final class ScreenProtector {
 
         // 🔴 الحقل يدخل شجرة العرض ويُخطَّط أوّلاً: طبقاته الداخليّة تُنشأ عند
         //    أوّل تخطيطٍ فعليّ، والقراءةُ من حقلٍ لم يُخطَّط تعيد nil.
+        // 🔴 ويملأ النافذة لا يتوسّطها: طبقتُه ستصير أباً لطبقة النافذة، فإن
+        //    حمل مقاس حقلٍ صغير انزاحت الواجهة كلُّها بمقدار موضعه.
         window.addSubview(field)
         NSLayoutConstraint.activate([
-            field.centerXAnchor.constraint(equalTo: window.centerXAnchor),
-            field.centerYAnchor.constraint(equalTo: window.centerYAnchor),
+            field.leadingAnchor.constraint(equalTo: window.leadingAnchor),
+            field.trailingAnchor.constraint(equalTo: window.trailingAnchor),
+            field.topAnchor.constraint(equalTo: window.topAnchor),
+            field.bottomAnchor.constraint(equalTo: window.bottomAnchor),
         ])
         window.layoutIfNeeded()
 
@@ -78,7 +100,20 @@ final class ScreenProtector {
         }
         secure.addSublayer(window.layer)
 
+        // 🔴 المطابقة الهندسيّة، وتتكرّر عند كلّ تخطيط: الطبقة الآمنة تملأ
+        //    الحقل، والحقلُ يملأ النافذة — فتقع النافذة في موضعها الأصليّ
+        //    تماماً. بلا هذا تنزاح الواجهة كلُّها وتنكمش (حارسها
+        //    `testWindowGeometryUnchangedAfterEnable`).
+        let matchGeometry: () -> Void = { [weak field, weak window] in
+            guard let field = field, let window = window else { return }
+            secure.frame = field.layer.bounds
+            window.layer.frame = CGRect(origin: .zero, size: field.layer.bounds.size)
+        }
+        field.onLayout = matchGeometry
+        matchGeometry()
+
         originalSuperlayer = parent
+        originalWindowFrame = windowFrame
         secureField = field
         isEnabled = true
         return true
@@ -96,7 +131,9 @@ final class ScreenProtector {
         }
 
         // 🔴 الأصل المحفوظ لا `window.layer.superlayer` — انظر أعلاه.
+        field.onLayout = nil          // لئلّا يعيد ضبط الهندسة بعد الفكّ
         parent.addSublayer(window.layer)
+        window.layer.frame = originalWindowFrame
         field.layer.removeFromSuperlayer()
         teardown()
         return true
