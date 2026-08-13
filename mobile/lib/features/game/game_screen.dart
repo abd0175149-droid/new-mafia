@@ -69,6 +69,11 @@ class _GameScreenState extends State<GameScreen> {
 
   /// 🔒 الصوت للغرف البعيدة وحدها. الخدمة مفردة، و`connect` بنفس المفتاح
   ///    لا يعيد الاتصال — فاستدعاؤه مع كلّ تغيّرٍ آمن.
+  ///
+  /// 🪑 وهو أيضاً **مسار اعتماد المقعد الجديد**: تغيّرُ `physicalId` (نقلٌ
+  ///    من الليدر أو مزامنةٌ من الاستطلاع) يصل هنا مع أوّل إشعار، فتتبنّاه
+  ///    `connect` بإعادة إصدار توكن الصوت — هويّة المشارك في الاجتماع
+  ///    مشتقّةٌ من المقعد لا من الجهاز.
   void _syncVoice() {
     if (!_c.isRemote || _c.roomId.isEmpty) {
       unawaited(VoiceService.instance.disconnect());
@@ -179,6 +184,9 @@ class _GameScreenState extends State<GameScreen> {
         Positioned.fill(child: NightLayer(controller: _c)),
         // 🎩 طبقات العمدة — المودال والبانر والشارة
         Positioned.fill(child: MayorLayer(controller: _c)),
+        // 🪑 إشعار المقعد — **فوق طبقتَي الليل والعمدة**: النقل يقع في أيّ
+        //    مرحلة، وطبقة الليل تملأ الشاشة فتبتلع أيّ إشعارٍ تحتها.
+        if (_c.seatChangeAlert != null) _seatToast(_c.seatChangeAlert!),
         // 🎙️ شريط الصوت — **عن بُعد وحده**، ثابتٌ أسفل الشاشة فوق كلّ طور
         if (_c.isRemote)
           Positioned(
@@ -410,6 +418,38 @@ class _GameScreenState extends State<GameScreen> {
       watermark: _c.secretWatermarkLabel,
     ).whenComplete(_c.leaveSecretScreen));
   }
+
+  /// 🪑 شريطٌ علويّ يدوم خمس ثوانٍ — نصّه من المتحكّم: «تغيّر مقعدك…»
+  /// لمن نُقل، و«أُعيد ترتيب المقاعد» لبقيّة الغرفة.
+  ///
+  /// 🔴 `IgnorePointer`: يمرّ فوق المرحلة، فالتقاطُه للمسات يعطّل زرّاً
+  ///    تحته في أوّل خمس ثوانٍ من أحرج اللحظات.
+  Widget _seatToast(String message) => Positioned(
+        top: 12,
+        left: 16,
+        right: 16,
+        child: IgnorePointer(
+          child: Center(
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xF0140F06),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _gold.withValues(alpha: 0.5)),
+                boxShadow: const [
+                  BoxShadow(color: Color(0xCC000000), blurRadius: 24),
+                ],
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.event_seat, size: 16, color: _gold),
+                const SizedBox(width: 8),
+                Text(message, style: ar(13, color: Colors.white)),
+              ]),
+            ),
+          ),
+        ),
+      );
 
   Widget _switchModal() {
     final s = _c.switchConfirm!;

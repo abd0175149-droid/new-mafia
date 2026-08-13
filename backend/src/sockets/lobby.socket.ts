@@ -17,6 +17,7 @@ import { getGameState, setGameState, deleteGameState } from '../config/redis.js'
 import { createMatch, finalizeIfDecided } from '../services/match.service.js';
 import { createSession, addPlayerToSession, getSessionPlayers, removePlayerFromSession, closeSession, unlinkSessionFromActivity, deleteSession, remapSessionPlayerSeats, updateSessionMaxPlayers } from '../services/session.service.js';
 import { remapPhysicalIds, validateRenumberChanges } from '../game/seat-remap.js';
+import { samePhone } from '../utils/phone.util.js';
 import { mergeActivityPins } from '../game/seat-merge.js';
 import { dealLockedList } from '../game/deal-engine.js';
 import { resolveRoomCapacity, clampCapacity } from '../services/capacity.service.js';
@@ -45,6 +46,140 @@ const SOUND_MIRROR_FNS = new Set([
 const TOOLS_UNLOCK_MS = 10 * 60 * 1000; // 10 دقائق
 function toolsUnlocked(socket: any): boolean {
   return (socket?.data?.toolsUnlockedUntil || 0) > Date.now();
+}
+
+// ══════════════════════════════════════════════════════
+// 🪑 نقل المقاعد أثناء اللعب — البنية المساندة
+// ══════════════════════════════════════════════════════
+
+// قفل تسلسل لكل غرفة: عملية نقل واحدة في كل لحظة (إعادة الترقيم تلمس الحالة كلها)
+const seatMoveInFlight = new Set<string>();
+
+export interface SeatMoveHazard {
+  kind: 'BOMB' | 'VOTING' | 'NIGHT_STEP' | 'DECISION_WINDOW' | 'TIEBREAKER';
+  message: string;
+  blocking?: boolean;   // true ⇒ يُمنع النقل حتى يُحسم (لا يكفي التأكيد)
+}
+
+/**
+ * يرصد «القرار الجاري» الذي يتقاطع مع إعادة الترقيم.
+ * القاعدة: النقل مسموح في كل المراحل — لكن ما يغيّر نتيجةَ قرارٍ منظورٍ أمام الليدر يُمنع،
+ * وما يحتاج انتباهه فقط يُمرَّر بتأكيد صريح.
+ */
+export function detectSeatMoveHazard(state: any): SeatMoveHazard | null {
+  // 💣 القنبلة: هدفاها يُحدَّدان بالجيرة الرقمية، والنقل يغيّر الجيران — فيتبدّل الضحايا
+  //    الذين يراهم الليدر على شاشته الآن. الحسم ثوانٍ، فالمنع أنظف من إعادة الحساب.
+  if (state.pendingBomb) {
+    return { kind: 'BOMB', blocking: true,
+      message: 'احسم قدرة القنبلة أولاً — النقل الآن يغيّر جارَي شيخ المافيا فيبدّل ضحايا القنبلة' };
+  }
+
+  // 🗳️ تصويت مفتوح بأصوات مُدلاة: الأصوات تتبع أصحابها بإعادة الربط، لكن أجهزة اللاعبين
+  //    تعرض أرقاماً قديمة لحظةَ التصويت → تأكيد صريح مع إظهار عدد الأصوات.
+  const votesCast = Object.keys(state.votingState?.playerVotes || {}).length;
+  if (state.phase === Phase.DAY_VOTING && votesCast > 0) {
+    return { kind: 'VOTING',
+      message: `التصويت مفتوح و${votesCast} صوتاً مُدلى — ستتبع الأصوات أصحابها، وسيُطلب من اللاعبين تحديث شاشاتهم` };
+  }
+
+  // ⚖️ كسر التعادل المعروض
+  if (state.phase === Phase.DAY_TIEBREAKER && (state.tiedCandidates?.length || 0) > 0) {
+    return { kind: 'TIEBREAKER', message: 'كسر التعادل معروض الآن — تأكّد قبل النقل' };
+  }
+
+  // 🌙 خطوة ليل مفتوحة تنتظر منفّذاً: تُعاد للسوكِت الصحيح بعد النقل، لكن نافذة
+  //    الطُّعم عند بقية اللاعبين تُغلق وتُبنى من جديد → تأكيد.
+  if (state.phase === Phase.NIGHT && (state.currentNightStep || state.nightStep || state.autoNightPerformerId)) {
+    return { kind: 'NIGHT_STEP',
+      message: 'خطوة الليل مفتوحة — ستُعاد للاعب المعنيّ بعد النقل وتُحدَّث شاشات الجميع' };
+  }
+
+  // 👮‍♀️🎩 نافذة قرار مفتوحة (الشرطية جاهزة أو نافذة العمدة)
+  if ((state.policewomanState?.isReady && !state.policewomanState?.isUsed) || state.mayorState?.pendingDecision) {
+    return { kind: 'DECISION_WINDOW', message: 'هناك نافذة قرار مفتوحة — ستُغلق وتُعاد لصاحبها بعد النقل' };
+  }
+
+  return null;
+}
+
+/**
+ * إعادة ترقيم سجلّ دردشة المافيا السرّية — يعيش في مفتاح Redis منفصل
+ * (aux:mafia-chat) فلا يمسّه جوّال حالة اللعبة، فتنكسر نسبة الرسائل بعد التبديل.
+ */
+export async function remapMafiaChatSeats(roomId: string, idMap: Map<number, number>): Promise<void> {
+  if (!idMap.size) return;
+  try {
+    const { getAux, setAux } = await import('../config/redis.js');
+    const key = `mafia-chat:${roomId}`;
+    const msgs = await getAux(key);   // getAux يعيد القيمة مفكوكة أصلاً
+    if (!Array.isArray(msgs) || msgs.length === 0) return;
+    let changed = 0;
+    for (const m of msgs) {
+      if (typeof m?.physicalId === 'number' && idMap.has(m.physicalId)) {
+        m.physicalId = idMap.get(m.physicalId);
+        changed++;
+      }
+    }
+    if (changed > 0) {
+      await setAux(key, msgs);        // setAux يتولّى التحويل
+      console.log(`🗣️ Mafia chat: remapped ${changed} message seat(s) after seat move in ${roomId}`);
+    }
+  } catch (e: any) {
+    console.warn('⚠️ Mafia chat seat remap skipped:', e?.message || e);
+  }
+}
+
+/**
+ * إعادة الدفع الخاصّة بعد النقل: كل لاعب متأثّر يستعيد دوره وفريقه وتوأمه وعقوده،
+ * وتُعاد خطوة الليل الجارية إلى السوكِت الصحيح.
+ * بدونها تبقى شاشة الطُّعم مفتوحة عند من ليس منفّذاً، أو تضيع الخطوة عن صاحبها.
+ */
+export async function republishAfterSeatMove(
+  io: Server, roomId: string, state: any, affectedSeats: number[],
+): Promise<void> {
+  try {
+    const shouldShowRole = state.rolesConfirmed
+      || (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.ROLE_BINDING);
+    if (!shouldShowRole) return;
+
+    const sockets = await io.in(roomId).fetchSockets();
+    for (const seat of affectedSeats) {
+      const player = state.players.find((p: any) => p.physicalId === seat);
+      if (!player) continue;
+      const target = sockets.find((s: any) => s.data?.role === 'player' && s.data?.physicalId === seat);
+      if (!target) continue;
+
+      // الدور + فريق المافيا + التوأم
+      const mafiaTeam = (player.role && isMafiaRole(player.role as Role) && state.config.allowMafiaReveal !== false)
+        ? state.players
+            .filter((p: any) => p.role && isMafiaRole(p.role as Role) && p.isAlive !== false && p.physicalId !== seat)
+            .map((p: any) => ({ physicalId: p.physicalId, name: p.name, role: p.role, avatarUrl: p.avatarUrl || null }))
+        : undefined;
+
+      target.emit('player:role-assigned', {
+        role: player.role || null,
+        physicalId: seat,
+        mafiaTeam,
+        sibling: getSiblingInfoFor(state, seat),
+      });
+
+      // 🔪 عقود السفّاح
+      if (state.assassinState?.assassinPhysicalId === seat) {
+        target.emit('assassin:contracts-update', {
+          contracts: state.assassinState.contracts,
+          completedCount: state.assassinState.completedCount,
+          totalRequired: state.assassinState.totalRequired,
+        });
+      }
+    }
+
+    // 🌙 خطوة الليل الجارية: تُعاد لكل اللاعبين ليعيدوا اشتقاق منفّذ/طُعم بالأرقام الجديدة
+    if (state.phase === Phase.NIGHT && (state.nightStep || state.currentNightStep)) {
+      io.to(roomId).emit('night:refresh-required', { reason: 'seat-move' });
+    }
+  } catch (e: any) {
+    console.warn('⚠️ republishAfterSeatMove failed (clients will self-heal via poll):', e?.message || e);
+  }
 }
 
 // 📐 تحميل مقاعد قالب الفعالية إلى حالة الغرفة (المقاعد المثبّتة + المؤخّرة + الأبواب + سعة المقاعد).
@@ -1579,6 +1714,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     roomId: string;
     physicalId: number;
     phone?: string;
+    playerId?: number;   // 🪪 هوية الحساب — الأقوى، تُرسلها الأجهزة المسجّلة
   }, callback) => {
     try {
       const state = await getRoom(data.roomId);
@@ -1586,17 +1722,53 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'Room not found' });
       }
 
-      // البحث عن اللاعب: الهاتف أولاً (هوية ثابتة) ثم الرقم الفيزيائي كاحتياط.
-      // 🛡️ كان الرقم أولاً — فلاعب منقطع يعود بعد «ترقيم شامل» كان يدخل بهوية/مقعد لاعب آخر
-      // (رقمه القديم من localStorage أصبح يخص شخصاً غيره). الهاتف لا يتغيّر بالترقيم.
-      const byPhone = data.phone ? state.players.find((p: any) => p.phone === data.phone) : undefined;
-      const player = byPhone || state.players.find((p: any) => p.physicalId === data.physicalId);
-      if (byPhone && byPhone.physicalId !== data.physicalId) {
-        console.log(`♻️ Rejoin seat corrected by phone: requested #${data.physicalId} → actual #${byPhone.physicalId}`);
-      }
+      // ══════════════════════════════════════════════════════
+      // 🪪 تحديد الهوية — بالشخص لا بالمقعد
+      // ══════════════════════════════════════════════════════
+      // رقم المقعد **ليس هوية**: قد يُعاد ترقيمه أو يُنقل اللاعب، فيصير رقمُ جهازٍ
+      // منقطعٍ خاصّاً بشخص آخر. السقوط عليه كان يسلّم للعائد دورَ غيره وفريقَ مافياه
+      // وتوأمه وعقوده، ويربط سوكِته بذلك المقعد فيتصرّف بهويته.
+      // الترتيب: حساب → هاتف (بالمطابقة التامة ثم بالتطبيع) → مقعد بشروط صارمة.
+      const byPlayerId = data.playerId
+        ? state.players.find((p: any) => p.playerId && p.playerId === data.playerId)
+        : undefined;
+      const byPhoneExact = !byPlayerId && data.phone
+        ? state.players.find((p: any) => p.phone === data.phone)
+        : undefined;
+      // تطبيع الهاتف يغلق فئة كاملة من الإخفاقات (٠٧٩… مقابل ٩٦٢٧٩…) كانت تُسقط على المقعد
+      const byPhoneNormalized = !byPlayerId && !byPhoneExact && data.phone
+        ? state.players.find((p: any) => samePhone(p.phone, data.phone))
+        : undefined;
+
+      let player = byPlayerId || byPhoneExact || byPhoneNormalized;
+      const identifiedByPerson = !!player;
 
       if (!player) {
-        return callback({ success: false, error: 'Player not found in this room' });
+        // لم تُحسم الهوية بالشخص. المقعد مسموح كملاذ أخير في حالتين فقط:
+        //   • لا أسرار بعد (قبل اعتماد الأدوار) — لا شيء يمكن تسريبه.
+        //   • ضيفٌ خالصٌ يجلس في المقعد (بلا حساب وبلا هاتف) — لا هوية أقوى له أصلاً،
+        //     ولاعبٌ معرَّف لن تُحسم هويته إلى مقعده إطلاقاً.
+        const seatOccupant = state.players.find((p: any) => p.physicalId === data.physicalId);
+        const secretsLive = !!state.rolesConfirmed
+          || (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.ROLE_BINDING);
+        const isPureGuest = !!seatOccupant && !seatOccupant.phone && !seatOccupant.playerId;
+
+        if (seatOccupant && (!secretsLive || isPureGuest)) {
+          player = seatOccupant;
+          console.log(`♻️ Rejoin by seat #${data.physicalId} (${secretsLive ? 'pure guest' : 'pre-roles'}) — no person identity available`);
+        } else {
+          // ⛔ رفض صريح بدل التخمين — الجهاز يعيد التعريف بنفسه (هاتف/حساب)
+          console.warn(`⛔ Rejoin refused for seat #${data.physicalId} in ${data.roomId} — identity not resolved (phone/account required)`);
+          return callback({
+            success: false,
+            code: 'IDENTITY_REQUIRED',
+            error: 'تعذّر التعرّف عليك — أعد الدخول برقم هاتفك أو من حسابك',
+          });
+        }
+      }
+
+      if (identifiedByPerson && player.physicalId !== data.physicalId) {
+        console.log(`♻️ Rejoin seat corrected by identity: requested #${data.physicalId} → actual #${player.physicalId}`);
       }
 
       // ── فك التجميد عند العودة ──
@@ -1885,6 +2057,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     roomId: string;
     fromPhysicalId: number;
     toSeat: number;
+    confirmHazard?: boolean;   // ⚠️ تأكيد صريح لتنفيذ النقل رغم وجود قرار جارٍ
   }, callback) => {
     try {
       if (socket.data.role !== 'leader') {
@@ -1895,12 +2068,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         return callback({ success: false, error: 'تعذّر تنفيذ النقل — مشكلة مؤقتة، حاول لاحقاً' });
       }
 
+      // 🔒 قفل تسلسل لكل غرفة — يمنع نقلين متزامنين يتقاطعان على نفس الحالة
+      if (seatMoveInFlight.has(data.roomId)) {
+        return callback({ success: false, error: 'هناك عملية نقل جارية — انتظر لحظة' });
+      }
+      seatMoveInFlight.add(data.roomId);
+      try {
       const state = await getRoom(data.roomId);
       if (!state) return callback({ success: false, error: 'Room not found' });
-
-      if (state.phase !== Phase.LOBBY && state.phase !== Phase.ROLE_GENERATION && state.phase !== Phase.GAME_OVER) {
-        return callback({ success: false, error: 'لا يمكن نقل المقاعد أثناء اللعب' });
-      }
 
       const toSeat = Math.floor(Number(data.toSeat));
       if (!Number.isFinite(toSeat) || toSeat < 1 || toSeat > (state.config.maxPlayers || 50)) {
@@ -1910,6 +2085,16 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const mover = state.players.find(p => p.physicalId === data.fromPhysicalId);
       if (!mover) return callback({ success: false, error: 'اللاعب غير موجود' });
       if (toSeat === data.fromPhysicalId) return callback({ success: true, swapped: false });
+
+      // ⚠️ رصد «القرار الجاري»: النقل مسموح في كل المراحل، لكن بعض النوافذ تحتاج قراراً واعياً
+      // من الليدر (أو منعاً صريحاً) لأن إعادة الترقيم تقع في منتصف حسمٍ جارٍ.
+      const hazard = detectSeatMoveHazard(state);
+      if (hazard?.blocking) {
+        return callback({ success: false, code: 'HAZARD_BLOCKED', error: hazard.message });
+      }
+      if (hazard && !data.confirmHazard) {
+        return callback({ success: false, code: 'HAZARD_CONFIRM', hazard: hazard.kind, error: hazard.message });
+      }
 
       const occupant = state.players.find(p => p.physicalId === toSeat);
       const changes = occupant
@@ -1923,6 +2108,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // 🗄️ مزامنة قاعدة البيانات
       if (state.sessionId) { await remapSessionPlayerSeats(state.sessionId, changes); }
+
+      // 🗣️ إعادة ترقيم سجلّ دردشة المافيا (خارج حالة اللعبة — لا يمسّه الجوّال)
+      await remapMafiaChatSeats(data.roomId, idMap);
 
       // إخطار أجهزة اللاعبين المتأثرين + تحديث هوية سوكتاتهم
       // (اجمع المطابقات أولاً ثم طبّق — وإلا في التبديل يُطابق السوكت المعدَّل التغيير الثاني)
@@ -1940,10 +2128,42 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         sc.s.emit('player:seat-changed', { oldPhysicalId: sc.oldId, newPhysicalId: sc.newId });
       }
 
+      // 🧹 إشارة الإبطال للغرفة كلها — الذاكرة المشتقّة الخاطئة عند **الجميع** لا عند المنقولَين
+      // فقط (خرائط الأدوار المكشوفة/المقصيين/المُسكتين، أحداث الصباح، الملاحظات، نوافذ القرار).
+      // العقد: امحُ ما هو مفهرس بالمقاعد ← رحّل ملاحظاتك ← اسأل الخادم ← أعد الاشتقاق.
+      const seatMap: Record<string, number> = {};
+      for (const c of changes) seatMap[String(c.oldPhysicalId)] = c.newPhysicalId;
+      io.to(data.roomId).emit('room:seats-remapped', {
+        map: seatMap,
+        swapped: !!occupant,
+        at: Date.now(),
+      });
+
       await emitStateSanitized(io, data.roomId, 'game:state-sync', state);
-      console.log(`🪑 Seat ${occupant ? 'swap' : 'move'}: #${data.fromPhysicalId} → #${toSeat}${occupant ? ` (تبادل مع «${occupant.name}»)` : ''}`);
+
+      // 🔄 إعادة الدفع الخاصّة: كل لاعب متأثّر يستعيد دوره/فريقه/توأمه/عقوده، وتُعاد
+      // خطوة الليل الجارية إلى السوكِت الصحيح — وإلا بقيت شاشة الطُّعم أو ضاعت الخطوة.
+      await republishAfterSeatMove(io, data.roomId, state, socketChanges.map(sc => sc.newId));
+
+      console.log(`🪑 Seat ${occupant ? 'swap' : 'move'} [${state.phase}]: #${data.fromPhysicalId} → #${toSeat}${occupant ? ` (تبادل مع «${occupant.name}»)` : ''}`);
+
+      // 📋 سجلّ عمليات — النقل أثناء اللعب إجراء إداري حسّاس
+      try {
+        const { logStaffAction } = await import('../services/staff-action-log.service.js');
+        logStaffAction({
+          staffId: socket.data.authStaff?.id, staffUsername: socket.data.authStaff?.username, staffRole: socket.data.authStaff?.role,
+          source: 'socket', action: 'socket:move-seat',
+          details: { roomId: data.roomId, phase: state.phase, from: data.fromPhysicalId, to: toSeat,
+            swappedWith: occupant?.name || null, moverName: mover.name, hazard: hazard?.kind || null },
+        });
+      } catch { /* غير حاجب */ }
+
       callback({ success: true, swapped: !!occupant, occupantName: occupant?.name || null });
+      } finally {
+        seatMoveInFlight.delete(data.roomId);
+      }
     } catch (err: any) {
+      seatMoveInFlight.delete(data.roomId);
       callback({ success: false, error: err.message });
     }
   });
@@ -2348,6 +2568,17 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const player = state.players.find(p => p.physicalId === data.targetPhysicalId);
       if (!player) return callback({ success: false, error: 'Player not found' });
 
+      const maxPenalties = state.config.maxPenalties ?? 3;
+
+      // 🛑 حارس خادميّ ضد تجاوز الحد: لاعب بلغ الحد (أو أُقصي به) لا يُعاقَب مجدداً.
+      // بدونه كانت العقوبة الرابعة تُعيد خصم الطرد (−٤٠ أخرى) — والواجهات وحدها كانت تمنعها.
+      if (player.penaltyKicked || (player.penalties || 0) >= maxPenalties) {
+        return callback({
+          success: false,
+          error: `«${player.name}» بلغ حدّ العقوبات (${maxPenalties}) وأُقصي بالفعل — لا مزيد من الخصم`,
+        });
+      }
+
       // زيادة عدد العقوبات بمقدار 1
       player.penalties = (player.penalties || 0) + 1;
 
@@ -2357,7 +2588,6 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       const penaltyKickDeduction = config?.rr?.penaltyKickDeduction ?? -30;
 
       let totalDeduction = penaltyDeduction;
-      const maxPenalties = state.config.maxPenalties ?? 3;
       const isKicked = player.penalties >= maxPenalties;
 
       if (isKicked) {
@@ -2366,6 +2596,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
 
       // هل طُبّق خصم رانك فعلاً؟ (يضبط نصوص الرسائل — لا خصم في مواقع الاختبار أو بلا موسم نشط)
       let rankApplied = false;
+      // فشل حفظ السجلّ الدائم (مسار اللوبي) — يمنع الوعد بخصمٍ لم يُكتب
+      let persistFailed = false;
 
       // إذا كان للاعب معرّف حقيقي في قاعدة البيانات
       if (player.playerId) {
@@ -2452,6 +2684,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             } else {
               // لوبي بلا مباراة (أو صف غير موجود لمباراة منتهية) → سجل دائم في rank_bonuses
               // يدخل في كل إعادة احتساب فلا يُمحى، ثم مصالحة مستهدفة لتحديث التجميعة فوراً
+              let bonusSaved = false;
               try {
                 const db2 = getDB();
                 if (db2) {
@@ -2459,15 +2692,18 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
                     INSERT INTO rank_bonuses (player_id, rr, reason, season_id)
                     VALUES (${player.playerId}, ${totalDeduction}, ${'عقوبة ليدر (خارج مباراة) — غرفة ' + data.roomId}, ${seasonId})
                   `);
+                  bonusSaved = true;
                   const { reconcileSeasonProgression } = await import('../services/reconcile.service.js');
                   await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: [player.playerId] });
                 }
               } catch (bonusErr: any) {
                 console.warn(`⚠️ Failed to record lobby penalty in rank_bonuses:`, bonusErr.message);
               }
-              console.log(`📝 Penalty (${totalDeduction} RR) recorded as durable rank_bonus for player ${player.playerId} (no active match)`);
+              // ⚠️ لا نَعِد اللاعب بخصمٍ لم يُحفظ — الرسالة تتبع الحقيقة لا النيّة
+              persistFailed = !bonusSaved;
+              console.log(`📝 Penalty (${totalDeduction} RR) ${bonusSaved ? 'recorded as durable rank_bonus' : '⚠️ NOT recorded (insert failed)'} for player ${player.playerId} (no active match)`);
             }
-            rankApplied = true;
+            rankApplied = !persistFailed;
           } else {
             console.log(`📝 Penalty recorded WITHOUT rank effect for player ${player.playerId} (${isTestPenalty ? 'test location' : 'no active season'})`);
           }
@@ -4077,7 +4313,9 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       // (زر "العودة للغرفة" — كي تنعكس النقاط في الرانك حتى لو لم يضغط الليدر "عرض النتيجة")
       await finalizeIfDecided(state);
 
-      resetRoomState(state, [], data.resetPenalties ?? true);
+      // ⚖️ تمرير الاختيار كما ورد (قد يكون undefined) — عندئذٍ يحكم إعداد الغرفة penaltyScope.
+      // كان `?? true` يصفّر العقوبات دائماً لأي عميل لا يرسل العلم، فيُبطل إعداد «room».
+      resetRoomState(state, [], data.resetPenalties);
       await setGameState(data.roomId, state);
 
       await emitPhaseChangedSanitized(io, data.roomId, { phase: 'LOBBY', state });
@@ -4250,7 +4488,8 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
       await finalizeIfDecided(state);
 
       // إعادة تعيين الحالة باستخدام الدالة المشتركة
-      resetRoomState(state, excludeIds, data.resetPenalties ?? true);
+      // ⚖️ بلا `?? true`: العميل الذي لا يرسل العلم يترك القرار لإعداد الغرفة penaltyScope
+      resetRoomState(state, excludeIds, data.resetPenalties);
       await setGameState(data.roomId, state);
 
       // ── إبلاغ المستبعدين قبل بث الحالة الجديدة ──

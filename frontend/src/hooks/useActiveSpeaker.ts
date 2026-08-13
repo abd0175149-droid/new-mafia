@@ -46,6 +46,20 @@ export function useActiveSpeaker(opts: {
       on('confrontation:pending', (d: any) => setConfrontation(d)),
       on('confrontation:started', (d: any) => setConfrontation({ status: 'ACTIVE', ...d })),
       on('confrontation:ended', () => setConfrontation(null)),
+      // 🪑 نقل/تبديل مقعد أثناء اللعب: ما نحفظه هنا مؤشّراتُ مقاعد (المتحدّث، المتبرّئ،
+      // طرفا المواجهة) وهي التي تفتح المايكات. تركُها يفتح مايك الشخص الخطأ، ومحوُها
+      // يُخرِس المتحدّث الحاليّ حتى الحدث التالي — فنمرّرها بخريطة الخادم نفسها:
+      // الإذن يبقى على الإنسان نفسه لا على الرقم.
+      on('room:seats-remapped', (d: any) => {
+        const map: Record<string, number> = d?.map || {};
+        const to = (pid: number | null | undefined) =>
+          pid == null ? pid : (map[String(pid)] ?? pid);
+        setDefenderId((prev) => to(prev) ?? null);
+        setDiscussion((prev: any) =>
+          prev?.currentSpeakerId == null ? prev : { ...prev, currentSpeakerId: to(prev.currentSpeakerId) });
+        setConfrontation((prev) =>
+          prev ? { ...prev, requesterId: to(prev.requesterId)!, targetId: to(prev.targetId)! } : prev);
+      }),
     ];
     return () => subs.forEach((u) => u && u());
   }, [on]);

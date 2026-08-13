@@ -70,6 +70,22 @@ export function useVoice(opts: {
   useEffect(() => { selfPidRef.current = selfPhysicalId; }, [selfPhysicalId]);
   useEffect(() => { emitRef.current = emit; }, [emit]);
 
+  // 🪑 توكن الصوت يحمل رقم المقعد (customParticipantId = p{seat}) ويُصدَر مرّةً عند الانضمام،
+  // فإذا نقل الليدر اللاعب لمقعدٍ آخر بقي صوته معلّقاً على رقمه القديم: يظهر كلامه على
+  // كارت غيره ولا يفتح المضيف مايكه في دوره. الحلّ: توكن جديد وانضمام جديد عند تغيّر
+  // المقعد فعلاً. أوّل رقمٍ يصل بعد التركيب ليس «تغيّراً» (التوكن أصلاً صدر بالرقم الصحيح
+  // من الخادم) فلا نُعيد الانضمام لأجله ونقطع الصوت بلا سبب.
+  const [voiceEpoch, setVoiceEpoch] = useState(0);
+  const joinedPidRef = useRef<number | null>(null);
+  useEffect(() => {
+    const pid = isHost ? VOICE_HOST_KEY : selfPhysicalId;
+    if (pid == null) return;
+    if (joinedPidRef.current === null) { joinedPidRef.current = pid; return; }
+    if (joinedPidRef.current === pid) return;
+    joinedPidRef.current = pid;
+    setVoiceEpoch((e) => e + 1);
+  }, [selfPhysicalId, isHost]);
+
   const ensureAudioCtx = useCallback((): AudioContext | null => {
     try {
       if (!audioCtxRef.current) {
@@ -233,8 +249,14 @@ export function useVoice(opts: {
       try { audioCtxRef.current?.close(); } catch { /* noop */ }
       audioCtxRef.current = null;
       setConnected(false);
+      // خرائط المشاركين مفهرسة بالمقعد: لا تُترك معلّقة بين مغادرةٍ وانضمامٍ جديد
+      // (بعد نقل المقعد تُعيد `rebuild` بناءها بالأرقام الصحيحة عند الانضمام)
+      setAudioByPid({});
+      setVideoByPid({});
+      setParticipantCount(0);
     };
-  }, [enabled, roomId, isHost]);
+    // voiceEpoch: يتغيّر عند نقل المقعد → مغادرة وإعادة انضمام بتوكنٍ يحمل الرقم الجديد
+  }, [enabled, roomId, isHost, voiceEpoch]);
 
   // 🔊 استئناف AudioContext عند أوّل تفاعل (سياسة التشغيل التلقائي تُبقيه معلّقاً حتى إيماءة المستخدم)
   useEffect(() => {

@@ -148,8 +148,11 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [silencedPlayerId, setSilencedPlayerId] = useState<number | null>(null);
   // 🎩 العمدة: مشهد الكشف + لافتة إعادة التصويت بأمره + تأجيل اليوم
   const [mayorScene, setMayorScene] = useState<{ physicalId: number; name: string; decision: string; voteWeight?: number } | null>(null);
+  const mayorSceneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mayorRevote, setMayorRevote] = useState(false);
   const [mayorPostponed, setMayorPostponed] = useState(false);
+  // 🪑 إعادة ترتيب المقاعد: راية «امحُ الآن وأعد الاشتقاق من أول حالة قادمة»
+  const seatResyncPendingRef = useRef(false);
   const [localTimeRemaining, setLocalTimeRemaining] = useState<number>(initialDiscussionState?.timeRemaining || 0);
   const prevTimeRef = useRef<number>(initialDiscussionState?.timeRemaining || 0);
 
@@ -313,7 +316,9 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     // 🎩 كشف العمدة — مشهد سينمائيّ يعلو كلّ شيء لثوانٍ
     const onMayorRevealed = (data: { physicalId: number; name: string; decision: string }) => {
       setMayorScene(data);
-      setTimeout(() => setMayorScene(null), 7000);
+      // المؤقّت بمرجع كي يُلغى عند إعادة ترتيب المقاعد (المشهد يحمل رقم مقعد واسماً)
+      if (mayorSceneTimerRef.current) clearTimeout(mayorSceneTimerRef.current);
+      mayorSceneTimerRef.current = setTimeout(() => setMayorScene(null), 7000);
     };
 
     const onRevealed = (data: any) => {
@@ -414,7 +419,86 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
     socket.on('day:withdrawal-update', onWithdrawalUpdate);
     socket.on('day:withdrawal-result', onWithdrawalResult);
 
+    // ══════════════════════════════════════════════════════════
+    // 🪑 إعادة ترتيب المقاعد — امحُ ثم أعد الاشتقاق (لا تصحيح حسابي)
+    // ══════════════════════════════════════════════════════════
+    // لوحة النهار كلها مفهرسة بالمقاعد: المرشّحون، المصوّتون، المتحدّث،
+    // المُسكَت، المقصيّون، ومشاهد الكشف. بعد نقل/تبديل مقعد يصير كل رقم
+    // محفوظ هنا مُشيراً لشخص آخر — ومشهد كشف الهوية تحديداً سيضع **اسم
+    // ووجه جارٍ بريء** تحت دورٍ مكشوف. لذلك نمحو كل شيء فوراً.
+    const onSeatsRemapped = (data: { map?: Record<string, number>; swapped?: boolean }) => {
+      console.log('🪑 DayView: room:seats-remapped — purging seat-keyed day state', data?.map);
+
+      // مشاهد/أنيميشنات مثبّتة على مقعد + مؤقّتاتها
+      if (mayorSceneTimerRef.current) { clearTimeout(mayorSceneTimerRef.current); mayorSceneTimerRef.current = null; }
+      setMayorScene(null);
+      setSilencedPlayerId(null);
+      setBombData(null);           // مراسم القنبلة تكشف أدواراً بأرقام قديمة
+      setRevealedRoles([]);        // ⚠️ الأخطر: دور مكشوف منسوب لرقم مقعد
+      setRevealType('');
+      setEliminatedIds([]);
+
+      // التصويت والتبرير والسحب
+      setCandidates([]);
+      setTotalVotesCast(0);
+      setTieBreakerLevel(0);
+      setMayorRevote(false);
+      // ملاحظة: mayorPostponed لا يُمحى — رايةٌ عن اليوم نفسه لا عن مقعد،
+      // ومحوُها كان سيقلب مشهد «لا إعدام اليوم» إلى انتظارٍ كاذب.
+      setJustificationData(null);
+      setJustTimer(null);
+      setJustTimeRemaining(0);
+      setWithdrawalState(null);
+      prevVotesRef.current = 0;
+      prevOrderRef.current = '';   // كي لا تُعزف نغمة «تبدّل الترتيب» على إعادة الرسم
+
+      // النقاش + الكاميرا السينمائية (مقرّبة على مقعد لم يعد لصاحبه)
+      setDiscussionState(null);
+      setLocalTimeRemaining(0);
+      prevTimeRef.current = 0;
+      naturalParentPos.current = null;
+      setBoardPan({ x: 0, y: 0 });
+      setZoomScale(1);
+
+      seatResyncPendingRef.current = true;
+    };
+
+    // أول حالة كاملة بعد الإبطال هي المصدر الموثوق — الخادم أعاد ربط كل
+    // الأرقام فيها، فنأخذها كما هي (النقاش/التصويت) ونشتقّ الطور الفرعيّ منها.
+    const onStateSyncAfterRemap = (state: any) => {
+      if (!seatResyncPendingRef.current || !state) return;
+      seatResyncPendingRef.current = false;
+
+      const ds = state.discussionState || null;
+      setDiscussionState(ds);
+      setLocalTimeRemaining(ds?.timeRemaining || 0);
+      prevTimeRef.current = ds?.timeRemaining || 0;
+
+      const vs = state.votingState;
+      setCandidates(Array.isArray(vs?.candidates) ? vs.candidates : []);
+      setTotalVotesCast(vs?.totalVotesCast || 0);
+      setTieBreakerLevel(vs?.tieBreakerLevel || 0);
+      setMayorRevote(!!vs?.mayorRevote);
+      prevVotesRef.current = vs?.totalVotesCast || 0;
+
+      // ملاحظة: مشاهد الكشف/القنبلة لا تُستأنف — لا تُعاد إلا بحدث جديد من الليدر.
+      setPhase(
+        (state.phase === 'DAY_VOTING' || state.phase === 'DAY_TIEBREAKER') ? 'VOTING'
+        : state.phase === 'DAY_JUSTIFICATION' ? 'JUSTIFICATION'
+        : state.phase === 'DAY_ELIMINATION' ? 'PENDING'
+        : 'DISCUSSION'
+      );
+    };
+
+    socket.on('room:seats-remapped', onSeatsRemapped);
+    socket.on('game:state-sync', onStateSyncAfterRemap);
+    socket.on('game:state-updated', onStateSyncAfterRemap);
+
     return () => {
+      socket.off('room:seats-remapped', onSeatsRemapped);
+      socket.off('game:state-sync', onStateSyncAfterRemap);
+      socket.off('game:state-updated', onStateSyncAfterRemap);
+      if (mayorSceneTimerRef.current) clearTimeout(mayorSceneTimerRef.current);
       socket.off('day:voting-started', onVotingStarted);
       socket.off('day:vote-update', onVoteUpdate);
       socket.off('day:elimination-pending', onPending);

@@ -264,6 +264,70 @@ void main() {
     });
   });
 
+  group('🪑 تبنّي المقعد الجديد بعد نقل الليدر', () {
+    // 🔴 الانحدار: `connect` ترتدّ مبكّراً حين لا تتغيّر (الغرفة، هل أنا
+    //    مضيف) — فكان المقعد الجديد يُبتلع، ويبقى `_selfPid` على القديم:
+    //    يُفتح مايك الجهاز في دور من صار في مقعده ويُغلق في دوره هو.
+    test('🔴 المقعد يُعتمد ولا يُبتلع', () async {
+      v.primeForTest(
+        engine: engine,
+        roomId: '282',
+        isHost: false,
+        selfPid: 5,
+        snapshot: const VoiceSnapshot(connected: true),
+      );
+      await v.connect(roomId: '282', isHost: false, selfPhysicalId: 9);
+      expect(v.selfPid, 9);
+    });
+
+    // المقعد ليس رقماً محلّياً: هويّة المشارك في الاجتماع (`p{N}`) تُصدَر
+    // داخل التوكن. البقاء على توكنٍ باسم مقعدٍ صار لغيري يعني أن يُكتَم
+    // ذلك الغير بدلاً منّي.
+    test('🔴 وتُعاد إصدار الجلسة كاملةً — لا تحديثَ رقمٍ فقط', () async {
+      v.primeForTest(
+        engine: engine,
+        roomId: '282',
+        isHost: false,
+        selfPid: 5,
+        snapshot: const VoiceSnapshot(connected: true),
+      );
+      await v.updateSelfSeat(9);
+      expect(v.selfPid, 9);
+      expect(engine.calls, contains('leave'));
+    });
+
+    test('ونفس المقعد لا يقطع الصوت', () async {
+      v.primeForTest(
+        engine: engine,
+        roomId: '282',
+        isHost: false,
+        selfPid: 5,
+        snapshot: const VoiceSnapshot(connected: true),
+      );
+      await v.connect(roomId: '282', isHost: false, selfPhysicalId: 5);
+      expect(engine.calls, isEmpty);
+      expect(v.selfPid, 5);
+    });
+
+    test('🔒 والمايك يُحتسب بالمقعد الجديد فوراً', () async {
+      v.primeForTest(
+        engine: engine,
+        isHost: false,
+        selfPid: 5,
+        snapshot: const VoiceSnapshot(connected: true),
+        speaker: const ActiveSpeakerState(
+          phase: 'DAY_DISCUSSION',
+          speakerId: 9,
+          discussionStatus: 'SPEAKING',
+        ),
+      );
+      expect(v.shouldOpenMic, isFalse);
+      // بلا جلسةٍ قائمة (`_roomId` فارغ) يكفي الرقم — والتوكن يُصدر لاحقاً
+      await v.updateSelfSeat(9);
+      expect(v.shouldOpenMic, isTrue);
+    });
+  });
+
   group('🔊 أسبقيّة `allowedPids` (§6.ب)', () {
     test('🔴 المواجهة النشطة تتجاوز كلّ شيء', () {
       const s = ActiveSpeakerState(

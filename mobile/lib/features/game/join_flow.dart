@@ -74,9 +74,18 @@ extension JoinFlow on GameSessionController {
     final normalized = normalizePhone(phone);
 
     // ── المرحلة ١: استعادةٌ بالهاتف (`physicalId: 0` = بحثٌ بالهاتف) ──
+    //
+    // 🔴 `IDENTITY_REQUIRED` هنا **لا يوقف التدفّق**: هذه محاولةٌ تخمينية
+    //    لمن قد يكون في الغرفة أصلاً، ورفضُ التعرّف يعني ببساطة أنّه ليس
+    //    فيها — فيمضي إلى الانضمام الجديد. إيقافه هنا يمنع كلّ لاعبٍ
+    //    جديدٍ من الدخول.
     if (targetRoom.isNotEmpty && normalized.isNotEmpty) {
-      final ok =
-          await rejoin(roomId: targetRoom, physicalId: 0, phone: normalized);
+      final ok = await rejoin(
+        roomId: targetRoom,
+        physicalId: 0,
+        phone: normalized,
+        playerId: playerId,
+      );
       if (ok) return;
     }
 
@@ -90,6 +99,7 @@ extension JoinFlow on GameSessionController {
             roomId: activeRoom,
             physicalId: (active['physicalId'] as num?)?.toInt() ?? 0,
             phone: normalized,
+            playerId: playerId,
           );
           if (ok) return;
         } else {
@@ -220,13 +230,19 @@ extension JoinFlow on GameSessionController {
     if (s == null) return;
     setBusy(true);
     final player = SessionStore.instance.player;
-    final ok = await rejoin(
+    final r = await rejoinDetailed(
       roomId: s.currentRoomId,
       physicalId: 0,
       phone: normalizePhone(player?.phone),
+      playerId: player?.id,
     );
     setBusy(false);
     closeSwitchConfirm();
-    if (!ok) setApiError('تعذّرت العودة إلى غرفتك');
+    // 🪪 رفض التعرّف له رسالته من الخادم — أدقّ من «تعذّرت العودة»
+    if (r == RejoinResult.identityRequired) {
+      await identityRequired();
+      return;
+    }
+    if (r != RejoinResult.ok) setApiError('تعذّرت العودة إلى غرفتك');
   }
 }

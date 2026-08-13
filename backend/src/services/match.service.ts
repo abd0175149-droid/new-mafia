@@ -420,7 +420,10 @@ export async function finalizeIfDecided(state: GameState): Promise<boolean> {
   if (!state || !state.matchId) return false;
   const decided = (state.winner ?? (state as any).pendingWinner) ?? null;
   if (!decided) {
-    // 🚫 لا فائز → لعبة ملغاة: لا تُحتسب نقاطها، وتُحذف كي لا تترك أثراً
+    // 🚫 لا فائز → لعبة ملغاة: لا تُحتسب نقاطها، وتُحذف كي لا تترك أثراً.
+    // ⚖️ لكن العقوبات التأديبية ليست نتيجةَ لعب — تُحفظ قبل الإلغاء وإلّا ضاعت كلياً
+    //    (كانت تعيش في حالة اللعبة فقط، فتُمحى مع تصفير الحالة/حذف مفتاح Redis).
+    await flushDisciplineToBonuses(state).catch(() => {});
     await cancelMatch(state.matchId).catch(() => {});
     return false;
   }
@@ -436,6 +439,68 @@ export async function finalizeIfDecided(state: GameState): Promise<boolean> {
   } catch (err: any) {
     console.error(`⚠️ [finalizeIfDecided] Failed to finalize match #${state.matchId}:`, err.message);
     return false;
+  }
+}
+
+// ⚖️💣 حفظ العقوبات (وأثر القنبلة) لمباراة تُلغى بلا فائز — إلى rank_bonuses الدائم.
+// السبب: العقوبة إجراء تأديبيّ لا نتيجةُ لعب؛ إلغاء اللعبة يجب ألّا يمحوها. وبما أن صفّ
+// match_players لن يُدرَج أصلاً (اللعبة ملغاة)، فالمكان الوحيد الباقي عبر إعادة الاحتساب
+// هو rank_bonuses — تقرؤه المصالحة وتُعيد تطبيقه دائماً.
+// مفتاح منع التكرار: (player_id, reason) حيث reason يحمل رقم المباراة.
+export async function flushDisciplineToBonuses(state: GameState): Promise<void> {
+  const db = getDB();
+  if (!db || !state?.matchId) return;
+  const tracking: any = state.performanceTracking || {};
+  const events = [
+    ...(tracking.penaltyEvents || []).map((e: any) => ({ ...e, kind: 'عقوبة' })),
+    ...(tracking.bombEvents || []).map((e: any) => ({ ...e, kind: 'قنبلة' })),
+  ].filter((e: any) => e?.playerId && e.rr);
+  if (events.length === 0) return;
+
+  // 🛡️ نفس بوّابات العزل: لا أثر لمواقع الاختبار، ولا كتابة بلا موسم نشط
+  if (state.activityId) {
+    const [info] = await db.select({ isTest: locations.isTestLocation })
+      .from(activities).leftJoin(locations, eq(activities.locationId, locations.id))
+      .where(eq(activities.id, state.activityId)).limit(1);
+    if (info?.isTest) return;
+  }
+  const { resolveSeasonForGame } = await import('./season.service.js');
+  const { seasonId } = await resolveSeasonForGame(state.activityId, (state.config as any)?.isRemote);
+  if (!seasonId) return;
+
+  // تجميع لكل لاعب (عقوبتان في نفس المباراة = صفّ واحد بالمجموع)
+  const byPlayer = new Map<number, { rr: number; kinds: Set<string> }>();
+  for (const e of events) {
+    const cur = byPlayer.get(e.playerId) || { rr: 0, kinds: new Set<string>() };
+    cur.rr += Number(e.rr) || 0;
+    cur.kinds.add(e.kind);
+    byPlayer.set(e.playerId, cur);
+  }
+
+  let saved = 0;
+  for (const [playerId, agg] of byPlayer) {
+    if (!agg.rr) continue;
+    const reason = `${[...agg.kinds].join('+')} — مباراة ملغاة #${state.matchId}`;
+    try {
+      const dup: any = await db.execute(
+        sql`SELECT id FROM rank_bonuses WHERE player_id = ${playerId} AND reason = ${reason} LIMIT 1`);
+      const rows: any[] = dup?.rows ?? (Array.isArray(dup) ? dup : []);
+      if (rows.length > 0) continue;   // آمن للتكرار
+      await db.execute(sql`INSERT INTO rank_bonuses (player_id, rr, reason, season_id)
+        VALUES (${playerId}, ${agg.rr}, ${reason}, ${seasonId})`);
+      saved++;
+    } catch (e: any) {
+      console.warn(`⚠️ [flushDiscipline] Failed to persist for player ${playerId}:`, e?.message || e);
+    }
+  }
+
+  if (saved > 0) {
+    console.log(`⚖️ [flushDiscipline] Preserved ${saved} discipline record(s) from cancelled match #${state.matchId} into rank_bonuses`);
+    // مصالحة مستهدفة كي ينعكس الأثر فوراً بدل انتظار مصالحة لاحقة
+    try {
+      const { reconcileSeasonProgression } = await import('./reconcile.service.js');
+      await reconcileSeasonProgression(seasonId, true, () => {}, { onlyPlayerIds: [...byPlayer.keys()] });
+    } catch { /* ستصحّحها المصالحة التالية */ }
   }
 }
 

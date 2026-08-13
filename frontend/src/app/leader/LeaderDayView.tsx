@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { ROLE_NAMES, ROLE_ICONS, MAFIA_ROLES, type Role } from '@/lib/constants';
 import { getSocket } from '@/lib/socket';
 import { swalConfirm } from '@/lib/swal';
+import { useSeatMove } from './SeatMove';
 
 // تسمية دور اللاعب بالعربية + لون الفريق (للعرض في لوحة العقوبات)
 function roleLabel(role: string | null | undefined): { text: string; icon: string; mafia: boolean } | null {
@@ -777,6 +778,25 @@ export default function LeaderDayView({ gameState, emit, setError }: LeaderDayVi
   // ══════════════════════════════════════════════
   const [mayorWindowLocal, setMayorWindowLocal] = useState<any>(null);
   const [mayorBusy, setMayorBusy] = useState(false);
+
+  // ── 🪑 بعد نقل/تبادل مقعد: امحُ كل ما هو مفهرس بالمقاعد على هذه الشاشة ──
+  //    (الأدوار المكشوفة، الناخب المحدّد، أطراف الصفقة، المتحدّث، نافذة العمدة المحليّة).
+  //    البدائل الموثوقة تُعاد اشتقاقها من gameState بعد game:state-sync.
+  const seatMove = useSeatMove();
+  useEffect(() => {
+    if (!seatMove.remapVersion) return;
+    setRevealedRoles(new Set());
+    setPenaltyRevealed(new Set());
+    setPenalizingId(null);
+    setShowQuickPenalties(false);
+    setSelectedVoter(null);
+    setDealInitiator('');
+    setDealTarget('');
+    setShowDealsUI(false);
+    setStartSpeakerId('');
+    setShowNursePrompt(false);
+    setMayorWindowLocal(null);   // نافذة الخادم (mayorState) هي البديل المحدَّث
+  }, [seatMove.remapVersion]);
 
   // مصدر النافذة: حالة الخادم (تنجو من إعادة الاتصال) أو ردّ execute-elimination المباشر
   const mayorStateSrv = gameState.mayorState || null;

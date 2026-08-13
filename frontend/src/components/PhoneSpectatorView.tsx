@@ -225,6 +225,28 @@ export default function PhoneSpectatorView({ roster, physicalId, gamePhase, on, 
         if (role) runReveal([{ physicalId: pid, role }]);
         else setLocalDead((prev) => new Set(prev).add(pid));
       }),
+      // 🪑 إعادة ترتيب المقاعد: خرائطنا المحليّة مفهرسة بالمقعد (كشفٌ، موتٌ، إسكاتٌ) فصارت
+      // تشير للشخص الخطأ — وكشف دورٍ على كارت حيٍّ كارثة. نمحوها كلّها؛ الروستر المعقّم
+      // يعيد بناء الطاولة خلال لحظة (وفيه دور الأموات). البؤرة وحدها تُنقل عبر خريطة
+      // الخادم لا تُمحى: هي موضع كاميرا لا معلومة، فتبقى على الشخص نفسه.
+      on('room:seats-remapped', (d: any) => {
+        const map: Record<string, number> = d?.map || {};
+        setRevealedRoles({});
+        setLocalDead(new Set());
+        setSilencedPids(new Set());
+        setMorningBanner(null);
+        setRevealing(null);
+        revealSeq.current = false;
+        setFocusId((prev) => (prev == null ? prev : (map[String(prev)] ?? prev)));
+        // 🗣️ مؤشّرا «من يتكلّم الآن»: المتحدث الحالي والمُبرِّر — رقما مقعدين يقودان
+        // صندوق الاسم والعدّاد وإبراز الكارت. بلا ترحيلهما يقف العدّاد فوق الشخص الخطأ
+        // حتى البثّ التالي (وفي التبرير قد يدوم دقيقة كاملة). يمرّان بخريطة الخادم
+        // لأنهما موقعُ دورٍ يتبع الشخص — تماماً كما تفعل طبقة الصوت بإذن الميكروفون.
+        setDiscussion((prev: any) => (prev?.currentSpeakerId == null ? prev
+          : { ...prev, currentSpeakerId: map[String(prev.currentSpeakerId)] ?? prev.currentSpeakerId }));
+        setJustTimer((prev: any) => (prev?.physicalId == null ? prev
+          : { ...prev, physicalId: map[String(prev.physicalId)] ?? prev.physicalId }));
+      }),
     ];
     return () => subs.forEach((u) => u && u());
   }, [on, runReveal]);

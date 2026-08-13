@@ -11,10 +11,11 @@ import 'package:mafia_club/models/game.dart';
 
 void main() {
   group('التفريق بين الرفض والتعذّر', () {
-    test('الحالات الثلاث متمايزة', () {
-      expect(RejoinResult.values.length, 3);
+    test('الحالات الأربع متمايزة', () {
+      expect(RejoinResult.values.length, 4);
       expect(RejoinResult.ok, isNot(RejoinResult.rejected));
       expect(RejoinResult.unreachable, isNot(RejoinResult.rejected));
+      expect(RejoinResult.identityRequired, isNot(RejoinResult.rejected));
     });
 
     /// القاعدة التي يجب أن يطبّقها المتحكّم: المسح للرفض وحده.
@@ -24,6 +25,13 @@ void main() {
       expect(shouldClearSession(RejoinResult.rejected), isTrue);
       expect(shouldClearSession(RejoinResult.unreachable), isFalse);
       expect(shouldClearSession(RejoinResult.ok), isFalse);
+    });
+
+    // 🪪 بعد نقل المقاعد لم يعد الرقم هويّة: قد يكون مقعدي صار لغيري.
+    //    الخادم يرفض التخمين، والجهاز يعرّف نفسه بالهاتف أو الحساب.
+    test('🪪 رفض الهويّة ليس رفضاً للجلسة ولا تعذّراً', () {
+      expect(shouldClearSession(RejoinResult.identityRequired), isFalse);
+      expect(RejoinResult.identityRequired, isNot(RejoinResult.unreachable));
     });
   });
 

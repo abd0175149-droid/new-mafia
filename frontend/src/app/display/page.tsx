@@ -141,6 +141,11 @@ function DisplayPageContent() {
   // 🃏 قلب بطاقة الكشف: تبدأ بالوجه الأمامي (اسم+رقم) ثم تُقلب تلقائياً لكشف الدور
   const [adminRevealFlipped, setAdminRevealFlipped] = useState(false);
   const adminRevealFlipTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 🪑 إعادة ترتيب المقاعد (نقل/تبديل من الليدر أثناء أي طور):
+  //    لافتة تنبيه قصيرة على الشاشة + راية «أعد الاشتقاق من الحالة القادمة».
+  const [seatsRemapNotice, setSeatsRemapNotice] = useState(false);
+  const seatsRemapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seatResyncPendingRef = useRef(false);
   const hasAutoRejoined = useRef(false);
   const lastTimerSoundRef = useRef<number>(0);
   const [gameTimerData, setGameTimerData] = useState<{ totalSeconds: number; startedAt: number; expired: boolean } | null>(null);
@@ -356,6 +361,13 @@ function DisplayPageContent() {
       if (!state || !state.players) return;
       console.log('📡 Display: game:state-sync received');
       syncStateFromData(state);
+      // 🪑 الخطوة الأخيرة من عقد إعادة الترتيب: أعِد اشتقاق ما مُحي من المصدر الموثوق.
+      //    حالة النقاش مفهرسة بالمقاعد (currentSpeakerId/الطابور) والخادم أعاد ربطها،
+      //    فنأخذها كما هي — لا نُصلح أرقامنا حسابياً.
+      if (seatResyncPendingRef.current) {
+        seatResyncPendingRef.current = false;
+        setDiscussionState(state.discussionState || null);
+      }
     };
     socket.on('game:state-sync', onStateSync);
     socket.on('game:state-updated', onStateSync); // نفس المعالج — يُبث بعد العقوبات وتحديثات أخرى
@@ -737,9 +749,57 @@ function DisplayPageContent() {
     socket.on('display:lucky-draw', onLuckyDraw);
     socket.on('display:lucky-draw:clear', onLuckyClear);
 
+    // ══════════════════════════════════════════════════
+    // 🪑 إعادة ترتيب المقاعد — عقد الإبطال
+    // ══════════════════════════════════════════════════
+    // بعد نقل/تبديل مقعد، رقمُ المقعد ما عاد يدلّ على من كان فيه. كل ما تحتفظ
+    // به هذه الشاشة **مفهرساً بالمقعد** صار كذباً: أحداث الليل/الصباح المعروضة،
+    // كشف الإقصاء الإداري، قرعة «اختيار رابح»، تشريفة الدخول، تجاوز المظهر…
+    // وأخطرها الطبقات التي تربط **وجهاً باسم**: تركُها لحظةً واحدة ينسب دوراً
+    // مكشوفاً لشخص آخر تماماً.
+    //
+    // العقد: امحُ (بلا أي «تصحيح حسابي» للأرقام) ← دع `game:state-sync` التالي
+    // — يبثّه الخادم فور هذا الحدث — يعيد الرسم من الصفر.
+    const onSeatsRemapped = (data: { map?: Record<string, number>; swapped?: boolean; at?: number }) => {
+      console.log('🪑 Display: room:seats-remapped — purging seat-keyed state', data?.map);
+
+      // 1) إلغاء كل أنيميشن/طبقة مثبّتة على مقعد + مؤقّتاتها (لا طبقة يتيمة فوق مقعد صار لغيره)
+      if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
+      setAnimation(null);                       // أحداث الليل/الصباح (كلها بأرقام مقاعد)
+
+      if (entranceTimerRef.current) { clearTimeout(entranceTimerRef.current); entranceTimerRef.current = null; }
+      setEntrance(null);                        // تشريفة دخول لمقعد بعينه
+
+      if (adminRevealTimerRef.current) { clearTimeout(adminRevealTimerRef.current); adminRevealTimerRef.current = null; }
+      if (adminRevealFlipTimerRef.current) { clearTimeout(adminRevealFlipTimerRef.current); adminRevealFlipTimerRef.current = null; }
+      setAdminReveal(null);                     // ⚠️ كارت كشف دور مثبَّت على رقم — الأخطر
+      setAdminRevealFlipped(false);
+
+      if (birthdayTimerRef.current) { clearTimeout(birthdayTimerRef.current); birthdayTimerRef.current = null; }
+      setBirthday(null);
+
+      clearLuckyTimers();
+      setLucky(null);                           // قرعة تدور على أرقام قديمة
+
+      // 2) الذاكرات المفهرسة بالمقعد
+      cosmeticsOverrideRef.current.clear();     // المظهر يعود مع الحالة القادمة
+      setDiscussionState(null);                 // يُشتقّ من جديد في onStateSync
+
+      // 3) اطلب/انتظر المصدر الموثوق ثم أعد الاشتقاق
+      seatResyncPendingRef.current = true;
+
+      // 4) لافتة خفيفة — بلا اسم ولا رقم ولا دور، ولا تحجب اللوحة
+      setSeatsRemapNotice(true);
+      if (seatsRemapTimerRef.current) clearTimeout(seatsRemapTimerRef.current);
+      seatsRemapTimerRef.current = setTimeout(() => setSeatsRemapNotice(false), 3500);
+    };
+    socket.on('room:seats-remapped', onSeatsRemapped);
+
     // ── تنظيف ──
     return () => {
       clearLuckyTimers();
+      socket.off('room:seats-remapped', onSeatsRemapped);
+      if (seatsRemapTimerRef.current) clearTimeout(seatsRemapTimerRef.current);
       socket.off('display:lucky-draw', onLuckyDraw);
       socket.off('display:lucky-draw:clear', onLuckyClear);
       socket.off('connect', onReconnect);
@@ -1909,6 +1969,29 @@ function DisplayPageContent() {
                 ADMIN ELIMINATION — IDENTITY REVEALED
               </p>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ 🪑 لافتة إعادة ترتيب المقاعد ═══ */}
+      {/* شريط سفليّ خفيف: لا يكشف اسماً ولا رقماً ولا دوراً، ولا يحجب اللوحة */}
+      <AnimatePresence>
+        {seatsRemapNotice && (
+          <motion.div
+            key="seats-remapped"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ duration: 0.45, ease: 'easeOut' }}
+            className="fixed bottom-8 left-0 right-0 z-[200] flex justify-center pointer-events-none"
+          >
+            <div className="noir-card border-[#C5A059]/30 bg-black/80 backdrop-blur-md px-7 py-3 flex items-center gap-4">
+              <span className="text-2xl opacity-80">🪑</span>
+              <div className="text-center leading-tight">
+                <p className="text-[#C5A059] text-xl font-black" style={{ fontFamily: 'Amiri, serif' }}>أُعيد ترتيب المقاعد</p>
+                <p className="text-[#555] text-[9px] font-mono tracking-[0.35em] uppercase mt-0.5">SEATS REARRANGED</p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

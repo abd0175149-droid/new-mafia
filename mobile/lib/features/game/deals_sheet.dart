@@ -79,12 +79,15 @@ class _DealsSheet extends StatefulWidget {
 
 class _DealsSheetState extends State<_DealsSheet> {
   int? _picked;
+  // 🪑 آخر «تذكرة» إعادة ترقيم رآها هذا اللوح — أي تغيّر يُسقط الاختيار المعلّق
+  late int _remapSeen;
 
   GameSessionController get c => widget.controller;
 
   @override
   void initState() {
     super.initState();
+    _remapSeen = c.seatsRemapTicket;
     c.addListener(_sync);
   }
 
@@ -95,7 +98,14 @@ class _DealsSheetState extends State<_DealsSheet> {
   }
 
   void _sync() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    // 🪑 أُعيد ترقيم المقاعد: الهدف المُختار رقمٌ لا شخص — بعد النقل قد يجلس فيه غيره،
+    // فيُرسَل الديل لشخصٍ لم يقصده اللاعب. نُسقط الاختيار ليعيد الاختيار بوعي.
+    if (c.seatsRemapTicket != _remapSeen) {
+      _remapSeen = c.seatsRemapTicket;
+      _picked = null;
+    }
+    setState(() {});
   }
 
   @override

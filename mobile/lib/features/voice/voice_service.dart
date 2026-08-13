@@ -65,6 +65,13 @@ class VoiceService extends ChangeNotifier {
   String? _roomId;
   bool _isHost = false;
   int? _selfPid;
+  String _displayName = 'مشارك';
+
+  /// اتصالٌ جارٍ الآن — راجع الحارس في `connect`.
+  bool _connecting = false;
+
+  /// مقعدٌ وصل أثناء اتصالٍ جارٍ، يُطبَّق فور انتهائه.
+  int? _pendingSelfPid;
 
   VoiceSnapshot _snap = const VoiceSnapshot();
   VoiceSnapshot get snapshot => _snap;
@@ -89,18 +96,97 @@ class VoiceService extends ChangeNotifier {
 
   /// 🔴 يُستدعى مرّةً لكلّ غرفة. تكرارُه بنفس المفتاح لا يفعل شيئاً —
   ///    وهذا هو ما يمنع انقطاع الصوت عند تبدّل الأطوار.
+  ///
+  /// 🪑 **استثناءٌ واحد للارتداد المبكّر: المقعد.** كان الارتداد يبتلع
+  ///    مقعداً جديداً فيبقى `_selfPid` على القديم — فيُفتح مايك الجهاز في
+  ///    دور من صار في مقعده القديم ويُغلق في دوره هو. والمقعد ليس رقماً
+  ///    محلّياً أصلاً: هويّة المشارك في الاجتماع (`p{N}`) تُصدَر داخل
+  ///    التوكن من `socket.data.physicalId` عند الخادم، فتغيّره يوجب
+  ///    إعادة إصداره — وهذا ما يفعله `updateSelfSeat`.
   Future<void> connect({
     required String roomId,
     required bool isHost,
     int? selfPhysicalId,
     String displayName = 'مشارك',
   }) async {
-    if (_engine != null && _roomId == roomId && _isHost == isHost) return;
+    // 🔴 حارسُ تسابق: `connect` غير متزامنة (توكن ثمّ صلاحية ميكروفون)،
+    //    والشاشة تناديها مع كلّ إشعارِ حالة. بلا الحارس تتوازى محاولتان
+    //    — لأنّ `_engine` يبقى فارغاً طوال الانتظار — فينشأ محرّكان
+    //    ويلتحق الجهاز بالاجتماع مرّتين.
+    if (_connecting) {
+      if (selfPhysicalId != null) _pendingSelfPid = selfPhysicalId;
+      return;
+    }
+    if (_engine != null && _roomId == roomId && _isHost == isHost) {
+      if (selfPhysicalId != null && selfPhysicalId != _selfPid) {
+        await updateSelfSeat(selfPhysicalId, displayName: displayName);
+      }
+      return;
+    }
+
+    _connecting = true;
+    try {
+      await _openSession(
+        roomId: roomId,
+        isHost: isHost,
+        selfPhysicalId: selfPhysicalId,
+        displayName: displayName,
+      );
+    } finally {
+      _connecting = false;
+    }
+
+    // مقعدٌ وصل أثناء الاتصال — يُطبَّق الآن كي لا يضيع بلا إشعارٍ يعيده
+    final pending = _pendingSelfPid;
+    _pendingSelfPid = null;
+    if (pending != null && pending != _selfPid) {
+      await updateSelfSeat(pending, displayName: displayName);
+    }
+  }
+
+  /// 🪑 اعتمادُ مقعدٍ جديد للذات بعد نقل الليدر للمقاعد.
+  ///
+  /// 🔴 تحديث الرقم محلّياً **لا يكفي**: التوكن يحمل `p{المقعد القديم}`،
+  ///    فيظلّ الجهاز يظهر للمضيف باسم مقعدٍ صار لغيره — يُكتَم بدلاً منه
+  ///    ويُفتح مايكه في دوره. لذلك يُعاد إصدار التوكن كاملاً.
+  Future<void> updateSelfSeat(int physicalId, {String? displayName}) async {
+    if (_selfPid == physicalId) return;
+    _selfPid = physicalId;
+    if (displayName != null && displayName.isNotEmpty) {
+      _displayName = displayName;
+    }
+    notifyListeners();
+
+    final room = _roomId;
+    // لا جلسة قائمة ⇒ الرقم وحده يكفي، و`connect` القادم يحمله في توكنه
+    if (room == null || _engine == null) {
+      unawaited(_enforceRules());
+      return;
+    }
+
+    final host = _isHost;
+    final name = _displayName;
+    await disconnect();
+    await connect(
+      roomId: room,
+      isHost: host,
+      selfPhysicalId: physicalId,
+      displayName: name,
+    );
+  }
+
+  Future<void> _openSession({
+    required String roomId,
+    required bool isHost,
+    int? selfPhysicalId,
+    required String displayName,
+  }) async {
     await disconnect();
 
     _roomId = roomId;
     _isHost = isHost;
     _selfPid = selfPhysicalId;
+    _displayName = displayName;
     _set(_snap.copyWith(connecting: true, clearError: true));
     _wireSocket();
 
@@ -438,6 +524,9 @@ class VoiceService extends ChangeNotifier {
     _roomId = null;
     _isHost = false;
     _selfPid = null;
+    _displayName = 'مشارك';
+    _connecting = false;
+    _pendingSelfPid = null;
     _dead = false;
     _snap = const VoiceSnapshot();
     _speaker = const ActiveSpeakerState();

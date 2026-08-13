@@ -19,6 +19,9 @@ interface PlayerNotepadProps {
   onNotesChange: (notes: Record<number, PlayerNote>) => void;
   // 🗣️ تبويب التشاور السرّي (يُحسب في PlayerFlow: مافيا حيّ + الغرفة مفعّلة + مرحلة لعب)
   chatVisible?: boolean;
+  // 🪑 يتغيّر عند إعادة ترتيب المقاعد: الدلو رُحِّل في PlayerFlow وسجلّ التشاور
+  // أُعيد ترقيمه على الخادم → نُعيد قراءة الاثنين بدل الإبقاء على نسخةٍ بأرقام قديمة
+  remapNonce?: number;
 }
 
 const SUSPICION_CONFIG = {
@@ -29,7 +32,7 @@ const SUSPICION_CONFIG = {
 };
 
 export default function PlayerNotepad({
-  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange, chatVisible = false,
+  roomId, myPhysicalId, players, isOpen, onClose, onNotesChange, chatVisible = false, remapNonce = 0,
 }: PlayerNotepadProps) {
   const storageKey = `mafia_notes_${roomId}_${myPhysicalId}`;
 
@@ -67,7 +70,8 @@ export default function PlayerNotepad({
       } catch {}
     })();
     return () => { if (off) off(); };
-  }, [isOpen, chatVisible, roomId]);
+    // 🪑 remapNonce: بعد إعادة ترتيب المقاعد يُعاد جلب السجلّ بأرقامه الجديدة
+  }, [isOpen, chatVisible, roomId, remapNonce]);
 
   // تمرير تلقائي لآخر رسالة
   useEffect(() => {
@@ -112,18 +116,19 @@ export default function PlayerNotepad({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Load notes from localStorage
+  // 🪑 remapNonce ضروريّ: من لم يتحرّك مقعده لا يتغيّر storageKey عنده، لكن مفاتيح
+  //    أهداف ملاحظاته أُعيد ترقيمها — فلولا القراءة الجديدة لأعاد أوّل حفظٍ كتابة
+  //    النسخة القديمة فوق الدلو المُرحَّل.
   useEffect(() => {
     if (isOpen) {
       try {
         const saved = localStorage.getItem(storageKey);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          setNotes(parsed);
-          onNotesChange(parsed);
-        }
+        const parsed = saved ? JSON.parse(saved) : {};
+        setNotes(parsed);
+        onNotesChange(parsed);
       } catch {}
     }
-  }, [isOpen, storageKey]);
+  }, [isOpen, storageKey, remapNonce]);
 
   // Filtered players for picker
   const pickerPlayers = players.filter(p => {

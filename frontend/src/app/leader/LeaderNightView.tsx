@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import MafiaCard from '@/components/MafiaCard';
+import { useSeatMove, SeatMoveChip } from './SeatMove';
 
 interface LeaderNightViewProps {
   gameState: any;
@@ -61,6 +62,21 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
   const [penalizingId, setPenalizingId] = useState<number | null>(null);
   const [penalizingLoading, setPenalizingLoading] = useState(false);
   const [showQuickPenalties, setShowQuickPenalties] = useState(false);
+
+  // ── 🪑 بعد نقل/تبادل مقعد: كل اختيار محليّ مفهرس بالمقاعد صار يشير إلى شخص آخر ──
+  //    امحُ الاختيارات والنوافذ المفتوحة؛ الخطوة نفسها تُعاد من الخادم (night:resume + state-sync).
+  const seatMove = useSeatMove();
+  useEffect(() => {
+    if (!seatMove.remapVersion) return;
+    setSelectedTarget(null);
+    setPeekedCard(null);
+    setPenalizingId(null);
+    setShowQuickPenalties(false);
+    setPolicewomanTarget(null);
+    setSheriffOverlay(null);
+    if (peekTimerRef.current) { clearTimeout(peekTimerRef.current); peekTimerRef.current = null; }
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  }, [seatMove.remapVersion]);
 
   const handleRecordPenalty = async (physicalId: number) => {
     setPenalizingLoading(true);
@@ -1089,6 +1105,14 @@ export default function LeaderNightView({ gameState, emit, setError }: LeaderNig
                     >
                       ⚠️
                     </button>
+
+                    {/* 🪑 نقل/تبديل المقعد — لمستان من البطاقة نفسها بلا فتح لوحة.
+                        تظهر دائماً أثناء «اختر الوجهة» كي تكون هذه البطاقة وجهةً بلمسة. */}
+                    <div className={`absolute -top-2 -right-2 z-20 transition-opacity ${
+                      seatMove.movingId !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    }`}>
+                      <SeatMoveChip physicalId={p.physicalId} />
+                    </div>
 
                     {/* Warning dots */}
                     {playerPenalties > 0 && (

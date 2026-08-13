@@ -502,6 +502,34 @@ export default function PlayerPhaseView({
       if (data.dealLockedPlayers) setDealLockedPlayers(data.dealLockedPlayers);
     });
 
+    // ── 🪑 إعادة ترتيب المقاعد: امحُ كل ما هو مفهرس بالمقاعد ثم اسأل الخادم ──
+    // كل ما نعرضه هنا (أحداث الصباح، المتّهم، المتعادلون، المقصيّون، الاتفاقيات،
+    // هدف الاتفاقية المختار) مبنيّ على أرقام مقاعد صارت تشير لأشخاصٍ آخرين.
+    // لا نُصلحه حسابياً: نمحوه ونعيد جلب الحالة الكاملة من الخادم.
+    const cRemap = on('room:seats-remapped', () => {
+      setMorningEvents([]);
+      setNightStepInfo(null);
+      setDiscussionState(null);
+      setJustificationData(null);
+      setTiedCandidates([]);
+      setEliminationData(null);
+      setEliminationRevealed(false);
+      setDeals([]);
+      setDealLockedPlayers([]);
+      setSelectedTargetId('');
+      setDealError('');
+      setDealSubmitting(false);
+      setDealRemoving(false);
+      withdrawalActiveRef.current = false;
+      setWithdrawalActive(false);
+      setHasWithdrawn(false);
+      setWithdrawalCount(0);
+      setWithdrawalNeeded(0);
+      if (justTimerRef.current) clearInterval(justTimerRef.current);
+      setJustTimer(null);
+      fetchLatestState();
+    });
+
     // ── مسح عند تغيير المرحلة ──
     const c13 = on('game:phase-changed', (data: any) => {
       const p = data?.phase;
@@ -559,7 +587,7 @@ export default function PlayerPhaseView({
     });
 
     return () => {
-      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,cDealsCreated,cDealsRemoved].forEach(c => c?.());
+      [c1,c2,c3,c4,c5,c6,c7,c8,c9,c10,c11,c12,c13,c14,cDealsCreated,cDealsRemoved,cRemap].forEach(c => c?.());
       if (justTimerRef.current) clearInterval(justTimerRef.current);
     };
   }, [on, physicalId, roomId, emit]);

@@ -11,6 +11,7 @@ import LeaderLobbyView from './LeaderLobbyView';
 import LeaderRoleConfigurator from './LeaderRoleConfigurator';
 import LeaderRoleBinding from './LeaderRoleBinding';
 import LeaderNightView from './LeaderNightView';
+import { SeatMoveProvider, SeatMoveConsumer, SeatMoveTargets, SeatMoveBoardToggle } from './SeatMove';
 import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, playEliminationSound, playLocalSound, loadSoundMap, reloadSoundMap, setSoundMirror, primeAudio, setLocalMuted } from '@/lib/soundManager';
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
@@ -347,21 +348,13 @@ export default function LeaderPage() {
   const [sessionEditName, setSessionEditName] = useState('');
   const [sessionEditLoading, setSessionEditLoading] = useState(false);
 
-  // ── 🪑 وضع نقل المقعد بلمستين في عرض الجلسة (خاضع لقفل السرّ نفسه) ──
-  const [sessionMovingId, setSessionMovingId] = useState<number | null>(null);
-  const [sessionMoveLoading, setSessionMoveLoading] = useState(false);
-  const handleSessionMoveSeat = async (toSeat: number) => {
-    if (!gameState?.roomId || sessionMovingId === null || sessionMoveLoading) return;
-    setSessionMoveLoading(true);
-    try {
-      await emit('room:move-seat', { roomId: gameState.roomId, fromPhysicalId: sessionMovingId, toSeat });
-      setSessionMovingId(null);
-    } catch (err: any) {
-      swalAlert(err.message || 'فشل نقل المقعد', 'warning');   // تنبيه ظاهر — لا كونسول فقط
-    } finally {
-      setSessionMoveLoading(false);
-    }
-  };
+  // ── 🪑 نقل/تبادل المقاعد — المنطق كلّه في طبقة SeatMove المشتركة (خاضع لقفل السرّ
+  //    نفسه على الخادم). الصفحة تُركّب المزوّد فتستهلكه عبر SeatMoveConsumer.
+  // 🔁 بعد أي إعادة ترقيم: أعِد المزامنة الكاملة من game:state-sync التالي بدل الدمج الجزئي
+  const fullResyncPendingRef = useRef(false);
+  // المرحلة الحالية في مرجع — يقرأها مستمع room:seats-remapped دون إعادة تسجيله كل مرحلة
+  const phaseRef = useRef<string | undefined>(undefined);
+  useEffect(() => { phaseRef.current = gameState?.phase; }, [gameState?.phase]);
 
   // ── مودال تعديل الأرقام (Renumber Modal) ──
   const [showRenumberModal, setShowRenumberModal] = useState(false);
@@ -727,8 +720,13 @@ export default function LeaderPage() {
     const offStateSync = on('game:state-sync', (state: any) => {
       if (!state?.players) return;
       console.log('📡 Leader: game:state-sync received');
+      // 🪑 بعد إعادة ترقيم المقاعد: دمجٌ كامل — كل مصفوفة مفهرسة بالمقاعد (تصويت/ليل/
+      //    نقاش/تبرير/العمدة/التوائم/الملخّص) تُعاد اشتقاقها من الخادم لا من الذاكرة.
+      const fullResync = fullResyncPendingRef.current;
+      fullResyncPendingRef.current = false;
       setGameState(prev => prev ? {
         ...prev,
+        ...(fullResync ? state : {}),
         players: state.players,
         phase: state.phase || prev.phase,
         assassinState: state.assassinState || prev.assassinState,
@@ -738,7 +736,48 @@ export default function LeaderPage() {
         reservedTailSeats: state.reservedTailSeats ?? prev.reservedTailSeats,
         doors: state.doors ?? prev.doors,
         doorSeats: state.doorSeats ?? prev.doorSeats,
+        // ⚠️ nightStep عند الليدر = currentNightStep (الطابور اليدوي) حصراً. حالة الخادم
+        //    تحمل nightStep بشكل مختلف في الوضع الآلي، وnight:resume يعيد بناءه.
+        ...(fullResync ? { nightStep: state.currentNightStep ?? prev.nightStep ?? null } : {}),
       } : prev);
+    });
+
+    // ── 🪑 إعادة ترقيم المقاعد (نقل/تبادل): امحُ ← اسأل ← أعد الاشتقاق ──
+    //    كل ما تحمله هذه الشاشة مفهرساً بالمقاعد صار خاطئاً، حتى لو لم يُنقل أحد من كروتها.
+    const offSeatsRemapped = on('room:seats-remapped', () => {
+      fullResyncPendingRef.current = true;                 // ⬅️ يجعل state-sync التالي دمجاً كاملاً
+      // 1) امحُ اختيارات/نوافذ الليدر المفهرسة بالمقاعد
+      setShowAdminEliminate(false);
+      setShowAdminRename(false);
+      setAdminRenameTarget(null);
+      setAdminRevealData(null);
+      setSessionEditingId(null);
+      setSessionEditName('');
+      setShowRenumberModal(false);
+      setRenumberMap({});
+      setRenumberError('');
+      setPendingNewGameAction(null);
+      setExcludedPlayers([]);
+      setShowExcludeUI(false);
+      setCheatFeed([]);
+      setAutoNightStep(null);
+      setAutoNightProgress(null);
+      setAutoNightApproval(null);
+      setShowLuckyDraw(false);          // الرابحون والسجلّ أرقام مقاعد — تُقرأ من جديد عند الفتح
+      setLuckyWinners(null);
+      setLuckyRevealed(false);
+      setLuckyHistory([]);
+      setMafiaChatMessages([]);
+      // 2) اسأل الخادم: سجلّ الدردشة أُعيد ترقيمه، وخطوة الليل تُستأنف بالأرقام الجديدة
+      const rid = gameState.roomId;
+      if (showMafiaChatModalRef.current) {
+        emit('leader:mafia-chat-history', { roomId: rid })
+          .then((r: any) => { if (r?.success) setMafiaChatMessages(r.messages || []); })
+          .catch(() => { /* غير حاجب */ });
+      }
+      if (phaseRef.current === 'NIGHT') {
+        emit('night:resume', { roomId: rid }).catch(() => { /* غير حاجب */ });
+      }
     });
 
     // 🔔 القالب المرتبط بالفعالية تغيّر — نُظهر تنبيهاً على زر «تحديث المقاعد من القالب»
@@ -1386,6 +1425,7 @@ export default function LeaderPage() {
     return () => {
       offConnect();
       offStateSync();
+      offSeatsRemapped();
       offTemplateChanged();
       offPlayerJoined();
       offPhaseChanged();
@@ -2036,6 +2076,7 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   if (gameState && inSession) {
     return (
+      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
@@ -2059,6 +2100,8 @@ export default function LeaderPage() {
               {luckyDrawBtn}
               {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
               {birthdayBtn}
+              {/* 🪑 لوحة نقل/تبادل المقاعد — متاحة في كل المراحل */}
+              <SeatMoveBoardToggle />
               {/* زر تعديل الأسماء — Session View */}
               {gameState.players.length > 0 && (
                 <button
@@ -2339,54 +2382,27 @@ export default function LeaderPage() {
               </div>
 
               {/* 🪑 شريط وضع النقل + المقاعد الفارغة كأهداف */}
-              <AnimatePresence>
-                {sessionMovingId !== null && (() => {
-                  const mover = gameState.players.find((p: any) => p.physicalId === sessionMovingId);
-                  const occupied = new Set(gameState.players.map((p: any) => p.physicalId));
-                  const emptySeats = Array.from({ length: gameState.config.maxPlayers }, (_, i) => i + 1).filter((s) => !occupied.has(s));
-                  return (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-4">
-                      <div className="bg-sky-950/40 border border-sky-500/40 rounded-xl p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sky-300 text-[11px] font-bold">
-                            🪑 نقل «{mover?.name}» (#{sessionMovingId}) — المس مقعداً فارغاً للنقل، أو بطاقة لاعب للتبديل معه
-                          </p>
-                          <button onClick={() => setSessionMovingId(null)} className="text-[10px] px-3 py-1 rounded bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700">✕ إلغاء</button>
-                        </div>
-                        {emptySeats.length > 0 ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {emptySeats.map((s) => (
-                              <button key={s} disabled={sessionMoveLoading} onClick={() => handleSessionMoveSeat(s)}
-                                className="w-10 h-10 rounded-lg border-2 border-dashed border-sky-500/50 text-sky-300 font-mono font-bold text-sm hover:bg-sky-500/20 hover:border-sky-400 transition-colors disabled:opacity-40">
-                                {s}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-zinc-500">لا مقاعد فارغة — المس بطاقة لاعب للتبديل معه</p>
-                        )}
-                      </div>
-                    </motion.div>
-                  );
-                })()}
-              </AnimatePresence>
+              <SeatMoveTargets compact />
 
               {gameState.players.length === 0 ? (
                 <div className="text-center py-12 border border-dashed border-[#2a2a2a] rounded-lg">
                   <p className="text-[#555] text-sm font-mono">لا يوجد لاعبين — أضف لاعبين باستخدام الزر أعلاه</p>
                 </div>
               ) : (
+                <SeatMoveConsumer>{(sm) => (
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                   {gameState.players.filter((p: any) => !p.seatHeld).map((p: any) => {
                     const isSessionEditing = sessionEditingId === p.physicalId;
+                    const sessionMovingId = sm.movingId;
                     const isSessionMover = sessionMovingId === p.physicalId;
                     const isSessionSwapTarget = sessionMovingId !== null && !isSessionMover;
                     return (
                     <div
                       key={p.physicalId}
+                      data-seat-move={sessionMovingId !== null ? '1' : undefined}
                       onClick={() => {
-                        if (isSessionMover) setSessionMovingId(null);                    // لمس بطاقة الناقل = إلغاء
-                        else if (isSessionSwapTarget) handleSessionMoveSeat(p.physicalId); // لمس لاعب آخر = تبديل
+                        if (isSessionMover) sm.cancelMove();                    // لمس بطاقة الناقل = إلغاء
+                        else if (isSessionSwapTarget) sm.moveTo(p.physicalId);  // لمس لاعب آخر = تبديل
                       }}
                       className={`relative group rounded-2xl transition-shadow w-fit mx-auto ${
                         isSessionMover ? 'ring-2 ring-sky-400 shadow-[0_0_16px_rgba(56,189,248,0.4)] cursor-pointer'
@@ -2408,7 +2424,8 @@ export default function LeaderPage() {
                       {/* 🪑 زر نقل/تبديل المقعد — يظهر عند hover (لمستان؛ خاضع لقفل السرّ في السيرفر) */}
                       {!showExcludeUI && !isSessionEditing && sessionMovingId === null && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); setSessionMovingId(p.physicalId); }}
+                          data-seat-move="1"
+                          onClick={(e) => { e.stopPropagation(); sm.beginMove(p.physicalId); }}
                           className="absolute -bottom-2 -right-2 w-6 h-6 rounded-full bg-[#051520] border border-sky-500/60 text-sky-400 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-sky-950 hover:scale-110 z-20 shadow-lg"
                           title="نقل/تبديل المقعد"
                         >
@@ -2516,6 +2533,7 @@ export default function LeaderPage() {
                     );
                   })}
                 </div>
+                )}</SeatMoveConsumer>
               )}
 
               {/* ═══ المقاعد المحجوزة (Session View) ═══ */}
@@ -3304,6 +3322,7 @@ export default function LeaderPage() {
           })()}
         </div>
       </div>
+      </SeatMoveProvider>
     );
   }
 
@@ -3312,6 +3331,7 @@ export default function LeaderPage() {
   // ══════════════════════════════════════════════════
   if (gameState) {
     return (
+      <SeatMoveProvider roomId={gameState.roomId} players={gameState.players} maxPlayers={gameState.config.maxPlayers} emit={emit} on={on}>
       <div className="display-bg min-h-screen font-sans relative overflow-hidden blood-vignette selection:bg-[#8A0303] selection:text-white flex flex-col">
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
@@ -3342,6 +3362,8 @@ export default function LeaderPage() {
               {luckyDrawBtn}
               {/* 🎂 زر عيد الميلاد — مشترك أيضاً */}
               {birthdayBtn}
+              {/* 🪑 لوحة نقل/تبادل المقاعد — متاحة في كل المراحل (لمستان بلا كتابة) */}
+              <SeatMoveBoardToggle />
               {/* زر تعديل الأسماء — يظهر فقط قبل توزيع الأدوار */}
               {(gameState.phase === 'LOBBY' || gameState.phase === 'ROLE_GENERATION') && gameState.players.length > 0 && (
                 <button
@@ -4438,6 +4460,7 @@ export default function LeaderPage() {
           </div>
         </div>
       </div>
+      </SeatMoveProvider>
     );
   }
 

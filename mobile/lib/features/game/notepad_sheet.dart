@@ -55,9 +55,13 @@ class _NotepadSheetState extends State<NotepadSheet> {
   final _chatScroll = ScrollController();
   bool _picking = false;
 
+  /// آخر إعادة ترتيبٍ للمقاعد رأتها هذه الورقة — راجع `_sync`.
+  int _remapSeen = 0;
+
   @override
   void initState() {
     super.initState();
+    _remapSeen = c.seatsRemapTicket;
     c.addListener(_sync);
     if (c.chatVisible) unawaited(c.loadChatHistory());
   }
@@ -73,6 +77,14 @@ class _NotepadSheetState extends State<NotepadSheet> {
 
   void _sync() {
     if (!mounted) return;
+    // 🪑 أُعيد ترتيب المقاعد: الهدف المختار الآن يشير إلى **شخصٍ آخر**،
+    //    وحفظُ ملاحظةٍ عليه يكتبها في حقّ بريء. يُسقَط الاختيار ونصّه
+    //    معاً — ولا يُصحَّح بالحساب.
+    if (c.seatsRemapTicket != _remapSeen) {
+      _remapSeen = c.seatsRemapTicket;
+      _target = null;
+      _note.clear();
+    }
     setState(() {});
     if (_tab == _Tab.chat) _scrollChatToEnd();
   }

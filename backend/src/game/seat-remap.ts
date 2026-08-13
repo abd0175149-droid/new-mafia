@@ -19,16 +19,30 @@ const ID_VALUE_FIELDS = new Set([
   'autoNightPerformerId',
   'godfatherTarget', 'silencerTarget', 'sheriffTarget', 'doctorTarget',
   'sniperTarget', 'nurseTarget', 'assassinTarget', 'witchTarget', 'lastProtectedTarget',
+  // 🎙️ المواجهة الثنائية (اللعب عن بُعد) — رقما مقعدين باسمين لا يتبعان النمط
+  'requesterId', 'targetId',
 ]);
 
 // مصفوفات عناصرها physicalIds
 const ID_ARRAY_FIELDS = new Set([
   'speakingQueue', 'hasSpoken', 'hiddenPlayersFromVoting',
   'winners', 'pool', 'witchPreviousTargets', 'eliminated',
+  // 🗳️ سحب الأصوات: من سحب ومن هم المتهمون
+  'withdrawn', 'accusedIds',
+  // 🎁 سجلّ رابحي السحب عبر عمر الغرفة (يستمر بين الألعاب — لذا يجب ترقيمه)
+  'luckyDrawHistory',
 ]);
 
 // قواميس مفاتيحها physicalIds (Record<physicalId, ...>)
-const ID_KEYED_RECORDS = new Set(['playerVotes', 'leaderProxyVotes', 'submitted']);
+const ID_KEYED_RECORDS = new Set([
+  'playerVotes', 'leaderProxyVotes', 'submitted',
+  // 🤝 قفل تسجيل الديل: physicalId → آخر جولة سجّل فيها
+  'dealRegisteredRound',
+]);
+
+// قواميس **قيمها** physicalIds ومفاتيحها شيء آخر (مثل معرّف القدرة)
+// مثال: dynamicNightState.lastTargets = { SHERIFF_INVESTIGATE: 7, ... }
+const ID_VALUED_RECORDS = new Set(['lastTargets']);
 
 // مفاتيح تُتجاهل كلياً (غير قابلة للتسلسل أو لا علاقة لها)
 const SKIP_KEYS = new Set(['timerHandle']);
@@ -60,6 +74,12 @@ function walk(node: any, key: string | null, mapping: Map<number, number>): void
     }
     for (const k of Object.keys(node)) delete node[k];
     Object.assign(node, rebuilt);
+    return;
+  }
+
+  // قاموس قيَمه أرقام مقاعد (المفتاح شيء آخر) — أعِد ربط القيَم
+  if (key && ID_VALUED_RECORDS.has(key)) {
+    for (const [k, v] of Object.entries(node)) node[k] = mapId(mapping, v);
     return;
   }
 

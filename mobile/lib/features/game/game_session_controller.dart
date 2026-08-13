@@ -471,6 +471,16 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   String? _seatChangeAlert;
   String? get seatChangeAlert => _seatChangeAlert;
 
+  /// 🪑 عدّادُ إعادة ترتيب المقاعد. الأوراق المفتوحة (المفكرة) تراقبه
+  ///    لتُسقط أيّ **اختيارٍ معلّقٍ مفهرسٍ بمقعد** — فالمقعد الذي اختاره
+  ///    اللاعب قبل لحظةٍ صار يدلّ على شخصٍ آخر.
+  int _seatsRemapTicket = 0;
+  int get seatsRemapTicket => _seatsRemapTicket;
+
+  /// رسالة آخر رفضِ هويّةٍ من الخادم — تُعرض على شاشة الدخول كما هي.
+  String? _rejoinError;
+  String? get rejoinError => _rejoinError;
+
   bool _isExpelled = false;
   String? _expulsionReason;
   bool get isExpelled => _isExpelled;
@@ -796,10 +806,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         roomId: saved.roomId,
         physicalId: saved.physicalId,
         phone: saved.phone,
+        playerId: saved.playerId,
       );
       // 🔒 لا تُمسح الجلسة إلّا حين **يقول الخادم صراحةً** إنها لم تعد
       //    قائمة. تعذُّر الوصول ليس رفضاً.
       if (r == RejoinResult.rejected) await _clearSession();
+      // 🪪 والمقعد المحفوظ لم يعد يعرّفني ⇒ إلى شاشة الدخول برسالة الخادم
+      if (r == RejoinResult.identityRequired) await identityRequired();
     }
 
     _restoring = false;
@@ -833,9 +846,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     required String roomId,
     required int physicalId,
     String? phone,
+    int? playerId,
   }) async =>
       await rejoinDetailed(
-          roomId: roomId, physicalId: physicalId, phone: phone) ==
+          roomId: roomId,
+          physicalId: physicalId,
+          phone: phone,
+          playerId: playerId) ==
       RejoinResult.ok;
 
   /// 🔒 يفرّق **الرفض** (الخادم ردّ `success:false` ⇒ الجلسة لم تعد قائمة)
@@ -845,14 +862,27 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     required String roomId,
     required int physicalId,
     String? phone,
+    int? playerId,
   }) async {
+    // 🪪 الحساب أقوى من الهاتف وأقوى من المقعد — يرسله كلّ جهازٍ مسجَّل،
+    //    والخادم يرتّب: حساب ← هاتف ← مقعد (بشروط صارمة).
+    final pid = playerId ?? _playerId;
     final res = await SocketService.instance.ask('room:rejoin-player', {
       'roomId': roomId,
       'physicalId': physicalId,
       if (phone != null && phone.isNotEmpty) 'phone': phone,
+      if (pid != null && pid > 0) 'playerId': pid,
     });
     if (res == null) return RejoinResult.unreachable;
-    if (res['success'] != true) return RejoinResult.rejected;
+    if (res['success'] != true) {
+      // ⛔ لم تُحسم الهويّة: المقعد بعد النقل لم يعد يعرّف صاحبه
+      if (res['code'] == 'IDENTITY_REQUIRED') {
+        _rejoinError = '${res['error'] ?? ''}';
+        return RejoinResult.identityRequired;
+      }
+      return RejoinResult.rejected;
+    }
+    _rejoinError = null;
 
     _roomId = roomId;
     _gameName = '${res['gameName'] ?? _gameName}';
@@ -1408,13 +1438,123 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
   static int _asInt(Object? v) => v is num ? v.toInt() : 0;
 
-  void _flashSeatChange() {
+  /// 🪑 مقعدي أنا تبدّل — يصل قبل البثّ العامّ (`room:seats-remapped`).
+  void _applySeatChanged(int newSeat) {
+    if (newSeat == _physicalId) return;
+    _physicalId = newSeat;
+    unawaited(_saveSession());
+    _flashSeatChange();
+    notifyListeners();
+  }
+
+  void _flashSeatChange() => _flashSeatAlert('تغيّر مقعدك إلى رقم $_physicalId');
+
+  /// إشعارٌ محايدٌ لكلّ من في الغرفة بعد إعادة الترتيب — بلا أرقام:
+  /// من تحرّك تصله رسالته الخاصّة وهي الأدقّ، وتصل **قبل** هذه
+  /// (`player:seat-changed` يسبق `room:seats-remapped`) فلا تُدهَس.
+  void _flashSeatsRemapped() {
+    if (_seatChangeAlert != null) return;
+    _flashSeatAlert('أُعيد ترتيب المقاعد');
+  }
+
+  void _flashSeatAlert(String message) {
     _seatAlertTimer?.cancel();
-    _seatChangeAlert = 'تغيّر مقعدك إلى رقم $_physicalId';
+    _seatChangeAlert = message;
     _seatAlertTimer = Timer(const Duration(seconds: 5), () {
       _seatChangeAlert = null;
       notifyListeners();
     });
+  }
+
+  // ══════════════════════════════════════════════════════
+  // 🪑 عقد المصالحة بعد نقل المقاعد — `room:seats-remapped`
+  // ══════════════════════════════════════════════════════
+
+  /// 🔒 **الترتيب لا يُبدَّل**: امسح ← رحّل ← اسأل ← أعد الاشتقاق.
+  ///
+  /// ① **امسح** كلّ ذاكرةٍ مفهرسةٍ بالمقعد: الرقم صار يدلّ على شخصٍ آخر،
+  ///    فخريطة الأدوار المكشوفة والمُقصون والمُسكتون وأحداث الصباح
+  ///    والاقتراع ونوافذ الليل والعمدة كلّها تكذب الآن. و**لا تُصحَّح
+  ///    بالحساب**: الجهاز لا يملك الحالة كاملةً ليعيد ترقيمها بنفسه،
+  ///    ومحاولةُ ذلك تُنتج نصف خريطةٍ صحيحة — وهي أسوأ من لا خريطة.
+  /// ② **رحّل** ما يملكه الجهاز وحده: المفكرة. لا تُجلَب من الخادم، فلو
+  ///    مُسحت مع البقية ضاع عمل اللاعب كلّه.
+  /// ③ **اسأل** الخادم فوراً (`room:get-my-state`) — يحلّ الهويّة بالحساب
+  ///    أو الهاتف لا بالمقعد. وانتظار دورة الاستطلاع يعني ثلاث ثوانٍ من
+  ///    شاشةٍ خرساء في أحرج لحظة.
+  /// ④ **أعد الاشتقاق**: شاشة الليل تُبنى من الحالة الجديدة (٦.٤)،
+  ///    والصوت يتبنّى المقعد الجديد عبر `_syncVoice` في الشاشة — وهويّة
+  ///    المشارك في الاجتماع مشتقّةٌ من المقعد فتُعاد إصدارُها هناك.
+  ///
+  /// 🔴 يُنفَّذ عند **الجميع** لا عند المنقولَين وحدهما: خرائط من لم
+  ///    يتحرّك مفهرسةٌ بالمقاعد أيضاً.
+  void _applySeatsRemap(Map<int, int> map) {
+    // مقعدي القديم — `player:seat-changed` سبق هذا الحدث فحدّث الرقم،
+    // فيُقرأ بعكس الخريطة لا بحفظ حالةٍ إضافية. ومن لم يتحرّك: `null`.
+    final oldSelf = <int, int>{
+      for (final e in map.entries) e.value: e.key,
+    }[_physicalId];
+
+    // ── ① المسح ──
+    _morning = const [];
+    _revealedRoles = const {};
+    _eliminated = const [];
+    _silencedPids = const {};
+    _tableBanner = null;
+    _clearVoting();
+    // خطوة الليل المفتوحة تعرض أهدافاً بأرقامٍ قديمة؛ ووسمُ الإنجاز
+    // يُصفَّر كي يُعاد فتحها من الحالة الجديدة إن كانت ما تزال حيّة.
+    _closeNight();
+    _nightDoneKey = null;
+    _nightStepRoleName = '';
+    _closeMayorPrompt();
+    _mayorRevealedId = null;
+    _mayorBannerTimer?.cancel();
+    _mayorBanner = null;
+    _seatsRemapTicket++;
+
+    // ── ② الترحيل ──
+    unawaited(_migrateNotes(map, oldSelf));
+
+    // ── ③ السؤال ──
+    unawaited(_pollOnce());
+    unawaited(loadChatHistory());
+
+    // ── ④ الإشعار ──
+    _flashSeatsRemapped();
+    notifyListeners();
+  }
+
+  /// ② ترحيل المفكرة — الترحيل الوحيد المسموح، ومصدره **خريطة الخادم**
+  /// لا حسابٌ محلّيّ: دلو الملاحظات ينتقل إلى مفتاح مقعدي الجديد،
+  /// ومفاتيحها عن الآخرين تُعاد كتابتها بالأرقام الجديدة.
+  Future<void> _migrateNotes(Map<int, int> map, int? oldSelf) async {
+    if (_roomId.isEmpty) return;
+    final p = _prefs;
+
+    // (أ) الدلو باسم مقعدي القديم — يُقرأ ثمّ يُزال كي لا يبقى أثرُ
+    //     ملاحظاتي تحت مفتاح مقعدٍ صار لغيري.
+    if (p != null && oldSelf != null && oldSelf != _physicalId) {
+      final oldKey = 'mafia_notes_${_roomId}_$oldSelf';
+      final raw = p.getString(oldKey);
+      if (raw != null) {
+        _notepad = Notepad.decode(raw);
+        await p.remove(oldKey);
+      }
+    }
+
+    // (ب) المفاتيح عن الآخرين. المفتاح صفر هو الملاحظة العامّة ولا مقعد
+    //     له، ومن ليس في الخريطة يبقى على رقمه.
+    if (map.isNotEmpty && _notepad.notes.isNotEmpty) {
+      final moved = <int, PlayerNote>{};
+      _notepad.notes.forEach((pid, note) {
+        moved[pid == Notepad.generalKey ? pid : (map[pid] ?? pid)] = note;
+      });
+      _notepad = Notepad(notes: moved);
+    }
+
+    _persistNotes();
+    notifyListeners();
   }
 
   // ══════════════════════════════════════════════════════
@@ -1424,28 +1564,60 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     // 🔴 إعادة الاتصال تعطي مُعرّفاً جديداً وتُخرج من غرف الخادم — بلا
     //    إعادة التحاق **لا يصل أيّ بثّ بعد أوّل انقطاع**.
     _on('connect', (_) {
-      if (_step.inGame && _roomId.isNotEmpty) {
-        unawaited(rejoin(
-            roomId: _roomId, physicalId: _physicalId, phone: _phone));
-      }
+      if (!_step.inGame || _roomId.isEmpty) return;
+      unawaited(rejoinDetailed(
+              roomId: _roomId, physicalId: _physicalId, phone: _phone)
+          .then((r) {
+        // 🪪 عدتُ فوجدتُ مقعدي يعرّف غيري (نُقل إليه لاعبٌ أثناء انقطاعي)
+        if (r == RejoinResult.identityRequired) unawaited(identityRequired());
+      }));
     });
 
     _on('player:seat-changed', (d) {
       if (d is! Map) return;
       final to = (d['newPhysicalId'] as num?)?.toInt();
-      if (to == null || to == _physicalId) return;
-      _physicalId = to;
-      unawaited(_saveSession());
-      _flashSeatChange();
-      notifyListeners();
+      if (to == null) return;
+      _applySeatChanged(to);
+    });
+
+    // 🪑 إعادة ترتيب المقاعد — يصل **الغرفة كلّها** لا المنقولَين وحدهما.
+    //    الخريطة `{مقعدٌ قديم: مقعدٌ جديد}` مفاتيحها نصّية في JSON.
+    _on('room:seats-remapped', (d) {
+      if (d is! Map) return;
+      final map = <int, int>{};
+      final raw = d['map'];
+      if (raw is Map) {
+        raw.forEach((k, v) {
+          final from = int.tryParse('$k');
+          final to = v is num ? v.toInt() : int.tryParse('$v');
+          if (from != null && to != null) map[from] = to;
+        });
+      }
+      _applySeatsRemap(map);
+    });
+
+    // 🌙 الخادم يطلب إعادة اشتقاق خطوة الليل بعد النقل. لا خطر تكرار:
+    //    `nightFromResume` تردّ فارغاً لمن أرسل فعله (`playerSubmitted`).
+    _on('night:refresh-required', (_) {
+      _closeNight();
+      _nightDoneKey = null;
+      unawaited(_pollOnce());
     });
 
     _on('player:role-assigned', (d) {
       if (d is! Map) return;
-      _assignedRole = '${d['role']}';
-      _cardFlipped = false;
-      _roleAlert = true;
-      _isPlayerDead = false;
+      final role = '${d['role']}';
+      // 🔴 يصل أيضاً **إعادةَ دفعٍ بعد نقل المقعد** بنفس الدور، لا بدايةَ
+      //    جولة. حينها لا تنبيهَ ولا قلبَ بطاقة ولا إحياءَ لمُقصى: إحياؤه
+      //    يفتح له معرض المافيا وتبويب التشاور حتى تصحّحه أوّل مزامنة.
+      //    ولا خطر على بدايةٍ حقيقية: نظافةُ المرحلة تُصفّر الدور قبلها.
+      final fresh = role != _assignedRole;
+      _assignedRole = role;
+      if (fresh) {
+        _cardFlipped = false;
+        _roleAlert = true;
+        _isPlayerDead = false;
+      }
       // 🔒 دائماً — الغياب يعني فراغاً هنا لا إبقاءً على القديم
       _mafiaTeam = MafiaMate.listOf(d['mafiaTeam']);
       _sibling = d['sibling'] is Map
@@ -1819,6 +1991,17 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// 🪪 ردّ الخادم `IDENTITY_REQUIRED`: العودة إلى شاشة الدخول برسالته
+  /// حرفيّةً. **لا تخمين ولا إعادة محاولةٍ بالمقعد**: الرقم قد صار يدلّ
+  /// على شخصٍ آخر بعد النقل، والتعريف بالهاتف أو الحساب هو المخرج.
+  Future<void> identityRequired() async {
+    _physicalId = 0;
+    await leaveAndReset(_rejoinError != null && _rejoinError!.isNotEmpty
+        ? _rejoinError
+        : 'تعذّر التعرّف عليك — أعد الدخول برقم هاتفك أو من حسابك');
+    _rejoinError = null;
+  }
+
   /// 🔴 `game:closed` **يُبقي اللاعب على الشاشة**: لا تغيير خطوة، ولا
   ///    رسالة، ولا مسح للغرفة — فقط تصفير حالة اللعب.
   Future<void> _softClose() async {
@@ -2089,6 +2272,15 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   void setPhaseForTest(String? phase) => _applyPhase(phase);
 
+  /// تشغيل عقد المصالحة نفسه الذي يشغّله `room:seats-remapped` — لا نسخةٍ
+  /// منه: ترتيب المسح والترحيل والسؤال هو ما يُفحَص.
+  @visibleForTesting
+  void applySeatsRemapForTest(Map<int, int> map) => _applySeatsRemap(map);
+
+  /// وصولُ `player:seat-changed` — يسبق البثّ العامّ عند المنقول.
+  @visibleForTesting
+  void applySeatChangedForTest(int newSeat) => _applySeatChanged(newSeat);
+
   @visibleForTesting
   void applyEliminationForTest({
     required List<int> eliminated,
@@ -2101,6 +2293,10 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   /// يعيد المتحكّم المفرد إلى حالته الأولى — يُنادى بين الاختبارات.
   @visibleForTesting
   void resetForTest() {
+    _seatAlertTimer?.cancel();
+    _seatChangeAlert = null;
+    _seatsRemapTicket = 0;
+    _silencedPids = const {};
     _roomId = '';
     _physicalId = 0;
     _displayName = '';
