@@ -79,6 +79,8 @@ export default function VenueOrdersPage() {
   const [showHistory, setShowHistory] = useState(false);
   // 🔎 فلتر المؤشّرات: نقرةٌ على «بانتظار/قيد التحضير/متأخّر» تحصر السكّة، وثانيةٌ تلغي
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'preparing' | 'late'>('all');
+  // 💰 نطاق رقم المبيعات: فعاليّة الغرفة الحيّة (الافتراض) أو كامل نافذة الـ٢٤ ساعة
+  const [salesScope, setSalesScope] = useState<'activity' | 'window'>('activity');
   // 👥 «في الغرفة»: من جلس في الغرفة الحيّة ولم يطلب بعد يظهر ساخناً — فيُذكَّر
   const [rooms, setRooms] = useState<{
     activityId: number; activityName: string;
@@ -327,7 +329,24 @@ export default function VenueOrdersPage() {
   const newOrders = ordersList.filter(o => o.status === 'new').sort(byAge);
   const preparing = ordersList.filter(o => o.status === 'preparing').sort(byAge);
   const done = ordersList.filter(o => o.status === 'delivered' || o.status === 'cancelled');
-  const sales = ordersList.filter(o => o.status !== 'cancelled').reduce((s, o) => s + parseFloat(o.total), 0);
+
+  // ── 💰 المبيعات ──────────────────────────────────────────
+  // 🔴 السكّة تجلب **آخر ٢٤ ساعة** (الخادم لا يُمرَّر له activityId عمداً كي لا تختفي
+  //    تذكرةٌ مفتوحة من فعاليّةٍ سابقة). لكنّ جمع كلّ ذلك في رقمٍ واحد كان يخلط
+  //    ليلة أمس بليلة اليوم: عُرض 73.00 د.أ وفعاليّة الليلة لم تبع إلّا 2.00 —
+  //    ورقمٌ زاحفٌ كهذا **ينقص** كلّما تقدّم الليل لخروج طلبات الأمس من النافذة.
+  //    فالتذاكر تبقى كما هي، والرقم وحده يُحصر بالفعاليّة، والاسم مكتوبٌ تحته.
+  const liveActivityId = rooms[0]?.activityId ?? null;
+  const scopeActivityId = liveActivityId ?? ordersList[0]?.activityId ?? null;
+  const scopeActivityName = rooms[0]?.activityName ?? ordersList.find(o => o.activityId === scopeActivityId)?.activityName ?? '';
+  const notCancelled = ordersList.filter(o => o.status !== 'cancelled');
+  const sumOf = (list: VOrder[]) => list.reduce((s, o) => s + (parseFloat(o.total) || 0), 0);
+  const windowSales = sumOf(notCancelled);
+  const activitySales = sumOf(notCancelled.filter(o => o.activityId === scopeActivityId));
+  const perActivity = salesScope === 'activity' && scopeActivityId !== null;
+  const sales = perActivity ? activitySales : windowSales;
+  // فارقٌ بين الرقمين = طلبات فعاليّاتٍ أخرى داخل النافذة — يستحقّ تنبيهاً لا صمتاً
+  const otherActivitySales = windowSales - activitySales;
   const lateOrders = [...newOrders, ...preparing].filter(o => stageAge(o, now) >= STALL_SEC).sort(byAge);
 
   // ── تذكرة ──
@@ -589,8 +608,27 @@ export default function VenueOrdersPage() {
         <Kpi n={lateOrders.length} label="متأخّر ٥ د+" color={lateOrders.length ? EM.hot : EM.faint} pulse={lateOrders.length > 0}
           active={statusFilter === 'late'}
           onClick={() => setStatusFilter(f => f === 'late' ? 'all' : 'late')} />
-        <Kpi n={sales} label="مبيعات د.أ" color={EM.text} money />
+        <Kpi n={sales} label={perActivity ? 'مبيعات الفعاليّة' : 'مبيعات ٢٤ ساعة'} color={EM.text} money
+          title={perActivity ? 'اضغط لإجماليّ آخر ٢٤ ساعة' : 'اضغط لمبيعات الفعاليّة وحدها'}
+          onClick={scopeActivityId !== null ? () => setSalesScope(s => s === 'activity' ? 'window' : 'activity') : undefined} />
       </div>
+
+      {/* 🏷️ الرقم أعلاه بلا اسمٍ يعود لغموضٍ آخر — نكتب ما يعدّه صراحةً */}
+      {scopeActivityId !== null && (
+        <div className="text-center mt-1.5 text-[10.5px] leading-relaxed" style={{ color: EM.faint }}>
+          {perActivity ? (
+            <>
+              💰 مبيعات <b style={{ color: EM.text }}>{scopeActivityName || `فعاليّة #${scopeActivityId}`}</b>
+              {otherActivitySales > 0.001 && (
+                <> · <span style={{ color: EM.warm }}>{jod(otherActivitySales)} من فعاليّاتٍ أخرى غير محتسبة</span></>
+              )}
+              <> · <u>اضغط الرقم للإجماليّ</u></>
+            </>
+          ) : (
+            <>💰 إجماليّ كلّ الفعاليّات في آخر ٢٤ ساعة · <u>اضغط الرقم للفعاليّة وحدها</u></>
+          )}
+        </div>
+      )}
 
       {/* ── 👥 في الغرفة — من جلس ولم يطلب بعد يُرى ويُذكَّر ──
           نفس سُلّم الجمرة: الجالس بلا طلبٍ «يسخن» بمرور الوقت كالتذكرة المتروكة */}
@@ -757,10 +795,12 @@ export default function VenueOrdersPage() {
   );
 }
 
-function Kpi({ n, label, color, pulse, money, active, onClick }: {
+function Kpi({ n, label, color, pulse, money, active, onClick, title }: {
   n: number; label: string; color: string; pulse?: boolean; money?: boolean;
   /** فلتر: يحوّل المؤشّر زرّاً — الحدود واللون يعلنان التفعيل */
   active?: boolean; onClick?: () => void;
+  /** نصّ التلميح — يلزم حين تكون النقرة لغير الفلترة (مبدّل نطاق المبيعات) */
+  title?: string;
 }) {
   const Tag: any = onClick ? 'button' : 'div';
   return (
@@ -772,7 +812,7 @@ function Kpi({ n, label, color, pulse, money, active, onClick }: {
         boxShadow: active ? `0 0 0 1px ${color} inset` : undefined,
         cursor: onClick ? 'pointer' : undefined,
       }}
-      title={onClick ? (active ? 'اضغط لإلغاء الفلتر' : 'اضغط لعرض هذه الطلبات وحدها') : undefined}>
+      title={title ?? (onClick ? (active ? 'اضغط لإلغاء الفلتر' : 'اضغط لعرض هذه الطلبات وحدها') : undefined)}>
       <b className="block leading-tight"
         style={{ fontFamily: MONO, fontVariantNumeric: 'tabular-nums', fontSize: money ? 18 : 23, color }}>
         {money ? n.toFixed(2) : n}

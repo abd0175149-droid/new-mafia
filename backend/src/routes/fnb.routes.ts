@@ -122,7 +122,7 @@ venueRouter.get('/room-attendance', authenticate, requireVenuePermission('orders
     }).from(sessions)
       .innerJoin(activities, eq(sessions.activityId, activities.id))
       .where(and(
-        eq(sessions.status, 'active'), isNull(sessions.deletedAt),
+        eq(sessions.status, 'active'), liveSessionFresh(), isNull(sessions.deletedAt),
         eq(activities.locationId, locId), isNull(activities.deletedAt),
         ne(activities.status, 'cancelled'), eq(activities.menuOrderingEnabled, true),
       ));
@@ -225,6 +225,16 @@ venueRouter.get('/menu-items', authenticate, requireVenuePermission('menu.manage
 });
 
 const MAX_BUNDLE_COMPONENTS = 12;
+
+// ⏳ عمرٌ أقصى للجلسة كي تُعدّ «حيّة».
+// 🔴 `status='active'` وحدها لا تكفي: الجلسة لا تُغلق تلقائيّاً عند انتهاء الليلة،
+//    فتبقى نشطةً إلى الغد. ولمّا كان فرع «الغرفة الحيّة» في resolveFnbContext بلا
+//    شرطٍ زمنيّ (عمداً — كي لا تُحرَم غرفةٌ بدأت قبل موعدها)، كانت جلسة الأمس تلتقط
+//    طلب اليوم فيُكتب على **فعاليّة الأمس**. والفوترة تُجمَّع بـ activityId حصراً،
+//    فيسقط الطلب من فاتورة الليلة ويضيع ثمنه على المكان. حدث فعلاً: الطلب 232.
+//    ١٨ ساعة أوسع من أطول ليلةٍ ممكنة بمرّات، فلا تُستبعد جلسةٌ حيّة أبداً.
+const LIVE_SESSION_MAX_AGE_MS = 18 * 3600_000;
+const liveSessionFresh = () => gte(sessions.createdAt, new Date(Date.now() - LIVE_SESSION_MAX_AGE_MS));
 
 // يتحقّق أنّ القسم ومجموعات الخيارات تخصّ هذا المكان — ومنعُ ربطِ مجموعةِ مكانٍ
 // آخر ليس تجميلاً: الأسعار والفروق تُقرأ منها عند كلّ طلب.
@@ -1385,6 +1395,7 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
     .where(and(
       eq(sessionPlayers.playerId, playerId),
       eq(sessions.status, 'active'),
+      liveSessionFresh(),          // ⏳ جلسة الأمس المفتوحة ليست «الآن» — انظر التعليق أعلاه
       isNull(sessions.deletedAt),
       isNull(activities.deletedAt),
       eq(activities.menuOrderingEnabled, true),
@@ -1451,6 +1462,7 @@ async function resolveFnbContext(db: NonNullable<ReturnType<typeof getDB>>, play
       .where(and(
         eq(sessionPlayers.playerId, playerId),
         eq(sessions.status, 'active'),
+        liveSessionFresh(),        // نفس الحارس — وإلّا شخّصنا «بلا حجز» بسبب غرفةٍ من الشهر الماضي
         isNull(sessions.deletedAt),
         eq(activities.menuOrderingEnabled, true),
       )).limit(1);
