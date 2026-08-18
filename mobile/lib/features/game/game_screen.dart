@@ -111,6 +111,13 @@ class _GameScreenState extends State<GameScreen> {
     if (_c.step == GameStep.done || _c.step == GameStep.rejoined) {
       unawaited(_checkFnb());
     }
+    // 🔑 JOIN-1: غير مسجّلٍ قصد غرفةً — إلى المصادقة، والرمز محفوظٌ للعودة.
+    //    فوريّ بلا مهلة: لا رسالةَ يقرؤها، والانتظار يبدو تعليقاً.
+    if (_c.authRedirect) {
+      _c.consumeAuthRedirect();
+      navigateTo(Routes.login);
+      return;
+    }
     // استبياناتٌ معلّقة تمنع الانضمام — تحويلٌ بعد أن يقرأ اللاعب السبب
     if (_c.feedbackRedirect) {
       _c.consumeFeedbackRedirect();

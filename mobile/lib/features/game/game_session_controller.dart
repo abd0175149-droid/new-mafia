@@ -35,6 +35,13 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   // ── مفاتيح التخزين ──
   static const _kSession = 'mafia_session';
   static const _kHeldSeat = 'mafia_held_seat';
+
+  /// رمز غرفةٍ قُصد الانضمام إليها قبل المصادقة (JOIN-1).
+  static const _kPendingJoin = 'mafia_pending_join';
+
+  /// 🔴 مهلةٌ إلزاميّة: رمزٌ يبقى محفوظاً بلا انتهاء يقذف **أيّ** داخلٍ
+  ///    لاحقٍ على الجهاز إلى غرفةٍ ليست له. عشر دقائق كمهلة المقعد المحجوز.
+  static const _pendingJoinTtl = Duration(minutes: 10);
   static const _kUserExited = 'mafia_user_exited';
 
   /// حدثٌ من السوكِت يفوز على الاستطلاع لهذه المدّة، ثمّ يفوز الاستطلاع
@@ -541,6 +548,28 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void consumeFeedbackRedirect() => _feedbackRedirect = false;
+
+  // ══════════════════════════════════════════════════════
+  // 🔑 JOIN-1 — مصادقةٌ ناقصةٌ في تدفّق الانضمام
+  // ══════════════════════════════════════════════════════
+  // 🔴 كان `findRoom` يضبط `GameStep.phone` لغير المسجّل، وخطوات المصادقة
+  //    الأربع (phone/login/register/changePassword) **معرّفةٌ بلا ودجةٍ
+  //    لأيٍّ منها** — فيبتلعها `_ => _Spinner('جارٍ…')` ويعلق ماسحُ QR في
+  //    دوّامةٍ أبديّة بلا رسالةٍ ولا مخرج.
+  //
+  // 🔴 ولا تُعاد كتابة المصادقة هنا كما في الويب: `AuthScreen` قائمةٌ
+  //    ومختبَرة بأوضاعها الأربعة، وتكرارُها يخلق مسارَي مصادقةٍ يتباعدان
+  //    مع كلّ تعديل. الصواب إعادةُ توجيهٍ **بنيّة عودة**.
+  bool _authRedirect = false;
+  bool get authRedirect => _authRedirect;
+  void consumeAuthRedirect() => _authRedirect = false;
+
+  /// يُطلب الدخول ويُحفظ الرمز المقصود للعودة إليه.
+  void requestAuthForJoin(String code) {
+    _writePendingJoin(code);
+    _authRedirect = true;
+    notifyListeners();
+  }
 
   void setStep(GameStep s) {
     if (_step == s) return;
@@ -2093,6 +2122,57 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _physicalId = 0;
     _step = GameStep.code;
     notifyListeners();
+  }
+
+  // 🔴 الذاكرة أوّلاً والتخزين احتياطاً — لا التخزين وحده:
+  //    `_prefs` تُملأ في `start()` وقد تكون null لحظة الكتابة (شاشةٌ فُتحت
+  //    من رابطٍ عميق قبل اكتمال الإقلاع). كتابةٌ عبر `_prefs?.` حينها
+  //    **تُهمَل صامتةً** فيضيع الرمز ويهبط اللاعب على الرئيسيّة بعد دخوله.
+  //    والتخزين يبقى لأن المصادقة قد تتخلّلها إعادةُ تشغيل.
+  String? _pendingJoinCode;
+  int _pendingJoinAt = 0;
+
+  void _writePendingJoin(String code) {
+    _pendingJoinCode = code;
+    _pendingJoinAt = DateTime.now().millisecondsSinceEpoch;
+    unawaited(_prefs?.setString(
+          _kPendingJoin,
+          jsonEncode({'code': code, 'at': _pendingJoinAt}),
+        ) ??
+        Future.value());
+  }
+
+  /// رمز الغرفة المقصودة قبل المصادقة — يُقرأ مرّةً ويُمحى.
+  ///
+  /// 🔴 القراءة **مستهلِكة** عمداً: تركُه بعد استعماله يعني أن كلّ دخولٍ
+  ///    لاحقٍ على الجهاز يُقذف إلى الغرفة نفسها — وقد يكون لاعباً آخر على
+  ///    هاتفٍ مشترك.
+  String? takePendingJoinCode() {
+    final memory = _pendingJoinCode;
+    final memoryAt = _pendingJoinAt;
+    _pendingJoinCode = null;
+    _pendingJoinAt = 0;
+    unawaited(_prefs?.remove(_kPendingJoin) ?? Future.value());
+
+    if (memory != null) return _freshCode(memory, memoryAt);
+
+    final raw = _prefs?.getString(_kPendingJoin);
+    if (raw == null) return null;
+    try {
+      final m = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return _freshCode(m['code'] as String?, (m['at'] as num?)?.toInt() ?? 0);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// رمزٌ ضمن المهلة وغير فارغ، وإلّا `null`.
+  String? _freshCode(String? code, int at) {
+    final age = DateTime.now().millisecondsSinceEpoch - at;
+    // 🔴 العمر السالب مرفوض: ساعة الجهاز قد تُضبط للخلف، و«المستقبل» ليس طزاجة.
+    if (age < 0 || age > _pendingJoinTtl.inMilliseconds) return null;
+    final c = code?.trim() ?? '';
+    return c.isEmpty ? null : c;
   }
 
   /// مقعدٌ محجوزٌ لم تنتهِ مهلته — تستعمله شاشة إدخال الرمز (٢١).

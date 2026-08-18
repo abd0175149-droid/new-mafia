@@ -6,6 +6,7 @@ import '../features/auth/auth_screen.dart';
 import '../features/feedback/feedback_screen.dart';
 import '../features/host/host_screen.dart';
 import '../features/game/game_screen.dart';
+import '../features/game/game_session_controller.dart';
 import '../features/games/games_screen.dart';
 import '../features/history/history_screen.dart';
 import '../features/home/home_screen.dart';
@@ -92,6 +93,15 @@ GoRouter buildRouter(AppConfig config) {
         return Routes.login;
       }
       if (app.session == SessionState.authenticated && path == Routes.login) {
+        // 🔑 JOIN-1: من قصد غرفةً قبل أن يسجّل يعود إليها لا إلى الرئيسيّة.
+        //
+        // 🔴 هنا لا في `AuthScreen`: الشاشة **لا تدفع وجهتها** بالتصميم
+        //    (تعليقها: «قد يكون هناك رابط عميق ينتظر») والحارس هو من ينقل.
+        //    وضعُه في الشاشة يعني وجهتين تتنازعان بعد الدخول.
+        // 🔴 القراءة مستهلِكة وبمهلة عشر دقائق — رمزٌ عالقٌ يقذف كلّ داخلٍ
+        //    لاحقٍ على الجهاز إلى غرفةٍ ليست له.
+        final pending = GameSessionController.instance.takePendingJoinCode();
+        if (pending != null) return '/join/$pending';
         return Routes.home;
       }
       return null;
