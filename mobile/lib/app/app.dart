@@ -143,5 +143,6 @@ class _Gate extends StatelessWidget {
   Widget build(BuildContext context) => NotificationGate(
         status: AppState.instance.permission,
         onResolved: AppState.instance.evaluate,
+        onSkip: AppState.instance.skipGate,
       );
 }

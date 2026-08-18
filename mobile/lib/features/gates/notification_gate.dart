@@ -14,10 +14,19 @@ import '../../core/push/push_service.dart';
 //    prompt ← denied.
 
 class NotificationGate extends StatefulWidget {
-  const NotificationGate({super.key, required this.status, required this.onResolved});
+  const NotificationGate({
+    super.key,
+    required this.status,
+    required this.onResolved,
+    required this.onSkip,
+  });
 
   final PushPermission status;
   final VoidCallback onResolved;
+
+  /// 🔴 مخرجٌ حقيقيّ لا إعادةَ تقييم: `onResolved` تعيد قراءة الإذن الذي لم
+  ///    يتغيّر فتعود البوّابة. التخطّي يحتاج علماً صريحاً في `AppState`.
+  final VoidCallback onSkip;
 
   @override
   State<NotificationGate> createState() => _NotificationGateState();
@@ -101,7 +110,7 @@ class _NotificationGateState extends State<NotificationGate> with WidgetsBinding
       const SizedBox(height: 12),
       _GateButton(
         label: "لاحقاً",
-        onTap: widget.onResolved,
+        onTap: widget.onSkip,
         color: const Color(0x0DFFFFFF),
         textColor: const Color(0xFF9CA3AF),
       ),

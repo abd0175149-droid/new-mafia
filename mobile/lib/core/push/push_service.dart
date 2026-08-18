@@ -89,6 +89,15 @@ class PushService {
 
       FirebaseMessaging.onBackgroundMessage(firebaseBackgroundHandler);
 
+      // 🔴 مستمع التدوير يُثبَّت في التهيئة لا داخل `requestPermissionAndRegister`.
+      //    جوجل تدوّر التوكن من حين لآخر، وتثبيتُه في مسار طلب الإذن يعني
+      //    أنه لا يعمل إلّا في الجلسة التي مُنح فيها الإذن أوّل مرّة — وفي
+      //    كلّ جلسةٍ بعدها يمرّ التدوير بلا تسجيل فتتوقّف الإشعارات صامتاً.
+      _fcm.onTokenRefresh.listen((t) {
+        _token = t;
+        _sendToken(t);
+      });
+
       // تحصينٌ لقرار 91 §4.6: النظام لا يعرض شيئاً في foreground على iOS.
       // هذه هي القيم الافتراضية، لكن تثبيتها صراحةً يمنع تغيّرها بترقية
       // حزمة من أن يُعيد البانر المكرَّر صامتاً.
@@ -205,12 +214,34 @@ class PushService {
         return false;
       }
       await registerToken();
-      // التوكن يُدوَّر من جوجل من حين لآخر — بلا هذا يتوقّف الوصول صامتاً
-      _fcm.onTokenRefresh.listen((t) { _token = t; _sendToken(t); });
       return true;
     } catch (e) {
       debugPrint('⚠️ إذن الإشعارات: $e');
       return false;
+    }
+  }
+
+  /// 🔴 تسجيلٌ صامت عند كلّ جلسةٍ مصادَقة إن كان الإذن ممنوحاً سلفاً.
+  ///
+  /// بدونه: من أقلع بإذنٍ ممنوح لا تُعرض له البوّابة (فـ`gatePassed` صحيحة)
+  /// ولا يُستدعى `registerToken` من أيّ مسار — فيبقى التوكن مربوطاً بالحساب
+  /// **السابق** على الجهاز نفسه، وتصل إشعارات حسابٍ خرج منه إلى من دخل بعده.
+  /// نظير أثر `auto-register` في الويب الذي يعيد الربط عند كلّ تحميل جلسة.
+  ///
+  /// صامتٌ عمداً: لا يطلب إذناً ولا يعرض شيئاً — يُستدعى بعد حسم الجلسة.
+  Future<void> registerIfAlreadyGranted() async {
+    if (!SessionStore.instance.isLoggedIn) return;
+    try {
+      if (!_ready) await init();
+      final s = await _fcm.getNotificationSettings();
+      final granted =
+          s.authorizationStatus == AuthorizationStatus.authorized ||
+              s.authorizationStatus == AuthorizationStatus.provisional;
+      if (!granted) return;
+      await registerToken();
+    } catch (e) {
+      // فشل التسجيل لا يعطّل الإقلاع — الإشعارات ميزةٌ لا شرط تشغيل.
+      debugPrint('⚠️ تسجيل التوكن التلقائيّ: $e');
     }
   }
 

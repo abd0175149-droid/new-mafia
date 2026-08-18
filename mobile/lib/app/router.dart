@@ -7,10 +7,12 @@ import '../features/feedback/feedback_screen.dart';
 import '../features/host/host_screen.dart';
 import '../features/game/game_screen.dart';
 import '../features/games/games_screen.dart';
+import '../features/history/history_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/order/order_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/rank/rank_screen.dart';
+import '../features/shell/core_status_screen.dart';
 import '../features/shell/shell_screen.dart';
 import '../features/store/store_screen.dart';
 import '../features/wallet/wallet_screen.dart';
@@ -37,9 +39,11 @@ abstract final class Routes {
   static const host = '/player/host';
   static const order = '/player/order';
   static const feedback = '/player/feedback';
+  static const history = '/player/history';
+  static const debugPush = '/player/debug-push';
 
   /// عامّة دائماً — لا حارس ولا بوّابة ولا انتظار جلسة.
-  static const publicPaths = <String>[login, '/player/debug-push'];
+  static const publicPaths = <String>[login, debugPush];
 }
 
 final _rootKey = GlobalKey<NavigatorState>();
@@ -129,11 +133,21 @@ GoRouter buildRouter(AppConfig config) {
         builder: (_, __) => const AuthScreen(),
       ),
 
-      // 🔴 بلا شريط تنقّل: المضيف يقود اللعبة، وأيّ تبويبٍ يزاحمه على
-      //    البكسلات أو يسحبه بعيداً في منتصف الليل.
+      // 🔴 سجلّ المباريات **مسارٌ** لا شاشةً تُدفع من الملفّ الشخصيّ وحده:
+      //    وجهات الإشعارات تُكتب في الخادم بمسارات الويب، و`/player/history`
+      //    منها. وبلا هذا المسار يصنّفه `Destination.classify` داخلياً ثمّ
+      //    يسقط في `errorBuilder` فيهبط اللاعب على الرئيسيّة بدل سجلّه.
       GoRoute(
-        path: Routes.host,
-        builder: (_, __) => const HostScreen(),
+        path: Routes.history,
+        builder: (_, __) => const HistoryScreen(),
+      ),
+
+      // 🔴 كان مُدرَجاً في `publicPaths` بلا `GoRoute` — أي معلَنٌ عامّاً
+      //    ولا وجود له. رابط تشخيص الإشعارات يطلبه الدعم من المستخدم حين
+      //    تتعطّل الإشعارات، فسقوطه صامتاً يُفقد الأداة وقت الحاجة إليها.
+      GoRoute(
+        path: Routes.debugPush,
+        builder: (_, __) => CoreStatusScreen(config: config),
       ),
 
       // الرابط العميق العاري — خارج الغلاف، بلا شريط تنقّل

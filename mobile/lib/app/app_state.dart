@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/push/push_service.dart';
@@ -22,11 +24,32 @@ class AppState extends ChangeNotifier {
   PushPermission _permission = PushPermission.prompt;
   PushPermission get permission => _permission;
 
+  /// 🔴 تخطٍّ للجلسة الحاليّة — في الذاكرة عمداً لا في التخزين.
+  ///
+  /// قرار R1 (91 §6.7) يمنح مستخدم iOS مخرجاً من البوّابة الحاجبة لأن
+  /// Apple ترفض اشتراط الإشعارات (Guideline 4.5.4). لكنّ زرّ «لاحقاً» كان
+  /// يستدعي `evaluate` وحدها، وهي تعيد قراءة الإذن الذي لم يتغيّر — فتعود
+  /// البوّابة ويبقى المستخدم محبوساً رغم زرٍّ يعده بالدخول.
+  ///
+  /// الحفظ في الذاكرة يجعل التخطّي يدوم للجلسة ويعود السؤال في الإقلاع
+  /// التالي: إزعاجٌ خفيفٌ مقابل ألّا يُحبَس المستخدم — وهو نصّ R1 حرفياً.
+  /// وحفظه في التخزين كان سيُسكت البوّابة إلى الأبد بضغطةٍ واحدة.
+  bool _gateSkipped = false;
+
   /// البوّابة تُعرض فوق المحتوى ولا تكون مساراً (§6.2) — فحالتها هنا
   /// لا في الراوتر.
   bool get gatePassed =>
       _permission == PushPermission.granted ||
-      _permission == PushPermission.unsupported;
+      _permission == PushPermission.unsupported ||
+      _gateSkipped;
+
+  /// يستدعيه زرّ «لاحقاً» على iOS. يُعيد التقييم بعده كي يلتقط إذناً
+  /// مُنح في الأثناء (المستخدم قد يعود من الإعدادات ثمّ يضغط «لاحقاً»).
+  Future<void> skipGate() async {
+    _gateSkipped = true;
+    notifyListeners();
+    await evaluate();
+  }
 
   // ══════════════════════════════════════════════════════
   // 📌 التنقّل المعلّق
@@ -65,6 +88,13 @@ class AppState extends ChangeNotifier {
       _permission = p;
       notifyListeners();
     }
+
+    // 🔴 يربط التوكن بالحساب الحاليّ عند كلّ جلسةٍ مصادَقة. بدونه يبقى
+    //    مربوطاً بالحساب السابق على الجهاز نفسه — انظر التعليق في
+    //    `registerIfAlreadyGranted`. لا يُنتظر: الإقلاع لا يعلّق عليه.
+    if (p == PushPermission.granted) {
+      unawaited(PushService.instance.registerIfAlreadyGranted());
+    }
   }
 
   /// بعد الخروج: الجلسة أوّلاً، والوجهة المعلّقة تُلغى — وجهةٌ محفوظة
@@ -72,6 +102,8 @@ class AppState extends ChangeNotifier {
   void onLoggedOut() {
     _session = SessionState.unauthenticated;
     _pending = null;
+    // 🔴 التخطّي يخصّ من ضغطه: حسابٌ يدخل بعده يستحقّ أن يُسأل.
+    _gateSkipped = false;
     notifyListeners();
   }
 }
