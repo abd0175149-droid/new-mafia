@@ -14,6 +14,7 @@ import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'item_sheet.dart';
 import 'mirror_stage.dart';
+import 'sting_preview.dart';
 import 'store_widgets.dart';
 
 // ══════════════════════════════════════════════════════
@@ -39,7 +40,7 @@ class StoreScreen extends StatefulWidget {
   State<StoreScreen> createState() => _StoreScreenState();
 }
 
-class _StoreScreenState extends State<StoreScreen> {
+class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
   StoreData? _data;
   bool _loading = true;
   bool _loadError = false;
@@ -56,6 +57,7 @@ class _StoreScreenState extends State<StoreScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
     // قالب البطاقة وتأثيرات الرتب — بدونها ترسم المرآة بطاقةً غير التي
     // تظهر على شاشة القاعة
@@ -69,7 +71,23 @@ class _StoreScreenState extends State<StoreScreen> {
   void dispose() {
     SocketService.instance.off('chips:balance-updated', _onBalance);
     _stageTimer?.cancel();
+    // 🔴 صوتٌ يستمرّ بعد مغادرة الشاشة عيبٌ يلاحَظ فوراً ويصعب تفسيره.
+    unawaited(StingPreview.instance.stop());
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// 🔴 مغادرة التطبيق توقف المعاينة: صوتٌ يتابع العزف والمستخدم في
+  ///    تطبيقٍ آخر — أو وضع الهاتف في جيبه — عيبٌ صارخ. و`inactive` لا
+  ///    تكفي سبباً (تقع عند سحب مركز التحكّم) فيُعتمد `paused` وحدها.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(StingPreview.instance.stop());
+      _stageTimer?.cancel();
+      if (mounted) setState(() => _stage = null);
+    }
   }
 
   /// البثّ يحدّث الرقم في الترويسة فقط — لا يُعاد بناء الشبكة تحت إصبعه.
@@ -133,6 +151,7 @@ class _StoreScreenState extends State<StoreScreen> {
         _tryOn = _tryOn?.id == item.id ? null : item;
       });
       _stageTimer?.cancel();
+      unawaited(StingPreview.instance.stop());
     } else {
       setState(() => _tryOn = item);
       _playStage(item);
@@ -141,6 +160,7 @@ class _StoreScreenState extends State<StoreScreen> {
 
   void _clearPick() {
     _stageTimer?.cancel();
+    unawaited(StingPreview.instance.stop());
     setState(() {
       _tryOn = null;
       _stage = null;
@@ -156,14 +176,33 @@ class _StoreScreenState extends State<StoreScreen> {
   void _playStage(StoreItem item) {
     _stageTimer?.cancel();
     setState(() => _stage = item);
+
+    // 🔊 STORE-1: النغمة تُسمَع فعلاً لا موجةً صامتة — من يشتري صوتاً
+    //    يستحقّ سماعه أوّلاً. محلّيّاً على هاتفه وحده (انظر أعلاه).
+    if (item.kind == 'victory_sting') {
+      unawaited(StingPreview.instance.play(item.id, item.soundUrl).then((ok) {
+        // 🔴 الفشل يُقال لا يُبتلع: صمتٌ بلا سبب يبدو عطلاً في التطبيق،
+        //    والويب يقول «لا ملف صوت لهذه النغمة بعد» صراحةً.
+        if (!ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('لا ملفّ صوتٍ لهذه النغمة بعد'),
+            duration: Duration(seconds: 2),
+          ));
+        }
+      }));
+    } else {
+      unawaited(StingPreview.instance.stop());
+    }
     final ms = switch (item.kind) {
       'entrance' => ((item.config?['durationMs'] as num?)?.toInt() ?? 3500)
           .clamp(1500, 6000),
       'elimination' => 3200,
       _ => 6000,
     };
-    _stageTimer = Timer(Duration(milliseconds: ms),
-        () => mounted ? setState(() => _stage = null) : null);
+    _stageTimer = Timer(Duration(milliseconds: ms), () {
+      unawaited(StingPreview.instance.stop());
+      if (mounted) setState(() => _stage = null);
+    });
   }
 
   // ══════════════════════════════════════════════════════
