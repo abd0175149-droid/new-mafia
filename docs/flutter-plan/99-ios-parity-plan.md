@@ -236,3 +236,78 @@
 
 🔴 **الاقتران الوحيد الحاكم**: `م‑ب ⇄ GATE‑1`. إصلاح الـplist يوقظ البوّابة فيصير
 عطل «لاحقاً» ظاهراً — يُشحنان معاً أو لا يُشحنان.
+
+---
+
+## 9. دليل تفعيل الإشعارات بعد شراء الحساب المدفوع
+
+> نُفِّذ كلّ ما يمكن تنفيذه بالكود مسبقاً (`GATE-1` و`PUSH-2` مُصلَحان في
+> `f724220`). ما تبقّى خطواتٌ في حسابك لا في المستودع.
+
+### أداة الفحص
+
+```bash
+bash mobile/ios/scripts/verify-push-setup.sh
+```
+
+تفحص الحاجزين معاً وتقول ما ينقص بالضبط. **الحالة قبل الاشتراك: ٤ عوائق.**
+
+### الخطوات بالترتيب
+
+**١. الاشتراك** — [developer.apple.com/programs](https://developer.apple.com/programs)
+($99/سنة). يستغرق التفعيل ساعاتٍ إلى يومين.
+
+**٢. Xcode ← Settings ← Accounts** — بعد التفعيل يظهر فريقك المدفوع بجانب
+`Personal Team`. اختره.
+
+**٣. تبديل التوقيع المحلّيّ** في `mobile/ios/Flutter/local-signing.xcconfig`:
+
+```diff
+- CODE_SIGN_ENTITLEMENTS = Runner/RunnerFreeTeam.entitlements
++ CODE_SIGN_ENTITLEMENTS = Runner/RunnerDev.entitlements
+- PRODUCT_BUNDLE_IDENTIFIER = sbs.grade.mafiaclub.dev.local
++ PRODUCT_BUNDLE_IDENTIFIER = sbs.grade.mafiaclub.dev
+  DEVELOPMENT_TEAM = <معرّف الفريق المدفوع>
+```
+
+🔴 **اللاحقة `.local` تُزال إلزاميّاً**: ملفّ Firebase يحمل معرّف الحزمة
+بداخله، ومعرّفٌ لا يطابقه يعني تطبيقاً يسجّل نفسه في مشروعٍ خاطئ — فلا يصل
+إشعارٌ قطّ **بلا أيّ رسالة خطأ**. السكربت يفحص هذا التطابق.
+
+**٤. مفتاح APNs** — [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/authkeys/list)
+← **Keys** ← ➕ ← فعّل **Apple Push Notifications service (APNs)** ← نزّل
+ملفّ `.p8`.
+
+⚠️ **يُنزَّل مرّةً واحدة فقط ولا يمكن إعادة تنزيله.** احفظه خارج المستودع.
+🔴 **لا يُودَع في git إطلاقاً** — مفتاحٌ يمنح إرسال إشعاراتٍ باسم تطبيقك.
+
+**٥. رفعه إلى Firebase** — Console ← ⚙️ إعدادات المشروع ← **Cloud Messaging**
+← قسم iOS ← **APNs Authentication Key** ← ارفع `.p8` مع **Key ID** و**Team ID**.
+
+**٦. تسجيل التطبيقين وتنزيل ملفّيهما**:
+
+| النكهة | معرّف الحزمة |
+|---|---|
+| dev | `sbs.grade.mafiaclub.dev` |
+| prod | `sbs.grade.mafiaclub` |
+
+لكلٍّ منهما: Firebase Console ← ➕ إضافة تطبيق iOS ← نزّل
+`GoogleService-Info.plist` ← ضعه في `mobile/ios/config/dev/` و`prod/`
+على التوالي. **متجاهَلان في git** — مرحلة البناء تنسخ الصحيح حسب النكهة.
+
+**٧. الروابط العميقة** — على الخادم اضبط `IOS_TEAM_ID` و`IOS_BUNDLE_ID` كي
+يولّد ملفّ AASA؛ بدونهما يردّ 404 فيفتح الرابط في المتصفّح بدل التطبيق.
+
+**٨. أعد الفحص ثمّ ابنِ**:
+
+```bash
+bash mobile/ios/scripts/verify-push-setup.sh     # يجب أن يمرّ كلُّه
+cd mobile && flutter build ios --release --flavor dev -t lib/main_dev.dart
+```
+
+### ما سيتغيّر فور نجاحه
+
+- تظهر **بوّابة الإشعارات** لأوّل مرّة (كانت تُتجاوَز بحالة `unsupported`)
+  — ولهذا أُصلح `GATE-1` مسبقاً، وإلّا حُبس المستخدم فيها.
+- يُسجَّل التوكن تلقائياً عند كلّ جلسة (`PUSH-2`).
+- ينتهي قيد الأيّام السبعة: البروفايل المدفوع يصلح **سنة**.
