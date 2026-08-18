@@ -172,12 +172,23 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget _welcome() => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              width: 120, height: 120,
-              color: Noir.charcoal,
-              child: const Icon(Icons.theater_comedy, size: 64, color: Noir.vintageGold),
+          // 🔴 الشعار الفعليّ لا أيقونةٌ عامّة: هذه أوّل شاشةٍ يراها مستخدمٌ
+          //    جديد، و`Icons.theater_comedy` تقول «تطبيق مسرح» لا «نادي
+          //    المافيا». والاحتياطيّ يبقى كي لا تنكسر الشاشة إن فُقد الأصل.
+          Image.asset(
+            'assets/icon/splash_logo.png',
+            width: 120,
+            height: 120,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (_, __, ___) => ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                width: 120,
+                height: 120,
+                color: Noir.charcoal,
+                child: const Icon(Icons.theater_comedy,
+                    size: 64, color: Noir.vintageGold),
+              ),
             ),
           ),
           const SizedBox(height: 24),

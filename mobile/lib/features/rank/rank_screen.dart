@@ -285,10 +285,11 @@ class RankScreenState extends State<RankScreen>
   /// 🔴 يُقرأ الحال من `_coPlayers` بالمعرّف لا من كائنٍ مُلتقَط: ورقة
   ///    البروفايل تُبنى مرّة، وكائنها يتجمّد. طيّها مرّتين بكائنٍ قديم
   ///    يرسل نفس الطلب مرّتين.
-  Future<void> _toggleFollow(int id) async {
-    if (_followBusy != null || id == _myId) return;
+  /// يعيد ما إذا نجحت العمليّة — ورقة اللاعب تقرؤه فلا تقلب زرّها كذباً.
+  Future<bool> _toggleFollow(int id) async {
+    if (_followBusy != null || id == _myId) return false;
     final c = _coPlayers.where((x) => x.id == id).firstOrNull;
-    if (c == null) return;
+    if (c == null) return false;
 
     setState(() => _followBusy = c.id);
     final path = '/api/player-app/$_myId/follow/${c.id}';
@@ -299,12 +300,14 @@ class RankScreenState extends State<RankScreen>
       } else {
         await ApiClient.instance.post(path);
       }
-      if (!mounted) return;
+      if (!mounted) return true;
       setState(() => _coPlayers = _coPlayers
           .map((x) => x.id == c.id ? x.copyWith(isFollowing: !c.isFollowing) : x)
           .toList());
+      return true;
     } catch (_) {
-      // أخطاء المتابعة تُبلع بصمت — لا toasts في هذه الشاشة
+      // لا توست في هذه الشاشة — لكنّ الفشل يُبلَّغ للمستدعي كي لا يكذب زرّه
+      return false;
     } finally {
       if (mounted) setState(() => _followBusy = null);
     }

@@ -19,7 +19,7 @@ Future<void> showPlayerSheet(
   BuildContext context, {
   required ProfileResponse profile,
   bool? following,
-  Future<void> Function()? onToggleFollow,
+  Future<bool> Function()? onToggleFollow,
 }) {
   final bottomInset = _navHeight + MediaQuery.viewPaddingOf(context).bottom;
 
@@ -53,7 +53,10 @@ class _PlayerSheet extends StatefulWidget {
 
   /// `null` = ليس من شاركتهم مباراةً ⇒ لا زرّ متابعة أصلاً.
   final bool? following;
-  final Future<void> Function()? onToggleFollow;
+  /// 🔴 يعيد **نجاح** العمليّة لا مجرّد انتهائها: الورقة كانت تقلب حالتها
+  /// بلا شرط بعد `await`، والشاشة تبتلع الخطأ — فيبقى الزرّ يعرض «متابع»
+  /// وهو غير متابع (أو العكس) حتى إعادة التحميل.
+  final Future<bool> Function()? onToggleFollow;
 
   @override
   State<_PlayerSheet> createState() => _PlayerSheetState();
@@ -72,8 +75,12 @@ class _PlayerSheetState extends State<_PlayerSheet> {
     final cb = widget.onToggleFollow;
     if (cb == null || _busy) return;
     setState(() => _busy = true);
-    await cb();
-    if (mounted) setState(() { _following = !_following; _busy = false; });
+    final ok = await cb();
+    if (!mounted) return;
+    setState(() {
+      if (ok) _following = !_following;
+      _busy = false;
+    });
   }
 
   @override
