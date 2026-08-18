@@ -90,6 +90,19 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  // ── ⚖️ العقوبات (PEN-1) ──
+  /// حدّ العقوبات — يأتي من الخادم مع كلّ حدث، والثابت افتراضٌ حتى أوّلها.
+  int _maxPenalties = 3;
+  int get maxPenalties => _maxPenalties;
+
+  PenaltyAlert? _penaltyAlert;
+  PenaltyAlert? get penaltyAlert => _penaltyAlert;
+  void dismissPenaltyAlert() {
+    if (_penaltyAlert == null) return;
+    _penaltyAlert = null;
+    notifyListeners();
+  }
+
   bool _roleAlert = false;
   bool get roleAlert => _roleAlert;
   void dismissRoleAlert() {
@@ -1701,6 +1714,51 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     _on('assassin:contracts-update', (d) {
       _assassinContracts = AssassinContracts.fromJson(d);
+      notifyListeners();
+    });
+
+    // ══════════════════════════════════════════════════════
+    // ⚖️ PEN-1 — تنبيهات العقوبات الحيّة
+    // ══════════════════════════════════════════════════════
+    // 🔴 كان الحدثان غير مستمَعٍ لهما إطلاقاً: يرى اللاعب نقاطاً سالبة
+    //    تتحدّث في الروستر خلال دورة استطلاع، **ويكتشف موته بالعقوبات بلا
+    //    سببٍ معروض**. ودالّتا الاهتزاز `penaltySelf` و`penaltyEject`
+    //    معرّفتان في `HapticPatterns` بلا مستدعٍ.
+    _on('game:penalty-recorded', (d) {
+      if (d is! Map) return;
+      final pid = (d['physicalId'] as num?)?.toInt();
+      if (pid == null) return;
+      // 🔴 الحدث يُبثّ للغرفة كلّها — والمودال للمعاقَب وحده. البقيّة
+      //    يكفيهم أن يتحدّث عدّاد الروستر.
+      if (pid != _physicalId) return;
+
+      final max = (d['maxPenalties'] as num?)?.toInt();
+      // 🔴 الحدّ من الخادم لا ثابتاً محلّياً: الويب يقرأه من الإعدادات،
+      //    وتثبيته على 3 يعني بانراً يكذب حين يغيّره الأدمن.
+      if (max != null && max > 0) _maxPenalties = max;
+
+      _penaltyAlert = PenaltyAlert(
+        penalties: (d['penalties'] as num?)?.toInt() ?? 0,
+        max: _maxPenalties,
+        message: '${d['message'] ?? 'سُجّلت عليك مخالفة'}',
+        ejected: d['isKicked'] == true,
+      );
+      unawaited(HapticsService.instance.penaltySelf());
+      notifyListeners();
+    });
+
+    _on('player:penalty-ejected', (d) {
+      if (d is! Map) return;
+      final max = (d['maxPenalties'] as num?)?.toInt();
+      if (max != null && max > 0) _maxPenalties = max;
+      _penaltyAlert = PenaltyAlert(
+        penalties: (d['penalties'] as num?)?.toInt() ?? _maxPenalties,
+        max: _maxPenalties,
+        message: '${d['reason'] ?? 'أُقصيت لتجاوز حدّ العقوبات'}',
+        ejected: true,
+      );
+      _isPlayerDead = true;
+      unawaited(HapticsService.instance.penaltyEject());
       notifyListeners();
     });
 

@@ -1174,3 +1174,23 @@ const kProtectionFailedTypes = <String>{
     mafia: pick(const ['mafiaAlive', 'mafia', 'mafiaCount']),
   );
 }
+
+// ══════════════════════════════════════════════════════
+// ⚖️ تنبيه عقوبة — PEN-1 في الملفّ 99
+// ══════════════════════════════════════════════════════
+/// مخالفةٌ سُجّلت على اللاعب نفسه. `ejected` تعني أن العقوبة أقصته.
+class PenaltyAlert {
+  const PenaltyAlert({
+    required this.penalties,
+    required this.max,
+    required this.message,
+    required this.ejected,
+  });
+
+  final int penalties, max;
+  final String message;
+  final bool ejected;
+
+  /// المتبقّي قبل الإقصاء — صفرٌ يعني أن هذه هي الأخيرة.
+  int get remaining => (max - penalties).clamp(0, max);
+}

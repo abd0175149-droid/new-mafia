@@ -191,6 +191,15 @@ class _GameScreenState extends State<GameScreen> {
         Positioned.fill(child: NightLayer(controller: _c)),
         // 🎩 طبقات العمدة — المودال والبانر والشارة
         Positioned.fill(child: MayorLayer(controller: _c)),
+        // ⚖️ PEN-1: تنبيه المخالفة يعلو كلّ شيء — قرارٌ يخصّ اللاعب وحده
+        //    ولا يُفهم متأخّراً: من أُقصي بالعقوبات كان يكتشف موته بلا سبب.
+        if (_c.penaltyAlert != null)
+          Positioned.fill(
+            child: _PenaltyAlertModal(
+              alert: _c.penaltyAlert!,
+              onClose: _c.dismissPenaltyAlert,
+            ),
+          ),
         // 🪑 إشعار المقعد — **فوق طبقتَي الليل والعمدة**: النقل يقع في أيّ
         //    مرحلة، وطبقة الليل تملأ الشاشة فتبتلع أيّ إشعارٍ تحتها.
         if (_c.seatChangeAlert != null) _seatToast(_c.seatChangeAlert!),
@@ -211,11 +220,29 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   // ── الخطوات ──
-  Widget _codeStep() => Column(mainAxisSize: MainAxisSize.min, children: [
+  Widget _codeStep() {
+    // 🪑 SEAT-1: مقعدٌ محجوزٌ لم تنتهِ مهلته — عودةٌ بضغطةٍ بدل إعادة إدخال
+    //    الرمز. الدالّة `readHeldSeat` كانت **موثّقةً بأن «تستعملها شاشة
+    //    إدخال الرمز»** ولا أحد يستدعيها؛ فمن خرج بالخطأ كان يبدأ من الصفر.
+    final held = _c.readHeldSeat();
+
+    return Column(mainAxisSize: MainAxisSize.min, children: [
         const _StepHead(
             title: 'الانضمام للعملية',
             sub: 'INPUT SECURE OPERATION CODE',
             icon: Icons.lock_outline),
+
+        if (held != null) ...[
+          _HeldSeatCard(
+            seat: held,
+            onTap: () {
+              _code.text = held.roomCode;
+              _c.roomCodeInput = held.roomCode;
+              unawaited(_c.findRoom(held.roomCode));
+            },
+          ),
+          const SizedBox(height: 16),
+        ],
         TextField(
           controller: _code,
           keyboardType: TextInputType.number,
@@ -255,6 +282,7 @@ class _GameScreenState extends State<GameScreen> {
           onTap: () => _c.findRoom(),
         ),
       ]);
+  }
 
   Widget _ticketStep() {
     final name = SessionStore.instance.player?.name ?? '';
@@ -599,6 +627,157 @@ class _Brand extends StatelessWidget {
           ),
         ),
       ]);
+}
+
+// ══════════════════════════════════════════════════════
+// ⚖️ PEN-1 — مودال تنبيه المخالفة
+// ══════════════════════════════════════════════════════
+// 🔴 لا يُغلق بالنقر على الحاجب: قرارُ عقوبةٍ يجب أن يُقرأ لا أن يُزاح
+//    بلمسةٍ عابرة — خصوصاً حين تكون الأخيرة قبل الإقصاء.
+class _PenaltyAlertModal extends StatelessWidget {
+  const _PenaltyAlertModal({required this.alert, required this.onClose});
+
+  final PenaltyAlert alert;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final ejected = alert.ejected;
+    final tint = ejected ? const Color(0xFFF87171) : const Color(0xFFFBBF24);
+
+    return ColoredBox(
+      color: const Color(0xE0000000),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+            decoration: BoxDecoration(
+              color: const Color(0xFF120A0A),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: tint.withValues(alpha: 0.55)),
+              boxShadow: [
+                BoxShadow(
+                    color: tint.withValues(alpha: 0.18), blurRadius: 40),
+              ],
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(ejected ? '⛔' : '⚠️', style: const TextStyle(fontSize: 40)),
+              const SizedBox(height: 10),
+              Text(
+                ejected ? 'أُقصيت من اللعبة' : 'تنبيه مخالفة القوانين!',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontFamily: 'Amiri',
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                    color: tint),
+              ),
+              const SizedBox(height: 10),
+              Text(alert.message,
+                  textAlign: TextAlign.center,
+                  style: ar(13.5, color: const Color(0xFFD8CFC0))),
+              const SizedBox(height: 14),
+
+              // عدّاد المخالفات — الرقم أوضح من الجملة وقت الغضب.
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: tint.withValues(alpha: 0.12),
+                  border: Border.all(color: tint.withValues(alpha: 0.35)),
+                ),
+                child: Text('${alert.penalties} من ${alert.max}',
+                    style: mono(16, color: tint, weight: FontWeight.w900)),
+              ),
+
+              // 🔴 المتبقّي يُقال صراحةً وهو أهمّ ما في الشاشة: «واحدةٌ
+              //    أخرى وتخرج» يغيّر سلوك اللاعب، والرقم وحده لا يفعل.
+              if (!ejected) ...[
+                const SizedBox(height: 8),
+                Text(
+                  alert.remaining <= 1
+                      ? 'مخالفةٌ أخرى وتخرج من اللعبة'
+                      : 'يتبقّى لك ${alert.remaining} قبل الإقصاء',
+                  style: ar(11.5, color: const Color(0xFF9A8F7E)),
+                ),
+              ],
+
+              const SizedBox(height: 18),
+              GestureDetector(
+                onTap: onClose,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(11),
+                    color: tint.withValues(alpha: 0.14),
+                    border: Border.all(color: tint.withValues(alpha: 0.45)),
+                  ),
+                  child: Text('فهمت',
+                      style: ar(14, color: tint, weight: FontWeight.w900)),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 🪑 SEAT-1 — بطاقة العودة إلى مقعدٍ محجوز
+// ══════════════════════════════════════════════════════
+// المقعد يُحجز عشر دقائق بعد الخروج (`HeldSeat.ttl`). من خرج بالخطأ — أو
+// أُغلق تطبيقه — يعود بضغطةٍ بدل أن يتذكّر رمز الغرفة ويكتبه.
+class _HeldSeatCard extends StatelessWidget {
+  const _HeldSeatCard({required this.seat, required this.onTap});
+
+  final HeldSeat seat;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    // المتبقّي بالدقائق — صفرٌ يعني ثوانيَ أخيرة، فيُعرض «أقلّ من دقيقة».
+    final left = HeldSeat.ttl - DateTime.now().difference(seat.exitedAt);
+    final mins = left.inMinutes;
+    final leftAr = mins <= 0 ? 'أقلّ من دقيقة' : '$mins دقيقة';
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(top: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: const Color(0x14C5A059),
+          border: Border.all(color: const Color(0x59C5A059)),
+        ),
+        child: Row(children: [
+          const Text('🪑', style: TextStyle(fontSize: 20)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('مقعدك محفوظٌ في غرفة ${seat.roomCode}',
+                    style: ar(13, color: _gold, weight: FontWeight.w900)),
+                const SizedBox(height: 2),
+                Text('يُحرَّر بعد $leftAr — اضغط للعودة',
+                    style: ar(11, color: const Color(0xFF9A8F7E))),
+              ],
+            ),
+          ),
+          const Icon(Icons.arrow_back_ios_new, size: 14, color: _gold),
+        ]),
+      ),
+    );
+  }
 }
 
 class _StepHead extends StatelessWidget {

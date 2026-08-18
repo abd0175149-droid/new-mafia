@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/api/game_config_service.dart';
 import '../../core/cosmetics/cosmetics_service.dart';
+import '../../core/haptics/haptics_service.dart';
 import '../../core/security/secret_watermark.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/game.dart';
@@ -52,7 +53,9 @@ class LobbyView extends StatelessWidget {
 
       // بانر العقوبات — يظهر عند أوّل مخالفة
       if ((me?.penalties ?? 0) > 0) ...[
-        _PenaltyBanner(penalties: me!.penalties, max: 3),
+        // 🔴 الحدّ من الخادم لا ثابتاً: الويب يقرأه من الإعدادات، وتثبيته
+        //    على 3 يعني بانراً يكذب حين يغيّره الأدمن (PEN-1).
+        _PenaltyBanner(penalties: me!.penalties, max: c.maxPenalties),
         const SizedBox(height: 12),
       ],
 
@@ -206,6 +209,18 @@ class LobbyView extends StatelessWidget {
       const SizedBox(height: 6),
       Text(c.cardFlipped ? _phaseLabel(c.gamePhase) : 'اضغط البطاقة لكشف دورك',
           style: ar(12, color: const Color(0xFF808080))),
+
+      // 🎭 ROLE-1: بانرٌ نابض حتى يقلب اللاعب بطاقته.
+      //
+      // 🔴 العلم `roleAlert` كان يُضبط في المتحكّم **بلا ودجةٍ تقرؤه**، ودالّة
+      //    الاهتزاز `roleAssigned` معرّفةً **بلا مستدعٍ**. واللاعب في القاعة
+      //    ينظر إلى الشاشة الكبيرة لا إلى هاتفه، فيفوته وصول دوره ويتأخّر
+      //    عن الجولة — والسطر الساكن «اضغط البطاقة» لا يلفت أحداً.
+      if (c.roleAlert && !c.cardFlipped && !c.isPlayerDead) ...[
+        const SizedBox(height: 14),
+        const _RoleArrivedBanner(),
+      ],
+
       const SizedBox(height: 18),
       Padding(
         padding: const EdgeInsets.only(top: 22),
@@ -314,6 +329,76 @@ class LobbyView extends StatelessWidget {
 // ══════════════════════════════════════════════════════
 // §4.12 شريط الأدوات
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// 🎭 ROLE-1 — بانر «وصل دورك» النابض
+// ══════════════════════════════════════════════════════
+// يهتزّ **مرّةً واحدة** عند ظهوره لا مع كلّ إعادة بناء: اللوبي يُعاد بناؤه
+// مع كلّ نبضة استطلاع، واهتزازٌ في `build` يعني هاتفاً لا يهدأ.
+class _RoleArrivedBanner extends StatefulWidget {
+  const _RoleArrivedBanner();
+
+  @override
+  State<_RoleArrivedBanner> createState() => _RoleArrivedBannerState();
+}
+
+class _RoleArrivedBannerState extends State<_RoleArrivedBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    // 🔴 يُنشأ في initState لا في التصريح: ودجةٌ لا تُبنى قطّ (أندرويد مثلاً)
+    //    كانت تُهيّئ متحكّمها وقت `dispose` فتبحث عن سلفٍ مفكَّك وتنهار —
+    //    علّةٌ وقعت في هذا المشروع من قبل.
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+    HapticsService.instance.roleAssigned();
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+        animation: _pulse,
+        builder: (_, __) {
+          final t = Curves.easeInOut.transform(_pulse.value);
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              color: Color.lerp(
+                  const Color(0x1AC5A059), const Color(0x40C5A059), t),
+              border: Border.all(
+                  color: Color.lerp(
+                      const Color(0x4DC5A059), _gold, t)!),
+              boxShadow: [
+                BoxShadow(
+                  color: Color.fromRGBO(197, 160, 89, 0.10 + 0.18 * t),
+                  blurRadius: 16 + 10 * t,
+                ),
+              ],
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const Text('🎭', style: TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text('وصلَ دورك — اقلب البطاقة لمعرفة هويّتك السرّيّة',
+                    textAlign: TextAlign.center,
+                    style: ar(12.5, color: _gold, weight: FontWeight.w900)),
+              ),
+            ]),
+          );
+        },
+      );
+}
+
 // ══════════════════════════════════════════════════════
 // 🕵️ حارس الشاشة السريّة — يربط عمرَ الودجة بعمر الحماية
 // ══════════════════════════════════════════════════════
