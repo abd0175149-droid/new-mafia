@@ -7,6 +7,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/game_config_service.dart';
 import '../../core/cosmetics/cosmetics_service.dart';
 import '../../core/socket/socket_service.dart';
+import '../../core/storage/session_store.dart';
 import '../../models/store.dart';
 import '../../models/wallet.dart' show groupThousands;
 import '../cosmetics/card_fx_layer.dart';
@@ -237,6 +238,7 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
           remainingText: fresh?.daysLeftText,
           playerName: _data?.name ?? '',
           data: _data,
+          onEquipNow: _equipNowFor(item),
         );
         return;
       }
@@ -264,7 +266,8 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
         await showPurchaseCelebration(context, item,
             remainingText: fresh?.daysLeftText,
             playerName: _data?.name ?? '',
-            data: _data);
+            data: _data,
+            onEquipNow: _equipNowFor(item));
         return;
       }
       _error(r is Map ? r['error'] as String? : null);
@@ -275,6 +278,19 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _busyItem = null);
     }
+  }
+
+
+  /// 🎽 STORE-4: يُمرَّر للاحتفال حين يكون المشترى قابلاً للّبس وغير مجهَّز.
+  ///
+  /// 🔴 `null` للمؤقّت (تشريفة/إقصاء/نغمة): هذه تُفعَّل بالشراء ولا «تُلبس»،
+  ///    فزرُّ تجهيزٍ لها يَعِد بفعلٍ لا وجود له.
+  Future<void> Function()? _equipNowFor(StoreItem item) {
+    if (!_wearable.contains(item.kind)) return null;
+    final d = _data;
+    // مجهَّزٌ أصلاً ⇒ لا زرّ: وعدٌ بفعلٍ لا يغيّر شيئاً.
+    if (d != null && d.cosmetics.isEquipped(item)) return null;
+    return () => _equip(item.kind, item.id);
   }
 
   Future<void> _equip(String kind, int? itemId) async {
@@ -455,9 +471,28 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
     final items = _itemsOf(d);
     final grid = _tab == 'offers' || _tab == 'mine' || _wearable.contains(_tab);
 
+    // ⏳ STORE-3: ما يوشك أن ينتهي — تحذيرٌ استباقيّ في كلّ التبويبات.
+    //
+    // 🔴 بلا هذا يفقد اللاعب عنصره المدفوع **بصمت**: لا يعرف أن إطاره
+    //    ينتهي إلّا إن فتح «خزانتي» وقرأ الأيّام بنفسه. والتجديد أرخص من
+    //    شراءٍ جديد، فالصمت يكلّفه ويكلّف النادي بيعةً.
+    final expiring = d.mine
+        .where((i) => i.expiresAt != null && i.daysLeft > 0 && i.daysLeft <= 3)
+        .toList()
+      ..sort((a, b) => a.daysLeft.compareTo(b.daysLeft));
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 40),
       children: [
+        if (expiring.isNotEmpty) ...[
+          ExpiringBanner(
+            count: expiring.length,
+            soonestName: expiring.first.nameAr,
+            soonestDaysText: expiring.first.daysLeftText,
+            onTap: () => setState(() => _tab = 'mine'),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (items.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 48),
@@ -616,6 +651,12 @@ class _Mirror extends StatelessWidget {
                         child: MafiaCardView(
                           playerName: data.name.isEmpty ? 'أنت' : data.name,
                           avatarUrl: data.avatarUrl,
+                          // 🔴 نفس علّة STORE-5 في المرآة: من تشتري إطاراً
+                          //    تستحقّ أن ترى نفسها لا غيرها. المصدر
+                          //    الجلسة لا استجابة المتجر — الأخيرة لا تحمل
+                          //    الجنس أصلاً.
+                          isFemale:
+                              SessionStore.instance.player?.isFemale ?? false,
                           cosmetics: data.cosmetics.preview(sel),
                           template: GameConfigService.instance.master,
                           rankFx: GameConfigService.instance

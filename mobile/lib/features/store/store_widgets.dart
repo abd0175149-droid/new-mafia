@@ -295,3 +295,56 @@ class ClosedVault extends StatelessWidget {
         ),
       );
 }
+
+// ══════════════════════════════════════════════════════
+// ⏳ STORE-3 — شريط «ينتهي قريباً»
+// ══════════════════════════════════════════════════════
+/// يُعرض حين يبقى لعنصرٍ مملوك ثلاثة أيّامٍ أو أقلّ. ينقل إلى «خزانتي».
+///
+/// 🔴 يذكر **اسم الأقرب انتهاءً** لا عدداً مجرّداً: «إطار الدون ينتهي بعد
+///    يومين» يدفع للتجديد، و«لديك عناصر تنتهي» لا تدفع لشيء.
+class ExpiringBanner extends StatelessWidget {
+  const ExpiringBanner({super.key, required this.count, required this.soonestName, required this.soonestDaysText, required this.onTap});
+
+  final int count;
+  final String soonestName, soonestDaysText;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: const Color(0x1AFBBF24),
+            border: Border.all(color: const Color(0x4DFBBF24)),
+          ),
+          child: Row(children: [
+            const Text('⏳', style: TextStyle(fontSize: 18)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    count == 1
+                        ? '«$soonestName» ينتهي بعد $soonestDaysText'
+                        : '«$soonestName» ينتهي بعد $soonestDaysText · و${count - 1} غيره',
+                    style: ar(12.5,
+                        color: const Color(0xFFFBBF24),
+                        weight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 2),
+                  Text('اضغط للتجديد من خزانتك',
+                      style: ar(10.5, color: const Color(0xFF9A8F7E))),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_back_ios_new,
+                size: 13, color: Color(0xFFFBBF24)),
+          ]),
+        ),
+      );
+}

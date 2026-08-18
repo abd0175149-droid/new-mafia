@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/store.dart';
@@ -417,6 +418,11 @@ Future<void> showPurchaseCelebration(
   String? remainingText,
   String playerName = 'اسمك',
   StoreData? data,
+  /// 🔴 STORE-4: زرّ تجهيزٍ فوريّ حين يكون المشترى قابلاً للّبس وغير
+  ///    مجهَّز. بدونه على المشتري أن يعيد لمس العنصر ثمّ «جهّزه الآن» —
+  ///    خطوتان إضافيّتان، وقد لا يدرك أصلاً أن **الشراء لا يعني التجهيز**
+  ///    فيظنّ أن ما دفع ثمنه لا يظهر.
+  Future<void> Function()? onEquipNow,
 }) {
   return showGeneralDialog(
     context: context,
@@ -490,22 +496,47 @@ Future<void> showPurchaseCelebration(
                     style: ar(12, color: Tw.gray400),
                   ),
                   const SizedBox(height: 20),
-                  InkWell(
-                    onTap: () => Navigator.of(ctx).pop(),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (onEquipNow != null) ...[
+                      InkWell(
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          unawaited(onEquipNow());
+                        },
                         borderRadius: BorderRadius.circular(12),
-                        color: const Color(0x1AFFFFFF),
-                        border: Border.all(color: const Color(0x26FFFFFF)),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 18, vertical: 10),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: const Color(0x33C5A059),
+                            border: Border.all(color: const Color(0xFFC5A059)),
+                          ),
+                          child: Text('🎽 جهّزها الآن',
+                              style: ar(12,
+                                  color: const Color(0xFFC5A059),
+                                  weight: FontWeight.w900)),
+                        ),
                       ),
-                      child: Text('شوف باقي الخزنة',
-                          style: ar(12,
-                              color: Tw.gray300, weight: FontWeight.bold)),
+                      const SizedBox(width: 10),
+                    ],
+                    InkWell(
+                      onTap: () => Navigator.of(ctx).pop(),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: const Color(0x1AFFFFFF),
+                          border: Border.all(color: const Color(0x26FFFFFF)),
+                        ),
+                        child: Text('شوف باقي الخزنة',
+                            style: ar(12,
+                                color: Tw.gray300, weight: FontWeight.bold)),
+                      ),
                     ),
-                  ),
+                  ]),
                 ],
               ),
             ),

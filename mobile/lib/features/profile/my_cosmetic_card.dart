@@ -53,6 +53,11 @@ class MyCosmeticCard extends StatelessWidget {
                     size: big ? CardSize.lg : CardSize.sm,
                     playerName: player.name.isEmpty ? 'أنت' : player.name,
                     avatarUrl: player.avatarUrl,
+                    // 🔴 هويّة اللاعبة تغيّر لهجة البطاقة وصورتها
+                    //    الافتراضيّة. بلا تمريرها ترى اللاعبة بطاقةً
+                    //    «ذكوريّة» — والبطاقة تُوصف بأنها «كما يراك كلّ من
+                    //    في القاعة» (STORE-5).
+                    isFemale: player.isFemale,
                     cosmetics: svc.cosmetics,
                     template: GameConfigService.instance.master,
                     rankFx:
