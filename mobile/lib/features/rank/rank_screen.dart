@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
+import '../../core/api/game_config_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/profile.dart';
 import '../../models/rank.dart';
@@ -966,8 +967,17 @@ class RankScreenState extends State<RankScreen>
   // ── تجاوزات القدرات لكل دور — `config.roleAbilities` ──
   // 🔴 الأصفار هنا **تُعرض** بعكس القائمة العامة التي تُخفيها: صفر
   //    الشريف عند سؤاله عن مواطنٍ صالح حيادٌ مقصود لا صفٌّ غائب.
+  /// 🔴 تعريبٌ بمصدرين: معجم التطبيق أوّلاً، ثمّ **كتالوج الخادم** —
+  ///    `roleNameAr` يسقط على المفتاح الخام، فدورٌ جديد كان سيظهر
+  ///    «CHAMELEON» بالإنجليزيّة وسط شاشةٍ عربيّة.
+  String _abilityRoleLabel(String key) {
+    final local = roleNamesAr[key];
+    if (local != null) return local;
+    return GameConfigService.instance.role(key)?.nameAr ?? key;
+  }
+
   Widget _roleAbilitiesCard(ProgressionConfig cfg) {
-    final roles = abilityRoleOrder.where(cfg.roleAbilities.containsKey).toList();
+    final roles = orderedAbilityRoles(cfg.roleAbilities.keys);
     if (roles.isEmpty) return const SizedBox.shrink();
 
     return Container(
@@ -999,7 +1009,7 @@ class RankScreenState extends State<RankScreen>
                       border: Border(top: BorderSide(color: Color(0x0DFFFFFF)))),
               child: Row(children: [
                 Expanded(
-                  child: Text(roleNameAr(roles[i]),
+                  child: Text(_abilityRoleLabel(roles[i]),
                       style: ar(11, color: Tw.gray300, weight: FontWeight.w700)),
                 ),
                 const SizedBox(width: 8),

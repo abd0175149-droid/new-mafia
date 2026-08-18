@@ -9,6 +9,7 @@ import '../../core/api/auth_repository.dart';
 import '../../core/ui/glass_tier.dart';
 import '../../models/profile.dart';
 import 'profile_palette.dart';
+import '../game/roles_info_modal.dart';
 
 // ══════════════════════════════════════════════════════
 // ⚙️ accordion الإعدادات — §4.3.9 في الملفّ 13
@@ -177,6 +178,19 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
             _glassQualityRow(),
             const SizedBox(height: 6),
             Text('«خفيفة» تلغي تأثير الزجاج للأجهزة الضعيفة. تُطبَّق فوراً.',
+                style: ar(9, color: Tw.gray600)),
+            _divider(),
+            _sectionTitle('🎮 اللعبة'),
+            const SizedBox(height: 8),
+            // 🃏 PROFILE-1: المودال موجودٌ ويُفتح من **لوبي المباراة وحده**،
+            //    فمن أراد مراجعة الأدوار خارج اللعبة لا يجد إليها سبيلاً —
+            //    وهي أوّل ما يحتاجه لاعبٌ جديد قبل أن يجلس على الطاولة.
+            Builder(
+              builder: (ctx) => _linkRow('🃏 تعرّف على الكروت والأدوار', Tw.amber500,
+                  () => unawaited(showRolesInfo(ctx))),
+            ),
+            const SizedBox(height: 6),
+            Text('كلّ الأدوار وقدراتها — راجعها قبل الجلسة القادمة.',
                 style: ar(9, color: Tw.gray600)),
             _divider(),
             _sectionTitle('🔔 الإشعارات'),

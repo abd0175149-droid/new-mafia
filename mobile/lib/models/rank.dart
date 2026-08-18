@@ -264,12 +264,28 @@ const scoringCategories = <(String, List<ScoringAction>)>[
   ]),
 ];
 
-/// ترتيب عرض تجاوزات الأدوار في تبويب «النقاط» — يُعرض منها ما ورد في
-/// `config.roleAbilities` فقط؛ الغائب يسقط على القيم العامة فلا صفّ له.
+/// ترتيب **العرض** لتجاوزات الأدوار في تبويب «النقاط».
+///
+/// 🔴 RANK-1: كانت هذه قائمةً بيضاء تُرشِّح ما يُعرض، فأيّ دورٍ يعرّف له
+///    الأدمن تجاوزاً وليس فيها (دورٌ جديد، أو حرباء، أو أخٌ أكبر) **يختفي
+///    من التطبيق ويظهر في الويب** — واللاعب يبني قراره على نقاطٍ لا يراها.
+///    صارت ترتيباً لا ترشيحاً: المعروف أوّلاً بترتيبه، ثمّ الباقي.
 const abilityRoleOrder = <String>[
   'SHERIFF', 'SNIPER', 'DOCTOR', 'NURSE', 'POLICEWOMAN',
   'GODFATHER', 'SILENCER', 'WITCH',
 ];
+
+/// كلّ الأدوار التي عرّف لها الخادم تجاوزاً، مرتّبةً للعرض.
+List<String> orderedAbilityRoles(Iterable<String> keys) {
+  final all = keys.toSet();
+  final out = <String>[
+    for (final k in abilityRoleOrder)
+      if (all.remove(k)) k,
+  ];
+  // الباقي أبجدياً — ترتيبٌ ثابتٌ خيرٌ من ترتيب `Map` غير المضمون.
+  out.addAll(all.toList()..sort());
+  return out;
+}
 
 /// قصّ الاسم بعدّ الأحرف — منقول من الويب حرفياً (لا ellipsis تلقائيّ:
 /// الطول المسموح يختلف بين المنصّة والصفوف).
