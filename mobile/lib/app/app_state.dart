@@ -36,6 +36,26 @@ class AppState extends ChangeNotifier {
   /// وحفظه في التخزين كان سيُسكت البوّابة إلى الأبد بضغطةٍ واحدة.
   bool _gateSkipped = false;
 
+  // ══════════════════════════════════════════════════════
+  // 🎂 BDAY-1 — تاريخ الميلاد
+  // ══════════════════════════════════════════════════════
+  // 🔴 يُقرأ من الجلسة المحفوظة مباشرةً لا بنداءٍ إضافيّ: `refresh()` عند
+  //    الإقلاع يجلب `/me` ويكتب `PlayerData` كاملةً، فالحقل موجودٌ أصلاً.
+  //    ونداءٌ ثانٍ لأجل حقلٍ واحد يؤخّر أوّل رسمٍ بلا مقابل.
+  bool _birthdaySaved = false;
+
+  bool get needsBirthday {
+    if (_birthdaySaved) return false;
+    final p = SessionStore.instance.player;
+    return p != null && p.needsBirthday;
+  }
+
+  /// بعد الحفظ: تُغلق البوّابة فوراً بلا انتظار جولة `/me` التالية.
+  void markBirthdaySaved() {
+    _birthdaySaved = true;
+    notifyListeners();
+  }
+
   /// البوّابة تُعرض فوق المحتوى ولا تكون مساراً (§6.2) — فحالتها هنا
   /// لا في الراوتر.
   bool get gatePassed =>
@@ -104,6 +124,7 @@ class AppState extends ChangeNotifier {
     _pending = null;
     // 🔴 التخطّي يخصّ من ضغطه: حسابٌ يدخل بعده يستحقّ أن يُسأل.
     _gateSkipped = false;
+    _birthdaySaved = false;
     notifyListeners();
   }
 }

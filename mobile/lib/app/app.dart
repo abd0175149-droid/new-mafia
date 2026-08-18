@@ -9,6 +9,7 @@ import 'router.dart';
 import 'theme/theme.dart';
 import '../core/push/push_service.dart';
 import '../core/ui/atmosphere.dart';
+import '../features/gates/birthday_gate.dart';
 import '../features/gates/notification_gate.dart';
 
 // ══════════════════════════════════════════════════════
@@ -116,6 +117,15 @@ class _MafiaAppState extends State<MafiaApp> {
               children: [
                 child ?? const SizedBox.shrink(),
                 if (_showGate) const Positioned.fill(child: _Gate()),
+                // 🎂 BDAY-1 — **بعد** بوّابة الإشعارات لا قبلها: بوّابتان
+                //    معاً تعنيان جداراً مضاعفاً على أوّل دخول. وهذه تُسأل
+                //    مرّةً واحدةً في العمر، تلك تتكرّر.
+                if (_showBirthday)
+                  Positioned.fill(
+                    child: BirthdayGate(
+                      onSaved: () => AppState.instance.markBirthdaySaved(),
+                    ),
+                  ),
                 // الضجيج فوق كل شيء دائماً — آخر عنصر في المكدّس
                 const Positioned.fill(child: NoiseOverlay()),
               ],
@@ -124,6 +134,18 @@ class _MafiaAppState extends State<MafiaApp> {
         );
       },
     );
+  }
+
+  /// 🎂 بوّابة الميلاد: للمسجّل الذي لا تاريخ له، وبعد عبور بوّابة
+  /// الإشعارات، وخارج مسار الانضمام — من يمسح QR لغرفةٍ بدأت لا يُحجب.
+  bool get _showBirthday {
+    if (_app.session != SessionState.authenticated) return false;
+    if (_showGate) return false;
+    if (!_app.needsBirthday) return false;
+    final loc = currentLocation ?? '';
+    final path = Uri.tryParse(loc)?.path ?? loc;
+    if (path.startsWith('/join/')) return false;
+    return !Routes.publicPaths.contains(path);
   }
 
   /// البوّابة تُعرض للمسجّل وحده، وخارج المسارات العامّة ومسار الكود.

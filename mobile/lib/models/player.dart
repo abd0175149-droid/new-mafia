@@ -23,6 +23,7 @@ class PlayerData {
     this.gender,
     this.mustChangePassword = false,
     this.linkedStaffId,
+    this.dob,
   });
 
   final int id;
@@ -35,6 +36,14 @@ class PlayerData {
   final String? gender;
   final bool mustChangePassword;
   final int? linkedStaffId;
+
+  /// تاريخ الميلاد `YYYY-MM-DD` — يخصّ عيديّة النادي السنويّة (BDAY-1).
+  /// غيابُه يعني أن اللاعب لم يُسأل بعد، لا أنه رفض.
+  final String? dob;
+
+  /// 🔴 الفراغ كالغياب: الخادم قد يعيد `''` لحقلٍ لم يُملأ، وقبولُه يعني
+  ///    بوّابةً لا تظهر أبداً للاعبٍ بلا تاريخ.
+  bool get needsBirthday => (dob ?? '').trim().isEmpty;
 
   bool get isFemale => gender == 'FEMALE';
 
@@ -51,6 +60,7 @@ class PlayerData {
         gender: j['gender'] as String?,
         mustChangePassword: j['mustChangePassword'] == true,
         linkedStaffId: j['linkedStaffId'] == null ? null : _int(j['linkedStaffId']),
+        dob: j['dob'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +74,7 @@ class PlayerData {
         'gender': gender,
         'mustChangePassword': mustChangePassword,
         'linkedStaffId': linkedStaffId,
+        'dob': dob,
       };
 
   static int _int(dynamic v, {int fallback = 0}) {
