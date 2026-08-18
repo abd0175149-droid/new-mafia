@@ -48,10 +48,33 @@ class _MenuSheetState extends State<_MenuSheet> {
   List<FnbMenuItem>? _items;   // null = يُحمَّل
   bool _failed = false;
 
+  /// 🔍 MENU-1: بحثٌ داخل المنيو — يظهر حين تتجاوز الأصناف ثمانية.
+  /// منيو المكان يتجاوز ستّين صنفاً، والتمرير اليدويّ الكامل ليس تصفّحاً.
+  final _q = TextEditingController();
+  String _term = '';
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  /// يطابق الاسم والوصف — كما الويب.
+  List<FnbMenuItem> _filter(List<FnbMenuItem> src) {
+    final t = _term.trim();
+    if (t.isEmpty) return src;
+    final n = t.toLowerCase();
+    return src
+        .where((i) =>
+            i.name.toLowerCase().contains(n) ||
+            i.description.toLowerCase().contains(n))
+        .toList();
   }
 
   Future<void> _load() async {
@@ -136,9 +159,68 @@ class _MenuSheetState extends State<_MenuSheet> {
       ];
     }
 
+    final shown = _filter(items);
+
     // ترتيب الخادم محفوظ (فئة ↗ ثمّ sortOrder ثمّ id) — لا فرز أبجديّ
-    final grouped = groupByCategory(items);
+    final grouped = groupByCategory(shown);
     return [
+      // حقل البحث فوق النتائج ويبقى ظاهراً وإن خلت — وإلّا تعذّر مسحه.
+      if (items.length > 8) ...[
+        TextField(
+          controller: _q,
+          onChanged: (v) => setState(() => _term = v),
+          style: ar(13, color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'ابحث في المنيو…',
+            hintStyle: ar(12, color: Tw.gray600),
+            isDense: true,
+            filled: true,
+            fillColor: const Color(0x08FFFFFF),
+            prefixIcon: const Icon(Icons.search, size: 17, color: Color(0xFF6B7280)),
+            suffixIcon: _term.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.close, size: 16, color: Color(0xFF6B7280)),
+                    onPressed: () => setState(() { _q.clear(); _term = ''; }),
+                  ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0x0FFFFFFF)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: Color(0x3310B981)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+
+      if (shown.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 36),
+          child: Column(children: [
+            Text('لا صنف يطابق «$_term»',
+                style: ar(13, color: Tw.gray500)),
+            const SizedBox(height: 10),
+            // 🔴 ORDER-1: زرُّ مسحٍ صريح — من لا يجد نتيجةً يريد العودة
+            //    للقائمة كاملةً، لا أن يمسح الحقل حرفاً حرفاً.
+            GestureDetector(
+              onTap: () => setState(() { _q.clear(); _term = ''; }),
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0x3310B981)),
+                ),
+                child: Text('امسح البحث',
+                    style: ar(12, color: kEmeraldText, weight: FontWeight.w700)),
+              ),
+            ),
+          ]),
+        ),
+
       for (final entry in grouped.entries) ...[
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
@@ -149,12 +231,47 @@ class _MenuSheetState extends State<_MenuSheet> {
             const Expanded(child: Divider(color: Color(0x1A10B981), height: 1)),
           ]),
         ),
-        for (final it in entry.value)
+        // 🗂️ MENU-3: تقسيمٌ فرعيّ داخل الفئة. الحقل `subcategory` موجودٌ
+        //    في النموذج ومستعمَلٌ في شاشة الطلب وغير مستعمَلٍ هنا — فأربعون
+        //    مشروباً تظهر كتلةً واحدة لا تُقرأ.
+        ..._subGrouped(entry.value),
+        const SizedBox(height: 8),
+      ],
+    ];
+  }
+
+  /// يقسّم أصناف الفئة إلى أقسامٍ فرعيّة مع عنوانٍ لكلٍّ منها.
+  ///
+  /// 🔴 بلا عنوانٍ حين يكون القسم الفرعيّ فارغاً أو واحداً: عنوانٌ فرعيّ
+  ///    يتيم فوق قائمةٍ كاملة زحامٌ لا تنظيم.
+  List<Widget> _subGrouped(List<FnbMenuItem> items) {
+    final subs = <String, List<FnbMenuItem>>{};
+    for (final i in items) {
+      subs.putIfAbsent(i.subcategory.trim(), () => []).add(i);
+    }
+    final meaningful = subs.keys.where((k) => k.isNotEmpty).length;
+    if (meaningful < 2) {
+      return [
+        for (final it in items)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: _ItemRow(item: it),
           ),
-        const SizedBox(height: 8),
+      ];
+    }
+    return [
+      for (final e in subs.entries) ...[
+        if (e.key.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6, right: 4),
+            child: Text('↳ ${e.key}',
+                style: ar(11, color: Tw.gray500, weight: FontWeight.w700)),
+          ),
+        for (final it in e.value)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ItemRow(item: it),
+          ),
       ],
     ];
   }

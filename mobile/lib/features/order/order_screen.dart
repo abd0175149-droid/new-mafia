@@ -26,17 +26,25 @@ import 'order_widgets.dart';
 // 📌 لا سوكِت: استطلاع كل ٣٠ ثانية في المقدّمة + إشعار FCM — قرارٌ قائم.
 
 class OrderScreen extends StatefulWidget {
-  const OrderScreen({super.key, this.embedded = false});
+  const OrderScreen({super.key, this.embedded = false, this.onEmptyContext});
 
   /// ورقةً داخل شاشة اللعبة بدل صفحةٍ مستقلّة — الطلب لا يغادر الجولة.
   final bool embedded;
+
+  /// يُبلّغ المستدعي أن لا سياق طلبٍ بعد الآن — ORDER-2.
+  final VoidCallback? onEmptyContext;
 
   @override
   State<OrderScreen> createState() => _OrderScreenState();
 }
 
 /// يعرض لوحة الطلب ورقةً منسدلة فوق شاشة اللعبة.
-Future<void> showOrderSheet(BuildContext context) => showModalBottomSheet<void>(
+/// 🔴 ORDER-2: `onEmptyContext` يُستدعى إن تبيّن عند الفتح أن لا سياق طلبٍ
+///    بعد الآن (انتهت نافذة الفعاليّة). السياق يُسأل مرّةً واحدة عند دخول
+///    اللعبة، فمن انتهت نافذته يبقى الزرّ العائم ظاهراً ويفتح ورقةً فارغة
+///    بدل أن يختفي — والويب يخفيه.
+Future<void> showOrderSheet(BuildContext context, {VoidCallback? onEmptyContext}) =>
+    showModalBottomSheet<void>(
       context: context,
       // 🔴 الجذر لا الفرع: من داخل تبويبٍ في الغلاف كانت الورقة تعيش تحت
       //    شريط التنقّل فيحجب أسفلها (زرّ الإرسال وشريط السلّة)
@@ -48,11 +56,12 @@ Future<void> showOrderSheet(BuildContext context) => showModalBottomSheet<void>(
         maxWidth: 512,
         maxHeight: MediaQuery.sizeOf(context).height * 0.88,
       ),
-      builder: (_) => const _OrderSheetShell(),
+      builder: (_) => _OrderSheetShell(onEmptyContext: onEmptyContext),
     );
 
 class _OrderSheetShell extends StatelessWidget {
-  const _OrderSheetShell();
+  const _OrderSheetShell({this.onEmptyContext});
+  final VoidCallback? onEmptyContext;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -66,7 +75,7 @@ class _OrderSheetShell extends StatelessWidget {
           // هنا كان سيُخفي شريط السلّة (نفس درس الويب)
           child: SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.88,
-            child: const OrderScreen(embedded: true),
+            child: OrderScreen(embedded: true, onEmptyContext: onEmptyContext),
           ),
         ),
       );
@@ -489,6 +498,14 @@ class _OrderScreenState extends State<OrderScreen>
   // ══════════════════════════════════════════════════════
   @override
   Widget build(BuildContext context) {
+    // 🔴 يُبلَّغ **بعد** انتهاء الإطار: نداءٌ يغيّر حالة الأب أثناء بنائه
+    //    يرمي «setState during build».
+    if (!_loading && _ctx == null && widget.onEmptyContext != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onEmptyContext!();
+      });
+    }
+
     final body = _loading
         ? _loadingState(context)
         : _ctx == null
@@ -805,8 +822,29 @@ class _OrderScreenState extends State<OrderScreen>
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 48),
               child: Center(
-                child: Text('لا صنف يطابق «${_searchCtrl.text.trim()}»',
-                    style: ar(13, color: Tw.gray500)),
+                child: Column(children: [
+                  Text('لا صنف يطابق «${_searchCtrl.text.trim()}»',
+                      style: ar(13, color: Tw.gray500)),
+                  const SizedBox(height: 12),
+                  // 🔴 ORDER-1: زرُّ مسحٍ صريح — من لا يجد نتيجةً يريد
+                  //    العودة للقائمة كاملةً لا أن يمسح الحقل حرفاً حرفاً.
+                  GestureDetector(
+                    // النصّ يُقرأ من المتحكّم مباشرةً — فالمسح وحده يكفي.
+                    onTap: () => setState(_searchCtrl.clear),
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 18, vertical: 9),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0x3310B981)),
+                      ),
+                      child: Text('امسح البحث',
+                          style: ar(12.5,
+                              color: kEmeraldText, weight: FontWeight.w700)),
+                    ),
+                  ),
+                ]),
               ),
             )
           else

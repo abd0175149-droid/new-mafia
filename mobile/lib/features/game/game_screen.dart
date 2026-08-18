@@ -425,7 +425,15 @@ class _GameScreenState extends State<GameScreen> {
             shadowColor: const Color(0x5910B981),
             child: InkWell(
               customBorder: const CircleBorder(),
-              onTap: () => unawaited(showOrderSheet(context)),
+              // 🔴 ORDER-2: السياق يُسأل مرّةً عند دخول اللعبة، فمن انتهت
+              //    نافذته يبقى الزرّ ظاهراً ويفتح ورقةً فارغة. الورقة تبلّغ
+              //    فيختفي الزرّ — كما يفعل الويب.
+              onTap: () => unawaited(showOrderSheet(
+                context,
+                onEmptyContext: () {
+                  if (mounted) setState(() => _fnbReady = false);
+                },
+              )),
               child: const SizedBox(
                 width: 48,
                 height: 48,

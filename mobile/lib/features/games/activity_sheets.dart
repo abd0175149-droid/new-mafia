@@ -350,6 +350,30 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
                         color: const Color(0xFFF87171), weight: FontWeight.bold)),
               ),
             ],
+            // 🍽️ MENU-2: المنيو **داخل ورقة التأكيد** أيضاً — من ضغط
+            //    «احجز» من البطاقة مباشرةً لا يمرّ بورقة التفاصيل، فيلتزم
+            //    بحجزٍ دون أن يرى ما يُقدَّم في المكان.
+            if (a.hasMenu && a.locationId != null) ...[
+              const SizedBox(height: 14),
+              GestureDetector(
+                onTap: () => showLocationMenu(context,
+                    locationId: a.locationId!,
+                    locationName: a.locationName ?? 'المكان'),
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0x1410B981),
+                    border: Border.all(color: const Color(0x3310B981)),
+                  ),
+                  child: Text('🍽️ استعرض منيو المكان قبل الحجز',
+                      style: ar(12.5,
+                          color: kEmeraldText, weight: FontWeight.w700)),
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             Row(children: [
               Expanded(
