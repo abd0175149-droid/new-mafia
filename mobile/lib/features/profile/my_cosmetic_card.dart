@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme/dimens.dart';
+import '../../app/router.dart';
 import '../../core/api/game_config_service.dart';
 import '../../core/cosmetics/cosmetics_service.dart';
 import '../../models/profile.dart';
@@ -62,6 +63,22 @@ class MyCosmeticCard extends StatelessWidget {
                     template: GameConfigService.instance.master,
                     rankFx:
                         GameConfigService.instance.effectsForTier(svc.rankTier),
+                  ),
+                ),
+                // 🔴 PROFILE-2: طريقٌ مباشر من البطاقة إلى الخزنة. من ينظر
+                //    إلى مظهره هو أقرب لحظةٍ لتغييره، والوصول اليوم لا يكون
+                //    إلّا بتبويبٍ آخر في الشريط.
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: () => navigateTo(Routes.store),
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('🏦 غيّر مظهرك من الخزنة ←',
+                        textAlign: TextAlign.center,
+                        style: ar(11.5,
+                            color: const Color(0xFFC5A059),
+                            weight: FontWeight.w700)),
                   ),
                 ),
               ]),

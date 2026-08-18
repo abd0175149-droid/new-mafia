@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/theme/theme.dart';
@@ -184,9 +186,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
             constraints: BoxConstraints(maxWidth: maxWidth),
             child: Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _MatchCard(
-                match: _matches[i],
-                onTap: () => showMatchDetail(context, _matches[i]),
+              // 🔴 HIST-1: دخولٌ متدرّج كما الويب. التأخير مقصورٌ على أوّل
+              //    ثماني بطاقات: تدرّجٌ بلا سقف يعني آخر بطاقةٍ في سجلٍّ
+              //    طويل تنتظر ثوانيَ قبل أن تظهر بعد تمريرٍ سريعٍ إليها.
+              child: _FadeInUp(
+                delayMs: (i < 8 ? i : 8) * 50,
+                child: _MatchCard(
+                  match: _matches[i],
+                  onTap: () => showMatchDetail(context, _matches[i]),
+                ),
               ),
             ),
           ),
@@ -330,6 +338,62 @@ class _MatchCard extends StatelessWidget {
         border: Border.all(color: bg.withValues(alpha: 0.20)),
       ),
       child: Text(label, style: ar(10, color: fg)),
+    );
+  }
+}
+
+
+// ══════════════════════════════════════════════════════
+// 🎞️ HIST-1 — دخولٌ متدرّج للبطاقات
+// ══════════════════════════════════════════════════════
+// 🔴 يحترم «تقليل الحركة»: من فعّلها في إعدادات النظام غالباً لحساسيّةٍ
+//    حقيقيّة، فتُعرض البطاقة فوراً بلا حركة بدل تعطيل الميزة كلّها.
+class _FadeInUp extends StatefulWidget {
+  const _FadeInUp({required this.child, required this.delayMs});
+
+  final Widget child;
+  final int delayMs;
+
+  @override
+  State<_FadeInUp> createState() => _FadeInUpState();
+}
+
+class _FadeInUpState extends State<_FadeInUp>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 320),
+  );
+  Timer? _start;
+
+  @override
+  void initState() {
+    super.initState();
+    _start = Timer(Duration(milliseconds: widget.delayMs), () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _start?.cancel();
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (MediaQuery.disableAnimationsOf(context)) return widget.child;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, child) {
+        final t = Curves.easeOut.transform(_c.value);
+        return Opacity(
+          opacity: t,
+          child: Transform.translate(offset: Offset(0, 12 * (1 - t)), child: child),
+        );
+      },
+      child: widget.child,
     );
   }
 }

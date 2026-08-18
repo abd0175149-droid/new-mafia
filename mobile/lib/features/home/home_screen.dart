@@ -124,6 +124,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 20),
                 _FnbCard(ctx: _fnbCtx!),
               ],
+              // 🏦 HOME-2: لافتة الخزنة. حبّة الرصيد في الترويسة بابٌ صغير
+              //    مخبوء — من لا يعرف أنها تُنقر لا يجد المتجر من هنا أبداً.
+              const SizedBox(height: 20),
+              const _StoreBanner(),
             ],
           ],
         ),
@@ -423,22 +427,37 @@ class _UpcomingSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Row(
+        Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('📅 أنشطة قادمة',
+            const Text('📅 أنشطة قادمة',
                 style: TextStyle(
                     fontFamily: 'Tajawal', fontSize: 14,
                     fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0)),
-            Text('عرض الكل ←',
-                style: TextStyle(
-                    fontFamily: 'Tajawal', fontSize: 10,
-                    color: Color(0x99F59E0B), letterSpacing: 0)),
+            // 🔴 HOME-1: كان نصّاً ساكناً يوحي بالنقر ولا يستجيب — وعدٌ
+            //    بصريّ لا يفي، وأسوأ من غيابه.
+            GestureDetector(
+              onTap: () => navigateTo(Routes.games),
+              behavior: HitTestBehavior.opaque,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                child: Text('عرض الكل ←',
+                    style: TextStyle(
+                        fontFamily: 'Tajawal', fontSize: 10,
+                        color: Color(0xE6F59E0B), letterSpacing: 0)),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
         for (final a in items) ...[
-          Container(
+          // 🔴 HOME-1: الصفّ قابلٌ للنقر — ينقل إلى تبويب الألعاب مركّزاً
+          //    على هذا النشاط، حيث التفاصيل والحجز. كان `Container` صامتاً
+          //    يبدو قابلاً للنقر ولا يفعل شيئاً.
+          GestureDetector(
+            onTap: () => navigateTo('${Routes.games}?activityId=${a.id}'),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -479,6 +498,7 @@ class _UpcomingSection extends StatelessWidget {
               ),
               const Text('🎟️', style: TextStyle(fontSize: 12)),
             ]),
+            ),
           ),
         ],
       ],
@@ -497,6 +517,58 @@ class _UpcomingSection extends StatelessWidget {
           style: TextStyle(fontFamily: 'Tajawal', fontSize: 8, color: color, letterSpacing: 0)),
     );
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🏦 HOME-2 — لافتة خزنة الدون
+// ══════════════════════════════════════════════════════
+class _StoreBanner extends StatelessWidget {
+  const _StoreBanner();
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => navigateTo(Routes.store),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: const LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: [Color(0x26C5A059), Color(0x0DC5A059)],
+            ),
+            border: Border.all(color: const Color(0x40C5A059)),
+          ),
+          child: Row(children: [
+            const Text('🏦', style: TextStyle(fontSize: 26)),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('خزنة الدون',
+                      style: TextStyle(
+                          fontFamily: 'Amiri',
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFFC5A059),
+                          letterSpacing: 0)),
+                  SizedBox(height: 2),
+                  Text('إطارات وألقاب وتشريفاتٌ ونغمات — غيّر ما يراه الجميع',
+                      style: TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 10.5,
+                          color: Color(0xFF9A8F7E),
+                          letterSpacing: 0)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_back_ios_new,
+                size: 14, color: Color(0xFFC5A059)),
+          ]),
+        ),
+      );
 }
 
 // ══════════════════════════════════════════════════════
