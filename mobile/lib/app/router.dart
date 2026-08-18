@@ -164,7 +164,13 @@ GoRouter buildRouter(AppConfig config) {
       // 🔴 شاشة اللعب لا شاشةٌ نائبة: هذا ما يفتحه رمز QR على الطاولة
       GoRoute(
         path: '/join/:code',
-        builder: (_, s) => GameScreen(initialRoomCode: s.pathParameters['code']),
+        // 🔴 INV-1: `invite` و`by` يُقرآن هنا أيضاً — إشعار الدعوة قد يحمل
+        //    الرابط العاري، وإسقاطُهما يعني انضماماً صامتاً بلا تأكيد.
+        builder: (_, s) => GameScreen(
+          initialRoomCode: s.pathParameters['code'],
+          invite: s.uri.queryParameters['invite'] == '1',
+          inviterName: s.uri.queryParameters['by'],
+        ),
       ),
 
       StatefulShellRoute.indexedStack(
@@ -175,8 +181,13 @@ GoRouter buildRouter(AppConfig config) {
                 key: gamesTabKey,
                 focusActivityId: int.tryParse(s.uri.queryParameters['activityId'] ?? ''),
               )),
-          _branch(Routes.join,
-              (_, s) => GameScreen(initialRoomCode: s.uri.queryParameters['code'])),
+          _branch(
+              Routes.join,
+              (_, s) => GameScreen(
+                    initialRoomCode: s.uri.queryParameters['code'],
+                    invite: s.uri.queryParameters['invite'] == '1',
+                    inviterName: s.uri.queryParameters['by'],
+                  )),
           _branch(Routes.rank, (_, __) => RankScreen(key: rankTabKey)),
           _branch(Routes.profile, (_, __) => ProfileScreen(key: profileTabKey, config: config)),
         ],

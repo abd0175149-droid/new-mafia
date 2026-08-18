@@ -33,10 +33,21 @@ const _blood = Color(0xFF8A0303);
 const _line = Color(0xFF2A2A2A);
 
 class GameScreen extends StatefulWidget {
-  const GameScreen({super.key, this.initialRoomCode});
+  const GameScreen({
+    super.key,
+    this.initialRoomCode,
+    this.invite = false,
+    this.inviterName,
+  });
 
   /// من رمز QR أو رابطٍ عميق.
   final String? initialRoomCode;
+
+  /// 🔴 INV-1: `invite=1&by=…` من إشعار دعوة. كان الراوتر يقرأ `code` وحده
+  ///    ويُسقطهما، فتُدخل نقرةُ الإشعار اللاعبَ الغرفةَ **صامتاً** بلا سؤالٍ
+  ///    ولا ذكرِ من دعاه — بينما الويب يؤكّد أوّلاً.
+  final bool invite;
+  final String? inviterName;
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -50,6 +61,9 @@ class _GameScreenState extends State<GameScreen> {
   /// 🍽️ هل للاعب سياق طلبٍ الآن؟ الخادم وحده يقرّر (حجزٌ + نافذة الفعاليّة).
   bool _fnbReady = false;
   bool _fnbAsked = false;
+
+  /// رمزُ دعوةٍ ينتظر تأكيد اللاعب (INV-1).
+  String? _pendingInvite;
 
   @override
   void initState() {
@@ -143,6 +157,13 @@ class _GameScreenState extends State<GameScreen> {
     if (qr != null && qr.isNotEmpty && !_c.step.inGame) {
       _code.text = qr;
       _c.roomCodeInput = qr;
+      // 🔴 INV-1: الدعوة تُؤكَّد قبل أيّ انضمامٍ صامت. رمز QR لا يحتاج سؤالاً
+      //    (اللاعب مسحه بنفسه قاصداً)، أمّا نقرةُ إشعارٍ فقد تقع بالخطأ —
+      //    وانضمامٌ لم يُقصد يشغل مقعداً ويُربك الليدر.
+      if (widget.invite) {
+        setState(() => _pendingInvite = qr);
+        return;
+      }
       // 📌 الرمز مُمرَّر ⇒ لا تتقدّم إلى الهاتف تلقائياً
       await _c.findRoom(qr);
     }
@@ -179,6 +200,22 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
         ),
+        if (_pendingInvite != null)
+          Positioned.fill(
+            child: _InviteConfirmModal(
+              code: _pendingInvite!,
+              inviterName: widget.inviterName,
+              onAccept: () {
+                final code = _pendingInvite!;
+                setState(() => _pendingInvite = null);
+                unawaited(_c.findRoom(code));
+              },
+              onDecline: () {
+                setState(() => _pendingInvite = null);
+                navigateTo(Routes.home);
+              },
+            ),
+          ),
         if (_c.switchConfirm != null) _switchModal(),
         if (_c.joinConfirmation != null) _joinModal(),
         if (_showGalleryFab) _galleryFab(),
@@ -627,6 +664,111 @@ class _Brand extends StatelessWidget {
           ),
         ),
       ]);
+}
+
+// ══════════════════════════════════════════════════════
+// ✉️ INV-1 — تأكيد الدعوة قبل الانضمام
+// ══════════════════════════════════════════════════════
+// نقرةُ إشعارٍ قد تقع بالخطأ، وانضمامٌ لم يُقصد يشغل مقعداً ويُربك الليدر.
+// واسمُ الداعي جزءٌ من القرار: «دعاك فلان» تُقبَل، و«دعوة» المجهولة تُرفض.
+class _InviteConfirmModal extends StatelessWidget {
+  const _InviteConfirmModal({
+    required this.code,
+    required this.inviterName,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  final String code;
+  final String? inviterName;
+  final VoidCallback onAccept, onDecline;
+
+  @override
+  Widget build(BuildContext context) {
+    final who = (inviterName ?? '').trim();
+    return ColoredBox(
+      color: const Color(0xE0000000),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D0B08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0x59C5A059)),
+            ),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('✉️', style: TextStyle(fontSize: 38)),
+              const SizedBox(height: 10),
+              Text('دعوةٌ إلى غرفة',
+                  style: const TextStyle(
+                      fontFamily: 'Amiri',
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                      color: _gold)),
+              if (who.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text('دعاك $who',
+                    style: ar(13, color: const Color(0xFFD8CFC0))),
+              ],
+              const SizedBox(height: 14),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: const Color(0x14C5A059),
+                  border: Border.all(color: const Color(0x33C5A059)),
+                ),
+                child: Text(code,
+                    style: mono(22, color: _gold, weight: FontWeight.w900)
+                        .copyWith(letterSpacing: 6)),
+              ),
+              const SizedBox(height: 20),
+              Row(children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onDecline,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: _line),
+                      ),
+                      child: Text('ليس الآن',
+                          style: ar(13.5, color: const Color(0xFF9A8F7E))),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: onAccept,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(11),
+                        color: const Color(0x26C5A059),
+                        border: Border.all(color: _gold),
+                      ),
+                      child: Text('انضمّ',
+                          style:
+                              ar(13.5, color: _gold, weight: FontWeight.w900)),
+                    ),
+                  ),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // ══════════════════════════════════════════════════════

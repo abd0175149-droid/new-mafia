@@ -12,6 +12,7 @@ import '../../models/game.dart';
 import '../cosmetics/mafia_card_view.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'invite_sheet.dart';
 import 'deals_sheet.dart';
 import 'discussion_view.dart';
 import 'justification_view.dart';
@@ -449,6 +450,21 @@ class _Toolbar extends StatelessWidget {
             builder: (ctx) => _chip('🃏 الأدوار', _gold,
                 const Color(0xFF2A2A2A), () => unawaited(showRolesInfo(ctx))),
           ),
+          // ✉️ INV-2: العلم `allowPlayerInvites` كان مُتتبَّعاً بلا واجهةٍ
+          //    تستهلكه — فلاعب التطبيق لا يدعو أحداً بينما زملاؤه على
+          //    الويب يدعون، والخادم يقبل دعوته أصلاً.
+          if (controller.isRemote &&
+              controller.allowPlayerInvites &&
+              controller.roomId.isNotEmpty)
+            Builder(
+              builder: (ctx) => _chip(
+                '✉️ دعوة',
+                _gold,
+                const Color(0x59C5A059),
+                () => unawaited(
+                    showInviteSheet(ctx, roomId: controller.roomId)),
+              ),
+            ),
           if (controller.isRemote && controller.physicalId > 0)
             Text.rich(TextSpan(children: [
               const TextSpan(text: 'مقعدك '),
