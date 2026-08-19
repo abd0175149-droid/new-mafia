@@ -27,16 +27,23 @@ class InAppBanner extends StatefulWidget {
 
 class _InAppBannerState extends State<InAppBanner>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _anim = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 260),
-  );
+  // 🔴 يُهيّأ في `initState` لا بـ`late final`: هذا البانر قد **لا يُبنى
+  //    محتواه قطّ** (لا إشعار طوال الجلسة)، فتبقى `late` غير مهيّأة —
+  //    ثمّ يستدعيها `dispose` فتُنشأ **وقت التفكيك** والشجرة تُهدَم:
+  //      «Looking up a deactivated widget's ancestor is unsafe»
+  //    علّةٌ وقعت في هذا المشروع من قبل ووقعتُ فيها ثانيةً؛ أمسكها
+  //    سيناريو الجهاز.
+  late final AnimationController _anim;
   InAppAlert? _current;
   Timer? _hide;
 
   @override
   void initState() {
     super.initState();
+    _anim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
     PushService.instance.inAppAlert.addListener(_onAlert);
   }
 
