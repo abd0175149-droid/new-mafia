@@ -10,6 +10,7 @@ import '../../core/notifications/inbox_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/fnb.dart';
 import '../../models/home.dart';
+import '../../models/player.dart';
 import '../notifications/inbox_sheet.dart';
 import '../shell/chips_balance_pill.dart';
 
@@ -128,6 +129,11 @@ class _HomeScreenState extends State<HomeScreen> {
               //    مخبوء — من لا يعرف أنها تُنقر لا يجد المتجر من هنا أبداً.
               const SizedBox(height: 20),
               const _StoreBanner(),
+              // 🧑‍💼 STAFF-1: لوحة الموظّف — لمن حسابه مرتبطٌ بحساب موظّف.
+              if (SessionStore.instance.staff != null) ...[
+                const SizedBox(height: 20),
+                _StaffPanel(staff: SessionStore.instance.staff!),
+              ],
               // 📣 SOCIAL-1: قنوات النادي والدعم.
               const SizedBox(height: 20),
               const _SocialSection(),
@@ -520,6 +526,125 @@ class _UpcomingSection extends StatelessWidget {
           style: TextStyle(fontFamily: 'Tajawal', fontSize: 8, color: color, letterSpacing: 0)),
     );
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 🧑‍💼 STAFF-1 — لوحة الموظّف المرتبط
+// ══════════════════════════════════════════════════════
+// 🔴 وجهاتها **واجهاتُ ويبٍ لا شاشات تطبيق**: غرفة العمليّات ولوحة
+//    الإدارة وشاشة العرض كلّها خارج نطاق التطبيق، فيصنّفها
+//    `Destination.classify` كـ`ourWebOnly` وتُفتح في المتصفّح على مضيفنا.
+//    محاولةُ حشرها في الراوتر كانت ستُسقطها في التوجيه الصامت.
+class _StaffPanel extends StatelessWidget {
+  const _StaffPanel({required this.staff});
+
+  final StaffInfo staff;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: const Color(0x0F3B82F6),
+          border: Border.all(color: const Color(0x333B82F6)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              const Text('🧑‍💼', style: TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'مرحباً ${staff.displayName} • ${staff.roleAr}',
+                  style: const TextStyle(
+                      fontFamily: 'Tajawal',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF93C5FD),
+                      letterSpacing: 0),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            if (staff.canAdmin) ...[
+              _StaffLink(
+                emoji: '📊',
+                title: 'لوحة الإدارة',
+                sub: 'إحصائيّات وأنشطة ومالية',
+                url: '/admin',
+              ),
+              const SizedBox(height: 8),
+            ],
+            if (staff.canLead) ...[
+              _StaffLink(
+                emoji: '🎛️',
+                title: 'غرفة العمليّات',
+                sub: 'إدارة وتشغيل الألعاب',
+                url: '/leader',
+              ),
+              const SizedBox(height: 8),
+            ],
+            _StaffLink(
+              emoji: '🖥️',
+              title: 'شاشة العرض',
+              sub: 'ما يراه الجميع في القاعة',
+              url: '/display',
+            ),
+          ],
+        ),
+      );
+}
+
+class _StaffLink extends StatelessWidget {
+  const _StaffLink({
+    required this.emoji,
+    required this.title,
+    required this.sub,
+    required this.url,
+  });
+
+  final String emoji, title, sub, url;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => navigateTo(url),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            color: const Color(0x0AFFFFFF),
+            border: Border.all(color: const Color(0x1F3B82F6)),
+          ),
+          child: Row(children: [
+            Text(emoji, style: const TextStyle(fontSize: 16)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 1),
+                  Text(sub,
+                      style: const TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 9.5,
+                          color: Color(0xFF6B7280),
+                          letterSpacing: 0)),
+                ],
+              ),
+            ),
+            const Icon(Icons.open_in_new, size: 13, color: Color(0xFF60A5FA)),
+          ]),
+        ),
+      );
 }
 
 // ══════════════════════════════════════════════════════

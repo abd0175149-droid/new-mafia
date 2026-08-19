@@ -22,6 +22,12 @@ class SessionStore {
 
   static const _kToken = 'mafia_player_token';
   static const _kPlayer = 'mafia_player_data';
+
+  /// 🔴 صلاحيّة الموظّف في التخزين **الآمن** كبقيّة الاعتمادات: هذا توكن
+  ///    إدارةٍ لا تفضيلُ واجهة. الويب يضعه في localStorage لأنه لا يملك
+  ///    أفضل، ونحن نملك.
+  static const _kStaff = 'mafia_staff_info';
+  static const _kStaffToken = 'mafia_staff_token';
   static const _kDeviceId = 'mafia_device_id';
 
   final _secure = const FlutterSecureStorage(
@@ -34,6 +40,29 @@ class SessionStore {
 
   String? get token => _token;
   PlayerData? get player => _player;
+
+  StaffInfo? _staff;
+  String? _staffToken;
+
+  /// بيانات الموظّف المرتبط — `null` لمن ليس موظّفاً.
+  StaffInfo? get staff => _staff;
+  String? get staffToken => _staffToken;
+
+  Future<void> saveStaff(StaffInfo info, String token) async {
+    _staff = info;
+    _staffToken = token;
+    await _secure.write(key: _kStaff, value: jsonEncode(info.toJson()));
+    await _secure.write(key: _kStaffToken, value: token);
+  }
+
+  /// يُمحى فور زوال الارتباط — صلاحيّةٌ باقيةٌ بعد سحبها ثغرة.
+  Future<void> clearStaff() async {
+    if (_staff == null && _staffToken == null) return;
+    _staff = null;
+    _staffToken = null;
+    await _secure.delete(key: _kStaff);
+    await _secure.delete(key: _kStaffToken);
+  }
   bool get isLoggedIn => _token != null && _token!.isNotEmpty;
 
   /// يُستدعى مرّة عند الإقلاع، **قبل** إنشاء السوكِت.
@@ -45,6 +74,18 @@ class SessionStore {
   Future<void> load() async {
     try {
       _token = await _secure.read(key: _kToken);
+      // صلاحيّة الموظّف تُحمَّل مع الجلسة — الرئيسيّة ترسم لوحته فوراً
+      // بلا انتظار جولة `/me`.
+      _staffToken = await _secure.read(key: _kStaffToken);
+      final staffRaw = await _secure.read(key: _kStaff);
+      if (staffRaw != null) {
+        try {
+          _staff = StaffInfo.fromJson(
+              Map<String, dynamic>.from(jsonDecode(staffRaw) as Map));
+        } catch (_) {
+          _staff = null;
+        }
+      }
       final raw = await _secure.read(key: _kPlayer);
       if (raw != null && raw.isNotEmpty) {
         _player = PlayerData.fromJson(jsonDecode(raw) as Map<String, dynamic>);
@@ -76,6 +117,11 @@ class SessionStore {
     _player = null;
     await _secure.delete(key: _kToken);
     await _secure.delete(key: _kPlayer);
+    // 🔴 الخروج يمحو صلاحيّة الموظّف أيضاً — بقاؤها لمن يدخل بعده ثغرة.
+    _staff = null;
+    _staffToken = null;
+    await _secure.delete(key: _kStaff);
+    await _secure.delete(key: _kStaffToken);
     // معرّف الجهاز **لا يُمسح**: هو هويّة الجهاز لا هويّة الحساب، وبه
     // يُزال توكن الإشعارات القديم عند دخول حساب آخر على نفس الهاتف.
   }

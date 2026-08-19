@@ -77,6 +77,9 @@ class PlayerData {
         'dob': dob,
       };
 
+  /// يُستعمل من `StaffInfo` أيضاً — تحليلٌ متسامحٌ واحد للملفّ كلّه.
+  static int parseInt(dynamic v, {int fallback = 0}) => _int(v, fallback: fallback);
+
   static int _int(dynamic v, {int fallback = 0}) {
     if (v is int) return v;
     if (v is num) return v.toInt();
@@ -85,4 +88,48 @@ class PlayerData {
 
   @override
   String toString() => 'PlayerData(#$id $name)';
+}
+
+// ══════════════════════════════════════════════════════
+// 🧑‍💼 AUTH-2 — حساب موظّفٍ مرتبطٌ بحساب اللاعب
+// ══════════════════════════════════════════════════════
+/// يُعيده `/api/player-auth/me` مع `staffToken` حين يكون اللاعب موظّفاً.
+/// كان يُهمَل كلّياً في التطبيق، فيعود الموظّف للمتصفّح لكلّ مهمّة.
+class StaffInfo {
+  const StaffInfo({
+    required this.staffId,
+    required this.username,
+    required this.displayName,
+    required this.role,
+  });
+
+  final int staffId;
+  final String username, displayName, role;
+
+  /// من يملك غرفة العمليّات — نفس شرط الويب حرفياً.
+  bool get canLead => const {'admin', 'manager', 'leader'}.contains(role);
+
+  /// من يملك لوحة الإدارة.
+  bool get canAdmin => const {'admin', 'manager'}.contains(role);
+
+  String get roleAr => switch (role) {
+        'admin' => 'مدير',
+        'manager' => 'مشرف',
+        'leader' => 'قائد',
+        _ => 'موظّف',
+      };
+
+  factory StaffInfo.fromJson(Map<String, dynamic> j) => StaffInfo(
+        staffId: PlayerData.parseInt(j['staffId']),
+        username: (j['username'] ?? '').toString(),
+        displayName: (j['displayName'] ?? '').toString(),
+        role: (j['role'] ?? '').toString(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'staffId': staffId,
+        'username': username,
+        'displayName': displayName,
+        'role': role,
+      };
 }

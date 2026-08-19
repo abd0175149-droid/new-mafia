@@ -123,6 +123,24 @@ class AuthRepository {
     try {
       final res = await _api.get('/api/player-auth/me');
       final map = res is Map ? res : const {};
+      // 🧑‍💼 AUTH-2: حسابُ لاعبٍ مرتبطٌ بحساب موظّف. الخادم يعيد
+      //    `staffInfo` و`staffToken` مع `/me`، وكانا يُهمَلان كلّياً —
+      //    فالموظّف على iOS يعود للمتصفّح لكلّ مهمّةٍ إداريّة.
+      //
+      // 🔴 التوكن في التخزين الآمن (Keychain) لا في تخزينٍ عاديّ: هو
+      //    اعتماد **صلاحيّة إدارة** لا مجرّد جلسة لاعب.
+      final staff = map['staffInfo'];
+      final staffToken = map['staffToken'];
+      if (staff is Map && staffToken is String && staffToken.isNotEmpty) {
+        await _session.saveStaff(
+          StaffInfo.fromJson(Map<String, dynamic>.from(staff)),
+          staffToken,
+        );
+      } else {
+        // ارتباطٌ أُزيل من لوحة الإدارة ⇒ تُمحى الصلاحيّة فوراً.
+        await _session.clearStaff();
+      }
+
       final p = map['player'] ?? map['data'] ?? map;
       if (p is Map && p['id'] != null) {
         final player = PlayerData.fromJson(Map<String, dynamic>.from(p));
