@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../models/card_fx.dart';
+import '../../models/entrance.dart';
 import '../../models/store.dart';
+import 'entrance_stage.dart';
 import '../cosmetics/card_fx_layer.dart' show FxClock;
 import '../cosmetics/elimination_fx.dart';
 import '../profile/profile_palette.dart';
@@ -139,6 +141,21 @@ class _EntranceStageViewState extends State<EntranceStageView>
   @override
   Widget build(BuildContext context) {
     final design = '${widget.item.config?['design'] ?? 'don'}';
+
+    // 🎬 STORE-2: التشريفة المؤلَّفة تُرسم **من بياناتها** لا من قالب.
+    //    كان التطبيق يجهل `custom` فيُسقطها إلى «موكب العرّاب» — فيعاين
+    //    المشتري منتجاً غير الذي يشتريه، وهو أسوأ من غياب المعاينة.
+    if (design == 'custom') {
+      final els = EntranceElement.parse(widget.item.config);
+      if (els.isNotEmpty) {
+        return CustomEntranceStage(
+          elements: els,
+          playerName: widget.playerName,
+        );
+      }
+      // مؤلَّفةٌ بلا عناصر ⇒ تسقط على القالب أدناه بدل شاشةٍ فارغة.
+    }
+
     final t = _entranceTone[design] ?? _entranceTone['don']!;
     // الختم يهبط بضربة؛ والبقيّة تدخل بانسياب
     final stamp = design == 'seal' || design == 'file';
