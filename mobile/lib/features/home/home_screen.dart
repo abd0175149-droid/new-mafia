@@ -128,6 +128,9 @@ class _HomeScreenState extends State<HomeScreen> {
               //    مخبوء — من لا يعرف أنها تُنقر لا يجد المتجر من هنا أبداً.
               const SizedBox(height: 20),
               const _StoreBanner(),
+              // 📣 SOCIAL-1: قنوات النادي والدعم.
+              const SizedBox(height: 20),
+              const _SocialSection(),
             ],
           ],
         ),
@@ -517,6 +520,169 @@ class _UpcomingSection extends StatelessWidget {
           style: TextStyle(fontFamily: 'Tajawal', fontSize: 8, color: color, letterSpacing: 0)),
     );
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 📣 SOCIAL-1 — قنوات النادي وطريق الدعم
+// ══════════════════════════════════════════════════════
+// 🔴 لم يكن في التطبيق **أيّ طريقٍ لمراسلة النادي**: لا زرّ دعمٍ ولا قناة.
+//    من واجه مشكلةً في حجزٍ أو رصيدٍ لا يجد إلى من يتوجّه، بينما الويب
+//    يعرض القنوات الثلاث وزرّ محادثةٍ مباشرة.
+//
+// 🔴 الروابط منقولةٌ حرفياً من `frontend/src/app/player/home/page.tsx`
+//    (الأسطر 15–18) — مصدرٌ واحد لا نسختان تتباعدان. وتعليق الويب يوثّق
+//    أن محادثة إنستغرام هي **قناة التواصل الحاليّة** بعد تعطّل بوت واتساب.
+//
+// 🔴 وكلّها تمرّ بـ`navigateTo` فيصنّفها `Destination.classify` خارجيّةً
+//    ويفتحها في المتصفّح — لا `launchUrl` مباشرةً، كي يبقى تصنيف الوجهات
+//    في مكانٍ واحد.
+const _kInstagram = 'https://www.instagram.com/mafia_club_jo/';
+const _kInstagramDm = 'https://ig.me/m/mafia_club_jo';
+const _kSnapchat = 'https://www.snapchat.com/add/mafia_club26';
+const _kWhatsappGroup = 'https://chat.whatsapp.com/Bz1ipm8YxR31u5OEUOxeJZ';
+
+class _SocialSection extends StatelessWidget {
+  const _SocialSection();
+
+  @override
+  Widget build(BuildContext context) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('📣 تابعنا وتواصل معنا',
+              style: TextStyle(
+                  fontFamily: 'Tajawal',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                  letterSpacing: 0)),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+              child: _SocialTile(
+                emoji: '📸',
+                label: 'إنستغرام',
+                tint: Color(0xFFE1306C),
+                url: _kInstagram,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SocialTile(
+                emoji: '👻',
+                label: 'سناب شات',
+                tint: Color(0xFFFFFC00),
+                url: _kSnapchat,
+              ),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          _SocialWide(
+            emoji: '💬',
+            title: 'مجموعة الواتساب',
+            sub: 'مواعيد الجلسات وأخبار النادي أوّلاً بأوّل',
+            tint: const Color(0xFF25D366),
+            url: _kWhatsappGroup,
+          ),
+          const SizedBox(height: 8),
+          _SocialWide(
+            emoji: '🆘',
+            title: 'تواصل مع الإدارة',
+            sub: 'مشكلة في حجزٍ أو رصيد؟ راسلنا مباشرةً',
+            tint: const Color(0xFFE1306C),
+            url: _kInstagramDm,
+          ),
+        ],
+      );
+}
+
+class _SocialTile extends StatelessWidget {
+  const _SocialTile({
+    required this.emoji,
+    required this.label,
+    required this.tint,
+    required this.url,
+  });
+
+  final String emoji, label, url;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => navigateTo(url),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: tint.withValues(alpha: 0.08),
+            border: Border.all(color: tint.withValues(alpha: 0.28)),
+          ),
+          child: Column(children: [
+            Text(emoji, style: const TextStyle(fontSize: 22)),
+            const SizedBox(height: 6),
+            Text(label,
+                style: TextStyle(
+                    fontFamily: 'Tajawal',
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: tint,
+                    letterSpacing: 0)),
+          ]),
+        ),
+      );
+}
+
+class _SocialWide extends StatelessWidget {
+  const _SocialWide({
+    required this.emoji,
+    required this.title,
+    required this.sub,
+    required this.tint,
+    required this.url,
+  });
+
+  final String emoji, title, sub, url;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: () => navigateTo(url),
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: tint.withValues(alpha: 0.07),
+            border: Border.all(color: tint.withValues(alpha: 0.25)),
+          ),
+          child: Row(children: [
+            Text(emoji, style: const TextStyle(fontSize: 20)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: tint,
+                          letterSpacing: 0)),
+                  const SizedBox(height: 2),
+                  Text(sub,
+                      style: const TextStyle(
+                          fontFamily: 'Tajawal',
+                          fontSize: 10,
+                          color: Color(0xFF6B7280),
+                          letterSpacing: 0)),
+                ],
+              ),
+            ),
+            Icon(Icons.open_in_new, size: 14, color: tint.withValues(alpha: 0.7)),
+          ]),
+        ),
+      );
 }
 
 // ══════════════════════════════════════════════════════
