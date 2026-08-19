@@ -35,6 +35,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   HomeProfile? _profile;
   List<UpcomingActivity> _upcoming = const [];
+  List<FriendSession> _feed = const [];
   FnbContext? _fnbCtx;
   bool _loading = true;
   bool _failed = false;
@@ -68,6 +69,13 @@ class _HomeScreenState extends State<HomeScreen> {
         })
         .catchError((_) => <UpcomingActivity>[]);
 
+    // 👥 FEED-1: أخبار الأصدقاء — نداءٌ رابع مستقلّ بالمنطق نفسه.
+    final feed = ApiClient.instance
+        .get('/api/player-app/$id/following-feed')
+        .then((r) => FriendSession.group(
+            (r is Map ? r['feed'] : null) as List? ?? const []))
+        .catchError((_) => <FriendSession>[]);
+
     // سياق الطلب نداءٌ ثالث مستقلّ: بطاقةٌ مشروطة، وفشلها يعني غيابها
     // لا سقوط الصفحة.
     final fnb = ApiClient.instance
@@ -80,11 +88,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final p = await profile;
     final a = await acts;
     final f = await fnb;
+    final fd = await feed;
     if (!mounted) return;
     setState(() {
       _profile = p;
       _upcoming = a;
       _fnbCtx = f;
+      _feed = fd;
       _loading = false;
       _failed = p == null;
     });
@@ -124,6 +134,12 @@ class _HomeScreenState extends State<HomeScreen> {
               if (_fnbCtx != null) ...[
                 const SizedBox(height: 20),
                 _FnbCard(ctx: _fnbCtx!),
+              ],
+              // 👥 FEED-1: يُعرض حين توجد أخبارٌ فقط — قسمٌ فارغٌ يدعو
+              //    للمتابعة على كلّ زيارة إزعاجٌ لا تشجيع.
+              if (_feed.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                _FriendsFeed(items: _feed),
               ],
               // 🏦 HOME-2: لافتة الخزنة. حبّة الرصيد في الترويسة بابٌ صغير
               //    مخبوء — من لا يعرف أنها تُنقر لا يجد المتجر من هنا أبداً.
@@ -524,6 +540,91 @@ class _UpcomingSection extends StatelessWidget {
       ),
       child: Text(label,
           style: TextStyle(fontFamily: 'Tajawal', fontSize: 8, color: color, letterSpacing: 0)),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// 👥 FEED-1 — أخبار الأصدقاء
+// ══════════════════════════════════════════════════════
+// 🔴 الخادم يعيد صفّاً لكلّ **مباراة** والتجميع في العميل: خمسُ مبارياتٍ
+//    في ليلةٍ واحدة خبرٌ واحد لا خمسة أخبارٍ متطابقة تُغرق القائمة.
+class _FriendsFeed extends StatelessWidget {
+  const _FriendsFeed({required this.items});
+
+  final List<FriendSession> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('EEEE d MMMM', 'ar_JO');
+    // حدٌّ أقصى ثمانية كما الويب — الرئيسيّة ليست سجلّاً.
+    final shown = items.take(8).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('👥 أخبار أصدقائك',
+            style: TextStyle(
+                fontFamily: 'Tajawal',
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+                letterSpacing: 0)),
+        const SizedBox(height: 12),
+        for (final f in shown)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0x08FFFFFF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0x0FFFFFFF)),
+              ),
+              child: Row(children: [
+                CircleAvatar(
+                  radius: 17,
+                  backgroundColor: const Color(0xFF1A1A1A),
+                  backgroundImage: (f.avatarUrl?.isNotEmpty ?? false)
+                      ? NetworkImage(ApiClient.instance.upload(f.avatarUrl!))
+                      : null,
+                  child: (f.avatarUrl?.isEmpty ?? true)
+                      ? const Text('🎭', style: TextStyle(fontSize: 14))
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(f.playerName.isEmpty ? 'لاعب' : f.playerName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontFamily: 'Tajawal',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                              letterSpacing: 0)),
+                      const SizedBox(height: 2),
+                      Text(
+                        f.date == null
+                            ? f.matchesAr
+                            : 'لعب ${fmt.format(f.date!)} — ${f.matchesAr}',
+                        style: const TextStyle(
+                            fontFamily: 'Tajawal',
+                            fontSize: 10,
+                            color: Color(0xFF6B7280),
+                            letterSpacing: 0),
+                      ),
+                    ],
+                  ),
+                ),
+                const Text('🎮', style: TextStyle(fontSize: 14)),
+              ]),
+            ),
+          ),
+      ],
     );
   }
 }

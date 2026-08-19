@@ -136,3 +136,83 @@ class RankInfo {
   /// رتبة مجهولة تسقط إلى «مُخبر» — لا شارة فارغة ولا نصّ خام.
   static RankInfo of(String? tier) => _map[tier] ?? _map['INFORMANT']!;
 }
+
+// ══════════════════════════════════════════════════════
+// 👥 FEED-1 — أخبار الأصدقاء
+// ══════════════════════════════════════════════════════
+/// جلسةُ لعبٍ لصديقٍ في يومٍ واحد — مجمَّعةٌ من صفوف المباريات الخام.
+///
+/// 🔴 الخادم يعيد صفّاً لكلّ **مباراة**، والتجميع في العميل: خمسُ مباريات
+///    في ليلةٍ واحدة خبرٌ واحد لا خمسة أخبارٍ متطابقة تُغرق القائمة.
+class FriendSession {
+  const FriendSession({
+    required this.playerId,
+    required this.playerName,
+    required this.matchCount,
+    required this.date,
+    this.avatarUrl,
+  });
+
+  final int playerId;
+  final String playerName;
+  final int matchCount;
+  final DateTime? date;
+  final String? avatarUrl;
+
+  /// 🔴 صياغةٌ عربيّة صحيحة: الويب يكتب «2 ألعاب» و«11 لعبة» بقاعدةٍ
+  ///    ثنائيّة (واحد/غيره). العربيّة تميّز المثنّى وجمعَ القلّة والكثرة.
+  String get matchesAr => switch (matchCount) {
+        1 => 'لعبة واحدة',
+        2 => 'لعبتان',
+        >= 3 && <= 10 => '$matchCount ألعاب',
+        _ => '$matchCount لعبة',
+      };
+
+  /// يجمّع صفوف الخادم بمفتاح (لاعب + يوم).
+  static List<FriendSession> group(List<dynamic> rows) {
+    final map = <String, _Acc>{};
+    for (final r in rows) {
+      if (r is! Map) continue;
+      final pid = (r['playerId'] as num?)?.toInt();
+      if (pid == null) continue;
+      final raw = r['matchDate'];
+      final d = raw == null ? null : DateTime.tryParse('$raw')?.toLocal();
+      // مفتاحُ اليوم بلا وقت — جلسةٌ واحدة مهما تفرّقت ساعاتها.
+      final dayKey = d == null ? '' : '${d.year}-${d.month}-${d.day}';
+      final key = '$pid|$dayKey';
+      final info = r['playerInfo'];
+      final acc = map.putIfAbsent(
+        key,
+        () => _Acc(
+          playerId: pid,
+          name: (info is Map ? info['name'] : null)?.toString() ??
+              '${r['playerName'] ?? ''}',
+          avatarUrl: info is Map ? info['avatarUrl'] as String? : null,
+          date: d,
+        ),
+      );
+      acc.count++;
+    }
+    final out = map.values
+        .map((a) => FriendSession(
+              playerId: a.playerId,
+              playerName: a.name,
+              matchCount: a.count,
+              date: a.date,
+              avatarUrl: a.avatarUrl,
+            ))
+        .toList();
+    // الأحدث أوّلاً — الخادم يرتّب المباريات لا الجلسات المجمَّعة.
+    out.sort((x, y) => (y.date ?? DateTime(0)).compareTo(x.date ?? DateTime(0)));
+    return out;
+  }
+}
+
+class _Acc {
+  _Acc({required this.playerId, required this.name, this.avatarUrl, this.date});
+  final int playerId;
+  final String name;
+  final String? avatarUrl;
+  final DateTime? date;
+  int count = 0;
+}
