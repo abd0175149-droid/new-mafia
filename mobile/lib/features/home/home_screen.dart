@@ -8,6 +8,7 @@ import '../../app/theme/theme.dart';
 import '../../core/api/api_client.dart';
 import '../../core/notifications/inbox_service.dart';
 import '../../core/storage/session_store.dart';
+import '../staff/admin_webview_screen.dart';
 import '../../models/fnb.dart';
 import '../../models/home.dart';
 import '../../models/player.dart';
@@ -668,30 +669,22 @@ class _StaffPanel extends StatelessWidget {
               ),
             ]),
             const SizedBox(height: 12),
-            if (staff.canAdmin) ...[
-              _StaffLink(
+            // 🔴 لوحة الإدارة وحدها — بقرار المالك: «الباقي مش مهم يكونوا
+            //    موجودين أصلاً». غرفةُ العمليّات مصمَّمةٌ لشاشةٍ عريضة
+            //    وشاشةُ العرض للقاعة، فوجودهما في هاتفٍ زحامٌ بلا استعمال.
+            if (staff.canAdmin)
+              const _StaffLink(
                 emoji: '📊',
                 title: 'لوحة الإدارة',
                 sub: 'إحصائيّات وأنشطة ومالية',
-                url: '/admin',
-              ),
-              const SizedBox(height: 8),
-            ],
-            if (staff.canLead) ...[
-              _StaffLink(
-                emoji: '🎛️',
-                title: 'غرفة العمليّات',
-                sub: 'إدارة وتشغيل الألعاب',
-                url: '/leader',
-              ),
-              const SizedBox(height: 8),
-            ],
-            _StaffLink(
-              emoji: '🖥️',
-              title: 'شاشة العرض',
-              sub: 'ما يراه الجميع في القاعة',
-              url: '/display',
-            ),
+              )
+            else
+              const Text('لا صلاحيّة إدارةٍ لحسابك',
+                  style: TextStyle(
+                      fontFamily: 'Tajawal',
+                      fontSize: 11.5,
+                      color: Color(0xFF6B7280),
+                      letterSpacing: 0)),
           ],
         ),
       );
@@ -702,14 +695,18 @@ class _StaffLink extends StatelessWidget {
     required this.emoji,
     required this.title,
     required this.sub,
-    required this.url,
   });
 
-  final String emoji, title, sub, url;
+  final String emoji, title, sub;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-        onTap: () => navigateTo(url),
+        // 🔴 تُفتح **داخل التطبيق** لا في المتصفّح: اللوحة تحتاج جلسةً
+        //    مصادَقة، وفتحُها خارجاً يعني تسجيل دخولٍ من جديد — بينما
+        //    توكن الموظّف محفوظٌ عندنا ويُحقن في الصفحة.
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const AdminWebViewScreen(),
+        )),
         behavior: HitTestBehavior.opaque,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -742,7 +739,7 @@ class _StaffLink extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.open_in_new, size: 13, color: Color(0xFF60A5FA)),
+            const Icon(Icons.arrow_back_ios_new, size: 12, color: Color(0xFF60A5FA)),
           ]),
         ),
       );
