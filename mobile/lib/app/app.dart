@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,7 @@ import 'router.dart';
 import 'theme/theme.dart';
 import '../core/push/push_service.dart';
 import '../core/ui/atmosphere.dart';
+import '../core/ui/in_app_banner.dart';
 import '../features/gates/birthday_gate.dart';
 import '../features/gates/notification_gate.dart';
 
@@ -126,6 +128,10 @@ class _MafiaAppState extends State<MafiaApp> {
                       onSaved: () => AppState.instance.markBirthdaySaved(),
                     ),
                   ),
+                // 📣 ORDER-3: بانر الإشعار — تحت الضجيج وفوق كلّ شيءٍ آخر،
+                //    ولا يُعرض على أندرويد (هناك إشعارٌ نظاميّ يُرسم أصلاً).
+                if (defaultTargetPlatform == TargetPlatform.iOS)
+                  const InAppBanner(),
                 // الضجيج فوق كل شيء دائماً — آخر عنصر في المكدّس
                 const Positioned.fill(child: NoiseOverlay()),
               ],

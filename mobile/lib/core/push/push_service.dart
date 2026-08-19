@@ -245,6 +245,18 @@ class PushService {
     }
   }
 
+  // ══════════════════════════════════════════════════════
+  // 📣 ORDER-3 — بانر المقدّمة الداخليّ (iOS)
+  // ══════════════════════════════════════════════════════
+  /// آخر إشعارٍ وصل والتطبيقُ مفتوح. الغلاف يرصده ويعرضه ثمّ يصفّره.
+  final inAppAlert = ValueNotifier<InAppAlert?>(null);
+
+  /// وجهة الإشعار من حمولته — نفس المنطق الذي يستعمله مسار النقر.
+  String? _routeOf(Map<String, dynamic> data) {
+    final r = (data['route'] ?? data['url'] ?? data['path'])?.toString();
+    return (r == null || r.trim().isEmpty) ? null : r.trim();
+  }
+
   Future<void> registerToken() async {
     try {
       final t = await _fcm.getToken();
@@ -274,10 +286,26 @@ class PushService {
   }
 
   Future<void> _showForeground(RemoteMessage m) async {
-    // 🔴 iOS: **لا عرض محلّيّ إطلاقاً** — قرارٌ مقفول في 91 §4.6 و06 §6.3.
-    //    النظام يعرض `aps.alert` بنفسه، فأيّ عرضٍ منّا هنا إشعارٌ مكرَّر.
-    //    وإعادةُ جلب الصندوق تسبق هذا النداء في المستمع فلا تتأثّر.
-    if (defaultTargetPlatform == TargetPlatform.iOS) return;
+    // 🔴 iOS: لا إشعار **نظام** — قرارٌ مقفول في 91 §4.6 و06 §6.3 تفادياً
+    //    للتكرار. لكنّ التعليق السابق قال «النظام يعرضه بنفسه» وهو غير
+    //    دقيق: نحن نُعطّله صراحةً بـ
+    //    `setForegroundNotificationPresentationOptions(alert:false,…)`،
+    //    فالنتيجة أن لاعب iOS **لا يرى شيئاً** — يتحدّث عدّاد الجرس فقط،
+    //    وقد يفوته إشعارٌ حسّاسٌ زمنياً (بدء نشاط، حالة طلب) وهو يتصفّح.
+    //
+    // ✅ ORDER-3: بانرٌ **داخل التطبيق** لا إشعار نظام — يسدّ الفجوة بلا
+    //    نقض القرار: لا تكرار، ولا يخرج من التطبيق، ويُنقر فينقل لوجهته.
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      final n = m.notification;
+      if (n != null) {
+        inAppAlert.value = InAppAlert(
+          title: n.title ?? 'نادي المافيا',
+          body: n.body ?? '',
+          route: _routeOf(m.data),
+        );
+      }
+      return;
+    }
 
     final n = m.notification;
     if (n == null) return;
@@ -360,4 +388,15 @@ class PushService {
     try { await _fcm.deleteToken(); } catch (_) { /* تجاهل */ }
     _token = null;
   }
+}
+
+// ══════════════════════════════════════════════════════
+// 📣 ORDER-3 — إشعارٌ يُعرض داخل التطبيق
+// ══════════════════════════════════════════════════════
+/// بديلُ إشعار النظام على iOS حين يكون التطبيق في المقدّمة.
+class InAppAlert {
+  const InAppAlert({required this.title, required this.body, this.route});
+
+  final String title, body;
+  final String? route;
 }
