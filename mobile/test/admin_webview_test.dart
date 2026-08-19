@@ -42,6 +42,19 @@ void main() {
           reason: 'حقنٌ بقيمٍ معدومة يكتب "null" نصّاً في التخزين');
     });
 
+    test('حقنٌ احتياطيّ عند الهبوط على صفحة الدخول', () {
+      // 🔴 بلاغُ المالك: «بطلب منّي أعيد تسجيل الدخول». الحقن عند البدء
+      //    قد يقع قبل إنشاء الوثيقة فيضيع — فيلزم مسارٌ حتميّ.
+      expect(src.contains("/admin/login"), isTrue);
+      expect(src.contains('_reseeded'), isTrue);
+    });
+
+    test('إعادة التحميل مرّةً واحدة — حارسُ الدوران', () {
+      // 🔴 بلا الحارس تدور الصفحة بلا نهاية حين يكون التوكن نفسه مرفوضاً.
+      expect(src.contains('if (!_reseeded'), isTrue);
+      expect(src.contains('_reseeded = true'), isTrue);
+    });
+
     test('الحقن في onPageStarted لا onPageFinished', () {
       final started = src.indexOf('onPageStarted');
       final inject = src.indexOf('runJavaScript');

@@ -16,10 +16,15 @@ import '../profile/profile_palette.dart';
 //    مسجّلاً أصلاً. وتوكن الموظّف محفوظٌ عندنا في Keychain (AUTH-2)، فحقنُه
 //    يجعله يدخل مباشرةً.
 //
-// 🔴 والحقن في `onPageStarted` لا `onPageFinished`: الوثيقة الجديدة تكون
-//    قد أُنشئت ولم تُنفَّذ حزمة التطبيق بعد، فيجد الداشبورد التوكن حين
-//    يقرؤه عند التركيب. الحقن بعد الانتهاء يعني صفحةَ دخولٍ ظهرت ثمّ
-//    تصحيحاً متأخّراً.
+// 🔴 الحقن **مرّتان وبإعادة تحميلٍ احتياطيّة** — بلاغُ المالك: «بطلب منّي
+//    أعيد تسجيل الدخول كأدمن». السبب أن `onPageStarted` قد يقع **قبل
+//    إنشاء الوثيقة الجديدة**، فيُنفَّذ السكربت في سياقٍ يزول ويضيع التوكن.
+//
+//    فالمسار صار حتمياً: نحقن عند البدء (يكفي غالباً)، ثمّ عند الانتهاء
+//    نفحص أين استقرّت الصفحة — فإن كانت على `/admin/login` فالحقن الأوّل
+//    ضاع: نحقن ثانيةً **ونعيد التحميل مرّةً واحدة**، فتقرأ الحزمة التوكن
+//    الموجود سلفاً. مرّةً واحدة لا أكثر، وإلّا دارت الصفحة بلا نهاية حين
+//    يكون التوكن نفسه مرفوضاً.
 //
 // 🔴 والمفاتيح **نفس ما يكتبه الويب** (`PlayerContext.tsx`): `token`
 //    و`user`. اختلافُ مفتاحٍ واحد يعني لوحةً تطلب تسجيل الدخول رغم وجود
@@ -37,6 +42,9 @@ class _AdminWebViewScreenState extends State<AdminWebViewScreen> {
   String? _error;
   int _progress = 0;
 
+  /// إعادةُ تحميلٍ احتياطيّة واحدة — حارسُ الدوران.
+  bool _reseeded = false;
+
   @override
   void initState() {
     super.initState();
@@ -53,7 +61,21 @@ class _AdminWebViewScreenState extends State<AdminWebViewScreen> {
             _c.runJavaScript(_injectJs(token, staff));
           }
         },
-        onPageFinished: (_) => mounted ? setState(() => _loading = false) : null,
+        onPageFinished: (url) async {
+          // هبطنا على صفحة الدخول ⇒ الحقن الأوّل لم يصل. نُعيده ونحمّل
+          // مرّةً واحدة فقط.
+          if (!_reseeded &&
+              url.contains('/admin/login') &&
+              token != null &&
+              staff != null) {
+            _reseeded = true;
+            await _c.runJavaScript(_injectJs(token, staff));
+            await _c.loadRequest(
+                Uri.parse('${ApiClient.instance.config.baseUrl}/admin'));
+            return;
+          }
+          if (mounted) setState(() => _loading = false);
+        },
         onWebResourceError: (e) {
           // 🔴 أخطاء الموارد الفرعيّة (صورةٌ أو خطّ) لا تُفشل الصفحة —
           //    عرضُها كخطأٍ يُخفي لوحةً تعمل.
@@ -69,6 +91,14 @@ class _AdminWebViewScreenState extends State<AdminWebViewScreen> {
         },
       ))
       ..loadRequest(Uri.parse('${ApiClient.instance.config.baseUrl}/admin'));
+
+    // 🔴 غيابُ التوكن يُقال صراحةً: بلا هذا يرى الموظّف صفحة دخولٍ ولا
+    //    يعرف أهي عطلٌ في الحقن أم أن حسابه غير مرتبط أصلاً — وكلاهما
+    //    يبدو واحداً على الشاشة.
+    if (token == null || staff == null) {
+      _error = 'حسابك غير مرتبطٍ بحساب موظّف — أعد فتح التطبيق أو راجع الإدارة';
+      _loading = false;
+    }
   }
 
   /// يكتب مفاتيح جلسة الموظّف كما يكتبها الويب حرفياً.
