@@ -22,7 +22,9 @@ Future<void> showLocationMenu(
 }) {
   return showModalBottomSheet<void>(
     context: context,
-    useRootNavigator: false,
+    // 🔴 على الجذر كبقيّة الأوراق: الكبسولة الزجاجيّة الطافية فوق ورقةٍ
+    //    مفتوحة تبدو عطلاً في التركيب. انظر التعليق في `activity_sheets`.
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xE6000000),
     isScrollControlled: true,

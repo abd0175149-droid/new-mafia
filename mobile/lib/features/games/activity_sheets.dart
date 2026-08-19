@@ -10,12 +10,19 @@ import 'location_menu_sheet.dart';
 // ══════════════════════════════════════════════════════
 // 🎟️ ورقتا النشاط والحجز — §4.1.7 و§4.1.8 في الملفّ 14
 // ══════════════════════════════════════════════════════
-// 🔴 `useRootNavigator: false` في الاثنتين: الويب يوقف حاجبه عند ٨٠ بكسل
-//    من الأسفل فيبقى شريط التنقّل ظاهراً وقابلاً للنقر. عرضهما على
-//    الـnavigator الجذر يغطّي الشريط ويكسر ذلك.
-
-/// ارتفاع شريط التنقّل — الورقة تنتهي فوقه لا خلفه.
-const double kNavInset = 64;
+// 🔴 `useRootNavigator: true` — نقضٌ **مقصود** لقرارٍ سابق، بطلبٍ من المالك.
+//
+//    القرار السابق كان `false` محاكاةً للويب: حاجبه يقف عند ٨٠ بكسل فيبقى
+//    شريط التنقّل ظاهراً وقابلاً للنقر. وهو صحيحٌ **على الويب** حيث الشريط
+//    لوحٌ ملتصقٌ بالحافّة.
+//
+//    لكنّ شريط التطبيق **كبسولةٌ زجاجيّة طافية**، فبقاؤها فوق ورقةٍ مفتوحة
+//    يبدو عطلاً في التركيب لا خياراً — وهو ما رآه المالك حرفياً. وورقة
+//    الإشعارات وأوراق الطلب كلّها على الجذر أصلاً (ج3 في الملفّ 97 تحقّق
+//    من تغطيتها الكاملة)، فالاستثناء هنا كان يكسر الاتّساق لا يحفظه.
+//
+//    والحشوة `kNavInset` أُزيلت معه: كانت تعويضاً عن شريطٍ لم يعد يعلو
+//    الورقة — وبقاؤها تفتح فجوةً فارغة أسفلها.
 
 BoxDecoration _sheetSkin() => const BoxDecoration(
       gradient: LinearGradient(
@@ -50,7 +57,7 @@ Future<bool?> showActivityDetails(
 }) {
   return showModalBottomSheet<bool>(
     context: context,
-    useRootNavigator: false,
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xE6000000),
     isScrollControlled: true,
@@ -80,7 +87,7 @@ class _DetailsSheet extends StatelessWidget {
         //    الفرع فتمتدّ خلف الشريط، فيغطّي الشريطُ أزرارها. رأيت
         //    «احجز الآن» نصفه تحت الشريط على الجهاز.
         padding: EdgeInsets.fromLTRB(
-            24, 24, 24, 24 + kNavInset + MediaQuery.viewPaddingOf(context).bottom),
+            24, 24, 24, 24 + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -280,7 +287,7 @@ class _DetailsSheet extends StatelessWidget {
 Future<int?> showBookingConfirm(BuildContext context, {required Activity activity}) {
   return showModalBottomSheet<int>(
     context: context,
-    useRootNavigator: false,
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0xE6000000),
     isScrollControlled: true,
@@ -324,7 +331,7 @@ class _ConfirmSheetState extends State<_ConfirmSheet> {
         //    الفرع فتمتدّ خلف الشريط، فيغطّي الشريطُ أزرارها. رأيت
         //    «احجز الآن» نصفه تحت الشريط على الجهاز.
         padding: EdgeInsets.fromLTRB(
-            24, 24, 24, 24 + kNavInset + MediaQuery.viewPaddingOf(context).bottom),
+            24, 24, 24, 24 + MediaQuery.viewPaddingOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
