@@ -16,6 +16,7 @@ import '../profile/profile_palette.dart';
 import 'item_sheet.dart';
 import 'mirror_stage.dart';
 import 'sting_preview.dart';
+import 'store_funnel.dart';
 import 'store_widgets.dart';
 
 // ══════════════════════════════════════════════════════
@@ -59,6 +60,11 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // 📉 STORE-6: بداية جلسة قياس — سلوك مستخدمي iOS الشرائيّ كان غير
+    //    مرئيٍّ للإدارة إطلاقاً، فأيّ قرارٍ يُبنى على القياس يمثّل نصف
+    //    الجمهور فقط.
+    StoreFunnel.instance.reset();
+    StoreFunnel.instance.track(FunnelEvent.open);
     _load();
     // قالب البطاقة وتأثيرات الرتب — بدونها ترسم المرآة بطاقةً غير التي
     // تظهر على شاشة القاعة
@@ -74,6 +80,8 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
     _stageTimer?.cancel();
     // 🔴 صوتٌ يستمرّ بعد مغادرة الشاشة عيبٌ يلاحَظ فوراً ويصعب تفسيره.
     unawaited(StingPreview.instance.stop());
+    // 🔴 آخر دفعةٍ عند المغادرة: من فتح المتجر وخرج هو بالضبط ما نقيسه.
+    unawaited(StoreFunnel.instance.flush());
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -86,6 +94,7 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       unawaited(StingPreview.instance.stop());
+      unawaited(StoreFunnel.instance.flush());
       _stageTimer?.cancel();
       if (mounted) setState(() => _stage = null);
     }
@@ -146,6 +155,7 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
   // اللمس هو التجربة
   // ══════════════════════════════════════════════════════
   void _pick(StoreItem item) {
+    StoreFunnel.instance.track(FunnelEvent.tryOn, itemId: item.id);
     if (_wearable.contains(item.kind)) {
       setState(() {
         _stage = null;
@@ -213,6 +223,7 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
     final d = _data;
     if (d == null) return;
     if (d.balance < item.priceChips) {
+      StoreFunnel.instance.track(FunnelEvent.shortfall, itemId: item.id);
       await showNeedChips(context,
           item: item, balance: d.balance, rates: d.earnRates);
       return;
@@ -516,13 +527,20 @@ class _StoreScreenState extends State<StoreScreen> with WidgetsBindingObserver {
               crossAxisSpacing: 8,
             ),
             itemCount: items.length,
-            itemBuilder: (_, i) => StoreGridItem(
-              item: items[i],
-              equipped: d.cosmetics.isEquipped(items[i]),
-              selected: _tryOn?.id == items[i].id,
-              onTap: () => _pick(items[i]),
-              playerName: d.name,
-            ),
+            itemBuilder: (_, i) {
+              // 🔴 الظهور يُسجَّل عند **بناء** العنصر لا عند تحميل القائمة:
+              //    الشبكة كسولة، وتسجيلُ الكلّ دفعةً يقيس ما لم يره أحد.
+              //    والخدمة تُسقط المكرّر لكلّ عنصرٍ في الجلسة.
+              StoreFunnel.instance
+                  .track(FunnelEvent.impression, itemId: items[i].id);
+              return StoreGridItem(
+                item: items[i],
+                equipped: d.cosmetics.isEquipped(items[i]),
+                selected: _tryOn?.id == items[i].id,
+                onTap: () => _pick(items[i]),
+                playerName: d.name,
+              );
+            },
               ),
             ),
           )
