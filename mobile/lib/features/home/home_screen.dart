@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/ui/glass.dart';
 
 import '../../app/router.dart';
@@ -140,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
               //    للمتابعة على كلّ زيارة إزعاجٌ لا تشجيع.
               if (_feed.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                _FriendsFeed(items: _feed),
+                FriendsFeedSection(items: _feed),
               ],
               // 🏦 HOME-2: لافتة الخزنة. حبّة الرصيد في الترويسة بابٌ صغير
               //    مخبوء — من لا يعرف أنها تُنقر لا يجد المتجر من هنا أبداً.
@@ -550,27 +553,118 @@ class _UpcomingSection extends StatelessWidget {
 // ══════════════════════════════════════════════════════
 // 🔴 الخادم يعيد صفّاً لكلّ **مباراة** والتجميع في العميل: خمسُ مبارياتٍ
 //    في ليلةٍ واحدة خبرٌ واحد لا خمسة أخبارٍ متطابقة تُغرق القائمة.
-class _FriendsFeed extends StatelessWidget {
-  const _FriendsFeed({required this.items});
+/// 🔴 عامّةٌ لأجل الاختبار: طيُّ القسم وبقاءُ اختياره سلوكٌ يستحقّ حارساً،
+/// وحارسُه يحتاج بناءها مباشرةً بلا شاشةٍ كاملة وجلسةٍ وشبكة.
+class FriendsFeedSection extends StatefulWidget {
+  const FriendsFeedSection({super.key, required this.items});
 
   final List<FriendSession> items;
+
+  @override
+  State<FriendsFeedSection> createState() => _FriendsFeedState();
+}
+
+class _FriendsFeedState extends State<FriendsFeedSection> {
+  /// 🔴 يُحفظ الاختيار: قسمٌ طواه اللاعب يجب أن يبقى مطويّاً في الزيارة
+  ///    التالية — وإلّا صار الطيّ إزعاجاً يتكرّر كلّ مرّة.
+  static const _kOpen = 'home_feed_open';
+
+  bool _open = true;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_restore());
+  }
+
+  Future<void> _restore() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _open = p.getBool(_kOpen) ?? true;
+        _ready = true;
+      });
+    } catch (_) {
+      // تعذّر القراءة ⇒ مفتوحٌ افتراضاً. الطيّ تفضيلٌ لا حالةُ بيانات.
+      if (mounted) setState(() => _ready = true);
+    }
+  }
+
+  Future<void> _toggle() async {
+    setState(() => _open = !_open);
+    try {
+      (await SharedPreferences.getInstance()).setBool(_kOpen, _open);
+    } catch (_) {
+      // فشلُ الحفظ لا يمنع الطيّ الآن — يعود مفتوحاً في الجلسة التالية فقط.
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final fmt = DateFormat('EEEE d MMMM', 'ar_JO');
     // حدٌّ أقصى ثمانية كما الويب — الرئيسيّة ليست سجلّاً.
-    final shown = items.take(8).toList();
+    final shown = widget.items.take(8).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('👥 أخبار أصدقائك',
-            style: TextStyle(
-                fontFamily: 'Tajawal',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
-                letterSpacing: 0)),
+        // الترويسة زرٌّ كامل: مساحةُ اللمس السطر كلّه لا السهم وحده.
+        GestureDetector(
+          onTap: _toggle,
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              const Expanded(
+                child: Text('👥 أخبار أصدقائك',
+                    style: TextStyle(
+                        fontFamily: 'Tajawal',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        letterSpacing: 0)),
+              ),
+              // عدّادٌ يُغني عن الفتح حين يكون المطلوب نظرةً سريعة.
+              Text('${shown.length}',
+                  style: const TextStyle(
+                      fontFamily: 'Tajawal',
+                      fontSize: 11,
+                      color: Color(0xFF6B7280),
+                      letterSpacing: 0)),
+              const SizedBox(width: 6),
+              AnimatedRotation(
+                turns: _open ? 0 : -0.25,
+                duration: const Duration(milliseconds: 200),
+                child: const Icon(Icons.keyboard_arrow_down,
+                    size: 18, color: Color(0xFF6B7280)),
+              ),
+            ]),
+          ),
+        ),
+        // 🔴 لا يُرسم المحتوى قبل قراءة التفضيل: ظهورٌ ثمّ طيٌّ فوريّ يبدو
+        //    وميضاً في كلّ فتحةٍ للرئيسيّة.
+        // 🔴 `AnimatedSize` مع إزالةٍ فعليّة لا `AnimatedCrossFade`: الأخير
+        //    **يبني الطفلين معاً** ويُخفي أحدهما بصرياً — فيبقى المحتوى
+        //    المطويّ في الشجرة، يقرؤه قارئ الشاشة ويُهدر بناؤه.
+        if (_ready)
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _open
+                ? _list(shown, fmt)
+                : const SizedBox(width: double.infinity),
+          ),
+      ],
+    );
+  }
+
+  Widget _list(List<FriendSession> shown, DateFormat fmt) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         const SizedBox(height: 12),
         for (final f in shown)
           Padding(
