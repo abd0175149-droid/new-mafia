@@ -42,17 +42,30 @@ void main() {
           reason: 'حقنٌ بقيمٍ معدومة يكتب "null" نصّاً في التخزين');
     });
 
-    test('حقنٌ احتياطيّ عند الهبوط على صفحة الدخول', () {
-      // 🔴 بلاغُ المالك: «بطلب منّي أعيد تسجيل الدخول». الحقن عند البدء
-      //    قد يقع قبل إنشاء الوثيقة فيضيع — فيلزم مسارٌ حتميّ.
-      expect(src.contains("/admin/login"), isTrue);
-      expect(src.contains('_reseeded'), isTrue);
+    test('الجذر يُحمَّل أوّلاً ثمّ اللوحة — لا سباق', () {
+      // 🔴 محاولتان سابقتان فشلتا: الحقن عند البدء وحده (سباقٌ مع إنشاء
+      //    الوثيقة)، ثمّ كشفُ الهبوط على `/admin/login` — وهو **لا يقع
+      //    أبداً** لأن اللوحة تطبيقُ صفحةٍ واحدة و`router.push` تنقّلٌ
+      //    داخليّ لا تحميلٌ جديد، فلا تُستدعى `onPageFinished` ثانيةً.
+      //
+      // العقد الصحيح: يُحمَّل **الجذر** لا `/admin`، فنملك تخزين الأصل
+      // ونزرع التوكن قبل أن تعمل حزمة اللوحة.
+      // 🔴 يُطابَق على الكود بعد ضغط الفراغات: تنسيقُ السطور يتغيّر مع
+      //    كلّ تعديل، وحارسٌ يكسره سطرٌ ملفوف حارسٌ لا يُوثَق به.
+      final flat = src.replaceAll(RegExp(r'\s+'), '');
+      expect(
+          flat.contains(
+              '..loadRequest(Uri.parse(ApiClient.instance.config.baseUrl));'),
+          isTrue,
+          reason: 'التحميل الأوّل للجذر — تحميلُ /admin مباشرةً يعيد السباق');
+      expect(flat.contains(r"baseUrl}/admin'))"), isTrue,
+          reason: 'الانتقال للوحة بعد الزرع');
     });
 
-    test('إعادة التحميل مرّةً واحدة — حارسُ الدوران', () {
-      // 🔴 بلا الحارس تدور الصفحة بلا نهاية حين يكون التوكن نفسه مرفوضاً.
-      expect(src.contains('if (!_reseeded'), isTrue);
-      expect(src.contains('_reseeded = true'), isTrue);
+    test('الزرع مرّةً واحدة — حارسُ الدوران', () {
+      // 🔴 بلا الحارس يعيد كلُّ انتهاء تحميلٍ الزرعَ والانتقال بلا نهاية.
+      expect(src.contains('if (!_seeded'), isTrue);
+      expect(src.contains('_seeded = true'), isTrue);
     });
 
     test('الحقن في onPageStarted لا onPageFinished', () {

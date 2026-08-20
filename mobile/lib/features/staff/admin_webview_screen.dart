@@ -16,15 +16,19 @@ import '../profile/profile_palette.dart';
 //    مسجّلاً أصلاً. وتوكن الموظّف محفوظٌ عندنا في Keychain (AUTH-2)، فحقنُه
 //    يجعله يدخل مباشرةً.
 //
-// 🔴 الحقن **مرّتان وبإعادة تحميلٍ احتياطيّة** — بلاغُ المالك: «بطلب منّي
-//    أعيد تسجيل الدخول كأدمن». السبب أن `onPageStarted` قد يقع **قبل
-//    إنشاء الوثيقة الجديدة**، فيُنفَّذ السكربت في سياقٍ يزول ويضيع التوكن.
+// 🔴 **تحميلان بالترتيب** — والسبب درسٌ مدفوع الثمن:
 //
-//    فالمسار صار حتمياً: نحقن عند البدء (يكفي غالباً)، ثمّ عند الانتهاء
-//    نفحص أين استقرّت الصفحة — فإن كانت على `/admin/login` فالحقن الأوّل
-//    ضاع: نحقن ثانيةً **ونعيد التحميل مرّةً واحدة**، فتقرأ الحزمة التوكن
-//    الموجود سلفاً. مرّةً واحدة لا أكثر، وإلّا دارت الصفحة بلا نهاية حين
-//    يكون التوكن نفسه مرفوضاً.
+//    ① المحاولة الأولى حقنت في `onPageStarted` وحدها. تقع أحياناً قبل
+//       إنشاء الوثيقة الجديدة فيُنفَّذ السكربت في سياقٍ يزول.
+//    ② والثانية أضافت كشفاً: «إن استقرّت الصفحة على `/admin/login` فأعد
+//       الحقن والتحميل». **ولم تعمل أيضاً** — واللوحةُ تطبيقُ صفحةٍ واحدة،
+//       و`router.push('/admin/login')` تنقّلٌ **داخل الصفحة** لا تحميلٌ
+//       جديد، فـ`onPageFinished` لا تُستدعى ثانيةً ولا يقع الكشف أبداً.
+//
+//    فالحلّ ألّا نلاحق التحويل بل نسبقه: **نحمّل جذر الموقع أوّلاً** —
+//    صفحةٌ لا تحرس شيئاً — ونحقن التوكن في تخزينها (نفس الأصل)، ثمّ
+//    ننتقل إلى `/admin` فتجد حزمتُها التوكن موجوداً حين تقرؤه. تحميلان
+//    دائماً، لكنّه **حتميّ** لا يعتمد على سباق.
 //
 // 🔴 والمفاتيح **نفس ما يكتبه الويب** (`PlayerContext.tsx`): `token`
 //    و`user`. اختلافُ مفتاحٍ واحد يعني لوحةً تطلب تسجيل الدخول رغم وجود
@@ -42,8 +46,8 @@ class _AdminWebViewScreenState extends State<AdminWebViewScreen> {
   String? _error;
   int _progress = 0;
 
-  /// إعادةُ تحميلٍ احتياطيّة واحدة — حارسُ الدوران.
-  bool _reseeded = false;
+  /// هل زُرعت الجلسة وانتقلنا إلى اللوحة؟ حارسُ الدوران.
+  bool _seeded = false;
 
   @override
   void initState() {
@@ -57,19 +61,20 @@ class _AdminWebViewScreenState extends State<AdminWebViewScreen> {
       ..setNavigationDelegate(NavigationDelegate(
         onProgress: (p) => mounted ? setState(() => _progress = p) : null,
         onPageStarted: (_) {
+          // حقنٌ إضافيّ رخيص — يفيد إن سبق إنشاءَ الوثيقة، ولا يضرّ إن تأخّر.
           if (token != null && staff != null) {
             _c.runJavaScript(_injectJs(token, staff));
           }
         },
-        onPageFinished: (url) async {
-          // هبطنا على صفحة الدخول ⇒ الحقن الأوّل لم يصل. نُعيده ونحمّل
-          // مرّةً واحدة فقط.
-          if (!_reseeded &&
-              url.contains('/admin/login') &&
-              token != null &&
-              staff != null) {
-            _reseeded = true;
-            await _c.runJavaScript(_injectJs(token, staff));
+        onPageFinished: (_) async {
+          // 🔴 المرحلة الأولى: الجذر حُمّل ⇒ التخزين متاحٌ على أصلنا.
+          //    نزرع الجلسة ثمّ ننتقل للوحة. مرّةً واحدة — الحارس يمنع
+          //    الدوران لو أعادت اللوحة توجيهاً لأيّ سبب.
+          if (!_seeded) {
+            _seeded = true;
+            if (token != null && staff != null) {
+              await _c.runJavaScript(_injectJs(token, staff));
+            }
             await _c.loadRequest(
                 Uri.parse('${ApiClient.instance.config.baseUrl}/admin'));
             return;
@@ -90,7 +95,9 @@ class _AdminWebViewScreenState extends State<AdminWebViewScreen> {
           }
         },
       ))
-      ..loadRequest(Uri.parse('${ApiClient.instance.config.baseUrl}/admin'));
+      // 🔴 الجذر أوّلاً لا `/admin`: صفحةٌ لا تحرس شيئاً، فنملك تخزينها
+      //    ونزرع التوكن قبل أن تعمل حزمة اللوحة أصلاً.
+      ..loadRequest(Uri.parse(ApiClient.instance.config.baseUrl));
 
     // 🔴 غيابُ التوكن يُقال صراحةً: بلا هذا يرى الموظّف صفحة دخولٍ ولا
     //    يعرف أهي عطلٌ في الحقن أم أن حسابه غير مرتبط أصلاً — وكلاهما
