@@ -27,6 +27,11 @@ function matchesSeg(p: any, seg: any): boolean {
   const results = conds.map((c: any) => { const fn = OPS[c.op]; return fn ? fn(Number(p[c.metric]), Number(c.value)) : false; });
   return seg.match === 'any' ? results.some(Boolean) : results.every(Boolean);
 }
+// 📅 التاريخ يُخزّن عدداً YYYYMMDD (مثلاً 20260601) ليمرّ عبر محرّك القواعد
+//    الرقميّ بلا تعديل — وترتيب هذه الأعداد يطابق الترتيب الزمنيّ تماماً.
+const numToDate = (n: any) => { const s = String(n || '').padStart(8, '0'); return /^\d{8}$/.test(s) ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : ''; };
+const dateToNum = (d: string) => Number(String(d || '').slice(0, 10).replace(/-/g, '')) || 0;
+
 function segmentOf(p: any, config: any): any {
   for (const seg of (config?.segments || [])) if (matchesSeg(p, seg)) return seg;
   return config?.fallback || { id: 'other', name: 'غير مصنّف', color: '#6b6660' };
@@ -82,6 +87,16 @@ export default function AnalyticsPlayersPage() {
   const [tab, setTab] = useState<'dash' | 'rules'>('dash');
   const [showTest, setShowTest] = useState(false);
   const [segFilter, setSegFilter] = useState<string | null>(null);
+  // 📅 فلترا الفوج: تاريخ إنشاء الحساب + عدد الفعاليّات بعده.
+  // 🔴 في الشريط لا في الشرائح عمداً: segmentOf يُرجِع **أوّل** مطابقة،
+  //    فاللاعب ينتمي لشريحةٍ واحدة لا غير. شريحة «مسجّلون بعد تاريخ» كانت
+  //    ستتصارع مع «وفيّ نشط» و«منقطع» وتسرق منها أو تُسرَق — حسب الترتيب.
+  //    وكفوج فهي تتقاطع مع أيّ شريحة بدل أن تنافسها، وتُضبط بلا حفظ قواعد.
+  const [sinceOn, setSinceOn] = useState(false);
+  const [sinceDate, setSinceDate] = useState('');
+  const [actsOn, setActsOn] = useState(false);
+  const [actsOp, setActsOp] = useState('<=');
+  const [actsN, setActsN] = useState(1);
   const [q, setQ] = useState('');
   const [sortKey, setSortKey] = useState('gamesAll');
   const [sortDir, setSortDir] = useState(-1);
@@ -174,10 +189,16 @@ export default function AnalyticsPlayersPage() {
   })();
 
   const unplayedCount = pool.filter(p => Number(p.activitiesSince) >= unplayedN).length;
+  // عدّاد الفوج: التاريخ والعدد معاً، مستقلّاً عن فلتر الشريحة والبحث
+  const cohortCount = pool.filter(p =>
+    (!sinceOn || !sinceDate || Number(p.acctCreatedNum) >= dateToNum(sinceDate)) &&
+    (!actsOn || OPS[actsOp]?.(Number(p.actsAfterSignup), actsN))).length;
   const rows = (() => {
     let r = segmented as any[];
     if (segFilter) r = r.filter(p => p._seg.id === segFilter);
     if (unplayed) r = r.filter(p => Number(p.activitiesSince) >= unplayedN); // 🎯 لم يحضر آخر N فعاليّة
+    if (sinceOn && sinceDate) r = r.filter(p => Number(p.acctCreatedNum) >= dateToNum(sinceDate));
+    if (actsOn) r = r.filter(p => OPS[actsOp]?.(Number(p.actsAfterSignup), actsN));
     const s = q.trim().toLowerCase();
     if (s) r = r.filter(p => (p.name || '').toLowerCase().includes(s) || (p.phone || '').includes(s));
     return r.slice().sort((a, b) => {
@@ -263,6 +284,39 @@ export default function AnalyticsPlayersPage() {
             <button onClick={() => setShowTemplate(v => !v)} className={`px-3 py-2 rounded-xl text-xs border ${showTemplate ? 'bg-green-500/15 text-green-400 border-green-500/40' : 'bg-gray-800/40 text-gray-300 border-gray-700/40'}`}>💬 قالب الرسالة</button>
           </div>
 
+          {/* 📅 الفوج: متى أُنشئ الحساب وكم حضر **بعد** ذلك */}
+          <div className="flex flex-wrap items-center gap-2.5 bg-gray-800/20 border border-gray-700/30 rounded-xl px-3 py-2.5 mb-2">
+            <button onClick={() => setSinceOn(v => !v)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${sinceOn ? 'bg-sky-500/15 text-sky-300 border-sky-500/40' : 'bg-gray-800/50 text-gray-300 border-gray-700/50'}`}>
+              {sinceOn ? '✓ ' : ''}📅 أُنشئ حسابه بعد
+            </button>
+            <input type="date" value={sinceDate} onChange={e => { setSinceDate(e.target.value); if (e.target.value) setSinceOn(true); }}
+              className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1 text-sm text-white tabular-nums outline-none focus:border-sky-500/50" />
+
+            <span className="w-px h-6 bg-gray-700/50 mx-1" />
+
+            <button onClick={() => setActsOn(v => !v)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${actsOn ? 'bg-sky-500/15 text-sky-300 border-sky-500/40' : 'bg-gray-800/50 text-gray-300 border-gray-700/50'}`}>
+              {actsOn ? '✓ ' : ''}🎫 فعاليّات بعد التسجيل
+            </button>
+            <select value={actsOp} onChange={e => { setActsOp(e.target.value); setActsOn(true); }}
+              className="bg-gray-900/60 border border-gray-700/50 rounded-lg px-2 py-1 text-[13px] text-sky-400 outline-none w-14 text-center">
+              {Object.keys(OP_LABELS).map(o => <option key={o} value={o}>{OP_LABELS[o]}</option>)}
+            </select>
+            <div className="flex items-center gap-1">
+              <button onClick={() => { setActsN(n => Math.max(0, n - 1)); setActsOn(true); }} className="w-7 h-7 rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-300 text-sm">−</button>
+              <input type="number" min={0} value={actsN} onChange={e => { setActsN(Math.max(0, parseInt(e.target.value) || 0)); setActsOn(true); }}
+                className="w-14 text-center bg-gray-900/60 border border-gray-700/50 rounded-lg py-1 text-sm text-white tabular-nums outline-none focus:border-sky-500/50" />
+              <button onClick={() => { setActsN(n => n + 1); setActsOn(true); }} className="w-7 h-7 rounded-lg bg-gray-800/60 border border-gray-700/50 text-gray-300 text-sm">+</button>
+            </div>
+            <span className="text-xs text-gray-400">فعاليّة</span>
+
+            {(sinceOn || actsOn) && (
+              <button onClick={() => { setSinceOn(false); setActsOn(false); }} className="text-[11px] text-gray-500 hover:text-gray-300 underline">إلغاء</button>
+            )}
+            <span className="text-[11px] text-sky-300/80 mr-auto">مطابقون: <b className="tabular-nums">{(sinceOn || actsOn) ? cohortCount : pool.length}</b></span>
+          </div>
+
           {/* 🎯 شريحة: لم يلعب آخر N فعاليّة (فلتر عرض قابل للضبط) */}
           <div className="flex flex-wrap items-center gap-2.5 bg-gray-800/20 border border-gray-700/30 rounded-xl px-3 py-2.5">
             <button onClick={() => setUnplayed(v => !v)}
@@ -310,7 +364,7 @@ export default function AnalyticsPlayersPage() {
             </div>
           )}
 
-          <div className="text-[11px] text-gray-500">عرض <b className="tabular-nums">{rows.length}</b> لاعب{segFilter ? ` · ${segList.find((s: any) => s.id === segFilter)?.name}` : ''}{unplayed ? ` · لم يحضر آخر ${unplayedN} فعاليّة` : ''}</div>
+          <div className="text-[11px] text-gray-500">عرض <b className="tabular-nums">{rows.length}</b> لاعب{segFilter ? ` · ${segList.find((s: any) => s.id === segFilter)?.name}` : ''}{unplayed ? ` · لم يحضر آخر ${unplayedN} فعاليّة` : ''}{sinceOn && sinceDate ? ` · مُنشَأ بعد ${sinceDate}` : ''}{actsOn ? ` · فعاليّات بعد التسجيل ${OP_LABELS[actsOp]} ${actsN}` : ''}</div>
 
           <div className="bg-gray-800/30 border border-gray-700/30 rounded-2xl overflow-hidden">
             <div className="grid grid-cols-[2fr_1fr_.7fr_.7fr_.75fr_.85fr] bg-gray-900/40 border-b border-gray-700/30 text-[10px] uppercase tracking-wider text-gray-500">
@@ -426,7 +480,12 @@ function RuleBuilder({ config, metricDefs, segCounts, pool, onEdit, onSave, onRe
                 <select value={c.op} onChange={e => setCond(i, ci, 'op', e.target.value)} className="bg-gray-900/50 border border-gray-700/40 rounded-lg px-2 py-1.5 text-[13px] text-amber-400 outline-none w-14 text-center">
                   {Object.keys(OP_LABELS).map(o => <option key={o} value={o}>{OP_LABELS[o]}</option>)}
                 </select>
-                <input type="number" value={c.value} onChange={e => setCond(i, ci, 'value', e.target.value)} className="bg-gray-900/50 border border-gray-700/40 rounded-lg px-2 py-1.5 text-[13px] text-white outline-none w-20 tabular-nums" />
+                {metricDefs.find((m: any) => m.key === c.metric)?.type === 'date' ? (
+                  <input type="date" value={numToDate(c.value)} onChange={e => setCond(i, ci, 'value', String(dateToNum(e.target.value)))}
+                    className="bg-gray-900/50 border border-gray-700/40 rounded-lg px-2 py-1.5 text-[13px] text-white outline-none tabular-nums" />
+                ) : (
+                  <input type="number" value={c.value} onChange={e => setCond(i, ci, 'value', e.target.value)} className="bg-gray-900/50 border border-gray-700/40 rounded-lg px-2 py-1.5 text-[13px] text-white outline-none w-20 tabular-nums" />
+                )}
                 <button onClick={() => delCond(i, ci)} className="text-gray-600 hover:text-rose-400 text-sm px-1">✕</button>
               </div>
             ))}
