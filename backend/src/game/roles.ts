@@ -56,6 +56,22 @@ export const NEUTRAL_ROLES: Role[] = [
   Role.ASSASSIN,
 ];
 
+// ── 🔫 سلسلة وراثة الاغتيال — المصدر الموحّد ──
+// من ينفّذ اغتيال المافيا حين يموت من فوقه: الأوّل حيّاً في الترتيب هو المنفّذ،
+// وتُنسَب له نقاط نجاح/إبطال الاغتيال.
+//
+// 🔴 واحدة هنا لا نسختان: كانت مكرّرة يدويّاً في night.socket وnight-resolver،
+//    فغابت الساحرة عن كليهما وهي مافيا أصلاً (MAFIA_ROLES تضمّها). وأيّ إضافةٍ
+//    لاحقة في ملفٍ دون الآخر كانت ستُنتج منفّذاً للقتل يختلف عمّن تُنسَب له النقاط.
+export const MAFIA_KILL_PRIORITY: Role[] = [
+  Role.GODFATHER,
+  Role.CHAMELEON,
+  Role.SILENCER,      // قص المافيا
+  Role.WITCH,         // 🧙‍♀️ بعد القص — ترث الاغتيال وتحتفظ بتعطيلها (كما يفعل القص)
+  Role.OLDER_BROTHER, // 👥 التوأم — قبل المافيا العادي
+  Role.MAFIA_REGULAR,
+];
+
 // الأدوار التي لها قدرات ليلية
 export const NIGHT_ACTIVE_ROLES: Role[] = [
   Role.GODFATHER,

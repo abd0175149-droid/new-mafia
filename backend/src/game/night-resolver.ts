@@ -10,14 +10,7 @@ import {
   getAlivePlayers,
 } from './state.js';
 import { getGameState, setGameState } from '../config/redis.js';
-import { Role, isMafiaRole, isNeutralRole, teamOfRole } from './roles.js';
-
-// ── 🔫 تسلسل تنفيذ اغتيال المافيا (الأعلى رتبةً هو المنفّذ المعتمد) ──
-// شيخ المافيا إن كان حياً، وإلا الأعلى في التسلسل المعلن. تُنسب له نقاط
-// نجاح/إبطال الاغتيال — بدل الإسناد السابق لأول مافيا حيّ بترتيب المقاعد.
-const MAFIA_KILL_PRIORITY: Role[] = [
-  Role.GODFATHER, Role.CHAMELEON, Role.SILENCER, Role.OLDER_BROTHER, Role.MAFIA_REGULAR,
-];
+import { Role, isMafiaRole, isNeutralRole, teamOfRole, MAFIA_KILL_PRIORITY } from './roles.js';
 
 function findAssassinator(state: GameState, excludePhysicalId?: number) {
   for (const role of MAFIA_KILL_PRIORITY) {

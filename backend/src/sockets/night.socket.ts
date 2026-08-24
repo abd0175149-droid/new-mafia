@@ -7,7 +7,7 @@ import { Server, Socket } from 'socket.io';
 import { setPhase, Phase } from '../game/state.js';
 import { getGameState, setGameState } from '../config/redis.js';
 import { resolveNight, resetNightActions, getAvailableTargets, checkPolicewomanTrigger } from '../game/night-resolver.js';
-import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, teamOfRole, getTeamCounts } from '../game/roles.js';
+import { Role, NIGHT_ACTIVE_ROLES, isMafiaRole, teamOfRole, getTeamCounts, MAFIA_KILL_PRIORITY } from '../game/roles.js';
 import { WinResult, checkWinCondition } from '../game/win-checker.js';
 import { checkWinConditionDynamic } from '../game/dynamic-win-checker.js';
 import {
@@ -53,14 +53,9 @@ const ACTION_NAMES: Record<string, string> = {
   'ASSASSIN': 'اغتيال السفّاح',
 };
 
-// ── سلسلة وراثة الاغتيال ──
-const ASSASSINATION_INHERITANCE: Role[] = [
-  Role.GODFATHER,
-  Role.CHAMELEON,
-  Role.SILENCER,
-  Role.OLDER_BROTHER,   // 👥 التوأم — قبل المافيا العادي
-  Role.MAFIA_REGULAR,
-];
+// ── سلسلة وراثة الاغتيال — من roles.ts لا نسخةً محلّيّة ──
+// من يُسأل القتل ومن تُنسَب له نقاطه يجب أن يكونا واحداً دائماً.
+const ASSASSINATION_INHERITANCE: Role[] = MAFIA_KILL_PRIORITY;
 
 // ── مصفوفة التايمرز للغرف (Auto Mode) ──
 const autoNightTimers = new Map<string, ReturnType<typeof setTimeout>>();
