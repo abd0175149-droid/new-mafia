@@ -1243,10 +1243,11 @@ export function registerDayEvents(io: Server, socket: Socket) {
               eliminated.push(target.physicalId);
               revealedRoles.push({ physicalId: target.physicalId, role: target.role || 'UNKNOWN' });
 
-              // قاعدة الاتفاقية: إذا المستهدف مواطن → المُبادر يُقصى أيضاً
+              // قاعدة الاتفاقية: إذا المستهدف **مواطن صالح** → المُبادر يُقصى أيضاً.
+              // 🔴 نفس تصحيح vote-engine: المحايد (مهرّج/سفّاح) ليس مواطناً فلا يُردّ الصفقة.
+              //    هذا مسار إقصاء المتعادلين جميعاً — لو صُحّح أحدهما دون الآخر لاختلفت القاعدة باختلاف المسار.
               if (candidate.type === 'DEAL' && candidate.initiatorPhysicalId) {
-                const targetIsMafia = target.role ? isMafiaRole(target.role) : false;
-                if (!targetIsMafia) {
+                if (teamOfRole(target.role) === 'CITIZEN') {
                   const initiator = state.players.find((p: any) => p.physicalId === candidate.initiatorPhysicalId);
                   if (initiator) {
                     initiator.isAlive = false;

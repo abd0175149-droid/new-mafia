@@ -316,6 +316,13 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
 
       // إذا الدور غير معروف (null) → يُعامل كمواطن (الأسوأ للمُبادر)
       const targetIsMafia = target.role ? isMafiaRole(target.role) : false;
+      // 🔴 ارتداد الصفقة يقع على **المواطن الصالح وحده** لا على كلّ من ليس مافيا.
+      //    كان الشرط ثنائيّاً (مافيا / ليس مافيا)، فالمهرّج والسفّاح — وهما محايدان
+      //    لا مواطنان — كانا يُسقطان صاحب الصفقة معهما. وفي حالة المهرّج
+      //    كانت الخسارة مزدوجة: يفوز المهرّج بإقصائه **و** يخرج المواطن معه.
+      //    المحايد لا يكسِب صاحب الصفقة ولا يُخرجه — نفس مذهب المحايد في بقيّة المحرّك.
+      //    ودورٌ null يبقى مواطناً (teamOfRole(null) = CITIZEN) فلا يتغيّر الاحتياط أعلاه.
+      const targetIsPlainCitizen = teamOfRole(target.role) === 'CITIZEN';
       const initiatorIsMafia = initiator && initiator.role ? isMafiaRole(initiator.role) : false;
       
       // الديل يعتبر ناجحاً ومستحقاً للنقاط فقط إذا كان المبادر (مواطن) وأخرج (مافيا).
@@ -337,7 +344,7 @@ export async function resolveVoting(roomId: string): Promise<VoteResolution> {
         team: teamOfRole(target.role), // المحايد NEUTRAL — لا مكافأة إقصاء لأحد
       });
 
-      if (!targetIsMafia && initiator) {
+      if (targetIsPlainCitizen && initiator) {
         initiator.isAlive = false;
         eliminated.push(initiator.physicalId);
         checkPolicewomanTrigger(state, initiator.physicalId);

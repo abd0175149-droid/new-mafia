@@ -170,6 +170,47 @@ async function main() {
     check('النوع DEAL_ELIMINATION', r.type === 'DEAL_ELIMINATION');
   }
 
+  section('11أ) اتفاقية مواطن على **مهرّج** → المهرّج يُقصى والمُبادر **ينجو**');
+  {
+    // 🔴 المحايد ليس مواطناً: لا يردّ الصفقة على صاحبها. وإلّا كانت
+    //    الخسارة مزدوجة: يفوز المهرّج بإقصائه **و** يخرج المواطن معه.
+    const R = 'd11a';
+    await setup(R, [P(1, Role.GODFATHER), P(5, Role.CITIZEN), P(6, Role.JESTER), P(12, Role.CITIZEN), P(13, Role.CITIZEN)],
+      [dc('j', 5, 6, 3)], { deals: [{ id: 'j', initiatorPhysicalId: 5, targetPhysicalId: 6 }] });
+    const r = await resolveVoting(R);
+    const s = await getGameState(R);
+    check('المهرّج (#6) أُقصي', isAlive(s, 6) === false);
+    check('المُبادر المواطن (#5) نجا', isAlive(s, 5) === true);
+    check('لا DEAL_BACKFIRE في السجلّ', !s.performanceTracking.eliminationLog.some((e: any) => e.eliminatedBy === 'DEAL_BACKFIRE'));
+    check('إقصاء المهرّج مسجّل NEUTRAL', s.performanceTracking.eliminationLog.some((e: any) => e.physicalId === 6 && e.team === 'NEUTRAL'));
+    check('المُقصَون = المهرّج وحده', r.eliminated.length === 1 && r.eliminated[0] === 6);
+    check('الصفقة لا تُحتسب ناجحة (محايد لا يكسِب)', s.performanceTracking.dealOutcomes.some((d: any) => d.initiatorPhysicalId === 5 && d.success === false));
+  }
+
+  section('11ب) اتفاقية مواطن على **سفّاح** → المُبادر ينجو أيضاً');
+  {
+    const R = 'd11b';
+    await setup(R, [P(1, Role.GODFATHER), P(5, Role.CITIZEN), P(6, Role.ASSASSIN), P(12, Role.CITIZEN), P(13, Role.CITIZEN)],
+      [dc('a', 5, 6, 3)], { deals: [{ id: 'a', initiatorPhysicalId: 5, targetPhysicalId: 6 }] });
+    await resolveVoting(R);
+    const s = await getGameState(R);
+    check('السفّاح (#6) أُقصي', isAlive(s, 6) === false);
+    check('المُبادر (#5) نجا', isAlive(s, 5) === true);
+  }
+
+  section('11ج) اتفاقية مواطن على **مواطن صالح** → المُبادر يخرج معه (لم يتغيّر)');
+  {
+    const R = 'd11c';
+    await setup(R, [P(1, Role.GODFATHER), P(5, Role.CITIZEN), P(6, Role.DOCTOR), P(12, Role.CITIZEN), P(13, Role.CITIZEN)],
+      [dc('c', 5, 6, 3)], { deals: [{ id: 'c', initiatorPhysicalId: 5, targetPhysicalId: 6 }] });
+    const r = await resolveVoting(R);
+    const s = await getGameState(R);
+    check('الهدف المواطن (#6) أُقصي', isAlive(s, 6) === false);
+    check('المُبادر (#5) خرج معه — ارتداد الصفقة', isAlive(s, 5) === false);
+    check('مسجّل DEAL_BACKFIRE', s.performanceTracking.eliminationLog.some((e: any) => e.physicalId === 5 && e.eliminatedBy === 'DEAL_BACKFIRE'));
+    check('المُقصَون اثنان', r.eliminated.length === 2);
+  }
+
   section('12) تعادل ثلاثي → TIE مع 3 متعادلين، وإقصاء الجميع يقصي الثلاثة');
   {
     const R = 'd12';
