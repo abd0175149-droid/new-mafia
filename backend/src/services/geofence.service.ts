@@ -61,7 +61,7 @@ const MSG: Record<GeoReason, string> = {
   OK: '',
   EXEMPT: '',
   NO_VENUE_POINT: '',
-  LOCATION_REQUIRED: 'نحتاج موقعك للتأكّد من حضورك — فعّل إذن الموقع وأعد المحاولة',
+  LOCATION_REQUIRED: 'تعذّرت قراءة موقعك — أعد المحاولة، وإن تكرّر اطلب من موجّه اللعبة إضافتك',
   LOCATION_STALE: 'قراءة موقعك قديمة — انتظر لحظةً وأعد المحاولة',
   LOCATION_INACCURATE: 'موقعك غير دقيق بما يكفي — فعّل «الموقع الدقيق» وأعد المحاولة',
   LOCATION_MOCKED: 'تعذّر التحقّق من موقعك',
@@ -195,10 +195,44 @@ export async function saveLastFix(playerId: number, fix: GeoFix): Promise<void> 
     .onConflictDoUpdate({ target: playerLastFix.playerId, set: onUpdate as any });
 }
 
+/**
+ * أقصى عمرٍ لقراءةٍ **مخزَّنة** تُقبل حين لا يرسل الجهاز شيئاً.
+ *
+ * 🔴 أطول من FIX_MAX_AGE_MS عمداً وليس تساهلاً: هذه قراءةٌ وصلت الخادم من
+ *    نبضة اللاعب نفسه المستوثَق من جهازه، فهي أقوى شهادةً من غيابٍ تامّ.
+ *    والبديل هو ما وقع الليلة: لاعبٌ على بُعد أربعة أمتار يُردّ تسع دقائق
+ *    لأنّ GPS لم يقفل في تلك اللحظة بالذات.
+ */
+export const STORED_FIX_MAX_AGE_MS = 10 * 60_000;
+
+/** آخر قراءةٍ مخزَّنةٍ للاعب إن كانت ضمن النافذة — وإلّا null. */
+export async function loadRecentStoredFix(playerId: number): Promise<GeoFix | null> {
+  const db = getDB();
+  if (!db) return null;
+  try {
+    const [r] = await db.select().from(playerLastFix)
+      .where(eq(playerLastFix.playerId, playerId)).limit(1);
+    if (!r) return null;
+    const age = Date.now() - new Date(r.updatedAt as any).getTime();
+    if (!(age >= 0 && age <= STORED_FIX_MAX_AGE_MS)) return null;
+    return {
+      lat: Number(r.latitude), lng: Number(r.longitude),
+      accuracyM: r.accuracyM ?? null,
+      // 🔴 بلا capturedAt عمداً: نافذةُ العشر دقائق أعلاه هي الحارس، ولو
+      //    مرّرناه لرفضه فحصُ القِدَم (١٢٠ث) فورَ وصوله — فحصٌ يُلغي نفسه.
+      capturedAt: null,
+      isMocked: r.isMocked === true,
+      source: (r.source === 'app' ? 'app' : 'web'),
+    };
+  } catch { return null; }
+}
+
 /** يسجّل نتيجة فحصٍ — بلا إحداثيّات خام. */
 export async function logPresenceCheck(o: {
   playerId: number; activityId?: number | null; gate: 'join' | 'order' | 'service';
   v: GeoVerdict; accuracyM?: number | null; isMocked?: boolean; enforced?: boolean;
+  /** مرّ بقراءةٍ مخزَّنة لا بواحدةٍ أرسلها الجهاز الآن — يُميَّز في السجلّ. */
+  viaStored?: boolean;
 }): Promise<void> {
   const db = getDB();
   if (!db) return;
@@ -207,7 +241,7 @@ export async function logPresenceCheck(o: {
       playerId: o.playerId,
       activityId: Number.isFinite(Number(o.activityId)) ? Number(o.activityId) : null,
       gate: o.gate,
-      result: o.v.reason === 'OK' ? 'OK' : o.v.reason,
+      result: o.v.reason === 'OK' ? (o.viaStored ? 'OK_STORED' : 'OK') : o.v.reason,
       distanceM: o.v.distanceM,
       accuracyM: o.accuracyM === null || o.accuracyM === undefined ? null : Math.round(o.accuracyM),
       isMocked: o.isMocked === true,
@@ -223,17 +257,26 @@ export async function gateCheck(o: {
   playerId: number; activityId: number | null | undefined; fix: any;
   gate: 'join' | 'order' | 'service'; isRemote?: boolean;
 }): Promise<GeoVerdict> {
-  if (isUsableFix(o.fix)) {
-    try { await saveLastFix(o.playerId, o.fix as GeoFix); } catch { /* لا يُسقط البوّابة */ }
+  let fix = o.fix;
+  let viaStored = false;
+  if (isUsableFix(fix)) {
+    try { await saveLastFix(o.playerId, fix as GeoFix); } catch { /* لا يُسقط البوّابة */ }
+  } else {
+    // 🔴 لا قراءةَ من الجهاز ⇒ آخر قراءةٍ وصلتنا منه خلال عشر دقائق. الرفض
+    //    الفوريّ هنا يعاقب هاتفاً بطيئاً لا لاعباً غائباً، والمسافة تُفحص
+    //    بالمخزَّنة كما تُفحص بالطازجة — فلا يمرّ بعيدٌ بحال.
+    const stored = await loadRecentStoredFix(o.playerId);
+    if (stored) { fix = stored; viaStored = true; }
   }
-  const v = await verifyPresence({ activityId: o.activityId, fix: o.fix, isRemote: o.isRemote });
+  const v = await verifyPresence({ activityId: o.activityId, fix, isRemote: o.isRemote });
   // 🔴 يُسجّل الإعفاء أيضاً. كان يُستثنى فصار سؤال «لماذا دخل وهو بعيد؟»
   //    بلا جواب: جدولٌ فارغ يبدو كأنّ البوّابة لم تُستدعَ أصلاً، وهي استُدعيت
   //    ومرّت. الصفّ المكتوب هو الفرق بين تشخيصٍ في دقيقة وتخمينٍ في ساعة.
   await logPresenceCheck({
     playerId: o.playerId, activityId: o.activityId, gate: o.gate, v,
-    accuracyM: num(o.fix?.accuracyM), isMocked: o.fix?.isMocked === true,
+    accuracyM: num((fix as any)?.accuracyM), isMocked: (fix as any)?.isMocked === true,
     enforced: v.reason !== 'EXEMPT' && v.reason !== 'NO_VENUE_POINT',
+    viaStored: viaStored && v.ok,
   });
   return v;
 }

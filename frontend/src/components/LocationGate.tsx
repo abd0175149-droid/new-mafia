@@ -147,9 +147,8 @@ export default function LocationGate() {
   );
 }
 
-/** قراءةٌ طازجة للبوّابات — تُستدعى قبل الدخول والطلب مباشرةً. */
-export async function freshFixForGate(): Promise<any | null> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+/** محاولةٌ واحدة بخياراتٍ معطاة — لا ترمي أبداً، تُرجِع null عند الفشل. */
+function tryRead(opts: PositionOptions): Promise<any | null> {
   return new Promise(resolve => {
     navigator.geolocation.getCurrentPosition(
       pos => resolve({
@@ -159,10 +158,34 @@ export async function freshFixForGate(): Promise<any | null> {
         capturedAt: pos.timestamp || Date.now(),
         source: 'web',
       }),
-      // 🔴 الفشل لا يُسقط المحاولة: نرسل آخر قراءةٍ في الجلسة إن وُجدت، والخادم
-      //    يحكم عليها بالقِدَم. إسقاط الطلب هنا يحرم لاعباً بسبب ثانيةٍ متأخّرة.
-      () => resolve(getCachedFix()),
-      { enableHighAccuracy: true, timeout: 9_000, maximumAge: 20_000 },
+      () => resolve(null),
+      opts,
     );
   });
+}
+
+/**
+ * قراءةٌ طازجة للبوّابات — تُستدعى قبل الدخول والطلب مباشرةً.
+ *
+ * 🔴 على مرحلتين، والمرحلة الثانية هي الدرس: كانت محاولةً واحدة بـ
+ *    enableHighAccuracy مهلتُها ٩ ثوانٍ. وقفلُ GPS باردٍ **داخل** مقهىً مسقوف
+ *    يحتاج ثلاثين ثانيةً وأكثر — فتنتهي المهلة ويُردّ اللاعب وهو واقفٌ على بُعد
+ *    أربعة أمتار من النقطة. حدث هذا الليلة: ثماني محاولاتٍ في تسع دقائق ثمّ
+ *    نجاحٌ بدقّة ١١م ومسافة ٤م.
+ *
+ * 🔴 والقراءة الخشنة (شبكة/واي‑فاي) تصل فوراً بدقّة ٢٠–٦٠م — وهي **تكفي**
+ *    سياجاً نصفُ قطره مئتان وأربعون متراً، والخادم يضيف الدقّة إلى نصف القطر
+ *    لا يقارنها به. فالإصرار على GPS دقيقٍ هنا صرامةٌ بلا عائد.
+ */
+export async function freshFixForGate(): Promise<any | null> {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+  // ١) دقيقة إن تيسّرت سريعاً
+  const precise = await tryRead({ enableHighAccuracy: true, timeout: 6_000, maximumAge: 20_000 });
+  if (precise) return precise;
+  // ٢) خشنة فوريّة. maximumAge دون حدّ القِدَم في الخادم (١٢٠ث) بهامشٍ آمن،
+  //    وإلّا وصلت قراءةٌ مقبولةٌ هنا مرفوضةٌ هناك.
+  const coarse = await tryRead({ enableHighAccuracy: false, timeout: 8_000, maximumAge: 60_000 });
+  if (coarse) return coarse;
+  // ٣) آخر قراءةٍ في الجلسة — والخادم يحكم عليها بالقِدَم
+  return getCachedFix();
 }
