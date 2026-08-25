@@ -11,17 +11,42 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 // ── الصفحات التي لا تحتاج تسجيل دخول ──
 const PUBLIC_PATHS = ['/player/login', '/player/debug-push'];
 
+/**
+ * هل تُمنع إيماءة «اسحب لتحديث» الآن؟
+ *
+ * 🔴 حارسٌ واحد في ثلاثة مواضع بدل ثلاث نسخ: كانت النسخ الثلاث تختلف — فحصُ
+ *    الرفع كان يفتقد شرط position أصلاً — وهو بالضبط نوعُ الاختلاف الذي يمرّ
+ *    منه عطل.
+ *
+ * 🔴 وgetComputedStyle لا body.style: الأخير يقرأ النمط **السطريّ** وحده،
+ *    فأيّ موديلٍ يثبّت الجسم من ورقة أنماط (والقاصّ منها) كان يُرجِع ''
+ *    فيمرّ الحارس ويُعاد تحميل الصفحة وسط عمل المستخدم.
+ */
+function pullBlockedCheap(): boolean {
+  const b = document.body;
+  return b.classList.contains('modal-open') || b.classList.contains('in-game');
+}
+
+function pullBlocked(): boolean {
+  if (pullBlockedCheap()) return true;
+  // ⚠️ قراءةٌ مُكلِفة (إعادة حساب أنماط): تُنادى عند بدء اللمسة وحدها لا مع كلّ
+  //    حركةٍ منها — الحركة تُطلق عشرات المرّات في الثانية.
+  try { if (getComputedStyle(document.body).position === 'fixed') return true; } catch { /* لا يحجب */ }
+  return false;
+}
+
 // ── iOS Pull-to-Refresh Hook ──
 function usePullToRefresh() {
   const [pulling, setPulling] = useState(false);
   const startY = useRef(0);
   const pullDistance = useRef(0);
+  /** حُكمُ بداية اللمسة يسري على بقيّتها — فلا تتكرّر القراءة المكلفة. */
+  const blockedNow = useRef(true);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
     // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة أو داخل اللعبة
-    if (document.body.classList.contains('modal-open')) return;
-    if (document.body.classList.contains('in-game')) return;
-    if (document.body.style.position === 'fixed') return;
+    blockedNow.current = pullBlocked();
+    if (blockedNow.current) return;
     if (window.scrollY === 0) {
       startY.current = e.touches[0].clientY;
     }
@@ -29,9 +54,7 @@ function usePullToRefresh() {
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
     // ⚠️ تجاهل إذا موديل مفتوح أو الصفحة مجمّدة أو داخل اللعبة
-    if (document.body.classList.contains('modal-open')) return;
-    if (document.body.classList.contains('in-game')) return;
-    if (document.body.style.position === 'fixed') return;
+    if (blockedNow.current || pullBlockedCheap()) return;
     if (window.scrollY > 0) return;
     const currentY = e.touches[0].clientY;
     pullDistance.current = currentY - startY.current;
@@ -42,7 +65,7 @@ function usePullToRefresh() {
 
   const handleTouchEnd = useCallback(() => {
     // ⚠️ تجاهل إذا موديل مفتوح أو داخل اللعبة
-    if (document.body.classList.contains('modal-open') || document.body.classList.contains('in-game')) {
+    if (blockedNow.current || pullBlockedCheap()) {
       setPulling(false);
       pullDistance.current = 0;
       return;

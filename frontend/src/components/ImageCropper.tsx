@@ -100,6 +100,13 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
   // Chrome Android pull-to-refresh يعمل على compositor thread
   // ولا يحترم JS preventDefault — يجب استخدام CSS فقط
   useEffect(() => {
+    // 🔴 والوسم قبل كلّ شيء: سحبُ الصورة إلى الأسفل لضبطها هو **بعينه** إيماءة
+    //    «اسحب لتحديث» في تخطيط اللاعب — فكانت الصفحة تُعاد تحميلها وسط القصّ
+    //    فتضيع الصورة قبل أن تُرفع. حرّاس التخطيط الثلاثة أخطأتها جميعاً:
+    //    modal-open لم يكن يُوضَع، وscrollY صفرٌ لأنّ الجسم مثبَّت، و
+    //    body.style.position يقرأ النمط **السطريّ** بينما التثبيت هنا من
+    //    ورقة أنماطٍ فيعود ''. صفٌّ واحد يُغلق البابَ كلَّه.
+    document.body.classList.add('modal-open');
     const style = document.createElement('style');
     style.id = 'image-cropper-lock';
     style.textContent = `
@@ -113,7 +120,7 @@ export function ImageCropper({ file, onCrop, onCancel, outputSize = 512 }: Image
       }
     `;
     document.head.appendChild(style);
-    return () => { style.remove(); };
+    return () => { style.remove(); document.body.classList.remove('modal-open'); };
   }, []);
 
   // ── تسجيل touch handlers كـ non-passive على container ──

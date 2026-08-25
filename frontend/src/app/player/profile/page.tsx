@@ -311,7 +311,9 @@ export default function PlayerProfilePage(){
       });
       const d = await res.json();
       if (d.success) {
-        setProfile((p: any) => p ? { ...p, player: { ...p.player, avatarUrl: d.avatarUrl + '?t=' + Date.now() } } : p);
+        // 🔴 بلا كاسر ذاكرةٍ ثانٍ: الخادم يُرجع الرابط ومعه ?v=<الزمن> أصلاً،
+        //    فإلحاق ?t= هنا يُنتج رابطاً بعلامتَي استفهام — يعمل بالمصادفة لا بالتصميم.
+        setProfile((p: any) => p ? { ...p, player: { ...p.player, avatarUrl: d.avatarUrl } } : p);
         showToast('✓ تم تحديث الصورة');
       } else showToast(d.error || 'خطأ');
     } catch { showToast('خطأ في رفع الصورة'); }
