@@ -109,7 +109,7 @@ class _LocationIntroSheetState extends State<_LocationIntroSheet> {
             ...const [
               ('✅', 'الحجز يبقى متاحاً من أيّ مكان'),
               ('🔕', 'لا نتتبّعك في الخلفيّة — يُقرأ الموقع وأنت داخل التطبيق فقط'),
-              ('🗑️', 'نحفظ آخر نقطةٍ فقط، وتُمسح بعد الفعاليّة'),
+              ('📍', 'نحفظ آخر نقطةٍ فقط — لا سجلّ تحرّكات'),
             ].map((e) => Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Container(

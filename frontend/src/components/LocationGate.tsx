@@ -14,16 +14,23 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGeolocation, reportFix, getCachedFix } from '@/hooks/useGeolocation';
+import { usePlayer } from '@/context/PlayerContext';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const SEEN_KEY = 'mafia_geo_intro_seen';
 /** نبضةٌ خفيفةٌ ما دام التطبيق مفتوحاً — تُبقي نقطة الخريطة صادقة بلا استنزاف. */
 const HEARTBEAT_MS = 4 * 60 * 1000;
 
-const token = () => (typeof window !== 'undefined' ? localStorage.getItem('playerToken') || localStorage.getItem('token') : null);
+
 
 export default function LocationGate() {
   const geo = useGeolocation();
+  // 🔴 التوكن من سياق اللاعب لا من localStorage مباشرة: المفاتيح هنا
+  //    mafia_player_auth / mafia_player_token وليست playerToken. قراءة مفتاحٍ
+  //    خاطئ كانت تُرجِع null دائماً — فلا تمهيد يظهر ولا موقع يُرسَل،
+  //    والمنظومة صامتة تماماً بلا خطأٍ يُرى.
+  const { player } = usePlayer();
+  const token = useCallback(() => player?.token || null, [player?.token]);
   const [showIntro, setShowIntro] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const lastSent = useRef(0);
@@ -34,7 +41,7 @@ export default function LocationGate() {
     if (Date.now() - lastSent.current < 30_000) return;   // لا إغراق
     const f = await geo.readIfGranted();
     if (f) { lastSent.current = Date.now(); reportFix(f, API_URL, token()); }
-  }, [geo]);
+  }, [geo, token]);
 
   // ── عند فتح التطبيق ──
   useEffect(() => {
@@ -46,7 +53,7 @@ export default function LocationGate() {
       if (!seen && token()) setShowIntro(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geo.permission]);
+  }, [geo.permission, player?.token]);
 
   // ── العودة من الخلفيّة + النبضة ──
   useEffect(() => {
@@ -96,7 +103,7 @@ export default function LocationGate() {
           {[
             ['✅', 'الحجز يبقى متاحاً من أيّ مكان'],
             ['🔕', 'لا نتتبّعك في الخلفيّة — يُقرأ الموقع وأنت داخل التطبيق فقط'],
-            ['🗑️', 'نحفظ آخر نقطةٍ فقط، وتُمسح بعد الفعاليّة'],
+            ['📍', 'نحفظ آخر نقطةٍ فقط — لا سجلّ تحرّكات'],
           ].map(([icon, text]) => (
             <div key={text} className="flex items-start gap-2.5 text-[12px] rounded-xl px-3 py-2"
               style={{ background: 'rgba(255,255,255,0.03)', color: '#c8d6ce' }}>

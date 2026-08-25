@@ -31,6 +31,10 @@ interface Props {
   /** دبّوسٌ قابلٌ للسحب لضبط النقطة */
   draggablePin?: boolean;
   onPinMove?: (lat: number, lng: number) => void;
+  /** 🔴 النقر يضع الدبّوس — بدونه لا سبيل لضبط نقطةٍ من لا نقطة له: الدبّوس
+   *  لا يُرسَم أصلاً حين يكون center فارغاً، فلا شيء يُسحَب. ومن يضبط مكاناً
+   *  ليس فيه (المدير من مكتبه) لا يملك «خذ موقعي» أيضاً. */
+  onMapClick?: (lat: number, lng: number) => void;
   dots?: MapDot[];
   height?: number;
   className?: string;
@@ -63,7 +67,7 @@ function circleGeoJSON(lat: number, lng: number, radiusM: number, steps = 72) {
 }
 
 export default function VenueMap({
-  center, radiusM, draggablePin, onPinMove, dots = [], height = 380, className = '',
+  center, radiusM, draggablePin, onPinMove, onMapClick, dots = [], height = 380, className = '',
 }: Props) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -71,6 +75,8 @@ export default function VenueMap({
   const dotRefs = useRef<maplibregl.Marker[]>([]);
   const moveCb = useRef(onPinMove);
   moveCb.current = onPinMove;
+  const clickCb = useRef(onMapClick);
+  clickCb.current = onMapClick;
 
   // عمّان مركزاً احتياطيّاً حين لا نقطة بعد
   const start = center || { lat: 31.9539, lng: 35.9106 };
@@ -86,6 +92,8 @@ export default function VenueMap({
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
     mapRef.current = map;
+
+    map.on('click', e => clickCb.current?.(e.lngLat.lat, e.lngLat.lng));
 
     map.on('load', () => {
       map.addSource('fence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } as any });
@@ -152,5 +160,6 @@ export default function VenueMap({
     map.easeTo({ center: [center.lng, center.lat], zoom: 16, duration: 600 });
   }, [center]);
 
-  return <div ref={boxRef} className={className} style={{ height, width: '100%', borderRadius: 12, overflow: 'hidden' }} />;
+  return <div ref={boxRef} className={className}
+    style={{ height, width: '100%', borderRadius: 12, overflow: 'hidden', cursor: onMapClick ? 'crosshair' : undefined }} />;
 }

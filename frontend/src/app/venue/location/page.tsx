@@ -144,6 +144,7 @@ export default function VenueLocationPage() {
             radiusM={radius}
             draggablePin
             onPinMove={(la, ln) => { setLat(la); setLng(ln); setDirty(true); }}
+            onMapClick={(la, ln) => { setLat(la); setLng(ln); setDirty(true); }}
             height={380}
           />
           <p className="text-[10.5px] mt-1.5 mb-3" style={{ color: EM.faint }}>

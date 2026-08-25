@@ -10,6 +10,10 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
+import dynamic from 'next/dynamic';
+
+// MapLibre يلمس window عند التحميل — لا تُصيَّر على الخادم
+const VenueMap = dynamic(() => import('@/components/VenueMap'), { ssr: false });
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const PAGE_SIZE = 6;
@@ -149,6 +153,8 @@ export default function LocationsPage() {
     setName(''); setRegion(''); setMapUrl(''); setOffers([]); setOwnerUsername('');
     setIsActive(true); setIsTestLocation(false); setMenuSource('');
     setMinChargeEnabled(false); setMinimumCharge('2.00'); setAutoWater(false);
+    // 🔴 بدونها يرث المكان الجديد نقطة المكان الذي فُتح قبله — سياجٌ على عنوانٍ خاطئ
+    setGeoLat(null); setGeoLng(null); setGeoRadius(200);
     setIsDialogOpen(true);
   }
 
@@ -393,6 +399,24 @@ export default function LocationsPage() {
                   className="w-full py-2.5 rounded-xl text-[12.5px] font-bold mb-3 bg-emerald-500/12 border border-emerald-500/30 text-emerald-400 disabled:opacity-50">
                   {geoBusy ? 'يقرأ موقعك…' : '📡 خذ موقعي الحاليّ (الأدقّ)'}
                 </button>
+
+                {/* 🔴 خريطةٌ لا أرقامٌ عمياء: إحداثيّةٌ مكتوبةٌ برقمَين عشريّين تُزيح
+                    الدبّوس كيلومترات — ولا يُرى ذلك إلّا على خريطة. الدبّوس يُسحب، والدائرة تتحرّك معه. */}
+                <div className="mb-3">
+                  <VenueMap
+                    center={geoLat !== null && geoLng !== null ? { lat: geoLat, lng: geoLng } : null}
+                    radiusM={geoRadius}
+                    draggablePin={geoLat !== null}
+                    onPinMove={(la, ln) => { setGeoLat(la); setGeoLng(ln); }}
+                    onMapClick={(la, ln) => { setGeoLat(la); setGeoLng(ln); }}
+                    height={260}
+                  />
+                  {geoLat === null && (
+                    <p className="text-[10.5px] text-amber-400/80 mt-1.5">
+                      اضغط «خذ موقعي» أو اكتب الإحداثيّات ليظهر الدبّوس، ثمّ اسحبه للموضع الدقيق.
+                    </p>
+                  )}
+                </div>
 
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   <div>
