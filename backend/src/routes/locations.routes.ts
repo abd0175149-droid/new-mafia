@@ -127,6 +127,30 @@ router.put('/:id', authenticate, managerOrAbove, async (req: Request, res: Respo
   if (isActive !== undefined) patch.isActive = isActive !== false;
   if (isTestLocation !== undefined) patch.isTestLocation = isTestLocation === true;
 
+  // 📍 نقطة السياج — مسارٌ إداريّ موازٍ لـPUT /api/venue/location.
+  //    من يدير الأماكن كلّها لا يُطالَب بتسجيل دخولٍ بحساب كلّ مكان ليضبط دبّوساً.
+  //    وإرسال null يمسح النقطة (فيُعطّل السياج تلقائيّاً على فعاليّاته).
+  if (req.body.latitude !== undefined || req.body.longitude !== undefined) {
+    const lat = req.body.latitude === null ? null : parseFloat(String(req.body.latitude));
+    const lng = req.body.longitude === null ? null : parseFloat(String(req.body.longitude));
+    if (lat === null || lng === null) {
+      patch.latitude = null; patch.longitude = null;
+      patch.geofenceSetBy = null; patch.geofenceSetAt = null;
+    } else {
+      if (!Number.isFinite(lat) || Math.abs(lat) > 90) return res.status(400).json({ error: 'خطّ العرض غير صالح' });
+      if (!Number.isFinite(lng) || Math.abs(lng) > 180) return res.status(400).json({ error: 'خطّ الطول غير صالح' });
+      patch.latitude = String(lat); patch.longitude = String(lng);
+      patch.geofenceSetBy = req.user?.id ?? null;
+      patch.geofenceSetAt = new Date();
+    }
+  }
+  if (req.body.geofenceRadiusM !== undefined) {
+    const r = parseInt(String(req.body.geofenceRadiusM));
+    // أقلّ من ٥٠م يرفض جالساً على الطاولة (دقّة GPS داخل مقهىً وحدها تتجاوزه)
+    if (!Number.isFinite(r) || r < 50 || r > 2000) return res.status(400).json({ error: 'نصف القطر بين ٥٠ و٢٠٠٠ متر' });
+    patch.geofenceRadiusM = r;
+  }
+
   // 🧪 استعارة منيو (لمواقع الاختبار): null يفكّها، ورقمٌ يجب أن يكون مكاناً
   //    قائماً غير المكان نفسه. الفرضُ الفعليّ في effectiveMenuLocation.
   if (req.body.menuSourceLocationId !== undefined) {

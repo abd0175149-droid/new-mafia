@@ -8,7 +8,9 @@ import { Router, Request, Response } from 'express';
 import { getDB } from '../config/db.js';
 import { sessionPlayers } from '../schemas/game.schema.js';
 import { players as playersTable, PLAYER_DEFAULT_PASSWORD } from '../schemas/player.schema.js';
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, isNull } from 'drizzle-orm';
+import { locations } from '../schemas/admin.schema.js';
+import { haversineM } from '../services/geofence.service.js';
 import { authenticate, adminOnly, authorize, staffOrSelf } from '../middleware/auth.js';
 import { hashPlayerPassword } from '../middleware/player-auth.middleware.js';
 import { logStaffAction } from '../services/staff-action-log.service.js';
@@ -657,6 +659,77 @@ router.post('/:id/avatar', staffOrSelf('id'), async (req: Request, res: Response
   } catch (err: any) {
     console.error('❌ Avatar upload error:', err.message);
     return res.status(500).json({ success: false, error: 'خطأ في رفع الصورة' });
+  }
+});
+
+
+// ════════════════════════════════════════
+// 🗺️ GET /api/player/locations/map — آخر موقعٍ مسجّل لكلّ لاعب
+//
+// خلاف خريطة الليدر (المربوطة بغرفةٍ حيّة)، هذه تعرض الجميع بلا حاجةٍ
+// للعبة — لمراجعة من كان أين ومتى.
+//
+// 🔴 `capturedAt` يُرسَل دائماً: التطبيق لا يُبلّغ في الخلفيّة، فنقطة من أغلق
+//    تطبيقه تتجمّد حيث كان. بلا هذا الحقل تصير الخريطة كاذبةً بثقة.
+// ════════════════════════════════════════
+router.get('/locations/map', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
+
+  // مكانٌ مرجعٌ اختياريّ — تُحسب المسافات إليه وتُرسم دائرته
+  const locId = parseInt(String(req.query.locationId || ''));
+
+  try {
+    const venues = await db.select({
+      id: locations.id, name: locations.name,
+      latitude: locations.latitude, longitude: locations.longitude,
+      geofenceRadiusM: locations.geofenceRadiusM,
+    }).from(locations).where(isNull(locations.deletedAt)).orderBy(locations.id);
+
+    const venue = Number.isFinite(locId) ? venues.find(v => v.id === locId) : null;
+    const vLat = venue?.latitude ? parseFloat(String(venue.latitude)) : null;
+    const vLng = venue?.longitude ? parseFloat(String(venue.longitude)) : null;
+
+    const rows: any = await db.execute(sql`
+      SELECT f.player_id, f.latitude, f.longitude, f.accuracy_m, f.is_mocked, f.source,
+             f.captured_at, p.name, p.phone, p.is_test_account
+      FROM player_last_fix f
+      JOIN players p ON p.id = f.player_id
+      ORDER BY f.captured_at DESC
+    `);
+    const list = (rows.rows ?? rows) as any[];
+
+    const players = list.map(r => {
+      const lat = parseFloat(String(r.latitude));
+      const lng = parseFloat(String(r.longitude));
+      const distanceM = (vLat !== null && vLng !== null)
+        ? haversineM(vLat, vLng, lat, lng) : null;
+      return {
+        playerId: r.player_id, name: r.name, phone: r.phone,
+        isTest: r.is_test_account === true,
+        lat, lng,
+        accuracyM: r.accuracy_m === null ? null : Number(r.accuracy_m),
+        isMocked: r.is_mocked === true,
+        source: r.source || null,
+        capturedAt: new Date(r.captured_at).getTime(),
+        distanceM,
+      };
+    });
+
+    res.json({
+      success: true,
+      venues: venues.map(v => ({
+        id: v.id, name: v.name,
+        latitude: v.latitude === null ? null : parseFloat(String(v.latitude)),
+        longitude: v.longitude === null ? null : parseFloat(String(v.longitude)),
+        geofenceRadiusM: v.geofenceRadiusM,
+      })),
+      selectedVenueId: venue?.id ?? null,
+      players,
+      at: Date.now(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

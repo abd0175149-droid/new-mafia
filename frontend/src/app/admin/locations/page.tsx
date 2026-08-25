@@ -57,6 +57,12 @@ export default function LocationsPage() {
   // ── Form fields ──
   const [name, setName] = useState('');
   const [mapUrl, setMapUrl] = useState('');
+  // 📍 نقطة السياج — تُضبَط باليد لا من رابط الخرائط:
+  //    الرابط يحمل زوجَي إحداثيّات (مركز العرض والدبّوس) يفترقان ٢٤٣ متراً في أحد مكانينا.
+  const [geoLat, setGeoLat] = useState<number | null>(null);
+  const [geoLng, setGeoLng] = useState<number | null>(null);
+  const [geoRadius, setGeoRadius] = useState(200);
+  const [geoBusy, setGeoBusy] = useState(false);
   const [region, setRegion] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [isTestLocation, setIsTestLocation] = useState(false);
@@ -158,6 +164,9 @@ export default function LocationsPage() {
     setMinimumCharge(loc.minimumCharge ? String(parseFloat(loc.minimumCharge)) : '2.00');
     setAutoWater(loc.autoWater === true);
     setMapUrl(loc.mapUrl || '');
+    setGeoLat(loc.latitude === null || loc.latitude === undefined ? null : parseFloat(loc.latitude));
+    setGeoLng(loc.longitude === null || loc.longitude === undefined ? null : parseFloat(loc.longitude));
+    setGeoRadius(loc.geofenceRadiusM ?? 200);
     const parsed = (loc.offers || []).map((o: any, i: number) => normalizeOffer(o, i));
     setOffers(parsed);
     setIsDialogOpen(true);
@@ -172,6 +181,8 @@ export default function LocationsPage() {
     // تغيير اسم المكان يُتلف الأرشيف ويُعطّل بوّابة سعر التذكرة في اللوبي.
     const payload = {
       name: name.trim(), region: region.trim(), mapUrl, isActive, isTestLocation,
+      // 📍 null يمسح النقطة فيُعطّل السياج تلقائيّاً على فعاليّاته
+      latitude: geoLat, longitude: geoLng, geofenceRadiusM: geoRadius,
       // الاستعارة تُرسَل null عند الفكّ أو حين لا يكون الموقع اختباريّاً
       menuSourceLocationId: isTestLocation && menuSource ? parseInt(menuSource) : null,
       // 💳 الحدّ الأدنى: تفعيلٌ ومبلغ — التحقّق النهائيّ في الخادم
@@ -352,6 +363,68 @@ export default function LocationsPage() {
               <div>
                 <label className="block text-xs text-gray-400 mb-1">رابط جوجل ماب (اختياري)</label>
                 <input type="text" value={mapUrl} onChange={e => setMapUrl(e.target.value)} placeholder="https://maps.google.com/..." dir="ltr" className="w-full px-4 py-2.5 bg-gray-900/60 border border-gray-600/50 rounded-xl text-white text-sm focus:outline-none focus:ring-1 focus:ring-amber-500/30 placeholder-gray-600" />
+              </div>
+
+              {/* ── 📍 نقطة السياج ── */}
+              <div className="p-3.5 rounded-xl bg-gray-900/40 border border-gray-700/30">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-base">📍</span>
+                  <b className="text-sm text-white">موقع المكان (سياج الفعاليّة)</b>
+                  {geoLat !== null
+                    ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">مضبوط</span>
+                    : <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">غير مضبوط</span>}
+                </div>
+                <p className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                  بدونه لا يمكن تفعيل السياج على أيّ فعاليّة.
+                  <b className="text-gray-400"> قِف على باب المكان واضغط «خذ موقعي»</b> — أدقّ طريقة،
+                  ورابط جوجل لا يصلح بديلاً: دبّوسه قد يبعد مئات الأمتار عن بابك.
+                </p>
+
+                <button type="button" disabled={geoBusy}
+                  onClick={() => {
+                    if (!navigator.geolocation) { alert('المتصفّح لا يدعم تحديد الموقع'); return; }
+                    setGeoBusy(true);
+                    navigator.geolocation.getCurrentPosition(
+                      p => { setGeoLat(p.coords.latitude); setGeoLng(p.coords.longitude); setGeoBusy(false); },
+                      e => { setGeoBusy(false); alert(e.code === 1 ? 'رُفض إذن الموقع — فعّله من إعدادات المتصفّح' : 'تعذّر تحديد موقعك'); },
+                      { enableHighAccuracy: true, timeout: 12000 },
+                    );
+                  }}
+                  className="w-full py-2.5 rounded-xl text-[12.5px] font-bold mb-3 bg-emerald-500/12 border border-emerald-500/30 text-emerald-400 disabled:opacity-50">
+                  {geoBusy ? 'يقرأ موقعك…' : '📡 خذ موقعي الحاليّ (الأدقّ)'}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">خط العرض</label>
+                    <input type="number" step="0.000001" dir="ltr" value={geoLat ?? ''}
+                      onChange={e => setGeoLat(e.target.value === '' ? null : parseFloat(e.target.value))}
+                      className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-[12.5px] font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/30" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-gray-500 mb-1">خط الطول</label>
+                    <input type="number" step="0.000001" dir="ltr" value={geoLng ?? ''}
+                      onChange={e => setGeoLng(e.target.value === '' ? null : parseFloat(e.target.value))}
+                      className="w-full px-3 py-2 bg-gray-900/60 border border-gray-600/50 rounded-lg text-white text-[12.5px] font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/30" />
+                  </div>
+                </div>
+
+                <label className="block">
+                  <span className="block text-[11px] text-gray-400 mb-1.5">
+                    نصف قطر السياج — <b className="text-white font-mono">{geoRadius} م</b>
+                  </span>
+                  <input type="range" min={50} max={1000} step={10} value={geoRadius}
+                    onChange={e => setGeoRadius(parseInt(e.target.value))}
+                    className="w-full accent-emerald-500" />
+                  <span className="block text-[10px] text-gray-600 mt-1">
+                    ٢٠٠م افتراضٌ معقول: دقّة GPS داخل مقهىً مسقوف وحدها قد تتجاوز ٨٠م.
+                  </span>
+                </label>
+
+                {geoLat !== null && (
+                  <button type="button" onClick={() => { setGeoLat(null); setGeoLng(null); }}
+                    className="mt-2.5 text-[11px] text-rose-400 hover:underline">امسح النقطة</button>
+                )}
               </div>
 
               {/* ── حالة المكان ── */}
