@@ -205,8 +205,8 @@ export type SoundCategory = 'alerts' | 'ambientVote' | 'ambientNight' | 'victory
 
 export const SOUND_CATEGORIES: { key: SoundCategory; labelAr: string; icon: string; hallToo: boolean }[] = [
   { key: 'alerts',      labelAr: 'التنبيهات العامّة',   icon: '🔔', hallToo: true },
-  { key: 'ambientVote', labelAr: 'خلفيّة التصويت',      icon: '🗳️', hallToo: true },
-  { key: 'ambientNight',labelAr: 'خلفيّة الليل واللوبي', icon: '🌙', hallToo: true },
+  { key: 'ambientVote', labelAr: 'خلفيّة التصويت والتبرير', icon: '🗳️', hallToo: true },
+  { key: 'ambientNight',labelAr: 'خلفيّة الليل وباقي المراحل', icon: '🌙', hallToo: true },
   { key: 'victory',   labelAr: 'موسيقى الفوز',      icon: '🏆', hallToo: true },
   { key: 'timer',     labelAr: 'المؤقّت والصافرة',   icon: '⏱️', hallToo: true },
   { key: 'departure', labelAr: 'خروجٌ من التطبيق',  icon: '🚪', hallToo: false },
@@ -230,6 +230,7 @@ const CATEGORY_OF: Record<string, SoundCategory> = {
   //    لا نغمةٌ عابرة، وحاجته للخفض مختلفة تماماً.
   //    وخلفيّة التصويت وحدها لأنّها تعمل والطاولة تتكلّم وتتداول.
   ambient_voting: 'ambientVote',
+  ambient_justification: 'ambientVote',   // التبرير امتدادُ التصويت: الطاولة تسمع وتتداول
   ambient_night: 'ambientNight',
   ambient_lobby: 'ambientNight',
   ambient_night_kill: 'ambientNight',
@@ -245,7 +246,13 @@ const AMBIENT_BASE = 1.0;
 const AMBIENT_DUCK = 0.27;   // 0.08/0.3 — نفس النسبة القديمة، محفوظةً كنسبة لا رقماً
 
 export function categoryOf(eventKey: string): SoundCategory {
-  return CATEGORY_OF[eventKey] ?? 'alerts';
+  const c = CATEGORY_OF[eventKey];
+  if (c) return c;
+  // 🔴 قاعدةٌ لا تعداد: ambient_day وambient_morning وambient_elimination كانت
+  //    تقع في «التنبيهات العامّة» — فمقبض التنبيهات يخفض فراشاً، ومقبض الخلفيّة
+  //    لا يمسّه. وأيّ فراشٍ يُضاف غداً يدخل الفئة الصحيحة من تلقائه.
+  if (eventKey.startsWith('ambient_')) return 'ambientNight';
+  return 'alerts';
 }
 
 const LEVELS_KEY = 'mafia_sound_levels';
@@ -303,10 +310,24 @@ export function resetSoundLevels(): void {
 //    الموجّه، فلو حسبت بنفسها لسمعت القاعة مستوىً غير الذي ضبطه.
 let volOverride: number | null = null;
 
-/** المستوى النهائيّ لمفتاح — أو ما فرضه الموجّه إن كنّا شاشةً تابعة. */
+/**
+ * المستوى النهائيّ لمفتاح — أو ما فرضه الموجّه إن كنّا شاشةً تابعة.
+ *
+ * 🔴 وفراش الخلفيّة معامله ١ لا ٠٫٧. الافتراضيّ ٠٫٧ وُضع للنغمات العابرة كي
+ *    لا تصكّ الأذن، لكنّ الفراش لا مفتاحَ له في VOLUME_BY_KEY — فكان يُضرب
+ *    بـ٠٫٧ صامتاً: المقبض يقول ٣٠٪ والقاعة تسمع ٢١٪، والخفض التلقائيّ ٥٫٧٪
+ *    بدل ٨٪. أي أنّ إدخال الفراش في المازج خفضه ٣٠٪ عمّا كان — وهو ما يُفقد
+ *    فراشاً هادئاً وسط طاولةٍ تتجادل. مستوى الفئة **هو** مستوى الفراش.
+ */
 function resolveVol(eventKey: string): number {
   if (volOverride != null) return volOverride;
-  return levels[categoryOf(eventKey)] * (VOLUME_BY_KEY[eventKey] ?? 0.7);
+  const keyMul = VOLUME_BY_KEY[eventKey] ?? (eventKey.startsWith('ambient_') ? 1 : 0.7);
+  return levels[categoryOf(eventKey)] * keyMul;
+}
+
+/** حارسٌ للإسناد: volume خارج [0,1] أو NaN يرمي فيُسكت الفراش بلا أثر. */
+function clampVol(v: number): number {
+  return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.3;
 }
 
 function _playGameSound(eventKey: string): void {
@@ -352,11 +373,13 @@ function _playAmbientSound(eventKey: string): void {
     try {
       const audio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
       audio.loop = true;
-      // 🔴 من المازج لا ثابتاً 0.3: كان فراش الخلفيّة وحده خارج كلّ تحكّم
-      audio.volume = resolveVol(eventKey) * AMBIENT_BASE;
-      audio.play().catch(() => {});
       ambientAudio = audio;
       ambientKey = eventKey;
+      // 🔴 المستوى في try خاصّته و**قبله** التسجيل، والتشغيل بعده: كان إسناد
+      //    volume يسبق play داخل try واحد، فرميةٌ منه (قيمةٌ شاذّة أو NaN)
+      //    تبتلع النداء كلّه فيصمت الفراش بلا أثرٍ في الطرفيّة.
+      try { audio.volume = clampVol(resolveVol(eventKey) * AMBIENT_BASE); } catch { /* يبقى الافتراضيّ */ }
+      audio.play().catch(() => {});
       return;
     } catch {}
   }
@@ -410,7 +433,7 @@ function _duckAmbient(): void {
   // 🔴 نسبةٌ من مستوى الفئة لا رقمٌ مطلق: من خفض الخلفيّة إلى ١٠٪
   //    كان الخفض التلقائيّ **يرفعها** إلى 0.08 بدل أن يخفضها.
   if (ambientAudio && ambientKey) {
-    ambientAudio.volume = resolveVol(ambientKey) * AMBIENT_BASE * AMBIENT_DUCK;
+    ambientAudio.volume = clampVol(resolveVol(ambientKey) * AMBIENT_BASE * AMBIENT_DUCK);
   }
 }
 
@@ -421,7 +444,7 @@ export function unduckAmbient(): void {
 }
 function _unduckAmbient(): void {
   if (ambientAudio && ambientKey) {
-    ambientAudio.volume = resolveVol(ambientKey) * AMBIENT_BASE;
+    ambientAudio.volume = clampVol(resolveVol(ambientKey) * AMBIENT_BASE);
   }
 }
 
@@ -497,7 +520,10 @@ const NIGHT_STEP_AMBIENT_MAP: Record<string, string> = {
 
 export function playNightStepAmbient(stepType: string): void {
   if (!localPlaybackEnabled) return;
-  mirrorEmit?.({ fn: 'playNightStepAmbient', args: [stepType] });
+  // 🔴 المستوى يُرسَل معه كبقيّة الأصوات: كان يُبثّ عارياً فتحسبه الشاشة
+  //    بمقابضها هي لا بمقابض الموجّه — فينفلت فراشُ الخطوة وحده من المازج.
+  const stepKey = NIGHT_STEP_AMBIENT_MAP[stepType.toUpperCase()];
+  mirrorEmit?.({ fn: 'playNightStepAmbient', args: [stepType], vol: stepKey ? resolveVol(stepKey) : undefined });
   if (!localMuted) _playNightStepAmbient(stepType);
 }
 function _playNightStepAmbient(stepType: string): void {
