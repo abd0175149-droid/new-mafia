@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGeolocation, reportFix, getCachedFix } from '@/hooks/useGeolocation';
 import { usePlayer } from '@/context/PlayerContext';
+import LocationHelp from './LocationHelp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 const SEEN_KEY = 'mafia_geo_intro_seen';
@@ -99,7 +100,9 @@ export default function LocationGate() {
     setDismissed(true);
   };
 
-  if (!showIntro || dismissed) return null;
+  // 🔴 المرفوض لا تمهيد له — وكان لا يرى شيئاً إطلاقاً: يُمنع عند البوّابة
+  //    ولا يعرف لماذا ولا كيف يصلحه. لوحة المساعدة تظهر له مستقلّةً عن التمهيد.
+  if (!showIntro || dismissed) return <LocationHelp />;
 
   return (
     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-sm p-4" dir="rtl">
