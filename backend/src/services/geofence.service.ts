@@ -123,7 +123,6 @@ export async function verifyPresence(args: VerifyArgs): Promise<GeoVerdict> {
     lat: locations.latitude,
     lng: locations.longitude,
     locRadius: locations.geofenceRadiusM,
-    isTest: locations.isTestLocation,
   })
     .from(activities)
     .leftJoin(locations, eq(locations.id, activities.locationId))
@@ -131,8 +130,12 @@ export async function verifyPresence(args: VerifyArgs): Promise<GeoVerdict> {
     .limit(1);
 
   if (!row) return verdict(true, 'EXEMPT');
+  // 🔴 المفتاح الصريح وحده يقرّر. كان هنا إعفاءٌ لمواقع الاختبار
+  //    (isTest) فأسقط السياج عن الفعاليّات التي تُجرّب عليه — وهي بالضبط
+  //    ما يُختبَر به. دخل لاعبٌ من بُعد ٤٫٨ كم والمفتاح مُشغّل.
+  //    والإعفاء لا لزوم له أصلاً: geofence_enabled افتراضُه false،
+  //    فمواقع الاختبار غير متأثّرة ما لم يُشعِله أحدٌ عمداً — وحينئذٍ يعنيه.
   if (row.geofenceEnabled !== true) return verdict(true, 'EXEMPT');
-  if (row.isTest === true) return verdict(true, 'EXEMPT');
 
   const vLat = num(row.lat), vLng = num(row.lng);
   // 🔴 مفتاحٌ مُشغَّلٌ على مكانٍ بلا نقطة: نمرّر ولا نمنع. سياجٌ حول لا شيء إمّا يمنع
@@ -224,11 +227,13 @@ export async function gateCheck(o: {
     try { await saveLastFix(o.playerId, o.fix as GeoFix); } catch { /* لا يُسقط البوّابة */ }
   }
   const v = await verifyPresence({ activityId: o.activityId, fix: o.fix, isRemote: o.isRemote });
-  if (v.reason !== 'EXEMPT') {
-    await logPresenceCheck({
-      playerId: o.playerId, activityId: o.activityId, gate: o.gate, v,
-      accuracyM: num(o.fix?.accuracyM), isMocked: o.fix?.isMocked === true,
-    });
-  }
+  // 🔴 يُسجّل الإعفاء أيضاً. كان يُستثنى فصار سؤال «لماذا دخل وهو بعيد؟»
+  //    بلا جواب: جدولٌ فارغ يبدو كأنّ البوّابة لم تُستدعَ أصلاً، وهي استُدعيت
+  //    ومرّت. الصفّ المكتوب هو الفرق بين تشخيصٍ في دقيقة وتخمينٍ في ساعة.
+  await logPresenceCheck({
+    playerId: o.playerId, activityId: o.activityId, gate: o.gate, v,
+    accuracyM: num(o.fix?.accuracyM), isMocked: o.fix?.isMocked === true,
+    enforced: v.reason !== 'EXEMPT' && v.reason !== 'NO_VENUE_POINT',
+  });
   return v;
 }
