@@ -175,7 +175,22 @@ export default function PlayersMapPage() {
           ) : dots.length > 0 ? (
             <VenueMap center={{ lat: dots[0].lat, lng: dots[0].lng }} dots={dots} height={440} />
           ) : (
-            <div className="h-[440px] grid place-items-center text-sm text-gray-600">لا مواقع مسجّلة بعد</div>
+            <div className="h-[440px] grid place-items-center p-8">
+              <div className="text-center max-w-md">
+                <div className="text-4xl mb-3">📍</div>
+                <p className="text-sm text-gray-400 mb-3 font-bold">لا موقع مسجَّل لأيّ لاعب بعد</p>
+                <p className="text-[12px] text-gray-500 leading-relaxed text-right">
+                  الموقع يُسجَّل حين <b className="text-gray-400">يفتح اللاعب التطبيق ويمنح الإذن</b> —
+                  لا عند الحجز. تحقّق من:
+                </p>
+                <ul className="text-[12px] text-gray-500 leading-relaxed text-right mt-2 space-y-1.5 list-disc pr-4">
+                  <li>هل فتح اللاعب <b className="text-gray-400">الويب</b>؟ نسخة الأندرويد المثبَّتة
+                    بُنيت قبل هذه الميزة ولا تحوي الموقع إطلاقاً.</li>
+                  <li>هل ظهرت له شاشة «نحتاج إذن موقعك» وضغط «تابع»؟</li>
+                  <li>هل الإذن مرفوضٌ في إعدادات المتصفّح؟ الرفض لاصقٌ ولا يمكن إعادة سؤاله برمجيّاً.</li>
+                </ul>
+              </div>
+            </div>
           )}
           <div className="flex items-center gap-4 flex-wrap px-4 py-2.5 border-t border-gray-800 text-[11px] text-gray-500">
             {(['ok', 'far', 'old', 'fake'] as const).map(k => (

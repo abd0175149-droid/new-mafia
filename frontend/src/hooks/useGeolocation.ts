@@ -73,15 +73,25 @@ export function useGeolocation() {
         if (!cancelled) setPermission('unsupported');
         return;
       }
+      // 🔴 سفاري على iOS لا يدعم Permissions API للموقع — لا يرمي بالضرورة، قد
+      //    يُرجِع undefined. فالاعتماد عليه وحده يُبقي الحالة 'unknown' إلى الأبد،
+      //    فلا قراءةَ صامتة تجري ولو كان الإذن ممنوحاً منذ أسبوع. وهذا يعطّل
+      //    المنظومة كلّها على iOS وهو أكثر ما يستعمله لاعبونا (PWA على الشاشة).
+      //    الحلّ: أثرُنا المحلّيّ — إن سبق أن نجحت قراءةٌ على هذا الجهاز فالإذن ممنوح.
+      const fallback = () => {
+        if (cancelled) return;
+        let asked = false;
+        try { asked = localStorage.getItem(PREF_KEY) === '1'; } catch { /* تصفّح خاصّ */ }
+        setPermission(asked ? 'granted' : 'unknown');
+      };
       try {
         const st = await (navigator as any).permissions?.query({ name: 'geolocation' });
-        if (!st) { if (!cancelled) setPermission('unknown'); return; }
+        if (!st) { fallback(); return; }
         const apply = () => { if (!cancelled) setPermission(st.state as GeoPermission); };
         apply();
         st.onchange = apply;
       } catch {
-        // سفاري القديم بلا Permissions API — نبقى على unknown ونعتمد التمهيد
-        if (!cancelled) setPermission('unknown');
+        fallback();
       }
     })();
     return () => { cancelled = true; };
@@ -123,7 +133,14 @@ export function useGeolocation() {
       const f = await readOnce(8_000);
       if (mounted.current) setFix(f);
       return f;
-    } catch { return null; }
+    } catch (e: any) {
+      // سُحب الإذن من الإعدادات ⇒ امسح أثرنا كي يعود التمهيد بدل صمتٍ أبديّ
+      if (e?.code === 1) {
+        try { localStorage.removeItem(PREF_KEY); } catch { /* تصفّح خاصّ */ }
+        if (mounted.current) setPermission('denied');
+      }
+      return null;
+    }
   }, [permission]);
 
   /** هل سبق أن مُنِح الإذن على هذا الجهاز؟ (لتخطّي التمهيد) */

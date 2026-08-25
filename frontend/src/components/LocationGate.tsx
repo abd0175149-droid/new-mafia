@@ -35,11 +35,28 @@ export default function LocationGate() {
   const [dismissed, setDismissed] = useState(false);
   const lastSent = useRef(0);
 
-  // ── التبليغ: قراءةٌ صامتة ثمّ إرسال ──
+  /** هل سبق أن قبِل اللاعب التمهيد على هذا الجهاز؟ */
+  const introAccepted = () => {
+    try { return localStorage.getItem(SEEN_KEY) === '1'; } catch { return false; }
+  };
+
+  // ── التبليغ: قراءةٌ ثمّ إرسال ──
   const pulse = useCallback(async () => {
     if (!token()) return;
     if (Date.now() - lastSent.current < 30_000) return;   // لا إغراق
-    const f = await geo.readIfGranted();
+
+    let f = null;
+    if (geo.permission === 'granted') {
+      f = await geo.readIfGranted();          // صامتة تماماً
+    } else if (geo.permission !== 'denied' && geo.permission !== 'unsupported' && introAccepted()) {
+      // 🔴 الفخّ الذي يُصمِت المنظومة إلى الأبد: على iOS لا Permissions API، فالحالة
+      //    تبقى 'unknown'. ولو قبِل اللاعب التمهيد ثمّ فشلت قراءته مرّةً (مهلة،
+      //    داخل مبنى، شبكة) لم يُكتَب أثرُ القبول — فلا التمهيد يعود (SEEN_KEY
+      //    مكتوب) ولا القراءة الصامتة تجري (الحالة ليست granted). صمتٌ أبديّ بلا
+      //    خطأٍ يُرى. فمن قبِل التمهيد نقرأ له قراءةً حقيقيّة عند كلّ فتحة:
+      //    إن كان الإذن ممنوحاً فلا نافذة تظهر أصلاً، وإن لم يكن فقد قبِل السؤال.
+      f = await geo.read();
+    }
     if (f) { lastSent.current = Date.now(); reportFix(f, API_URL, token()); }
   }, [geo, token]);
 
