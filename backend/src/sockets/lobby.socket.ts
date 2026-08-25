@@ -3687,7 +3687,14 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         // حالة النقاش
         discussionState: state.phase === 'DAY_DISCUSSION' ? { ...(state.discussionState || {}), deals: state.votingState?.deals || [], dealLockedPlayers: dealLockedList(state) } : null,
         // ── بيانات مرحلة الليل (لاستعادة شاشة الإجراء عند refresh) ──
-        nightState: state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? (() => {
+        // 🔴 الميّت لا يرى الليل أبداً. كان هذا الحقل بلا فحص حياة، والعميلان
+        //    (الويب والتطبيق) يشتقّان شاشة الليل منه بالاستطلاع المتكرّر — فكان
+        //    جهاز المُقصى يواصل عرض قائمة الاختيار كلّ خطوة.
+        //    والأخطر من القائمة ما كان يرافقها: `autoNightStepRole` يكشف أيّ
+        //    دورٍ يتحرّك الآن، و`autoNightPerformerId` يكشف **رقم مقعد الفاعل الحقيقيّ**
+        //    (التمويه بـsafeStep مشروط بالغرف البعيدة وحدها). ففي قاعةٍ يجلس فيها
+        //    المُقصَون بين الأحياء، كان الميّت يقرأ الشريف والطبيب وشيخ المافيا ليلةً بليلة.
+        nightState: player.isAlive && state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? (() => {
           const isReqPerformer = state.autoNightPerformerId === player.physicalId;
           const remote = !!state.config?.isRemote;
           // 🌐 غرفة بعيدة: لا نكشف هوية الفاعل الحقيقي لغير الفاعل، ونعطي المموّهين قائمة كل الأحياء (كالتمويه الأصلي)

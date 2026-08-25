@@ -1110,6 +1110,12 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _nightDoneKey = null;
       return;
     }
+    // 🔴 المُقصى لا ليل له: لا تُفتح قائمة، وتُغلَق المفتوحة — قد يموت
+    //    أثناء الليل نفسه (قدرة الشرطية تُقصي فوراً) وشاشته مفتوحة.
+    if (_isPlayerDead) {
+      if (_night != null) _closeNight();
+      return;
+    }
     if (_night != null || _nightSubmitted) return;
 
     final r = nightFromResume(res['nightState'], _physicalId);
@@ -1174,6 +1180,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       if (alive == false && !_isPlayerDead) {
         _isPlayerDead = true;
         _cardFlipped = true;
+        // شاشة ليلٍ مفتوحة لحظة الموت تُغلَق فوراً لا تُترك حتّى ينتهي عدّادها
+        if (_night != null) _closeNight();
         changed = true;
       } else if (alive == true && _isPlayerDead) {
         _isPlayerDead = false;
@@ -1805,6 +1813,8 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
 
     // ── §6.2 وصول الخطوة: يصل لكلّ حيٍّ — صاحب الدور والمموِّه معاً ──
     _on('night:action-required', (d) {
+      // 🔴 الخادم يبثّ للأحياء وحدهم، لكنّ الحدث قد يكون في الطريق لحظة الموت
+      if (_isPlayerDead) return;
       final r = NightActionRequest.fromJson(d);
       if (r == null) return;
       // ليلٌ جديد ⇒ ملخّص صباح الأمس لم يعد يخصّني

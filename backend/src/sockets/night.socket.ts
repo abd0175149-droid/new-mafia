@@ -835,6 +835,12 @@ export function registerNightEvents(io: Server, socket: Socket) {
     try {
       socket.join(data.roomId);
       if (socket.data.authStaff) socket.data.role = 'leader';
+      // 🔴 لليدر وحده: حمولة الاستئناف تحمل اسم الفاعل ورقم مقعده واختيارات
+      //    الليلة كلّها. لم يكن هنا فحص دور، فأيّ سوكت لاعب — حيّاً كان أو ميّتاً —
+      //    يناديه فيحصل على كلّ ذلك دفعةً واحدة.
+      if (socket.data.role !== 'leader') {
+        return callback?.({ success: false, error: 'Only leader' });
+      }
       const state = await getGameState(data.roomId);
       if (!state || state.phase !== Phase.NIGHT) return callback?.({ success: false, error: 'ليس في مرحلة الليل' });
       emitNightResumeState(socket, state);

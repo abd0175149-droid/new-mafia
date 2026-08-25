@@ -297,6 +297,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [selectedTargetForConfirm, setSelectedTargetForConfirm] = useState<number | null>(null);
   const [nurseActivationPending, setNurseActivationPending] = useState(false);
   const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 🔴 مرآة حالة الموت لمعالجات السوكت: تُسجّل مرّةً وتقرأ قيمةً قديمة لو قرأت الحالة مباشرة
+  const isPlayerDeadRef = useRef(false);
   // ⏱️ override يحمي المرحلة المحليّة من poll قديم — لكن ينتهي بعد OVERRIDE_TTL كي لا يعلق جهازٌ فوّت حدث انتقال
   const phaseOverrideRef = useRef<{ phase: string; at: number } | null>(null);
   const OVERRIDE_TTL = 6000;
@@ -1060,6 +1062,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         }
 
         // تحديث حالة الحياة
+        isPlayerDeadRef.current = !me.isAlive;
         if (!me.isAlive && !isPlayerDead) {
           setIsPlayerDead(true);
           setCardFlipped(true);
@@ -1151,7 +1154,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           }
 
           // ── استعادة حالة الليل الأوتو عند refresh ──
-          if (res.nightState && res.phase === 'NIGHT' && !res.nightState.playerSubmitted) {
+          // 🔴 الميّت لا ليل له: الخادم لم يعد يرسل nightState للمُقصَي، وهذا الفحص
+          //    حارسٌ ثانٍ لعميلٍ قديم أو لحظة سباقٍ يموت فيها اللاعب والحمولة في الطريق.
+          if (res.player?.isAlive && res.nightState && res.phase === 'NIGHT' && !res.nightState.playerSubmitted) {
             const ns = res.nightState;
             const myPhysId = parseInt(physicalId);
             const isPerformer = myPhysId === ns.autoNightPerformerId;
@@ -1517,6 +1522,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
             if (navigator.vibrate) navigator.vibrate([100, 50, 200, 50, 300]);
           }
           // تحديث حالة الحياة
+          isPlayerDeadRef.current = !res.player.isAlive;
           if (!res.player.isAlive && !isPlayerDead) {
             setIsPlayerDead(true);
             setCardFlipped(true);
@@ -1737,7 +1743,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       setNurseActivationPending(true);
     };
 
-    on('night:action-required', handleNightActionRequired);
+    // 🔴 الخادم يبثّ للأحياء فقط، لكنّ الحدث قد يكون في الطريق لحظة الموت
+    on('night:action-required', (d: any) => { if (isPlayerDeadRef.current) return; handleNightActionRequired(d); });
     on('nurse:activation-request', handleNurseActivation);
 
     return () => {
@@ -1778,6 +1785,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           phone: normalizedPhone || undefined,
         });
         if (cancelled || !res?.success || res.phase !== 'NIGHT') return;
+        // 🔴 مُقصى → لا شاشة ليل ولا قائمة اختيار، وتُغلَق أيّ شاشةٍ مفتوحة
+        //    (قد يموت أثناء الليل نفسه — قدرة الشرطية تقصي فوراً).
+        if (res.player && !res.player.isAlive) {
+          setNightActionRequired(null);
+          setSelectedTargetForConfirm(null);
+          return;
+        }
         const ns = res.nightState;
         if (!ns || ns.playerSubmitted) return;
         // الخطوة انتهت وتنتظر موافقة الليدر ⇒ قائمة ميتة يرفض الخادم كل
@@ -4140,7 +4154,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       />
 
       {/* ══ Auto Night: شاشة الإجراء الليلي — تصميم مطابق للتصويت ══ */}
-      {nightActionRequired && !nightActionSubmitted && (
+      {/* 🔴 حارس العرض الأخير: مُقصى ← لا قائمة اختيار مهما حملته الحالة */}
+      {!isPlayerDead && nightActionRequired && !nightActionSubmitted && (
         <div className="fixed inset-0 z-[200] bg-gradient-to-b from-[#0a0812] via-[#070510] to-[#000]" style={{ fontFamily: 'Amiri, serif' }}>
           <div className="flex flex-col h-full safe-area-inset">
             {/* Header */}
