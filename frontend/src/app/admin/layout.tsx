@@ -92,6 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/staff', icon: '👥', label: 'الموظفون', roles: ['admin'] },
       { href: '/admin/staff-log', icon: '🕵️', label: 'سجل عمليات الموظفين', roles: ['admin'] },
       { href: '/admin/settings', icon: '⚙️', label: 'الإعدادات' },
+      { href: '/admin/settings/app-release', icon: '🚦', label: 'إصدار التطبيق', roles: ['admin'] },
     ],
   },
 ];

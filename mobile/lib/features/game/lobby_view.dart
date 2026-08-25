@@ -23,6 +23,7 @@ import 'roles_info_modal.dart';
 import '../voice/confrontation_controls.dart';
 import '../voice/voice_service.dart';
 import 'spectator_table.dart';
+import 'team_bar.dart';
 
 // ══════════════════════════════════════════════════════
 // 🕰️ شاشة انتظار اللوبي — §4.11 · §4.12 · §4.13 · §4.14 في الملفّ 21
@@ -51,6 +52,10 @@ class LobbyView extends StatelessWidget {
     return Column(mainAxisSize: MainAxisSize.min, children: [
       _Toolbar(controller: c),
       const SizedBox(height: 12),
+
+      // 🎭 شريط الفرق — للحيّ والمُقصى معاً، ويختفي قبل توزيع الأدوار
+      TeamBar(mafia: c.teamMafia, citizens: c.teamCitizens, neutrals: c.teamNeutrals),
+      if ((c.teamMafia ?? 0) + (c.teamCitizens ?? 0) > 0) const SizedBox(height: 12),
 
       // بانر العقوبات — يظهر عند أوّل مخالفة
       if ((me?.penalties ?? 0) > 0) ...[

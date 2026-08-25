@@ -1159,8 +1159,8 @@ const kProtectionFailedTypes = <String>{
 };
 
 /// عدّاد الفريقين يصل بأسماء مفاتيح متعدّدة (§6.4) — تحليلٌ متسامح.
-({int? citizens, int? mafia}) parseTeamCounts(dynamic v) {
-  if (v is! Map) return (citizens: null, mafia: null);
+({int? citizens, int? mafia, int? neutrals}) parseTeamCounts(dynamic v) {
+  if (v is! Map) return (citizens: null, mafia: null, neutrals: null);
   int? pick(List<String> keys) {
     for (final k in keys) {
       final x = v[k];
@@ -1172,6 +1172,8 @@ const kProtectionFailedTypes = <String>{
   return (
     citizens: pick(const ['citizenAlive', 'citizens', 'citizen', 'town']),
     mafia: pick(const ['mafiaAlive', 'mafia', 'mafiaCount']),
+    // 🎭 المستقلّون — كانوا مخبّأين داخل عدّاد المواطنين قبل أن يُفصَلوا
+    neutrals: pick(const ['neutralAlive', 'neutrals', 'neutral']),
   );
 }
 

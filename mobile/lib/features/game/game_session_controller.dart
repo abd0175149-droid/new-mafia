@@ -431,9 +431,10 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   GameTimerSnapshot? _gameTimer;
   GameTimerSnapshot? get gameTimer => _gameTimer;
 
-  int? _teamCitizens, _teamMafia;
+  int? _teamCitizens, _teamMafia, _teamNeutrals;
   int? get teamCitizens => _teamCitizens;
   int? get teamMafia => _teamMafia;
+  int? get teamNeutrals => _teamNeutrals;
 
   /// عدّادٌ يتزايد مع كلّ `day:elimination-revealed` — الطاولة تراقبه
   /// لتشغيل سلسلة الكشف مرّةً واحدة لكلّ بثّ.
@@ -453,6 +454,9 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     final t = parseTeamCounts(v);
     if (t.citizens != null) _teamCitizens = t.citizens;
     if (t.mafia != null) _teamMafia = t.mafia;
+    // 🔴 يُكتب حتّى حين يكون null: غيابه معلومة لا فراغ — يعني
+    //    أنّ الخادم لم يرسل عدّاً للمستقلّين فلا تُعرَض الخانة.
+    _teamNeutrals = t.neutrals;
   }
 
   /// النسخة المُنمذَجة من نفس الحمولة (§8 في الملفّ ٢٧).
@@ -796,6 +800,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _gameTimer = null;
       _teamCitizens = null;
       _teamMafia = null;
+      _teamNeutrals = null;
     }
 
     // 🔇 الإسكات يدوم يوماً واحداً: يُمسَح ببدء الليل (٢٧ §4.7 بند ٥).

@@ -13,6 +13,10 @@ import '../core/ui/atmosphere.dart';
 import '../core/ui/in_app_banner.dart';
 import '../features/gates/birthday_gate.dart';
 import '../features/gates/notification_gate.dart';
+import 'dart:async';
+
+import '../core/app/release_gate.dart';
+import '../features/gates/update_gate.dart';
 
 // ══════════════════════════════════════════════════════
 // 📱 جذر التطبيق
@@ -44,7 +48,14 @@ class _MafiaAppState extends State<MafiaApp> {
     PushService.instance.pendingRoute.addListener(_onPushRoute);
     // شارة الأيقونة تُصفَّر عند الإقلاع وكلّ عودة إلى المقدّمة (91 §12)
     BadgeService.instance.start();
+    // 🚦 بوّابة الإصدار — فحصٌ واحد عند الإقلاع، وفشله لا يحجب
+    unawaited(ReleaseGate.instance.check().then((s) {
+      if (mounted && s.blocked) setState(() => _blocked = s);
+    }));
   }
+
+  /// النسخة محجوبة — تحجب كلّ شيءٍ فوقها
+  ReleaseStatus? _blocked;
 
   @override
   void dispose() {
@@ -128,6 +139,10 @@ class _MafiaAppState extends State<MafiaApp> {
                       onSaved: () => AppState.instance.markBirthdaySaved(),
                     ),
                   ),
+                // ⬆️ التحديث المطلوب **أعلى المكدّس**: نسخةٌ قديمة قد تتحدّث مع خادمٍ
+                //    تغيّر عقده فتُنتج أعطالاً غامضة على طاولةٍ حيّة — والحجب أصدق.
+                if (_blocked != null)
+                  Positioned.fill(child: UpdateGate(status: _blocked!)),
                 // 📣 ORDER-3: بانر الإشعار — تحت الضجيج وفوق كلّ شيءٍ آخر،
                 //    ولا يُعرض على أندرويد (هناك إشعارٌ نظاميّ يُرسم أصلاً).
                 if (defaultTargetPlatform == TargetPlatform.iOS)
