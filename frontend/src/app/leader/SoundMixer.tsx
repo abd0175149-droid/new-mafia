@@ -72,7 +72,8 @@ export default function SoundMixer({ open, onClose }: { open: boolean; onClose: 
 
   return (
     <div ref={boxRef} data-mixer dir="rtl"
-      className="fixed bottom-20 left-4 z-[116] w-[min(94vw,23rem)] rounded-2xl border border-[#C5A059]/30 bg-[#080808]/97 backdrop-blur-md shadow-2xl overflow-hidden">
+      /* 🔴 تحت الرأس لا فوق زاوية الشاشة: تُفتح من زرّ الرأس، فتظهر عنده لا في الجهة المقابلة */
+      className="fixed top-16 left-4 z-[116] w-[min(94vw,23rem)] max-h-[80vh] overflow-y-auto rounded-2xl border border-[#C5A059]/30 bg-[#080808]/97 backdrop-blur-md shadow-2xl">
 
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.07]">
         <span className="text-[13px]">🎚️</span>

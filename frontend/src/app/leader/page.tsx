@@ -1704,13 +1704,21 @@ export default function LeaderPage() {
       className={`fixed bottom-4 left-4 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors relative ${leaderSoundOn ? 'bg-[#0f2a1a]/80 border-emerald-600/40 text-emerald-300' : 'bg-[#2a0f0f]/80 border-red-700/40 text-red-300'}`}
     >
       {leaderSoundOn ? '🔊' : '🔇'}
-      {/* 🔴 مقبضٌ ملتصق لا زرٌّ ثانٍ في رأسٍ مزدحم: النقر يكتم، وهذا يفتح المستويات */}
-      <span
-        role="button" tabIndex={0} aria-label="مستويات الصوت" title="مستويات الصوت"
-        onClick={(e) => { e.stopPropagation(); setMixerOpen(v => !v); }}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setMixerOpen(v => !v); } }}
-        className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full grid place-items-center text-[9px] bg-[#0a0a0a] border border-[#C5A059]/45 text-[#C5A059] hover:bg-[#C5A059]/20"
-      >🎚</span>
+    </button>
+  );
+
+  // 🔴 زرٌّ في الرأس لا مقبضٌ مخفيّ: كلّ أدوات الموجّه هنا (المقاعد · المراقبة ·
+  //    الحضور)، فبحثه عن الصوت يبدأ هنا. وضعُه شارةً ٢٠ بكسلاً في زاوية الشاشة
+  //    كان يعني أداةً لا يجدها — وهو ما حدث فعلاً.
+  const soundMixerBtn = (
+    <button
+      data-mixer
+      onClick={() => setMixerOpen(v => !v)}
+      title="مستويات الصوت"
+      className={`rounded-xl border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${
+        mixerOpen ? 'border-[#C5A059] bg-[#C5A059]/12 text-[#C5A059]' : 'border-zinc-700 bg-zinc-900/60 text-zinc-300 hover:text-white'
+      }`}>
+      🎚️ الصوت
     </button>
   );
 
@@ -2111,6 +2119,7 @@ export default function LeaderPage() {
               {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
               <AntiCheatToggle />
               <AttendanceMapToggle roomId={gameState.roomId} />
+              {soundMixerBtn}
               {/* زر تعديل الأسماء — Session View */}
               {gameState.players.length > 0 && (
                 <button
@@ -3379,6 +3388,7 @@ export default function LeaderPage() {
               {/* 🕵️ لوحة المراقبة — متاحة في كل المراحل (على جهاز الليدر وحده) */}
               <AntiCheatToggle />
               <AttendanceMapToggle roomId={gameState.roomId} />
+              {soundMixerBtn}
               {/* زر تعديل الأسماء — يظهر فقط قبل توزيع الأدوار */}
               {(gameState.phase === 'LOBBY' || gameState.phase === 'ROLE_GENERATION') && gameState.players.length > 0 && (
                 <button
