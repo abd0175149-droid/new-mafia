@@ -31,11 +31,18 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
   const [seatTemplates, setSeatTemplates] = useState<any[]>([]);
   // 🍽️ طلبات المنيو
   const [menuOrderingEnabled, setMenuOrderingEnabled] = useState(false);
+  // 📍 سياج الفعاليّة — لا يُفعّل إلّا لمكانٍ مضبوط النقطة (والخادم يعيد الفحص)
+  const [geofenceEnabled, setGeofenceEnabled] = useState(false);
+  const [geofenceRadiusM, setGeofenceRadiusM] = useState<string>('');
   const [addGameFeeToBill, setAddGameFeeToBill] = useState(false);
 
 
 
   const selectedLocation = locations.find(l => l.id === Number(locationId));
+  const venueHasPoint = !!(selectedLocation && selectedLocation.latitude !== null && selectedLocation.latitude !== undefined);
+  const venueRadius = selectedLocation?.geofenceRadiusM ?? 200;
+  // تغيير المكان إلى مكانٍ بلا نقطة يُطفئ المفتاح — وإلّا رُفِض الحفظ بلا سببٍ ظاهر
+  useEffect(() => { if (!venueHasPoint && geofenceEnabled) setGeofenceEnabled(false); }, [venueHasPoint, geofenceEnabled]);
 
   // تحميل قوالب المقاعد
   useEffect(() => {
@@ -109,6 +116,8 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
         menuOrderingEnabled,
         addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
+        geofenceEnabled: geofenceEnabled && venueHasPoint,
+        geofenceRadiusM: geofenceRadiusM === '' ? null : Number(geofenceRadiusM),
       });
     } finally { setSubmitting(false); }
   }
@@ -268,6 +277,45 @@ export default function ActivityForm({ locations, onSubmit, onCancel }: Activity
             <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${addGameFeeToBill ? 'bg-amber-500' : 'bg-gray-600'}`}>
               <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${addGameFeeToBill ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </div>
+          </div>
+        )}
+
+
+        {/* 📍 Geofence Toggle — المكان يحمل النقطة والفعاليّة تحمل القرار */}
+        <div onClick={() => { if (venueHasPoint) setGeofenceEnabled(v => !v); }}
+          className={`flex items-center justify-between p-4 rounded-xl border transition-all select-none ${!venueHasPoint ? 'opacity-50 cursor-not-allowed bg-gray-900/40 border-gray-700/30' : geofenceEnabled ? 'cursor-pointer bg-emerald-500/10 border-emerald-500/30' : 'cursor-pointer bg-gray-900/40 border-gray-700/30'}`}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📍</span>
+            <div>
+              <p className="text-sm font-medium text-white">سياج الفعاليّة (تحديد الموقع)</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {venueHasPoint
+                  ? 'لا يدخل الغرفة ولا يطلب من المنيو إلّا من كان داخل المكان — والحجز يبقى متاحاً من أيّ مكان'
+                  : selectedLocation
+                    ? `⚠️ لم يُضبَط موقع «${selectedLocation.name}» بعد — اضبطه من كونسول المكان أوّلاً`
+                    : 'اختر المكان أوّلاً'}
+              </p>
+            </div>
+          </div>
+          <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${geofenceEnabled && venueHasPoint ? 'bg-emerald-500' : 'bg-gray-600'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${geofenceEnabled && venueHasPoint ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </div>
+        </div>
+
+        {geofenceEnabled && venueHasPoint && (
+          <div className="p-4 rounded-xl border bg-gray-900/40 border-gray-700/30">
+            <label className="block">
+              <span className="text-sm font-medium text-white">نصف قطر السياج لهذه الفعاليّة</span>
+              <p className="text-xs text-gray-500 mt-0.5 mb-2">
+                {geofenceRadiusM === '' 
+                  ? `الافتراضيّ من المكان (${venueRadius} م) — اكتب رقماً لتجاوزه في حدثٍ خارجيّ`
+                  : 'يتجاوز نصف قطر المكان لهذه الفعاليّة وحدها'}
+              </p>
+              <input type="number" min={50} max={2000} step={10} value={geofenceRadiusM} dir="ltr"
+                onChange={e => setGeofenceRadiusM(e.target.value)}
+                placeholder={String(venueRadius)}
+                className="w-32 bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" />
+            </label>
           </div>
         )}
 

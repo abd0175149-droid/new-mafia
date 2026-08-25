@@ -55,6 +55,8 @@ const VENUE_PERMISSIONS = [
   // 💨 مستقلّة عن الطلبات: مسؤول الأراجيل قد لا يكون مسؤول المطبخ،
   //    ودمجهما يعني إشعار فحمٍ لكلّ من يحضّر الطعام.
   { id: 'service.shisha', label: '💨 خدمة الأرجيلة' },
+  // 📍 ضبط نقطة المكان ونصف قطر السياج — من يقف على الباب لا من يدير المنيو
+  { id: 'location.geofence', label: '📍 موقع المكان' },
 ];
 
 export default function StaffManagementPage() {

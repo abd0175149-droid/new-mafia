@@ -11,6 +11,7 @@ import '../../models/fnb.dart';
 import '../profile/profile_palette.dart';
 import 'option_picker.dart';
 import 'order_widgets.dart';
+import '../../core/location/location_service.dart';
 
 // ══════════════════════════════════════════════════════
 // 🍽️ اطلب من المكان — نقل بنية الويب كاملةً (2026-08-10)
@@ -420,7 +421,10 @@ class _OrderScreenState extends State<OrderScreen>
     _clientKey ??=
         'm${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(0x7FFFFFFF)}';
     try {
+      // 📍 قراءةٌ طازجة للبوّابة — الخادم يتجاهلها إن كان السياج مُطفأً على الفعاليّة
+      final fix = await LocationService.instance.fixForGate();
       final r = await ApiClient.instance.post('/api/fnb/orders', body: {
+        if (fix != null) 'fix': fix,
         'items': _cart.toPayload(),
         'note': _noteCtrl.text.trim(),
         'clientKey': _clientKey,
@@ -473,8 +477,9 @@ class _OrderScreenState extends State<OrderScreen>
     if (_svcBusy || _svcPending != null) return;
     setState(() => _svcBusy = true);
     try {
-      final r = await ApiClient.instance
-          .post('/api/fnb/service', body: {'kind': kind});
+      final fix = await LocationService.instance.fixForGate();
+      final r = await ApiClient.instance.post('/api/fnb/service',
+          body: {'kind': kind, if (fix != null) 'fix': fix});
       if (!mounted) return;
       if (r is Map && r['success'] == true) {
         setState(() => _svcPending = r['request'] is Map

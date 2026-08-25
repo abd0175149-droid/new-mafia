@@ -79,6 +79,10 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   const [requireTicket, setRequireTicket] = useState(activity.requireTicket || false);
   // 🍽️ طلبات المنيو
   const [menuOrderingEnabled, setMenuOrderingEnabled] = useState(activity.menuOrderingEnabled || false);
+  // 📍 سياج الفعاليّة
+  const [geofenceEnabled, setGeofenceEnabled] = useState(activity.geofenceEnabled || false);
+  const [geofenceRadiusM, setGeofenceRadiusM] = useState<string>(
+    activity.geofenceRadiusM ? String(activity.geofenceRadiusM) : '');
   const [addGameFeeToBill, setAddGameFeeToBill] = useState(activity.addGameFeeToBill || false);
 
   // ── قالب المقاعد (ربط/إلغاء الربط) ──
@@ -118,6 +122,9 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
   }, []);
 
   const selectedLocation = locations.find(l => l.id === Number(locationId));
+  const venueHasPoint = !!(selectedLocation && selectedLocation.latitude !== null && selectedLocation.latitude !== undefined);
+  const venueRadius = selectedLocation?.geofenceRadiusM ?? 200;
+  useEffect(() => { if (!venueHasPoint && geofenceEnabled) setGeofenceEnabled(false); }, [venueHasPoint, geofenceEnabled]);
   const locationOffers: any[] = selectedLocation?.offers || [];
   const hasOffers = enabledOfferIds.length > 0;
   const selectedTemplate = templates.find(t => t.id === Number(seatTemplateId));
@@ -137,6 +144,8 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
     if (requireTicket !== (activity.requireTicket || false)) return true;
     if (seatTemplateId !== (activity.seatTemplateId ? String(activity.seatTemplateId) : '')) return true;
     if (menuOrderingEnabled !== (activity.menuOrderingEnabled || false)) return true;
+    if (geofenceEnabled !== (activity.geofenceEnabled || false)) return true;
+    if (geofenceRadiusM !== (activity.geofenceRadiusM ? String(activity.geofenceRadiusM) : '')) return true;
     if (addGameFeeToBill !== (activity.addGameFeeToBill || false)) return true;
     return false;
   })();
@@ -155,6 +164,8 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
         seatTemplateId: seatTemplateId ? Number(seatTemplateId) : null,
         menuOrderingEnabled,
         addGameFeeToBill: menuOrderingEnabled && addGameFeeToBill,
+        geofenceEnabled: geofenceEnabled && venueHasPoint,
+        geofenceRadiusM: geofenceRadiusM === '' ? null : Number(geofenceRadiusM),
       });
     } finally { setSubmitting(false); }
   }
@@ -365,6 +376,45 @@ export default function EditActivityForm({ activity, locations, onSubmit, onCanc
             </div>
           )}
         </Section>
+
+
+        {/* 📍 Geofence Toggle — المكان يحمل النقطة والفعاليّة تحمل القرار */}
+        <div onClick={() => { if (venueHasPoint) setGeofenceEnabled((v: boolean) => !v); }}
+          className={`flex items-center justify-between p-4 rounded-xl border transition-all select-none ${!venueHasPoint ? 'opacity-50 cursor-not-allowed bg-gray-900/40 border-gray-700/30' : geofenceEnabled ? 'cursor-pointer bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/15' : 'cursor-pointer bg-gray-900/40 border-gray-700/30 hover:border-gray-600/50'}`}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📍</span>
+            <div>
+              <p className="text-sm font-medium text-white">سياج الفعاليّة (تحديد الموقع)</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {venueHasPoint
+                  ? 'لا يدخل الغرفة ولا يطلب من المنيو إلّا من كان داخل المكان — والحجز يبقى متاحاً من أيّ مكان'
+                  : selectedLocation
+                    ? `⚠️ لم يُضبَط موقع «${selectedLocation.name}» بعد — اضبطه من كونسول المكان أوّلاً`
+                    : 'اختر المكان أوّلاً'}
+              </p>
+            </div>
+          </div>
+          <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${geofenceEnabled && venueHasPoint ? 'bg-emerald-500' : 'bg-gray-600'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${geofenceEnabled && venueHasPoint ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </div>
+        </div>
+
+        {geofenceEnabled && venueHasPoint && (
+          <div className="p-4 rounded-xl border bg-gray-900/40 border-gray-700/30">
+            <label className="block">
+              <span className="text-sm font-medium text-white">نصف قطر السياج لهذه الفعاليّة</span>
+              <p className="text-xs text-gray-500 mt-0.5 mb-2">
+                {geofenceRadiusM === '' 
+                  ? `الافتراضيّ من المكان (${venueRadius} م) — اكتب رقماً لتجاوزه في حدثٍ خارجيّ`
+                  : 'يتجاوز نصف قطر المكان لهذه الفعاليّة وحدها'}
+              </p>
+              <input type="number" min={50} max={2000} step={10} value={geofenceRadiusM} dir="ltr"
+                onChange={e => setGeofenceRadiusM(e.target.value)}
+                placeholder={String(venueRadius)}
+                className="w-32 bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50" />
+            </label>
+          </div>
+        )}
 
         {/* أزرار الحفظ والإلغاء */}
         <div className="flex items-center gap-3 pt-3 border-t border-gray-700/20">

@@ -57,6 +57,7 @@ import chipsRoutes from './routes/chips.routes.js';
 import chipsStoreRoutes from './routes/chips-store.routes.js';
 import appReleaseRoutes from './routes/app-release.routes.js';
 import { registerVenueEvents } from './sockets/venue.socket.js';
+import { registerGeofenceEvents } from './sockets/geofence.socket.js';
 
 // ── Socket Handlers (Game Engine) ───────────────────
 import { registerLobbyEvents, seedDummyGame, rehydrateActiveRooms } from './sockets/lobby.socket.js';
@@ -565,6 +566,7 @@ io.on('connection', (socket) => {
   registerVoiceEvents(io, socket);
   registerConfrontationEvents(io, socket);
   registerVenueEvents(io, socket);  // 🏪 انضمام حسابات الأماكن لغرف location:{id}
+  registerGeofenceEvents(io, socket);  // 🗺️ خريطة الحضور — لليدر وحده
 });
 
 // ══════════════════════════════════════════════════════

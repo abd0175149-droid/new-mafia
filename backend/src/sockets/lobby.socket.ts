@@ -953,6 +953,7 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     ticketNumber?: string;
     forceJoin?: boolean;
     preferredSeat?: number;
+    fix?: any;                 // 📍 قراءة موقع طازجة — سياج الفعاليّة
   }, callback) => {
     try {
       const state = await getRoom(data.roomId);
@@ -998,6 +999,33 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           }
         } catch (e: any) {
           console.warn('⚠️ feedback gate (join) error:', e.message);
+        }
+      }
+
+      // ── 📍 بوّابة سياج الفعاليّة ──
+      // تُطبّق على **الوافد الجديد وحده**. من هو في state.players أصلاً يمرّ —
+      // ومسار العودة (room:rejoin-player) غير محروسٍ أصلاً ويجب ألّا يُحرَس:
+      // لاعبٌ سقط اتّصاله وسط اللعبة لا يُطالَب بقراءة GPS ليعود إلى مقعده.
+      {
+        const joinerId = data.playerId || socket.data.authPlayer?.playerId;
+        const alreadySeated = joinerId
+          ? state.players.some((p: any) => p.playerId === joinerId)
+          : false;
+        if (joinerId && !alreadySeated) {
+          const { gateCheck } = await import('../services/geofence.service.js');
+          const g = await gateCheck({
+            playerId: joinerId,
+            activityId: (state as any).activityId,
+            fix: data.fix,
+            gate: 'join',
+            isRemote: !!(state.config as any)?.isRemote,
+          });
+          if (!g.ok) {
+            return callback({
+              success: false, error: g.message, code: g.reason,
+              distanceM: g.distanceM, radiusM: g.radiusM,
+            });
+          }
         }
       }
 

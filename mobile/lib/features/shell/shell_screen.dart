@@ -9,6 +9,8 @@ import '../../core/notifications/inbox_service.dart';
 import '../../core/ui/atmosphere.dart';
 import '../../core/ui/glass_tier.dart';
 import 'liquid_glass_nav.dart';
+import '../../core/location/location_service.dart';
+import '../gates/location_intro_sheet.dart';
 
 // ══════════════════════════════════════════════════════
 // 🏠 الغلاف الطبيعيّ — §4.7 في الملفّ 11
@@ -69,6 +71,13 @@ class _ShellScreenState extends State<ShellScreen>
     // والمظهر كذلك: بطاقة الملفّ الشخصيّ تقرؤه، والبثّ يجب أن يكون
     // مشترَكاً فيه قبل أن يُجهّز اللاعب عنصراً من الخزنة.
     CosmeticsService.instance.start();
+    // 📍 الموقع: يبدأ مع الغلاف لا عند زرّ الدخول — فحين يضغط اللاعب
+    //    «ادخل الغرفة» يكون موقعه جاهزاً لا ينتظر قراءةً أمام طاولةٍ تنتظره.
+    LocationService.instance.start();
+    // التمهيد بعد أوّل إطار — والدالّة تقرّر بنفسها أتعرضه أم تقرأ صامتة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) maybeShowLocationIntro(context);
+    });
   }
 
   @override
@@ -76,6 +85,7 @@ class _ShellScreenState extends State<ShellScreen>
     _navCollapse.dispose();
     InboxService.instance.stop();
     CosmeticsService.instance.stop();
+    LocationService.instance.stop();
     super.dispose();
   }
 

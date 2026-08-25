@@ -127,6 +127,37 @@ ALTER TABLE activities ADD COLUMN IF NOT EXISTS seat_assignments JSONB DEFAULT '
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_opt_in BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE reservations ADD COLUMN IF NOT EXISTS remind_sent_at TIMESTAMP;
 ALTER TABLE wa_bot_settings ADD COLUMN IF NOT EXISTS admin_only_tools JSONB DEFAULT '[]';
+-- 📍 سياج الفعاليّة — النقطة على المكان، والقرار على الفعاليّة
+ALTER TABLE locations  ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);
+ALTER TABLE locations  ADD COLUMN IF NOT EXISTS longitude NUMERIC(9,6);
+ALTER TABLE locations  ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER NOT NULL DEFAULT 200;
+ALTER TABLE locations  ADD COLUMN IF NOT EXISTS geofence_set_by INTEGER;
+ALTER TABLE locations  ADD COLUMN IF NOT EXISTS geofence_set_at TIMESTAMP;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS geofence_enabled BOOLEAN DEFAULT false;
+ALTER TABLE activities ADD COLUMN IF NOT EXISTS geofence_radius_m INTEGER;
+CREATE TABLE IF NOT EXISTS player_last_fix (
+  player_id   INTEGER PRIMARY KEY,
+  latitude    NUMERIC(9,6) NOT NULL,
+  longitude   NUMERIC(9,6) NOT NULL,
+  accuracy_m  INTEGER,
+  is_mocked   BOOLEAN DEFAULT false,
+  source      VARCHAR(10) DEFAULT 'web',
+  captured_at TIMESTAMP NOT NULL,
+  updated_at  TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS presence_checks (
+  id          SERIAL PRIMARY KEY,
+  player_id   INTEGER NOT NULL,
+  activity_id INTEGER,
+  gate        VARCHAR(12) NOT NULL,
+  result      VARCHAR(24) NOT NULL,
+  distance_m  INTEGER,
+  accuracy_m  INTEGER,
+  is_mocked   BOOLEAN DEFAULT false,
+  enforced    BOOLEAN DEFAULT true,
+  created_at  TIMESTAMP DEFAULT NOW() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS presence_checks_activity_idx ON presence_checks (activity_id, created_at DESC);
 UPDATE sessions SET status = 'closed' WHERE is_active = false AND status IS NULL;
 UPDATE sessions SET status = 'closed' WHERE is_active = false AND status = 'active';
 UPDATE sessions SET status = 'active' WHERE is_active = true AND (status IS NULL OR status = '');

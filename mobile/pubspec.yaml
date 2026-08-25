@@ -73,6 +73,7 @@ dependencies:
   #    gitlab.cfdata.org الداخليّ تُسقط بناء iOS كلَّه. التفاصيل وطريق
   #    الإعادة في lib/features/voice/voice_service.dart آخر الملفّ.
   permission_handler: ^11.3.1
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:

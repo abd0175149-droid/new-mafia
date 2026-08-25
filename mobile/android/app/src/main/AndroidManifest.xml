@@ -21,6 +21,12 @@
     <!-- منع قفل الشاشة داخل اللعبة وكونسول المضيف -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <!-- سياج الفعاليّة: يدخل الغرفة ويطلب من المنيو من كان في المكان وحده.
+         ⛔ لا ACCESS_BACKGROUND_LOCATION إطلاقاً: يستدعي مراجعةً خاصة من متجر Play
+         مع إقرارٍ وفيديو، ولا نحتاجه — القراءة تجري والتطبيق مفتوح فقط. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- الكاميرا: تسند زرّ الفيديو الذاتيّ في اللعب عن بُعد (٣١). ليست
          للأفاتار — منتقي الصور النظاميّ يكفيه. -->
     <uses-permission android:name="android.permission.CAMERA"/>

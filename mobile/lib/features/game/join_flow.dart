@@ -4,6 +4,7 @@ import '../../core/socket/socket_service.dart';
 import '../../core/storage/session_store.dart';
 import '../../models/game.dart';
 import 'game_session_controller.dart';
+import '../../core/location/location_service.dart';
 
 // ══════════════════════════════════════════════════════
 // 🚪 تدفّق الدخول والانضمام — §6 في الملفّ 21
@@ -156,7 +157,11 @@ extension JoinFlow on GameSessionController {
     clearApiError();
 
     final t = (ticket ?? ticketInput).trim();
+    // 📍 قراءةٌ طازجة لسياج الفعاليّة. الخادم يتجاهلها إن كان السياج مُطفأً،
+    //    ولا تُطلب في مسار العودة — من سقط اتّصاله وسط اللعبة يعود بلا شرط.
+    final fix = await LocationService.instance.fixForGate();
     final res = await SocketService.instance.ask('room:auto-join', {
+      if (fix != null) 'fix': fix,
       'roomId': target,
       'name': name,
       'phone': normalizePhone(player?.phone),

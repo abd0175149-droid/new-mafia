@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { usePlayer } from '@/context/PlayerContext';
+import { freshFixForGate } from './LocationGate';
 
 interface OptionValue { key: string; name: string; priceDelta: number }
 interface OptionGroup {
@@ -679,10 +680,14 @@ export default function OrderPanel({ embedded = false, onClose, onEmptyContext }
       submitKeyRef.current = (globalThis.crypto?.randomUUID?.() ?? `k${Date.now()}${Math.random().toString(36).slice(2, 10)}`);
     }
     try {
+      // 📍 قراءةٌ طازجة للبوّابة — لا يُعتمد على المخزّن في اللحظة الحاسمة.
+      //    الخادم يتجاهلها تماماً إن كان السياج مُطفأً على الفعاليّة.
+      const fix = await freshFixForGate();
       const r = await fetch('/api/fnb/orders', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          fix,
           items: cart.map(l => ({
             menuItemId: l.itemId,
             quantity: l.quantity,

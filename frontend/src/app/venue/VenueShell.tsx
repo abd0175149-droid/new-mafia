@@ -21,6 +21,7 @@ const TABS: { href: string; icon: string; label: string; short?: string; perm: s
   { href: '/venue/invoices', icon: '🧾', label: 'الفواتير', perm: 'invoices.print' },
   { href: '/venue/revenue', icon: '💰', label: 'الدخل والحصص', short: 'الدخل', perm: 'invoices.print' },
   { href: '/venue/menu', icon: '⚙️', label: 'إعدادات المنيو', short: 'المنيو', perm: 'menu.manage' },
+  { href: '/venue/location', icon: '📍', label: 'موقع المكان', short: 'الموقع', perm: 'location.geofence' },
 ];
 
 export default function VenueShell({ children }: { children: React.ReactNode }) {

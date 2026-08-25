@@ -45,6 +45,15 @@ export const locations = pgTable('locations', {
   // 💧 ماءٌ تلقائيّ: كلّ فاتورة لاعبٍ تحمل ماءً واحداً بسعر صنف الماء في المنيو —
   // إلا من طلب ماءً بنفسه أو عرضاً يحويه. يُحتسب ضمن استهلاك الحدّ الأدنى.
   autoWater: boolean('auto_water').default(false),
+  // 📍 سياج الفعاليّة — نقطة المكان ونصف قطره الافتراضيّ.
+  // 🔴 تُضبَط يدويّاً من كونسول المكان لا من map_url: الرابط يحمل زوجَي
+  //    إحداثيّات — مركز العرض والدبّوس — ويفترقان ٢٤٥ متراً في أحد مكانينا،
+  //    ودبّوس جوجل أصلاً ليس باب المكان بالضرورة. المصدر الوحيد هو من يقف على الباب.
+  latitude: decimal('latitude', { precision: 9, scale: 6 }),
+  longitude: decimal('longitude', { precision: 9, scale: 6 }),
+  geofenceRadiusM: integer('geofence_radius_m').default(200).notNull(),
+  geofenceSetBy: integer('geofence_set_by'),        // staff.id — من ضبط النقطة
+  geofenceSetAt: timestamp('geofence_set_at'),
   isActive: boolean('is_active').default(true).notNull(), // 💬 يجيب بوت واتساب عن الأماكن الفعالة فقط
   createdAt: timestamp('created_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
@@ -92,6 +101,10 @@ export const activities = pgTable('activities', {
   seatAssignments: jsonb('seat_assignments').default([]), // [{ seatNumber, playerId?, phone?, playerName }]
   // ── 🍽️ نظام طلبات المنيو (لكل فعاليّة) ──
   menuOrderingEnabled: boolean('menu_ordering_enabled').default(false),  // المفتاح الرئيس: طلبات المنيو من التطبيق
+  // 📍 سياج الفعاليّة: المكان يحمل **النقطة** والفعاليّة تحمل **القرار**،
+  // فليلةٌ واحدة يمكن أن تُقام بلا سياج بضغطةٍ من نموذج الفعاليّة.
+  geofenceEnabled: boolean('geofence_enabled').default(false),
+  geofenceRadiusM: integer('geofence_radius_m'),   // null = خذ نصف قطر المكان
   addGameFeeToBill: boolean('add_game_fee_to_bill').default(false),      // إضافة رسوم اللعبة لفاتورة اللاعب
   // ربط النشاط بغرفة اللعبة
   sessionId: integer('session_id'),
@@ -563,4 +576,38 @@ export const appRelease = pgTable('app_release', {
   iosUrl: varchar('ios_url', { length: 300 }).default(''),
   message: varchar('message', { length: 500 }).default(''),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ══════════════════════════════════════════════════════
+// 📍 سياج الفعاليّة — آخر موقعٍ معروف لكلّ لاعب
+// 🔴 صفٌّ واحدٌ لكلّ لاعب يُستبدَل، لا سجلٌّ تاريخيّ: خريطة الليدر تحتاج آخر نقطةٍ
+//    فقط، ولا سببَ لبناء أثرٍ زمنيّ لتحرّكات الناس. `capturedAt` هو ما يجعل النقطة
+//    مقروءةً بصدق — التطبيق لا يُبلّغ في الخلفيّة، فالنقطة تتجمّد عند إغلاقه.
+// ══════════════════════════════════════════════════════
+export const playerLastFix = pgTable('player_last_fix', {
+  playerId: integer('player_id').primaryKey(),
+  latitude: decimal('latitude', { precision: 9, scale: 6 }).notNull(),
+  longitude: decimal('longitude', { precision: 9, scale: 6 }).notNull(),
+  accuracyM: integer('accuracy_m'),
+  isMocked: boolean('is_mocked').default(false),
+  source: varchar('source', { length: 10 }).default('web'),   // web | app
+  capturedAt: timestamp('captured_at').notNull(),             // زمن القراءة على الجهاز
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),  // زمن وصولها للخادم
+});
+
+// ══════════════════════════════════════════════════════
+// 📋 سجلّ فحوصات الحضور — النتيجة لا الإحداثيّات الخام
+// يكفي لضبط نصف القطر من بياناتٍ حقيقيّة ولمراجعة نزاعٍ مع لاعب، بلا خريطة تحرّكات.
+// ══════════════════════════════════════════════════════
+export const presenceChecks = pgTable('presence_checks', {
+  id: serial('id').primaryKey(),
+  playerId: integer('player_id').notNull(),
+  activityId: integer('activity_id'),
+  gate: varchar('gate', { length: 12 }).notNull(),      // join | order | service
+  result: varchar('result', { length: 24 }).notNull(),  // OK | TOO_FAR | LOCATION_REQUIRED | …
+  distanceM: integer('distance_m'),
+  accuracyM: integer('accuracy_m'),
+  isMocked: boolean('is_mocked').default(false),
+  enforced: boolean('enforced').default(true),          // false = وضع القياس (لا منع)
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });

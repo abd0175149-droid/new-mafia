@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useSocket } from './useSocket';
 import type { Player, Candidate, MorningEvent } from '@/lib/constants';
 import { Phase } from '@/lib/constants';
+import { freshFixForGate } from '@/components/LocationGate';
 
 export interface GameConfig {
   gameName: string;
@@ -226,7 +227,11 @@ export function useGameState() {
     setLoading(true);
     setError(null);
     try {
-      const res = await emit('room:auto-join', { roomId, name, phone, playerId, gender, dob, forceJoin, ticketNumber, preferredSeat });
+      // 📍 قراءةٌ طازجة لسياج الفعاليّة. الخادم يتجاهلها إن كان السياج مُطفأً،
+      //    ولا تُطلب أبداً في مسار العودة (room:rejoin-player) — من سقط اتّصاله
+      //    وسط اللعبة لا يُطالَب بقراءة GPS ليعود إلى مقعده.
+      const fix = await freshFixForGate();
+      const res = await emit('room:auto-join', { roomId, name, phone, playerId, gender, dob, forceJoin, ticketNumber, preferredSeat, fix });
       return res; // يحتوي على assignedSeat, gameName, constraintViolation
     } catch (err: any) {
       setError(err.message);

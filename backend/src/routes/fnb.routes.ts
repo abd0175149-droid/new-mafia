@@ -18,6 +18,7 @@ import { sendPushToPlayer, sendPushToLocationStaff, sendPushToAdmins } from '../
 import { buildInvoiceData, issueInvoiceNumber, invoiceHtml, mergeInvoicePages, playersWhoPlayed, waterItemOf } from '../services/fnb-invoice.service.js';
 import { resolveOptionGroups, validateSelections, type ChosenOption } from '../services/fnb-options.service.js';
 import { readSlots, slotItemIds, validateSlotsInput, resolveOrderSlots } from '../services/fnb-bundle.service.js';
+import { gateCheck, saveLastFix, isUsableFix } from '../services/geofence.service.js';
 import { renderRawHtmlPdf } from '../reports/render/pdf.js';
 import multer from 'multer';
 import path from 'path';
@@ -62,6 +63,63 @@ venueRouter.get('/me', authenticate, async (req: Request, res: Response) => {
 // ── GET /push-status — من سيصله إشعار الطلب فعلاً؟ ──
 // 🔇 ينهي الفشل الصامت: حسابٌ بلا جهازٍ مسجّل كان يبتلع الإشعار بلا أثر،
 // فيظنّ المكان أنّ النظام يعمل وهو معطّل. هنا يُرى الواقع بالأرقام.
+// ════════════════════════════════════════
+// 📍 موقع المكان — نقطة السياج ونصف قطره
+// 🔴 من يقف على الباب هو من يضبط النقطة — لا رابط الخرائط: الرابط
+//    يحمل زوجَي إحداثيّات (مركز العرض والدبّوس) يفترقان ٢٤٥ متراً في أحد
+//    مكانينا. وحساب المكان مثبَّت على staff.locationId في resolveVenueLocation،
+//    فلا يستطيع أحدٌ ضبط دبّوس مكانٍ آخر ولو حاول.
+// ════════════════════════════════════════
+venueRouter.get('/location', authenticate, requireVenuePermission('location.geofence'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+  try {
+    const [row] = await db.select({
+      id: locations.id, name: locations.name, region: locations.region, mapUrl: locations.mapUrl,
+      latitude: locations.latitude, longitude: locations.longitude,
+      geofenceRadiusM: locations.geofenceRadiusM,
+      geofenceSetBy: locations.geofenceSetBy, geofenceSetAt: locations.geofenceSetAt,
+    }).from(locations).where(eq(locations.id, locId)).limit(1);
+    if (!row) return res.status(404).json({ error: 'المكان غير موجود' });
+
+    let setByName = '';
+    if (row.geofenceSetBy) {
+      const [s] = await db.select({ n: staff.displayName }).from(staff).where(eq(staff.id, row.geofenceSetBy)).limit(1);
+      setByName = s?.n || '';
+    }
+    res.json({ success: true, location: { ...row, setByName } });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+venueRouter.put('/location', authenticate, requireVenuePermission('location.geofence'), async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  const locId = resolveVenueLocation(req, res);
+  if (!locId) return;
+
+  const lat = parseFloat(String(req.body?.latitude));
+  const lng = parseFloat(String(req.body?.longitude));
+  const radius = parseInt(String(req.body?.geofenceRadiusM));
+
+  if (!Number.isFinite(lat) || Math.abs(lat) > 90) return res.status(400).json({ error: 'خطّ العرض غير صالح' });
+  if (!Number.isFinite(lng) || Math.abs(lng) > 180) return res.status(400).json({ error: 'خطّ الطول غير صالح' });
+  // أقلّ من ٥٠م يرفض جالساً على الطاولة (دقّة GPS داخل مقهىً وحدها تتجاوزه)،
+  // وأكثر من ٢ كم يفقد السياج معناه.
+  if (!Number.isFinite(radius) || radius < 50 || radius > 2000) {
+    return res.status(400).json({ error: 'نصف القطر بين ٥٠ و٢٠٠٠ متر' });
+  }
+
+  try {
+    await db.update(locations).set({
+      latitude: String(lat), longitude: String(lng), geofenceRadiusM: radius,
+      geofenceSetBy: req.venueStaff!.id, geofenceSetAt: new Date(),
+    } as any).where(eq(locations.id, locId));
+    res.json({ success: true, latitude: lat, longitude: lng, geofenceRadiusM: radius });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 venueRouter.get('/push-status', authenticate, requireVenuePermission('orders.receive'), async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1678,6 +1736,15 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
     if (!ctx) return res.status(403).json({ error: 'لا يوجد نشاط متاح للطلب الآن' });
     if ('error' in ctx) return res.status(403).json({ error: ctx.error });
 
+    // 📍 سياج الفعاليّة — الحارس هنا لا داخل resolveFnbContext عمداً:
+    //    تلك يستخدمها GET /context وGET /menu أيضاً، والتصفّح مسموح — الإرسال وحده محروس.
+    {
+      const g = await gateCheck({
+        playerId, activityId: ctx.activityId, fix: req.body?.fix, gate: 'order',
+      });
+      if (!g.ok) return res.status(403).json({ error: g.message, code: g.reason, distanceM: g.distanceM });
+    }
+
     // سقف الطلبات المفتوحة لكل لاعب لكل فعاليّة (حماية من الإغراق)
     const [{ cnt }] = await db.select({ cnt: sql<number>`count(*)::int` }).from(orders)
       .where(and(eq(orders.playerId, playerId), eq(orders.activityId, ctx.activityId), ne(orders.status, 'cancelled')));
@@ -1864,6 +1931,32 @@ playerFnbRouter.post('/orders', authenticatePlayer, async (req: Request, res: Re
 });
 
 // ── GET /my-orders?activityId= — طلبات اللاعب لهذه الفعاليّة مع بنودها ──
+// ════════════════════════════════════════
+// 📍 POST /fix — اللاعب يُبلّغ عن موقعه
+// يُنادى عند كلّ فتحة تطبيق، وعند العودة من الخلفيّة، وبنبضةٍ أثناء غرفةٍ حيّة.
+// 🔴 لا يمنع شيئاً ولا يُرجِع خطأً: وظيفته تحديث النقطة لا الحراسة. الحراسة عند البوّابات.
+// ════════════════════════════════════════
+playerFnbRouter.post('/fix', authenticatePlayer, async (req: Request, res: Response) => {
+  const playerId = req.playerAccount!.playerId;
+  const fix = req.body?.fix;
+  if (!isUsableFix(fix)) return res.json({ success: true, stored: false });
+  try {
+    await saveLastFix(playerId, fix);
+    // 🗺️ دفعةٌ لحظيّة لخريطة الليدر — تصل سوكتات الموجّهين وحدهم (التصفية في السوكت)
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        const { emitFixToLeaders } = await import('../sockets/geofence.socket.js');
+        await emitFixToLeaders(io, playerId, fix);
+      }
+    } catch (e: any) { console.warn('⚠️ [fix] بثّ فاشل:', e.message); }
+    res.json({ success: true, stored: true });
+  } catch (err: any) {
+    console.warn('⚠️ [fix] تعذّر الحفظ:', err.message);
+    res.json({ success: true, stored: false });
+  }
+});
+
 playerFnbRouter.get('/my-orders', authenticatePlayer, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1994,8 +2087,18 @@ playerFnbRouter.post('/service', authenticatePlayer, async (req: Request, res: R
 
   try {
     const ctx = await resolveFnbContext(db, playerId);
+    // 📍 نفس سياج الطلب — طلب الخدمة حضورٌ في المكان مثله تماماً
     if (!ctx) return res.status(403).json({ error: 'لا يوجد نشاط متاح الآن' });
     if ('error' in ctx) return res.status(403).json({ error: ctx.error });
+
+    // 📍 نفس سياج الطلب — طلب خدمة الأرجيلة حضورٌ في المكان مثله تماماً.
+    //    تفريقهما يخلق ثغرةً مربكة: ممنوعٌ من الطلب ومسموحٌ له باستدعاء الفحم.
+    {
+      const g = await gateCheck({
+        playerId, activityId: ctx.activityId, fix: req.body?.fix, gate: 'service',
+      });
+      if (!g.ok) return res.status(403).json({ error: g.message, code: g.reason, distanceM: g.distanceM });
+    }
 
     if (!(await hasDeliveredShisha(db, ctx.activityId, playerId))) {
       return res.status(400).json({ error: 'لا توجد أرجيلةٌ مُسلَّمة باسمك في هذه الفعاليّة' });

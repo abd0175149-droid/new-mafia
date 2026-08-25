@@ -6,7 +6,7 @@
 import { Router, type Request, type Response } from 'express';
 import { eq, desc, sql, or, and, isNull, isNotNull } from 'drizzle-orm';
 import { getDB } from '../config/db.js';
-import { activities, notifications, staff, activityTickets, bookings } from '../schemas/admin.schema.js';
+import { activities, notifications, staff, activityTickets, bookings, locations } from '../schemas/admin.schema.js';
 import { sessions, matches, matchPlayers } from '../schemas/game.schema.js';
 import { players } from '../schemas/player.schema.js';
 import { authenticate, authorize, leaderOrAbove } from '../middleware/auth.js';
@@ -42,6 +42,24 @@ const router = Router();
 const ACTIVITIES_PARENT_FOLDER_ID = '1MLgq3qx0by7pi_MStkAofEiUYb4n33ml';
 
 // GET /api/activities/available — الأنشطة القابلة للربط بلعبة (بدون auth — يستخدمها القائد)
+
+/**
+ * 📍 سياج الفعاليّة — مفتاحٌ مُشغّل على مكانٍ بلا نقطة = سياجٌ حول لا شيء.
+ * الواجهة تمنعه أصلاً، وهذا فحص الخادم — لا نعتمد على الواجهة وحدها.
+ * يُرجِع رسالة خطأٍ أو null إن كان الطلب سليماً.
+ */
+async function geofenceGuard(db: any, locationId: any, enabled: boolean): Promise<string | null> {
+  if (!enabled) return null;
+  const locId = parseInt(String(locationId));
+  if (!Number.isFinite(locId)) return 'لا يمكن تفعيل السياج بلا مكان';
+  const [loc] = await db.select({ lat: locations.latitude, lng: locations.longitude, name: locations.name })
+    .from(locations).where(eq(locations.id, locId)).limit(1);
+  if (!loc || loc.lat === null || loc.lng === null) {
+    return `لم يُضبَط موقع «${loc?.name || 'المكان'}» بعد — اضبطه من كونسول المكان ثمّ فعّل السياج`;
+  }
+  return null;
+}
+
 router.get('/available', async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
@@ -588,8 +606,11 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sendNotification, maxCapacity, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, geofenceEnabled, geofenceRadiusM } = req.body;
   if (!name || !date) return res.status(400).json({ error: 'الاسم والتاريخ مطلوبان' });
+
+  const geoErr = await geofenceGuard(db, locationId, geofenceEnabled === true);
+  if (geoErr) return res.status(400).json({ error: geoErr, code: 'NO_VENUE_POINT' });
 
   const result = await db.insert(activities).values({
     name,
@@ -608,6 +629,8 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
     // 🍽️ طلبات المنيو: المفتاح الرئيس + علَم إضافة رسوم اللعبة للفاتورة
     menuOrderingEnabled: menuOrderingEnabled === true,
     addGameFeeToBill: menuOrderingEnabled === true && addGameFeeToBill === true,
+    geofenceEnabled: geofenceEnabled === true,
+    geofenceRadiusM: Number.isFinite(parseInt(String(geofenceRadiusM))) ? parseInt(String(geofenceRadiusM)) : null,
     createdBy: req.user?.id || null, // 👤 مُنشئ الفعالية (للتمييز عن بقية الأدمن لاحقاً)
   } as any).returning();
 
@@ -737,7 +760,7 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (!db) return res.status(503).json({ error: 'قاعدة البيانات غير متوفرة' });
 
   const id = parseInt(req.params.id);
-  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy } = req.body;
+  const { name, date, description, basePrice, status, locationId, driveLink, enabledOfferIds, isLocked, sessionId, maxCapacity, difficulty, requireTicket, seatConstraints, seatTemplateId, menuOrderingEnabled, addGameFeeToBill, receivedBy, geofenceEnabled, geofenceRadiusM } = req.body;
 
   const updates: any = {};
   if (receivedBy !== undefined) updates.receivedBy = String(receivedBy ?? '').slice(0, 100);
@@ -757,6 +780,21 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   if (seatConstraints !== undefined) updates.seatConstraints = seatConstraints;
   if (seatTemplateId !== undefined) updates.seatTemplateId = seatTemplateId;
   if (menuOrderingEnabled !== undefined) updates.menuOrderingEnabled = menuOrderingEnabled === true;
+  if (geofenceEnabled === true) {
+    // المكان قد يتغيّر في نفس الطلب — نفحص الوجهة لا المصدر
+    let targetLoc: any = locationId;
+    if (targetLoc === undefined) {
+      const [cur] = await db.select({ l: activities.locationId }).from(activities).where(eq(activities.id, id)).limit(1);
+      targetLoc = cur?.l ?? null;
+    }
+    const err = await geofenceGuard(db, targetLoc, true);
+    if (err) return res.status(400).json({ error: err, code: 'NO_VENUE_POINT' });
+  }
+  if (geofenceEnabled !== undefined) updates.geofenceEnabled = geofenceEnabled === true;
+  if (geofenceRadiusM !== undefined) {
+    const r = parseInt(String(geofenceRadiusM));
+    updates.geofenceRadiusM = Number.isFinite(r) && r >= 50 && r <= 2000 ? r : null;
+  }
   if (addGameFeeToBill !== undefined) updates.addGameFeeToBill = addGameFeeToBill === true;
 
   if (Object.keys(updates).length === 0) {

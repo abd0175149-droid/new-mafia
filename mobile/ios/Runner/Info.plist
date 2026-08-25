@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- نصٌّ يُراجَع في متجر آبل: الغامض سببُ رفضٍ معروف — يجب أن يقول لماذا بالضبط -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>نستخدم موقعك للتأكّد من وجودك في مكان الفعاليّة عند دخول الغرفة وعند الطلب من المنيو. لا نتتبّع موقعك في الخلفيّة.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<!-- الهوية والعرض — 91-release-ios.md §6.5 -->
