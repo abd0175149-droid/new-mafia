@@ -3700,6 +3700,10 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
           penalties: player.penalties || 0,
         },
         phase: state.phase,
+        // 🎭 أعداد الفرق — معلومةٌ عامّة (على شاشة القاعة أمام الجميع).
+        //    تُرسَل هنا لا في حدث المرحلة وحده: من أعاد التحميل أو دخل متأخّراً
+        //    كان يبقى بلا أرقام حتّى تتغيّر المرحلة — نفس درس شاشة الليل.
+        teamCounts: state.rolesConfirmed ? getTeamCounts(state.players as any) : null,
         isRemote: !!state.config?.isRemote, // 🌐 ليعرف اللاعب أنه في غرفة بعيدة → يعرض طاولة الطور
         allowPlayerInvites: !!state.config?.allowPlayerInvites, // 📨 يسمح للاعب برؤية زرّ إرسال الدعوة
         rolesConfirmed: state.rolesConfirmed || false,

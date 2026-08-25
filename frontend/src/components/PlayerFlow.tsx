@@ -22,6 +22,7 @@ import MafiaTeamGallery from './MafiaTeamGallery';
 import SecretWatermark from './SecretWatermark';
 import PlayerNotepad from './PlayerNotepad';
 import OrderPanel from './OrderPanel';
+import TeamBar from './TeamBar';
 type Step = 'code' | 'phone' | 'login' | 'register' | 'change_password' | 'ticket' | 'auto_joining' | 'done' | 'rejoined';
 
 interface PlayerFlowProps {
@@ -296,6 +297,8 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   const [nightActionSubmitted, setNightActionSubmitted] = useState(false);
   const [selectedTargetForConfirm, setSelectedTargetForConfirm] = useState<number | null>(null);
   const [nurseActivationPending, setNurseActivationPending] = useState(false);
+  // 🎭 أعداد الفرق — تصل مع تغيّر المرحلة ومع حالة اللعبة
+  const [teamCounts, setTeamCounts] = useState<{ mafiaAlive: number; citizenAlive: number; neutralAlive?: number } | null>(null);
   const nightCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // 🔴 مرآة حالة الموت لمعالجات السوكت: تُسجّل مرّةً وتقرأ قيمةً قديمة لو قرأت الحالة مباشرة
   const isPlayerDeadRef = useRef(false);
@@ -491,6 +494,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
           // ── استعادة حالة التصويت فورياً عند rejoin ──
           if (res.phase) setGamePhase(res.phase);
+          if (res.teamCounts) setTeamCounts(res.teamCounts);
           console.log(`🔍 Rejoin phase: ${res.phase}, hasVotingState: ${!!res.votingState}, candidates: ${res.votingState?.candidates?.length || 0}`);
           if (res.votingState && res.phase === 'DAY_VOTING') {
             console.log(`🗳️ Restoring voting: ${res.votingState.candidates.length} candidates, myVotes: ${JSON.stringify(res.votingState.playerVotes)}`);
@@ -1156,6 +1160,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           // ── استعادة حالة الليل الأوتو عند refresh ──
           // 🔴 الميّت لا ليل له: الخادم لم يعد يرسل nightState للمُقصَي، وهذا الفحص
           //    حارسٌ ثانٍ لعميلٍ قديم أو لحظة سباقٍ يموت فيها اللاعب والحمولة في الطريق.
+          if (res.teamCounts) setTeamCounts(res.teamCounts);
           if (res.player?.isAlive && res.nightState && res.phase === 'NIGHT' && !res.nightState.playerSubmitted) {
             const ns = res.nightState;
             const myPhysId = parseInt(physicalId);
@@ -1299,6 +1304,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     const cleanupPhaseChanged = on('game:phase-changed', (data: any) => {
       console.log(`🔄 Phase changed event: ${data.phase}`);
       setGamePhase(data.phase);
+      if (data.teamCounts) setTeamCounts(data.teamCounts);
       if (data.state?.config?.isRemote != null) setIsRemote(!!data.state.config.isRemote); // 🌐 كشف الغرفة البعيدة عند بدء اللعب
       if (data.state?.config?.allowPlayerInvites != null) setAllowPlayerInvites(!!data.state.config.allowPlayerInvites);
       // حماية من الـ polling القديم لمدّة OVERRIDE_TTL فقط (ثمّ يُسمح للـ poll بمزامنة أيّ مرحلة أحدث)
@@ -2968,6 +2974,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           {step === 'done' && (
            <motion.div key="done" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
 
+              {/* 🎭 شريط الفرق — للحيّ والمُقصى معاً */}
+              <TeamBar counts={teamCounts} className="mb-4" />
+
               {/* ── بانر المقعد المخصص (مخفيّ عن بُعد — الطاولة تُظهر مقعدك على كارد «أنت») ── */}
               {!isRemote && physicalId && (
                 <motion.div
@@ -3434,6 +3443,9 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           {/* ── خطوة Rejoin: اللاعب عاد ── */}
           {step === 'rejoined' && (
             <motion.div key="rejoined" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="text-center py-6">
+
+              {/* 🎭 شريط الفرق — للحيّ والمُقصى معاً */}
+              <TeamBar counts={teamCounts} className="mb-4" />
 
               {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">

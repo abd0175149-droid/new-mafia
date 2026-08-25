@@ -187,18 +187,33 @@ export function validateRoleDistribution(roles: Role[], playerCount: number): { 
 export interface TeamCounts {
   mafiaAlive: number;
   citizenAlive: number;
+  /** 🎭 المستقلّون (مهرّج/سفّاح) — حقلٌ جديد، إضافته لا تكسر عميلاً قديماً */
+  neutralAlive: number;
   mafiaTotal: number;
   citizenTotal: number;
+  neutralTotal: number;
 }
 
+/**
+ * 🔴 العدّ عبر teamOfRole لا بنفي isMafiaRole. كان الشرط «ليس مافيا» فيسقط
+ * المهرّج والسفّاح في خانة المواطنين — فيرى الجميع عدداً كاذباً وتُبنى عليه قرارات التصويت.
+ *
+ * ⚠️ هذا عدٌّ **للعرض** لا للحكم. معادلة النصر في checkWinCondition منفصلة
+ *    وتستعمل isCitizenRole الصريح أصلاً — لا توحّدهما: أيّ لمسةٍ للثانية
+ *    تغيّر متى تنتهي كلّ لعبة.
+ */
 export function getTeamCounts(players: { role: Role | string | null; isAlive: boolean }[]): TeamCounts {
   const withRoles = players.filter(p => p.role);
   const alive = withRoles.filter(p => p.isAlive);
+  const by = (list: typeof withRoles, team: TeamName) =>
+    list.filter(p => teamOfRole(p.role) === team).length;
 
   return {
-    mafiaAlive: alive.filter(p => isMafiaRole(p.role as Role)).length,
-    citizenAlive: alive.filter(p => !isMafiaRole(p.role as Role)).length,
-    mafiaTotal: withRoles.filter(p => isMafiaRole(p.role as Role)).length,
-    citizenTotal: withRoles.filter(p => !isMafiaRole(p.role as Role)).length,
+    mafiaAlive: by(alive, 'MAFIA'),
+    citizenAlive: by(alive, 'CITIZEN'),
+    neutralAlive: by(alive, 'NEUTRAL'),
+    mafiaTotal: by(withRoles, 'MAFIA'),
+    citizenTotal: by(withRoles, 'CITIZEN'),
+    neutralTotal: by(withRoles, 'NEUTRAL'),
   };
 }

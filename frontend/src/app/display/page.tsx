@@ -131,7 +131,7 @@ function DisplayPageContent() {
   const [birthday, setBirthday] = useState<Celebrant[] | null>(null);
   const birthdayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [discussionState, setDiscussionState] = useState<any>(null);
-  const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number}>({citizenAlive: 0, mafiaAlive: 0});
+  const [teamCounts, setTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number; neutralAlive?: number}>({citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0});
   const [replayData, setReplayData] = useState<any>(null);
   // 🎁 سحب «اختيار رابح» — أنيميشن الكشف على شاشة العرض
   const [lucky, setLucky] = useState<{ phase: 'spinning' | 'revealed'; winners: number[]; pool: number[]; activeId: number | null } | null>(null);
@@ -445,7 +445,7 @@ function DisplayPageContent() {
       setAnimation(null);
       if (data.phase === Phase.LOBBY) {
         setWinner(null);
-        setTeamCounts({ citizenAlive: 0, mafiaAlive: 0 });
+        setTeamCounts({ citizenAlive: 0, mafiaAlive: 0, neutralAlive: 0 });
         stopAmbientSound();
         playAmbientSound('ambient_lobby');
       }
@@ -1044,7 +1044,7 @@ function DisplayPageContent() {
         {/* ══════════════════════════════════════════════════ */}
         {/* 📊 ناف بار ثابت — أعداد الفرق (يظهر بعد بدء اللعبة) */}
         {/* ══════════════════════════════════════════════════ */}
-        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0) && (
+        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0) && (
           <motion.div
             initial={{ y: -60, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
@@ -1071,6 +1071,18 @@ function DisplayPageContent() {
                   <div className="text-[8px] font-mono text-[#555] tracking-[0.2em] uppercase">CITIZENS</div>
                 </div>
               </div>
+
+              {/* 🎭 المستقلّون — خانةٌ تظهر فقط إن كان في اللعبة محايدٌ أصلاً.
+                  «٠ مستقلّون» يقول بالنفي «لا مهرّج هنا» وهي معلومةٌ لا نمنحها. */}
+              {(teamCounts.neutralAlive ?? 0) > 0 && (
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-violet-500 shadow-[0_0_8px_rgba(139,92,246,0.6)] animate-pulse" />
+                  <div className="text-center">
+                    <div className="text-2xl font-black text-violet-400 tabular-nums" style={{ fontFamily: 'Amiri, serif' }}>{teamCounts.neutralAlive}</div>
+                    <div className="text-[8px] font-mono text-[#555] tracking-[0.2em] uppercase">NEUTRAL</div>
+                  </div>
+                </div>
+              )}
 
               {/* الفاصل / أو المؤقت */}
               {gameTimerData && !gameTimerData.expired && phase !== Phase.GAME_OVER ? (
@@ -1128,7 +1140,7 @@ function DisplayPageContent() {
         )}
 
         {/* Spacer — يدفع المحتوى تحت الناف بار الثابت */}
-        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0) && (
+        {step === 'lobby' && phase !== Phase.LOBBY && phase !== Phase.ROLE_GENERATION && phase !== Phase.ROLE_BINDING && (teamCounts.mafiaAlive > 0 || teamCounts.citizenAlive > 0 || (teamCounts.neutralAlive ?? 0) > 0) && (
           <div className="w-full h-16 shrink-0" />
         )}
 

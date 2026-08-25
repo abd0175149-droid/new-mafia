@@ -10,7 +10,7 @@
 //    وأي حقل حسّاس يُحذف مرة واحدة.
 // ══════════════════════════════════════════════════════
 
-import { isMafiaRole } from '../game/roles.js';
+import { isMafiaRole, getTeamCounts } from '../game/roles.js';
 
 export function projectDisplayState(state: any) {
   if (!state) return null;
@@ -33,10 +33,9 @@ export function projectDisplayState(state: any) {
     })),
     winner: state.winner || null,
     discussionState: state.discussionState || null,
-    teamCounts: {
-      mafiaAlive: alive.filter((p: any) => p.role && isMafiaRole(p.role)).length,
-      citizenAlive: alive.filter((p: any) => p.role && !isMafiaRole(p.role)).length,
-    },
+    // 🔴 من المصدر الموحّد لا بحسابٍ مكرّر: النسخة المحلّيّة كانت تعدّ
+    //    المحايد مواطناً — وهي ثالثة ثلاث نسخٍ من الخطأ نفسه.
+    teamCounts: getTeamCounts(state.players as any),
     gameTimer: state.gameTimer || null,
   };
 }

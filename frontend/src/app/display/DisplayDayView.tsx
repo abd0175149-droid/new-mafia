@@ -115,7 +115,7 @@ interface DisplayDayViewProps {
   roomId: string;
   players: any[]; // Roster to get names
   initialDiscussionState?: any;
-  teamCounts?: {citizenAlive: number; mafiaAlive: number};
+  teamCounts?: {citizenAlive: number; mafiaAlive: number; neutralAlive?: number};
 }
 
 export default function DisplayDayView({ roomId, players, initialDiscussionState, teamCounts }: DisplayDayViewProps) {
@@ -124,7 +124,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
   const [candidates, setCandidates] = useState<any[]>([]);
   const [totalVotesCast, setTotalVotesCast] = useState(0);
   const [tieBreakerLevel, setTieBreakerLevel] = useState(0);
-  const [localTeamCounts, setLocalTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number} | null>(null);
+  const [localTeamCounts, setLocalTeamCounts] = useState<{citizenAlive: number; mafiaAlive: number; neutralAlive?: number} | null>(null);
 
   // استخدام القيمة المحلية أولاً، ثم الـ prop كـ fallback
   const effectiveTeamCounts = localTeamCounts || teamCounts;
@@ -948,6 +948,54 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
             }
           }
 
+          // ══════════════════════════════════════════════════════
+          // 🎯 تخطيط لوحة الدفاع — قاعدةٌ واحدة تحلّ كلّ الحالات
+          //
+          // 🔴 المصوّتون **تحت** متّهمهم لا بجانبه. الوضع السابق كان يضعهم على
+          //    يمين البطاقة أو يسارها بـ`i === 0 ? left : right` — فمع ثلاثة
+          //    متّهمين يقع الثاني والثالث على الجانب نفسه وتتراكب قائمتاهما،
+          //    ومع سبعة مصوّتين يخرج العمود عن الشاشة. وبالوضع تحت البطاقة:
+          //    الانتماء يُقرأ بالمحاذاة العموديّة، ولا تتراكب قائمتان أبداً،
+          //    وعرض الشريحة يصير عرض العمود كلّه لا هامشاً على الحافّة.
+          //
+          // 🔴 والمقاس يُختار بـ**أكبر** عددٍ بين المتّهمين لا بعدد كلٍّ على حدة:
+          //    فتتساوى الشرائح بصريّاً عبر الأعمدة، ولا يبدو متّهمٌ أهمّ من آخر
+          //    لأنّ مصوّتيه أقلّ.
+          // ══════════════════════════════════════════════════════
+          const accusedCount = accusedList.length;
+          const maxVoters = Math.max(0, ...accusedList.map((a: any) => (votersByAccused[a.targetPhysicalId] || []).length));
+
+          // لونٌ لكلّ متّهم — يُطبَّق على إطار بطاقته وعلى شرائح مصوّتيه، فيبقى
+          // الربط مقروءاً حتّى لو ضاقت الشاشة وتقاربت الأعمدة.
+          const ACCUSED_HUES = ['#C5A059', '#5590C4', '#A585D8', '#4E9E76', '#D69B3E'];
+          const hueOf = (i: number) => ACCUSED_HUES[i % ACCUSED_HUES.length];
+
+          // أعمدة القائمة الداخليّة — انظر مصفوفة الخطّة
+          const innerCols = accusedCount === 1
+            ? (maxVoters <= 4 ? 1 : maxVoters <= 12 ? 2 : 4)
+            : accusedCount === 2
+              ? (maxVoters <= 6 ? 1 : 2)
+              : 1;
+
+          // ثلاث درجاتٍ للشريحة: كبيرة · متوسّطة · مضغوطة
+          const chipSize: 'lg' | 'md' | 'sm' =
+            accusedCount === 1
+              ? (maxVoters <= 12 ? 'lg' : 'md')
+              : accusedCount === 2
+                ? (maxVoters <= 6 ? 'lg' : 'md')
+                : accusedCount === 3
+                  ? (maxVoters <= 5 ? 'md' : 'sm')
+                  : 'sm';
+
+          const CHIP = {
+            lg: { pad: 'px-5 py-3', num: 'w-10 h-10 text-lg', name: 'text-xl', gap: 'gap-3.5' },
+            md: { pad: 'px-4 py-2', num: 'w-8 h-8 text-sm', name: 'text-base', gap: 'gap-2.5' },
+            sm: { pad: 'px-2.5 py-1.5', num: 'w-6 h-6 text-[11px]', name: 'text-[13px]', gap: 'gap-2' },
+          }[chipSize];
+
+          // سقفُ ما يُعرَض قبل «+N» — يُطبَّق فقط حين يضيق العمود فعلاً
+          const chipCap = accusedCount >= 3 && maxVoters > 8 ? 8 : Infinity;
+
           return (
             <motion.div
               key="justification"
@@ -957,11 +1005,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
               className="w-full h-[calc(100vh-2rem)] flex flex-col items-center justify-center relative"
             >
               {/* ── كروت المتهمين أفقياً + تايمر ── */}
-              <div className="flex flex-wrap justify-center items-center gap-8 md:gap-12 w-full max-w-[1600px] mx-auto px-4 relative">
+              <div className="flex flex-wrap justify-center items-start gap-6 md:gap-10 w-full max-w-[1700px] mx-auto px-4 relative">
                 {justificationData.accused.map((acc: any, i: number) => {
                 const p = players.find(pl => pl.physicalId === acc.targetPhysicalId);
                 const isActiveJust = justTimer?.physicalId === acc.targetPhysicalId;
                 const isSomeoneSpeaking = !!justTimer;
+                const hue = hueOf(i);   // 🎨 لونٌ يربط البطاقة بشرائح مصوّتيها
                 // حساب موقع التايمر (يمين أو يسار حسب الترتيب)
                 const timerSide = i === 0 ? 'left' : 'right';
 
@@ -970,10 +1019,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     key={acc.targetPhysicalId}
                     initial={{ opacity: 0, y: 40, scale: 0.8 }}
                     animate={{
-                      opacity: isActiveJust ? 1 : isSomeoneSpeaking ? 0.25 : 1,
+                      // 🔴 الخفوت مخفَّف: كان 0.25 مع طمسٍ ٣px فتختفي قوائم المصوّتين
+                      //    وهي أهمّ ما تُقرأ أثناء الدفاع. الآن يبرز المتكلّم بلا أن يُعمي البقيّة.
+                      opacity: isActiveJust ? 1 : isSomeoneSpeaking ? 0.72 : 1,
                       y: 0,
-                      scale: isActiveJust ? 1.1 : isSomeoneSpeaking ? 0.95 : 1,
-                      filter: isActiveJust ? 'blur(0px) grayscale(0%)' : isSomeoneSpeaking ? 'blur(3px) grayscale(60%)' : 'blur(0px) grayscale(0%)',
+                      scale: isActiveJust ? 1.04 : 1,
+                      filter: 'blur(0px) grayscale(0%)',
                     }}
                     transition={{ delay: 0.2 + i * 0.15, duration: 0.6, type: 'spring', damping: 15 }}
                     className="flex flex-col items-center relative"
@@ -984,11 +1035,12 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     )}
 
                     {/* الكارد */}
-                    <div className={`relative transition-all duration-500 ${
-                      isActiveJust
-                        ? 'ring-4 ring-[#C5A059] ring-offset-4 ring-offset-black rounded-2xl shadow-[0_0_60px_rgba(197,160,89,0.4)]'
-                        : ''
-                    }`}>
+                    <div className="relative rounded-2xl transition-all duration-500"
+                      style={{
+                        boxShadow: isActiveJust
+                          ? `0 0 0 4px ${hue}, 0 0 0 8px #000, 0 0 60px ${hue}66`
+                          : `0 0 0 2px ${hue}66`,
+                      }}>
                       <MafiaCard
                         playerNumber={acc.targetPhysicalId}
                         playerName={p?.name || 'Unknown'}
@@ -1013,9 +1065,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                         initial={{ opacity: 0, x: timerSide === 'right' ? -30 : 30 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.3, duration: 0.5 }}
-                        className={`absolute top-1/2 -translate-y-1/2 flex flex-col items-center ${
-                          timerSide === 'right' ? 'left-[115%]' : 'right-[115%]'
-                        }`}
+                        className={accusedCount <= 2
+                          ? `absolute top-1/2 -translate-y-1/2 flex flex-col items-center ${timerSide === 'right' ? 'left-[115%]' : 'right-[115%]'}`
+                          // 🔴 ثلاثة فأكثر: الموضع الجانبيّ يتراكب مع عمود الجار — فوق البطاقة
+                          : 'absolute bottom-[104%] left-1/2 -translate-x-1/2 flex flex-col items-center'}
                       >
                         <CircularTimer
                           timeRemaining={justTimeRemaining}
@@ -1039,9 +1092,10 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                       <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
-                        className={`absolute top-1/2 -translate-y-1/2 flex flex-col items-center ${
-                          timerSide === 'right' ? 'left-[115%]' : 'right-[115%]'
-                        }`}
+                        className={accusedCount <= 2
+                          ? `absolute top-1/2 -translate-y-1/2 flex flex-col items-center ${timerSide === 'right' ? 'left-[115%]' : 'right-[115%]'}`
+                          // 🔴 ثلاثة فأكثر: الموضع الجانبيّ يتراكب مع عمود الجار — فوق البطاقة
+                          : 'absolute bottom-[104%] left-1/2 -translate-x-1/2 flex flex-col items-center'}
                       >
                         <div className="w-[120px] h-[120px] rounded-full border-4 border-[#8A0303] flex items-center justify-center">
                           <span className="text-3xl font-mono font-black text-[#8A0303] animate-pulse">00</span>
@@ -1050,34 +1104,86 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                       </motion.div>
                     )}
 
-                    {/* قائمة المصوتين بجانب الكارد */}
-                    <div className={`absolute top-0 bottom-0 flex flex-col justify-center gap-2 ${
-                      timerSide === 'right' ? 'right-[140%]' : 'left-[140%]'
-                    }`}>
-                      {(votersByAccused[acc.targetPhysicalId] || []).map(voterId => {
-                        const voterPlayer = players.find((p: any) => p.physicalId === voterId);
-                        const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
+                    {/* ── قائمة المصوّتين — تحت البطاقة لا بجانبها ──
+                        الانتماء يُقرأ بالمحاذاة العموديّة، فلا تتراكب قائمتان
+                        مهما تعدّد المتّهمون، ولا يخرج عمودٌ عن الشاشة. */}
+                    <div className="mt-5 w-full" style={{ maxWidth: accusedCount === 1 ? 900 : accusedCount === 2 ? 460 : 300 }}>
+                      {(() => {
+                        const all = votersByAccused[acc.targetPhysicalId] || [];
+                        const shown = all.slice(0, chipCap);
+                        const hiddenCount = all.length - shown.length;
+
+                        // متّهمٌ بلا مصوّتين — يحدث في الصفقات. الفراغ يُقرأ عطلاً.
+                        if (all.length === 0) {
+                          return (
+                            <div className="text-center py-3 rounded-xl border border-dashed"
+                              style={{ borderColor: `${hue}44`, color: '#5A5A5A' }}>
+                              <span className="text-[13px] font-bold">لا أصوات</span>
+                            </div>
+                          );
+                        }
+
                         return (
-                          <motion.div
-                            key={voterId}
-                            initial={{ opacity: 0, x: timerSide === 'right' ? 20 : -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            className={`flex items-center gap-3 px-4 py-2 rounded-full border transition-all duration-500 whitespace-nowrap ${
-                              hasWithdrawn
-                                ? 'bg-[#1a1a1a] border-[#333] opacity-50'
-                                : 'bg-gradient-to-r from-[#8A0303]/60 to-[#8A0303]/20 border-[#ff4444] shadow-[0_0_10px_rgba(138,3,3,0.5)]'
-                            }`}
-                          >
-                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-sm font-mono font-black ${
-                              hasWithdrawn ? 'bg-[#333] text-[#666]' : 'bg-[#ff4444] text-white shadow-md'
-                            }`}>{voterId}</div>
-                            <span className={`text-base font-bold ${hasWithdrawn ? 'text-[#555] line-through' : 'text-white'}`}>
-                              {voterPlayer?.name || `#${voterId}`}
-                            </span>
-                            {hasWithdrawn && <span className="text-[10px] text-[#555] font-mono ml-2">سُحب</span>}
-                          </motion.div>
+                          <>
+                            <div className="flex items-center justify-center gap-2 mb-2.5">
+                              <span className="h-px flex-1" style={{ background: `${hue}33` }} />
+                              <span className="text-[11px] font-mono tracking-widest" style={{ color: hue }}>
+                                {all.length} صوت
+                              </span>
+                              <span className="h-px flex-1" style={{ background: `${hue}33` }} />
+                            </div>
+
+                            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${innerCols}, minmax(0, 1fr))` }}>
+                              {shown.map((voterId, vi) => {
+                                const voterPlayer = players.find((p: any) => p.physicalId === voterId);
+                                const hasWithdrawn = withdrawalState?.withdrawn?.includes(voterId) || false;
+                                const isProxy = !!(justificationData.leaderProxyVotes || {})[voterId];
+                                return (
+                                  <motion.div
+                                    key={voterId}
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.25 + vi * 0.035, duration: 0.35 }}
+                                    className={`flex items-center ${CHIP.gap} ${CHIP.pad} rounded-full border transition-all duration-500 min-w-0`}
+                                    style={hasWithdrawn ? {
+                                      background: '#141414', borderColor: '#2E2E2E', opacity: 0.45,
+                                    } : {
+                                      background: `linear-gradient(90deg, ${hue}30, ${hue}0D)`,
+                                      borderColor: `${hue}99`,
+                                      boxShadow: `0 0 12px ${hue}22`,
+                                    }}
+                                  >
+                                    <div className={`${CHIP.num} shrink-0 rounded-full flex items-center justify-center font-mono font-black`}
+                                      style={hasWithdrawn
+                                        ? { background: '#2E2E2E', color: '#666' }
+                                        : { background: hue, color: '#0A0A0A' }}>
+                                      {voterId}
+                                    </div>
+                                    <span className={`${CHIP.name} font-bold truncate ${hasWithdrawn ? 'line-through' : ''}`}
+                                      style={{ color: hasWithdrawn ? '#555' : '#FFF' }}>
+                                      {voterPlayer?.name || `#${voterId}`}
+                                    </span>
+                                    {/* 🎙️ صوتٌ سجّله الليدر بالوكالة — لا يُنسَب لصاحبه ظلماً */}
+                                    {isProxy && !hasWithdrawn && (
+                                      <span className="shrink-0 text-[9px] font-mono px-1.5 py-0.5 rounded"
+                                        style={{ background: '#00000055', color: `${hue}CC` }}>وكالة</span>
+                                    )}
+                                    {hasWithdrawn && (
+                                      <span className="shrink-0 text-[10px] text-[#555] font-mono">سُحب</span>
+                                    )}
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
+
+                            {hiddenCount > 0 && (
+                              <div className="text-center mt-2 text-[12px] font-mono" style={{ color: hue }}>
+                                +{hiddenCount} آخرين
+                              </div>
+                            )}
+                          </>
                         );
-                      })}
+                      })()}
                     </div>
                   </motion.div>
                 );

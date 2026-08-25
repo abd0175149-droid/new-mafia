@@ -4,7 +4,7 @@
 // ══════════════════════════════════════════════════════
 
 import { type GameState, getAlivePlayers } from './state.js';
-import { isMafiaRole, isCitizenRole } from './roles.js';
+import { isMafiaRole, isCitizenRole, teamOfRole } from './roles.js';
 
 export enum WinResult {
   MAFIA_WIN = 'MAFIA',
@@ -56,15 +56,19 @@ export function decideTimeoutWinner(state: GameState): string {
 /**
  * يُرجع ملخص الأعداد الحالية (للعرض على الشاشة)
  */
-export function getTeamCounts(state: GameState): { aliveMafia: number; aliveCitizens: number; totalAlive: number } {
+export function getTeamCounts(state: GameState): { aliveMafia: number; aliveCitizens: number; aliveNeutrals: number; totalAlive: number } {
   const alivePlayers = getAlivePlayers(state);
 
-  const aliveMafia = alivePlayers.filter(p => p.role && isMafiaRole(p.role)).length;
-  const aliveCitizens = alivePlayers.filter(p => p.role && !isMafiaRole(p.role)).length;
+  // 🔴 عبر teamOfRole لا بنفي isMafiaRole — وإلّا عُدّ المحايد مواطناً.
+  //    دالّةٌ تقريريّة لا تدخل في الحكم — checkWinCondition أعلاه له عدّه الخاصّ.
+  const aliveMafia = alivePlayers.filter(p => teamOfRole(p.role) === 'MAFIA').length;
+  const aliveCitizens = alivePlayers.filter(p => teamOfRole(p.role) === 'CITIZEN').length;
+  const aliveNeutrals = alivePlayers.filter(p => teamOfRole(p.role) === 'NEUTRAL').length;
 
   return {
     aliveMafia,
     aliveCitizens,
+    aliveNeutrals,
     totalAlive: alivePlayers.length,
   };
 }
