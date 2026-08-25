@@ -972,25 +972,29 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
 
           // أعمدة القائمة الداخليّة — انظر مصفوفة الخطّة
           const innerCols = accusedCount === 1
-            ? (maxVoters <= 4 ? 1 : maxVoters <= 12 ? 2 : 4)
+            ? (maxVoters <= 5 ? 1 : maxVoters <= 14 ? 2 : 3)
             : accusedCount === 2
-              ? (maxVoters <= 6 ? 1 : 2)
+              ? (maxVoters <= 7 ? 1 : 2)
               : 1;
 
           // ثلاث درجاتٍ للشريحة: كبيرة · متوسّطة · مضغوطة
           const chipSize: 'lg' | 'md' | 'sm' =
             accusedCount === 1
-              ? (maxVoters <= 12 ? 'lg' : 'md')
+              ? (maxVoters <= 14 ? 'lg' : 'md')
               : accusedCount === 2
-                ? (maxVoters <= 6 ? 'lg' : 'md')
+                ? (maxVoters <= 8 ? 'lg' : 'md')
                 : accusedCount === 3
-                  ? (maxVoters <= 5 ? 'md' : 'sm')
+                  ? (maxVoters <= 7 ? 'md' : 'sm')
                   : 'sm';
 
+          // 🔴 المقاس مشتقٌّ من عرض الشاشة لا ثابتاً بالبكسل: هذه شاشة قاعة
+          //    تُقرأ من أربعة أمتار، والمقاس الثابت يعطي الشريحة نفسها على
+          //    شاشة ١٥ بوصة وتلفاز ٦٥. والحدّ الأدنى يحمي الشاشة الصغيرة،
+          //    والأعلى يمنع الانفلات على شاشة 4K.
           const CHIP = {
-            lg: { pad: 'px-5 py-3', num: 'w-10 h-10 text-lg', name: 'text-xl', gap: 'gap-3.5' },
-            md: { pad: 'px-4 py-2', num: 'w-8 h-8 text-sm', name: 'text-base', gap: 'gap-2.5' },
-            sm: { pad: 'px-2.5 py-1.5', num: 'w-6 h-6 text-[11px]', name: 'text-[13px]', gap: 'gap-2' },
+            lg: { pad: 'px-5 py-3',   gap: 'gap-3.5', num: 'clamp(40px, 2.6vw, 58px)', numTxt: 'clamp(17px, 1.15vw, 25px)', name: 'clamp(22px, 1.6vw, 34px)' },
+            md: { pad: 'px-4 py-2.5', gap: 'gap-3',   num: 'clamp(34px, 2.1vw, 46px)', numTxt: 'clamp(15px, 1vw, 21px)',    name: 'clamp(17px, 1.25vw, 26px)' },
+            sm: { pad: 'px-3 py-2',   gap: 'gap-2.5', num: 'clamp(28px, 1.7vw, 38px)', numTxt: 'clamp(13px, 0.85vw, 18px)', name: 'clamp(14px, 1vw, 20px)' },
           }[chipSize];
 
           // سقفُ ما يُعرَض قبل «+N» — يُطبَّق فقط حين يضيق العمود فعلاً
@@ -1107,7 +1111,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                     {/* ── قائمة المصوّتين — تحت البطاقة لا بجانبها ──
                         الانتماء يُقرأ بالمحاذاة العموديّة، فلا تتراكب قائمتان
                         مهما تعدّد المتّهمون، ولا يخرج عمودٌ عن الشاشة. */}
-                    <div className="mt-5 w-full" style={{ maxWidth: accusedCount === 1 ? 900 : accusedCount === 2 ? 460 : 300 }}>
+                    <div className="mt-5 w-full" style={{ maxWidth: accusedCount === 1 ? 1000 : accusedCount === 2 ? 540 : 360 }}>
                       {(() => {
                         const all = votersByAccused[acc.targetPhysicalId] || [];
                         const shown = all.slice(0, chipCap);
@@ -1118,7 +1122,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                           return (
                             <div className="text-center py-3 rounded-xl border border-dashed"
                               style={{ borderColor: `${hue}44`, color: '#5A5A5A' }}>
-                              <span className="text-[13px] font-bold">لا أصوات</span>
+                              <span className="font-bold" style={{ fontSize: 'clamp(14px, 1.1vw, 22px)' }}>لا أصوات</span>
                             </div>
                           );
                         }
@@ -1127,7 +1131,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                           <>
                             <div className="flex items-center justify-center gap-2 mb-2.5">
                               <span className="h-px flex-1" style={{ background: `${hue}33` }} />
-                              <span className="text-[11px] font-mono tracking-widest" style={{ color: hue }}>
+                              <span className="font-mono tracking-widest" style={{ color: hue, fontSize: 'clamp(13px, 1vw, 20px)' }}>
                                 {all.length} صوت
                               </span>
                               <span className="h-px flex-1" style={{ background: `${hue}33` }} />
@@ -1153,14 +1157,17 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                                       boxShadow: `0 0 12px ${hue}22`,
                                     }}
                                   >
-                                    <div className={`${CHIP.num} shrink-0 rounded-full flex items-center justify-center font-mono font-black`}
-                                      style={hasWithdrawn
-                                        ? { background: '#2E2E2E', color: '#666' }
-                                        : { background: hue, color: '#0A0A0A' }}>
+                                    <div className="shrink-0 rounded-full flex items-center justify-center font-mono font-black"
+                                      style={{
+                                        width: CHIP.num, height: CHIP.num, fontSize: CHIP.numTxt,
+                                        ...(hasWithdrawn
+                                          ? { background: '#2E2E2E', color: '#666' }
+                                          : { background: hue, color: '#0A0A0A' }),
+                                      }}>
                                       {voterId}
                                     </div>
-                                    <span className={`${CHIP.name} font-bold truncate ${hasWithdrawn ? 'line-through' : ''}`}
-                                      style={{ color: hasWithdrawn ? '#555' : '#FFF' }}>
+                                    <span className={`font-bold truncate ${hasWithdrawn ? 'line-through' : ''}`}
+                                      style={{ fontSize: CHIP.name, color: hasWithdrawn ? '#555' : '#FFF' }}>
                                       {voterPlayer?.name || `#${voterId}`}
                                     </span>
                                     {/* 🎙️ صوتٌ سجّله الليدر بالوكالة — لا يُنسَب لصاحبه ظلماً */}
@@ -1177,7 +1184,7 @@ export default function DisplayDayView({ roomId, players, initialDiscussionState
                             </div>
 
                             {hiddenCount > 0 && (
-                              <div className="text-center mt-2 text-[12px] font-mono" style={{ color: hue }}>
+                              <div className="text-center mt-2 font-mono" style={{ color: hue, fontSize: 'clamp(13px, 1vw, 20px)' }}>
                                 +{hiddenCount} آخرين
                               </div>
                             )}

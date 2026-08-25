@@ -18,6 +18,7 @@ import { playGameSound, playAmbientSound, stopAmbientSound, stopOneShotSounds, p
 import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
+import SoundMixer from './SoundMixer';
 
 interface ActiveGame {
   roomId: string;
@@ -175,6 +176,7 @@ export default function LeaderPage() {
 
   // ── 🔊 أصوات شاشة الليدر (افتراضي مُفعّل) ──
   const [leaderSoundOn, setLeaderSoundOn] = useState(true);
+  const [mixerOpen, setMixerOpen] = useState(false);   // 🎚️ لوحة المستويات
   const leaderSoundOnRef = useRef(true);
   useEffect(() => { leaderSoundOnRef.current = leaderSoundOn; }, [leaderSoundOn]);
   const lastVoteCountRef = useRef(0);
@@ -305,7 +307,7 @@ export default function LeaderPage() {
     const roomId = gameState?.roomId;
     if (!roomId) return;
     setSoundMirror((p) => {
-      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args }); } catch {}
+      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args, vol: p.vol }); } catch {}
     });
     return () => setSoundMirror(null);
   }, [gameState?.roomId]);
@@ -1699,11 +1701,20 @@ export default function LeaderPage() {
       })}
       title={leaderSoundOn ? 'كتم صوت هذا الجهاز فقط (القاعة تبقى تسمع)' : 'تشغيل صوت هذا الجهاز'}
       aria-label={leaderSoundOn ? 'كتم الصوت' : 'تشغيل الصوت'}
-      className={`fixed bottom-4 left-4 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors ${leaderSoundOn ? 'bg-[#0f2a1a]/80 border-emerald-600/40 text-emerald-300' : 'bg-[#2a0f0f]/80 border-red-700/40 text-red-300'}`}
+      className={`fixed bottom-4 left-4 z-[60] w-11 h-11 rounded-full flex items-center justify-center text-lg border backdrop-blur-sm shadow-lg transition-colors relative ${leaderSoundOn ? 'bg-[#0f2a1a]/80 border-emerald-600/40 text-emerald-300' : 'bg-[#2a0f0f]/80 border-red-700/40 text-red-300'}`}
     >
       {leaderSoundOn ? '🔊' : '🔇'}
+      {/* 🔴 مقبضٌ ملتصق لا زرٌّ ثانٍ في رأسٍ مزدحم: النقر يكتم، وهذا يفتح المستويات */}
+      <span
+        role="button" tabIndex={0} aria-label="مستويات الصوت" title="مستويات الصوت"
+        onClick={(e) => { e.stopPropagation(); setMixerOpen(v => !v); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setMixerOpen(v => !v); } }}
+        className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full grid place-items-center text-[9px] bg-[#0a0a0a] border border-[#C5A059]/45 text-[#C5A059] hover:bg-[#C5A059]/20"
+      >🎚</span>
     </button>
   );
+
+  const soundMixerPanel = <SoundMixer open={mixerOpen} onClose={() => setMixerOpen(false)} />;
 
   // 🔊 تنويه نغمة النصر — تُعزف على شاشة القاعة، وهذا إشعار للّيدر فقط
   const stingNoticeBadge = stingNotice ? (
@@ -2075,6 +2086,7 @@ export default function LeaderPage() {
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
           {stingNoticeBadge}
+      {soundMixerPanel}
           {mafiaChatBtn}
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2a2a]/60 bg-[#050505]/70 backdrop-blur-sm shrink-0">
@@ -3335,6 +3347,7 @@ export default function LeaderPage() {
         <div className="relative z-10 w-full h-full flex flex-col flex-1">
           {soundToggleBtn}
           {stingNoticeBadge}
+      {soundMixerPanel}
           {mafiaChatBtn}
           {mafiaChatModal}
           {/* 🎁 مودال اختيار رابح — مشترك (كلّ المراحل) */}

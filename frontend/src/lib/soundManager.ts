@@ -28,7 +28,7 @@ function trackOneShot(a: HTMLAudioElement): void {
 // - الـ impl الداخلية (_fn) تستدعي بعضها فقط ⇒ بثّ واحد بالضبط لكل نداء، بلا حلقة.
 // - المُستقبِل (الليدر) لا يُسجّل باعثاً ⇒ applyRemoteSound تستدعي impl مباشرةً بلا بثّ راجع.
 // ══════════════════════════════════════════════════════
-type MirrorPayload = { fn: string; args: any[] };
+type MirrorPayload = { fn: string; args: any[]; vol?: number };
 let mirrorEmit: ((p: MirrorPayload) => void) | null = null;
 
 export function setSoundMirror(cb: ((p: MirrorPayload) => void) | null): void {
@@ -176,18 +176,99 @@ export async function reloadSoundMap(): Promise<void> {
 // ══════════════════════════════════════════════════════
 export function playGameSound(eventKey: string): void {
   if (!localPlaybackEnabled) return;
-  mirrorEmit?.({ fn: 'playGameSound', args: [eventKey] });
+  mirrorEmit?.({ fn: 'playGameSound', args: [eventKey], vol: resolveVol(eventKey) });
   if (!localMuted) _playGameSound(eventKey);
 }
 // ── مستوى الصوت لكل مفتاح (افتراضي 0.7) — أصوات المؤقّت/التصويت بمستوى كامل؛ تنبيه الليدر مخفّض لطيف ──
 const VOLUME_BY_KEY: Record<string, number> = {
   timer_tick: 1.0, timer_heartbeat_fast: 1.0, timer_heartbeat_slow: 0.9, timer_buzzer: 1.0,
   vote_cast: 1.0, vote_shift: 0.9, voting_complete: 0.9,
-  leader_gallery_alert: 0.5,
+  leader_gallery_alert: 0.5, leader_departure_alert: 0.6,
 };
 
+
+// ══════════════════════════════════════════════════════
+// 🎚️ مازج الصوت — خمس فئات، لكلٍّ مستوى
+//
+// 🔴 المستوى **حاصل ضرب** لا استبدال: `فئة × مفتاح`. خفضُ فئة المؤقّت إلى
+//    النصف يُبقي التدرّج بين التكّة (1.0) والنبض البطيء (0.9) بدل أن يسوّيهما.
+//
+// 🔴 والمقابض تضبط **القاعة والموجّه معاً** (قرار المالك): المستوى يُحسب عند
+//    الموجّه ويُرسَل مع البثّ فتُشغّله الشاشة به. مقبضٌ واحدٌ لكلّ فئة ولا حيرة
+//    أيّهما يعمل. وزرّ الكتم يبقى لحالته الخاصّة: «كتم جهازي والقاعة تسمع».
+//
+// 🔴 والفئتان الأخيرتان تنبيهان للموجّه وحده — لا تُبثّان للقاعة أصلاً
+//    (playLocalSound لا يمرّ بالمرآة)، فمستواهما شأن أذنه لا شأن الطاولة.
+// ══════════════════════════════════════════════════════
+
+export type SoundCategory = 'alerts' | 'victory' | 'timer' | 'departure' | 'gallery';
+
+export const SOUND_CATEGORIES: { key: SoundCategory; labelAr: string; icon: string; hallToo: boolean }[] = [
+  { key: 'alerts',    labelAr: 'التنبيهات العامّة',  icon: '🔔', hallToo: true },
+  { key: 'victory',   labelAr: 'موسيقى الفوز',      icon: '🏆', hallToo: true },
+  { key: 'timer',     labelAr: 'المؤقّت والصافرة',   icon: '⏱️', hallToo: true },
+  { key: 'departure', labelAr: 'خروجٌ من التطبيق',  icon: '🚪', hallToo: false },
+  { key: 'gallery',   labelAr: 'فتح قائمة المافيا', icon: '🎭', hallToo: false },
+];
+
+const DEFAULT_LEVELS: Record<SoundCategory, number> = {
+  alerts: 0.70, victory: 0.90, timer: 1.00, departure: 0.45, gallery: 0.35,
+};
+
+/** المفاتيح التي لا تقع في «التنبيهات العامّة». ما عداها يقع فيها. */
+const CATEGORY_OF: Record<string, SoundCategory> = {
+  win_mafia: 'victory', win_citizen: 'victory', win_assassin: 'victory',
+  win_jester: 'victory', birthday_song: 'victory',
+  timer_tick: 'timer', timer_heartbeat_slow: 'timer',
+  timer_heartbeat_fast: 'timer', timer_buzzer: 'timer',
+  leader_departure_alert: 'departure',
+  leader_gallery_alert: 'gallery',
+};
+
+export function categoryOf(eventKey: string): SoundCategory {
+  return CATEGORY_OF[eventKey] ?? 'alerts';
+}
+
+const LEVELS_KEY = 'mafia_sound_levels';
+let levels: Record<SoundCategory, number> = { ...DEFAULT_LEVELS };
+
+(function loadLevels() {
+  try {
+    const raw = localStorage.getItem(LEVELS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    for (const c of SOUND_CATEGORIES) {
+      const v = parsed?.[c.key];
+      if (typeof v === 'number' && v >= 0 && v <= 1) levels[c.key] = v;
+    }
+  } catch { /* تصفّح خاصّ أو قيمة تالفة — تبقى الافتراضيّات */ }
+})();
+
+export function getSoundLevels(): Record<SoundCategory, number> { return { ...levels }; }
+export function getDefaultSoundLevels(): Record<SoundCategory, number> { return { ...DEFAULT_LEVELS }; }
+
+export function setSoundLevel(cat: SoundCategory, v: number): void {
+  levels[cat] = Math.max(0, Math.min(1, v));
+  try { localStorage.setItem(LEVELS_KEY, JSON.stringify(levels)); } catch { /* تصفّح خاصّ */ }
+}
+
+export function resetSoundLevels(): void {
+  levels = { ...DEFAULT_LEVELS };
+  try { localStorage.setItem(LEVELS_KEY, JSON.stringify(levels)); } catch { /* تصفّح خاصّ */ }
+}
+
+// 🔴 المستوى الواصل من الموجّه يعلو حساب الشاشة: الشاشة جهازٌ آخر بلا إعدادات
+//    الموجّه، فلو حسبت بنفسها لسمعت القاعة مستوىً غير الذي ضبطه.
+let volOverride: number | null = null;
+
+/** المستوى النهائيّ لمفتاح — أو ما فرضه الموجّه إن كنّا شاشةً تابعة. */
+function resolveVol(eventKey: string): number {
+  if (volOverride != null) return volOverride;
+  return levels[categoryOf(eventKey)] * (VOLUME_BY_KEY[eventKey] ?? 0.7);
+}
+
 function _playGameSound(eventKey: string): void {
-  const vol = VOLUME_BY_KEY[eventKey] ?? 0.7;
+  const vol = resolveVol(eventKey);
   // أولاً: فحص الأصوات المخصصة
   if (customSoundMap[eventKey]) {
     try {
@@ -209,8 +290,8 @@ function _playGameSound(eventKey: string): void {
     } catch {}
   }
 
-  // ثانياً: تشغيل الصوت الافتراضي (Web Audio API)
-  playDefaultSound(eventKey);
+  // ثانياً: تشغيل الصوت الافتراضي (Web Audio API) — بنفس المستوى المحسوب
+  playDefaultSound(eventKey, vol);
 }
 
 // ══════════════════════════════════════════════════════
@@ -218,7 +299,7 @@ function _playGameSound(eventKey: string): void {
 // ══════════════════════════════════════════════════════
 export function playAmbientSound(eventKey: string): void {
   if (!localPlaybackEnabled) return;
-  mirrorEmit?.({ fn: 'playAmbientSound', args: [eventKey] });
+  mirrorEmit?.({ fn: 'playAmbientSound', args: [eventKey], vol: resolveVol(eventKey) });
   if (!localMuted) _playAmbientSound(eventKey);
 }
 function _playAmbientSound(eventKey: string): void {
@@ -304,7 +385,7 @@ function _unduckAmbient(): void {
 // ══════════════════════════════════════════════════════
 export function playEventSound(eventKey: string, durationMs: number = 3000): void {
   if (!localPlaybackEnabled) return;
-  mirrorEmit?.({ fn: 'playEventSound', args: [eventKey, durationMs] });
+  mirrorEmit?.({ fn: 'playEventSound', args: [eventKey, durationMs], vol: resolveVol(eventKey) });
   if (!localMuted) _playEventSound(eventKey, durationMs);
 }
 function _playEventSound(eventKey: string, durationMs: number = 3000): void {
@@ -385,10 +466,28 @@ function _playNightStepAmbient(stepType: string): void {
 // ══════════════════════════════════════════════════════
 // 🔊 الأصوات الافتراضية (Web Audio API Fallback)
 // ══════════════════════════════════════════════════════
-function playDefaultSound(eventKey: string): void {
+// ════════════════════════════════════════
+// 🎚️ بوّابة الكسب — كي يسمع المستوى صوتُ Web Audio أيضاً
+//
+// 🔴 كانت الأصوات الافتراضيّة (٣٥ موضعاً) تصل ctx.destination مباشرةً،
+//    فالمستوى يُطبّق على الملفّات المرفوعة وحدها. أيّ صوتٍ بلا ملفّ
+//    مخصّص كان يتجاهل المازج تماماً — فيبدو المقبض معطّلاً وهو يعمل.
+//
+//    وعقدة الكسب **لكلّ نداء** لا واحدةٌ مشتركة: الأصوات تتداخل،
+//    ومقبضٌ مشترك كان سيغيّر مستوى صوتٍ ما زال يعمل. وبناء الرسم
+//    متزامنٌ داخل النداء، فالعقدة الجارية صحيحةٌ طوال بنائه.
+// ════════════════════════════════════════
+let callGain: GainNode | null = null;
+function dest(ctx: AudioContext): AudioNode { return callGain ?? ctx.destination; }
+
+function playDefaultSound(eventKey: string, vol: number = 1): void {
   try {
     const ctx = getAudioCtx();
     if (!ctx) return;
+    const g = ctx.createGain();
+    g.gain.value = Math.max(0, Math.min(1, vol));
+    g.connect(ctx.destination);
+    callGain = g;
 
     switch (eventKey) {
       // ── أحداث الليل ──
@@ -396,7 +495,7 @@ function playDefaultSound(eventKey: string): void {
       case 'morning_assassination_success': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(800, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.3);
@@ -410,7 +509,7 @@ function playDefaultSound(eventKey: string): void {
       case 'morning_protection_success': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(1200, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.5);
@@ -425,7 +524,7 @@ function playDefaultSound(eventKey: string): void {
       case 'morning_snipe_citizen': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'square';
         osc.frequency.setValueAtTime(2000, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.15);
@@ -438,7 +537,7 @@ function playDefaultSound(eventKey: string): void {
       case 'night_investigation': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(60, ctx.currentTime);
         gain.gain.setValueAtTime(0.2, ctx.currentTime);
@@ -452,7 +551,7 @@ function playDefaultSound(eventKey: string): void {
       case 'morning_silenced': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(200, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.6);
@@ -466,7 +565,7 @@ function playDefaultSound(eventKey: string): void {
       case 'card_flip_godfather': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(120, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.8);
@@ -479,7 +578,7 @@ function playDefaultSound(eventKey: string): void {
       case 'card_flip_sheriff': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(523, ctx.currentTime);
         osc.frequency.setValueAtTime(659, ctx.currentTime + 0.15);
@@ -493,7 +592,7 @@ function playDefaultSound(eventKey: string): void {
       case 'card_flip_mafia': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'square';
         osc.frequency.setValueAtTime(200, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.4);
@@ -506,7 +605,7 @@ function playDefaultSound(eventKey: string): void {
       case 'card_flip_citizen': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(440, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15);
@@ -527,7 +626,7 @@ function playDefaultSound(eventKey: string): void {
           gain.gain.setValueAtTime(0, ctx.currentTime + start);
           gain.gain.linearRampToValueAtTime(0.15, ctx.currentTime + start + 0.1);
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-          osc.connect(gain).connect(ctx.destination);
+          osc.connect(gain).connect(dest(ctx));
           osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur);
         };
         playDarkNote(110, 0, 2); playDarkNote(92, 0.3, 2); playDarkNote(82, 0.6, 2.5);
@@ -544,7 +643,7 @@ function playDefaultSound(eventKey: string): void {
           gain.gain.setValueAtTime(0, ctx.currentTime + start);
           gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + start + 0.05);
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-          osc.connect(gain).connect(ctx.destination);
+          osc.connect(gain).connect(dest(ctx));
           osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur);
         };
         [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => playBrightNote(f, i * 0.25, 0.6));
@@ -564,7 +663,7 @@ function playDefaultSound(eventKey: string): void {
           gain.gain.setValueAtTime(0, ctx.currentTime + start);
           gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + start + 0.05);
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-          osc.connect(gain).connect(ctx.destination);
+          osc.connect(gain).connect(dest(ctx));
           osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur);
         };
         [440, 880, 330, 660, 550, 1100, 220].forEach((f, i) => playJesterNote(f, i * 0.2, 0.4));
@@ -582,7 +681,7 @@ function playDefaultSound(eventKey: string): void {
           osc.frequency.exponentialRampToValueAtTime(freq * 0.3, ctx.currentTime + start + dur);
           gain.gain.setValueAtTime(0.2, ctx.currentTime + start);
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-          osc.connect(gain).connect(ctx.destination);
+          osc.connect(gain).connect(dest(ctx));
           osc.start(ctx.currentTime + start); osc.stop(ctx.currentTime + start + dur);
         };
         [600, 500, 400, 300, 200].forEach((f, i) => playStabNote(f, i * 0.3, 0.4));
@@ -594,7 +693,7 @@ function playDefaultSound(eventKey: string): void {
       case 'timer_heartbeat_slow': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(80, ctx.currentTime);
         gain.gain.setValueAtTime(0.4, ctx.currentTime);
@@ -605,7 +704,7 @@ function playDefaultSound(eventKey: string): void {
         // نقرة عالية مسموعة
         const click = ctx.createOscillator();
         const cg = ctx.createGain();
-        click.connect(cg); cg.connect(ctx.destination);
+        click.connect(cg); cg.connect(dest(ctx));
         click.type = 'triangle';
         click.frequency.setValueAtTime(700, ctx.currentTime);
         cg.gain.setValueAtTime(0.18, ctx.currentTime);
@@ -617,7 +716,7 @@ function playDefaultSound(eventKey: string): void {
       case 'timer_heartbeat_fast': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(90, ctx.currentTime);
         gain.gain.setValueAtTime(0.6, ctx.currentTime);
@@ -628,7 +727,7 @@ function playDefaultSound(eventKey: string): void {
         // نقرة عالية حادّة — تُسمع بوضوح في القاعة
         const click = ctx.createOscillator();
         const cg = ctx.createGain();
-        click.connect(cg); cg.connect(ctx.destination);
+        click.connect(cg); cg.connect(dest(ctx));
         click.type = 'square';
         click.frequency.setValueAtTime(950, ctx.currentTime);
         cg.gain.setValueAtTime(0.3, ctx.currentTime);
@@ -641,7 +740,7 @@ function playDefaultSound(eventKey: string): void {
         // نقرة مزدوجة الطبقات — أعلى وأوضح من السابق بكثير
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'square';
         osc.frequency.setValueAtTime(1100, ctx.currentTime);
         gain.gain.setValueAtTime(0.45, ctx.currentTime);
@@ -649,7 +748,7 @@ function playDefaultSound(eventKey: string): void {
         osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.09);
         const osc2 = ctx.createOscillator();
         const g2 = ctx.createGain();
-        osc2.connect(g2); g2.connect(ctx.destination);
+        osc2.connect(g2); g2.connect(dest(ctx));
         osc2.type = 'sine';
         osc2.frequency.setValueAtTime(2200, ctx.currentTime);
         g2.gain.setValueAtTime(0.18, ctx.currentTime);
@@ -662,7 +761,7 @@ function playDefaultSound(eventKey: string): void {
         // صافرة نهاية أقوى وأطول — طبقتان متنافرتان للإلحاح
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'square';
         osc.frequency.setValueAtTime(180, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 1.1);
@@ -671,7 +770,7 @@ function playDefaultSound(eventKey: string): void {
         osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.1);
         const osc2 = ctx.createOscillator();
         const g2 = ctx.createGain();
-        osc2.connect(g2); g2.connect(ctx.destination);
+        osc2.connect(g2); g2.connect(dest(ctx));
         osc2.type = 'sawtooth';
         osc2.frequency.setValueAtTime(360, ctx.currentTime);
         osc2.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 1.0);
@@ -682,11 +781,29 @@ function playDefaultSound(eventKey: string): void {
       }
 
       // ── 🕵️ تنبيه الليدر: لاعب فتح قائمة التعرف على المافيا — ثلاث نغمات صاعدة حادّة ──
+      // 🚪 خروجٌ من التطبيق — نغمةٌ **نازلة** تميّزه عن فتح القائمة (صاعدة).
+      //    المعنى في الاتّجاه: يصعد = فُتح شيء، ينزل = خرج أحد. فيميّزهما
+      //    الموجّه بأذنه دون أن ينظر — وكانا نغمةً واحدة لحدثَين مختلفَين تماماً.
+      case 'leader_departure_alert': {
+        [740, 555, 415].forEach((f, i) => {
+          const osc = ctx.createOscillator();
+          const g2 = ctx.createGain();
+          osc.connect(g2); g2.connect(dest(ctx));
+          osc.type = 'triangle';
+          const at = ctx.currentTime + i * 0.14;
+          osc.frequency.setValueAtTime(f, at);
+          g2.gain.setValueAtTime(0.34, at);
+          g2.gain.exponentialRampToValueAtTime(0.001, at + 0.17);
+          osc.start(at); osc.stop(at + 0.17);
+        });
+        break;
+      }
+
       case 'leader_gallery_alert': {
         [880, 1320, 1760].forEach((f, i) => {
           const osc = ctx.createOscillator();
           const g = ctx.createGain();
-          osc.connect(g); g.connect(ctx.destination);
+          osc.connect(g); g.connect(dest(ctx));
           osc.type = 'square';
           osc.frequency.setValueAtTime(f, ctx.currentTime + i * 0.16);
           g.gain.setValueAtTime(0.4, ctx.currentTime + i * 0.16);
@@ -700,7 +817,7 @@ function playDefaultSound(eventKey: string): void {
       case 'vote_cast': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(800, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
@@ -713,7 +830,7 @@ function playDefaultSound(eventKey: string): void {
       case 'vote_shift': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(150, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.3);
@@ -727,7 +844,7 @@ function playDefaultSound(eventKey: string): void {
       case 'bomb_explosion': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(150, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 1);
@@ -737,7 +854,7 @@ function playDefaultSound(eventKey: string): void {
         // طبقة ثانية — رنين
         const osc2 = ctx.createOscillator();
         const gain2 = ctx.createGain();
-        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc2.connect(gain2); gain2.connect(dest(ctx));
         osc2.type = 'square';
         osc2.frequency.setValueAtTime(80, ctx.currentTime);
         osc2.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.8);
@@ -751,7 +868,7 @@ function playDefaultSound(eventKey: string): void {
       case 'night_assassin': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(600, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.4);
@@ -765,7 +882,7 @@ function playDefaultSound(eventKey: string): void {
       case 'morning_assassin_kill': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sawtooth';
         osc.frequency.setValueAtTime(900, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.5);
@@ -779,7 +896,7 @@ function playDefaultSound(eventKey: string): void {
       case 'morning_policewoman': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(880, ctx.currentTime);
         osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
@@ -794,7 +911,7 @@ function playDefaultSound(eventKey: string): void {
       case 'day_tie': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(440, ctx.currentTime);
         osc.frequency.setValueAtTime(440, ctx.currentTime + 0.3);
@@ -804,7 +921,7 @@ function playDefaultSound(eventKey: string): void {
         // نغمة ثانية
         const osc2 = ctx.createOscillator();
         const gain2 = ctx.createGain();
-        osc2.connect(gain2); gain2.connect(ctx.destination);
+        osc2.connect(gain2); gain2.connect(dest(ctx));
         osc2.type = 'triangle';
         osc2.frequency.setValueAtTime(440, ctx.currentTime + 0.5);
         gain2.gain.setValueAtTime(0.15, ctx.currentTime + 0.5);
@@ -817,7 +934,7 @@ function playDefaultSound(eventKey: string): void {
       case 'day_show_silenced': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(300, ctx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.4);
@@ -831,7 +948,7 @@ function playDefaultSound(eventKey: string): void {
       case 'voting_complete': {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(dest(ctx));
         osc.type = 'sine';
         osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
         osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1); // E5
@@ -849,7 +966,11 @@ function playDefaultSound(eventKey: string): void {
       default:
         break;
     }
-  } catch (_) {}
+  } catch (_) {
+    /* صامت */
+  } finally {
+    callGain = null;
+  }
 }
 
 // ══════════════════════════════════════════════════════
@@ -872,7 +993,7 @@ function _playDrumroll(): void {
     for (let i = 0; i < 20; i++) {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
+      osc.connect(gain); gain.connect(dest(ctx));
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(100 + i * 3, ctx.currentTime + i * 0.06);
       gain.gain.setValueAtTime(0.06 + i * 0.005, ctx.currentTime + i * 0.06);
@@ -901,7 +1022,7 @@ function _playImpactBoom(): void {
     if (!ctx) return;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(dest(ctx));
     osc.type = 'sine';
     osc.frequency.setValueAtTime(80, ctx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.3);
@@ -929,9 +1050,14 @@ const REMOTE_SOUND_FNS: Record<string, (...a: any[]) => void> = {
   playImpactBoom: _playImpactBoom,
 };
 
-export function applyRemoteSound(payload: { fn: string; args?: any[] }): void {
+export function applyRemoteSound(payload: { fn: string; args?: any[]; vol?: number }): void {
   try {
+    // 🔴 مستوى الموجّه يعلو حساب الشاشة: هي جهازٌ آخر بلا إعداداته،
+    //    فلو حسبت بنفسها لسمعت القاعة مستوىً غير الذي ضبطه.
+    volOverride = typeof payload?.vol === 'number' ? Math.max(0, Math.min(1, payload.vol)) : null;
     const fn = REMOTE_SOUND_FNS[payload?.fn];
     if (fn) fn(...(payload.args || []));
-  } catch { /* صامت */ }
+  } catch { /* صامت */ } finally {
+    volOverride = null;
+  }
 }

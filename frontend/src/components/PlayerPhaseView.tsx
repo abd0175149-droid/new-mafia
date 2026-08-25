@@ -63,6 +63,9 @@ export default function PlayerPhaseView({
   const [hasWithdrawn, setHasWithdrawn] = useState(false);
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [withdrawalNeeded, setWithdrawalNeeded] = useState(0);
+  // 🗳️ قائمة من سحب — لم تكن محفوظةً إطلاقاً: كان يُقرأ منها سطرٌ واحد
+  //    (هل سحبتُ أنا؟) ثمّ تُرمى. والقائمة هي ما يجعل الشرائح تحيا.
+  const [withdrawalWithdrawn, setWithdrawalWithdrawn] = useState<any[]>([]);
   // Ref لحماية حالة السحب من التصفير بواسطة الـ polling أو fetchLatestState
   const withdrawalActiveRef = useRef(false);
 
@@ -181,6 +184,7 @@ export default function PlayerPhaseView({
           setWithdrawalActive(true);
           setWithdrawalCount(res.withdrawalState.count || 0);
           setWithdrawalNeeded(res.withdrawalState.needed || 0);
+          setWithdrawalWithdrawn(Array.isArray(res.withdrawalState.withdrawn) ? res.withdrawalState.withdrawn : []);
           if (res.withdrawalState.withdrawn?.some((id: any) => String(id) === String(currentMyId))) {
             setHasWithdrawn(true);
           } else {
@@ -248,6 +252,7 @@ export default function PlayerPhaseView({
       setWithdrawalActive(true);
       setWithdrawalCount(pollData.withdrawalState.count || 0);
       setWithdrawalNeeded(pollData.withdrawalState.needed || 0);
+      setWithdrawalWithdrawn(Array.isArray(pollData.withdrawalState.withdrawn) ? pollData.withdrawalState.withdrawn : []);
       const myId = getLatestMyId();
       if (pollData.withdrawalState.withdrawn?.some((id: any) => String(id) === String(myId))) {
         setHasWithdrawn(true);
@@ -366,6 +371,7 @@ export default function PlayerPhaseView({
       if (data && data.accused) {
         setJustificationData(data);
         // تصفير كامل لحالة السحب عند بدء تبرير جديد
+        setWithdrawalWithdrawn([]);
         withdrawalActiveRef.current = false;
         setWithdrawalActive(false);
         setHasWithdrawn(false);
@@ -472,6 +478,8 @@ export default function PlayerPhaseView({
     const c11 = on('day:withdrawal-update', (data: any) => {
       setWithdrawalCount(data?.count || 0);
       setWithdrawalNeeded(data?.needed || 0);
+      // 🗳️ القائمة لحظيّة — الشرائح تُشطب لحظة يسحب أيّ لاعب، بلا استطلاع
+      setWithdrawalWithdrawn(Array.isArray(data?.withdrawn) ? data.withdrawn : []);
       // تحقق هل أنا ضمن الذين سحبوا
       const myId = getLatestMyId();
       if (data?.withdrawn?.some((id: any) => String(id) === String(myId))) {
@@ -986,6 +994,57 @@ export default function PlayerPhaseView({
               <p className="text-white font-bold text-lg">{info?.name || a.name || `لاعب #${a.targetPhysicalId}`}</p>
               <p className="text-red-400 text-xs font-bold mt-1">{topVotes} صوت ضده</p>
               {a.canJustify && <p className="text-yellow-500 text-xs mt-2">🎙️ يبرر الآن...</p>}
+
+              {/* ── 🗳️ من صوّت عليه — يصل جهاز اللاعب لأوّل مرّة ──
+                  البيانات كلّها في justificationData وكانت تُستعمل لسطرٍ واحد:
+                  «هل صوّتُّ أنا». اشتقاقها هنا بلا حقلٍ جديد من الخادم. */}
+              {(() => {
+                const votes = justificationData?.playerVotes || {};
+                const cands = justificationData?.candidates || [];
+                const proxies = justificationData?.leaderProxyVotes || {};
+                const withdrawnIds: any[] = withdrawalWithdrawn || [];
+
+                const voters: number[] = [];
+                for (const [voterIdStr, idx] of Object.entries(votes)) {
+                  const cand = cands[idx as number];
+                  if (cand && cand.targetPhysicalId === a.targetPhysicalId) voters.push(parseInt(voterIdStr));
+                }
+                if (voters.length === 0) return null;
+
+                return (
+                  <div className="mt-3 pt-3 border-t border-red-500/15">
+                    <p className="text-[10.5px] text-red-300/70 mb-2 font-bold">
+                      صوّت عليه {voters.length} — بالأسماء
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 justify-center">
+                      {voters.map(vid => {
+                        const vp = votingPlayersInfo.find((p: any) => p.physicalId === vid);
+                        const gone = withdrawnIds.some((w: any) => String(w) === String(vid));
+                        const mine = String(vid) === String(myId);
+                        const proxy = !!proxies[vid];
+                        return (
+                          <span key={vid}
+                            className={`inline-flex items-center gap-1.5 rounded-full border text-[11.5px] font-bold px-2.5 py-1 ${
+                              gone
+                                ? 'bg-black/40 border-white/10 text-[#5a5a5a] line-through'
+                                : mine
+                                  ? 'bg-[#C5A059]/20 border-[#C5A059]/60 text-[#e8d5aa]'
+                                  : 'bg-red-500/12 border-red-500/35 text-red-100'
+                            }`}>
+                            <b className={`inline-grid place-items-center w-5 h-5 rounded-full text-[10px] font-mono ${
+                              gone ? 'bg-white/5 text-[#666]' : mine ? 'bg-[#C5A059] text-black' : 'bg-red-500/70 text-white'
+                            }`}>{vid}</b>
+                            <span className="max-w-[7.5rem] truncate">{vp?.name || `#${vid}`}</span>
+                            {mine && !gone && <span className="text-[9px] opacity-80">أنت</span>}
+                            {proxy && !gone && <span className="text-[9px] opacity-70">وكالة</span>}
+                            {gone && <span className="text-[9px]">سحب</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </motion.div>
           );
         })}

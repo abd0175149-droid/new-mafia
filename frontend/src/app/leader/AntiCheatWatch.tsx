@@ -491,7 +491,15 @@ export function AntiCheatProvider({
       if (!d || d.roomId !== roomId) return;
 
       // 🔔 صوتٌ محليّ على جهاز الليدر وحده (لا يُبثّ للقاعة حتى لا ينكشف التنبيه)
-      try { if (soundOnRef.current?.()) playLocalSound('leader_gallery_alert'); } catch { /* الصوت لا يحجب */ }
+      // 🔴 مفتاحٌ خاصّ بالخروج لا مفتاح فتح القائمة: كانا نغمةً واحدة،
+      //    فيسمع الموجّه صوتاً واحداً لحدثَين مختلفَين ولا يعرف أيّهما وقع إلّا بالنظر.
+      //    والفصل شرطٌ لفصل مستواهما في المازج.
+      try {
+        if (soundOnRef.current?.()) {
+          playLocalSound(d.kind === 'app_left' || d.kind === 'app_departure'
+            ? 'leader_departure_alert' : 'leader_gallery_alert');
+        }
+      } catch { /* الصوت لا يحجب */ }
 
       // ⚡ تنبيهٌ فوريٌّ بلا أزرار — يُسمّي المقعد واللاعب وما جرى
       const seat = Number(d.physicalId);
