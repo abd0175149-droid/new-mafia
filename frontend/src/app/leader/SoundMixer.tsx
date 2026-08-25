@@ -20,8 +20,14 @@ import {
   getDefaultSoundLevels, playLocalSound, type SoundCategory,
 } from '@/lib/soundManager';
 
-/** صوتُ معاينةٍ ممثّلٌ لكلّ فئة — يُسمع الموجّه ما يضبطه بالضبط. */
-const PREVIEW: Record<SoundCategory, string> = {
+/**
+ * صوتُ معاينةٍ ممثّلٌ لكلّ فئة — يُسمع الموجّه ما يضبطه بالضبط.
+ *
+ * 🔴 فئتا الخلفيّة بلا معاينة عمداً: تشغيل فراشٍ للمعاينة **يوقف الفراش الجاري**
+ *    (_playAmbientSound يُسكت السابق) — أي أنّ ضغطة معاينةٍ وسط تصويتٍ حيّ
+ *    تقطع صوت القاعة. وهما لا تحتاجانها أصلاً: مستواهما يتغيّر **وهو يعمل**.
+ */
+const PREVIEW: Partial<Record<SoundCategory, string>> = {
   alerts: 'vote_cast',
   victory: 'win_citizen',
   timer: 'timer_buzzer',
@@ -59,7 +65,9 @@ export default function SoundMixer({ open, onClose }: { open: boolean; onClose: 
   };
 
   const preview = (cat: SoundCategory) => {
-    try { playLocalSound(PREVIEW[cat]); } catch { /* الصوت لا يحجب */ }
+    const key = PREVIEW[cat];
+    if (!key) return;
+    try { playLocalSound(key); } catch { /* الصوت لا يحجب */ }
   };
 
   const reset = () => {
@@ -112,10 +120,17 @@ export default function SoundMixer({ open, onClose }: { open: boolean; onClose: 
                   className="flex-1 accent-[#C5A059] h-1.5"
                   aria-label={c.labelAr}
                 />
-                <button onClick={() => preview(c.key)} title="استمع"
-                  className="shrink-0 w-7 h-7 rounded-lg border border-white/10 text-[11px] text-zinc-400 hover:text-white">
-                  ▶
-                </button>
+                {PREVIEW[c.key] ? (
+                  <button onClick={() => preview(c.key)} title="استمع"
+                    className="shrink-0 w-7 h-7 rounded-lg border border-white/10 text-[11px] text-zinc-400 hover:text-white">
+                    ▶
+                  </button>
+                ) : (
+                  <span title="يتغيّر مباشرةً أثناء التشغيل"
+                    className="shrink-0 w-7 h-7 rounded-lg border border-white/[0.06] grid place-items-center text-[11px] text-zinc-600">
+                    ●
+                  </span>
+                )}
               </div>
             </div>
           );
@@ -123,7 +138,8 @@ export default function SoundMixer({ open, onClose }: { open: boolean; onClose: 
       </div>
 
       <p className="px-3 pb-3 text-[10px] leading-relaxed text-zinc-600">
-        تُضبط القاعة وجهازك معاً. ولإسكات جهازك وحده مع بقاء القاعة تسمع — استعمل زرّ 🔊.
+        تُضبط القاعة وجهازك معاً. وأصوات الخلفيّة (● ) تتغيّر <b className="text-zinc-500">مباشرةً وهي تعمل</b>.
+        ولإسكات جهازك وحده مع بقاء القاعة تسمع — استعمل زرّ 🔊.
       </p>
     </div>
   );

@@ -39,6 +39,8 @@ const SOUND_MIRROR_FNS = new Set([
   'playGameSound', 'playAmbientSound', 'stopAmbientSound', 'duckAmbient', 'unduckAmbient',
   'playEventSound', 'playEliminationSound', 'playNightStepAmbient', 'playDrumroll', 'playImpactBoom',
   'stopOneShotSounds',
+  // 🎚️ تغيير مستوى فراش الخلفيّة وهو يعمل — لا ينفع مستوىً يسري على «المرّة القادمة»
+  'setAmbientVolume',
 ]);
 
 // 🔒 فتح مؤقّت للأدوات الحسّاسة (تعديل الأرقام/الأسماء) — يتطلب رقماً سرّياً يُضبط في env (RENUMBER_SECRET).

@@ -201,10 +201,12 @@ const VOLUME_BY_KEY: Record<string, number> = {
 //    (playLocalSound لا يمرّ بالمرآة)، فمستواهما شأن أذنه لا شأن الطاولة.
 // ══════════════════════════════════════════════════════
 
-export type SoundCategory = 'alerts' | 'victory' | 'timer' | 'departure' | 'gallery';
+export type SoundCategory = 'alerts' | 'ambientVote' | 'ambientNight' | 'victory' | 'timer' | 'departure' | 'gallery';
 
 export const SOUND_CATEGORIES: { key: SoundCategory; labelAr: string; icon: string; hallToo: boolean }[] = [
-  { key: 'alerts',    labelAr: 'التنبيهات العامّة',  icon: '🔔', hallToo: true },
+  { key: 'alerts',      labelAr: 'التنبيهات العامّة',   icon: '🔔', hallToo: true },
+  { key: 'ambientVote', labelAr: 'خلفيّة التصويت',      icon: '🗳️', hallToo: true },
+  { key: 'ambientNight',labelAr: 'خلفيّة الليل واللوبي', icon: '🌙', hallToo: true },
   { key: 'victory',   labelAr: 'موسيقى الفوز',      icon: '🏆', hallToo: true },
   { key: 'timer',     labelAr: 'المؤقّت والصافرة',   icon: '⏱️', hallToo: true },
   { key: 'departure', labelAr: 'خروجٌ من التطبيق',  icon: '🚪', hallToo: false },
@@ -212,7 +214,8 @@ export const SOUND_CATEGORIES: { key: SoundCategory; labelAr: string; icon: stri
 ];
 
 const DEFAULT_LEVELS: Record<SoundCategory, number> = {
-  alerts: 0.70, victory: 0.90, timer: 1.00, departure: 0.45, gallery: 0.35,
+  alerts: 0.70, ambientVote: 0.30, ambientNight: 0.30,
+  victory: 0.90, timer: 1.00, departure: 0.45, gallery: 0.35,
 };
 
 /** المفاتيح التي لا تقع في «التنبيهات العامّة». ما عداها يقع فيها. */
@@ -223,7 +226,23 @@ const CATEGORY_OF: Record<string, SoundCategory> = {
   timer_heartbeat_fast: 'timer', timer_buzzer: 'timer',
   leader_departure_alert: 'departure',
   leader_gallery_alert: 'gallery',
+  // 🔴 أصوات الخلفيّة تُفصَل عن التنبيهات: فراشٌ مستمرّ يزاحم الكلام
+  //    لا نغمةٌ عابرة، وحاجته للخفض مختلفة تماماً.
+  //    وخلفيّة التصويت وحدها لأنّها تعمل والطاولة تتكلّم وتتداول.
+  ambient_voting: 'ambientVote',
+  ambient_night: 'ambientNight',
+  ambient_lobby: 'ambientNight',
+  ambient_night_kill: 'ambientNight',
+  ambient_night_silence: 'ambientNight',
+  ambient_night_assassin: 'ambientNight',
+  ambient_night_snipe: 'ambientNight',
+  ambient_night_protect: 'ambientNight',
+  ambient_night_investigate: 'ambientNight',
 };
+
+/** المستوى الأساسيّ لفراش الخلفيّة قبل ضربه بالفئة (وعند الخفض التلقائيّ). */
+const AMBIENT_BASE = 1.0;
+const AMBIENT_DUCK = 0.27;   // 0.08/0.3 — نفس النسبة القديمة، محفوظةً كنسبة لا رقماً
 
 export function categoryOf(eventKey: string): SoundCategory {
   return CATEGORY_OF[eventKey] ?? 'alerts';
@@ -250,11 +269,34 @@ export function getDefaultSoundLevels(): Record<SoundCategory, number> { return 
 export function setSoundLevel(cat: SoundCategory, v: number): void {
   levels[cat] = Math.max(0, Math.min(1, v));
   try { localStorage.setItem(LEVELS_KEY, JSON.stringify(levels)); } catch { /* تصفّح خاصّ */ }
+  syncAmbientVolume(cat);
+}
+
+/**
+ * 🔴 فراش الخلفيّة يتغيّر **وهو يعمل**. خلاف النغمة العابرة، الفراش
+ * يستمرّ دقائق — فمستوىً يسري على «المرّة القادمة» لا ينفع موجّهاً
+ * يخفض صوتاً يزاحم الطاولة الآن. ويُبَثّ للقاعة فتتغيّر معه.
+ */
+function syncAmbientVolume(cat?: SoundCategory): void {
+  if (!ambientKey || !ambientAudio) return;
+  if (cat && categoryOf(ambientKey) !== cat) return;
+  const v = resolveVol(ambientKey) * AMBIENT_BASE;
+  try { ambientAudio.volume = Math.max(0, Math.min(1, v)); } catch { /* تجاهل */ }
+  mirrorEmit?.({ fn: 'setAmbientVolume', args: [], vol: v });
+}
+
+/** يُطبّق مستوى الموجّه على فراش الشاشة الجاري. */
+function _setAmbientVolume(): void {
+  if (!ambientAudio) return;
+  const v = volOverride;
+  if (typeof v !== 'number') return;
+  try { ambientAudio.volume = Math.max(0, Math.min(1, v)); } catch { /* تجاهل */ }
 }
 
 export function resetSoundLevels(): void {
   levels = { ...DEFAULT_LEVELS };
   try { localStorage.setItem(LEVELS_KEY, JSON.stringify(levels)); } catch { /* تصفّح خاصّ */ }
+  syncAmbientVolume();
 }
 
 // 🔴 المستوى الواصل من الموجّه يعلو حساب الشاشة: الشاشة جهازٌ آخر بلا إعدادات
@@ -310,7 +352,8 @@ function _playAmbientSound(eventKey: string): void {
     try {
       const audio = new Audio(`${API_URL}${customSoundMap[eventKey]}`);
       audio.loop = true;
-      audio.volume = 0.3;
+      // 🔴 من المازج لا ثابتاً 0.3: كان فراش الخلفيّة وحده خارج كلّ تحكّم
+      audio.volume = resolveVol(eventKey) * AMBIENT_BASE;
       audio.play().catch(() => {});
       ambientAudio = audio;
       ambientKey = eventKey;
@@ -364,8 +407,10 @@ export function duckAmbient(): void {
   if (!localMuted) _duckAmbient();
 }
 function _duckAmbient(): void {
-  if (ambientAudio) {
-    ambientAudio.volume = 0.08;
+  // 🔴 نسبةٌ من مستوى الفئة لا رقمٌ مطلق: من خفض الخلفيّة إلى ١٠٪
+  //    كان الخفض التلقائيّ **يرفعها** إلى 0.08 بدل أن يخفضها.
+  if (ambientAudio && ambientKey) {
+    ambientAudio.volume = resolveVol(ambientKey) * AMBIENT_BASE * AMBIENT_DUCK;
   }
 }
 
@@ -375,8 +420,8 @@ export function unduckAmbient(): void {
   if (!localMuted) _unduckAmbient();
 }
 function _unduckAmbient(): void {
-  if (ambientAudio) {
-    ambientAudio.volume = 0.3;
+  if (ambientAudio && ambientKey) {
+    ambientAudio.volume = resolveVol(ambientKey) * AMBIENT_BASE;
   }
 }
 
@@ -1048,6 +1093,7 @@ const REMOTE_SOUND_FNS: Record<string, (...a: any[]) => void> = {
   playNightStepAmbient: _playNightStepAmbient,
   playDrumroll: _playDrumroll,
   playImpactBoom: _playImpactBoom,
+  setAmbientVolume: _setAmbientVolume,
 };
 
 export function applyRemoteSound(payload: { fn: string; args?: any[]; vol?: number }): void {
