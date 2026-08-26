@@ -13,6 +13,7 @@ import ConfrontationControls from './ConfrontationControls';
 import InviteModal from './InviteModal';
 import RolesDeck from './RolesDeck';
 import MyTasksPanel from './MyTasksPanel';
+import OneNightAsk, { type OneNightStep } from './OneNightAsk';
 import PhaseLoading from '@/components/PhaseLoading';
 import RoomCodeCard from '@/components/RoomCodeCard';
 import { useGameState } from '@/hooks/useGameState';
@@ -167,6 +168,25 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // 🎭 أدوارُ هذه الطاولة — تُطلَب من الخادم عند كلّ فتحةٍ للدليل داخل اللعبة.
   //    `null` ⇒ لم تبدأ اللعبة بعد ⇒ يُعرض الكتالوج كاملاً (قرارُ المالك).
   const [rolesInPlay, setRolesInPlay] = useState<string[] | null>(null);
+
+  // ── 🌙 الليلةُ الواحدة ──────────────────────────────────
+  // 🔴 الخادمُ يرسل لكلّ مقعدٍ فعلَه هو وقائمتَه هو. لا «خطوةٌ جارية» تُسرَّب
+  //    لأنّه لا خطوات — التمويهُ بنيويٌّ لا مضاف.
+  const [oneNight, setOneNight] = useState<{ steps: OneNightStep[]; deadline: number | null } | null>(null);
+  const [oneNightSent, setOneNightSent] = useState(false);
+
+  const submitOneNight = useCallback(async (
+    picks: { abilityId: string | null; targetPhysicalId: number | null }[],
+  ): Promise<boolean> => {
+    try {
+      await emit('night:one-submit', { roomId, picks });
+      setOneNightSent(true);
+      return true;
+    } catch {
+      // 🔴 لا نُبقي الشاشةَ عالقة: فشلُ الشبكة يُبقي الزرَّ قابلاً للضغط ثانيةً
+      return false;
+    }
+  }, [emit, roomId]);
 
   // ── 🃏 فتحُ دليل الأدوار ───────────────────────────────
   // 🔴 يُسأل الخادمُ عن تركيبة الطاولة عند كلّ فتحة لا مرّةً واحدة: الأدوار
@@ -1785,6 +1805,13 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
     // 🔴 الخادم يبثّ للأحياء فقط، لكنّ الحدث قد يكون في الطريق لحظة الموت
     on('night:action-required', (d: any) => { if (isPlayerDeadRef.current) return; handleNightActionRequired(d); });
+    // 🌙 الليلةُ الواحدة — حمولةٌ واحدةٌ لكلّ لاعب
+    on('night:one-ask', (d: any) => {
+      if (isPlayerDeadRef.current) return;
+      if (!d || !Array.isArray(d.steps)) return;
+      setOneNight({ steps: d.steps, deadline: d.deadline ?? null });
+      setOneNightSent(false);
+    });
     on('nurse:activation-request', handleNurseActivation);
 
     return () => {
@@ -4228,6 +4255,25 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           !['LOBBY', 'ROLE_GENERATION', 'GAME_OVER'].includes(gamePhase || '')
         }
       />
+
+      {/* ══════════════════════════════════════════════════
+          🌙 الليلةُ الواحدة — تعلو شاشةَ الطابور القديمة
+          🔴 حارسان: المُقصى لا ليلَ له، والطورُ يجب أن يكون NIGHT — حمولةٌ
+             متأخّرةٌ بعد انتهاء الليل كانت ستُبقي الشاشةَ مفتوحةً على لا شيء.
+          ══════════════════════════════════════════════════ */}
+      {!isPlayerDead && oneNight && gamePhase === 'NIGHT' && (
+        <div className="fixed inset-0 z-[200] bg-gradient-to-b from-[#0a0812] via-[#070510] to-[#000]"
+          style={{ fontFamily: 'Amiri, serif' }}>
+          <div className="h-full safe-area-inset">
+            <OneNightAsk
+              steps={oneNight.steps}
+              deadline={oneNight.deadline}
+              submitted={oneNightSent}
+              onSubmit={submitOneNight}
+            />
+          </div>
+        </div>
+      )}
 
       {/* ══ Auto Night: شاشة الإجراء الليلي — تصميم مطابق للتصويت ══ */}
       {/* 🔴 حارس العرض الأخير: مُقصى ← لا قائمة اختيار مهما حملته الحالة */}

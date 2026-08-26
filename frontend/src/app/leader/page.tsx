@@ -19,6 +19,7 @@ import { getSocket } from '@/lib/socket';
 import { ROLE_NAMES } from '@/lib/constants';
 import { swalConfirm, swalHtmlConfirm, swalToast, swalAlert } from '@/lib/swal';
 import SoundMixer from './SoundMixer';
+import OneNightReview from './OneNightReview';
 
 interface ActiveGame {
   roomId: string;
@@ -111,6 +112,11 @@ export default function LeaderPage() {
     canSkip: boolean; timeoutSeconds: number; dispatched: boolean;
   } | null>(null);
   const [autoNightApproval, setAutoNightApproval] = useState<{choices: any[], nextIndex: number} | null>(null);
+  // ── 🌙 الليلةُ الواحدة ──────────────────────────────────
+  const [oneNight, setOneNight] = useState<{ deadline: number | null; acting: number; total: number } | null>(null);
+  const [oneNightProgress, setOneNightProgress] = useState<{ done: number; total: number } | null>(null);
+  const [oneNightReview, setOneNightReview] = useState<{ acting: any[]; idle: any[] } | null>(null);
+  const [oneNightBusy, setOneNightBusy] = useState(false);
   const [customNightTimer, setCustomNightTimer] = useState<number | null>(null);
 
   // Active game state
@@ -1111,6 +1117,21 @@ export default function LeaderPage() {
       setAutoNightStep(prev => prev ? { ...prev, dispatched: true } : null);
     });
     // مرحلة الموافقة من الليدر
+    // 🌙 الليلةُ الواحدة — ثلاثةُ أحداثٍ تحلّ محلّ دورة الطابور
+    const offOneStarted = on('night:one-started', (d: any) => {
+      setOneNight({ deadline: d?.deadline ?? null, acting: d?.acting ?? 0, total: d?.total ?? 0 });
+      setOneNightProgress({ done: 0, total: d?.total ?? 0 });
+      setOneNightReview(null);
+    });
+    const offOneProgress = on('night:one-progress', (d: any) => {
+      setOneNightProgress({ done: d?.done ?? 0, total: d?.total ?? 0 });
+    });
+    const offOneReview = on('night:one-review', (d: any) => {
+      setOneNightReview({ acting: d?.acting || [], idle: d?.idle || [] });
+      setOneNight(null);
+      if (leaderSoundOnRef.current) playLocalSound('vote_cast');
+    });
+
     const offAutoStepApproval = on('night:auto-step-approval', (data: any) => {
       console.log('⏸️ [Leader] night:auto-step-approval received', data);
       setAutoNightApproval(data);
@@ -1482,6 +1503,9 @@ export default function LeaderPage() {
       offPenaltyRecorded();
       offGalleryAlert();
       offTasksAlert();
+      offOneStarted();
+      offOneProgress();
+      offOneReview();
       offSoundsUpdated();
       offMorningEventSound();
       offShowSilencedSound();
@@ -3861,8 +3885,85 @@ export default function LeaderPage() {
                       )}
                     </div>
 
-                    {/* الخطوة الحالية */}
-                    {autoNightStep ? (
+                    {/* 🌙 مدخلُ الليلة الواحدة — زرٌّ صريحٌ لا تبديلٌ صامت.
+                        وضعُ الطابور يبقى عاملاً جنبه حتّى تُجرَّب على طاولةٍ حيّة. */}
+                    {!oneNight && !oneNightReview && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            const r = await emit('night:one-start', {
+                              roomId: gameState.roomId,
+                              durationSeconds: customNightTimer || 60,
+                            });
+                            if (!r?.success) setError(r?.error || 'تعذّر بدء الليلة');
+                          } catch (e: any) { setError(e.message); }
+                        }}
+                        className="w-full mb-3 py-3 rounded-xl font-black text-sm transition"
+                        style={{ background: 'linear-gradient(90deg,#1a1a1a,#111)', border: '1px solid rgba(197,160,89,.45)', color: '#C5A059' }}>
+                        🌙 ابدأ الليلة دفعةً واحدة
+                        <span className="block text-[10px] font-normal text-[#777] mt-0.5">
+                          يختار الجميعُ مرّةً · مراجعةٌ واحدة · بدل ستّ خطوات
+                        </span>
+                      </button>
+                    )}
+
+                    {/* ══════════════════════════════════════
+                        🌙 الليلةُ الواحدة — تعلو طابورَ الخطوات
+                        تحلّ محلّ ستِّ دوراتٍ من (ضغطة ← اختيار الجميع ← موافقة).
+                        ══════════════════════════════════════ */}
+                    {oneNightReview ? (
+                      <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-3">
+                        <OneNightReview
+                          acting={oneNightReview.acting}
+                          idle={oneNightReview.idle}
+                          alivePlayers={(gameState.players || []).filter((p: any) => p.isAlive)
+                            .map((p: any) => ({ physicalId: p.physicalId, name: p.name }))}
+                          busy={oneNightBusy}
+                          onApply={async (overrides) => {
+                            setOneNightBusy(true);
+                            try {
+                              const a = await emit('night:one-apply', { roomId: gameState.roomId, overrides });
+                              if (!a?.success) { setError(a?.error || 'فشل الاعتماد'); return; }
+                              const r = await emit('night:resolve', { roomId: gameState.roomId });
+                              if (!r?.success) { setError(r?.error || 'فشل حساب الليلة'); return; }
+                              setOneNightReview(null);
+                              setOneNightProgress(null);
+                            } catch (e: any) { setError(e.message); }
+                            finally { setOneNightBusy(false); }
+                          }}
+                        />
+                      </div>
+                    ) : oneNight ? (
+                      <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-4 text-center space-y-3">
+                        <p className="text-[#C5A059] font-black text-base" style={{ fontFamily: 'Amiri, serif' }}>
+                          🌙 الليلةُ جارية
+                        </p>
+                        <p className="text-[#808080] text-xs">
+                          {oneNight.acting} فعلاً حقيقيّاً — والبقيّةُ اختياراتٌ بلا أثر
+                        </p>
+                        {oneNightProgress && (
+                          <div>
+                            <p className="text-white font-mono text-2xl tabular-nums" dir="ltr">
+                              {oneNightProgress.done} / {oneNightProgress.total}
+                            </p>
+                            <p className="text-[10.5px] text-[#666]">أرسلوا اختيارَهم</p>
+                          </div>
+                        )}
+                        <button
+                          onClick={async () => {
+                            try {
+                              const r = await emit('night:one-close', { roomId: gameState.roomId });
+                              if (!r?.success) setError(r?.error || 'تعذّر الإنهاء');
+                            } catch (e: any) { setError(e.message); }
+                          }}
+                          className="w-full py-2.5 bg-[#1a1a1a] border border-[#C5A059]/40 text-[#C5A059] font-bold text-xs rounded-xl hover:bg-[#C5A059]/10 transition">
+                          ⏭️ أنهِ المهلة وانتقلْ للمراجعة
+                        </button>
+                        <p className="text-[10px] text-[#555] leading-relaxed">
+                          مَن لم يُرسل يُملأ اختيارُه عشوائيّاً — والقنّاصُ يُتخطّى لا يُرمى له نرد.
+                        </p>
+                      </div>
+                    ) : autoNightStep ? (
                       <div className="space-y-3">
                         {/* معلومات الخطوة */}
                         <div className="bg-[#111] border border-[#2a2a2a] rounded-xl p-3 text-center">
