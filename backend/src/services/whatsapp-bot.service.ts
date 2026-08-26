@@ -159,6 +159,7 @@ const ALWAYS_ADMIN_ONLY = ['adminFinance', 'adminGame', 'adminPassword', 'adminB
 const NIGHT_EVENT_AR: Record<string, string> = {
   ASSASSINATION: 'اغتيال المافيا', ASSASSINATION_BLOCKED: 'اغتيال محبَط (حماية)', PROTECTION_FAILED: 'حماية فاشلة',
   SNIPE_MAFIA: 'قنص مافيا', SNIPE_CITIZEN: 'قنص مواطن (القناص مات معه)', SILENCED: 'إسكات',
+  SHERIFF_REVENGE: 'خرج مع الشريف (سأل عنه وقُتل في ليلته)',
   SHERIFF_RESULT: 'نتيجة تحقيق الشريف', ASSASSIN_KILL: 'اغتيال السفّاح', ASSASSIN_BLOCKED: 'اغتيال سفّاح محبَط',
   ABILITY_DISABLED: 'قدرة معطّلة (الساحرة)', TWIN_SUICIDE: 'انتحار التوأم', TWIN_TRANSFORM: 'تحوّل التوأم',
 };

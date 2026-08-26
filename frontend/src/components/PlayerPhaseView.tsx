@@ -1206,6 +1206,7 @@ export default function PlayerPhaseView({
                 'SILENCED': { icon: '🤫', text: 'تم إسكاتك! لا يمكنك التحدث هذه الجولة.' },
                 'SHERIFF_RESULT': { icon: '🔍', text: `نتيجة التحقيق: ${e.extra?.result === 'MAFIA' ? '🔴 مافيا' : '🟢 مواطن'}` },
                 'PROTECTION_FAILED': { icon: '❌', text: 'فشلت الحماية! الهدف اُغتيل.' },
+                'SHERIFF_REVENGE': { icon: '🕵️', text: 'الشريف سأل عنك وقُتل في الليلة نفسها — خرجتَ معه.' },
                 'POLICEWOMAN_REVEAL': { icon: '👮', text: 'الشرطية كشفت هويتك!' },
               };
               const label = eventLabels[e.type] || { icon: '📋', text: e.type };

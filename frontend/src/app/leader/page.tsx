@@ -200,6 +200,7 @@ export default function LeaderPage() {
     ASSASSINATION_BLOCKED: 'morning_protection_success',
     SILENCED: 'morning_silenced',
     SNIPE_MAFIA: 'morning_snipe_mafia',
+    SHERIFF_REVENGE: 'morning_snipe_mafia',   // خروجُ مافيويٍّ — نغمةُ الإصابة نفسُها
     SNIPE_CITIZEN: 'morning_snipe_citizen',
     ABILITY_DISABLED: 'morning_ability_disabled',
     ASSASSIN_KILL: 'morning_assassin_kill',

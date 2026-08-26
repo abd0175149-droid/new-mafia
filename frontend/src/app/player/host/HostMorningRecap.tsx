@@ -18,6 +18,7 @@ const EVENT_META: Record<string, { icon: string; title: string; color: string; d
   SNIPE_MAFIA:           { icon: '🎯', title: 'القنّاص أصاب مافيا', color: 'text-[#C5A059]', displayable: true },
   SNIPE_CITIZEN:         { icon: '💀', title: 'القنّاص أصاب مواطناً', color: 'text-[#e08a8a]', displayable: true },
   SHERIFF_RESULT:        { icon: '🔍', title: 'نتيجة تحقيق الشريف', color: 'text-[#C5A059]', displayable: false },
+  SHERIFF_REVENGE:       { icon: '🕵️', title: 'خرج مع الشريف', color: 'text-[#C5A059]', displayable: true },
   ASSASSIN_KILL:         { icon: '🔪', title: 'السفّاح اغتال', color: 'text-[#e0728a]', displayable: true },
   ASSASSIN_BLOCKED:      { icon: '🛡️', title: 'حماية ضدّ السفّاح', color: 'text-[#8fc3ea]', displayable: true },
   ABILITY_DISABLED:      { icon: '🧙‍♀️', title: 'تعطيل قدرة', color: 'text-[#b98be0]', displayable: true },

@@ -831,7 +831,7 @@ class MorningEvent {
   /// الويب يفحص `KILL`/`SNIPE` وهما لا يصلان أبداً — فبطاقة «لقد اُغتلت!»
   /// مسارٌ ميّت هناك. الخطة نبّهت على التعارض وأمرت بمطابقة الخادم.
   static const killTypes = {
-    'ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL',
+    'ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE',
   };
 
   bool get isKill => killTypes.contains(type);
@@ -841,6 +841,7 @@ class MorningEvent {
         'ASSASSINATION' => ('💀', 'تم اغتيالك!'),
         'ASSASSINATION_BLOCKED' => ('🛡️', 'تم حمايتك من الاغتيال!'),
         'SNIPE_MAFIA' || 'SNIPE_CITIZEN' => ('🎯', 'تم قنصك!'),
+        'SHERIFF_REVENGE' => ('🕵️', 'الشريف سأل عنك وقُتل في الليلة نفسها — خرجتَ معه.'),
         'SILENCED' => ('🤫', 'تم إسكاتك! لا يمكنك التحدث هذه الجولة.'),
         'SHERIFF_RESULT' => (
             '🔍',

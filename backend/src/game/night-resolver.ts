@@ -23,6 +23,7 @@ function findAssassinator(state: GameState, excludePhysicalId?: number) {
 import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
+import { applySheriffRevenge } from './sheriff-revenge.js';
 
 export interface NightResolution {
   events: MorningEvent[];
@@ -280,10 +281,23 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
     }
   }
 
+  // ── 5.4. 🕵️ ثأرُ الشريف — مَن سأل عنه يموت معه ──
+  // 🔴 بعد ٤٫٥ (السفّاح) لا عند بند الشريف (٤): موتُ الشريف قد يقع بيد السفّاح
+  //    وهو يُعالَج بعده. الحكمُ في البند ٤ يفوته ذلك الموت.
+  // 🔴 والشريفُ يُبحث عنه بلا شرط الحياة — لأنّه ميّتٌ الآن، وهو شرطُ القاعدة.
+  {
+    const sheriffPlayer = state.players.find(p => p.role === Role.SHERIFF);
+    const revenge = await applySheriffRevenge(state, {
+      sheriffPhysicalId: sheriffPlayer?.physicalId,
+      investigatedPhysicalId: nightActions.sheriffTarget,
+    });
+    if (revenge) events.push(revenge);
+  }
+
   // ── 5.5. فحص تفعيل الشرطية (لكل لاعب مات هذه الليلة) ──
   const deadThisNight: number[] = [];
   for (const ev of events) {
-    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(ev.type)) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE'].includes(ev.type)) {
       // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
       if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       // القناص يموت أيضاً عند قنص مواطن

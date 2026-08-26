@@ -14,6 +14,7 @@ import {
 } from './definition-service.js';
 import { isNeutralRole, Role } from './roles.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
+import { applySheriffRevenge } from './sheriff-revenge.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 
 // ── أنواع ────────────────────────────────────────────
@@ -409,12 +410,27 @@ export async function resolveNightDynamic(
     dynamicNight.lastTargets[action.abilityId] = action.targetPhysicalId!;
   }
 
+  // ═══ 🕵️ ثأرُ الشريف — مَن سأل عنه يموت معه ═══
+  // 🔴 هنا لا في حلقة التأثيرات: القاعدة معلَّقةٌ بموت الشريف، وموتُه قد يقع
+  //    بأيّ قدرةٍ لاحقة في الترتيب (اغتيالٌ أو قنصٌ أو سفّاح). الحكمُ قبل
+  //    استقرار الوفيات كلِّها حكمٌ على حالةٍ عابرة.
+  // 🔴 وقبل الشرطية والتوأمين عمداً: الخارجُ بهذه القاعدة قد يكون الأخَ الأكبر
+  //    فينقلب أخوه، وقد تكون وفاتُه هي التي تُكمل عتبة الشرطية.
+  for (const ev of [...events]) {
+    if (ev.type !== 'SHERIFF_RESULT') continue;
+    const revenge = await applySheriffRevenge(state, {
+      sheriffPhysicalId: (ev.extra?.performerPhysicalId as number) ?? ev.performerPhysicalId,
+      investigatedPhysicalId: ev.targetPhysicalId,
+    });
+    if (revenge) events.push(revenge);
+  }
+
   // ═══ 👮‍♀️ فحص تفعيل الشرطية لكل من مات هذه الليلة (مطابق للمحرك القديم) ═══
   // (كان مفقوداً في المحرك الديناميكي — فلم تكن تُفعّل الشرطية عند قتلها ليلاً ولا تُحتسب
   //  وفيات المواطنين نحو عتبتها. هذا إصلاح لتطابق سلوك المحرك القديم.)
   const deadThisNight: number[] = [];
   for (const ev of events) {
-    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL'].includes(ev.type)) {
+    if (['ASSASSINATION', 'SNIPE_MAFIA', 'SNIPE_CITIZEN', 'ASSASSIN_KILL', 'SHERIFF_REVENGE'].includes(ev.type)) {
       // إزالة التكرار: قد يظهر نفس اللاعب في حدثين (اغتيال المافيا + اغتيال السفّاح على نفس الهدف)
       if (!deadThisNight.includes(ev.targetPhysicalId)) deadThisNight.push(ev.targetPhysicalId);
       if (ev.type === 'SNIPE_CITIZEN' && ev.extra?.sniperPhysicalId) {
