@@ -163,6 +163,8 @@ function resolveNotificationUrl(type, data) {
       return '/player/home';
     case 'game_ended':
       return '/player/home';
+    case 'rank_bonus':
+      return '/player/rank';
     case 'feedback_survey':
       return data.sessionId ? `/player/feedback?sessionId=${data.sessionId}` : '/player/feedback';
     case 'order_status':

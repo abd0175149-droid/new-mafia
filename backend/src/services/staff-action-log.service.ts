@@ -102,6 +102,8 @@ export const ACTION_CATALOG: Record<string, { category: string; labelAr: string 
   'room:lucky-draw:clear': { category: 'LUCKY_DRAW', labelAr: 'إنهاء السحب' },
   // ── مسارات REST (تُسجَّل يدوياً من المعالجات) ──
   'rest:progression-adjust': { category: 'PROGRESSION_EDIT', labelAr: 'تعديل نقاط لاعب يدوياً' },
+  'rest:activity-bonus-grant': { category: 'PROGRESSION_EDIT', labelAr: 'منح مكافأة حجز مبكر' },
+  'rest:activity-bonus-revoke': { category: 'PROGRESSION_EDIT', labelAr: 'تراجع عن مكافأة حجز مبكر' },
   'rest:seat-template-edit': { category: 'TEMPLATE_EDIT', labelAr: 'تعديل قالب مقاعد' },
   'rest:leader-force-add': { category: 'PLAYER', labelAr: 'إضافة لاعب يدوياً (REST)' },
   // ── 🪙 اقتصاد التشبس (حركات مالية — تُسجَّل دائماً) ──

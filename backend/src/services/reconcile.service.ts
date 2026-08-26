@@ -212,9 +212,12 @@ export async function reconcileSeasonProgression(
     acc.successfulDeals += r.dealSuccess ? 1 : 0;
   }
 
-  // 4.5) 🎁 مكافآت RR اليدويّة (rank_bonuses) — ضمن الموسم المستهدف، فلا تمحوها إعادة الاحتساب
+  // 4.5) 🎁 مكافآت التقدّم اليدويّة (rank_bonuses) — ضمن الموسم المستهدف، فلا تمحوها إعادة الاحتساب.
+  // 🔴 الخبرة هنا ليست ترفاً: هذه الدالة تُعيد اشتقاق players.* من الصفر بعد كل مباراة وعند
+  //    إنهاء كل فعالية، فأيّ خبرةٍ مُنحت يدويّاً ولم تُقرأ من هذا الدفتر تُمحى خلال ساعات.
+  //    COALESCE على xp لأن الأعمدة أُضيفت لاحقاً وقد تكون NULL في صفوف قديمة.
   try {
-    const bres: any = await db.execute(sql`SELECT player_id, rr FROM rank_bonuses WHERE ${targetSeasonId == null ? sql`TRUE` : sql`season_id = ${targetSeasonId}`} ORDER BY id ASC`);
+    const bres: any = await db.execute(sql`SELECT player_id, rr, COALESCE(xp, 0) AS xp FROM rank_bonuses WHERE ${targetSeasonId == null ? sql`TRUE` : sql`season_id = ${targetSeasonId}`} ORDER BY id ASC`);
     const blist: any[] = bres?.rows ?? (Array.isArray(bres) ? bres : []);
     let bonusApplied = 0;
     for (const b of blist) {
@@ -226,10 +229,13 @@ export async function reconcileSeasonProgression(
           totalMatches: 0, totalWins: 0, totalSurvived: 0, totalDeals: 0, successfulDeals: 0 };
         accs.set(pid, acc);
       }
+      // الخبرة أوّلاً ثم الرانك — ترتيبٌ لا أثر له على النتيجة (حلقتان مستقلّتان)،
+      // لكنّه يطابق ترتيب التطبيق الحيّ في processMatchRewards فتسهل المقارنة.
+      applyXPInMemory(acc, Number(b.xp) || 0);
       applyRRInMemory(acc, Number(b.rr) || 0);
       bonusApplied++;
     }
-    if (bonusApplied) log(`🎁 Applied ${bonusApplied} manual rank bonuses (rank_bonuses)`);
+    if (bonusApplied) log(`🎁 Applied ${bonusApplied} manual progression bonuses (rank_bonuses: RR+XP)`);
   } catch { /* الجدول غير موجود بعد — لا مكافآت */ }
 
   log(`👤 Players to update: ${accs.size} | rows without playerId: ${noPlayerId} | duplicate rows skipped: ${dupSkipped}`);

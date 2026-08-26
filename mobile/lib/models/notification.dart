@@ -69,6 +69,7 @@ const _typeIcons = <String, String>{
   'comeback': '🔥',
   'feedback_survey': '📋',
   'order_status': '🍽️',
+  'rank_bonus': '🎁',
 };
 
 const _typeColors = <String, Color>{
@@ -82,6 +83,7 @@ const _typeColors = <String, Color>{
   'comeback': Color(0xFFEF4444),
   'feedback_survey': Color(0xFF8B5CF6),
   'order_status': Color(0xFF10B981),
+  'rank_bonus': Color(0xFFF59E0B),
 };
 
 String notificationIcon(String type) => _typeIcons[type] ?? '🔔';
@@ -126,6 +128,9 @@ String? resolveNotificationUrl(String type, Map<String, dynamic> data) {
 
     case 'order_status':
       return '/player/order';
+
+    case 'rank_bonus':
+      return '/player/rank';
 
     case 'booking_confirmed':
     case 'game_ended':

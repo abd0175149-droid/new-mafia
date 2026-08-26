@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import DriveFolderBrowser from '../../components/DriveFolderBrowser';
 import EditActivityForm from '../../components/EditActivityForm';
+import BookingBonusSection from '../../components/BookingBonusSection';
 import WhatsAppButton from '@/components/WhatsAppButton';
 import SeatMap2D from '@/components/SeatMap2D';
 import { computeRectLayout, type Numbering, type RectDoor } from '@/lib/rectLayout';
@@ -1707,6 +1708,14 @@ export default function ActivityDetailPage() {
           </div>
         )}
       </div>
+
+      {/* ══ 🎁 مكافأة الحجز المبكر — تحت قائمة الحجوزات مباشرةً لأنّها سكّانها ══ */}
+      <BookingBonusSection
+        activityId={activity.id}
+        activityName={activity.name}
+        activityDate={activity.date}
+        role={getUser()?.role}
+      />
 
       {/* ══ Payment Confirmation Modal ══ */}
       {payModal && (

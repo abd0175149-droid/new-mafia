@@ -508,6 +508,145 @@ router.patch('/:id/rooms/:sessionId/close', authenticate, async (req: Request, r
   }
 });
 
+// ══════════════════════════════════════════════════════
+// 🎁 مكافأة الحجز المبكر — معاينة / منح / سجلّ / تراجع
+// ══════════════════════════════════════════════════════
+// الصلاحيّة admin+manager عمداً: منحُ رتبةٍ تعديلٌ على ترتيب الموسم كلّه، لا إجراءُ
+// غرفة. تُسجَّل كلّ عمليّة في سجلّ الموظّفين تحت PROGRESSION_EDIT.
+//
+// ⏰ التاريخ يمرّ بـparseJordanDate: `datetime-local` يرسل "2026-08-25T20:00" بلا
+//    منطقةٍ زمنيّة، وقراءته كـUTC تُزيح موعد القطع ثلاث ساعاتٍ للخلف فتُقصي من حجز
+//    في تلك النافذة. نفس المعالجة المستعملة في حقل تاريخ الفعاليّة.
+
+/** يقرأ ويتحقّق من معاملات المكافأة المشتركة بين المعاينة والمنح */
+function parseBonusParams(src: any): { kind: 'RR' | 'XP'; amount: number; cutoffAt: Date; basis: 'earliest' | 'booking' | 'reservation'; error?: string } | { error: string } {
+  const kind = String(src.kind || 'RR').toUpperCase();
+  if (kind !== 'RR' && kind !== 'XP') return { error: 'نوع المكافأة يجب أن يكون RR أو XP' };
+
+  const amount = Math.trunc(Number(src.amount));
+  if (!Number.isFinite(amount) || amount < 1 || amount > 500) {
+    return { error: 'القيمة يجب أن تكون رقماً بين 1 و 500' };
+  }
+
+  if (!src.cutoffAt) return { error: 'موعد القطع مطلوب' };
+  const cutoffAt = parseJordanDate(String(src.cutoffAt));
+  if (Number.isNaN(cutoffAt.getTime())) return { error: 'موعد القطع غير صالح' };
+
+  const rawBasis = String(src.basis || 'earliest');
+  const basis = (['earliest', 'booking', 'reservation'].includes(rawBasis) ? rawBasis : 'earliest') as 'earliest' | 'booking' | 'reservation';
+
+  return { kind: kind as 'RR' | 'XP', amount, cutoffAt, basis };
+}
+
+// ── GET /api/activities/:id/booking-bonus/preview ──
+router.get('/:id/booking-bonus/preview', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.id);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  const parsed: any = parseBonusParams(req.query);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const { previewBookingBonus } = await import('../services/activity-bonus.service.js');
+    const out = await previewBookingBonus({
+      activityId, kind: parsed.kind, amount: parsed.amount,
+      cutoffAt: parsed.cutoffAt, basis: parsed.basis,
+      allowRepeat: req.query.allowRepeat === 'true' || req.query.allowRepeat === '1',
+    });
+    if (out.ok !== true) return res.status(400).json(out);
+    res.json(out);
+  } catch (err: any) {
+    console.error('❌ booking-bonus preview:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/activities/:id/booking-bonus/grant ──
+router.post('/:id/booking-bonus/grant', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.id);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  const parsed: any = parseBonusParams(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  try {
+    const { grantBookingBonus } = await import('../services/activity-bonus.service.js');
+    const out = await grantBookingBonus({
+      activityId, kind: parsed.kind, amount: parsed.amount,
+      cutoffAt: parsed.cutoffAt, basis: parsed.basis,
+      allowRepeat: req.body.allowRepeat === true,
+      note: typeof req.body.note === 'string' ? req.body.note.slice(0, 300) : null,
+      staffId: (req as any).user?.id ?? null,
+      staffName: (req as any).user?.displayName ?? null,
+    });
+
+    // 409 لا 400 على «مُنح سابقاً»: الواجهة تميّز الحارس عن الخطأ فتعرض تأكيد التكرار
+    if (!out.ok) {
+      return res.status(out.code === 'ALREADY_GRANTED' ? 409 : 400).json(out);
+    }
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: (req as any).user?.id, staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role, source: 'rest', action: 'rest:activity-bonus-grant',
+        details: {
+          activityId, kind: parsed.kind, amount: parsed.amount,
+          cutoffAt: parsed.cutoffAt.toISOString(), basis: parsed.basis,
+          batch: out.reason, granted: out.granted, notified: out.notified, seasonId: out.seasonId,
+        },
+      });
+    } catch { /* غير حاجب */ }
+
+    res.json(out);
+  } catch (err: any) {
+    console.error('❌ booking-bonus grant:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/activities/:id/booking-bonus/history ──
+router.get('/:id/booking-bonus/history', authenticate, authorize('admin', 'manager'), async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.id);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+  try {
+    const { listBonusHistory } = await import('../services/activity-bonus.service.js');
+    res.json({ success: true, batches: await listBonusHistory(activityId) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/activities/:id/booking-bonus — تراجع عن دفعة (المفتاح في الجسم) ──
+// admin وحده: التراجع يسحب نقاطاً من لاعبين أُشعروا بها.
+router.delete('/:id/booking-bonus', authenticate, authorize('admin'), async (req: Request, res: Response) => {
+  const activityId = parseInt(req.params.id);
+  if (!Number.isFinite(activityId)) return res.status(400).json({ error: 'معرّف غير صالح' });
+
+  const reason = String(req.body?.reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'مفتاح الدفعة مطلوب' });
+
+  try {
+    const { revokeBonusBatch } = await import('../services/activity-bonus.service.js');
+    const out = await revokeBonusBatch(activityId, reason);
+    if (!out.ok) return res.status(out.code === 'NOT_FOUND' ? 404 : 400).json(out);
+
+    try {
+      const { logStaffAction } = await import('../services/staff-action-log.service.js');
+      logStaffAction({
+        staffId: (req as any).user?.id, staffUsername: (req as any).user?.username,
+        staffRole: (req as any).user?.role, source: 'rest', action: 'rest:activity-bonus-revoke',
+        details: { activityId, batch: reason, removed: out.removed, players: out.players },
+      });
+    } catch { /* غير حاجب */ }
+
+    res.json(out);
+  } catch (err: any) {
+    console.error('❌ booking-bonus revoke:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/activities/:id — جلب نشاط واحد
 router.get('/:id', authenticate, async (req: Request, res: Response) => {
   const db = getDB();

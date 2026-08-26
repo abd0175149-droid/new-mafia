@@ -642,7 +642,7 @@ async function main() {
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS can_host_remote BOOLEAN DEFAULT false`);
       await db.execute(sql`ALTER TABLE players ADD COLUMN IF NOT EXISTS remote_access_until TIMESTAMP`);
       await db.execute(sql`ALTER TABLE reservations ADD COLUMN IF NOT EXISTS player_id INTEGER`);
-      // 🎁 مكافآت RR اليدويّة (حجز مبكر وغيرها) — تدخل في إعادة الاحتساب فلا تُمحى
+      // 🎁 مكافآت التقدّم اليدويّة (حجز مبكر وغيرها) — تدخل في إعادة الاحتساب فلا تُمحى
       await db.execute(sql`CREATE TABLE IF NOT EXISTS rank_bonuses (
         id SERIAL PRIMARY KEY,
         player_id INTEGER NOT NULL,
@@ -651,6 +651,27 @@ async function main() {
         season_id INTEGER,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
+      // 🧪 توسعة الدفتر ليحمل الخبرة أيضاً — شرطُ بقاءِ منح XP.
+      // المصالحة (reconcile.service) تُعيد اشتقاق players.* و player_season_stats من الصفر
+      // من match_players بعد كل مباراة وعند إنهاء كل فعالية؛ الناجي الوحيد هو هذا الدفتر.
+      // فمنحُ خبرةٍ لا يُسجَّل هنا يُمحى تلقائياً خلال ساعات. لا تُلغِ هذه الأعمدة.
+      await db.execute(sql`ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS xp INTEGER DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS activity_id INTEGER`);
+      await db.execute(sql`ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS granted_by INTEGER`);
+      await db.execute(sql`ALTER TABLE rank_bonuses ADD COLUMN IF NOT EXISTS meta JSONB`);
+      // rr كان NOT NULL بلا افتراضيّ — ومنحُ خبرةٍ صرفٍ يُدرج rr=0، فنُرخي القيد بافتراضيّ
+      await db.execute(sql`ALTER TABLE rank_bonuses ALTER COLUMN rr SET DEFAULT 0`);
+      // 🔒 حارس الازدواج على مستوى القاعدة — لا يعتمد على فحصٍ سابقٍ قد يتسابق.
+      // ⚠️ مغلَّف بـDO لأنّ فشلَه (صفوفٌ قديمة مكرّرة) داخل هذه الـtry الواحدة يُجهض
+      //    ~١٥٠ سطر ميغريشن بعده عند كلّ إقلاع. سببٌ صامتٌ لا يستحقّ ذلك الثمن.
+      //    جزئيّ على reason غير الفارغ: الافتراضيّ '' وقد يتكرّر لنفس اللاعب بلا ضرر.
+      await db.execute(sql`DO $$ BEGIN
+        CREATE UNIQUE INDEX IF NOT EXISTS rank_bonuses_player_reason_uniq
+          ON rank_bonuses (player_id, reason) WHERE reason <> '';
+      EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'rank_bonuses unique index skipped: %', SQLERRM;
+      END $$`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS rank_bonuses_activity_idx ON rank_bonuses (activity_id)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_cache (key VARCHAR(40) PRIMARY KEY, payload JSONB NOT NULL, refreshed_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       await db.execute(sql`CREATE TABLE IF NOT EXISTS analytics_config (key VARCHAR(40) PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMP DEFAULT NOW() NOT NULL)`);
       // ── 🍽️ نظام طلبات المنيو والفواتير (F&B) ──
