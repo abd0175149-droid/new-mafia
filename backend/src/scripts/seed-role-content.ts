@@ -1,8 +1,13 @@
 // ══════════════════════════════════════════════════════
 // 📖 بذرةُ محتوى الأدوار — تُشغَّل مرّةً بعد الترحيل
 //
-//   npx tsx src/scripts/seed-role-content.ts          (لا يمسّ ما كُتب)
-//   npx tsx src/scripts/seed-role-content.ts --force  (يكتب فوق كلّ شيء)
+//   npx tsx src/scripts/seed-role-content.ts                 (لا يمسّ ما كُتب)
+//   npx tsx src/scripts/seed-role-content.ts --force         (يكتب فوق كلّ شيء)
+//   npx tsx src/scripts/seed-role-content.ts --only=SHERIFF  (دورٌ بعينه)
+//   ويُجمعان: --force --only=SHERIFF,DOCTOR
+//
+// 🔴 و--only موجودةٌ لأنّ --force وحدها سلاحٌ أعمى: تعديلُ قاعدةٍ في دورٍ واحد
+//    كان يعني إمّا تركَ نصِّه قديماً أو مسحَ تحريرات الأدمن في الخمسةَ عشرَ الباقية.
 //
 // 🔴 لا تكتب فوق ما حرّره الأدمن: الحقلُ المملوء يُترك. لأنّ هذا السكربت قد
 //    يُعاد تشغيلُه بعد نشرةٍ لاحقة، ومسحُ نصٍّ كتبه صاحبُ اللعبة بيده خسارةٌ
@@ -268,6 +273,12 @@ const empty = (v: any) =>
 
 async function main() {
   const force = process.argv.includes('--force');
+  const onlyArg = process.argv.find(a => a.startsWith('--only='));
+  const only = onlyArg
+    ? new Set(onlyArg.slice(7).split(',').map(s => s.trim().toUpperCase()).filter(Boolean))
+    : null;
+  // 🔴 دورٌ محدَّدٌ يُكتب فوقه دائماً: طالبُه يعرف ما يطلب، وإلّا كان النداءُ بلا أثر
+  const forceRow = (id: string) => force || (!!only && only.has(id));
   await connectDB();
   const db = getDB();
   if (!db) throw new Error('لا اتّصال بقاعدة البيانات');
@@ -278,6 +289,8 @@ async function main() {
   for (const row of rows as any[]) {
     const s = SEED[row.id];
     if (!s) { missing.push(row.id); continue; }
+    if (only && !only.has(row.id)) { skipped++; continue; }
+    const force = forceRow(row.id);
 
     const patch: Record<string, any> = {};
     const put = (col: string, cur: any, val: any) => {
