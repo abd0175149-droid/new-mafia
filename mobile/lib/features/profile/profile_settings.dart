@@ -9,7 +9,7 @@ import '../../core/api/auth_repository.dart';
 import '../../core/ui/glass_tier.dart';
 import '../../models/profile.dart';
 import 'profile_palette.dart';
-import '../game/roles_info_modal.dart';
+import '../game/roles_deck_sheet.dart';
 
 // ══════════════════════════════════════════════════════
 // ⚙️ accordion الإعدادات — §4.3.9 في الملفّ 13
@@ -187,7 +187,7 @@ class _SettingsAccordionState extends State<SettingsAccordion> {
             //    وهي أوّل ما يحتاجه لاعبٌ جديد قبل أن يجلس على الطاولة.
             Builder(
               builder: (ctx) => _linkRow('🃏 تعرّف على الكروت والأدوار', Tw.amber500,
-                  () => unawaited(showRolesInfo(ctx))),
+                  () => unawaited(showRolesDeck(ctx))),
             ),
             const SizedBox(height: 6),
             Text('كلّ الأدوار وقدراتها — راجعها قبل الجلسة القادمة.',

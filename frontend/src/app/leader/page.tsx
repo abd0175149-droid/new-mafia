@@ -1317,9 +1317,14 @@ export default function LeaderPage() {
           const total = galleryAlertPosRef.current + galleryAlertQueueRef.current.length;
           const counterText = total > 1 ? `تنبيه ${galleryAlertPosRef.current} من ${total}` : '';
           const isDead = !!d.wasDead;
+          // 🔴 شاشتان سرّيّتان بطابورٍ واحد: «قائمة المافيا» و«مهامّي». الطابور
+          //    نفسُه يمنع تزاحمَ نافذتين على شاشة الموجّه، والنوعُ يغيّر العنوان
+          //    وحده — فالإجراء واحد: إقصاءٌ أو إغلاق.
+          const isTasks = d.kind === 'tasks';
+          const what = isTasks ? 'مهامّ دوره' : 'القائمة';
           const teamColor = d.team === 'MAFIA' ? '#dc2626' : d.team === 'NEUTRAL' ? '#7c3aed' : '#059669';
           const deadBanner = isDead
-            ? `<div style="margin-top:8px;font-size:13px;font-weight:800;color:#f59e0b;background:#f59e0b18;padding:4px 10px;border-radius:10px;display:inline-block">🚫 لاعب مُقصى حاول فتح القائمة</div>`
+            ? `<div style="margin-top:8px;font-size:13px;font-weight:800;color:#f59e0b;background:#f59e0b18;padding:4px 10px;border-radius:10px;display:inline-block">🚫 لاعب مُقصى حاول فتح ${what}</div>`
             : '';
           const html = `
             <div style="text-align:center;direction:rtl">
@@ -1333,7 +1338,9 @@ export default function LeaderPage() {
               </div>
               ${deadBanner}
             </div>`;
-          const title = isDead ? '⚠️ محاولة من لاعب مُقصى' : '🕵️ فتح قائمة التعرف على المافيا';
+          const title = isDead
+            ? '⚠️ محاولة من لاعب مُقصى'
+            : (isTasks ? '📋 فتح مهامّ الدور' : '🕵️ فتح قائمة التعرف على المافيا');
           const confirmed = await swalHtmlConfirm(title, html, isDead
             ? { infoOnly: true, confirmText: 'إغلاق' }               // ميت أصلاً → زر إغلاق فقط، بلا إقصاء
             : { confirmText: '⚡ إقصاء إداري', cancelText: 'إغلاق', danger: true });
@@ -1397,11 +1404,22 @@ export default function LeaderPage() {
       // 🔔 صوت تنبيه فوري — على جهاز الليدر فقط (لا يُبثّ لشاشة العرض حتى لا ينكشف التنبيه في القاعة)
       if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
       // إسقاط التكرار: نفس اللاعب لا يتكدس في الطابور
-      if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId)) {
+      if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId && !q.kind)) {
         galleryAlertQueueRef.current.push(d);
       }
       updateGalleryCounter();   // تحديث الترقيم حيّاً إن كان تنبيه مفتوحاً الآن
       processGalleryAlerts();   // ابدأ العرض إن كان خاملاً
+    });
+
+    // ── 📋 تنبيه لحظي: لاعب فتح «مهامّي» — الطابور والإجراء نفسُهما ──
+    const offTasksAlert = on('leader:my-tasks-alert', (d: any) => {
+      if (!d || d.roomId !== gameState.roomId) return;
+      if (leaderSoundOnRef.current) playLocalSound('leader_gallery_alert');
+      if (!galleryAlertQueueRef.current.some((q: any) => q.physicalId === d.physicalId && q.kind === 'tasks')) {
+        galleryAlertQueueRef.current.push({ ...d, kind: 'tasks' });
+      }
+      updateGalleryCounter();
+      processGalleryAlerts();
     });
 
     // ── 🕵️ إشارات الاشتباه: يستهلكها مزوّد AntiCheatWatch وحده (لا مستمع هنا) ──
@@ -1462,6 +1480,7 @@ export default function LeaderPage() {
       offTimerAdjusted();
       offPenaltyRecorded();
       offGalleryAlert();
+      offTasksAlert();
       offSoundsUpdated();
       offMorningEventSound();
       offShowSilencedSound();

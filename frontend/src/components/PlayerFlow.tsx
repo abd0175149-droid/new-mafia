@@ -11,7 +11,8 @@ import RemoteVoice from './RemoteVoice';
 import { useActiveSpeaker } from '../hooks/useActiveSpeaker';
 import ConfrontationControls from './ConfrontationControls';
 import InviteModal from './InviteModal';
-import RolesInfoModal from './RolesInfoModal';
+import RolesDeck from './RolesDeck';
+import MyTasksPanel from './MyTasksPanel';
 import PhaseLoading from '@/components/PhaseLoading';
 import RoomCodeCard from '@/components/RoomCodeCard';
 import { useGameState } from '@/hooks/useGameState';
@@ -162,6 +163,39 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
   // ── توزيع الأدوار الرقمي ──
   const [assignedRole, setAssignedRole] = useState<string | null>(null);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  // 🎭 أدوارُ هذه الطاولة — تُطلَب من الخادم عند كلّ فتحةٍ للدليل داخل اللعبة.
+  //    `null` ⇒ لم تبدأ اللعبة بعد ⇒ يُعرض الكتالوج كاملاً (قرارُ المالك).
+  const [rolesInPlay, setRolesInPlay] = useState<string[] | null>(null);
+
+  // ── 🃏 فتحُ دليل الأدوار ───────────────────────────────
+  // 🔴 يُسأل الخادمُ عن تركيبة الطاولة عند كلّ فتحة لا مرّةً واحدة: الأدوار
+  //    تُوزَّع في منتصف الجلسة، وقائمةٌ محفوظةٌ من قبلُ تبقى فارغةً بعدها.
+  // 🔴 وفشلُ النداء يفتح الكتالوج كاملاً ولا يمنع: الدليلُ مرجعٌ لا حارس.
+  const openRolesDeck = useCallback(async () => {
+    setRolesModalOpen(true);
+    try {
+      const res = await emit('game:roles-in-play', {});
+      setRolesInPlay(res?.started && Array.isArray(res.roleIds) && res.roleIds.length ? res.roleIds : null);
+    } catch {
+      setRolesInPlay(null);
+    }
+  }, [emit]);
+
+  // ── 📋 استئذانُ فتح «مهامّي» ──────────────────────────
+  // 🔴 الحارسُ في الخادم: المُقصى يُردّ من هناك، وكلُّ فتحةٍ تُنبّه الموجّه
+  //    بالنمط نفسِه الذي لقائمة المافيا. إخفاءُ الزرّ ليس أماناً.
+  const requestTasksOpen = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await emit('player:my-tasks-open', { roomId });
+      return { ok: true };
+    } catch (e: any) {
+      const r = e?.response;
+      if (r && r.success === false) return { ok: false, error: r.error || 'تعذّر الفتح' };
+      // انقطاعُ شبكةٍ لا يُقفل شاشةً على لاعبٍ حيّ — والحارسُ الحقيقيّ خادميّ
+      return { ok: true };
+    }
+  }, [emit, roomId]);
   const [cardFlipped, setCardFlipped] = useState(false);
   const [isPlayerDead, setIsPlayerDead] = useState(false);
   const [rejoinLoading, setRejoinLoading] = useState(true);
@@ -2997,7 +3031,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               )}              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">
                 <button
-                  onClick={() => setRolesModalOpen(true)}
+                  onClick={openRolesDeck}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
                 >
                   <span className="text-sm">🃏</span> الأدوار
@@ -3450,7 +3484,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">
                 <button
-                  onClick={() => setRolesModalOpen(true)}
+                  onClick={openRolesDeck}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
                 >
                   <span className="text-sm">🃏</span> الأدوار
@@ -4358,8 +4392,53 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         </div>
       )}
 
-      {/* ══ Roles Modal ══ */}
-      <RolesInfoModal isOpen={rolesModalOpen} onClose={() => setRolesModalOpen(false)} />
+      {/* ══════════════════════════════════════════════════
+          🧭 رصيفُ المرجع — زرّان يبقيان فوق طبقات اللعبة
+          🔴 كان زرُّ «الأدوار» في الرأس وحده، وطبقةُ اختيار هدف الليل تغطّي
+             الشاشة كلَّها — فيغيب المرجعُ في اللحظة التي يُحتاج فيها أكثر.
+             وقرارُ «لا فرضَ للشرح» يجعل ظهورَ الزرّ شرطاً: ما لا يُفرَض يجب أن يُرى.
+          🔴 وفوق طبقة الليل (200) وتحت اللوحتين (300) — لا يغطّي ما يفتحه.
+          ══════════════════════════════════════════════════ */}
+      {(step === 'done' || step === 'rejoined') && gamePhase !== 'GAME_OVER'
+        && !rolesModalOpen && !tasksOpen && !(roleAlert && !cardFlipped) && (
+        <div className="fixed z-[240] flex gap-2 pointer-events-none"
+          style={{ left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
+          <button
+            onClick={openRolesDeck}
+            className="pointer-events-auto flex-1 rounded-xl py-2.5 text-[12.5px] font-bold border flex items-center justify-center gap-1.5 backdrop-blur-md"
+            style={{ background: 'rgba(21,19,16,0.92)', borderColor: '#2b2621', color: '#c5a059' }}
+          >
+            🃏 الأدوار
+          </button>
+          {assignedRole && (
+            <button
+              onClick={() => setTasksOpen(true)}
+              className="pointer-events-auto flex-1 rounded-xl py-2.5 text-[12.5px] font-black border flex items-center justify-center gap-1.5"
+              style={{ background: '#c5a059', borderColor: '#c5a059', color: '#0a0a0b' }}
+            >
+              📋 مهامّي
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ══ 🃏 دليلُ الأدوار — كروتٌ بوجوهها الحقيقيّة ══ */}
+      <RolesDeck
+        open={rolesModalOpen}
+        onClose={() => setRolesModalOpen(false)}
+        roleIds={rolesInPlay}
+        myRoleId={assignedRole}
+      />
+
+      {/* ══ 📋 مهامّي ══ */}
+      <MyTasksPanel
+        open={tasksOpen}
+        onClose={() => setTasksOpen(false)}
+        roleId={assignedRole}
+        gamePhase={gamePhase}
+        isDead={isPlayerDead}
+        onRequestOpen={requestTasksOpen}
+      />
     </div>
   );
 }

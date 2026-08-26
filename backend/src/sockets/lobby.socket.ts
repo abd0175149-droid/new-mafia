@@ -2622,6 +2622,122 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
     } catch { /* صامت — لا يؤثر على مجرى اللعبة */ }
   });
 
+  // ══════════════════════════════════════════════════════
+  // 🎭 أدوارُ هذه الطاولة — للدليل داخل اللعبة
+  //
+  // 🔴 عبر السوكِت لا REST: الغرفةُ والمقعدُ والطورُ كلُّها في socket.data
+  //    أصلاً، فلا بوّابةَ مصادقةٍ جديدة تُفتح لمعلومةٍ حسّاسة.
+  //
+  // 🔴 وقبل بدء اللعبة لا تُسلَّم تركيبة: يعود `started:false` فتعرض الواجهةُ
+  //    الكتالوج العامّ. تركيبةُ الطاولة معلومةٌ ثمينة ولا تُسبق بها اللعبة.
+  //
+  // 🔴 والتركيبة **لا تتغيّر بالموت**: دورُ من مات يبقى في القائمة، وإلّا صارت
+  //    القائمةُ ساعةً تفضح من بقي حيّاً — وهي مبنيّةٌ لتُقرأ لا لتُحسَب.
+  // ══════════════════════════════════════════════════════
+  socket.on('game:roles-in-play', async (_data: any, callback?: Function) => {
+    const reply = (v: any) => { if (typeof callback === 'function') callback(v); };
+    try {
+      const roomId: string | undefined = socket.data.roomId;
+      if (!roomId) return reply({ success: true, started: false, roleIds: [] });
+
+      const state = await getGameState(roomId);
+      const phase = (state as any)?.phase;
+      const notStarted = !state || phase === 'LOBBY' || phase === 'ROLE_GENERATION';
+      if (notStarted) return reply({ success: true, started: false, roleIds: [] });
+
+      const ids = new Set<string>();
+      for (const p of (state.players || [])) if (p?.role) ids.add(String(p.role));
+      reply({ success: true, started: true, roleIds: [...ids] });
+    } catch {
+      // الفشلُ يعرض الكتالوج العامّ ولا يُقفل الشاشة
+      reply({ success: true, started: false, roleIds: [] });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════
+  // 📋 «مهامّي» — فتحُ شاشة مهامّ الدور
+  //
+  // 🔴 الحارسُ هنا لا في العميل: إخفاءُ زرٍّ ليس أماناً. المُقصى يُردّ من الخادم
+  //    ولا يصل إليه محتوى.
+  //
+  // 🔴 وكلُّ فتحةٍ تُنبّه الموجّه بالنمط نفسِه الذي لقائمة المافيا — الخنقُ
+  //    والعلَمُ wasDead وختمُ الشاشة السرّيّة وسجلُّ العمليّات. شاشةُ سرٍّ ثانيةٌ
+  //    تعني باباً ثانياً للتسريب، فتُحرَس بالحرس نفسه.
+  // ══════════════════════════════════════════════════════
+  socket.on('player:my-tasks-open', async (data: { roomId?: string }, callback?: Function) => {
+    const reply = (v: any) => { if (typeof callback === 'function') callback(v); };
+    try {
+      if (socket.data.role !== 'player') return reply({ success: false, error: 'غير مسموح' });
+      const roomId: string | undefined = socket.data.roomId;
+      const physicalId: number | undefined = socket.data.physicalId;
+      if (!roomId || !physicalId) return reply({ success: false, error: 'لست في غرفة' });
+      if (data?.roomId && data.roomId !== roomId) return reply({ success: false, error: 'غرفةٌ غير مطابقة' });
+
+      const state = await getGameState(roomId);
+      if (!state || state.phase === 'GAME_OVER') return reply({ success: false, error: 'لا لعبةَ جارية' });
+      const player = state.players.find((p: any) => p.physicalId === physicalId);
+      if (!player?.role) return reply({ success: false, error: 'لم تُوزَّع الأدوار بعد' });
+
+      const wasDead = player.isAlive === false;
+      const now = Date.now();
+
+      // ختمُ رؤية السرّ — يقرأه فحصُ «الغياب بعد رؤية السرّ». لا يُختم لمن مُنع.
+      if (!wasDead) {
+        socket.data.lastSecretViewAt = now;
+        socket.data.secretScreenOpen = true;
+        if (socket.data.secretScreenTimer) clearTimeout(socket.data.secretScreenTimer);
+        socket.data.secretScreenTimer = setTimeout(() => { socket.data.secretScreenOpen = false; }, 120000);
+      }
+
+      // خنقٌ ٥ ثوانٍ لكلّ لاعب — يمنع إغراق الموجّه بضغطٍ متكرّر.
+      // 🔴 يخنق **التنبيه** لا الردّ: اللاعبُ يرى شاشتَه، والموجّهُ لا يرى نافذتين.
+      const throttled = socket.data.lastMyTasksPingAt && now - socket.data.lastMyTasksPingAt < 5000;
+      if (!throttled) {
+        socket.data.lastMyTasksPingAt = now;
+
+        const mafia = isMafiaRole(player.role as Role);
+        const team = mafia ? 'MAFIA' : (player.role === 'JESTER' || player.role === 'ASSASSIN') ? 'NEUTRAL' : 'CITIZEN';
+        const teamAr = mafia ? 'المافيا' : team === 'NEUTRAL' ? 'محايد' : 'المواطنون';
+
+        const allSockets = await io.in(roomId).fetchSockets();
+        for (const s of allSockets) {
+          if ((s as any).data?.role === 'leader') {
+            s.emit('leader:my-tasks-alert', {
+              roomId, physicalId, name: player.name, role: player.role,
+              team, teamAr, wasDead, avatarUrl: (player as any).avatarUrl || null, at: now,
+            });
+          }
+        }
+
+        try {
+          const roleAr = ROLE_NAMES_AR[player.role as Role] || player.role;
+          const { logStaffAction } = await import('../services/staff-action-log.service.js');
+          logStaffAction({
+            source: 'socket',
+            action: 'player:my-tasks-open',
+            category: 'MONITORING',
+            labelAr: wasDead ? 'محاولة فتح مهامّ الدور (لاعب مُقصى)' : 'فتح مهامّ الدور',
+            outcome: wasDead ? 'blocked' : 'success',
+            roomId,
+            roomCode: (state as any).roomCode,
+            matchId: (state as any).matchId,
+            activityId: (state as any).activityId,
+            targetPhysicalId: physicalId,
+            targetName: `${player.name} — ${roleAr}`,
+            details: { physicalId, role: player.role, roleAr, team, teamAr, wasDead },
+          });
+        } catch { /* غير حاجب */ }
+      }
+
+      if (wasDead) {
+        return reply({ success: false, blocked: true, error: 'انتهت جولتُك — لا تُفتح المهامّ بعد الإقصاء' });
+      }
+      return reply({ success: true, role: player.role });
+    } catch {
+      reply({ success: false, error: 'تعذّر الفتح' });
+    }
+  });
+
   // ══ 🕵️ إشارات مكافحة الغش من جهاز اللاعب ══════════════════════
   // الهويّة من socket.data حصراً. تُخزَّن في cheat_signals، وتُبثّ للّيدر
   // فوراً (leader:cheat-signal)، وتُسجَّل MONITORING. لا تُدين وحدها.

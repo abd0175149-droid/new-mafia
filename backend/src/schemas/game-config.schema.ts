@@ -122,6 +122,25 @@ export const roleDefinitions = pgTable('role_definitions', {
   // الوصف
   description: text('description'),
 
+  // ══════════════════════════════════════════════════
+  // 📖 محتوى الشرح للاعب — يُحرَّر من لوحة الإدارة (RolesTab)
+  //
+  // 🔴 القيودُ ليست هنا عمداً: تُولَّد من حقول القدرة (excludeLastTarget،
+  //    canSkip، deceptionRule…) في role-content.service. كان وصفُ الطبيب
+  //    يقول «لا يكرّر نفس الهدف» بيد كاتب، بينما excludeLastTarget=true
+  //    جالسةٌ في القاعدة لا يقرأها أحد — حقيقتان لشيءٍ واحد تفترقان يومَ
+  //    يتغيّر المحرّك. وextraLimits أدناه لِما لا تعبّر عنه البيانات فقط.
+  // ══════════════════════════════════════════════════
+  oneLiner: varchar('one_liner', { length: 160 }),           // سطرٌ واحد يظهر تحت اسم الدور
+  howItWorks: text('how_it_works'),                          // كيف يعمل الدور — فقرة
+  tips: jsonb('tips'),                                       // string[] — نصائح لعب
+  extraLimits: jsonb('extra_limits'),                        // string[] — قيودٌ لا تُشتقّ من القدرات
+  interactsWith: jsonb('interacts_with'),                    // string[] — تقاطعاتٌ مع أدوارٍ أخرى
+  phaseNotes: jsonb('phase_notes'),                          // {night,discussion,voting,justification,dead}
+  // 🔴 «لك دور» لا تُستنتج من وجود نصّ: للطبيب نصٌّ في النقاش («اصمتْ عن حمايتك»)
+  //    وليس له فيه فعل. الوسمُ يُكتب صراحةً، ويُشتقّ افتراضُه من طور القدرة.
+  actsInPhases: jsonb('acts_in_phases'),                     // PhaseKey[]
+
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

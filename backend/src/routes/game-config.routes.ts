@@ -141,6 +141,79 @@ router.get('/roles', async (_req: Request, res: Response) => {
   }
 });
 
+// ══════════════════════════════════════════════
+// 📖 GET /api/game-config/roles-guide — دليلُ الأدوار للاعب
+//
+// 🔴 مسارٌ مستقلٌّ عن /roles عمداً: ذاك يخدم محرّرَ الإدارة فيسلّم الصفَّ خاماً،
+//    وهذا يخدم اللاعب فيسلّمه **جاهزاً للعرض**: قيودٌ مولَّدة من القدرات،
+//    ووجهُ الكارت الحقيقيّ بمصغّراته. حساب القيود في العميل يعني نسختين منه
+//    (ويب وفلاتر) تفترقان — والقيدُ الذي يفترق يكذب على أحد الطرفين.
+//
+// 🔴 عامٌّ بلا مصادقة كسابقه: هذه معرفةٌ عامّةٌ قبل بدء اللعبة. وتقييدُ
+//    «أدوار هذه الطاولة» يجري في السوكِت حيث تُعرَف الغرفةُ وطورُها.
+// ══════════════════════════════════════════════
+router.get('/roles-guide', async (_req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const [roles, abilities, templates] = await Promise.all([
+      db.select().from(roleDefinitions).orderBy(roleDefinitions.genPriority),
+      db.select().from(abilityDefinitions),
+      db.select().from(cardTemplates),
+    ]);
+
+    const { decorateRole } = await import('../services/role-content.service.js');
+    const { thumbUrls } = await import('../services/card-face-thumbs.service.js');
+
+    const abilityById = new Map<string, any>(abilities.map((a: any) => [a.id, a]));
+    const tplById = new Map<string, any>(templates.map((t: any) => [t.id, t]));
+
+    const data = roles.map((r: any) => {
+      const tpl = r.cardTemplateId ? tplById.get(r.cardTemplateId) : null;
+      // تجاوزُ الدور يعلو القالب — هكذا يقرأها DynamicMafiaCard تماماً
+      const secret = r.cardOverrides?.secretFace ?? tpl?.secretFace ?? null;
+      const url = secret?.customImageUrl || null;
+      const dec = decorateRole(r, abilityById);
+      return {
+        id: dec.id, nameAr: dec.nameAr, nameEn: dec.nameEn, team: dec.team,
+        genPriority: dec.genPriority,
+        oneLiner: dec.oneLiner || null,
+        howItWorks: dec.howItWorks || dec.description || null,
+        limits: dec.limits, tips: dec.tips, interactsWith: dec.interactsWith,
+        phaseNotes: dec.phaseNotes, actsIn: dec.actsIn,
+        winConditionDescription: dec.winConditionDescription || null,
+        face: url ? { url, ...thumbUrls(url) } : null,
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (err: any) {
+    console.error('❌ roles-guide:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ══════════════════════════════════════════════
+// 🔎 POST /api/game-config/preview-limits — معاينةُ القيود المولَّدة
+//
+// 🔴 المولِّدُ في الخادم يُنادى من الخادم: نسخةٌ منه في المحرّر تعني منطقين
+//    يفترقان، فيرى الأدمنُ قيداً ويرى اللاعبُ غيرَه. والمعاينةُ بلا حفظ ضرورة:
+//    من يكتب محتوىً وهو لا يرى ما سيُضاف إليه تلقائيّاً يكرّر المكتوبَ فيه.
+// ══════════════════════════════════════════════
+router.post('/preview-limits', authenticate, async (req: Request, res: Response) => {
+  const db = getDB();
+  if (!db) return res.status(503).json({ error: 'DB unavailable' });
+  try {
+    const ids: string[] = Array.isArray(req.body?.abilities) ? req.body.abilities : [];
+    const all = await db.select().from(abilityDefinitions);
+    const picked = all.filter((a: any) => ids.includes(a.id));
+    const { buildLimits } = await import('../services/role-content.service.js');
+    res.json({ success: true, data: buildLimits(picked as any, req.body?.extraLimits) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/game-config/roles
 router.post('/roles', authenticate, async (req: Request, res: Response) => {
   const db = getDB();
@@ -263,6 +336,13 @@ router.post('/card-templates/:id/upload-image', authenticate, (req: Request, res
 
     try {
       const imageUrl = `/uploads/card-faces/${file.filename}`;
+      // 🖼️ المصغّران يُولَّدان لحظةَ الرفع لا عند أوّل طلب: دليلُ الأدوار يعرض
+      //    ستّةَ عشرَ وجهاً، وأصلُ الوجه ~٢ ميغابايت. وفشلُ التوليد لا يُفشل
+      //    الرفع — يعود المسارُ الأصليّ ثقيلاً ولا تنكسر شاشة.
+      try {
+        const { ensureThumbs } = await import('../services/card-face-thumbs.service.js');
+        await ensureThumbs(file.filename);
+      } catch { /* الأصلُ كافٍ */ }
       const [row] = await db.update(cardTemplates)
         .set({
           secretFace: { type: 'custom', customImageUrl: imageUrl },

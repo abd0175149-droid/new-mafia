@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { ImageCropper } from '@/components/ImageCropper';
-import RolesInfoModal from '@/components/RolesInfoModal';
+import RolesDeck from '@/components/RolesDeck';
 import DynamicMafiaCard from '@/components/DynamicMafiaCard';
 import { usePlayerCosmetics } from '@/hooks/usePlayerCosmetics';
 
@@ -910,7 +910,8 @@ export default function PlayerProfilePage(){
       </AnimatePresence>
 
       {/* ═══ ROLES MODAL ═══ */}
-      <RolesInfoModal isOpen={rolesModalOpen} onClose={() => setRolesModalOpen(false)} />
+      {/* 🔴 خارج اللعبة: الكتالوجُ كاملاً (roleIds غير مُمرَّر) — لا تركيبةَ تُكشَف */}
+      <RolesDeck open={rolesModalOpen} onClose={() => setRolesModalOpen(false)} />
     </div>
   );
 }

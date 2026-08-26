@@ -19,7 +19,8 @@ import 'justification_view.dart';
 import 'morning_gameover_view.dart';
 import 'night_view.dart';
 import 'voting_view.dart';
-import 'roles_info_modal.dart';
+import '../../core/socket/socket_service.dart';
+import 'roles_deck_sheet.dart';
 import '../voice/confrontation_controls.dart';
 import '../voice/voice_service.dart';
 import 'spectator_table.dart';
@@ -453,7 +454,7 @@ class _Toolbar extends StatelessWidget {
         children: [
           Builder(
             builder: (ctx) => _chip('🃏 الأدوار', _gold,
-                const Color(0xFF2A2A2A), () => unawaited(showRolesInfo(ctx))),
+                const Color(0xFF2A2A2A), () => unawaited(_openDeck(ctx))),
           ),
           // ✉️ INV-2: العلم `allowPlayerInvites` كان مُتتبَّعاً بلا واجهةٍ
           //    تستهلكه — فلاعب التطبيق لا يدعو أحداً بينما زملاؤه على
@@ -481,6 +482,20 @@ class _Toolbar extends StatelessWidget {
               () => unawaited(controller.logout())),
         ],
       );
+
+  /// 🔴 تُسأل الطاولةُ عن تركيبتها عند كلّ فتحة لا مرّةً واحدة: الأدوار تُوزَّع
+  ///    في منتصف الجلسة، وقائمةٌ محفوظةٌ من قبلُ تبقى فارغةً بعدها.
+  ///    وفشلُ النداء يفتح الكتالوج كاملاً — الدليلُ مرجعٌ لا حارس.
+  Future<void> _openDeck(BuildContext ctx) async {
+    List<String>? ids;
+    final res = await SocketService.instance.ask('game:roles-in-play', const {});
+    if (res != null && res['started'] == true && res['roleIds'] is List) {
+      final l = (res['roleIds'] as List).map((e) => '$e').toList();
+      if (l.isNotEmpty) ids = l;
+    }
+    if (!ctx.mounted) return;
+    await showRolesDeck(ctx, roleIds: ids, myRoleId: controller.assignedRole);
+  }
 
   Widget _chip(String label, Color fg, Color border, VoidCallback onTap) =>
       InkWell(

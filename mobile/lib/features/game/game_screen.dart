@@ -18,7 +18,11 @@ import '../order/order_screen.dart' show showOrderSheet;
 import 'join_flow.dart';
 import '../voice/remote_voice.dart';
 import '../voice/voice_service.dart';
+import '../../app/theme/colors.dart';
+import '../../core/socket/socket_service.dart';
 import 'lobby_view.dart';
+import 'my_tasks_sheet.dart';
+import 'roles_deck_sheet.dart';
 
 // ══════════════════════════════════════════════════════
 // 🎬 شاشة اللعب — §4 في الملفّ 21
@@ -200,6 +204,19 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
         ),
+        // ══════════════════════════════════════════════════
+        // 🧭 رصيفُ المرجع — زرّان يبقيان فوق طبقات اللعبة
+        // 🔴 زرُّ «الأدوار» كان في شريط اللوبي وحده، وطبقاتُ اللعب تغطّيه —
+        //    فيغيب المرجعُ في اللحظة التي يُحتاج فيها أكثر. وقرارُ «لا فرضَ
+        //    للشرح» يجعل ظهورَ الزرّ شرطاً: ما لا يُفرَض يجب أن يُرى.
+        // ══════════════════════════════════════════════════
+        if ((_c.step == GameStep.done || _c.step == GameStep.rejoined) &&
+            _c.gamePhase != 'GAME_OVER')
+          Positioned(
+            left: 12, right: 12,
+            bottom: MediaQuery.of(context).padding.bottom + 12,
+            child: _TaskDock(controller: _c),
+          ),
         if (_pendingInvite != null)
           Positioned.fill(
             child: _InviteConfirmModal(
@@ -629,6 +646,80 @@ class _Shell extends StatelessWidget {
               ),
             ),
           ),
+          ),
+        ),
+      );
+}
+
+class _TaskDock extends StatelessWidget {
+  const _TaskDock({required this.controller});
+  final GameSessionController controller;
+
+  Future<void> _openDeck(BuildContext ctx) async {
+    List<String>? ids;
+    final res = await SocketService.instance.ask('game:roles-in-play', const {});
+    if (res != null && res['started'] == true && res['roleIds'] is List) {
+      final l = (res['roleIds'] as List).map((e) => '$e').toList();
+      if (l.isNotEmpty) ids = l;
+    }
+    if (!ctx.mounted) return;
+    await showRolesDeck(ctx, roleIds: ids, myRoleId: controller.assignedRole);
+  }
+
+  @override
+  Widget build(BuildContext context) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: Row(children: [
+          Expanded(
+            child: _btn(
+              label: '🃏 الأدوار',
+              bg: const Color(0xEB151310),
+              fg: Noir.vintageGold,
+              border: const Color(0xFF2B2621),
+              onTap: () => unawaited(_openDeck(context)),
+            ),
+          ),
+          if (controller.assignedRole != null) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: _btn(
+                label: '📋 مهامّي',
+                bg: Noir.vintageGold,
+                fg: const Color(0xFF0A0A0B),
+                border: Noir.vintageGold,
+                onTap: () => unawaited(showMyTasks(
+                  context,
+                  roleId: controller.assignedRole,
+                  roomId: controller.roomId,
+                  gamePhase: controller.gamePhase,
+                  isDead: controller.isPlayerDead,
+                )),
+              ),
+            ),
+          ],
+        ]),
+      );
+
+  Widget _btn({
+    required String label, required Color bg, required Color fg,
+    required Color border, required VoidCallback onTap,
+  }) =>
+      Material(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: border),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    fontSize: 12.5, fontWeight: FontWeight.w900, color: fg)),
           ),
         ),
       );

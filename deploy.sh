@@ -168,6 +168,14 @@ CREATE TABLE IF NOT EXISTS player_follows (
   created_at TIMESTAMP DEFAULT NOW() NOT NULL,
   UNIQUE(follower_id, following_id)
 );
+-- 📖 محتوى شرح الأدوار للاعب — يُحرَّر من لوحة الإدارة (RolesTab)
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS one_liner VARCHAR(160);
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS how_it_works TEXT;
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS tips JSONB;
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS extra_limits JSONB;
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS interacts_with JSONB;
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS phase_notes JSONB;
+ALTER TABLE role_definitions ADD COLUMN IF NOT EXISTS acts_in_phases JSONB;
 SQL
 then
   say "   ✅ الترحيل تمّ"

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { gcFetch, TEAM_OPTIONS, WIN_CONDITION_OPTIONS } from './helpers';
 import { swalConfirm } from '@/lib/swal';
 import MafiaCardLegacy from '@/components/MafiaCardLegacy';
+import RoleContentEditor, { type RoleContent } from './RoleContentEditor';
 
 interface Role {
   id: string;
@@ -22,16 +23,17 @@ interface Role {
   winConditionDescription: string | null;
   winConditionRevealTarget: boolean;
 }
+type RoleRow = Role & RoleContent;
 
 interface AbilityOption { id: string; nameAr: string; }
 interface CardTemplateOption { id: string; }
 
 export default function RolesTab() {
-  const [items, setItems] = useState<Role[]>([]);
+  const [items, setItems] = useState<RoleRow[]>([]);
   const [abilities, setAbilities] = useState<AbilityOption[]>([]);
   const [cardTemplates, setCardTemplates] = useState<CardTemplateOption[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Partial<Role> | null>(null);
+  const [editing, setEditing] = useState<Partial<RoleRow> | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -53,10 +55,25 @@ export default function RolesTab() {
     setSaving(true); setError('');
     try {
       const isNew = !items.find(i => i.id === editing.id);
+      // 🔴 القوائم تُنظَّف قبل التخزين: محرّرُ الأسطر يُنتج سطراً فارغاً مع كلّ
+      //    ضغطة Enter، وتخزينُه يُنتج نقطةً فارغةً في شاشة اللاعب.
+      const clean = (v: any) => Array.isArray(v)
+        ? v.map((x: any) => String(x).trim()).filter(Boolean) : v;
+      const pn = editing.phaseNotes || {};
+      const payload: any = {
+        ...editing,
+        tips: clean(editing.tips) ?? [],
+        extraLimits: clean(editing.extraLimits) ?? [],
+        interactsWith: clean(editing.interactsWith) ?? [],
+        actsInPhases: Array.isArray(editing.actsInPhases) ? editing.actsInPhases : [],
+        phaseNotes: Object.fromEntries(
+          Object.entries(pn).filter(([, v]) => typeof v === 'string' && v.trim())
+            .map(([k, v]) => [k, String(v).trim()])),
+      };
       if (isNew) {
-        await gcFetch('/roles', { method: 'POST', body: JSON.stringify(editing) });
+        await gcFetch('/roles', { method: 'POST', body: JSON.stringify(payload) });
       } else {
-        const { id, createdAt, updatedAt, ...body } = editing as any;
+        const { id, createdAt, updatedAt, ...body } = payload;
         await gcFetch(`/roles/${id}`, { method: 'PUT', body: JSON.stringify(body) });
       }
       setEditing(null); load();
@@ -267,6 +284,12 @@ export default function RolesTab() {
                   <textarea value={editing.description || ''} onChange={e => setEditing({ ...editing, description: e.target.value })} rows={2}
                     className="w-full px-3 py-2 bg-gray-800/80 border border-gray-700/50 rounded-lg text-white text-sm focus:border-amber-500/50 focus:outline-none resize-none" />
                 </div>
+
+                <RoleContentEditor
+                  value={editing}
+                  abilities={editing.abilities || []}
+                  onChange={patch => setEditing(prev => prev ? { ...prev, ...patch } : prev)}
+                />
 
                 {/* 🃏 معاينة الكارد */}
                 {editing.nameAr && (
