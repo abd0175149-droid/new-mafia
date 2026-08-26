@@ -31,6 +31,24 @@ function isTrusted(sock: any): boolean {
   return role === 'leader' || role === 'display';
 }
 
+/**
+ * بثٌّ للموجّه وشاشة العرض **حصراً** — في كلّ الغرف، محلّيّةً كانت أو بعيدة.
+ *
+ * 🔴 يختلف عن emitLeaderOnly التي تُقيّد في الغرف البعيدة وحدها وتبثّ للجميع
+ *    محلّيّاً. ما يُبَثّ للغرفة يصل **كلَّ جهاز لاعب** ولو لم تعرضه الواجهة —
+ *    والترشيحُ في العميل ليس أماناً: مَن يفتح أدوات المتصفّح يقرأ الحمولة كاملةً.
+ *    كلُّ ما يحمل دوراً أو هدفاً ليليّاً يمرّ من هنا.
+ */
+export async function emitTrustedOnly(
+  io: Server,
+  roomId: string,
+  event: string,
+  payload: any,
+): Promise<void> {
+  const sockets = await io.in(roomId).fetchSockets();
+  for (const s of sockets) if (isTrusted(s)) s.emit(event, payload);
+}
+
 // بثّ حدثٍ حمولتُه هي كائن الحالة كاملاً (game:state-sync / game:state-updated …)
 export async function emitStateSanitized(
   io: Server,

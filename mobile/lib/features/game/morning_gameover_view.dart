@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../models/card_template.dart' show kMafiaRoleIds;
-import '../../models/game.dart';
 import '../../models/profile.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
@@ -20,9 +19,13 @@ class MorningBody extends StatelessWidget {
   final GameSessionController controller;
 
   @override
+  // 🔴 لا حدثَ ليليٍّ يصل جهازَ اللاعب. كان الخادم يبثّ `display:morning-event`
+  //    للغرفة كلِّها فيصل كلَّ جهاز، والترشيحُ يجري في العميل — فيُقرأ من الحمولة
+  //    ما لا يُعرَض، وفيها دورُ المغتال.
+  // 🔴 وحتّى المعروضُ كان تسريباً: «تمّ حمايتك» تُخبر اللاعبَ أنّ المافيا استهدفته،
+  //    و«تمّ قنصك» تُخبر مَن خرج أنّ في الطاولة قنّاصاً. مَن خرج يعرف أنّه خرج
+  //    (من حالته في الطاولة)، ولا يعرف كيف.
   Widget build(BuildContext context) {
-    final events = controller.myMorningEvents;
-
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(children: [
@@ -37,57 +40,17 @@ class MorningBody extends StatelessWidget {
               letterSpacing: 0,
             )),
         const SizedBox(height: 20),
-        if (controller.amIKilled) ...[
-          _killedCard(),
-          const SizedBox(height: 16),
-        ],
-        if (events.isEmpty)
-          Text('بانتظار كشف الأحداث...',
-              style: ar(13, color: const Color(0xFF808080)))
-        else
-          for (final e in events) _eventRow(e),
-      ]),
-    );
-  }
-
-  Widget _killedCard() => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: const Color(0xFFEF4444).withValues(alpha: 0.15),
-          border: Border.all(
-              color: const Color(0xFFEF4444).withValues(alpha: 0.4)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 36),
+          child: Text('تُكشف أحداثُ الليلة على شاشة القاعة — تابِعْ معها.',
+              textAlign: TextAlign.center,
+              style: ar(13, color: const Color(0xFF808080))),
         ),
-        child: Column(children: [
-          const Text('💀', style: TextStyle(fontSize: 34)),
-          const SizedBox(height: 8),
-          Text('لقد اُغتلت!',
-              style: ar(18,
-                  color: const Color(0xFFF87171), weight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text('تم إخراجك من اللعبة',
-              style: ar(13, color: const Color(0xFFBBBBBB))),
-        ]),
-      );
-
-  Widget _eventRow(MorningEvent e) {
-    final (icon, text) = e.display;
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: const Color(0x0DFFFFFF),
-      ),
-      child: Row(children: [
-        Text(icon, style: const TextStyle(fontSize: 22)),
-        const SizedBox(width: 12),
-        Expanded(child: Text(text, style: ar(14, height: 1.5))),
       ]),
     );
   }
+
+
 }
 
 class _DropIn extends StatefulWidget {

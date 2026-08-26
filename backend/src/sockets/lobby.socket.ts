@@ -3850,15 +3850,22 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
         //    المُقصَون بين الأحياء، كان الميّت يقرأ الشريف والطبيب وشيخ المافيا ليلةً بليلة.
         nightState: player.isAlive && state.phase === 'NIGHT' && state.nightStep && state.autoNightStepDispatched ? (() => {
           const isReqPerformer = state.autoNightPerformerId === player.physicalId;
-          const remote = !!state.config?.isRemote;
-          // 🌐 غرفة بعيدة: لا نكشف هوية الفاعل الحقيقي لغير الفاعل، ونعطي المموّهين قائمة كل الأحياء (كالتمويه الأصلي)
-          const safeStep = (remote && !isReqPerformer)
-            ? { ...state.nightStep, availableTargets: state.players.filter((p: any) => p.isAlive).map((p: any) => ({ physicalId: p.physicalId, name: p.name, avatarUrl: p.avatarUrl || null })) }
-            : state.nightStep;
+          // 🔴 التمويهُ في الخادم لكلّ الغرف، لا للبعيدة وحدها.
+          //    كان غيرُ الفاعل يتلقّى محلّيّاً: أيَّ دورٍ يتحرّك الآن، و**رقمَ مقعد
+          //    صاحبه**، وقائمةَ أهدافه الحقيقيّة — والتمويهُ يجري في العميل
+          //    (`isPerformer ? type : 'DECOY'`). ومَن يفتح أدوات المتصفّح كان يقرأ
+          //    الليلَ كلَّه خطوةً خطوة. الحجّةُ القديمة أنّ القاعة تسمع الموجّه —
+          //    لكنّ الموجّه ينادي الدورَ ولا يذكر المقعد.
+          const safeStep = isReqPerformer
+            ? state.nightStep
+            : { ...state.nightStep,
+                performerPhysicalId: null,
+                performerName: '',
+                availableTargets: state.players.filter((p: any) => p.isAlive).map((p: any) => ({ physicalId: p.physicalId, name: p.name, avatarUrl: p.avatarUrl || null })) };
           return {
             nightStep: safeStep,
-            autoNightStepRole: state.autoNightStepRole,
-            autoNightPerformerId: remote ? (isReqPerformer ? player.physicalId : null) : state.autoNightPerformerId,
+            autoNightStepRole: isReqPerformer ? state.autoNightStepRole : null,
+            autoNightPerformerId: isReqPerformer ? player.physicalId : null,
             config: { autoNightTime: state.config?.autoNightTime || 15 },
             playerSubmitted: state.playerNightActions?.submitted?.[player.physicalId] || false,
             // 🔴 حقلان يسمحان للعميل باشتقاق الشاشة من الحالة بدل انتظار

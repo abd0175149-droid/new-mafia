@@ -1174,55 +1174,27 @@ export default function PlayerPhaseView({
   }
 
   // ── ملخص الصباح ──
+  //
+  // 🔴 لا حدثَ ليليٍّ يصل جهازَ اللاعب. كان الخادم يبثّ `display:morning-event`
+  //    للغرفة كلِّها فيصل كلَّ جهاز، والترشيحُ يجري هنا في العميل — فيُقرأ من
+  //    الحمولة ما لا يُعرَض، وفيها `extra.targetRole` أي **دورُ المغتال**.
+  //
+  // 🔴 وحتّى المعروضُ كان تسريباً: «تمّ حمايتك» تُخبر اللاعبَ أنّ المافيا استهدفته
+  //    وأنّ طبيباً حماه، و«تمّ تعطيلك» تكشف وجودَ ساحرة، و«تمّ قنصك» تُخبر مَن خرج
+  //    أنّ في الطاولة قنّاصاً — وهي معلومةٌ يحملها إلى خارجها.
+  //    مَن خرج يعرف أنّه خرج (من حالته)، ولا يعرف كيف.
   if (gamePhase === 'MORNING_RECAP') {
-    // فقط أعرض الأحداث التي تخص هذا اللاعب (عدا الإسكات والحماية)
-    const myEvents = morningEvents.filter((e: any) =>
-      e.targetPhysicalId === myId && e.type !== 'SILENCE' && e.type !== 'PROTECTION'
-    );
-    const amIKilled = myEvents.some((e: any) => e.type === 'KILL' || e.type === 'SNIPE');
-
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-8">
         <motion.div initial={{ y: -20 }} animate={{ y: 0 }} className="text-5xl mb-4">☀️</motion.div>
         <h3 className="text-xl font-bold text-amber-300" style={{ fontFamily: 'Amiri, serif' }}>الصباح يطل</h3>
-
-        {amIKilled ? (
-          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mt-6 mx-4 bg-red-500/20 border border-red-500/40 rounded-2xl p-6">
-            <div className="text-4xl mb-3">💀</div>
-            <p className="text-red-400 font-bold text-lg">لقد اُغتلت!</p>
-            <p className="text-[#9a9a9a] text-xs mt-2">تم إخراجك من اللعبة</p>
-          </motion.div>
-        ) : myEvents.length === 0 ? (
-          <p className="text-[#9a9a9a] text-sm mt-6">بانتظار كشف الأحداث...</p>
-        ) : (
-          <div className="mt-4 mx-4 space-y-2">
-            {myEvents.map((e: any, i: number) => {
-              // ── ترجمة أنواع الأحداث للعربي ──
-              const eventLabels: Record<string, { icon: string; text: string }> = {
-                'ASSASSINATION': { icon: '💀', text: 'تم اغتيالك!' },
-                'ASSASSINATION_BLOCKED': { icon: '🛡️', text: 'تم حمايتك من الاغتيال!' },
-                'SNIPE_MAFIA': { icon: '🎯', text: 'تم قنصك!' },
-                'SNIPE_CITIZEN': { icon: '🎯', text: 'تم قنصك!' },
-                'SILENCED': { icon: '🤫', text: 'تم إسكاتك! لا يمكنك التحدث هذه الجولة.' },
-                'SHERIFF_RESULT': { icon: '🔍', text: `نتيجة التحقيق: ${e.extra?.result === 'MAFIA' ? '🔴 مافيا' : '🟢 مواطن'}` },
-                'PROTECTION_FAILED': { icon: '❌', text: 'فشلت الحماية! الهدف اُغتيل.' },
-                'SHERIFF_REVENGE': { icon: '🕵️', text: 'الشريف سأل عنك وقُتل في الليلة نفسها — خرجتَ معه.' },
-                'POLICEWOMAN_REVEAL': { icon: '👮', text: 'الشرطية كشفت هويتك!' },
-              };
-              const label = eventLabels[e.type] || { icon: '📋', text: e.type };
-
-              return (
-                <motion.div key={i} initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: i * 0.3 }}
-                  className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
-                  <p className="text-white text-sm">{label.icon} {label.text}</p>
-                </motion.div>
-              );
-            })}
-          </div>
-        )}
+        <p className="text-[#9a9a9a] text-sm mt-5 px-10 leading-relaxed">
+          تُكشف أحداثُ الليلة على شاشة القاعة — تابِعْ معها.
+        </p>
       </motion.div>
     );
   }
+
 
   // ── نتيجة اللعبة ──
   if (gamePhase === 'GAME_OVER' && gameWinner) {

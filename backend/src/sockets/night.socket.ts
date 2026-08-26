@@ -24,7 +24,7 @@ import { clearGameTimer } from '../game/game-timer.js';
 import { clearRevealGrace } from '../game/reveal-grace.js';
 import { markRoomAsFinished } from './lobby.socket.js';
 import { closeSession } from '../services/session.service.js';
-import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorningRecapSanitized } from './broadcast.util.js';
+import { emitStateSanitized, emitPhaseChangedSanitized, emitLeaderOnly, emitMorningRecapSanitized, emitTrustedOnly } from './broadcast.util.js';
 
 // ── ترتيب الطابور الإجباري (حسب الإجراء وليس الدور) ──
 // الخانة 0: اغتيال (وراثة: شيخ → حرباية → قص → مافيا عادي)
@@ -342,12 +342,14 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
     const playerSock = findPlayerSocket(io, roomId, player.physicalId);
     if (playerSock) {
       const isPerformer = player.physicalId === nextStep.performerPhysicalId;
+      // 🔴 نوعُ الفعل والدورُ للفاعل وحده. كانا يُرسَلان **للجميع** والتمويهُ
+      //    يجري في العميل — فمَن يقرأ الحمولة يعرف أيَّ دورٍ يتحرّك الآن.
       playerSock.emit('night:action-required', {
-        actionType: stepActionType,
+        actionType: isPerformer ? stepActionType : 'DECOY',
         availableTargets: isPerformer ? nextStep.availableTargets : decoyTargets,
         timeoutSeconds,
-        canSkip: nextStep.canSkip,
-        stepRole: nextStep.role,
+        canSkip: isPerformer ? nextStep.canSkip : true,
+        stepRole: isPerformer ? nextStep.role : null,
         isDecoy: !isPerformer,
       });
     }
@@ -887,7 +889,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         };
 
         // إرسال أنيميشن عامة
-        io.to(data.roomId).emit('night:animation', {
+        emitTrustedOnly(io, data.roomId, 'night:animation', {
           type: abilityId,
           targetPhysicalId: data.targetPhysicalId,
         });
@@ -953,14 +955,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
         case Role.GODFATHER:
           state.nightActions.godfatherTarget = data.targetPhysicalId;
           // أنيميشن اغتيال لشاشة العرض
-          io.to(data.roomId).emit('night:animation', {
+          emitTrustedOnly(io, data.roomId, 'night:animation', {
             type: 'ASSASSINATION_ATTEMPT',
             targetPhysicalId: data.targetPhysicalId,
           });
           break;
         case Role.SILENCER:
           state.nightActions.silencerTarget = data.targetPhysicalId;
-          io.to(data.roomId).emit('night:animation', {
+          emitTrustedOnly(io, data.roomId, 'night:animation', {
             type: 'SILENCE',
             targetPhysicalId: data.targetPhysicalId,
           });
@@ -984,7 +986,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
             targetPhysicalId: data.targetPhysicalId,
             targetName: investigated?.name || '',
           });
-          io.to(data.roomId).emit('night:animation', {
+          emitTrustedOnly(io, data.roomId, 'night:animation', {
             type: 'INVESTIGATION',
             targetPhysicalId: data.targetPhysicalId,
           });
@@ -992,14 +994,14 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
         case Role.DOCTOR:
           state.nightActions.doctorTarget = data.targetPhysicalId;
-          io.to(data.roomId).emit('night:animation', {
+          emitTrustedOnly(io, data.roomId, 'night:animation', {
             type: 'PROTECTION',
             targetPhysicalId: data.targetPhysicalId,
           });
           break;
         case Role.SNIPER:
           state.nightActions.sniperTarget = data.targetPhysicalId;
-          io.to(data.roomId).emit('night:animation', {
+          emitTrustedOnly(io, data.roomId, 'night:animation', {
             type: 'SNIPE',
             targetPhysicalId: data.targetPhysicalId,
           });
@@ -1010,7 +1012,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         case Role.WITCH: {
           // 🧙‍♀️ تسجيل هدف الساحرة + تعطيل القدرة (موحّد عبر الدالة المساعدة)
           applyWitchDisable(state, data.targetPhysicalId);
-          io.to(data.roomId).emit('night:animation', {
+          emitTrustedOnly(io, data.roomId, 'night:animation', {
             type: 'DISABLE_ABILITY',
             targetPhysicalId: data.targetPhysicalId,
           });
@@ -1020,7 +1022,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
           // 🔪 السفّاح
           if ((data.role as string) === 'ASSASSIN') {
             state.nightActions.assassinTarget = data.targetPhysicalId;
-            io.to(data.roomId).emit('night:animation', {
+            emitTrustedOnly(io, data.roomId, 'night:animation', {
               type: 'ASSASSINATE',
               targetPhysicalId: data.targetPhysicalId,
             });
@@ -1380,8 +1382,10 @@ export function registerNightEvents(io: Server, socket: Socket) {
       event.revealed = true;
       await setGameState(data.roomId, state);
 
-      // بث الأنيميشن لشاشة العرض
-      io.to(data.roomId).emit('display:morning-event', {
+      // 🔴 للعرض والموجّه حصراً: الحمولةُ تحمل نوعَ الحدث والهدف و`extra.targetRole`
+      //    — أي **دورَ المغتال**. وبثُّها للغرفة يوصلها كلَّ جهاز لاعب، والترشيحُ
+      //    كان يجري في العميل وحده. ومَن أُقصي يعرف أنّه خرج من حالته لا من هنا.
+      await emitTrustedOnly(io, data.roomId, 'display:morning-event', {
         type: event.type,
         targetPhysicalId: event.targetPhysicalId,
         targetName: event.targetName,
@@ -2029,7 +2033,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
 
          // إرسال الأنيميشن لشاشة العرض
          if (animType) {
-           io.to(data.roomId).emit('night:animation', {
+           emitTrustedOnly(io, data.roomId, 'night:animation', {
              type: animType,
              targetPhysicalId: realChoice.targetPhysicalId,
            });

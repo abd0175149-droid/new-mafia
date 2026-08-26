@@ -50,12 +50,17 @@ async function main() {
   {
     const order = MAFIA_KILL_PRIORITY;
     check('يبدأ بشيخ المافيا', order[0] === Role.GODFATHER);
-    check('الحرباية ثانياً', order[1] === Role.CHAMELEON);
-    check('القص ثالثاً', order[2] === Role.SILENCER);
-    check('🧙‍♀️ الساحرة مباشرةً بعد القص', order[3] === Role.WITCH);
-    check('الساحرة قبل الأخ الأكبر والمافيا العاديّ',
-      order.indexOf(Role.WITCH) < order.indexOf(Role.OLDER_BROTHER) &&
-      order.indexOf(Role.WITCH) < order.indexOf(Role.MAFIA_REGULAR));
+    check('الحرباية ثانياً — بلا قدرةٍ فوارثٌ نظيف', order[1] === Role.CHAMELEON);
+    check('المافيا العاديّ ثالثاً — بلا قدرةٍ أيضاً', order[2] === Role.MAFIA_REGULAR);
+    check('الأخ الأكبر رابعاً — يملك الاغتيال أصلاً فلا يزدوج', order[3] === Role.OLDER_BROTHER);
+    // 🔴 حارسُ الهدف نفسِه لا صورتِه: حاملا القدرتين آخِراً كي يندر اجتماعُ فعلين
+    //    في يدٍ واحدة. أيُّ إعادة ترتيبٍ لاحقة تكسر هذا الشرط تُوقِف الاختبار.
+    check('القصُّ والساحرةُ آخِرَ السلسلة — أقلُّ احتمالٍ للازدواج',
+      order.indexOf(Role.SILENCER) >= order.length - 2 &&
+      order.indexOf(Role.WITCH) >= order.length - 2);
+    check('كلُّ عديمي القدرة قبل حامليها',
+      Math.max(order.indexOf(Role.CHAMELEON), order.indexOf(Role.MAFIA_REGULAR)) <
+      Math.min(order.indexOf(Role.SILENCER), order.indexOf(Role.WITCH)));
     check('لا دور مكرّر', new Set(order).size === order.length);
     const missing = MAFIA_ROLES.filter(r => !order.includes(r));
     check('كلّ أدوار المافيا مشمولة (لا دور بلا وراثة)', missing.length === 0, missing.join(','));
@@ -67,21 +72,26 @@ async function main() {
     const a = await killPerformer('k1', [P(1, Role.GODFATHER), P(2, Role.WITCH), P(3, Role.MAFIA_REGULAR)]);
     check('الشيخ حيّ → هو المنفّذ', a.id === 1);
 
+    // 🔴 الشيخُ ميّتٌ والقصُّ والمافيا العاديّ حيّان ⇒ العاديُّ يرث لا القصّ:
+    //    عديمُ القدرة أَولى كي لا يجتمع في يد القصّ إسكاتٌ واغتيال.
     const b = await killPerformer('k2', [P(1, Role.GODFATHER, false), P(2, Role.SILENCER), P(3, Role.WITCH), P(4, Role.MAFIA_REGULAR)]);
-    check('الشيخ ميت والقص حيّ → القص لا الساحرة', b.id === 2);
+    check('الشيخ ميت ⇒ المافيا العاديّ لا القص ولا الساحرة', b.id === 4);
 
-    const c = await killPerformer('k3', [P(1, Role.GODFATHER, false), P(2, Role.SILENCER, false), P(3, Role.WITCH), P(4, Role.OLDER_BROTHER), P(5, Role.MAFIA_REGULAR)]);
-    check('🧙‍♀️ مات من فوقها → الساحرة ترث الاغتيال', c.id === 3);
-    check('ونقاط الاغتيال تُنسب لها', c.credited === 3);
+    const b2 = await killPerformer('k2b', [P(1, Role.GODFATHER, false), P(6, Role.CHAMELEON), P(2, Role.SILENCER), P(4, Role.MAFIA_REGULAR)]);
+    check('الحرباية قبل المافيا العاديّ', b2.id === 6);
 
-    const d = await killPerformer('k4', [P(3, Role.WITCH, false), P(4, Role.OLDER_BROTHER), P(5, Role.MAFIA_REGULAR)]);
-    check('الساحرة ميتة → الأخ الأكبر', d.id === 4);
+    const c = await killPerformer('k3', [P(1, Role.GODFATHER, false), P(2, Role.SILENCER), P(3, Role.WITCH), P(4, Role.OLDER_BROTHER)]);
+    check('الأخ الأكبر قبل القصّ والساحرة', c.id === 4);
 
-    const e = await killPerformer('k5', [P(5, Role.MAFIA_REGULAR)]);
-    check('المافيا العاديّ آخر السلسلة', e.id === 5);
+    const d = await killPerformer('k4', [P(2, Role.SILENCER), P(3, Role.WITCH)]);
+    check('لم يبقَ إلّا القصُّ والساحرة ⇒ القصُّ قبلها', d.id === 2);
+    check('ونقاط الاغتيال تُنسب له', d.credited === 2);
 
-    const f = await killPerformer('k6', [P(3, Role.WITCH)]);
-    check('الساحرة وحدها → تنفّذ ولا يبقى القتل بلا منفّذ', f.id === 3);
+    const e = await killPerformer('k5', [P(3, Role.WITCH)]);
+    check('الساحرة وحدها → تنفّذ ولا يبقى القتل بلا منفّذ', e.id === 3);
+
+    const f = await killPerformer('k6', [P(5, Role.MAFIA_REGULAR)]);
+    check('المافيا العاديّ وحده → ينفّذ', f.id === 5);
   }
 
   console.log('\n══════════════════════════════════════');
