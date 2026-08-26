@@ -301,6 +301,28 @@ export interface GameState {
   autoNightStepDispatched?: boolean;     // هل أُرسلت الخطوة الحالية للاعبين
   autoNightStepRole?: string | null;     // دور الخطوة الحالية (SHERIFF/DOCTOR/…)
   autoNightPerformerId?: number | null;  // physicalId مُنفّذ الخطوة الحالية
+  // ══════════════════════════════════════════════════
+  // 🌙 الليلةُ الواحدة — تحلّ محلّ طابور الخطوات
+  //
+  // 🔴 لا «خطوةٌ جارية» هنا: يختار الجميع مرّةً واحدةً معاً، فلا شيءَ يُسرَّب عن
+  //    دورٍ يتحرّك الآن لأنّه لا دورَ يتحرّك وحده. والتمويهُ بنيويٌّ لا مضاف.
+  // ══════════════════════════════════════════════════
+  oneNight?: {
+    /** خطّةُ الليلة كما حُسبت عند البدء — لا تُعاد لئلّا يتغيّر ما بُنيت عليه الشاشات. */
+    plan: Array<{ seat: number; abilityId: string; nameAr: string; priority: number; disabled: boolean; noRandom: boolean }>;
+    /** `مقعد:قدرة` → الهدف. */
+    choices: Record<string, number | null>;
+    /** مقعدٌ بلا فعل → اختيارُه المسجَّل (يُعرض للموجّه ولا يُحسب). */
+    idle: Record<string, number | null>;
+    /** مقعد → أرسل. */
+    submitted: Record<string, boolean>;
+    /** موعدُ انتهاء المهلة — لحساب المتبقّي عند إعادة الاتصال. */
+    deadline: number | null;
+    /** الموجّه في شاشة المراجعة. */
+    review: boolean;
+    /** أُرسلت الشاشةُ للاعبين. */
+    dispatched: boolean;
+  } | null;
   // ── مؤقت اللعبة ──
   gameTimer: {
     totalSeconds: number;   // المدة الإجمالية بالثواني

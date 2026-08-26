@@ -27,9 +27,20 @@ export interface DynamicNightAction {
 }
 
 export interface DynamicNightState {
-  actions: Record<string, DynamicNightAction>;  // key = abilityId
-  lastTargets: Record<string, number>;           // abilityId → آخر هدف
+  /**
+   * مفتاحُ الإجراء: `مقعد الفاعل:معرّف القدرة`.
+   *
+   * 🔴 كان معرّفَ القدرة وحده — فلاعبان يحملان القدرةَ نفسَها يمحو ثانيهما أوّلَهما
+   *    بصمت (الشيخُ والأخُ الأكبر كلاهما يحمل KILL في تعريف دوره). والقراءةُ هنا
+   *    `Object.values` فلا يتأثّر المحرّك بشكل المفتاح — يتأثّر مَن يكتب فقط.
+   */
+  actions: Record<string, DynamicNightAction>;   // key = `${seat}:${abilityId}`
+  lastTargets: Record<string, number>;            // abilityId → آخر هدف
 }
+
+/** مفتاحُ الإجراء المركّب — يُستعمل في الكتابة وفي الإلغاء معاً. */
+export const actionKey = (a: { performerPhysicalId: number; abilityId: string }) =>
+  `${a.performerPhysicalId}:${a.abilityId}`;
 
 // ── بناء طابور الليل ─────────────────────────────────
 
@@ -216,61 +227,69 @@ export async function resolveNightDynamic(
   }
 
   // ═══ إلغاء إجراءات اللاعبين المعطّلين (قبل قواعد التفاعل) ═══
+  // 🔴 يُلغى فعلُ المعطَّل هو، لا كلُّ فعلٍ من نوع قدرته: مقعدٌ آخر يحمل القدرةَ
+  //    نفسَها ولم يُعطَّل يبقى فعلُه قائماً.
   for (const action of actions) {
     const performer = state.players.find(p => p.physicalId === action.performerPhysicalId);
     if (performer?.disabledUntilRound != null && performer.disabledUntilRound >= (state.round || 1)) {
-      cancelledActions.add(action.abilityId);
+      cancelledActions.add(actionKey(action));
     }
   }
 
   // ═══ فحص قواعد التفاعل (تتجاهل الإجراءات المُلغاة مسبقاً، كحماية مُعطَّلة بالساحرة) ═══
+  // 🔴 كلُّ زوجٍ مطابقٍ لا أوّلُ زوجٍ: كانت `find` تأخذ أوّل إجراءٍ بكلّ قدرة، فلو
+  //    حمى طبيبان هدفين مختلفين لَفُحص أحدُهما وأُهمل الآخر.
   for (const rule of rules) {
-    const actionA = actions.find(a => a.abilityId === rule.abilityA);
-    const actionB = actions.find(a => a.abilityId === rule.abilityB);
+    const listA = actions.filter(a => a.abilityId === rule.abilityA);
+    const listB = actions.filter(a => a.abilityId === rule.abilityB);
 
-    if (!actionA || !actionB) continue;
-    // إن كان أحد الإجراءين مُلغى أصلاً (مثلاً PROTECT مُعطَّل) فالقاعدة لا تنطبق
-    if (cancelledActions.has(actionA.abilityId) || cancelledActions.has(actionB.abilityId)) continue;
+    for (const actionA of listA) {
+      for (const actionB of listB) {
+        if (actionA === actionB) continue;
+        // إن كان أحد الإجراءين مُلغى أصلاً (مثلاً PROTECT مُعطَّل) فالقاعدة لا تنطبق
+        if (cancelledActions.has(actionKey(actionA)) || cancelledActions.has(actionKey(actionB))) continue;
 
-    let applies = false;
-    switch (rule.condition) {
-      case 'SAME_TARGET':
-        applies = actionA.targetPhysicalId === actionB.targetPhysicalId;
-        break;
-      case 'ALWAYS':
-        applies = true;
-        break;
-    }
-
-    if (!applies) continue;
-
-    switch (rule.resolution) {
-      case 'B_CANCELS_A': {
-        cancelledActions.add(actionA.abilityId);
-        const targetA = state.players.find(p => p.physicalId === actionA.targetPhysicalId);
-        if (targetA) {
-          events.push({
-            type: rule.resultEvent as any,
-            targetPhysicalId: targetA.physicalId,
-            targetName: targetA.name,
-            revealed: false,
-          });
+        let applies = false;
+        switch (rule.condition) {
+          case 'SAME_TARGET':
+            applies = actionA.targetPhysicalId === actionB.targetPhysicalId;
+            break;
+          case 'ALWAYS':
+            applies = true;
+            break;
         }
-        break;
+
+        if (!applies) continue;
+
+        switch (rule.resolution) {
+          case 'B_CANCELS_A': {
+            cancelledActions.add(actionKey(actionA));
+            const targetA = state.players.find(p => p.physicalId === actionA.targetPhysicalId);
+            if (targetA) {
+              events.push({
+                type: rule.resultEvent as any,
+                targetPhysicalId: targetA.physicalId,
+                targetName: targetA.name,
+                revealed: false,
+              });
+            }
+            break;
+          }
+          case 'A_CANCELS_B':
+            cancelledActions.add(actionKey(actionB));
+            break;
+          case 'BOTH_CANCEL':
+            cancelledActions.add(actionKey(actionA));
+            cancelledActions.add(actionKey(actionB));
+            break;
+        }
       }
-      case 'A_CANCELS_B':
-        cancelledActions.add(actionB.abilityId);
-        break;
-      case 'BOTH_CANCEL':
-        cancelledActions.add(actionA.abilityId);
-        cancelledActions.add(actionB.abilityId);
-        break;
     }
   }
 
   // تطبيق التأثيرات للإجراءات غير الملغاة
   for (const action of actions) {
-    if (cancelledActions.has(action.abilityId)) continue;
+    if (cancelledActions.has(actionKey(action))) continue;
 
     const ability = allAbilities.find(a => a.id === action.abilityId);
     if (!ability) continue;
@@ -287,11 +306,11 @@ export async function resolveNightDynamic(
         if (isAssassinAction && state.assassinState) {
           // ── منطق السفّاح (أولوية: يُحتسب العقد حتى لو استهدف القناص و/أو المافيا نفس اللاعب) ──
           const mafiaKillAction = actions.find(a =>
-            a.abilityId === 'KILL' && a.targetPhysicalId === action.targetPhysicalId && !cancelledActions.has(a.abilityId)
+            a.abilityId === 'KILL' && a.targetPhysicalId === action.targetPhysicalId && !cancelledActions.has(actionKey(a))
           );
           const alsoKilledByMafia = !!mafiaKillAction;
           const sniperAction = actions.find(a => {
-            if (cancelledActions.has(a.abilityId)) return false;
+            if (cancelledActions.has(actionKey(a))) return false;
             if (a.targetPhysicalId !== action.targetPhysicalId) return false;
             const ab = allAbilities.find(x => x.id === a.abilityId);
             return ab?.effectType === 'CONDITIONAL_ELIMINATE'; // القنص

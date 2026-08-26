@@ -881,7 +881,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
 
         // تسجيل الإجراء
-        dynamicNight.actions[abilityId] = {
+        dynamicNight.actions[`${queue[queueIndex]?.performerPhysicalId || 0}:${abilityId}`] = {
           abilityId,
           performerPhysicalId: queue[queueIndex]?.performerPhysicalId || 0,
           targetPhysicalId: data.targetPhysicalId,
@@ -1097,7 +1097,7 @@ export function registerNightEvents(io: Server, socket: Socket) {
         }
 
         // تسجيل التخطي
-        dynamicNight.actions[abilityId] = {
+        dynamicNight.actions[`${queue[queueIndex]?.performerPhysicalId || 0}:${abilityId}`] = {
           abilityId,
           performerPhysicalId: queue[queueIndex]?.performerPhysicalId || 0,
           targetPhysicalId: null,
