@@ -46,6 +46,7 @@ class GuideRole {
     this.howItWorks,
     this.winLine,
     this.faceUrl,
+    this.faceFullUrl,
     this.limits = const [],
     this.tips = const [],
     this.interactsWith = const [],
@@ -56,6 +57,9 @@ class GuideRole {
   final String id, nameAr, nameEn, team;
   final int genPriority;
   final String? oneLiner, howItWorks, winLine, faceUrl;
+
+  /// الأصلُ للتكبير — المصغَّرُ يبهت ملءَ الشاشة، والتنزيلُ هنا بضغطةٍ صريحة.
+  final String? faceFullUrl;
   final List<RoleLimit> limits;
   final List<String> tips, interactsWith, actsIn;
   final Map<String, String> phaseNotes;
@@ -70,6 +74,7 @@ class GuideRole {
     final face = j['face'];
     // المصغَّرُ أوّلاً والأصلُ احتياط — وإن غاب الاثنان فالأيقونة
     final rel = face is Map ? (face['thumbUrl'] ?? face['url']) : null;
+    final full = face is Map ? (face['url'] ?? face['thumbUrl']) : null;
     final notes = <String, String>{};
     if (j['phaseNotes'] is Map) {
       (j['phaseNotes'] as Map).forEach((k, v) {
@@ -88,6 +93,7 @@ class GuideRole {
       winLine: (j['winConditionDescription'] as String?)?.trim().isEmpty ?? true
           ? null : '${j['winConditionDescription']}'.trim(),
       faceUrl: rel == null ? null : '$rel',
+      faceFullUrl: full == null ? null : '$full',
       limits: (j['limits'] is List)
           ? (j['limits'] as List).whereType<Map>().map((m) =>
               RoleLimit('${m['text']}', m['auto'] == true)).toList()

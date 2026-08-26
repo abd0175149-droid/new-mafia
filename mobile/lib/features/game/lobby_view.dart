@@ -20,6 +20,7 @@ import 'morning_gameover_view.dart';
 import 'night_view.dart';
 import 'voting_view.dart';
 import '../../core/socket/socket_service.dart';
+import 'my_tasks_sheet.dart';
 import 'roles_deck_sheet.dart';
 import '../voice/confrontation_controls.dart';
 import '../voice/voice_service.dart';
@@ -453,8 +454,23 @@ class _Toolbar extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Builder(
-            builder: (ctx) => _chip('🃏 الأدوار', _gold,
-                const Color(0xFF2A2A2A), () => unawaited(_openDeck(ctx))),
+            builder: (ctx) => Row(mainAxisSize: MainAxisSize.min, children: [
+              _chip('🃏 الأدوار', _gold, const Color(0xFF2A2A2A),
+                  () => unawaited(_openDeck(ctx))),
+              // 🔴 هنا لا في رصيفٍ أسفل الشاشة: الرصيفُ يزاحم شريطَ الصوت في
+              //    الغرف البعيدة ويكرّر زرَّ «الأدوار». يبقى للطبقات الملء وحدها.
+              if (controller.assignedRole != null) ...[
+                const SizedBox(width: 6),
+                _chip('📋 مهامّي', _gold, const Color(0x73C5A059),
+                    () => unawaited(showMyTasks(
+                          ctx,
+                          roleId: controller.assignedRole,
+                          roomId: controller.roomId,
+                          gamePhase: controller.gamePhase,
+                          isDead: controller.isPlayerDead,
+                        ))),
+              ],
+            ]),
           ),
           // ✉️ INV-2: العلم `allowPlayerInvites` كان مُتتبَّعاً بلا واجهةٍ
           //    تستهلكه — فلاعب التطبيق لا يدعو أحداً بينما زملاؤه على

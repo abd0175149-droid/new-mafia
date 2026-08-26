@@ -3030,12 +3030,27 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
                 </motion.div>
               )}              {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">
-                <button
-                  onClick={openRolesDeck}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
-                >
-                  <span className="text-sm">🃏</span> الأدوار
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={openRolesDeck}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
+                  >
+                    <span className="text-sm">🃏</span> الأدوار
+                  </button>
+                  {/* 🔴 هنا لا في رصيفٍ أسفل الشاشة: الرصيفُ كان يجلس فوق شريط
+                      التنقّل (BottomNav ارتفاعُه ٦٤ في z-50) فيحجبه، ويكرّر زرَّ
+                      «الأدوار» الموجودَ أصلاً. والرصيفُ يبقى للطبقات الملء —
+                      هناك وحدَه يكون الرأسُ محجوباً فيَلزم بديل. */}
+                  {assignedRole && (
+                    <button
+                      onClick={() => setTasksOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-[11px] font-black"
+                      style={{ background: 'rgba(197,160,89,0.14)', borderColor: 'rgba(197,160,89,0.45)', color: '#C5A059' }}
+                    >
+                      <span className="text-sm">📋</span> مهامّي
+                    </button>
+                  )}
+                </div>
                 {isRemote && physicalId && (
                   <span className="text-[11px] font-mono text-[#808080]">مقعدك <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
                 )}
@@ -3050,7 +3065,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
               <div className="text-[10px] font-mono text-[#9a9a9a] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center">
-                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v3.0
+                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole ? '✔' : '—'} | S:{step} | v3.0
               </div>
               )}
 
@@ -3483,12 +3498,27 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
 
               {/* ── أزرار الملف الشخصي + تسجيل خروج ── */}
               <div className="flex items-center justify-between mb-2 px-0.5">
-                <button
-                  onClick={openRolesDeck}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
-                >
-                  <span className="text-sm">🃏</span> الأدوار
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={openRolesDeck}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-black/40 border border-[#2a2a2a] text-[#C5A059] hover:border-[#C5A059]/50 hover:bg-[#C5A059]/5 transition-all text-[11px] font-bold"
+                  >
+                    <span className="text-sm">🃏</span> الأدوار
+                  </button>
+                  {/* 🔴 هنا لا في رصيفٍ أسفل الشاشة: الرصيفُ كان يجلس فوق شريط
+                      التنقّل (BottomNav ارتفاعُه ٦٤ في z-50) فيحجبه، ويكرّر زرَّ
+                      «الأدوار» الموجودَ أصلاً. والرصيفُ يبقى للطبقات الملء —
+                      هناك وحدَه يكون الرأسُ محجوباً فيَلزم بديل. */}
+                  {assignedRole && (
+                    <button
+                      onClick={() => setTasksOpen(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-[11px] font-black"
+                      style={{ background: 'rgba(197,160,89,0.14)', borderColor: 'rgba(197,160,89,0.45)', color: '#C5A059' }}
+                    >
+                      <span className="text-sm">📋</span> مهامّي
+                    </button>
+                  )}
+                </div>
                 {isRemote && physicalId && (
                   <span className="text-[11px] font-mono text-[#808080]">مقعدك <span className="text-[#C5A059] font-black text-sm">#{physicalId}</span></span>
                 )}
@@ -3503,7 +3533,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
               {/* 🔍 DEBUG BAR (مؤقت — للتشخيص) */}
               {!isRemote && (
               <div className="text-[10px] font-mono text-[#9a9a9a] bg-[#0a0a0a] border border-[#1a1a1a] px-2 py-1 rounded mt-1 text-center mb-2">
-                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole || 'null'} | S:{step} | v4.0
+                P:{gamePhase || 'null'} | C:{votingCandidates.length} | R:{assignedRole ? '✔' : '—'} | S:{step} | v4.0
               </div>
               )}
 
@@ -4393,14 +4423,16 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
       )}
 
       {/* ══════════════════════════════════════════════════
-          🧭 رصيفُ المرجع — زرّان يبقيان فوق طبقات اللعبة
-          🔴 كان زرُّ «الأدوار» في الرأس وحده، وطبقةُ اختيار هدف الليل تغطّي
-             الشاشة كلَّها — فيغيب المرجعُ في اللحظة التي يُحتاج فيها أكثر.
-             وقرارُ «لا فرضَ للشرح» يجعل ظهورَ الزرّ شرطاً: ما لا يُفرَض يجب أن يُرى.
+          🧭 رصيفُ المرجع — **تحت شاشة اختيار هدف الليل وحدها**
+          🔴 هذه الطبقة (z-200) تغطّي الشاشة كلَّها فيغيب زرّا الرأس معها — وهي
+             اللحظةُ التي يُحتاج فيها المرجعُ أكثر: اللاعبُ يختار هدفاً الآن.
+          🔴 ولا يظهر في اللعب العاديّ: هناك يجلس فوق شريط التنقّل (BottomNav
+             ارتفاعُه ٦٤ في z-50) فيحجبه — وهذا ما رآه المالك في الشاشة.
           🔴 وفوق طبقة الليل (200) وتحت اللوحتين (300) — لا يغطّي ما يفتحه.
           ══════════════════════════════════════════════════ */}
       {(step === 'done' || step === 'rejoined') && gamePhase !== 'GAME_OVER'
-        && !rolesModalOpen && !tasksOpen && !(roleAlert && !cardFlipped) && (
+        && !isPlayerDead && !!nightActionRequired && !nightActionSubmitted
+        && !rolesModalOpen && !tasksOpen && (
         <div className="fixed z-[240] flex gap-2 pointer-events-none"
           style={{ left: 12, right: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}>
           <button

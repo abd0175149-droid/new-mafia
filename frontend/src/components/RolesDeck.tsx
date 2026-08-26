@@ -52,11 +52,21 @@ const FALLBACK_ICON: Record<string, string> = {
   YOUNGER_BROTHER: '👦', CITIZEN: '👤', JESTER: '🃏', ASSASSIN: '🗡️',
 };
 
-/** يُفضّل المصغَّر ويعود للأصل إن لم يُولَّد — ولا يعرض شيئاً إن غاب الاثنان. */
+const abs = (rel?: string | null) =>
+  !rel ? null : (/^https?:\/\//i.test(rel) ? rel : `${MEDIA_URL}${rel}`);
+
+/** للعرض: المصغَّر، ويعود للأصل إن لم يُولَّد. */
 function faceSrc(face: GuideRole['face']): string | null {
-  const rel = face?.thumbUrl || face?.url;
-  if (!rel) return null;
-  return /^https?:\/\//i.test(rel) ? rel : `${MEDIA_URL}${rel}`;
+  return abs(face?.thumbUrl || face?.url);
+}
+
+/**
+ * للتكبير: **الأصل** لا المصغَّر.
+ * 🔴 المصغَّر ٧٢٠بك يكفي كارتاً بعرض ٢١٥ نقطة، ويبهت ملءَ الشاشة. وتنزيلُ
+ *    الأصل هنا مقصود: ضغطةٌ صريحة على صورةٍ واحدة، لا ستّةَ عشرَ تلقائيّاً.
+ */
+function faceFull(face: GuideRole['face']): string | null {
+  return abs(face?.url || face?.thumbUrl);
 }
 
 let _cache: GuideRole[] | null = null;
@@ -75,6 +85,8 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
   const [team, setTeam] = useState<'MAFIA' | 'CITIZEN' | 'NEUTRAL'>('MAFIA');
   const [idx, setIdx] = useState(0);
   const touch = useRef<{ x: number; y: number } | null>(null);
+  /** صورةُ التكبير — الكارتُ في الدليل صغير، ومَن أراد التفاصيل يضغطه. */
+  const [zoom, setZoom] = useState<string | null>(null);
   const jumpRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -130,19 +142,22 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // 🔴 التكبيرُ يُغلق أوّلاً: Escape يجب أن يُنهي الطبقة العليا لا الشاشة كلَّها
+      if (e.key === 'Escape') { if (zoom) { setZoom(null); return; } onClose(); return; }
       if (e.key === 'ArrowRight') go(-1);
       if (e.key === 'ArrowLeft') go(1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose, go]);
+  }, [open, onClose, go, zoom]);
 
   // يُبقي الرقاقةَ الجارية مرئيّةً في شريط القفز
   useEffect(() => {
     const el = jumpRef.current?.querySelector<HTMLElement>('[data-on="1"]');
     el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }, [idx, team]);
+
+  useEffect(() => { if (!open) setZoom(null); }, [open]);
 
   if (!open) return null;
 
@@ -231,16 +246,31 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
                 className="flex-1 flex flex-col min-h-0 rounded-2xl border p-4"
                 style={{ borderColor: '#2b2621', background: 'linear-gradient(165deg,#16130f,#0c0b0a)' }}>
 
-                {/* وجهُ الكارت الحقيقيّ */}
-                <div className="rounded-xl overflow-hidden shrink-0 grid place-items-center"
-                  style={{ height: 168, border: `1px solid ${c}44`, background: '#0e0d0c' }}>
+                {/* ══════════════════════════════════════════
+                    وجهُ الكارت الحقيقيّ — كاملاً بلا قصّ
+                    🔴 كان صندوقاً عرضيّاً (ارتفاعُه ١٦٨ وعرضُه عرضُ اللوحة)
+                       بـobject-cover، والصورةُ كارتٌ **طوليّ** ٧٢٠×١٠٧٣.
+                       فالتغطيةُ تملأ العرض وتقصّ نحو ثلثَي الطول — يظهر وسطُ
+                       الكارت وحده. الصندوقُ صار يتبع نسبةَ الكارت، والارتفاعُ
+                       محدودٌ بالشاشة فيبقى للنصّ مكان.
+                    🔴 وcontain لا cover: رفعُ صورةٍ بنسبةٍ أخرى غداً يُحاط
+                       بفراغٍ ولا يُقصّ. القصُّ الصامت هو ما أنتج هذا البلاغ.
+                    ══════════════════════════════════════════ */}
+                <button type="button" onClick={() => { const z = faceFull(cur.face); if (z) setZoom(z); }}
+                  aria-label="تكبير صورة الكارت"
+                  className="shrink-0 mx-auto rounded-xl overflow-hidden grid place-items-center"
+                  style={{
+                    height: 'min(36dvh, 320px)', aspectRatio: '720 / 1073',
+                    border: `1px solid ${c}44`, background: '#0e0d0c',
+                    cursor: src ? 'zoom-in' : 'default',
+                  }}>
                   {src ? (
                     <img src={src} alt={cur.nameAr} loading="lazy" decoding="async"
-                      className="w-full h-full object-cover" />
+                      className="w-full h-full object-contain" />
                   ) : (
                     <span className="text-4xl opacity-80">{FALLBACK_ICON[cur.id] || '🎭'}</span>
                   )}
-                </div>
+                </button>
 
                 <h3 className="text-center mt-3 text-[26px] leading-tight font-black"
                   style={{ fontFamily: 'Amiri, serif', color: c }}>{cur.nameAr}</h3>
@@ -305,6 +335,18 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
           </div>
         )}
       </motion.div>
+
+      {/* 🔍 التكبير — الصورةُ كاملةً على الشاشة، ضغطةٌ تُغلقها */}
+      {zoom && (
+        <div onClick={() => setZoom(null)}
+          className="fixed inset-0 z-[310] bg-black/95 flex items-center justify-center p-4"
+          style={{ cursor: 'zoom-out' }}>
+          <img src={zoom} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
+          <button onClick={() => setZoom(null)} aria-label="إغلاق"
+            className="absolute top-4 left-4 w-9 h-9 rounded-xl border border-[#2b2621] text-[#cdc3af] grid place-items-center"
+            style={{ background: 'rgba(21,19,16,0.9)' }}>✕</button>
+        </div>
+      )}
     </div>
   );
 }

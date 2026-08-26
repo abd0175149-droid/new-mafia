@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -28,6 +30,9 @@ const _teamAr = <String, String>{
   'CITIZEN': 'المواطنون',
   'NEUTRAL': 'المستقلّون',
 };
+/// نسبةُ وجه الكارت (٧٢٠×١٠٧٣) — كارتٌ طوليّ لا لوحةٌ عرضيّة.
+const _kFaceRatio = 720 / 1073;
+
 const _fallbackIcon = <String, String>{
   'GODFATHER': '🎩', 'SILENCER': '🤫', 'CHAMELEON': '🦎', 'WITCH': '🧙',
   'OLDER_BROTHER': '👴', 'MAFIA_REGULAR': '🔪', 'SHERIFF': '🕵️', 'DOCTOR': '🩺',
@@ -245,28 +250,43 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
         ),
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          // وجهُ الكارت الحقيقيّ
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              height: 168,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0E0D0C),
-                border: Border.all(color: c.withValues(alpha: 0.27)),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: r.faceUrl == null
-                  ? Center(
-                      child: Text(_fallbackIcon[r.id] ?? '🎭',
-                          style: const TextStyle(fontSize: 40)))
-                  : CachedNetworkImage(
-                      imageUrl: ApiClient.instance.upload(r.faceUrl),
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Center(
-                          child: Text(_fallbackIcon[r.id] ?? '🎭',
-                              style: const TextStyle(fontSize: 40))),
-                      placeholder: (_, __) => const ColoredBox(color: Color(0xFF0E0D0C)),
+          // ══════════════════════════════════════════
+          // وجهُ الكارت الحقيقيّ — كاملاً بلا قصّ
+          // 🔴 كان صندوقاً عرضيّاً (ارتفاعُه ١٦٨ وعرضُه عرضُ اللوحة) بـcover،
+          //    والصورةُ كارتٌ **طوليّ** ٧٢٠×١٠٧٣ — فتُقَصّ نحو ثلثَي الطول.
+          //    الصندوقُ صار يتبع نسبةَ الكارت، وBoxFit.contain يمنع القصّ
+          //    لأيّ صورةٍ تُرفع بنسبةٍ أخرى غداً.
+          // ══════════════════════════════════════════
+          SizedBox(
+            height: _artHeight(context),
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: _kFaceRatio,
+                child: GestureDetector(
+                  onTap: r.faceUrl == null ? null : () => _zoom(context, r),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0E0D0C),
+                      border: Border.all(color: c.withValues(alpha: 0.27)),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    clipBehavior: Clip.antiAlias,
+                    child: r.faceUrl == null
+                        ? Center(
+                            child: Text(_fallbackIcon[r.id] ?? '🎭',
+                                style: const TextStyle(fontSize: 40)))
+                        : CachedNetworkImage(
+                            imageUrl: ApiClient.instance.upload(r.faceUrl),
+                            fit: BoxFit.contain,
+                            errorWidget: (_, __, ___) => Center(
+                                child: Text(_fallbackIcon[r.id] ?? '🎭',
+                                    style: const TextStyle(fontSize: 40))),
+                            placeholder: (_, __) =>
+                                const ColoredBox(color: Color(0xFF0E0D0C)),
+                          ),
+                  ),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -314,6 +334,36 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
         ]),
       ),
     );
+  }
+
+  /// ارتفاعُ الفنّ: ٣٦٪ من الشاشة بحدٍّ أقصى ٣٢٠ — يبقى للنصّ مكانٌ يُمرَّر.
+  double _artHeight(BuildContext ctx) {
+    final h = MediaQuery.of(ctx).size.height;
+    return (h * 0.34).clamp(150.0, 320.0);
+  }
+
+  /// 🔍 تكبير: الكارتُ في الدليل صغير، ومَن أراد التفاصيل يضغطه.
+  void _zoom(BuildContext ctx, GuideRole r) {
+    unawaited(showDialog<void>(
+      context: ctx,
+      barrierColor: Colors.black.withValues(alpha: 0.95),
+      builder: (dctx) => GestureDetector(
+        onTap: () => Navigator.of(dctx).pop(),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: InteractiveViewer(
+            maxScale: 4,
+            child: Center(
+              child: CachedNetworkImage(
+                imageUrl: ApiClient.instance.upload(r.faceFullUrl ?? r.faceUrl),
+                fit: BoxFit.contain,
+                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
   }
 
   Widget _block(String title, Widget child) => Padding(
