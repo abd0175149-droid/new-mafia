@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { saveFile, isIOS, isStandalone } from '@/lib/saveFile';
 import { motion, AnimatePresence } from 'framer-motion';
 import { swalConfirm } from '@/lib/swal';
 
@@ -249,17 +250,19 @@ export default function ReservationsPage() {
         throw new Error(d?.error || 'فشل توليد الكشف');
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      if (format === 'pdf') {
-        // فتح للعرض — والطباعة من عارض المتصفّح
+      const base = `كشف حجوزات - ${getActivityName(Number(filterActivity))}`;
+      // 🔴 المسارُ نفسُه للاثنين: `<a download>` و`window.open(blob:)` كلاهما
+      //    يسقط في التطبيق المثبَّت على iOS — لا مدير تنزيلاتٍ هناك أصلاً.
+      //    saveFile يجرّب ورقةَ المشاركة أوّلاً (فيها «حفظ في الملفّات»).
+      if (format === 'pdf' && !isIOS() && !isStandalone()) {
+        // سطحُ المكتب: الفتحُ في تبويبٍ أفضل — الطباعةُ من عارض المتصفّح
+        const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
         setTimeout(() => URL.revokeObjectURL(url), 60000);
       } else {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `كشف حجوزات - ${getActivityName(Number(filterActivity))}.xlsx`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        const ext = format === 'pdf' ? 'pdf' : 'xlsx';
+        const r = await saveFile(blob, `${base}.${ext}`, { title: base });
+        if (r === 'failed') alert('تعذّر حفظ الكشف على هذا الجهاز');
       }
     } catch (err: any) {
       alert('فشل توليد الكشف: ' + (err.message || ''));

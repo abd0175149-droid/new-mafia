@@ -1,3 +1,4 @@
+import { saveFile } from '@/lib/saveFile';
 // ══════════════════════════════════════════════════════
 // 📡 عميل واجهة التقارير — Reports API client
 // ══════════════════════════════════════════════════════
@@ -96,8 +97,7 @@ export async function exportReport(key: string, params: Record<string, unknown>,
   const match = cd.match(/filename\*=UTF-8''(.+)$/);
   const fallback = `report.${format === 'pdf' ? 'pdf' : 'xlsx'}`;
   const name = match ? decodeURIComponent(match[1]) : fallback;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name; document.body.appendChild(a); a.click();
-  a.remove(); URL.revokeObjectURL(url);
+  // 🔴 لا `<a download>` مباشرةً: يسقط صامتاً في التطبيق المثبَّت على iOS —
+  //    لا مدير تنزيلاتٍ هناك. saveFile يجرّب ورقةَ المشاركة أوّلاً.
+  await saveFile(blob, name, { title: name });
 }

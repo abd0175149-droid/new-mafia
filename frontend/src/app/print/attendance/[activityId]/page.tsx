@@ -7,6 +7,7 @@
 // ══════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from 'react';
+import { saveFile, canvasToBlob } from '@/lib/saveFile';
 import { useParams } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -72,10 +73,15 @@ export default function AttendancePrintPage() {
         backgroundColor: light ? '#f4efe2' : '#0a0805',
         width: W, height: H,
       });
-      const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
-      a.download = `${baseName}.png`;
-      a.click();
+      // 🔴 blob لا dataURL: الثاني يُنتج نصَّ base64 بعشرات الميغابايت، وiOS
+      //    يمنع الانتقالَ إلى روابط data: أصلاً — فكانت الضغطةُ لا تفعل شيئاً
+      //    ولا ترمي، فيبدو الفشلُ نجاحاً.
+      const blob = await canvasToBlob(canvas, 'image/png');
+      const res = await saveFile(blob, `${baseName}.png`, { title: baseName });
+      // 🔴 نتيجةٌ صريحةٌ تُفحص: «تمّ» بلا دليلٍ هو ما أنتج البلاغ
+      if (res === 'failed') {
+        alert('تعذّر حفظ الصورة — جرّبْ «طباعة / حفظ PDF» بدلاً منها');
+      }
     } catch {
       alert('تعذّر إنشاء الصورة — يمكنك استخدام «طباعة / حفظ PDF» بدلاً منها');
     } finally {
