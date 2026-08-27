@@ -510,7 +510,7 @@ class _Toolbar extends StatelessWidget {
       if (l.isNotEmpty) ids = l;
     }
     if (!ctx.mounted) return;
-    await showRolesDeck(ctx, roleIds: ids, myRoleId: controller.assignedRole);
+    await showRolesDeck(ctx, roleIds: ids);
   }
 
   Widget _chip(String label, Color fg, Color border, VoidCallback onTap) =>

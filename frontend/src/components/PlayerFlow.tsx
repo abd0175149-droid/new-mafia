@@ -4505,7 +4505,6 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
         open={rolesModalOpen}
         onClose={() => setRolesModalOpen(false)}
         roleIds={rolesInPlay}
-        myRoleId={assignedRole}
       />
 
       {/* ══ 📋 مهامّي ══ */}

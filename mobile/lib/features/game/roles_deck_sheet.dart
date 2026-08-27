@@ -43,19 +43,17 @@ const _fallbackIcon = <String, String>{
 Future<void> showRolesDeck(
   BuildContext context, {
   List<String>? roleIds,
-  String? myRoleId,
 }) =>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => RolesDeckSheet(roleIds: roleIds, myRoleId: myRoleId),
+      builder: (_) => RolesDeckSheet(roleIds: roleIds),
     );
 
 class RolesDeckSheet extends StatefulWidget {
-  const RolesDeckSheet({super.key, this.roleIds, this.myRoleId});
+  const RolesDeckSheet({super.key, this.roleIds});
   final List<String>? roleIds;
-  final String? myRoleId;
 
   @override
   State<RolesDeckSheet> createState() => _RolesDeckSheetState();
@@ -90,16 +88,23 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
     return list..sort((a, b) => a.genPriority.compareTo(b.genPriority));
   }
 
-  /// 🔴 يُفتح على دورك: من يفتح الدليل وسط جولةٍ يبحث عن نفسه غالباً.
-  void _openOnMine(List<GuideRole> pool, List<String> teams) {
+  /// 🔴 يُفتح على **شيخ المافيا دائماً** — لا على دور صاحب الجهاز.
+  ///
+  /// كان يُفتح على دورك بحجّة أنّ مَن يفتح الدليل يبحث عن نفسه. وهي حجّةٌ خاطئة:
+  /// نظرةٌ عابرة على الشاشة تكشف دورَ صاحبها فوراً، والدليلُ يُفتح في قاعةٍ لا
+  /// في خلوة. ونقطةُ الفتح ثابتةٌ للجميع فلا تقول شيئاً عن أحد.
+  ///
+  /// ولا يُشترط وجودُ الشيخ: بعد بدء اللعبة تُعرض أدوارُ الطاولة وحدها وقد لا
+  /// يكون فيها. البدائلُ بالترتيب: الشيخ ← أوّلُ مافيويّ ← أوّلُ ما في القائمة.
+  void _openOnAnchor(List<GuideRole> pool) {
     if (_opened || pool.isEmpty) return;
     _opened = true;
-    final mine = widget.myRoleId == null
-        ? null
-        : pool.where((r) => r.id == widget.myRoleId).firstOrNull;
-    _team = mine?.team ?? (teams.isNotEmpty ? teams.first : 'MAFIA');
+    final anchor = pool.where((r) => r.id == 'GODFATHER').firstOrNull
+        ?? pool.where((r) => r.team == 'MAFIA').firstOrNull
+        ?? pool.first;
+    _team = anchor.team;
     final within = pool.where((r) => r.team == _team).toList();
-    _idx = mine == null ? 0 : within.indexWhere((r) => r.id == mine.id).clamp(0, 9999);
+    _idx = within.indexWhere((r) => r.id == anchor.id).clamp(0, 9999);
     _page = PageController(initialPage: _idx);
   }
 
@@ -132,7 +137,7 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
             }
             final teams = ['MAFIA', 'CITIZEN', 'NEUTRAL']
                 .where((t) => pool.any((r) => r.team == t)).toList();
-            _openOnMine(pool, teams);
+            _openOnAnchor(pool);
             if (!teams.contains(_team)) _team = teams.first;
 
             final list = pool.where((r) => r.team == _team).toList();
@@ -336,10 +341,11 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
     );
   }
 
-  /// ارتفاعُ الفنّ: ٣٦٪ من الشاشة بحدٍّ أقصى ٣٢٠ — يبقى للنصّ مكانٌ يُمرَّر.
+  /// ارتفاعُ الفنّ — أصغرُ ٢٠٪ ممّا كان (٠٫٣٤ ⇐ ٠٫٢٧٢ و٣٢٠ ⇐ ٢٥٦).
+  /// 🔴 الفارقُ يذهب كلُّه إلى النصّ تحته: يظهر منه أكثرُ قبل الحاجة للتمرير.
   double _artHeight(BuildContext ctx) {
     final h = MediaQuery.of(ctx).size.height;
-    return (h * 0.34).clamp(150.0, 320.0);
+    return (h * 0.272).clamp(120.0, 256.0);
   }
 
   /// 🔍 تكبير: الكارتُ في الدليل صغير، ومَن أراد التفاصيل يضغطه.
@@ -412,8 +418,9 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
           scrollDirection: Axis.horizontal,
           itemCount: list.length,
           itemBuilder: (_, k) {
+            // 🔴 ولا وسمَ لدورك هنا: النجمةُ كانت تُعلّمه في الشريط — وهو
+            //    التسريبُ نفسُه في موضعٍ أصغر. الرقاقاتُ متساويةٌ كلُّها.
             final on = k == _idx;
-            final mine = widget.myRoleId == list[k].id;
             return Padding(
               padding: const EdgeInsetsDirectional.only(end: 6),
               child: InkWell(
@@ -428,20 +435,14 @@ class _RolesDeckSheetState extends State<RolesDeckSheet> {
                   decoration: BoxDecoration(
                     color: on ? const Color(0xFFEFE9DC) : Colors.transparent,
                     border: Border.all(
-                        color: on
-                            ? const Color(0xFFEFE9DC)
-                            : (mine
-                                ? Noir.vintageGold.withValues(alpha: 0.4)
-                                : const Color(0xFF2B2621))),
+                        color: on ? const Color(0xFFEFE9DC) : const Color(0xFF2B2621)),
                     borderRadius: BorderRadius.circular(9),
                   ),
-                  child: Text('${mine ? '★ ' : ''}${list[k].nameAr}',
+                  child: Text(list[k].nameAr,
                       style: TextStyle(
                         fontSize: 10.5,
                         fontWeight: on ? FontWeight.w900 : FontWeight.w500,
-                        color: on
-                            ? const Color(0xFF0A0A0B)
-                            : (mine ? Noir.vintageGold : const Color(0xFF8D8271)),
+                        color: on ? const Color(0xFF0A0A0B) : const Color(0xFF8D8271),
                       )),
                 ),
               ),

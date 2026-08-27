@@ -71,13 +71,11 @@ function faceFull(face: GuideRole['face']): string | null {
 
 let _cache: GuideRole[] | null = null;
 
-export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
+export default function RolesDeck({ open, onClose, roleIds }: {
   open: boolean;
   onClose: () => void;
   /** أدوارُ هذه الطاولة — يُمرَّر بعد بدء اللعبة فقط. `null` ⇒ الكتالوج كاملاً. */
   roleIds?: string[] | null;
-  /** دورُك — يُعلَّم في الشريط ويُفتح عليه الدليل. لا يُعرض لغيرك. */
-  myRoleId?: string | null;
 }) {
   const [all, setAll] = useState<GuideRole[]>(_cache || []);
   const [loading, setLoading] = useState(!_cache);
@@ -117,19 +115,29 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
 
   const list = useMemo(() => pool.filter(r => r.team === team), [pool, team]);
 
-  // 🔴 يُفتح على دورك: من يفتح الدليل وسط جولةٍ يبحث عن نفسه غالباً.
-  //    ويصحّح الفريقَ معه، وإلّا فُتح على فريقٍ ليس فيه.
+  // ══════════════════════════════════════════════════
+  // 🔴 يُفتح على **شيخ المافيا دائماً** — لا على دور صاحب الجهاز.
+  //
+  // كان يُفتح على دورك بحجّة أنّ مَن يفتح الدليل وسط جولةٍ يبحث عن نفسه.
+  // وهي حجّةٌ خاطئة: نظرةٌ عابرة على الشاشة تكشف دورَ صاحبها فوراً، والدليلُ
+  // يُفتح في قاعةٍ لا في خلوة. ونقطةُ الفتح ثابتةٌ للجميع فلا تقول شيئاً عن أحد.
+  //
+  // 🔴 ولا يُشترط وجودُ الشيخ: بعد بدء اللعبة تُعرض أدوارُ الطاولة وحدها وقد لا
+  //    يكون فيها. فالبدائلُ بالترتيب: الشيخ ← أوّلُ مافيويّ ← أوّلُ ما في القائمة.
+  // ══════════════════════════════════════════════════
   const opened = useRef(false);
   useEffect(() => {
     if (!open) { opened.current = false; return; }
     if (opened.current || !pool.length) return;
     opened.current = true;
-    const mine = myRoleId ? pool.find(r => r.id === myRoleId) : null;
-    const t = mine?.team || teamsPresent[0] || 'MAFIA';
-    setTeam(t as any);
+    const anchor = pool.find(r => r.id === 'GODFATHER')
+      ?? pool.find(r => r.team === 'MAFIA')
+      ?? pool[0];
+    const t = anchor.team;
+    setTeam(t);
     const within = pool.filter(r => r.team === t);
-    setIdx(mine ? Math.max(0, within.findIndex(r => r.id === mine.id)) : 0);
-  }, [open, pool, myRoleId, teamsPresent]);
+    setIdx(Math.max(0, within.findIndex(r => r.id === anchor.id)));
+  }, [open, pool]);
 
   const go = useCallback((d: number) => {
     setIdx(i => {
@@ -159,6 +167,26 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
 
   useEffect(() => { if (!open) setZoom(null); }, [open]);
 
+  // ══════════════════════════════════════════════════
+  // 🔒 قفلُ السكرول خلف اللوحة — كلُّ سكرولٍ داخلها وحدها
+  //
+  // 🔴 `position: fixed` على الجسم يقفز بالصفحة إلى أعلاها ما لم نحفظ الموضع
+  //    ونُعِدْه عند الإغلاق: كان اللاعب يفتح الدليل ويغلقه فيجد نفسه في رأس
+  //    الصفحة. و`top` السالبة تُبقيه بصريّاً حيث كان.
+  // 🔴 و`modal-open` هو العرفُ القائم في المستودع — يُطفئ «اسحب لتحديث» أيضاً.
+  // ══════════════════════════════════════════════════
+  useEffect(() => {
+    if (!open) return;
+    const y = window.scrollY;
+    document.body.classList.add('modal-open');
+    document.body.style.top = `-${y}px`;
+    return () => {
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, y);
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const cur = list[Math.min(idx, Math.max(0, list.length - 1))];
@@ -180,7 +208,8 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
   return (
     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center" dir="rtl">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        onClick={onClose} className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+        onClick={onClose} className="absolute inset-0 bg-black/85 backdrop-blur-sm"
+        style={{ touchAction: 'none' }} />
 
       <motion.div initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         className="relative w-full sm:max-w-md h-[92dvh] sm:h-[86vh] flex flex-col rounded-t-3xl sm:rounded-3xl overflow-hidden border border-[#2b2621]"
@@ -260,7 +289,8 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
                   aria-label="تكبير صورة الكارت"
                   className="shrink-0 mx-auto rounded-xl overflow-hidden grid place-items-center"
                   style={{
-                    height: 'min(36dvh, 320px)', aspectRatio: '720 / 1073',
+                    // 🔴 أصغرُ ٢٠٪ من ٣٦dvh/٣٢٠ — الفارقُ يذهب كلُّه إلى النصّ تحته
+                    height: 'min(29dvh, 256px)', aspectRatio: '720 / 1073',
                     border: `1px solid ${c}44`, background: '#0e0d0c',
                     cursor: src ? 'zoom-in' : 'default',
                   }}>
@@ -280,7 +310,8 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
                   <p className="text-center text-[13px] leading-relaxed text-[#cdc3af] font-light mt-2">{cur.oneLiner}</p>
                 )}
 
-                <div className="flex-1 overflow-y-auto mt-3 pt-3 border-t border-[#221f1a] space-y-3">
+                <div className="flex-1 overflow-y-auto mt-3 pt-3 border-t border-[#221f1a] space-y-3"
+                  style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
                   {cur.howItWorks && (
                     <Block title="كيف يعمل"><p className="text-[12.5px] leading-[1.85] text-[#b3a996] font-light">{cur.howItWorks}</p></Block>
                   )}
@@ -317,17 +348,19 @@ export default function RolesDeck({ open, onClose, roleIds, myRoleId }: {
             </div>
 
             {/* شريطُ القفز — ضغطةٌ واحدة إلى أيّ دور */}
-            <div ref={jumpRef} className="flex gap-1.5 overflow-x-auto mt-2 pb-1 shrink-0">
+            <div ref={jumpRef} className="flex gap-1.5 overflow-x-auto mt-2 pb-1 shrink-0"
+              style={{ overscrollBehavior: 'contain' }}>
+              {/* 🔴 ولا وسمَ لدورك هنا: النجمةُ كانت تُعلّمه في الشريط — وهو
+                  التسريبُ نفسُه في موضعٍ أصغر. الرقاقاتُ متساويةٌ كلُّها. */}
               {list.map((r, k) => {
                 const on = k === Math.min(idx, list.length - 1);
-                const mine = myRoleId === r.id;
                 return (
                   <button key={r.id} onClick={() => setIdx(k)} data-on={on ? '1' : '0'}
                     className="shrink-0 text-[10.5px] px-2.5 py-1 rounded-lg border whitespace-nowrap transition"
                     style={on
                       ? { background: '#efe9dc', color: '#0a0a0b', borderColor: '#efe9dc', fontWeight: 700 }
-                      : { borderColor: mine ? '#c5a05966' : '#2b2621', color: mine ? '#c5a059' : '#8d8271' }}>
-                    {mine ? '★ ' : ''}{r.nameAr}
+                      : { borderColor: '#2b2621', color: '#8d8271' }}>
+                    {r.nameAr}
                   </button>
                 );
               })}

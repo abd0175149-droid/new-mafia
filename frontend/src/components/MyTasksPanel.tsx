@@ -99,6 +99,19 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
 
   const role = useMemo(() => roles.find(r => r.id === roleId) || null, [roles, roleId]);
 
+  // 🔒 قفلُ السكرول خلف اللوحة — العرفُ نفسُه في الدليل (انظر RolesDeck)
+  useEffect(() => {
+    if (!open) return;
+    const y = window.scrollY;
+    document.body.classList.add('modal-open');
+    document.body.style.top = `-${y}px`;
+    return () => {
+      document.body.classList.remove('modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, y);
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const c = role ? TEAMS[role.team].c : '#c5a059';
@@ -109,7 +122,8 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
   return (
     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center" dir="rtl">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-        onClick={onClose} className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+        onClick={onClose} className="absolute inset-0 bg-black/85 backdrop-blur-sm"
+        style={{ touchAction: 'none' }} />
 
       <motion.div initial={{ y: 24, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
         className="relative w-full sm:max-w-md h-[92dvh] sm:h-[86vh] flex flex-col rounded-t-3xl sm:rounded-3xl overflow-hidden border border-[#2b2621]"
@@ -178,7 +192,8 @@ export default function MyTasksPanel({ open, onClose, roleId, gamePhase, isDead,
             </div>
 
             {/* المهامُّ كلُّها */}
-            <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4">
+            <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4"
+              style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
               <div className="text-[10px] tracking-[0.12em] font-bold text-[#645c50] mb-2">مهامُّك في كلّ مرحلة</div>
               {TASK_PHASES.map(p => {
                 const acts = !!role.actsIn?.includes(p.k);
