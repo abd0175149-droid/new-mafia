@@ -24,6 +24,26 @@ import { emitTrustedOnly } from './broadcast.util.js';
 /** مهلٌ حيّة لكلّ غرفة — واحدةٌ للّيلة كلِّها لا واحدةٌ لكلّ خطوة. */
 const timers = new Map<string, NodeJS.Timeout>();
 
+/**
+ * 👥 لقطةُ الإرسال — مَن أرسل ومَن لم يُرسل، بأسمائهم وبترتيب المقاعد.
+ *
+ * 🔴 لا تحمل **ما** اختاره أحد، ولا مَن يملك فعلاً حقيقيّاً ومَن لا يملك: الحقلُ
+ *    الوحيد هو `submitted`. ولو حملت التمييزَ بين الفاعل والخاملِ لكشفت الأدوار
+ *    لمن يقرأ الشاشة من فوق كتف الموجّه — والتمويهُ في هذا الملفّ بنيويٌّ فلا يُثقب هنا.
+ * 🔴 والأحياءُ وحدهم: المُقصى لا يختار، فوجودُه في القائمة انتظارٌ لا ينتهي.
+ */
+function rosterOf(state: GameState): Array<{ seat: number; name: string; submitted: boolean }> {
+  const on = state.oneNight;
+  return state.players
+    .filter(p => p.isAlive)
+    .sort((a, b) => a.physicalId - b.physicalId)
+    .map(p => ({
+      seat: p.physicalId,
+      name: p.name,
+      submitted: !!on?.submitted[String(p.physicalId)],
+    }));
+}
+
 export function clearOneNightTimer(roomId: string): void {
   const t = timers.get(roomId);
   if (t) { clearTimeout(t); timers.delete(roomId); }
@@ -204,6 +224,7 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
       }
       await emitTrustedOnly(io, data.roomId, 'night:one-started', {
         deadline, total: state.players.filter(x => x.isAlive).length, acting: plan.length,
+        roster: rosterOf(state),
       });
 
       clearOneNightTimer(data.roomId);
@@ -264,7 +285,9 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
 
       const aliveSeats = state.players.filter(p => p.isAlive).map(p => p.physicalId);
       const done = aliveSeats.filter(s => on.submitted[String(s)]).length;
-      await emitTrustedOnly(io, roomId, 'night:one-progress', { done, total: aliveSeats.length });
+      await emitTrustedOnly(io, roomId, 'night:one-progress', {
+        done, total: aliveSeats.length, roster: rosterOf(state),
+      });
 
       if (done >= aliveSeats.length) {
         const s2 = await getGameState(roomId);
@@ -272,6 +295,24 @@ export function registerOneNightEvents(io: Server, socket: Socket) {
         await openReview(io, roomId);
       }
       cb?.({ success: true });
+    } catch (err: any) { cb?.({ success: false, error: err.message }); }
+  });
+
+  // ══ 👥 الموجّه يطلب قائمةَ الإرسال (استعادةٌ بعد تحديث الصفحة) ══
+  // بلا هذا تختفي القائمةُ عند أوّل تحديثٍ ولا تعود: `night:one-started` لا يُبَثّ
+  // ثانيةً (مسارُ الاستئناف يخرج مبكّراً عمداً كي لا تُبنى الليلةُ من جديد).
+  socket.on('night:one-progress-get', async (data: { roomId: string }, cb) => {
+    try {
+      if (!isLeader()) return cb?.({ success: false, error: 'Only leader' });
+      const state = await getGameState(data.roomId);
+      const on = state?.oneNight;
+      if (!on || !on.dispatched || on.review) return cb?.({ success: true, active: false });
+      const roster = rosterOf(state!);
+      cb?.({
+        success: true, active: true, deadline: on.deadline,
+        acting: on.plan.length, total: roster.length,
+        done: roster.filter(r => r.submitted).length, roster,
+      });
     } catch (err: any) { cb?.({ success: false, error: err.message }); }
   });
 

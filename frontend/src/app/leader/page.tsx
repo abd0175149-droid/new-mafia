@@ -116,6 +116,7 @@ export default function LeaderPage() {
   // ── 🌙 الليلةُ الواحدة ──────────────────────────────────
   const [oneNight, setOneNight] = useState<{ deadline: number | null; acting: number; total: number } | null>(null);
   const [oneNightProgress, setOneNightProgress] = useState<{ done: number; total: number } | null>(null);
+  const [oneNightRoster, setOneNightRoster] = useState<Array<{ seat: number; name: string; submitted: boolean }>>([]);
   const [oneNightReview, setOneNightReview] = useState<{ acting: any[]; idle: any[] } | null>(null);
   const [oneNightBusy, setOneNightBusy] = useState(false);
   const [customNightTimer, setCustomNightTimer] = useState<number | null>(null);
@@ -1185,10 +1186,12 @@ export default function LeaderPage() {
     const offOneStarted = on('night:one-started', (d: any) => {
       setOneNight({ deadline: d?.deadline ?? null, acting: d?.acting ?? 0, total: d?.total ?? 0 });
       setOneNightProgress({ done: 0, total: d?.total ?? 0 });
+      setOneNightRoster(Array.isArray(d?.roster) ? d.roster : []);
       setOneNightReview(null);
     });
     const offOneProgress = on('night:one-progress', (d: any) => {
       setOneNightProgress({ done: d?.done ?? 0, total: d?.total ?? 0 });
+      if (Array.isArray(d?.roster)) setOneNightRoster(d.roster);
     });
     const offOneReview = on('night:one-review', (d: any) => {
       setOneNightReview({ acting: d?.acting || [], idle: d?.idle || [] });
@@ -1525,6 +1528,21 @@ export default function LeaderPage() {
         playerNightActions: state.playerNightActions || (prev as any).playerNightActions,
       } as any : prev);
     });
+
+    // 👥 استعادةُ قائمة الإرسال بعد تحديث الصفحة أو انقطاعٍ وعودة.
+    // `night:one-started` لا يُبَثّ ثانيةً (الاستئنافُ يخرج مبكّراً عمداً كي لا
+    // تُبنى الليلةُ من جديد)، فبلا هذا النداء تعود الشاشةُ بلا قائمةٍ إلى الصباح.
+    (async () => {
+      try {
+        const rid = gameState?.roomId;
+        if (!rid) return;
+        const r: any = await emit('night:one-progress-get', { roomId: rid });
+        if (!r?.success || !r.active) return;
+        setOneNight({ deadline: r.deadline ?? null, acting: r.acting ?? 0, total: r.total ?? 0 });
+        setOneNightProgress({ done: r.done ?? 0, total: r.total ?? 0 });
+        setOneNightRoster(Array.isArray(r.roster) ? r.roster : []);
+      } catch { /* لا ليلةَ جارية — الصمتُ صحيح */ }
+    })();
 
     return () => {
       offConnect();
@@ -4020,6 +4038,51 @@ export default function LeaderPage() {
                             <p className="text-[10.5px] text-[#666]">أرسلوا اختيارَهم</p>
                           </div>
                         )}
+
+                        {/* 👥 مَن تأخّر ومَن أرسل — الانتظارُ أوّلاً لأنّه ما تنادي عليه.
+                            لا تكشف القائمةُ ما اختاره أحدٌ ولا مَن يملك فعلاً حقيقيّاً. */}
+                        {oneNightRoster.length > 0 && (() => {
+                          const pending = oneNightRoster.filter(r => !r.submitted);
+                          const done = oneNightRoster.filter(r => r.submitted);
+                          const Chip = ({ r, waiting }: { r: any; waiting: boolean }) => (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] leading-none ${
+                                waiting
+                                  ? 'bg-[#C5A059]/10 border-[#C5A059]/35 text-[#C5A059]'
+                                  : 'bg-[#1a1a1a] border-[#2a2a2a] text-[#6c6c6c]'
+                              }`}
+                            >
+                              <span className="font-mono tabular-nums opacity-70">{r.seat}</span>
+                              <span className="max-w-[7rem] truncate">{r.name}</span>
+                            </span>
+                          );
+                          return (
+                            <div className="text-right space-y-2.5 pt-1">
+                              <div>
+                                <p className="text-[10px] text-[#7a7a7a] mb-1.5">
+                                  ⏳ بانتظارهم <span className="font-mono">({pending.length})</span>
+                                </p>
+                                {pending.length === 0 ? (
+                                  <p className="text-[11px] text-[#4a7c59]">أرسل الجميع</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {pending.map(r => <Chip key={r.seat} r={r} waiting />)}
+                                  </div>
+                                )}
+                              </div>
+                              {done.length > 0 && (
+                                <div>
+                                  <p className="text-[10px] text-[#7a7a7a] mb-1.5">
+                                    ✅ أرسلوا <span className="font-mono">({done.length})</span>
+                                  </p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {done.map(r => <Chip key={r.seat} r={r} waiting={false} />)}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <button
                           onClick={async () => {
                             try {
