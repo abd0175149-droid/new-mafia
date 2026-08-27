@@ -208,8 +208,11 @@ export default function LeaderPage() {
     SILENCED: 'morning_silenced',
     SNIPE_MAFIA: 'morning_snipe_mafia',
     SHERIFF_REVENGE: 'morning_snipe_mafia',   // خروجُ مافيويٍّ — نغمةُ الإصابة نفسُها
-    PHOENIX_BURN: 'morning_assassination_success', // 🔥 خروجٌ ليليّ — نغمةُ الإخراج نفسُها
-    PHOENIX_ASH: 'morning_assassination_success',
+    // 🔥 العنقاء — نغماتٌ خاصّةٌ به. وإن لم يُرفع لها ملفّ فالمازجُ يعزف
+    //    الافتراضيَّ المركَّب، ولا يُستعار صوتُ اغتيالٍ ناجحٍ لحدثٍ لم يُقتل فيه أحد.
+    PHOENIX_REBIRTH: 'morning_phoenix_rebirth',
+    PHOENIX_BURN: 'morning_phoenix_burn',
+    PHOENIX_ASH: 'morning_phoenix_ash',
     SNIPE_CITIZEN: 'morning_snipe_citizen',
     ABILITY_DISABLED: 'morning_ability_disabled',
     ASSASSIN_KILL: 'morning_assassin_kill',
@@ -234,6 +237,23 @@ export default function LeaderPage() {
     return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock); };
   }, []);
 
+  // ── 🔊 الليدر «القائد» الحصري: يبثّ كل صوت يُشغّله محلياً إلى شاشات العرض ──
+  // 🔴 موضعُه **قبل** أثر الخلفيّة عمداً: React ينفّذ الآثار بترتيب تعريفها في
+  //    الدفعة الواحدة. وكان مُعرَّفاً بعده، فأوّلُ طورٍ تراه الغرفة (اللوبي) يُبَثّ
+  //    والمرآةُ ما زالت `null` — فلا يصل صوتُ اللوبي إلى القاعة أبداً، ولا يُعاد
+  //    لأنّ مفتاح الأثر (الطور) لم يتغيّر. وباقي الأطوار تعمل لأنّها تأتي لاحقاً،
+  //    فيبدو العطلُ خاصّاً باللوبي وهو ترتيبُ آثارٍ لا شيءَ في اللوبي نفسه.
+  const [mirrorReady, setMirrorReady] = useState(false);
+  useEffect(() => {
+    const roomId = gameState?.roomId;
+    if (!roomId) { setMirrorReady(false); return; }
+    setSoundMirror((p) => {
+      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args, vol: p.vol }); } catch {}
+    });
+    setMirrorReady(true);
+    return () => { setSoundMirror(null); setMirrorReady(false); };
+  }, [gameState?.roomId]);
+
   // ── 🔊 الصوت الخلفي (Ambient) يتبع مرحلة اللعبة محلياً على الليدر ──
   // يُدار محلياً (لا عبر المرآة) لأن الحلقة (loop) حالة مستمرّة تعتمد على مرحلة الليدر الموثوقة،
   // فلا تعلق أبداً حتى لو ضاعت أو تأخّرت إشارة إيقاف من العرض. المؤثّرات اللحظية تبقى عبر المرآة.
@@ -244,6 +264,9 @@ export default function LeaderPage() {
   };
   const leaderAmbientKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    // 🔴 `mirrorReady` في التبعيّات لا زينة: أوّلُ تشغيلٍ يقع قبل تسجيل المرآة
+    //    (ولو بترتيبٍ صحيح، فالغرفةُ قد تصل في دفعةٍ لاحقة) — فيُعاد البثُّ
+    //    فورَ جهوزيّتها. و`roomId` معه: غرفةٌ جديدةٌ بالطور نفسِه تحتاج بثّاً جديداً.
     const phase = gameState?.phase as string | undefined;
     const key = phase ? AMBIENT_BY_PHASE[phase] : undefined;
     // ⚠️ الكتم لم يعد شرطاً هنا: إيقاف الخلفية كان يُبثّ للقاعة فيُسكتها معه.
@@ -256,7 +279,22 @@ export default function LeaderPage() {
       playAmbientSound(key);            // يوقف السابق داخلياً ثم يبدأ الجديد
       leaderAmbientKeyRef.current = key;
     }
-  }, [gameState?.phase]);
+  }, [gameState?.phase, gameState?.roomId, mirrorReady]);
+
+  // ── 🔇 تبديلُ الغرفة يُسكت ما بقي من الغرفة السابقة ──
+  // 🔴 أغنيةُ الفوز تدوم دقائق، و`stopOneShotSounds` كانت تُنادى عند
+  //    `game:phase-changed → LOBBY` وعند `game:restarted` وحدهما — وكلاهما لا
+  //    يقع حين يترك الموجّه غرفةً وينشئ أخرى. فتتبعه الأغنيةُ إلى غرفةٍ لم
+  //    تُلعب فيها لعبةٌ قطّ، ويسمع الحاضرون «فوزَ المواطنين» بلا فائز.
+  const lastSoundRoomRef = useRef<string | null>(null);
+  useEffect(() => {
+    const rid = gameState?.roomId || null;
+    if (lastSoundRoomRef.current && lastSoundRoomRef.current !== rid) {
+      stopOneShotSounds();
+      leaderAmbientKeyRef.current = null;   // الخلفيّةُ تُعاد للغرفة الجديدة
+    }
+    lastSoundRoomRef.current = rid;
+  }, [gameState?.roomId]);
   // إيقاف الصوت الخلفي عند مغادرة صفحة الليدر
   useEffect(() => () => { stopAmbientSound(); }, []);
 
@@ -312,15 +350,6 @@ export default function LeaderPage() {
     return () => clearInterval(interval);
   }, [(gameState as any)?.justificationTimer, gameState?.phase]);
 
-  // ── 🔊 الليدر «القائد» الحصري: يبثّ كل صوت يُشغّله محلياً إلى شاشات العرض ──
-  useEffect(() => {
-    const roomId = gameState?.roomId;
-    if (!roomId) return;
-    setSoundMirror((p) => {
-      try { getSocket().emit('leader:sound-play', { roomId, fn: p.fn, args: p.args, vol: p.vol }); } catch {}
-    });
-    return () => setSoundMirror(null);
-  }, [gameState?.roomId]);
 
   // ── 🕵️ طابور تنبيهات «فتح قائمة التعرف على المافيا» (عرض تسلسلي بترقيم حيّ) ──
   const galleryAlertQueueRef = useRef<any[]>([]);
@@ -986,6 +1015,9 @@ export default function LeaderPage() {
       setGameState(prev => prev ? ({ ...prev, pendingAshCurse: null }) as any : prev);
     });
     const offAshResult = on('day:ash-curse-result', (data: any) => {
+      // 🜂 حدثُ نهارٍ لا يمرّ بملخّص الصباح، فلا تبلغه خريطةُ أصوات الصباح.
+      //    وهو خروجٌ حقيقيّ يستحقّ نغمتَه كأيّ إقصاء.
+      localSound(() => playGameSound('morning_phoenix_ash'));
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -1190,10 +1222,14 @@ export default function LeaderPage() {
 
     const offGameOver = on('game:over', (data: any) => {
       // 🔊 صوت الفوز حسب الفريق الفائز (محلياً إن لم تكن شاشة عرض تبثّ)
+      // 🔴 لا افتراضَ عند المجهول: كان `win_citizen` هو الحدّ الأدنى لأيّ قيمة —
+      //    فحدثٌ بلا فائزٍ (تعطّلٌ أو حمولةٌ ناقصة) يُعلن فوزَ المواطنين موسيقيّاً
+      //    قبل أن يُعلَن شيء. الصمتُ أصدقُ من إعلانٍ كاذب.
       const w = String(data.winner || '').toUpperCase();
       const winKey = w.includes('JESTER') ? 'win_jester' : w.includes('ASSASSIN') ? 'win_assassin'
-        : w.includes('MAFIA') ? 'win_mafia' : 'win_citizen';
-      localSound(() => playGameSound(winKey));
+        : w.includes('MAFIA') ? 'win_mafia' : w.includes('CITIZEN') ? 'win_citizen' : null;
+      if (winKey) localSound(() => playGameSound(winKey));
+      else console.warn('🔇 game:over بلا فائزٍ معروف — لا نغمةَ فوز:', data.winner);
       // 🔊 نغمة نصر مشتراة (تشبس) — تُعزف بعد صوت الفوز بقليل كي لا تتراكب معه.
       // الخادم يختار نغمة واحدة فقط، والمرآة تنقلها لشاشة العرض تلقائياً.
       if (stingTimerRef.current) clearTimeout(stingTimerRef.current);

@@ -13,6 +13,8 @@ let isLoaded = false;
 // ── الأصوات الحالية التي تعمل (للتحكم بالإيقاف) ──
 let ambientAudio: HTMLAudioElement | null = null;
 let ambientKey: string | null = null;
+/** مستوى الفراش كما أرسله الموجّه — تُعيده `retryAmbient` بدل حسابه محلّيّاً. */
+let ambientVol: number | null = null;
 
 // ── الأصوات المقطعية الجارية (one-shot) — تُتعقَّب ليمكن إيقافها (مثل أغنية الفوز عند العودة للوبي) ──
 const oneShotAudios: Set<HTMLAudioElement> = new Set();
@@ -378,7 +380,10 @@ function _playAmbientSound(eventKey: string): void {
       // 🔴 المستوى في try خاصّته و**قبله** التسجيل، والتشغيل بعده: كان إسناد
       //    volume يسبق play داخل try واحد، فرميةٌ منه (قيمةٌ شاذّة أو NaN)
       //    تبتلع النداء كلّه فيصمت الفراش بلا أثرٍ في الطرفيّة.
-      try { audio.volume = clampVol(resolveVol(eventKey) * AMBIENT_BASE); } catch { /* يبقى الافتراضيّ */ }
+      try {
+        ambientVol = resolveVol(eventKey);
+        audio.volume = clampVol(ambientVol * AMBIENT_BASE);
+      } catch { /* يبقى الافتراضيّ */ }
       audio.play().catch(() => {});
       return;
     } catch {}
@@ -386,6 +391,29 @@ function _playAmbientSound(eventKey: string): void {
 
   // لا يوجد صوت خلفي افتراضي — يعمل فقط بملف مخصص
   ambientKey = eventKey;
+}
+
+/**
+ * يُعيد تشغيل فراش الخلفيّة الحاليّ إن كان صامتاً — بعد فكّ قفل التشغيل التلقائيّ.
+ *
+ * 🔴 شاشةُ العرض تابعةٌ لا تُقرّر صوتاً، فكلُّ نداءٍ محلّيّ فيها بلا مفعول
+ *    (`setLocalPlayback(false)`) — وفيها «فراشٌ معلّق» يُعاد عند أوّل لمسة،
+ *    وهو نداءٌ محلّيّ فلا يعمل. والنتيجة: فراشٌ يصل من الموجّه قبل أن تُلمس
+ *    الشاشة يرفضه المتصفّح ولا يُعاد أبداً. هذه تتجاوز البوّابة كما تفعل
+ *    `applyRemoteSound`، وتُنادى داخل معالج اللمسة.
+ *
+ * 🔴 وتفحص `paused` لا وجودَ الكائن: `play()` المرفوضة تترك الكائن قائماً
+ *    ومتوقّفاً، فاختبارُ الوجود وحده كان سيراه «يعمل».
+ */
+export function retryAmbient(): boolean {
+  if (!ambientKey || localMuted) return false;
+  if (ambientAudio && !ambientAudio.paused) return false;
+  // 🔴 يُعاد بمستوى الموجّه لا بحساب الشاشة: هي جهازٌ آخر بلا إعداداته،
+  //    ولو حسبت بنفسها لعادت القاعةُ بمستوىً غير الذي ضُبط لها.
+  const prev = volOverride;
+  volOverride = ambientVol;
+  try { _playAmbientSound(ambientKey); } finally { volOverride = prev; }
+  return true;
 }
 
 // ══════════════════════════════════════════════════════
@@ -402,6 +430,7 @@ function _stopAmbientSound(): void {
     ambientAudio.currentTime = 0;
     ambientAudio = null;
     ambientKey = null;
+    ambientVol = null;
   }
 }
 
@@ -573,6 +602,62 @@ function playDefaultSound(eventKey: string, vol: number = 1): void {
         gain.gain.setValueAtTime(0.4, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
         osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+        break;
+      }
+
+      // ══ 🔥 العنقاء — ثلاثةُ أصوات، لكلٍّ شكلُه ══
+      // 🔴 افتراضيّاتٌ مركّبة كي لا يصمت الحدثُ قبل رفع الملفّات، ولا يُستعار
+      //    صوتُ اغتيالٍ ناجحٍ لحدثٍ لم يُقتل فيه أحد.
+
+      // نهوضٌ: صعودٌ من القرار — تردّدٌ يرتفع مع رنينٍ متأخّر
+      case 'morning_phoenix_rebirth': {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(dest(ctx));
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(120, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.55);
+        gain.gain.setValueAtTime(0.05, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.38, ctx.currentTime + 0.35);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
+        osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 1.0);
+        break;
+      }
+
+      // احتراق: ضوضاءٌ بيضاءُ مرشَّحةٌ تهبط — لهبٌ يخبو
+      case 'morning_phoenix_burn': {
+        const dur = 0.9;
+        const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(1800, ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(180, ctx.currentTime + dur);
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.45, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + dur);
+        src.connect(filter); filter.connect(gain); gain.connect(dest(ctx));
+        src.start(ctx.currentTime); src.stop(ctx.currentTime + dur);
+        break;
+      }
+
+      // لعنةُ الرماد: نغمتان تهبطان معاً — اثنان يخرجان لا واحد
+      case 'morning_phoenix_ash': {
+        for (const [f, delay] of [[660, 0], [440, 0.18]] as [number, number][]) {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain); gain.connect(dest(ctx));
+          osc.type = 'sawtooth';
+          const t0 = ctx.currentTime + delay;
+          osc.frequency.setValueAtTime(f, t0);
+          osc.frequency.exponentialRampToValueAtTime(f * 0.25, t0 + 0.6);
+          gain.gain.setValueAtTime(0.32, t0);
+          gain.gain.exponentialRampToValueAtTime(0.01, t0 + 0.7);
+          osc.start(t0); osc.stop(t0 + 0.7);
+        }
         break;
       }
 
@@ -1082,6 +1167,22 @@ export function playImpactBoom(): void {
   if (!localPlaybackEnabled) return;
   mirrorEmit?.({ fn: 'playImpactBoom', args: [] });
   if (!localMuted) _playImpactBoom();
+}
+
+/**
+ * أصواتُ مراسم الكشف على شاشة العرض — الطبولُ وضربةُ الختام.
+ *
+ * 🔴 استثناءٌ مقصودٌ من قاعدة «الموجّه هو المصدر»، وشرطُه أنّ **الموجّه لا
+ *    يعزفها أصلاً**: المراسمُ حركةٌ موقّتةٌ في الشاشة (خمسُ ثوانٍ لكلّ كرت)
+ *    ولا يملك الموجّه إيقاعَها. فلمّا صار تابعاً في التشغيل المحلّيّ صمتت
+ *    الطبولُ والضربةُ معاً — بلا خطأٍ يظهر، لأنّ النداء يعود بهدوء.
+ *    ولا تزدوج: لا نداءَ لهما في صفحة الموجّه إطلاقاً.
+ *
+ * ⚠️ ولا يُوسَّع هذا الباب: أيُّ صوتٍ يعزفه الطرفان يُسمَع مرّتين في القاعة.
+ */
+export function playCeremonySound(kind: 'drumroll' | 'impact'): void {
+  if (localMuted) return;
+  if (kind === 'drumroll') _playDrumroll(); else _playImpactBoom();
 }
 function _playImpactBoom(): void {
   if (customSoundMap['impact_boom']) {

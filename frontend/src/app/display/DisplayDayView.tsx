@@ -6,7 +6,7 @@ import { getSocket } from '@/lib/socket';
 import MafiaCard from '@/components/MafiaCard';
 import CircularTimer from '@/components/CircularTimer';
 import Image from 'next/image';
-import { playGameSound, playEliminationSound } from '@/lib/soundManager';
+import { playGameSound, playEliminationSound, playCeremonySound } from '@/lib/soundManager';
 import EliminationFx from '@/components/EliminationFx';
 
 // ── مؤثرات صوتية — يستخدم soundManager المركزي ──
@@ -17,99 +17,19 @@ const playAudioBeep = (type: 'tick' | 'buzzer') => {
 const playVoteSound = () => playGameSound('vote_cast');
 const playShiftSound = () => playGameSound('vote_shift');
 
-// ── مؤثرات صوتية للكشف عن الهوية ──
-const playDrumroll = () => {
-  try {
-    const AC = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AC) return;
-    const ctx = new AC();
-    // طبول متسارعة
-    for (let i = 0; i < 12; i++) {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(80 + i * 8, ctx.currentTime + i * 0.1);
-      g.gain.setValueAtTime(0.15 + i * 0.02, ctx.currentTime + i * 0.1);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.1 + 0.08);
-      osc.connect(g); g.connect(ctx.destination);
-      osc.start(ctx.currentTime + i * 0.1);
-      osc.stop(ctx.currentTime + i * 0.1 + 0.08);
-    }
-  } catch(e) {}
-};
-
-const playRevealMafia = () => {
-  try {
-    const AC = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AC) return;
-    const ctx = new AC();
-    // صوت مهيب — نغمة هابطة مع تشويه
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(200, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 1.2);
-    g.gain.setValueAtTime(0.4, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
-    osc.connect(g); g.connect(ctx.destination);
-    osc.start(); osc.stop(ctx.currentTime + 1.2);
-    // ضربة ثانية
-    const osc2 = ctx.createOscillator();
-    const g2 = ctx.createGain();
-    osc2.type = 'square';
-    osc2.frequency.setValueAtTime(60, ctx.currentTime);
-    osc2.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.8);
-    g2.gain.setValueAtTime(0.2, ctx.currentTime);
-    g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
-    osc2.connect(g2); g2.connect(ctx.destination);
-    osc2.start(); osc2.stop(ctx.currentTime + 0.8);
-  } catch(e) {}
-};
-
-const playRevealCitizen = () => {
-  try {
-    const AC = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AC) return;
-    const ctx = new AC();
-    // صوت حزين — نغمة هابطة ناعمة
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 1.0);
-    g.gain.setValueAtTime(0.3, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.0);
-    osc.connect(g); g.connect(ctx.destination);
-    osc.start(); osc.stop(ctx.currentTime + 1.0);
-    // نغمة ثانية متأخرة
-    const osc2 = ctx.createOscillator();
-    const g2 = ctx.createGain();
-    osc2.type = 'sine';
-    osc2.frequency.setValueAtTime(330, ctx.currentTime + 0.3);
-    osc2.frequency.exponentialRampToValueAtTime(165, ctx.currentTime + 1.2);
-    g2.gain.setValueAtTime(0.2, ctx.currentTime + 0.3);
-    g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
-    osc2.connect(g2); g2.connect(ctx.destination);
-    osc2.start(ctx.currentTime + 0.3); osc2.stop(ctx.currentTime + 1.2);
-  } catch(e) {}
-};
-
-const playImpactBoom = () => {
-  try {
-    const AC = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AC) return;
-    const ctx = new AC();
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(80, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(20, ctx.currentTime + 0.5);
-    g.gain.setValueAtTime(0.6, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-    osc.connect(g); g.connect(ctx.destination);
-    osc.start(); osc.stop(ctx.currentTime + 0.5);
-  } catch(e) {}
-};
+// ── 🥁 مؤثرات مراسم الكشف — تمرّ بمدير الصوت لا بسياقٍ خاصّ ──
+//
+// 🔴 كانتا تُنشئان `new AudioContext()` **لكلّ نداء**: على Safari/iPad يبقى
+//    السياقُ الجديد `suspended` فلا يصدر صوت (وشاشةُ القاعة لوحٌ غالباً)،
+//    ويُستنزف حدُّ عدد السياقات في الجلسة الواحدة. ومدير الصوت له سياقٌ
+//    واحدٌ مشترَكٌ يُستأنَف عند أوّل لمسة.
+// 🔴 وكانتا تتجاهلان الملفّات المرفوعة (`drumroll` و`impact_boom`) والمازج معاً.
+//
+// وهما استثناءٌ مشروعٌ من قاعدة «الموجّه هو المصدر»: المراسمُ حركةٌ موقّتةٌ
+// في هذه الشاشة (خمسُ ثوانٍ لكلّ كرت) ولا يملك الموجّه إيقاعَها، ولا نداءَ
+// لهما عنده إطلاقاً فلا يزدوج الصوت.
+const playDrumroll = () => playCeremonySound('drumroll');
+const playImpactBoom = () => playCeremonySound('impact');
 
 interface DisplayDayViewProps {
   roomId: string;

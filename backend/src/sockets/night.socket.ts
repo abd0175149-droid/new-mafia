@@ -413,9 +413,12 @@ async function dispatchAutoStepToPlayers(io: Server, roomId: string, durationSec
                 latestState.nightActions.sheriffTarget = tId;
                 latestState.nightActions.randomSelections['SHERIFF'] = true;
                 const investigated = latestState.players.find((p: any) => p.physicalId === tId);
+                // 🔴 `isMafiaRole` لا قائمةٌ مكتوبةٌ باليد: كانت تعدّ أربعةَ أدوار
+                //    وتُسقط **الساحرة والأخَ الأكبر** — وكلاهما مافيا. فتحقيقٌ
+                //    عشوائيٌّ عليهما كان يُبلّغ الشريفَ «مواطن».
                 let sheriffResult = 'CITIZEN';
                 if (investigated?.role === Role.CHAMELEON) sheriffResult = 'CITIZEN';
-                else if (investigated?.role && [Role.GODFATHER, Role.SILENCER, Role.CHAMELEON, Role.MAFIA_REGULAR].includes(investigated.role)) sheriffResult = 'MAFIA';
+                else if (investigated?.role && isMafiaRole(investigated.role)) sheriffResult = 'MAFIA';
                 latestState.nightActions.sheriffResult = sheriffResult;
                 const performerSock = findPlayerSocket(io, roomId, performerId);
                 if (performerSock) {

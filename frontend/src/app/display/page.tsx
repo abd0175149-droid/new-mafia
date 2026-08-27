@@ -13,7 +13,7 @@ import NightAnimCinematic from '@/components/NightAnimCinematic';
 import EliminationFx from '@/components/EliminationFx';
 import { EntranceOverlay, ENTRANCE_FULL_MS, ENTRANCE_COMPACT_MS, type EntrancePayload } from '@/components/EntranceOverlay';
 import { BirthdayCelebration, type Celebrant } from '@/components/BirthdayCelebration';
-import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio } from '@/lib/soundManager';
+import { loadSoundMap, reloadSoundMap, playGameSound, playAmbientSound, stopAmbientSound, playEliminationSound, playNightStepAmbient, applyRemoteSound, setLocalPlayback, primeAudio, retryAmbient } from '@/lib/soundManager';
 
 // مؤثرات صوتية — يستخدم soundManager المركزي
 // (الأصوات الافتراضية محفوظة في soundManager.ts كـ fallback)
@@ -253,7 +253,10 @@ function DisplayPageContent() {
   useEffect(() => {
     const unlockAudio = () => {
       primeAudio();   // فكّ حظر السياق الصوتي المشترَك (Web Audio) داخل التفاعل
-      // تشغيل الصوت المعلق
+      // 🔴 الفراشُ الذي وصل من الموجّه قبل اللمسة رفضه المتصفّح ولم يُعَد.
+      //    `retryAmbient` تتجاوز بوّابة التشغيل المحلّيّ المُطفأة على هذه الشاشة
+      //    كما تفعل `applyRemoteSound` — والنداءُ المحلّيّ أدناه بلا مفعولٍ أصلاً.
+      retryAmbient();
       if (pendingAmbientRef.current) {
         playAmbientSound(pendingAmbientRef.current);
         pendingAmbientRef.current = null;

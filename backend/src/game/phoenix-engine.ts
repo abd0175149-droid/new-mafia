@@ -35,6 +35,16 @@ export interface PhoenixState {
 /** القدراتُ التي يقع بها إخراجٌ ليليٌّ مستهدَف — وهي وحدها ما يُشعل البعث. */
 export const BURNING_ABILITIES = new Set(['KILL', 'SNIPE', 'ASSASSINATE']);
 
+/**
+ * أحداثُ إخراجٍ تقع على العنقاء ويُلغيها نهوضُه — تُحذف ويحلّ محلَّها PHOENIX_REBIRTH.
+ *
+ * 🔴 ولا يدخلها `ASSASSINATION_BLOCKED`: الحمايةُ تُبطل الضربةَ قبل أن تبلغه فلا
+ *    نهوضَ أصلاً، وحدثُها صادقٌ يجب أن يبقى.
+ */
+export const PHOENIX_SUPERSEDED = new Set([
+  'ASSASSINATION', 'ASSASSIN_KILL', 'SNIPE_MAFIA', 'SNIPE_CITIZEN',
+]);
+
 /** الافتراضيّ حين لا يضبطه الموجّه. */
 export const DEFAULT_REBIRTHS = 1;
 
@@ -133,6 +143,16 @@ export function applyPhoenix(state: GameState, attempts: PhoenixAttempt[]): Phoe
   if (survived) {
     phoenix.isAlive = true;                 // يُردّ الإخراجُ بكامل حالته
     st.rebirthsLeft -= 1;                   // رصيدٌ واحدٌ للّيلة مهما تعدّد المُنفّذون
+    // 🔴 حدثُ النهوض ليس زينةً: مَن يستدعي هذه الدالّة عليه أن **يحذف** أحداثَ
+    //    الإخراج التي وقعت على العنقاء ويضع هذا مكانَها. وإلّا بقي في ملخّص
+    //    الصباح «اغتيالٌ ناجح» على مقعدٍ يقف حيّاً أمام الطاولة.
+    events.push({
+      type: 'PHOENIX_REBIRTH',
+      targetPhysicalId: phoenix.physicalId,
+      targetName: phoenix.name,
+      revealed: false,
+      extra: { burnedCount: burned.length, rebirthsLeft: st.rebirthsLeft },
+    });
   }
   st.burned.push(...burned);
 

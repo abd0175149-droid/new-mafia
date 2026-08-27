@@ -24,7 +24,7 @@ import { checkWinCondition, WinResult } from './win-checker.js';
 import { checkNeutralVoteWin, type NeutralResult } from './dynamic-win-checker.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
 import { applySheriffRevenge } from './sheriff-revenge.js';
-import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, type PhoenixAttempt } from './phoenix-engine.js';
+import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, PHOENIX_SUPERSEDED, type PhoenixAttempt } from './phoenix-engine.js';
 import { bridgeLegacyNight } from './legacy-night-bridge.js';
 
 export interface NightResolution {
@@ -315,6 +315,19 @@ export async function resolveNight(roomId: string): Promise<NightResolution> {
   //    يُحتسب في عتبة الشرطيّة وأن يُشعل رابطَ الأخوين إن كان أحدَهما.
   if (phoenixAttempts.length > 0) {
     const out = applyPhoenix(state, phoenixAttempts);
+    // 🔴 مَن نجا لا يُعلَن مقتولاً — انظر التعليق نفسَه في المحلّل الديناميكيّ.
+    if (out.survived) {
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        if (e.targetPhysicalId === phoenixSeatNow && PHOENIX_SUPERSEDED.has(e.type)) {
+          events.splice(i, 1);
+        }
+      }
+      // وسجلُّ الإقصاء كذلك: قيدٌ باسم مَن لم يخرج يُفسد النقاط والإحصاء
+      pt.eliminationLog = pt.eliminationLog.filter(
+        (r: any) => !(r.physicalId === phoenixSeatNow && r.round === (state.round || 1)),
+      );
+    }
     events.push(...out.events);
     for (const seat of out.burned) {
       const burnedPlayer = state.players.find(p => p.physicalId === seat);

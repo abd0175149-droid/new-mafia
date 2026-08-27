@@ -15,7 +15,7 @@ import {
 import { isNeutralRole, Role } from './roles.js';
 import { processTwinBond, applySuicide, applyTransform, detectTwinDeaths } from './twin-engine.js';
 import { applySheriffRevenge } from './sheriff-revenge.js';
-import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, type PhoenixAttempt } from './phoenix-engine.js';
+import { applyPhoenix, isPhoenixDisabled, BURNING_ABILITIES, PHOENIX_SUPERSEDED, type PhoenixAttempt } from './phoenix-engine.js';
 import { checkPolicewomanTrigger } from './night-resolver.js';
 
 // ── أنواع ────────────────────────────────────────────
@@ -409,7 +409,12 @@ export async function resolveNightDynamic(
           type: 'SHERIFF_RESULT',
           targetPhysicalId: target.physicalId,
           targetName: target.name,
-          extra: { team: revealedTeam, performerPhysicalId: action.performerPhysicalId },
+          // 🔴 المفتاحان معاً — و`result` هو الذي تقرؤه الواجهات كلُّها (الموجّه
+          //    والمضيف وفلاتر). كان هذا المحرّك يكتب `team` وحده والمحرّك القديم
+          //    يكتب `result` وحده، فكلُّ تحقيقٍ يمرّ من هنا كان يُعرَض **«مواطن»**
+          //    مهما كان الهدف: القارئ يجد `undefined` ويقع على فرع المواطن.
+          //    عطلٌ صامتٌ تماماً — لا خطأ ولا سجلّ، ونتيجةٌ معكوسةٌ في يد الشريف.
+          extra: { result: revealedTeam, team: revealedTeam, performerPhysicalId: action.performerPhysicalId },
           revealed: false,
         });
         break;
@@ -462,6 +467,17 @@ export async function resolveNightDynamic(
   //    والمحترقُ يجب أن يُحسب في عتبة الشرطيّة ورابط الأخوين.
   if (phoenixAttempts.length > 0) {
     const out = applyPhoenix(state, phoenixAttempts);
+    // 🔴 مَن نجا لا يُعلَن مقتولاً: أحداثُ الإخراج التي وقعت عليه تُحذف ويحلّ
+    //    محلَّها حدثُ النهوض. تركُها كان يجعل ملخّصَ الصباح يعلن «اغتيالاً
+    //    ناجحاً» على مقعدٍ يقف حيّاً أمام الطاولة — والموجّه يكشفه بيده.
+    if (out.survived) {
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        if (e.targetPhysicalId === phoenixSeatNow && PHOENIX_SUPERSEDED.has(e.type)) {
+          events.splice(i, 1);
+        }
+      }
+    }
     events.push(...out.events);
   }
 

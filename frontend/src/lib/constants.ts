@@ -138,7 +138,7 @@ export interface DealCandidate {
 export type Candidate = PlayerCandidate | DealCandidate;
 
 export interface MorningEvent {
-  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_BURN' | 'PHOENIX_ASH';
+  type: 'ASSASSINATION' | 'ASSASSINATION_BLOCKED' | 'SNIPE_MAFIA' | 'SNIPE_CITIZEN' | 'SILENCED' | 'SHERIFF_RESULT' | 'SHERIFF_REVENGE' | 'ABILITY_DISABLED' | 'TWIN_SUICIDE' | 'TWIN_TRANSFORM' | 'PHOENIX_REBIRTH' | 'PHOENIX_BURN' | 'PHOENIX_ASH';
   targetPhysicalId: number;
   targetName: string;
   extra?: Record<string, unknown>;

@@ -115,6 +115,10 @@ async function main() {
     check('حدث PHOENIX_BURN موجود', !!evType(ev, 'PHOENIX_BURN'));
     check('الحدث على الشيخ لا على العنقاء', evType(ev, 'PHOENIX_BURN')?.targetPhysicalId === GF);
     check('الرصيد نقص إلى صفر', s.phoenixState.rebirthsLeft === 0);
+    // 🔴 مَن نجا لا يُعلَن مقتولاً: الموجّه يكشف الأحداثَ بيده، وحدثُ اغتيالٍ
+    //    كاذبٌ على مقعدٍ يقف حيّاً يُفسد الملخّصَ والثقةَ به معاً.
+    check('لا حدثَ اغتيالٍ كاذبٍ على العنقاء', !evType(ev, 'ASSASSINATION'));
+    check('وحدثُ النهوض حلّ محلَّه', evType(ev, 'PHOENIX_REBIRTH')?.targetPhysicalId === PHX);
   }
 
   section('2) قرارُ المالك الرابع — الاحتراقُ غيرُ مشروط');
@@ -127,6 +131,7 @@ async function main() {
     check('والشيخ احترق رغم ذلك', alive(s, GF) === false);
     check('حدثُ الاحتراق موجود', !!evType(ev, 'PHOENIX_BURN'));
     check('وحدثُ الاغتيال موجود أيضاً', !!evType(ev, 'ASSASSINATION'));
+    check('ولا حدثَ نهوضٍ بلا رصيد', !evType(ev, 'PHOENIX_REBIRTH'));
   }
 
   section('3) الساحرةُ تُعطّله — لا بعثَ ولا احتراق');
@@ -146,6 +151,8 @@ async function main() {
       { by: GF, ab: 'KILL', t: PHX }, { by: DOC, ab: 'PROTECT', t: PHX },
     ]) as any);
     check('الاغتيال أُبطل بالحماية', !!evType(ev, 'ASSASSINATION_BLOCKED'));
+    // 🔴 حدثُ الحماية صادقٌ ولا يُحذف: لا نهوضَ أصلاً فلا شيءَ يحلّ محلَّه
+    check('ولا حدثَ نهوض', !evType(ev, 'PHOENIX_REBIRTH'));
     check('العنقاء حيّ', alive(s, PHX) === true);
     check('الشيخ حيّ — لم يحترق', alive(s, GF) === true);
     check('ولا رصيدَ استُهلك', s.phoenixState.rebirthsLeft === 1);
@@ -158,7 +165,9 @@ async function main() {
     check('العنقاء حيّ', alive(s, PHX) === true);
     check('القنّاص احترق', alive(s, SNP) === false);
     check('لا حدثَ SNIPE_CITIZEN', !evType(ev, 'SNIPE_CITIZEN'));
+    check('ولا SNIPE_MAFIA', !evType(ev, 'SNIPE_MAFIA'));
     check('حدثُ الاحتراق وحده', evAll(ev, 'PHOENIX_BURN').length === 1);
+    check('وحدثُ نهوضٍ واحد', evAll(ev, 'PHOENIX_REBIRTH').length === 1);
   }
 
   section('6) السفّاح — يحترق ولا يُحتسب عقدُه');
@@ -194,6 +203,10 @@ async function main() {
     check('السفّاح احترق', alive(s, ASN) === false);
     check('ثلاثةُ أحداثِ احتراق', evAll(ev, 'PHOENIX_BURN').length === 3, String(evAll(ev, 'PHOENIX_BURN').length));
     check('ورصيدٌ واحدٌ استُهلك لا ثلاثة', s.phoenixState.rebirthsLeft === 0);
+    check('ولا حدثَ إخراجٍ كاذبٍ من الثلاثة',
+      !evType(ev, 'ASSASSINATION') && !evType(ev, 'ASSASSIN_KILL')
+      && !evType(ev, 'SNIPE_CITIZEN') && !evType(ev, 'SNIPE_MAFIA'));
+    check('وحدثُ نهوضٍ واحدٌ لا ثلاثة', evAll(ev, 'PHOENIX_REBIRTH').length === 1);
   }
 
   section('8) الأخُ الأكبر يحترق ⇒ الأصغر يتحوّل');
@@ -310,6 +323,10 @@ async function main() {
     check('العنقاء حيّ', alive(r.state, PHX) === true);
     check('الشيخ احترق', alive(r.state, GF) === false);
     check('حدثُ الاحتراق', !!evType(r.events, 'PHOENIX_BURN'));
+    check('لا حدثَ اغتيالٍ كاذب', !evType(r.events, 'ASSASSINATION'));
+    check('وحدثُ النهوض مكانَه', !!evType(r.events, 'PHOENIX_REBIRTH'));
+    check('ولا قيدَ إقصاءٍ باسمه',
+      !r.state.performanceTracking.eliminationLog.some((x: any) => x.physicalId === PHX));
     check('الرصيد نفد', r.state.phoenixState.rebirthsLeft === 0);
   }
 

@@ -146,11 +146,17 @@ async function main() {
     let s = mkState([P(7, Role.SHERIFF), P(1, Role.GODFATHER)]);
     let ev = await resolveNightDynamic(s, night([{ ab: 'INVESTIGATE', by: 7, t: 1 }]));
     check('تحقيق على شيخ المافيا → MAFIA', evType(ev, 'SHERIFF_RESULT')?.extra?.team === 'MAFIA');
+    // 🔴 المفتاح الذي **تقرؤه الواجهات** لا الذي يكتبه المحرّك: كان هذا المحرّك
+    //    يكتب `team` وحده والواجهاتُ تقرأ `result`، فكلُّ تحقيقٍ يُعرَض «مواطن».
+    //    فحصُ `team` وحده كان أخضرَ طوال الوقت والعطلُ قائم.
+    check('🔴 ومفتاحُ الواجهات `result` موجودٌ ومطابق',
+      evType(ev, 'SHERIFF_RESULT')?.extra?.result === 'MAFIA');
 
     // حرباية → تظهر CITIZEN (خداع)
     s = mkState([P(7, Role.SHERIFF), P(3, Role.CHAMELEON)]);
     ev = await resolveNightDynamic(s, night([{ ab: 'INVESTIGATE', by: 7, t: 3 }]));
     check('تحقيق على الحرباية → CITIZEN (خداع)', evType(ev, 'SHERIFF_RESULT')?.extra?.team === 'CITIZEN');
+    check('  ومفتاحُ الواجهات معه', evType(ev, 'SHERIFF_RESULT')?.extra?.result === 'CITIZEN');
 
     // حرباية معطّلة بالساحرة → تنكشف MAFIA
     s = mkState([P(7, Role.SHERIFF), P(3, Role.CHAMELEON), P(4, Role.WITCH)]);

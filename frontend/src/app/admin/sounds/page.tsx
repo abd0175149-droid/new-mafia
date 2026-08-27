@@ -57,6 +57,10 @@ const EVENT_GROUPS = [
       { key: 'morning_assassin_kill', label: '🔪 اغتيال السفّاح', desc: 'عند كشف أن السفّاح اغتال في الصباح' },
       { key: 'morning_policewoman', label: '👮 صلاحية الشرطية', desc: 'عند تنفيذ صلاحية الشرطية' },
       { key: 'morning_ability_disabled', label: '🧙 تعطيل قدرة', desc: 'عند كشف تعطيل الساحرة لقدرة لاعب' },
+      // 🔥 العنقاء — ثلاثةُ مواضعَ لا واحد: نهوضُه، واحتراقُ مَن مدّ يدَه، ولعنةُ رماده
+      { key: 'morning_phoenix_rebirth', label: '🔥 العنقاء نهض من رماده', desc: 'محاولةُ إخراجٍ ليليّة فشلت — العنقاء واقف' },
+      { key: 'morning_phoenix_burn', label: '🔥 احترق مَن حاول قتل العنقاء', desc: 'خروجُ المُنفّذ بنار العنقاء' },
+      { key: 'morning_phoenix_ash', label: '🜂 لعنة الرماد', desc: 'أعدمته المدينة فأخذ معه أحد مَن صوّتوا عليه' },
     ],
   },
   {
@@ -74,6 +78,7 @@ const EVENT_GROUPS = [
       { key: 'elimination_citizen', label: '👤 إقصاء مواطن (افتراضي)', desc: 'صوت افتراضي لإقصاء أي مواطن ليس له صوت خاص' },
       { key: 'elimination_assassin', label: '🔪 إقصاء السفّاح', desc: 'صوت خاص عند إقصاء السفّاح (اختياري)' },
       { key: 'elimination_jester', label: '🤡 إقصاء المهرج', desc: 'صوت خاص عند إقصاء المهرج (اختياري)' },
+      { key: 'elimination_phoenix', label: '🔥 إقصاء العنقاء', desc: 'يُعزف لحظة كشف كرت العنقاء عند إقصائه (اختياري — يستخدم صوت المواطن كبديل)' },
     ],
   },
   {
