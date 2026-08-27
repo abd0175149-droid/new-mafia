@@ -11,7 +11,7 @@ import { Role, ROLE_NAMES, ROLE_ICONS } from '@/lib/constants';
 // تأثيرات بصرية سينمائية لأحداث الليل
 // ══════════════════════════════════════════════════════
 
-type CardLook = { physicalId: number; cosmetics?: any; rankTier?: string | null };
+type CardLook = { physicalId: number; cosmetics?: any; rankTier?: string | null; avatarUrl?: string | null };
 
 /**
  * 🔎 مظهر لاعب بعينه — **بالمعرّف الفيزيائي لا بترتيب المصفوفة**.
@@ -20,9 +20,16 @@ type CardLook = { physicalId: number; cosmetics?: any; rankTier?: string | null 
  *    بطاقات المشهد يعطي القنّاص إطار ضحيّته — خطأ هويّة يراه كل الحضور.
  */
 function lookOf(players: CardLook[] | undefined, physicalId: number | undefined) {
-  if (!players || !physicalId) return { cosmetics: null, rankTier: undefined };
+  if (!players || !physicalId) return { cosmetics: null, rankTier: undefined, avatarUrl: null };
   const p = players.find(x => Number(x.physicalId) === Number(physicalId));
-  return { cosmetics: p?.cosmetics || null, rankTier: p?.rankTier || undefined };
+  // 🖼️ الصورةُ جزءٌ من هويّة الكرت لا زينةٌ فيه: كرتُ اللاعب على الطاولة يحمل
+  //    وجهَه، فكرتُ خروجه بلا وجهٍ يبدو كرتَ شخصٍ آخر في اللحظة التي يُنظر فيها
+  //    إليه أكثرَ من أيّ لحظةٍ أخرى. كانت مفقودةً في كلّ بطاقات هذا الملفّ.
+  return {
+    cosmetics: p?.cosmetics || null,
+    rankTier: p?.rankTier || undefined,
+    avatarUrl: p?.avatarUrl || null,
+  };
 }
 
 interface NightAnimProps {
@@ -454,6 +461,7 @@ function MorningAssassinationAnim({ data, players }: NightAnimProps) {
             isAlive={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+            avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
             cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
             rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
           />
@@ -561,6 +569,7 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
               isAlive={true}
               size="fluid"
               className="w-40 h-[14rem] md:w-48 md:h-[16rem]"
+              avatarUrl={lookOf(players, sniperPhysicalId).avatarUrl}
               cosmetics={lookOf(players, sniperPhysicalId).cosmetics}
               rankTier={lookOf(players, sniperPhysicalId).rankTier}
             />
@@ -577,6 +586,7 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
               isAlive={true}
               size="fluid"
               className="w-40 h-[14rem] md:w-48 md:h-[16rem]"
+              avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
               cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
               rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
             />
@@ -599,6 +609,7 @@ function MorningSnipeAnim({ data, players, success }: NightAnimProps & { success
             isAlive={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+            avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
             cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
             rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
           />
@@ -659,6 +670,7 @@ function MorningSilencedAnim({ data, players }: NightAnimProps) {
             isSilenced={true}
             size="fluid"
             className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+            avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
             cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
             rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
           />
@@ -888,6 +900,7 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
                 cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
                 rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
@@ -963,6 +976,7 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
                 isAlive={false}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
                 cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
                 rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
@@ -1017,6 +1031,7 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
                 cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
                 rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
@@ -1086,6 +1101,7 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
                 isAlive={false}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
                 cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
                 rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
@@ -1138,6 +1154,7 @@ export default function NightAnimCinematic({ data, players }: NightAnimProps) {
                 isAlive={true}
                 size="fluid"
                 className="w-48 h-[16rem] md:w-56 md:h-[19rem]"
+                avatarUrl={lookOf(players, data.targetPhysicalId!).avatarUrl}
                 cosmetics={lookOf(players, data.targetPhysicalId!).cosmetics}
                 rankTier={lookOf(players, data.targetPhysicalId!).rankTier}
               />
