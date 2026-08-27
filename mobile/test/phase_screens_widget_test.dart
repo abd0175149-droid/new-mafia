@@ -277,50 +277,49 @@ void main() {
 
   // ══════════════════════════════════════════════════════
   group('☀️ ملخّص الصباح', () {
-    testWidgets('بلا أحداثٍ يُعلَن الانتظار', (t) async {
+    // 🔒 العقدُ انقلب: كان جهازُ اللاعب يعرض ما جرى له ليلاً، وذلك تسريبٌ
+    //    بذاته — «تمّ حمايتك» تُخبره أنّ المافيا استهدفته، و«تمّ قنصك» تُخبر
+    //    مَن خرج أنّ في الطاولة قنّاصاً. الأحداثُ تُكشف على شاشة القاعة وحدها،
+    //    والجهازُ يعرض شاشةً واحدةً ثابتة مهما كانت أحداثُ الليلة.
+    testWidgets('الشاشةُ ثابتةٌ تُحيل إلى شاشة القاعة', (t) async {
       await t.pumpWidget(_wrap(MorningBody(controller: c)));
       expect(find.text('الصباح يطل'), findsOneWidget);
-      expect(find.text('بانتظار كشف الأحداث...'), findsOneWidget);
+      expect(find.text('تُكشف أحداثُ الليلة على شاشة القاعة — تابِعْ معها.'),
+          findsOneWidget);
     });
 
-    testWidgets('🔴 الاغتيال يُظهر بطاقة الموت ونصّ الحدث', (t) async {
+    testWidgets('🔒 لا حدثَ يخصّني يُعرَض — ولو كنتُ أنا الهدف', (t) async {
       c.primeForTest(morning: const [
         MorningEvent(type: 'ASSASSINATION', targetPhysicalId: 3),
-      ]);
-      await t.pumpWidget(_wrap(MorningBody(controller: c)));
-      expect(find.text('لقد اُغتلت!'), findsOneWidget);
-      expect(find.text('تم إخراجك من اللعبة'), findsOneWidget);
-      expect(find.text('تم اغتيالك!'), findsOneWidget);
-    });
-
-    testWidgets('🔒 حدثٌ استهدف غيري لا يظهر عندي', (t) async {
-      c.primeForTest(morning: const [
-        MorningEvent(type: 'ASSASSINATION', targetPhysicalId: 7),
-      ]);
-      await t.pumpWidget(_wrap(MorningBody(controller: c)));
-      expect(find.text('تم اغتيالك!'), findsNothing);
-      expect(find.text('لقد اُغتلت!'), findsNothing);
-      expect(find.text('بانتظار كشف الأحداث...'), findsOneWidget);
-    });
-
-    testWidgets('الحماية تُعرض بلا بطاقة موت', (t) async {
-      c.primeForTest(morning: const [
         MorningEvent(type: 'ASSASSINATION_BLOCKED', targetPhysicalId: 3),
+        MorningEvent(type: 'SNIPE_CITIZEN', targetPhysicalId: 3),
+        MorningEvent(type: 'PHOENIX_BURN', targetPhysicalId: 3),
       ]);
       await t.pumpWidget(_wrap(MorningBody(controller: c)));
-      expect(find.text('تم حمايتك من الاغتيال!'), findsOneWidget);
-      expect(find.text('لقد اُغتلت!'), findsNothing);
+      for (final leak in const [
+        'لقد اُغتلت!',
+        'تم اغتيالك!',
+        'تم حمايتك من الاغتيال!',
+        'تم قنصك!',
+        'تم إخراجك من اللعبة',
+      ]) {
+        expect(find.text(leak), findsNothing, reason: 'تسريب: $leak');
+      }
+      expect(find.text('الصباح يطل'), findsOneWidget);
     });
 
-    testWidgets('نتيجة التحقيق تُعرض بلونها', (t) async {
+    testWidgets('🔒 ولا نتيجةَ تحقيقٍ ولا حدثَ استهدف غيري', (t) async {
       c.primeForTest(morning: const [
         MorningEvent(
             type: 'SHERIFF_RESULT',
             targetPhysicalId: 3,
             extra: {'result': 'MAFIA'}),
+        MorningEvent(type: 'ASSASSINATION', targetPhysicalId: 7),
       ]);
       await t.pumpWidget(_wrap(MorningBody(controller: c)));
-      expect(find.text('نتيجة التحقيق: 🔴 مافيا'), findsOneWidget);
+      expect(find.textContaining('نتيجة التحقيق'), findsNothing);
+      expect(find.textContaining('مافيا'), findsNothing);
+      expect(find.text('الصباح يطل'), findsOneWidget);
     });
   });
 

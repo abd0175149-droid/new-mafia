@@ -223,6 +223,54 @@ async function main() {
     check('مركّبٌ لا معرّفَ قدرةٍ وحده', slotKey(4, 'KILL') === '4:KILL');
     check('ومفتاحُ الإجراء يطابقه', actionKey({ performerPhysicalId: 4, abilityId: 'KILL' }) === '4:KILL');
   }
+  // ══════════════════════════════════════════════════
+  // الاستعادةُ من الحالة — شبكةُ أمانِ العميلين
+  // 🔴 `night:one-ask` يُبثّ مرّةً واحدة. مَن لم يكن سوكِته حاضراً حينها كان
+  //    يبقى على الشاشة السلبيّة بينما تنتظره الطاولةُ كلُّها — وهو العطلُ نفسُه
+  //    الذي عولج في الطابور القديم، ولو عولج هناك وحدَه لعاد مع المسار الجديد.
+  // ══════════════════════════════════════════════════
+  section('11) الاستعادة — مَن ضاع منه البثّ');
+  {
+    const { oneNightResumeFor } = await import('../sockets/night-one.socket.js');
+    const players = [
+      P(1, Role.GODFATHER), P(2, Role.SILENCER), P(6, Role.SHERIFF),
+      P(7, Role.DOCTOR), P(12, Role.CITIZEN), P(13, Role.CITIZEN, false),
+    ];
+    const s = mkState(players);
+    const plan = await buildNightPlan(s);
+    const deadline = 1900000000000;
+    s.oneNight = { plan, choices: {}, idle: {}, submitted: {}, deadline, review: false, dispatched: true };
+
+    const gf = await oneNightResumeFor(s, 1);
+    check('صاحبُ الدور يستعيد فعلَه', gf?.steps?.[0]?.abilityId === 'KILL');
+    check('والموعدُ يُعاد لا مدّةٌ تبدأ من جديد', gf?.deadline === deadline);
+    check('ولم يُرسل بعد', gf?.submitted === false);
+
+    const idle = await oneNightResumeFor(s, 12);
+    check('مَن لا فعلَ له يستعيد سؤالاً محايداً',
+      idle?.steps?.length === 1 && idle?.steps[0].abilityId === null);
+    check('وقائمتُه غيرُ فارغة', (idle?.steps?.[0]?.targets?.length ?? 0) > 0);
+    check('ولا يظهر نفسَه في قائمته',
+      !idle?.steps?.[0]?.targets?.some((x: any) => x.physicalId === 12));
+
+    // 🔒 الشكلُ واحدٌ عند الاثنين: مفاتيحُ الحمولة وعددُ الخطوات — وإلّا مُيّز
+    check('🔒 شكلُ الحمولة واحدٌ للاثنين',
+      JSON.stringify(Object.keys(gf || {}).sort()) === JSON.stringify(Object.keys(idle || {}).sort()));
+
+    check('المُقصى لا يُستعاد له شيء', (await oneNightResumeFor(s, 13)) === null);
+
+    s.oneNight.submitted['1'] = true;
+    check('مَن أرسل يُعلَم بذلك', (await oneNightResumeFor(s, 1))?.submitted === true);
+
+    s.oneNight.review = true;
+    const inReview = await oneNightResumeFor(s, 2);
+    check('المراجعةُ المفتوحة تُغلق البابَ لا تفتح قائمةً ميتة',
+      inReview?.steps.length === 0 && inReview?.submitted === true);
+
+    const s2 = mkState(players);
+    check('بلا ليلةٍ جارية لا استعادة', (await oneNightResumeFor(s2, 1)) === null);
+  }
+
 
   console.log('\n══════════════════════════════════════');
   console.log(`النتيجة: ${pass} نجح / ${fail} فشل  (المجموع ${pass + fail})`);

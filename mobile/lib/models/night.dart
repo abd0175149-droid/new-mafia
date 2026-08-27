@@ -182,3 +182,93 @@ NightActionRequest? nightFromResume(
         : DateTime.fromMillisecondsSinceEpoch(dl),
   );
 }
+
+// ══════════════════════════════════════════════════════
+// 🌙 الليلةُ الواحدة — اختيارٌ واحدٌ في الليلة كلِّها
+//
+// تحلّ محلّ طابور الخطوات: كان الليلُ ستَّ دوراتٍ يختار فيها كلُّ لاعبٍ ستَّ
+// مرّات، خمسٌ منها بلا معنى. الخادمُ يرسل لكلّ مقعدٍ **فعلَه هو وقائمتَه هو**،
+// ومَن لا فعلَ له يتلقّى سؤالاً محايداً بقائمةٍ معقولة.
+//
+// 🔒 والثابتُ الأمنيّ نفسُه يسري هنا وأشدّ: التمويهُ **بنيويٌّ لا مضاف** —
+//    لا علمَ للعميل بمن يملك فعلاً أصلاً، فلا `isDecoy` يُفحص ولا شيءَ
+//    يُخفى في الواجهة. مَن لا فعلَ له يرى `abilityId == null` ولا يعرف
+//    أنّ ذلك يعني شيئاً.
+// ══════════════════════════════════════════════════════
+
+class OneNightStep {
+  const OneNightStep({
+    this.abilityId,
+    this.ask = '',
+    this.targets = const [],
+    this.canSkip = false,
+  });
+
+  /// `null` لمن لا فعلَ له — ولا يُعرَض هذا الفرقُ في أيّ موضع.
+  final String? abilityId;
+  final String ask;
+  final List<NightTarget> targets;
+
+  /// القنصُ وحده يُتاح تخطّيه صراحةً: رميةُ نردٍ به قد تُخرج لاعبَين.
+  final bool canSkip;
+
+  /// مفتاحُ الاختيار في الخريطة — الخطوةُ بلا قدرةٍ تأخذ `_`.
+  String get key => abilityId ?? '_';
+
+  static OneNightStep? fromJson(Object? v) {
+    if (v is! Map) return null;
+    return OneNightStep(
+      abilityId: v['abilityId'] as String?,
+      ask: '${v['ask'] ?? ''}',
+      targets: NightTarget.listOf(v['targets']),
+      canSkip: v['canSkip'] == true,
+    );
+  }
+
+  static List<OneNightStep> listOf(Object? v) => v is! List
+      ? const []
+      : v.map(OneNightStep.fromJson).whereType<OneNightStep>().toList();
+}
+
+class OneNightAsk {
+  const OneNightAsk({this.steps = const [], this.deadline, this.submitted = false});
+
+  /// خطوةٌ واحدةٌ للأكثريّة، واثنتان لحاملِ قدرتين (القصُّ أو الساحرةُ إن
+  /// ورث الاغتيال). والترتيبُ **مقفلٌ من الخادم**: الاغتيالُ أوّلاً دائماً
+  /// ثمّ قدرتُه هو — فلا يتعلّم اللاعبُ من موضع السؤال شيئاً.
+  final List<OneNightStep> steps;
+
+  /// موعدُ انتهاء المهلة (من الخادم) — لا مدّةٌ تبدأ من جديد عند كلّ استعادة.
+  final DateTime? deadline;
+
+  /// وصل اختيارُه — تُعرَض شاشةُ الانتظار.
+  final bool submitted;
+
+  bool get hasChoice => steps.isNotEmpty;
+  bool get two => steps.length > 1;
+
+  /// المتبقّي بالثواني — بأرضيّة ٣: شاشةٌ تُفتح على ثانيةٍ تُغلق قبل أن تُقرأ.
+  int remainingSeconds({DateTime? now}) {
+    final d = deadline;
+    if (d == null) return 0;
+    final left = d.difference(now ?? DateTime.now()).inSeconds;
+    return left < 3 ? 3 : left;
+  }
+
+  /// بصمةُ الليلة — تغيّرُها يعني ليلةً جديدةً فتُمسح الاختياراتُ القديمة.
+  String get signature =>
+      '${deadline?.millisecondsSinceEpoch ?? 0}|${steps.map((s) => s.key).join('/')}';
+
+  static OneNightAsk? fromJson(Object? v) {
+    if (v is! Map) return null;
+    if (v['steps'] is! List) return null;
+    final dl = (v['deadline'] as num?)?.toInt();
+    return OneNightAsk(
+      steps: OneNightStep.listOf(v['steps']),
+      deadline: dl == null || dl <= 0
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(dl),
+      submitted: v['submitted'] == true,
+    );
+  }
+}

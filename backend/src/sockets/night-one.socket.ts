@@ -53,7 +53,7 @@ function findPlayerSocket(io: Server, roomId: string, physicalId: number): any {
 }
 
 /** حمولةُ شاشة الليل لمقعدٍ بعينه — فعلُه هو وقائمتُه هو. */
-async function payloadFor(
+export async function payloadFor(
   state: GameState, plan: NightSlot[], seat: number, dyn: DynamicNightState, deadline: number | null,
 ) {
   const mine = slotsOfSeat(plan, seat);
@@ -107,6 +107,34 @@ function reviewRows(state: GameState) {
     editable: false,
   })).sort((a, b) => a.seat - b.seat);
   return { acting, idle };
+}
+
+/**
+ * حمولةُ الاستعادة لمقعدٍ بعينه — أو null إن لم يكن ثمّة ما يُستعاد.
+ *
+ * 🔴 `night:one-ask` يُبثّ **مرّةً واحدة** لسوكتات الغرفة لحظة البدء. مَن لم يكن
+ *    سوكِته حاضراً حينها — إعادةُ اتّصال، شاشةٌ مطفأة، تطبيقٌ في الخلفيّة — لا
+ *    يعلم بالّليلة إطلاقاً ويبقى على الشاشة السلبيّة بينما تنتظره الطاولة.
+ *    هذا هو الدرسُ نفسُه الذي عولج في طابور الخطوات، ومعالجتُه هناك وحدَها
+ *    كانت ستترك العطلَ قائماً في المسار الذي حلّ محلَّه.
+ *
+ * 🔴 والميّتُ لا يُستعاد له شيء، ومَن أرسل لا تُفتح له الشاشةُ ثانية.
+ */
+export async function oneNightResumeFor(
+  state: GameState, seat: number,
+): Promise<{ steps: any[]; deadline: number | null; submitted: boolean } | null> {
+  const on = state.oneNight;
+  if (!on?.dispatched) return null;
+  const me = state.players.find(p => p.physicalId === seat);
+  if (!me?.isAlive) return null;
+
+  const submitted = !!on.submitted[String(seat)];
+  // المراجعةُ مفتوحةٌ ⇒ بابُ الاختيار أُغلق: قائمةٌ ميتةٌ يرفض الخادمُ كلَّ اختيارٍ منها
+  if (on.review) return { steps: [], deadline: null, submitted: true };
+
+  const dyn: DynamicNightState = state.dynamicNightState || { actions: {}, lastTargets: {} };
+  const p = await payloadFor(state, on.plan as NightSlot[], seat, dyn, on.deadline ?? null);
+  return { ...p, submitted };
 }
 
 async function openReview(io: Server, roomId: string) {

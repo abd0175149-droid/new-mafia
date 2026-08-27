@@ -1,10 +1,14 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mafia_club/features/game/roles_info_modal.dart';
 import 'package:mafia_club/models/card_template.dart';
 
 // ══════════════════════════════════════════════════════
-// 🧪 موسوعة الأدوار — §4.7 في الملفّ ٢٢
+// 🧪 تعريفُ الدور — حقولُ الموسوعة وسطرُ شرط الفوز
+//
+// 🔴 كان هذا الملفّ يفحص `RolesInfoModal` أيضاً، وقد حلّ محلَّه دليلُ الكروت
+//    (`roles_deck_sheet.dart`) الذي يقرأ من `RolesGuideService` — أي من
+//    الشبكة. فحصُه يحتاج تزييفَ الخدمة، وإبقاءُ فحوصِ المودال المحذوف كان
+//    يُبقي المجموعةَ حمراء بلا أن يحرس شيئاً. ما بقي هنا يفحص النموذج،
+//    وهو ما لم يتغيّر.
 // ══════════════════════════════════════════════════════
 
 const _roles = <RoleDef>[
@@ -38,13 +42,6 @@ const _roles = <RoleDef>[
       winConditionType: 'LYNCHED',
       winConditionDescription: 'يفوز إن صوّتت عليه القرية'),
 ];
-
-Widget _wrap(Future<List<RoleDef>> f) => MaterialApp(
-      home: Directionality(
-        textDirection: TextDirection.rtl,
-        child: RolesInfoModal(rolesFuture: f),
-      ),
-    );
 
 void main() {
   group('سطر شرط الفوز', () {
@@ -80,63 +77,5 @@ void main() {
     expect(r.genPriority, 9);
     expect(r.isNeutral, isTrue);
     expect(r.winLine, 'يفوز إن صوّتت عليه القرية');
-  });
-
-  group('المودال', () {
-    testWidgets('الأقسام بالترتيب الثابت: مافيا ← مواطنون ← مستقلّون',
-        (t) async {
-      await t.pumpWidget(_wrap(Future.value(_roles)));
-      await t.pumpAndSettle();
-
-      final mafia = t.getTopLeft(find.text('فريق المافيا')).dy;
-      final citizen = t.getTopLeft(find.text('فريق المواطنين')).dy;
-      final neutral = t.getTopLeft(find.text('الأدوار المستقلة')).dy;
-      expect(mafia, lessThan(citizen));
-      expect(citizen, lessThan(neutral));
-    });
-
-    testWidgets('عدّاد كلّ قسمٍ يعكس أدواره', (t) async {
-      await t.pumpWidget(_wrap(Future.value(_roles)));
-      await t.pumpAndSettle();
-      expect(find.text('(1)'), findsNWidgets(2)); // مافيا ومستقلّون
-      expect(find.text('(2)'), findsOneWidget); // مواطنون
-    });
-
-    testWidgets('قسمٌ فارغ يُتخطّى — لا رأسٌ بلا بطاقات', (t) async {
-      await t.pumpWidget(_wrap(Future.value(
-          _roles.where((r) => r.team == 'MAFIA').toList())));
-      await t.pumpAndSettle();
-      expect(find.text('فريق المافيا'), findsOneWidget);
-      expect(find.text('فريق المواطنين'), findsNothing);
-      expect(find.text('الأدوار المستقلة'), findsNothing);
-    });
-
-    testWidgets('دورٌ بلا وصفٍ يُصرَّح به لا يُترك فارغاً', (t) async {
-      await t.pumpWidget(_wrap(Future.value(_roles)));
-      await t.pumpAndSettle();
-      expect(find.text('لا يوجد وصف'), findsOneWidget); // الشريف
-      expect(find.text('يحمي لاعباً كل ليلة.'), findsOneWidget);
-    });
-
-    testWidgets('شرط الفوز يظهر بكأسه للمستقلّ وحده', (t) async {
-      await t.pumpWidget(_wrap(Future.value(_roles)));
-      await t.pumpAndSettle();
-      expect(find.text('🏆 يفوز إن صوّتت عليه القرية'), findsOneWidget);
-    });
-
-    testWidgets('فشل الجلب يُعلَن — لا مودالٌ فارغ', (t) async {
-      // ⚠️ `Future.error` جاهزةً يرتدّ خطؤها قبل أن يشترك FutureBuilder
-      //    فيُعدّ غير مُلتقَط. التأجيل بإطارٍ واحدٍ يكفي.
-      await t.pumpWidget(_wrap(Future<List<RoleDef>>.delayed(
-          Duration.zero, () => throw Exception('offline'))));
-      await t.pumpAndSettle();
-      expect(find.text('تعذّر تحميل الأدوار'), findsOneWidget);
-    });
-
-    testWidgets('قائمةٌ فارغة تُعامَل كفشل', (t) async {
-      await t.pumpWidget(_wrap(Future.value(const <RoleDef>[])));
-      await t.pumpAndSettle();
-      expect(find.text('تعذّر تحميل الأدوار'), findsOneWidget);
-    });
   });
 }

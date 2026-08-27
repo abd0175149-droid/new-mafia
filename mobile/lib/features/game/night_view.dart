@@ -9,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../models/night.dart';
 import '../profile/profile_palette.dart';
 import 'game_session_controller.dart';
+import 'one_night_view.dart';
 
 // ══════════════════════════════════════════════════════
 // 🌙 مرحلة الليل — §4.1 · §4.2 · §4.3 في الملفّ ٢٣
@@ -21,7 +22,7 @@ import 'game_session_controller.dart';
 const _gold = Color(0xFFC5A059);
 
 /// أبعادٌ حسّاسة للتوقيت تتضاعف مع الشاشة — للاثنين معاً.
-({double dial, double avatar, double maxW}) _metrics(WindowSizeClass c) =>
+({double dial, double avatar, double maxW}) oneNightMetrics(WindowSizeClass c) =>
     switch (c) {
       WindowSizeClass.compact => (dial: 64, avatar: 44, maxW: double.infinity),
       WindowSizeClass.medium => (dial: 98, avatar: 56, maxW: 640),
@@ -41,7 +42,7 @@ class PassiveNightBody extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 40),
         child: Column(children: [
-          const _Breathing(child: Text('🌙', style: TextStyle(fontSize: 60))),
+          const NightBreathing(child: Text('🌙', style: TextStyle(fontSize: 60))),
           const SizedBox(height: 12),
           const Text('الليل يسدل ستاره',
               style: TextStyle(
@@ -102,7 +103,7 @@ class NightActionOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final m = _metrics(context.sizeClass);
+    final m = oneNightMetrics(context.sizeClass);
     final instruction = nightInstruction(request);
 
     return Directionality(
@@ -127,7 +128,7 @@ class NightActionOverlay extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 32, 16, 12),
                       child: Column(children: [
-                        const _Breathing(
+                        const NightBreathing(
                             child: Text('🌙', style: TextStyle(fontSize: 34))),
                         const SizedBox(height: 8),
                         Text('مرحلة الليل',
@@ -154,7 +155,7 @@ class NightActionOverlay extends StatelessWidget {
                     // ── العدّاد ──
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: _Dial(
+                      child: NightDial(
                         seconds: countdown,
                         total: request.timeoutSeconds,
                         size: m.dial,
@@ -166,7 +167,7 @@ class NightActionOverlay extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                         itemCount: request.availableTargets.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) => _TargetRow(
+                        itemBuilder: (_, i) => NightTargetRow(
                           target: request.availableTargets[i],
                           avatarSize: m.avatar,
                           onTap: () => onPick(request.availableTargets[i]),
@@ -199,7 +200,7 @@ class NightActionOverlay extends StatelessWidget {
                 ),
               ),
             ),
-            if (submitted) const _SubmittedOverlay(),
+            if (submitted) const OneNightSubmitted(),
           ]),
         ),
       ),
@@ -207,12 +208,22 @@ class NightActionOverlay extends StatelessWidget {
   }
 }
 
-class _TargetRow extends StatelessWidget {
-  const _TargetRow(
-      {required this.target, required this.avatarSize, required this.onTap});
+class NightTargetRow extends StatelessWidget {
+  const NightTargetRow({
+    super.key,
+    required this.target,
+    required this.avatarSize,
+    required this.onTap,
+    this.selected = false,
+  });
   final NightTarget target;
   final double avatarSize;
   final VoidCallback onTap;
+
+  /// للّيلة الواحدة وحدها: هناك يختار اللاعبُ ثمّ يؤكّد فيحتاج أن يرى ما
+  /// اختار. وفي الطابور القديم اللمسةُ **هي** الإرسال فلا اختيارَ معلّق —
+  /// والافتراضُ `false` يُبقي تلك الشاشة كما هي حرفاً بحرف.
+  final bool selected;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -226,11 +237,14 @@ class _TargetRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF2A2A2A)),
-              gradient: const LinearGradient(
+              border: Border.all(
+                  color: selected ? _gold : const Color(0xFF2A2A2A)),
+              gradient: LinearGradient(
                 begin: AlignmentDirectional.centerStart,
                 end: AlignmentDirectional.centerEnd,
-                colors: [Color(0x08FFFFFF), Color(0x00FFFFFF)],
+                colors: selected
+                    ? [_gold.withValues(alpha: 0.14), _gold.withValues(alpha: 0.02)]
+                    : const [Color(0x08FFFFFF), Color(0x00FFFFFF)],
               ),
             ),
             child: Row(children: [
@@ -242,6 +256,10 @@ class _TargetRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: ar(14, weight: FontWeight.bold)),
               ),
+              if (selected)
+                const Text('✓',
+                    style: TextStyle(
+                        color: _gold, fontSize: 16, fontWeight: FontWeight.w900)),
             ]),
           ),
         ),
@@ -293,9 +311,9 @@ class _TargetRow extends StatelessWidget {
 }
 
 /// العدّاد الدائريّ — ألوانه تنذر: ذهبيّ ← كهرمانيّ ≤10 ← أحمر ≤5.
-class _Dial extends StatelessWidget {
-  const _Dial(
-      {required this.seconds, required this.total, required this.size});
+class NightDial extends StatelessWidget {
+  const NightDial(
+      {super.key, required this.seconds, required this.total, required this.size});
   final int seconds, total;
   final double size;
 
@@ -323,7 +341,7 @@ class _Dial extends StatelessWidget {
           duration: const Duration(milliseconds: 500),
           builder: (_, v, __) => CustomPaint(
             size: Size.square(size),
-            painter: _DialPainter(fraction: v, color: _color),
+            painter: NightDialPainter(fraction: v, color: _color),
           ),
         ),
         // النبض للخمس الأخيرة وحدها — تنبيهٌ لا زينة
@@ -333,8 +351,8 @@ class _Dial extends StatelessWidget {
   }
 }
 
-class _DialPainter extends CustomPainter {
-  const _DialPainter({required this.fraction, required this.color});
+class NightDialPainter extends CustomPainter {
+  const NightDialPainter({required this.fraction, required this.color});
   final double fraction;
   final Color color;
 
@@ -367,12 +385,12 @@ class _DialPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DialPainter o) =>
+  bool shouldRepaint(NightDialPainter o) =>
       o.fraction != fraction || o.color != color;
 }
 
-class _SubmittedOverlay extends StatelessWidget {
-  const _SubmittedOverlay();
+class OneNightSubmitted extends StatelessWidget {
+  const OneNightSubmitted({super.key});
 
   @override
   Widget build(BuildContext context) => Positioned.fill(
@@ -496,14 +514,14 @@ class NurseActivationModal extends StatelessWidget {
 // ══════════════════════════════════════════════════════
 
 /// نبضٌ تنفّسيّ: `scale [1,1.1,1]` و`opacity [0.7,1,0.7]` كلّ ٣ ثوانٍ.
-class _Breathing extends StatefulWidget {
-  const _Breathing({required this.child});
+class NightBreathing extends StatefulWidget {
+  const NightBreathing({super.key, required this.child});
   final Widget child;
   @override
-  State<_Breathing> createState() => _BreathingState();
+  State<NightBreathing> createState() => _BreathingState();
 }
 
-class _BreathingState extends State<_Breathing>
+class _BreathingState extends State<NightBreathing>
     with SingleTickerProviderStateMixin {
   late final _c = AnimationController(
       vsync: this, duration: const Duration(seconds: 3))
@@ -583,6 +601,17 @@ class NightLayer extends StatelessWidget {
     // مودال الممرضة يعلو شاشة الفعل: قرارها يسبق دورها
     if (c.nursePending) {
       return NurseActivationModal(onRespond: c.respondNurse);
+    }
+    // 🌙 الليلةُ الواحدة تعلو الطابور القديم: طاولةٌ لا تسلك المسارين معاً،
+    //    ووجودُ حمولةٍ جديدةٍ يعني أنّ القديمةَ بقيّةٌ من ليلةٍ مضت.
+    final one = c.oneNight;
+    if (one != null) {
+      return OneNightOverlay(
+        ask: one,
+        countdown: c.oneNightCountdown,
+        submitted: c.oneNightSent,
+        onSubmit: (picks) => c.submitOneNight(picks),
+      );
     }
     final r = c.nightAction;
     if (r == null) return const SizedBox.shrink();

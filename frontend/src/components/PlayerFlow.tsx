@@ -1840,7 +1840,10 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     // فحصها كان سيغلق الشبكة أمام الحالة التي بُنيت لأجلها.
     // المرجع الموثوق للإرسال هو `playerSubmitted` من الخادم: لكل خطوة
     // على حدة.
-    if (nightActionRequired) return;
+    // 🌙 الليلةُ الواحدة: شاشةٌ مفتوحةٌ لم يُرسَل فيها ⇒ لا استطلاع (لئلّا
+    //    يُصفَّر عدّادُها ويُمسَح ما اختاره). أمّا بعد الإرسال فالاستطلاع
+    //    يواصل — لأنّه ما يكشف انتقالَ الطاولة إلى المراجعة.
+    if (oneNight && !oneNightSent) return;
 
     let cancelled = false;
     const check = async () => {
@@ -1859,6 +1862,17 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
           setSelectedTargetForConfirm(null);
           return;
         }
+        // ── 🌙 الليلةُ الواحدة ──────────────────────────────
+        // الحمولةُ نفسُها التي يبثّها `night:one-ask`، مبنيّةً من الحالة.
+        // فمَن ضاع منه البثُّ تُفتح شاشتُه في الدورة التالية بلا تحديثٍ يدويّ.
+        const onr = res.oneNightState;
+        if (onr) {
+          if (onr.submitted) { setOneNightSent(true); return; }
+          setOneNight({ steps: onr.steps || [], deadline: onr.deadline ?? null });
+          setOneNightSent(false);
+          return;
+        }
+
         const ns = res.nightState;
         if (!ns || ns.playerSubmitted) return;
         // الخطوة انتهت وتنتظر موافقة الليدر ⇒ قائمة ميتة يرفض الخادم كل
@@ -1904,7 +1918,7 @@ export default function PlayerFlow({ initialRoomCode = '', inviteFlag = false, i
     check();
     const id = setInterval(check, 3000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [gamePhase, emit, roomId, playerId, phone, physicalId, nightActionRequired]);
+  }, [gamePhase, emit, roomId, playerId, phone, physicalId, nightActionRequired, oneNight, oneNightSent]);
 
 
   // ── الخطوة 1: إدخال كود اللعبة ──

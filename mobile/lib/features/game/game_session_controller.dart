@@ -148,6 +148,26 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   bool _nursePending = false;
   bool get nursePending => _nursePending;
 
+  // ══════════════════════════════════════════════════════
+  // 🌙 الليلةُ الواحدة — تحلّ محلّ طابور الخطوات
+  //
+  // 🔴 المساران يتعايشان: طاولةٌ على الوضع القديم ما زالت تبثّ
+  //    `night:action-required`، وأخرى على الجديد تبثّ `night:one-ask`.
+  //    الحقلان منفصلان لأنّ ما يُغلق أحدَهما لا يُغلق الآخر، ودمجُهما كان
+  //    سيجعل شاشةَ ليلةٍ جاريةٍ تُمسح بحدثٍ من المسار الآخر.
+  // ══════════════════════════════════════════════════════
+  OneNightAsk? _oneNight;
+  OneNightAsk? get oneNight => _oneNight;
+
+  bool _oneNightSent = false;
+  bool get oneNightSent => _oneNightSent;
+
+  int _oneNightCountdown = 0;
+  int get oneNightCountdown => _oneNightCountdown;
+
+  Timer? _oneNightTicker;
+  String? _oneNightDoneSig;
+
   /// «جارٍ اختيار الهدف من قبل …» — يصل في النمط اليدوي وحده.
   String _nightStepRoleName = '';
   String get nightStepRoleName => _nightStepRoleName;
@@ -728,6 +748,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
     _safetyNet?.cancel();
     _nightTicker?.cancel();
     _nightClose?.cancel();
+    _oneNightTicker?.cancel();
     _justTicker?.cancel();
     _mayorTicker?.cancel();
     _mayorBannerTimer?.cancel();
@@ -1113,15 +1134,36 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
   void _syncNightFromState(Map<String, dynamic> res) {
     if (GamePhase.map(res['phase']) != GamePhase.night) {
       _nightDoneKey = null;
+      _oneNightDoneSig = null;
+      if (_oneNight != null) _closeOneNight();
       return;
     }
     // 🔴 المُقصى لا ليل له: لا تُفتح قائمة، وتُغلَق المفتوحة — قد يموت
     //    أثناء الليل نفسه (قدرة الشرطية تُقصي فوراً) وشاشته مفتوحة.
     if (_isPlayerDead) {
       if (_night != null) _closeNight();
+      if (_oneNight != null) _closeOneNight();
       return;
     }
     if (_night != null || _nightSubmitted) return;
+
+    // ── 🌙 الليلةُ الواحدة ──────────────────────────────
+    // الحمولةُ نفسُها التي يبثّها `night:one-ask`، مبنيّةً من حالة الخادم.
+    // فمَن ضاع منه البثُّ تُفتح شاشتُه في الدورة التالية بلا تدخّلٍ منه.
+    final on = OneNightAsk.fromJson(res['oneNightState']);
+    if (on != null) {
+      if (on.submitted) {
+        // بابُ الاختيار أُغلق (أرسل، أو فُتحت مراجعةُ الموجّه)
+        if (_oneNight != null && !_oneNightSent) {
+          _oneNightSent = true;
+          notifyListeners();
+        }
+        return;
+      }
+      if (_oneNight != null || on.signature == _oneNightDoneSig) return;
+      _openOneNight(on);
+      return;
+    }
 
     final r = nightFromResume(res['nightState'], _physicalId);
     if (r == null) return;
@@ -1187,6 +1229,7 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
         _cardFlipped = true;
         // شاشة ليلٍ مفتوحة لحظة الموت تُغلَق فوراً لا تُترك حتّى ينتهي عدّادها
         if (_night != null) _closeNight();
+        if (_oneNight != null) _closeOneNight();
         changed = true;
       } else if (alive == true && _isPlayerDead) {
         _isPlayerDead = false;
@@ -1827,6 +1870,16 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       _openNight(r, r.timeoutSeconds);
     });
 
+    // ── 🌙 الليلةُ الواحدة: حمولةٌ واحدةٌ لكلّ لاعب ──
+    _on('night:one-ask', (d) {
+      // الخادمُ يبثّ للأحياء وحدهم، لكنّ الحدث قد يكون في الطريق لحظة الموت
+      if (_isPlayerDead) return;
+      final a = OneNightAsk.fromJson(d);
+      if (a == null) return;
+      _morning = const [];
+      _openOneNight(a);
+    });
+
     _on('nurse:activation-request', (_) {
       // نصّ الرسالة القادمة لا يُعرَض — الواجهة ثابتة
       _nursePending = true;
@@ -2345,6 +2398,76 @@ class GameSessionController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
   }
+
+  void _openOneNight(OneNightAsk a) {
+    if (a.signature != _oneNightDoneSig) _oneNightDoneSig = null;
+    _oneNightTicker?.cancel();
+    _oneNight = a;
+    _oneNightSent = false;
+    _oneNightCountdown = a.deadline == null ? 0 : a.remainingSeconds();
+    notifyListeners();
+
+    if (a.deadline == null) return;
+    _oneNightTicker = Timer.periodic(const Duration(seconds: 1), (t) {
+      final left = a.remainingSeconds();
+      // 🔴 المتبقّي يُحسب من الموعد لا بالإنقاص: تطبيقٌ عاد من الخلفيّة
+      //    كان عدّادُه يتأخّر بقدر ما غاب فيُظهر وقتاً لا وجودَ له.
+      if (left <= 3 && a.deadline!.isBefore(DateTime.now())) {
+        t.cancel();
+        _oneNightCountdown = 0;
+        // 🔴 عند الصفر **لا يُرسل العميل شيئاً**: الخادمُ يملأ ما لم يُرسَل
+        //    بنفسه. إرسالٌ من هنا يزاحم اختياره ويُدخل سباقاً.
+        _oneNightDoneSig = a.signature;
+        _oneNightSent = true;
+        notifyListeners();
+        return;
+      }
+      _oneNightCountdown = left;
+      notifyListeners();
+    });
+  }
+
+  void _closeOneNight() {
+    _oneNightTicker?.cancel();
+    _oneNight = null;
+    _oneNightSent = false;
+    _oneNightCountdown = 0;
+    notifyListeners();
+  }
+
+  /// إرسالُ اختيارات الليلة كلِّها دفعةً واحدة.
+  ///
+  /// 🔴 العلامةُ **قبل** الانتظار: ضبطُها بعده يفتح نافذةً للمسٍ ثانٍ يرسل
+  ///    مرّتين. وفشلُ الشبكة يُعيدها ليضغط اللاعبُ ثانيةً — الليلةُ اختيارٌ
+  ///    واحدٌ لا يُعوَّض، وابتلاعُ الفشل صامتاً يُضيّع صوتَ صاحب الدور.
+  Future<bool> submitOneNight(
+      List<({String? abilityId, int? targetPhysicalId})> picks) async {
+    final a = _oneNight;
+    if (a == null || _oneNightSent) return false;
+    _oneNightSent = true;
+    _oneNightDoneSig = a.signature;
+    notifyListeners();
+
+    try {
+      await SocketService.instance.ask('night:one-submit', {
+        'roomId': _roomId,
+        'picks': [
+          for (final p in picks)
+            {'abilityId': p.abilityId, 'targetPhysicalId': p.targetPhysicalId},
+        ],
+      });
+      return true;
+    } catch (_) {
+      _oneNightSent = false;
+      _oneNightDoneSig = null;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// فتحُ شاشة الليلة الواحدة مباشرةً — للاختبار فقط.
+  @visibleForTesting
+  void openOneNightForTest(OneNightAsk a) => _openOneNight(a);
 
   void _closeNight() {
     _nightTicker?.cancel();

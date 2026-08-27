@@ -25,6 +25,7 @@ import { startGameTimer, clearGameTimer, getRemainingSeconds, restoreGameTimer }
 import { initTwinState, getSiblingInfoFor } from '../game/twin-engine.js';
 import { initMayorState } from '../game/mayor-engine.js';
 import { initPhoenixState } from '../game/phoenix-engine.js';
+import { oneNightResumeFor } from './night-one.socket.js';
 import { applyRR } from '../services/progression.service.js';
 import { getProgressionConfig } from '../routes/progression-settings.routes.js';
 import { sendPushToPlayer } from '../services/fcm.service.js';
@@ -3884,6 +3885,12 @@ export function registerLobbyEvents(io: Server, socket: Socket) {
             autoNightStepDeadline: (state as any).autoNightStepDeadline || null,
           };
         })() : null,
+        // ── 🌙 الليلةُ الواحدة (استعادةُ شاشة الاختيار عند فقد البثّ) ──
+        // الحارسُ في البانية: الميّت لا يُستعاد له شيء، والمراجعةُ المفتوحة
+        // تُعيد قائمةً فارغةً بعلامة «أُرسل» فلا تُفتح شاشةٌ ميتة.
+        oneNightState: state.phase === 'NIGHT'
+          ? await oneNightResumeFor(state as any, player.physicalId)
+          : null,
         // بيانات الإقصاء المعلّقة (لاستعادة شاشة الإقصاء عند reconnect)
         pendingResolution: state.phase === 'DAY_ELIMINATION' ? state.pendingResolution || null : null,
         // عقود السفّاح
